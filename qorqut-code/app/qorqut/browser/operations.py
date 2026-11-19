@@ -102,12 +102,13 @@ def register_agent_browser_management(runtime):
                     "another browser tool. First say in Chat exactly which "
                     "website you are opening, then call open: a Chrome window appears on the owner's screen at that site. Tell them "
                     "to check the address bar, sign in themselves and close the window when finished. The target browser is paused "
-                    "until the window closes. If open answers browser_no_screen, this computer has no screen for that window: open "
-                    "the site's own sign-in page in your own browser, ask the owner for the password or code you do not have, type "
-                    "it yourself, and never repeat it or write it anywhere else. For a worker's own browser, acquire it with "
-                    "browser_turn (browser_id from action list) and sign in there the same way. status lists connected sites; session_saved "
-                    "only means the site left cookies, and many sites do that before login, so open the site in your browser to "
-                    "confirm the owner is really signed in. sign_out removes one. Before sending or changing anything on "
-                    "a signed-in site, get the owner's approval in a Signoff. Nothing else enforces that.",
+                    "until the window closes. If the reply says live_view, this computer has no screen: the site's sign-in "
+                    "page is open in that agent's browser. Tell the owner to open that agent's Browser tab in the dashboard and sign "
+                    "in there, wait until they say it is done, then open the site in that browser (for a worker's, acquire it with "
+                    "browser_turn, browser_id from action list) and check. Only if the owner cannot use the live view, ask for the "
+                    "password or code you do not have, type it yourself, and never repeat it or write it anywhere else. status lists "
+                    "connected sites; session_saved only means the site left cookies, and many sites do that before login, so open "
+                    "the site in your browser to confirm the owner is really signed in. sign_out removes one. Before sending or "
+                    "changing anything on a signed-in site, get the owner's approval in a Signoff. Nothing else enforces that.",
         prepare=unavailable, apply=unavailable))
     return runtime

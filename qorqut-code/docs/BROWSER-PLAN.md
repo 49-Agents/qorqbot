@@ -181,6 +181,36 @@ the Focus launcher did not offer Browser for an agent with only the built-in bro
 Not verified: macOS; a real keyboard layout, input method and the owner's real clipboard (the non-ASCII key and paste
 events were made by script); touch input; file pickers; page-opened popups; how it feels to use.
 
+#### Sign-in through the live view (2026-11-19)
+
+Why: on a server `website_sign_in open` failed with `browser_no_screen` (29 times in 10 days on the owner's installation),
+and Ordubashy then asked the owner for the password and typed it into the page itself. With the live view the owner can sign
+in in the agent's real page, so no password has to pass through an agent.
+
+Built (branch `feature/browser-sign-in-live-view`, stacked on this one; item 7 of the browser efficiency plan):
+
+- Without a screen, `open` opens the site's sign-in address in a new tab of the browser the agent uses (the Shared browser for a
+  Shared agent) over DevTools, stops and pauses nothing, and answers `{"opened", "where": "live_view", "agent", "next"}`. With a
+  screen the window is as before. Details and reasons: [management](BROWSER-MANAGEMENT.md#website-sign-in).
+- `status` lists the site (recorded when its page opens) with `session_saved` meaning cookies only, as before. Qorqbot cannot see
+  that the owner has signed in, and the reply tells Ordubashy to wait for the owner to say so and then look at the page.
+- The tool description, the managed browser skill's "Website sign-in" paragraph (replaced, not added to: the file is 5
+  characters shorter), the connect-tools step of set-up and the owner's guide say: tell the owner to sign in at that agent's
+  Browser tab; password or code only if the owner cannot use the live view. `defaults-provenance.json` records the imports, not
+  later edits (the skill's hash there already differed before this change), so it is unchanged.
+
+Verified: unit tests (`tests/test_browser_sign_in_live_view.py`, `tests/test_browser_sign_in.py`): no screen gives the reply and
+a tab at the sign-in address on the right browser's port (own, Shared, a worker chosen by Ordubashy), no window, no stop, no
+`ensure`, nothing paused; a screen keeps the window; another caller, an unknown agent, a browser that is not ready and a tab that
+cannot be opened are refused with nothing recorded; `status` and `sign_out` after such an open; the four texts name `live_view`.
+The tab opener against a stand-in DevTools socket. Not run against a real Chrome.
+
+Not verified: `Target.createTarget` on a real Chrome (that the tab appears, comes to the front and outlives the connection that
+made it); which tab the panel shows when the owner opens it (it takes the first listed page); the whole path from Ordubashy's
+call to the owner signing in at the dashboard; whether a login that has only session cookies survives a restart of the browser;
+that an agent with no tab of its own yet does not adopt the sign-in tab (`agent-browser` chooses among open tabs). The new
+instructions reach an installation only with an instruction update.
+
 ### 3. Idle tabs and cookie banners
 
 - A tab idle past a limit is unloaded; its next use loads the page again.

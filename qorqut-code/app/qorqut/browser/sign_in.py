@@ -6,6 +6,10 @@ back with the session in place. Qorqbot records which sites were signed in to, n
 
 For an agent set to the Shared browser the profile is the Shared one: the sign-in pauses every agent that uses it, and the
 sites it records are theirs together.
+
+A computer without a screen cannot show the window. There ``open`` puts the site's sign-in page into a tab of the browser the
+agent already runs and leaves that browser alone, and the owner signs in through the dashboard's live view of it (``live.py``).
+Qorqbot cannot see when the owner is done, so it records the site when the page opens and never claims a sign-in.
 """
 import json
 import logging
@@ -140,16 +144,29 @@ def _cookies(port):
     return _cdp(port, [("Network.getAllCookies", {})])[0].get("cookies", [])
 
 
-def _window_cookies(port):
-    """Every cookie in the sign-in window, read at browser level so it still works once its last tab has closed."""
+def _browser_call(port, method, params=None):
+    """One DevTools call on the browser itself rather than on one of its pages, so it needs no page to be open."""
     from websockets.sync.client import connect
     endpoint = _get_json(port, "/json/version")["webSocketDebuggerUrl"]
     with connect(endpoint, proxy=None, max_size=None, open_timeout=5, close_timeout=2) as socket_:
-        socket_.send(json.dumps({"id": 1, "method": "Storage.getCookies"}))
+        socket_.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
         while True:
             reply = json.loads(socket_.recv(timeout=10))
             if reply.get("id") == 1:
-                return reply["result"]["cookies"]
+                break
+    if "error" in reply:
+        raise OSError(str(reply["error"]))
+    return reply.get("result", {})
+
+
+def _window_cookies(port):
+    """Every cookie in the sign-in window, read at browser level so it still works once its last tab has closed."""
+    return _browser_call(port, "Storage.getCookies")["cookies"]
+
+
+def _open_tab(port, url):
+    """Open ``url`` in a new tab of the browser on ``port`` and return the tab's id. Chrome puts a new tab in front."""
+    return _browser_call(port, "Target.createTarget", {"url": url})["targetId"]
 
 
 def lasting_copies(cookies, now):
@@ -178,12 +195,23 @@ def accounts(runtime):
     return {"agents": result}
 
 
-def _require_agent(runtime, agent_id):
+def _target(runtime, agent_id):
+    """``(owner, agent)`` for an agent that has a browser."""
     from . import setup
     owner, agents = setup.targets(runtime)
-    if agent_id not in {agent["agent_id"] for agent in agents}:
+    agent = next((item for item in agents if item["agent_id"] == agent_id), None)
+    if agent is None:
         raise DomainError("not_found", "That agent doesn't have a browser.")
-    return owner
+    return owner, agent
+
+
+def _require_agent(runtime, agent_id):
+    return _target(runtime, agent_id)[0]
+
+
+def has_screen():
+    """Whether a visible Chrome window can open here. Only a Linux computer can lack a screen."""
+    return sys.platform != "linux" or bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 def _free_port():
@@ -279,11 +307,11 @@ def _finish(runtime, owner, agent_id, site, process, port, paused=None, home=Non
 def start(runtime, agent_id, value):
     site, url = parse(value)
     owner = _require_agent(runtime, agent_id)
-    if sys.platform == "linux" and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        raise DomainError("browser_no_screen", "This computer has no screen for a sign-in window. Open the site's own sign-in page in your "
-                                               "own browser instead, ask the owner for the password or code and type it yourself. For a worker's "
-                                               "own browser, acquire it with browser_turn (browser_id from action list) and "
-                                               "sign in there the same way.")
+    if not has_screen():
+        # The tool does not get here: without a screen it opens the page in the live view's browser instead (open_in_live_view).
+        # Stopping the agent's browser for a window that cannot open would only leave it stopped.
+        raise DomainError("browser_no_screen", "This computer has no screen for a sign-in window. The owner signs in through the agent's "
+                                               "Browser tab in the dashboard instead.")
     paused, home = _paused(runtime, agent_id), _state(runtime, agent_id)
     with _lock:
         busy = next((agent for agent in paused if agent in _active), None)
@@ -307,6 +335,39 @@ def start(runtime, agent_id, value):
     return accounts(runtime)
 
 
+def open_in_live_view(runtime, agent_id, site, url):
+    """Where no window can open: put the sign-in page into a new tab of the agent's browser, for the owner to sign in at through
+    the dashboard's live view.
+
+    Nothing is paused, stopped or restarted, and ``_active`` is not set, because setup must go on caring for this browser. The tab
+    is made over DevTools on the browser itself, as the live view reaches it, and not with an ``agent-browser`` command: that
+    would navigate the tab of some session, which for the caller's own browser is the page the agent is working in. A tab made
+    here is bound to no session (a session is bound to its tab's id, ``idle_tabs``), so the tab a pinned agent on the Shared
+    browser works in stays as it is. The profile is the browser's own, so no cookies have to be copied."""
+    from . import live
+    _, agent = _target(runtime, agent_id)
+    port = live.port(runtime, agent_id)      # refuses unless the supervisor says the exact Chrome it started owns this port
+    try:
+        _open_tab(port, url)
+    except Exception:
+        logger.exception("Could not open %s in the browser of agent %s", site, agent_id)
+        raise DomainError("browser_not_ready", "Qorqbot couldn't open the sign-in page in this agent's browser. Wait until it shows "
+                                               "Ready in Settings, then try again.") from None
+    try:
+        home = _state(runtime, agent_id)
+        sites = [item for item in _read_sites(runtime, agent_id, home) if item["site"] != site]
+        _write_sites(runtime, agent_id, [*sites, {"site": site, "added_at": utc_now()}], home)
+    except OSError:
+        logger.warning("Could not record the sign-in to %s for agent %s", site, agent_id, exc_info=True)
+    name = agent["name"]
+    shared = " That browser is the Shared one: every agent set to it shows the same pages." if uses_shared(runtime.browser_manager.paths, agent_id) else ""
+    return {"opened": site, "where": "live_view", "agent": name,
+            "next": f"No window can open on this computer, so {site}'s sign-in page is open in {name}'s browser. Tell the owner to open "
+                    f"{name}'s Browser tab in the dashboard (the {site} page, if another is shown) and sign in there themselves. Qorqbot "
+                    "cannot see when they are done: wait until they say so, then open the site in your browser and check that the "
+                    f"account is signed in. If they cannot use the live view, ask for the password or code instead.{shared}"}
+
+
 def agent_call(runtime, principal_id, arguments):
     """Ordubashy's ``website_sign_in`` tool. The window opens without a Signoff, so it is limited to the one configured Ordubashy."""
     from qorqut.management.identity import configured_ordubashy
@@ -321,6 +382,8 @@ def agent_call(runtime, principal_id, arguments):
     site, url = parse(arguments.get("site"))
     if urlsplit(url).scheme != "https" and site not in LOOPBACK:
         raise DomainError("validation_error", "Use the site's https address, so the owner's password is never sent unencrypted.")
+    if not has_screen():
+        return open_in_live_view(runtime, agent_id, site, url)
     start(runtime, agent_id, arguments.get("site"))
     return {"opened": site, "next": f"Chrome is open at {site}. Tell the owner to check the address bar, sign in themselves and close the "
                                     "window when finished. Then call status to confirm."}
