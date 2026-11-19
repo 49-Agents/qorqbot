@@ -130,7 +130,9 @@ class PortAndHintTests(unittest.TestCase):
 
     def test_readiness_notes_name_missing_tools(self):
         empty = tempfile.mkdtemp()
-        notes = readiness_notes(empty, system='Darwin')
+        # A real Mac may have Chrome in /Applications; the note is about a computer that has none.
+        with mock.patch.object(native_launch, 'chrome_installed', return_value=False):
+            notes = readiness_notes(empty, system='Darwin')
         self.assertTrue(any('Google Chrome' in note for note in notes))
         # Claude Code and Codex are downloaded from Settings in the dashboard, so their absence is not a launcher note.
         self.assertFalse(any(word in note.lower() for note in notes for word in ('tmux', 'claude', 'codex')))
