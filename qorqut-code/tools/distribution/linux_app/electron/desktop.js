@@ -73,7 +73,7 @@ function desktopEntry(appImage) {
     'Terminal=false',
     'StartupNotify=true',
     'StartupWMClass=qorqbot',
-    'Categories=Office;Utility;',
+    'Categories=Office;', // one main category, as in the .deb: a second one lists the app twice in the menu
     `${MANAGED_KEY}=true`,
     '',
   ].join('\n');
