@@ -143,7 +143,7 @@ class ResolveTests(Case):
     def test_our_copy_comes_before_the_one_on_path(self):
         managed = self.executable(cli.managed_path("codex", self.root))
         self.own_cli("codex", "0.200.0")
-        self.assertEqual(cli.resolve("codex", self.environ), {"path": managed, "source": "managed", "version": "0.154.0"})
+        self.assertEqual(cli.resolve("codex", self.environ), {"path": managed, "source": "managed", "version": "0.170.0"})
 
     def test_the_variable_the_launcher_sets_for_our_copy_still_reads_as_managed(self):
         managed = self.executable(cli.managed_path("claude", self.root))
@@ -265,7 +265,7 @@ class StablePathTests(Case):
         self.install("codex")
         link = self.root / "tools/codex-current"
         self.assertTrue(link.is_symlink())
-        self.assertEqual(os.readlink(link), "codex-0.154.0")
+        self.assertEqual(os.readlink(link), "codex-0.170.0")
         self.assertTrue(os.access(cli.stable_path("codex", self.root), os.X_OK))
         # Codex finds its sibling folders beside bin/codex; through a link to the folder they are all there.
         for name in ("codex-path/rg", "codex-resources/zsh/bin/zsh", "bin/codex-code-mode-host"):
@@ -354,7 +354,7 @@ class InstallTests(Case):
         data = tarball("codex")
         self.pin("codex", data)
         path = self.install("codex", FakeOpener(data))
-        self.assertEqual(path, self.root / "tools/codex-0.154.0/bin/codex")
+        self.assertEqual(path, self.root / "tools/codex-0.170.0/bin/codex")
         folder = path.parent.parent
         for name in ("bin/codex-code-mode-host", "codex-path/rg", "codex-resources/zsh/bin/zsh", "codex-package.json"):
             self.assertTrue((folder / name).is_file(), name)

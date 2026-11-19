@@ -1,7 +1,7 @@
 """The headless Codex driver, against a stand-in ``codex app-server``.
 
-The stand-in is a small Python program (written below) that speaks the JSON-RPC lines recorded from the real Codex 0.154.0
-app-server (no ``jsonrpc`` field): ``initialize`` / ``initialized``, ``thread/start`` and ``thread/resume`` (thread id and rollout
+The stand-in is a small Python program (written below) that speaks the JSON-RPC lines recorded from the real Codex 0.154.0 and 0.170.0
+app-servers (no ``jsonrpc`` field): ``initialize`` / ``initialized``, ``thread/start`` and ``thread/resume`` (thread id and rollout
 path), ``turn/start`` / ``turn/steer`` / ``turn/interrupt``, the ``turn/started``, ``item/started`` (a ``userMessage`` item carrying
 our ``clientId``), ``item/completed`` and ``turn/completed`` notifications, ``hooks/list`` for the hook hashes, and the requests the
 server may send (approvals, ``item/tool/requestUserInput``, MCP elicitations). What the message text asks for picks the behaviour
@@ -281,6 +281,15 @@ def run():
         body = {"id": turn, "status": status, "items": [], "error": None}
         if status == "failed":
             body["error"] = {"message": "You have hit your usage limit.", "codexErrorInfo": "usageLimitExceeded", "additionalDetails": None}
+        if status == "completed" and not os.environ.get("FAKE_NO_USAGE"):
+            state["requests"] = state.get("requests", 0) + 1
+            n = state["requests"]
+            note("thread/tokenUsage/updated", {"threadId": thread, "turnId": turn, "tokenUsage": {
+                "total": {"totalTokens": 1705 * n, "inputTokens": 1700 * n, "cachedInputTokens": 64 * n, "cacheWriteInputTokens": 0,
+                          "outputTokens": 5 * n, "reasoningOutputTokens": 2 * n},
+                "last": {"totalTokens": 1705 + 200 * (n - 1), "inputTokens": 1700 + 200 * (n - 1), "cachedInputTokens": 64, "cacheWriteInputTokens": 0,
+                         "outputTokens": 5, "reasoningOutputTokens": 2},
+                "modelContextWindow": 258400}, "emittedAtMs": 1})
         note("turn/completed", {"threadId": thread, "turn": body})
     state["turn"], state["pending"], state["interrupted"] = None, [], False
     if os.environ.get("FAKE_DROP_STEER"):
@@ -454,10 +463,45 @@ class LaunchTests(DriverCase):
         self.assertEqual(params["threadId"], thread)
         self.assertEqual(self.inputs("thread/start"), [])
         self.assertEqual(params["config"]["default_permissions"], ":danger-full-access")
+        self.assertIs(params["excludeTurns"], True)          # a resume never asks the server for the whole history
         message_uuid = self.send(session, "after resume")
         recorder.wait("turn_finished")
         self.assertEqual(recorder.of("turn_finished")[0]["message_uuids"], [message_uuid])
         session.close()
+
+    def test_a_new_thread_is_not_started_with_exclude_turns(self):
+        session, recorder = self.make()
+        session.start()
+        recorder.wait("session_started")
+        self.assertNotIn("excludeTurns", self.inputs("thread/start")[0]["params"])
+        session.close()
+
+    def test_token_usage_of_the_latest_notification_is_reported_with_the_turn(self):
+        session, recorder = self.make()
+        session.start()
+        recorder.wait("session_started")
+        self.send(session, "one")
+        first = recorder.wait("turn_finished")
+        self.send(session, "two")
+        second = recorder.wait("turn_finished", count=2)
+        session.close()
+        self.assertEqual(first["usage"], {
+            "totalTokens": 1705, "inputTokens": 1700, "cachedInputTokens": 64, "outputTokens": 5, "reasoningOutputTokens": 2,
+            "last": {"totalTokens": 1705, "inputTokens": 1700, "cachedInputTokens": 64, "outputTokens": 5, "reasoningOutputTokens": 2},
+            "contextWindow": 258400})
+        self.assertEqual(second["usage"]["totalTokens"], 3410)                     # cumulative for the thread
+        self.assertEqual(second["usage"]["last"]["totalTokens"], 1905)             # the latest model request: what the context holds
+        self.assertEqual(second["usage"]["contextWindow"], 258400)
+        self.assertNotIn("cacheWriteInputTokens", second["usage"])
+
+    def test_a_turn_without_token_usage_has_no_usage_key(self):
+        session, recorder = self.make(env={"FAKE_NO_USAGE": "1"})
+        session.start()
+        recorder.wait("session_started")
+        self.send(session, "one")
+        finished = recorder.wait("turn_finished")
+        session.close()
+        self.assertNotIn("usage", finished)
 
     def test_resume_of_a_thread_the_server_does_not_have_fails_and_ends_the_process(self):
         thread = str(uuid.uuid4())

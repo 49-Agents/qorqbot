@@ -34,7 +34,7 @@ const REAL_READ = `(async () => {
 })()`;
 const OPEN = `(() => { try { sessionStorage.removeItem('qorqbot:agent-setup-later'); } catch (_) {} agentClients.preflight(%OPTIONS%); return 'started'; })()`;
 const STAND_IN = `{read: async () => ({claude: {installed: false, signed_in: false, install: {phase: 'not_downloaded', progress: null, message: null, version: '2.1.269'}},
-                                      codex: {installed: false, signed_in: false, install: {phase: 'not_downloaded', progress: null, message: null, version: '0.154.0'}}})}`;
+                                      codex: {installed: false, signed_in: false, install: {phase: 'not_downloaded', progress: null, message: null, version: '0.170.0'}}})}`;
 const SCREEN = `(() => { const gate = document.querySelector('.ac-gate'); return gate ? JSON.stringify({title: (gate.querySelector('#ac-gate-title') || {}).textContent,
   rows: [...gate.querySelectorAll('[data-ac-gate-rows] > *')].map(row => row.innerText.replace(/\\s+/g, ' ').trim().slice(0, 200)),
   buttons: [...gate.querySelectorAll('button')].map(button => button.textContent.trim() + (button.disabled ? ' (disabled)' : ''))}) : ''; })()`;

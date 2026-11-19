@@ -32,7 +32,8 @@ class RouteTest(unittest.TestCase):
             yield SimpleNamespace(repository=lambda name, **options: repository)
 
         api = HTTPAPI.__new__(HTTPAPI)
-        api.runtime = SimpleNamespace(database=SimpleNamespace(read=read), require_authority=lambda: None)
+        api.runtime = SimpleNamespace(database=SimpleNamespace(read=read), require_authority=lambda: None,
+                                      paths=SimpleNamespace(runtime=None))
         api.authentication = SimpleNamespace(installation_owner=lambda: (SimpleNamespace(id=OWNER, display_name="Owner"),))
         api.origins = SimpleNamespace(validate=lambda request, mutation=False: None)
         api.statuses, api.owner_routes = {}, {}

@@ -5,6 +5,6 @@
   "description": "Pinned native coding CLIs (Claude Code and Codex) installed for agent terminals",
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.327",
-    "@openai/codex": "0.154.0"
+    "@openai/codex": "0.170.0"
   }
 }

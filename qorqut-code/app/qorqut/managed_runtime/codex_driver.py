@@ -4,7 +4,8 @@ This is the Codex counterpart of ``claude_driver.ClaudeSession`` and offers the 
 ``start``, ``send``, ``interrupt``, ``answer``, ``close``, the attributes ``pid``, ``session_id``, ``transcript_path`` and ``busy``,
 and the same event vocabulary. Select it with ``launch.json["driver"] = "qorqut.managed_runtime.codex_driver:CodexSession"``.
 
-What the protocol was observed to do (Codex 0.154.0, real binary, see the P3 evidence folder named in the report):
+What the protocol was observed to do (Codex 0.154.0 and again 0.170.0, real binaries, scripted model replies; the account's usage limit
+blocked real model turns):
 
 * ``initialize`` (``capabilities.experimentalApi`` true) then the notification ``initialized``; ``thread/start`` answers at once with
   the thread id (a UUIDv7) and the rollout path, the file itself appears with the first turn. ``thread/resume`` by id re-opens a
@@ -30,6 +31,12 @@ What the protocol was observed to do (Codex 0.154.0, real binary, see the P3 evi
   never forwarded.
 * The app-server exits with code 0 within a fraction of a second when its stdin closes, also in the middle of a turn, and
   everything it started (shell, MCP server, code-mode host) dies with it, also after SIGKILL of the app-server.
+* ``thread/resume`` is sent with ``excludeTurns: true``: without it the server answers with the whole history of the thread (and, from
+  0.170.0, a ``deprecationNotice`` that says so), which for a long conversation is a very large line.
+* ``thread/tokenUsage/updated`` ``{threadId, turnId, tokenUsage{total, last, modelContextWindow}}`` follows every model request of a
+  turn (and a compaction, and a resume). ``total`` and ``last`` carry ``totalTokens, inputTokens, cachedInputTokens,
+  cacheWriteInputTokens, outputTokens, reasoningOutputTokens``: ``total`` is cumulative over the thread, ``last`` is the most recent
+  request (the size of the context it sent plus its output). The driver keeps the newest one and reports it in ``turn_finished.usage``.
 * ``/compact`` or ``/model`` typed as text are NOT commands (plain text for the model); ``$role`` typed as text IS expanded to
   the skill. ``thread/compact/start`` and ``thread/settings/update`` are the real commands (``compact`` and ``update_settings``).
 
@@ -212,7 +219,9 @@ class CodexSession:
     Events (every dict has ``type``): ``session_started`` {session_id, transcript_path} (the thread exists); ``turn_started``
     {message_uuid} (the thread took the message up); ``activity`` {text}; ``question`` {request_id, questions, input,
     input_truncated, tool_use_id}; ``request_cancelled`` {request_id, reason}; ``prompt_blocked`` {message_uuid, reason};
-    ``turn_finished`` {status "completed"|"interrupted"|"error", message_uuids, blocked_message_uuids, ...}; ``error``
+    ``turn_finished`` {status "completed"|"interrupted"|"error", message_uuids, blocked_message_uuids, ``usage`` (when Codex reported any:
+    ``totalTokens, inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens`` cumulative for the thread, ``last`` {the same
+    five for the latest model request}, ``contextWindow``), ...}; ``error``
     {message, kind}; ``exited`` {code, unexpected}, always last. A ``permission_request`` is never emitted: approval requests are
     answered by the driver (allow when ``bypass``, otherwise decline) and MCP elicitations are declined.
 
@@ -614,6 +623,7 @@ class CodexSession:
             params["model"] = self._model
         if self._resume:
             params["threadId"] = self._resume
+            params["excludeTurns"] = True           # the history is read from the rollout; the reply need not carry it
             self._request("thread/resume", params, self._on_thread)
         else:
             self._request("thread/start", params, self._on_thread)
@@ -899,13 +909,21 @@ class CodexSession:
         elif kind in _NO_TURN_ACTIVITY:
             self._activity(_NO_TURN_ACTIVITY[kind])
 
+    _USAGE_KEYS = ("totalTokens", "inputTokens", "cachedInputTokens", "outputTokens", "reasoningOutputTokens")
+
     def _on_usage(self, usage):
+        """``thread/tokenUsage/updated``: keep the newest ``tokenUsage``. ``total`` is cumulative for the thread, ``last`` is the latest
+        model request, so ``last.totalTokens`` is what the context holds now; ``modelContextWindow`` is the model's limit."""
         total = usage.get("total") if isinstance(usage, dict) else None
         if isinstance(total, dict):
-            self._usage = {key: total[key] for key in ("totalTokens", "inputTokens", "outputTokens") if isinstance(total.get(key), int)}
+            record = {key: total[key] for key in self._USAGE_KEYS if isinstance(total.get(key), int)}
+            last = usage.get("last")
+            if isinstance(last, dict):
+                record["last"] = {key: last[key] for key in self._USAGE_KEYS if isinstance(last.get(key), int)}
             window = usage.get("modelContextWindow")
             if isinstance(window, int):
-                self._usage["contextWindow"] = window
+                record["contextWindow"] = window
+            self._usage = record
 
     def _on_error_notification(self, params):
         error = params.get("error") if isinstance(params.get("error"), dict) else {}
@@ -960,7 +978,7 @@ class CodexSession:
         elif self._last_text is not None and not (finished and set(finished) <= set(blocked)):
             event["result_text"] = self._last_text
         if self._usage:
-            event["usage"] = dict(self._usage)
+            event["usage"] = {key: (dict(value) if isinstance(value, dict) else value) for key, value in self._usage.items()}
         if self._dropped:
             event["dropped_message_uuids"] = list(self._dropped)
         for request_id in list(self._pending_requests):

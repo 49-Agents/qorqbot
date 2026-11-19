@@ -62,7 +62,7 @@ class Base(unittest.TestCase):
         self.env = {"HOME": str(self.home), "PATH": "/nonexistent", "USER": "owner"}
         sign_in._pending.clear(); sign_in._failed.clear(); sign_in._cli_status_cache.clear()
         self.install = Installed({"claude": {"path": "/fake/claude", "source": "managed", "version": "2.1.327"},
-                                  "codex": {"path": "/fake/codex", "source": "managed", "version": "0.154.0"}})
+                                  "codex": {"path": "/fake/codex", "source": "managed", "version": "0.170.0"}})
         patch = mock.patch.object(sign_in, "_install", return_value=self.install)
         patch.start(); self.addCleanup(patch.stop)
         probe = mock.patch("qorqut.connectors._probe_environment", side_effect=lambda environ=None: dict(environ or {}))

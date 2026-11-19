@@ -45,7 +45,7 @@ import time
 import urllib.request
 
 PROVIDERS = ('claude', 'codex')
-VERSIONS = {'claude': '2.1.327', 'codex': '0.154.0'}
+VERSIONS = {'claude': '2.1.327', 'codex': '0.170.0'}
 EXECUTABLE_ENVIRONMENT = {'claude': 'QORQUT_CLAUDE_EXECUTABLE', 'codex': 'QORQUT_CODEX_EXECUTABLE'}
 NAMES = {'claude': 'Claude Code', 'codex': 'Codex'}
 # What `<binary> --version` prints, so a download that does not run (or is another version) installs nothing.
@@ -53,7 +53,7 @@ VERSION_OUTPUT = {'claude': '{version} (Claude Code)', 'codex': 'codex-cli {vers
 _REGISTRY = 'https://registry.npmjs.org/'
 # The owner's own Claude Code or Codex counts only from this (major, minor) up: the pinned version's, because the rest of
 # Qorqbot (feature detection, the composer's recognizers) is checked against it. Older ones are not used; Qorqbot offers its own.
-MINIMUM_VERSIONS = {'claude': (2, 1), 'codex': (0, 154)}
+MINIMUM_VERSIONS = {'claude': (2, 1), 'codex': (0, 170)}
 VERSION_TIMEOUT = 5          # seconds the owner's CLI gets to print its version
 FAILED_VERSION_RETRY = 600   # seconds before a CLI whose version could not be read is asked again
 STALE_WORK = 3600            # seconds without a change before a leftover download folder is swept
@@ -75,15 +75,15 @@ _TARGETS = {
                       172287003, 372905050, 'package/'),
     },
     'codex': {
-        'darwin-arm64': ('@openai/codex/-/codex-0.154.0-darwin-arm64.tgz',
-                         'HP/vJCH/t2hB9Kg6hotN9UglClJ6/z584fal5lEP14C9gNAgAQS4/kTQC7l5V+BA3TqwDPwINSjul28cX8AYXg==',
-                         116501639, 290230067, 'package/vendor/aarch64-apple-darwin/'),
-        'darwin-x64': ('@openai/codex/-/codex-0.154.0-darwin-x64.tgz',
-                       '2aqz+72Hop8PF2RYglQ4JnGjm3OlRIrTykJIT0hyLeUgM6NCFy09RgTmqRCoWliKQZjEn9jjZqUEp7QujAj77g==',
-                       124308807, 310769502, 'package/vendor/x86_64-apple-darwin/'),
-        'linux-x64': ('@openai/codex/-/codex-0.154.0-linux-x64.tgz',
-                      'a4FI3A8sGtwGrOqltrPbrS2hajrHQG591EwmRfiRoLMb10VxdBtUGW4gu6IJVYENiYGA7k3P4jlRHEoCZU/s9Q==',
-                      129654638, 339130586, 'package/vendor/x86_64-unknown-linux-musl/'),
+        'darwin-arm64': ('@openai/codex/-/codex-0.170.0-darwin-arm64.tgz',
+                         'sQyOGJabAUTEWCKe1O6GNsE7NKnHCHSjzLrazfYUgw8OFsFDeAQGVEwzvpXTK1yW1hJiLLAMRzC/W2Vu7m9DwQ==',
+                         154915137, 380125886, 'package/vendor/aarch64-apple-darwin/'),
+        'darwin-x64': ('@openai/codex/-/codex-0.170.0-darwin-x64.tgz',
+                       'lniwntVB9YaCQNNaTgpLxVvABkrnZDCO/UZf3z7POwH71ikkVNi7NxBrfl6aSIS9b3UBJKxjPlAm3qeIxINJVg==',
+                       165132536, 405142534, 'package/vendor/x86_64-apple-darwin/'),
+        'linux-x64': ('@openai/codex/-/codex-0.170.0-linux-x64.tgz',
+                      '6cCZJaZL17tiTAvhd1Pirt8vsV1dP8CfG94+IHygUO4m24oYLQrIInJJLyKzcMv/uUonbu1dF2JmcXhA/s5bsg==',
+                      168279228, 426796850, 'package/vendor/x86_64-unknown-linux-musl/'),
     },
 }
 # Claude is one file. Codex needs its sibling folders (codex-path/rg, codex-resources, the code-mode host), which it finds

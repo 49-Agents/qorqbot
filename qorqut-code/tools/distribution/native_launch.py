@@ -320,7 +320,7 @@ def ensure_agent_browser(root, *, system=None, machine=None, download=_download)
 # them in the service environment (that environment reaches every process Qorqbot starts, including the owner's own CLIs, and would pin a
 # version a later release removes): the service finds its copy at each launch (app/qorqut/agent_cli_launch.py). The launcher
 # only knows where an installed copy is, for tools and tests; a test keeps these equal to that module's.
-AGENT_CLI_VERSIONS = {'claude': '2.1.327', 'codex': '0.154.0'}
+AGENT_CLI_VERSIONS = {'claude': '2.1.327', 'codex': '0.170.0'}
 AGENT_CLI_EXECUTABLE = {'claude': 'QORQUT_CLAUDE_EXECUTABLE', 'codex': 'QORQUT_CODEX_EXECUTABLE'}
 AGENT_CLI_ENTRY = {'claude': 'claude', 'codex': 'bin/codex'}
 
