@@ -297,6 +297,7 @@ class Stack:
 class EndToEndCase(unittest.TestCase):
     def setUp(self):
         isolated_cli_environment.isolate(self)
+        isolated_cli_environment.tests_on_host_path(self)
 
     def stack(self, **options):
         return Stack(self, **options)

@@ -25,6 +25,7 @@ from test_managed_host import wait_for
 class ShutdownTestCase(unittest.TestCase):
     def setUp(self):
         self.environment = isolated_cli_environment.isolate(self)
+        isolated_cli_environment.tests_on_host_path(self)
         self.base = Path(tempfile.mkdtemp(prefix="sd-", dir="/tmp" if sys.platform == "darwin" else None)).resolve()
         self.addCleanup(self._remove)
         self.instance = self.base / "instance"

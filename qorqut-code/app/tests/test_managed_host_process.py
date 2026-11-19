@@ -91,6 +91,7 @@ class SubprocessHostTest(ManagedTestCase):
 
     def setUp(self):
         super().setUp()
+        isolated_cli_environment.tests_on_host_path(self)
         self.launcher = launcher.DetachedLauncher()
         self.spawned = []
         self.addCleanup(self.cleanup_hosts)
