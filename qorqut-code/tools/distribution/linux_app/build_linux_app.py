@@ -40,6 +40,7 @@ PRODUCT = 'Qorqbot'
 # collides with the qorqbot terminal command (Help > Install Terminal Command).
 PACKAGE = 'qorqbot'
 EXECUTABLE = 'qorqbot-desktop'
+WINDOW_CLASS = 'qorqbot'
 HOMEPAGE = 'https://qorqbot.com'
 MAINTAINER = '49 Agents LLC'
 SYNOPSIS = 'Proactive agent for business work'
@@ -214,8 +215,9 @@ def builder_config(project, work, version, resources, icons, payload, targets):
     """The whole electron-builder configuration; nothing is read from package.json's build section."""
     electron = json.loads((project / 'node_modules/electron/package.json').read_text())['version']
     names = artifact_names(version)
-    # The window class Electron gives the app (main.js: app.setName('Qorqbot')), so desktops group its windows under this entry.
-    entry = {'Name': PRODUCT, 'StartupWMClass': PRODUCT, 'Keywords': 'Qorqbot;agents;assistant;business;'}
+    # The window class Electron gives the app: package.json's desktopName without ".desktop" (the X11 class is
+    # "qorqbot", not the product name), so desktops group its windows under this entry. first_open_check.sh checks it.
+    entry = {'Name': PRODUCT, 'StartupWMClass': WINDOW_CLASS, 'Keywords': 'Qorqbot;agents;assistant;business;'}
     config = {
         'appId': APP_ID,
         'productName': PRODUCT,
@@ -238,6 +240,9 @@ def builder_config(project, work, version, resources, icons, payload, targets):
             'icon': str(icons),
             'category': 'Office',
             'executableName': EXECUTABLE,
+            # Name the menu entry after package.json's desktopName (qorqbot.desktop, the app id Electron reports on
+            # Wayland and what main.js and the AppImage's own entry use), not after the program (qorqbot-desktop).
+            'syncDesktopName': True,
             'synopsis': SYNOPSIS,
             'description': DESCRIPTION,
             'maintainer': MAINTAINER,

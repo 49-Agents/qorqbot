@@ -52,9 +52,9 @@ jobs:
         run: |
           test "$(uname -m)" = x86_64
           sudo apt-get update -qq
-          # librsvg2-bin draws the app icon; xvfb and x11-utils give the first-open check its display; fuse3
-          # lets the AppImage mount itself as it does on a desktop.
-          sudo apt-get install -y -qq --no-install-recommends tmux librsvg2-bin xvfb x11-utils fuse3
+          # librsvg2-bin draws the app icon. This job only unpacks the AppImage (no FUSE or display needed); the
+          # first-open and .deb jobs below install the display and container tools they use.
+          sudo apt-get install -y -qq --no-install-recommends tmux librsvg2-bin
           python -m pip install packaging
       - name: Run the desktop engine tests and the builder tests
         run: |

@@ -72,7 +72,7 @@ function desktopEntry(appImage) {
     `Icon=${ICON_NAME}`,
     'Terminal=false',
     'StartupNotify=true',
-    'StartupWMClass=Qorqbot',
+    'StartupWMClass=qorqbot',
     'Categories=Office;Utility;',
     `${MANAGED_KEY}=true`,
     '',

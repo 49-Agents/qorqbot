@@ -183,9 +183,11 @@ class BuilderConfigTests(unittest.TestCase):
         self.assertEqual(config['electronVersion'], '44.10.2')
         self.assertEqual(config['extraMetadata']['version'], '1.3.0-preview.2')
         self.assertEqual(config['linux']['executableName'], 'qorqbot-desktop')
+        # The menu entry is qorqbot.desktop (package.json's desktopName), not qorqbot-desktop.desktop.
+        self.assertTrue(config['linux']['syncDesktopName'])
         self.assertEqual(config['linux']['category'], 'Office')
         self.assertEqual(config['linux']['maintainer'], '49 Agents LLC')
-        self.assertEqual(config['linux']['desktop']['entry']['StartupWMClass'], 'Qorqbot')
+        self.assertEqual(config['linux']['desktop']['entry']['StartupWMClass'], 'qorqbot')
         self.assertEqual(config['linux']['desktop']['entry']['Name'], 'Qorqbot')
 
     def test_output_names(self):
@@ -303,8 +305,8 @@ class BuilderIntegrationTests(unittest.TestCase):
             for expected in ('./opt/Qorqbot/qorqbot-desktop', './opt/Qorqbot/resources/app.asar', './opt/Qorqbot/resources/apparmor-profile',
                              './opt/Qorqbot/resources/THIRD-PARTY-NOTICES.md', './opt/Qorqbot/LICENSE.electron.txt',
                              './opt/Qorqbot/LICENSES.chromium.html', './usr/share/applications/qorqbot.desktop',
-                             './usr/share/doc/qorqbot/copyright', './usr/share/icons/hicolor/16x16/apps/qorqbot.png',
-                             './usr/share/icons/hicolor/512x512/apps/qorqbot.png', archive.name):
+                             './usr/share/doc/qorqbot/copyright', './usr/share/icons/hicolor/16x16/apps/qorqbot-desktop.png',
+                             './usr/share/icons/hicolor/512x512/apps/qorqbot-desktop.png', archive.name):
                 self.assertIn(expected, listing)
             scripts = base / 'control'
             subprocess.run(['dpkg-deb', '-e', deb, scripts], check=True)
@@ -313,7 +315,7 @@ class BuilderIntegrationTests(unittest.TestCase):
             fakeroot = base / 'deb-root'
             subprocess.run(['dpkg-deb', '-x', deb, fakeroot], check=True)
             entry = (fakeroot / 'usr/share/applications/qorqbot.desktop').read_text()
-            for line in ('Name=Qorqbot', 'Exec=/opt/Qorqbot/qorqbot-desktop %U', 'Icon=qorqbot', 'StartupWMClass=Qorqbot', 'Categories=Office;'):
+            for line in ('Name=Qorqbot', 'Exec=/opt/Qorqbot/qorqbot-desktop %U', 'Icon=qorqbot-desktop', 'StartupWMClass=qorqbot', 'Categories=Office;'):
                 self.assertIn(line, entry.splitlines())
             payload = fakeroot / 'opt/Qorqbot/resources/qorqbot-payload'
             self.assertEqual(build_linux_app.sha256(payload / archive.name), digest)
@@ -326,11 +328,11 @@ class BuilderIntegrationTests(unittest.TestCase):
             subprocess.run([appimage, '--appimage-extract'], cwd=work, check=True, capture_output=True)
             root = work / 'squashfs-root'
             entry = (root / 'qorqbot.desktop').read_text().splitlines()
-            for line in ('Name=Qorqbot', 'Icon=qorqbot', 'StartupWMClass=Qorqbot', 'Categories=Office;'):
+            for line in ('Name=Qorqbot', 'Icon=qorqbot-desktop', 'StartupWMClass=qorqbot', 'Categories=Office;'):
                 self.assertIn(line, entry)
             self.assertEqual(build_linux_app.sha256(root / 'resources/qorqbot-payload' / archive.name), digest)
             self.assertTrue((root / 'resources/THIRD-PARTY-NOTICES.md').is_file())
-            self.assertTrue((root / 'usr/share/icons/hicolor/256x256/apps/qorqbot.png').is_file())
+            self.assertTrue((root / 'usr/share/icons/hicolor/256x256/apps/qorqbot-desktop.png').is_file())
             asar = APP_TOOLS / 'electron/node_modules/.bin/asar'
             if asar.exists():
                 names = subprocess.run([asar, 'list', root / 'resources/app.asar'], check=True, capture_output=True, text=True).stdout.split()
