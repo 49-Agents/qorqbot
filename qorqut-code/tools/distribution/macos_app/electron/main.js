@@ -389,7 +389,7 @@ function syncMenuBar() {
 }
 
 /** Reads the same attention queue the dashboard reads and shows its count on the Dock icon. A read that fails leaves
- * the badge as it was; the server stopping clears it (syncMenuBar). Never throws. */
+ * the badge as it was unless the server is gone; the server stopping clears it (syncMenuBar). Never throws. */
 async function readAttention() {
   const url = state.phase === 'running' && engine && engine.url ? attentionUrl(serverOrigin()) : null;
   if (!url || attentionReading) return;
@@ -403,10 +403,21 @@ async function readAttention() {
       syncMenuBar();
     }
   } catch {
-    // The server is busy or going away; the next read tries again.
+    // The server is busy or gone. One stopped from Terminal (`qorqbot stop`) never tells the app, so ask the folder.
+    await noticeStoppedServer();
   } finally {
     attentionReading = false;
   }
+}
+
+/** Shows the stopped page, and so clears the badge and the status lines, when the server ended outside the app. */
+async function noticeStoppedServer() {
+  if (busy || quitting || state.phase !== 'running') return;
+  const url = await engine.status().catch(() => engine.url);
+  if (url || busy || quitting || state.phase !== 'running') return;
+  engine.log('the server stopped outside the app');
+  publish({ phase: 'stopped', title: 'Qorqbot is stopped', steps: [], log: [], error: null, choice: null });
+  await showStatusPage();
 }
 
 // ---------------------------------------------------------------- IPC (status and help pages only)
