@@ -33,5 +33,36 @@ class CommandRecordTest(unittest.TestCase):
             self.assertIsNone(result.entry, text)
 
 
+class InterruptRecordTest(unittest.TestCase):
+    """A Stop is recorded by Claude Code as a user message; it is not something the owner said."""
+
+    @staticmethod
+    def stopped(text, uuid, blocks=True):
+        content = [{"type": "text", "text": text}] if blocks else text
+        value = {"type": "user", "uuid": uuid, "sessionId": "s1", "timestamp": "2026-11-19T10:00:00Z", "parentUuid": "p",
+                 "message": {"role": "user", "content": content}}
+        return SimpleNamespace(kind="json", value=value, offset=0, length=10)
+
+    def test_a_recorded_stop_is_dropped_in_both_of_its_forms_and_in_both_content_shapes(self):
+        for text in ("[Request interrupted by user]", "[Request interrupted by user for tool use]", "  [Request interrupted by user]\n"):
+            for blocks in (True, False):
+                result = projection.Projector("claude", "s1").feed(self.stopped(text, "u1", blocks))
+                self.assertIsNone(result.entry, (text, blocks))
+                self.assertTrue(result.hidden, (text, blocks))
+
+    def test_it_ends_the_stopped_turn_so_the_next_one_starts_fresh(self):
+        projector = projection.Projector("claude", "s1")
+        projector.feed(record("do the long thing", "u0"))
+        self.assertEqual(projector.state.origin, projection.ORIGIN_USER)
+        projector.feed(self.stopped("[Request interrupted by user]", "u1"))
+        self.assertIsNone(projector.state.origin)
+        self.assertFalse(projector.state.work)
+
+    def test_text_that_only_mentions_it_is_still_what_the_owner_typed(self):
+        for text in ("please [Request interrupted by user] ok", "stop"):
+            result = projection.Projector("claude", "s1").feed(self.stopped(text, "u2"))
+            self.assertEqual((result.entry.speaker, result.entry.text), (projection.SPEAKER_USER, text))
+
+
 if __name__ == "__main__":
     unittest.main()

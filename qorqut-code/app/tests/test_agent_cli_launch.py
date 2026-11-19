@@ -227,5 +227,54 @@ class ManagedSessions(Fixture):
         self.assertEqual(acl.session_environment({"A": "1"}), {"A": "1"})
 
 
+class OneAnswerTests(unittest.TestCase):
+    """With only the owner's own Claude Code on their PATH and no downloaded copy, the setup screen, the session and the preparation
+    of the agent's workspace all get the same answer from the installer's resolution."""
+
+    def machine(self, version):
+        base = Path(tempfile.mkdtemp(prefix="one answer ")).resolve()
+        self.addCleanup(shutil.rmtree, base, True)
+        binary = program(base / "bin/claude", f'#!/bin/sh\necho "{version} (Claude Code)"\n')
+        environ = {"PATH": "/nonexistent", "HOME": str(base), "QORQUT_NATIVE_USER_ENV": json.dumps({"PATH": str(base / "bin")})}
+        patch = mock.patch.dict(os.environ, environ, clear=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return binary
+
+    def test_a_system_claude_that_meets_the_minimum_is_ready_started_and_accepted_by_preparation(self):
+        from qorqut import agent_cli_install, agent_cli_sign_in
+        from qorqut.bootstrap import preparation
+        binary = self.machine("2.1.328")
+        search = agent_cli_launch.search_environment()
+        self.assertEqual(agent_cli_sign_in.resolve_cli("claude", search)["path"], binary)   # the setup screen: Ready
+        self.assertEqual(agent_cli_launch.locate("claude"), binary)                        # the session
+        versions = installed_versions()                                                    # preparation
+        self.assertEqual(versions["claude-code"], "2.1.328 (Claude Code)")
+        self.assertTrue(preparation.runtime_compatibility("claude-code", versions["claude-code"])["supported"])
+
+    def test_one_that_does_not_meet_it_is_not_ready_not_started_and_not_accepted(self):
+        from qorqut import agent_cli_install, agent_cli_sign_in
+        from qorqut.bootstrap import preparation
+        binary = self.machine("2.1.200")
+        search = agent_cli_launch.search_environment()
+        self.assertIsNone(agent_cli_sign_in.resolve_cli("claude", search))
+        self.assertIsNone(agent_cli_launch.locate("claude"))
+        self.assertFalse(preparation.runtime_compatibility("claude-code", "2.1.200 (Claude Code)")["supported"])
+        self.assertEqual(installed_versions()["claude-code"], "")
+        # The setup screen's row says "not Ready" and why, from the owner's own PATH (not the service's).
+        from qorqut import owner_settings
+        base = os.environ["HOME"]
+        with mock.patch.dict(os.environ, {"QORQUT_FOLDER_ROOT": base}):
+            row = owner_settings.agent_clients_view()["claude"]
+        self.assertFalse(row["installed"])
+        self.assertIn("too old", row["install"]["message"])
+
+    def test_there_is_one_minimum_per_client(self):
+        from qorqut import agent_cli_install
+        from qorqut.bootstrap import preparation
+        self.assertEqual(preparation.MINIMUM_CLAUDE_VERSION, agent_cli_install.MINIMUM_VERSIONS["claude"])
+        self.assertEqual(preparation.MINIMUM_CODEX_VERSION, agent_cli_install.MINIMUM_VERSIONS["codex"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -34,7 +34,7 @@ function composer({session, catalog, draft, refuse = null}) {
   const names = ['composerScope', 'selectedFiles', 'canSend', 'session', 'slashCommands', 'commandCatalog', 'label', 'showBanner',
     'GLOBAL_CHAT_SENDS', 'GLOBAL_CHAT_INFLIGHT', 'GLOBAL_CHAT_DRAFTS', 'GLOBAL_CHAT_FILES', 'GLOBAL_CHAT_MAX', 'GLOBAL_CHAT_REFUSALS',
     'liveBinding', 'newRequestId', 'newestPosition', 'api', 'base', 'coreData', 'admit', 'globalChatAccept',
-    'live', 'view', 'takeInput', 'load', 'paintSession', 'refusalText'];
+    'live', 'view', 'takeInput', 'load', 'paintSession', 'refusalText', 'opening'];
   const values = [SCOPE, () => files.get(SCOPE) || [], () => true, session, slashCommands, () => catalog, 'Ada',
     text => calls.banners.push(text), sends, inflight, drafts, files, 17000, GLOBAL_CHAT_REFUSALS,
     () => ({binding_id: 'binding-0001'}), () => 'request-1', () => 3,
@@ -46,7 +46,8 @@ function composer({session, catalog, draft, refuse = null}) {
       return {input: {id: 'input-1', state: 'waiting', created_at: '2026-11-04T10:00:00Z'}};
     },
     (...args) => calls.accepted.push(args),
-    () => true, view, () => {}, () => {}, () => {}, problem => GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again"];
+    () => true, view, () => {}, () => {}, () => {}, problem => GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again",
+    {active: () => false, start: () => false, restore() {}, end() {}, pin: async () => null}];
   const submit = new Function(...names, `${submitSource}; return submit;`)(...values);
   return {submit, calls, sends, inflight, drafts, files, view, file};
 }

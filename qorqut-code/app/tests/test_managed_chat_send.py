@@ -53,6 +53,12 @@ class Database:
         self.connection.row_factory = sqlite3.Row
         for statement in schema.SCHEMA:
             self.connection.execute(statement)
+        # What the opener reads to tell whether the product offers an agent (``SessionOpener.offered``).
+        self.connection.execute("CREATE TABLE IF NOT EXISTS agent_profiles(agent_id TEXT PRIMARY KEY, profile_json TEXT NOT NULL)")
+        self.connection.execute("CREATE TABLE IF NOT EXISTS installation(id TEXT PRIMARY KEY, owner_principal_id TEXT NOT NULL)")
+        self.connection.execute("CREATE TABLE IF NOT EXISTS inbox_events(id INTEGER PRIMARY KEY, business_id TEXT, source_type TEXT, "
+                                "source_id TEXT, actor_id TEXT, event_type TEXT, summary TEXT, created_at TEXT)")
+        self.connection.execute("CREATE TABLE IF NOT EXISTS inbox_deliveries(agent_id TEXT, event_id INTEGER, acknowledged_at TEXT)")
         self.connection.execute("CREATE TABLE native_session_owners(agent_id TEXT PRIMARY KEY, consumer_id TEXT NOT NULL, "
                                 "binding_json TEXT NOT NULL, generation INTEGER NOT NULL, desired_state TEXT NOT NULL DEFAULT 'running')")
 
@@ -612,8 +618,9 @@ class UploadTests(ChatCase):
         self.host_starts()
         (self.root / "workspace").mkdir()
         with mock.patch("qorqut.native_chat.uploads.save", return_value={"saved": True}) as save:
-            self.assertEqual(self.upload("a-pin-from-a-closed-session"), {"saved": True})
+            result = self.upload("a-pin-from-a-closed-session")
         live = store.live_session(self.db.connection, AGENT)
+        self.assertEqual(result, {"saved": True, "binding_id": live["id"]})
         self.assertEqual((self.managed.opened, save.call_args.args[3]), ([AGENT], live["id"]))
 
     def test_a_file_for_an_agent_that_cannot_be_opened_is_refused_and_not_saved(self):
@@ -637,8 +644,46 @@ class UploadTests(ChatCase):
             self.upload("another-binding-id")
         self.assertEqual(stale.exception.code, "terminal_changed")
         with mock.patch("qorqut.native_chat.uploads.save", return_value={"saved": True}) as save:
-            self.assertEqual(self.upload(pin), {"saved": True})
+            self.assertEqual(self.upload(pin), {"saved": True, "binding_id": pin})
         self.assertEqual(save.call_args.args[3], pin)
+
+    def go_to_sleep(self, desired="running"):
+        self.managed.running = False
+        self.managed.view = dict(CLOSED_VIEW)
+        self.marker = None
+        self.db.connection.execute("UPDATE native_session_owners SET desired_state=?", (desired,))
+        self.db.connection.commit()
+
+    def desired(self):
+        return self.db.connection.execute("SELECT desired_state FROM native_session_owners").fetchone()[0]
+
+    def test_upload_to_a_sleeping_agent_then_a_send_with_the_returned_binding_is_one_open_and_one_input(self):
+        self.open()
+        self.go_to_sleep()
+        self.host_starts()
+        (self.root / "workspace").mkdir()
+        saved = self.upload(None)
+        live = store.live_session(self.db.connection, AGENT)
+        self.assertEqual(saved["binding_id"], live["id"])
+        reference = saved["reference"]
+        sent = self.chat.send(OWNER, AGENT, "what is in the file? " + reference, "key-after-up-1", saved["binding_id"])
+        self.assertEqual(self.managed.opened, [AGENT])  # the upload opened it; the message did not open a second one
+        self.assertEqual((sent["binding"]["binding_id"], sent["created"]), (live["id"], True))
+        repeat = self.chat.send(OWNER, AGENT, "what is in the file? " + reference, "key-after-up-1", saved["binding_id"])
+        self.assertEqual((repeat["created"], repeat["input"]["id"]), (False, sent["input"]["id"]))
+        self.assertEqual(self.db.count("native_inputs"), 2)  # the first open's message and this one, never a copy of the file
+
+    def test_an_upload_to_an_off_agent_turns_it_on_like_a_message_and_the_send_keeps_it_on(self):
+        self.open()
+        self.go_to_sleep("stopped")
+        self.host_starts()
+        (self.root / "workspace").mkdir()
+        self.assertEqual(self.desired(), "stopped")
+        saved = self.upload(None)
+        self.assertEqual(self.desired(), "running")
+        self.assertEqual(saved["binding_id"], store.live_session(self.db.connection, AGENT)["id"])
+        self.chat.send(OWNER, AGENT, "what is in the file?", "key-after-up-2", saved["binding_id"])
+        self.assertEqual((self.desired(), self.managed.opened), ("running", [AGENT]))
 
 
 # ===== the controls ==============================================================================================================

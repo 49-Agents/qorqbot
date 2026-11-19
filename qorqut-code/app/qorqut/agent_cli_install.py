@@ -51,9 +51,11 @@ NAMES = {'claude': 'Claude Code', 'codex': 'Codex'}
 # What `<binary> --version` prints, so a download that does not run (or is another version) installs nothing.
 VERSION_OUTPUT = {'claude': '{version} (Claude Code)', 'codex': 'codex-cli {version}'}
 _REGISTRY = 'https://registry.npmjs.org/'
-# The owner's own Claude Code or Codex counts only from this (major, minor) up: the pinned version's, because the rest of
-# Qorqbot (feature detection, the composer's recognizers) is checked against it. Older ones are not used; Qorqbot offers its own.
-MINIMUM_VERSIONS = {'claude': (2, 1), 'codex': (0, 170)}
+# The owner's own Claude Code or Codex counts only from this (major, minor, patch) up, and it is the one number every part of
+# Qorqbot uses: the setup screen's "Ready", the executable a session starts and the preparation of an agent's workspace
+# (``bootstrap/preparation.py`` takes its minimums from here). The rest of Qorqbot (feature detection, the hooks and settings it
+# writes) is checked against it. Older ones are not used; Qorqbot offers its own.
+MINIMUM_VERSIONS = {'claude': (2, 1, 263), 'codex': (0, 170, 0)}
 VERSION_TIMEOUT = 5          # seconds the owner's CLI gets to print its version
 FAILED_VERSION_RETRY = 600   # seconds before a CLI whose version could not be read is asked again
 STALE_WORK = 3600            # seconds without a change before a leftover download folder is swept
@@ -259,7 +261,7 @@ def _system_copy(provider, environ=None, run=subprocess.run, probe=True):
     if version is None:
         return None, (f'The {NAMES[provider]} on this computer did not report its version, so Qorqbot will not use it. '
                       f'Qorqbot can download its own copy.')
-    if version[:2] < MINIMUM_VERSIONS[provider]:
+    if version < MINIMUM_VERSIONS[provider]:
         return None, (f'The {NAMES[provider]} on this computer is too old ({".".join(map(str, version))}; version {minimum} '
                       f'or newer is needed). Qorqbot can download its own copy.')
     return {'path': path, 'source': 'system', 'version': '.'.join(map(str, version))}, None

@@ -95,9 +95,9 @@ const voiceInput = (() => {
     const button = document.createElement('button');
     button.type = 'button'; button.className = 'gchat-mic quiet'; button.hidden = true; button.innerHTML = ICON;
     form.insertBefore(button, options.before || null);
-    let state = 'idle', recorder = null, stream = null, chunks = [], timer = 0, locked = false, cancelled = false, disposed = false;
+    let state = 'idle', recorder = null, stream = null, chunks = [], timer = 0, locked = false, lockedWhy = '', cancelled = false, disposed = false;
     const label = () => state === 'recording' ? 'Stop and insert what you said' : state === 'working' ? 'Turning your words into text…'
-      : `Voice input (${voiceInputModel.hotkeyLabel(navigator.platform)})`;
+      : locked && state === 'idle' && lockedWhy ? `Voice input is off. ${lockedWhy}` : `Voice input (${voiceInputModel.hotkeyLabel(navigator.platform)})`;
     function paint() {
       if (disposed) return;
       button.hidden = !status || status === 'not_installed';
@@ -179,7 +179,7 @@ const voiceInput = (() => {
     return {
       button,
       // The composer's own lock (no session to send to, a send in flight) also locks the microphone.
-      setLocked(value) { locked = !!value; paint(); },
+      setLocked(value, why = '') { locked = !!value; lockedWhy = locked ? String(why || '') : ''; paint(); },
       dispose() {
         disposed = true; controllers.delete(controller);
         stop(true); release();

@@ -182,8 +182,19 @@ def main(argv=None):
                 print(json.dumps(result, sort_keys=True))
                 return 0
         import uvicorn
-        uvicorn.run(app, host=args.host, port=args.port, proxy_headers=False, server_header=False, access_log=False,
-            timeout_graceful_shutdown=10, limit_concurrency=200, log_level="info")
+        from qorqut.transport.http import STOPPING
+
+        class Server(uvicorn.Server):
+            def handle_exit(self, sig, frame):
+                # Open event streams (a dashboard tab) never end by themselves: tell them to finish before the drain starts.
+                STOPPING.set()
+                super().handle_exit(sig, frame)
+
+        server = Server(uvicorn.Config(app, host=args.host, port=args.port, proxy_headers=False, server_header=False, access_log=False,
+            timeout_graceful_shutdown=10, limit_concurrency=200, log_level="info"))
+        server.run()
+        if not server.started:
+            return 3
         return 0
     except (DomainError, OSError, ValueError) as exc:
         logging.getLogger(__name__).error("Service configuration rejected: %s", exc)

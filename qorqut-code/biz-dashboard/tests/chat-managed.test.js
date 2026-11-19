@@ -477,9 +477,9 @@ const between = (from, to) => {
 };
 function statusParts({session, entries = 0, inputs = 0, viewing = true, local = false, sending = false}) {
   const body = between('  const hasHistory = ', '  // ---- slash commands') + between('  function emptyState() {', '  // ---- managed runtime') + between('  const sessionLineText = ', '  // One repaint');
-  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'GLOBAL_CHAT_INFLIGHT', 'composerScope',
+  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'GLOBAL_CHAT_INFLIGHT', 'composerScope', 'GLOBAL_CHAT_OPENING', 'agentId',
     `${body}; return {sessionSummary, emptyState, sessionLineText, hasHistory};`)(session, 'Ada', runtime, () => viewing, {size: entries}, {length: inputs}, local,
-    {has: () => sending}, 'scope');
+    {has: () => sending}, 'scope', {has: () => false}, 'agent-1');
 }
 // What the owner reads in each state: the session line, the empty state in the middle of the pane, and the composer's placeholder.
 function wording(options) {
@@ -711,12 +711,13 @@ test('the real submit sends a closed agent’s message with no pin, and a live a
     const admitted = [], banners = [];
     const names = ['composerScope', 'selectedFiles', 'canSend', 'session', 'slashCommands', 'commandCatalog', 'label', 'showBanner', 'GLOBAL_CHAT_SENDS', 'GLOBAL_CHAT_INFLIGHT',
       'GLOBAL_CHAT_DRAFTS', 'GLOBAL_CHAT_FILES', 'GLOBAL_CHAT_MAX', 'GLOBAL_CHAT_REFUSALS', 'liveBinding', 'newRequestId', 'newestPosition', 'api', 'base', 'coreData', 'admit',
-      'globalChatAccept', 'options', 'toast', 'live', 'view', 'takeInput', 'load', 'paintSession', 'refusalText'];
+      'globalChatAccept', 'options', 'toast', 'live', 'view', 'takeInput', 'load', 'paintSession', 'refusalText', 'opening'];
     const view = {draft: 'hi', getDraft: () => view.draft, setDraft: v => { view.draft = v; }, scrollToBottom() {}};
     const values = ['scope', () => [], () => true, session, slashCommands, () => [{name: '/cost', where: 'unavailable'}], 'Ada', t => banners.push(t),
       new Map(), new Map(), new Map(), new Map(), 17000, new Set(), () => binding, () => 'req-1', () => 0, async () => ({}), '/x', r => r,
       async (t, k, pin) => { admitted.push([t, k, pin]); return {input: {id: 'i1', state: 'waiting', created_at: '2026-11-04T10:00:00Z'}}; },
-      () => {}, {}, () => {}, () => true, view, () => {}, () => {}, () => {}, p => p.code];
+      () => {}, {}, () => {}, () => true, view, () => {}, () => {}, () => {}, p => p.code,
+      {active: () => false, start: () => false, restore() {}, end() {}, pin: async () => null}];
     const submit = new Function(...names, `${submitSource}; return submit;`)(...values);
     await submit('hi'); await submit('/cost');
     return {admitted, banners};

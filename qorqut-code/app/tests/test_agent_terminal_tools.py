@@ -240,6 +240,18 @@ class PingTests(Case):
         self.assertEqual(refused.exception.code, "not_delivered")
 
 
+class StatusWordingTests(Case):
+    def test_the_status_an_agent_reads_speaks_of_sessions(self):
+        self.managed.view = {"open": True, "phase": "working"}
+        self.opener.off = False
+        found = self.control.session_state({"agent_id": AGENT, "profile_json": {"runtime": "claude-code"}})
+        self.assertEqual((found["state"], found["turn"], found["client"]), ("open", "working", "claude"))
+        self.managed.view = {}
+        self.assertEqual(self.control.session_state({"agent_id": AGENT})["state"], "asleep")
+        self.opener.off = True
+        self.assertEqual(self.control.session_state({"agent_id": AGENT})["state"], "off")
+
+
 class OutcomeTests(unittest.TestCase):
     def test_only_a_delivery_that_never_happened_is_failed(self):
         self.assertEqual(execution_outcome(DomainError("not_delivered", "No"))[0], "failed")

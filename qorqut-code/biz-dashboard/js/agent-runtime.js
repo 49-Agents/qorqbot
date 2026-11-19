@@ -56,6 +56,18 @@ const agentRuntime = (() => {
     return `Message ${label}…`;
   }
 
+  // Why the composer can't be used right now, in plain words; empty when it can. Attach, Send, the microphone and the text field all
+  // give this as their reason while they are off. `ctx.finished`: the chat is over; `ctx.paired`: a side conversation has the pane.
+  function unavailableText(session, label, ctx = {}) {
+    if (ctx.finished) return 'This chat is no longer available.';
+    if (ctx.paired) return `Close the side conversation to message ${label}.`;
+    if (!session) return 'Loading the conversation…';
+    if (session.reason === 'capture_disabled') return 'Chat is unavailable.';
+    const managed = managedOf(session);
+    if (!session.can_send) return managed && !managed.open ? managed.closedText || `${label} can’t be started right now.` : `${label} isn’t available right now.`;
+    return `Connecting to ${label}…`;
+  }
+
   // What the agent is doing right now, and whether Stop applies. Empty text hides the line.
   function activity(session) {
     const managed = managedOf(session);
@@ -106,7 +118,7 @@ const agentRuntime = (() => {
       </fieldset>`).join('');
     return `<section class="mchat-card" role="group" data-request-id="${id}" data-kind="question" aria-label="Question from ${escapeHtml(label)}">
       <p class="mchat-card-title">${escapeHtml(label)} has a question</p>
-      ${body}
+      <div class="mchat-card-body">${body}</div>
       <p class="mchat-card-error" role="alert" hidden></p>
       <div class="mchat-card-actions"><button type="button" data-answer="submit">Send answer</button></div>
     </section>`;
@@ -139,7 +151,11 @@ const agentRuntime = (() => {
     const cardsHost = el.querySelector('.mchat-cards'), line = el.querySelector('.mchat-activity'), lineText = el.querySelector('.mchat-activity-text'), stop = el.querySelector('.mchat-stop');
     const cards = new Map();                      // request id -> {node, data, sentAt, inflight}
     let stopping = false, last = null, serial = 0, disposed = false;
-    const lock = (node, on) => { for (const tag of ['button', 'input']) for (const item of node.querySelectorAll(tag)) item.disabled = on; };
+    const lock = (node, on) => {
+      for (const tag of ['button', 'input']) for (const item of node.querySelectorAll(tag)) item.disabled = on;
+      const submit = node.querySelector('[data-answer]');
+      if (submit) submit.setAttribute('title', on ? 'Sending your answer…' : 'Send your answer');
+    };
     // One action the owner is offered after a refusal (starting a new conversation); gone as soon as a session is open.
     const offer = (what, onChoose) => { noticeText.textContent = what.text; noticeAction.textContent = what.label; choose = onChoose; notice.hidden = false; el.hidden = false; };
     const clearOffer = () => { choose = null; notice.hidden = true; noticeText.textContent = ''; el.hidden = !(cards.size || !line.hidden); };
@@ -153,7 +169,7 @@ const agentRuntime = (() => {
       if (managed.open) clearOffer();
       const info = activity(session);
       line.hidden = !info.text; lineText.textContent = info.text;
-      stop.hidden = !info.stop; stop.disabled = stopping;
+      stop.hidden = !info.stop; stop.disabled = stopping; stop.title = stopping ? 'Stopping…' : `Stop what ${label} is doing`;
       const wanted = managed.open ? managed.pending : [];
       for (const [id, card] of cards) if (!wanted.some(item => item.request_id === id)) { card.node.remove(); cards.delete(id); }
       for (const item of wanted) {
@@ -175,10 +191,10 @@ const agentRuntime = (() => {
     }
     async function interrupt() {
       if (stopping || !binding()) { if (!binding()) onError('Couldn’t stop. Try again in a moment.'); return; }
-      stopping = true; stop.disabled = true;
+      stopping = true; stop.disabled = true; stop.title = 'Stopping…';
       try { await send('/interrupt', {expected_binding: binding()}); }
       catch (_) { onError('Couldn’t stop. Try again.'); }
-      finally { stopping = false; if (!disposed) { stop.disabled = false; onChange(); } }
+      finally { stopping = false; if (!disposed) { stop.disabled = false; stop.title = `Stop what ${label} is doing`; onChange(); } }
     }
     async function answer(id) {
       const card = cards.get(id);
@@ -219,13 +235,14 @@ const agentRuntime = (() => {
   function createEnd({send, onDone, onError, doc = globalThis.document}) {
     const el = doc.createElement('button');
     el.setAttribute('type', 'button'); el.className = 'quiet gchat-end'; el.hidden = true; el.textContent = 'End session';
-    el.setAttribute('title', 'Turn the agent off until you send it a message');
+    const TITLE = 'Turn the agent off until you send it a message';
+    el.setAttribute('title', TITLE);
     let busy = false;
     el.addEventListener('click', async () => {
       if (busy) return;
-      busy = true; el.disabled = true;
-      try { await send('/close', {}); busy = false; el.disabled = false; onDone(); }
-      catch (_) { busy = false; el.disabled = false; onError(END_FAILED); }
+      busy = true; el.disabled = true; el.setAttribute('title', 'Ending the session…');
+      try { await send('/close', {}); busy = false; el.disabled = false; el.setAttribute('title', TITLE); onDone(); }
+      catch (_) { busy = false; el.disabled = false; el.setAttribute('title', TITLE); onError(END_FAILED); }
     });
     return {el, update(session) { el.hidden = !canEnd(session); }};
   }
@@ -233,7 +250,7 @@ const agentRuntime = (() => {
   const afterEnd = session => session ? {...session, state: 'offline', reason: 'session_closed', binding: null, working: false,
     managed: {...(session.managed || {}), open: false, off: true, phase: 'idle', activity: '', can_stop: false, pending: []}} : session;
 
-  return {managedOf, closed, canOpen, canEnd, working, summary, startHint, emptyText, placeholder, activity, refusalText, isRetryable, newConversationOffer,
+  return {managedOf, closed, canOpen, canEnd, working, summary, startHint, emptyText, placeholder, unavailableText, activity, refusalText, isRetryable, newConversationOffer,
     questionList, cardHtml, questionDecision, createBar, createEnd, afterEnd, END_FAILED, escapeHtml};
 })();
 if (typeof module !== 'undefined') module.exports = agentRuntime;

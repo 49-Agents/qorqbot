@@ -109,11 +109,12 @@ def resolve_cli(provider, environ=None):
     return {"path": path, "source": "system", "version": None} if path else None
 
 
-def install_status(provider, found=None):
-    """``{"phase", "progress", "message", "version"}``; without the install module, ready exactly when a CLI was found."""
+def install_status(provider, found=None, environ=None):
+    """``{"phase", "progress", "message", "version"}``; without the install module, ready exactly when a CLI was found. ``environ`` is
+    the owner's environment the CLI was looked up in (``resolve_cli``): the same one decides why a copy was passed over (too old)."""
     install = _install()
     if install is not None:
-        return install.status(provider)
+        return install.status(provider, environ=environ)
     return {"phase": "ready" if found else "not_downloaded", "progress": None, "message": None,
             "version": (found or {}).get("version")}
 

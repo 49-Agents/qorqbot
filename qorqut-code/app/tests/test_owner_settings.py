@@ -107,7 +107,7 @@ class AgentClientsTest(unittest.TestCase):
         class Managed:
             found = {"claude": {"path": str(self.bin / "claude"), "source": "managed", "version": "2.1.327"}}
             def resolve(self, provider, environ=None): return self.found.get(provider)
-            def status(self, provider):
+            def status(self, provider, environ=None):
                 return ({"phase": "ready", "progress": 100, "message": None, "version": "2.1.327"} if provider in self.found else
                         {"phase": "downloading", "progress": 40, "message": "Downloading", "version": None})
             def launch_environment(self, provider): return {"DISABLE_AUTOUPDATER": "1"}
@@ -155,7 +155,7 @@ class AgentClientsTest(unittest.TestCase):
         path = str(self.bin / "claude")
         self.install = SimpleNamespace(
             resolve=lambda provider, environ=None: {"path": path, "source": "system", "version": "2.1.200"} if provider == "claude" else None,
-            status=lambda provider: {"phase": "ready", "progress": None, "message": None, "version": None},
+            status=lambda provider, environ=None: {"phase": "ready", "progress": None, "message": None, "version": None},
             launch_environment=lambda provider: {})
         self.assertEqual(self.view({})["claude"]["version"], "2.1.200")
         self.assertNotIn(["--version"], self.calls)
@@ -174,7 +174,7 @@ class AgentClientsTest(unittest.TestCase):
         calls = []
         self.install = SimpleNamespace(
             resolve=lambda provider, environ=None: None,
-            status=lambda provider: {"phase": "not_downloaded", "progress": None, "message": None, "version": None},
+            status=lambda provider, environ=None: {"phase": "not_downloaded", "progress": None, "message": None, "version": None},
             launch_environment=lambda provider: {},
             start_download=lambda provider: calls.append(("download", provider)),
             cancel_download=lambda provider: calls.append(("cancel_download", provider)))

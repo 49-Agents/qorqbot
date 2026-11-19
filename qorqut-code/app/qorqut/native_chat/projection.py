@@ -74,6 +74,9 @@ _COMMAND_PREFIXES = ("<local-command-", "<command-name>", "<system-reminder>")
 # Claude Code records a slash command as ``<command-name>/x</command-name> … <command-args>a b</command-args>``. Chat shows it
 # as the command the owner typed (``/x a b``), so a command sent from Chat finds its own entry instead of waiting forever.
 _COMMAND_RECORD = re.compile(r"<command-name>\s*(/?[^<\s]{1,200})\s*</command-name>.*?(?:<command-args>(.*?)</command-args>|$)", re.S)
+# What Claude Code records, as a user message, when a turn is stopped (with or without "for tool use"). It is the client's note about
+# a Stop, never something the owner typed: it is dropped, and the stopped turn ends.
+_INTERRUPT_RECORD = re.compile(r"\[Request interrupted by user(?: for tool use)?\]")
 MAX_ENTRY_CHARS = 200_000
 SEND_SERVER = "qorqut"
 SEND_TOOL = "agents_message_send"
@@ -447,6 +450,9 @@ class Projector:
         if not text.strip():
             return Result()
         stripped = text.lstrip(_LEADING_SPACE)
+        if _INTERRUPT_RECORD.fullmatch(text.strip()):
+            self.state.end_turn()
+            return Result(hidden=True)
         if stripped.startswith("<command-name>"):
             command = _COMMAND_RECORD.match(stripped)
             if command is None:

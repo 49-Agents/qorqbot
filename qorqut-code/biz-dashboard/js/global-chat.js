@@ -8,6 +8,7 @@ const GLOBAL_CHAT_FILES = new Map();            // scope -> selected browser Fil
 const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: the frozen identity of an unconfirmed send, reused by a retry
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
+const GLOBAL_CHAT_OPENING = new Map();          // agent id -> {text, at, position}: a message (or file) that is opening a closed session, shown at once as a pending bubble
 const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
 // scope -> {records, consumed}: owner messages accepted by the backend whose transcript entry has not been seen yet. Browser-only and
 // presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
@@ -241,7 +242,10 @@ function mountGlobalChat(pane, agent, options = {}) {
 
   // ---- normalization: the transcript entries and the application inputs not yet confirmed by the transcript
   // The list is the transcript; entries are keyed by their stable id and ordered by archive position.
-  const presentEntry = entry => ({
+  // The client's own record of a Stop ("[Request interrupted by user]", with or without "for tool use") is not something the owner said:
+  // older transcripts hold it as a user entry. It reads as a quiet centred notice, like the other system lines.
+  const presentEntry = entry => entry.speaker === 'user' && /^\[Request interrupted by user(?: for tool use)?\]$/.test(String(entry.text ?? '').trim()) ? {key: entry.id, speaker: 'notice', text: 'Stopped.', timestamp: entry.timestamp, partial: false, position: entry.position,
+    typedReferences: [], collapsedSource: null, notice: {label: '', inputType: null, markerOnly: false}} : ({
     key: entry.id, speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp, partial: entry.partial === true, position: entry.position,
     typedReferences: Array.isArray(entry.references) ? entry.references : [],
     collapsedSource: ((entry.speaker === 'user' && /^(?:\[telegram\](?:\s|$)|Qorqut owner (?:message|reply) via Telegram\b)/i.test((entry.text || '').trimStart()))
@@ -313,7 +317,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     // A verified notice entry already is its input's receipt: never show the same input a second time.
     const noticeIds = new Set([...entries.values()].map(entry => entry.system?.input_id).filter(Boolean));
     shownInputs = inputs.filter(item => inputVisible(item, noticeIds)).sort((a, b) => a.sequence - b.sequence);
-    const local = acceptedBubbles(new Set(shownInputs.map(item => item.id)));
+    const local = [...acceptedBubbles(new Set(shownInputs.map(item => item.id))), ...openingBubble()];
     hasLocal = local.length > 0;
     const server = presentReceipts();
     return local.length ? [...server.map((model, i) => ({sequence: shownInputs[i].sequence, model})), ...local].sort((a, b) => a.sequence - b.sequence).map(row => row.model) : server;
@@ -343,6 +347,19 @@ function mountGlobalChat(pane, agent, options = {}) {
       collapsedSource: null, text: record.text, actions: [],
     }}));
   }
+  // The owner's message while it opens a sleeping or off agent (about 15 seconds): it is in the conversation at once, in the style of a
+  // message being sent, and is replaced by the accepted bubble and then by the transcript's own entry. It is hidden as soon as the
+  // transcript already holds that entry, so nothing shows twice.
+  function openingBubble() {
+    const held = GLOBAL_CHAT_OPENING.get(agentId);
+    if (!held) return [];
+    const want = globalChatText(held.probe);
+    const echoed = want && [...entries.values()].some(entry => entry.speaker === 'user' && entry.position > held.position
+      && globalChatText(entry.text).startsWith(want) && !(Number.isFinite(Date.parse(entry.timestamp)) && Date.parse(entry.timestamp) < held.at - 2000));
+    if (echoed) return [];
+    return [{sequence: Number.MAX_SAFE_INTEGER, model: {key: `opening-${agentId}`, speaker: 'user', state: 'submitting', stateLabel: GLOBAL_CHAT_INPUT_STATE.submitting,
+      inputType: 'chat', resendable: false, collapsedSource: null, text: held.text, actions: []}}];
+  }
   function presentReceipts() {
     return shownInputs.map(item => {
       const system = item.origin === 'system', kind = GLOBAL_CHAT_INPUT_LABEL[item.input_type] || (system ? 'System notice' : '');
@@ -354,7 +371,8 @@ function mountGlobalChat(pane, agent, options = {}) {
         text: globalChatMarkerOnly(item.input_type) ? '' : item.body ?? (item.input_type === 'telegram' ? 'Private message' : ''),
         ...(kind ? {notice: {label: kind}} : {}),
         actions: [
-          ...(resendable ? [{key: 'resend', label: 'Resend', disabled: !session?.can_send || GLOBAL_CHAT_RESENDS.get(item.id)?.pending === true}] : []),
+          ...(resendable ? [{key: 'resend', label: 'Resend', disabled: !session?.can_send || GLOBAL_CHAT_RESENDS.get(item.id)?.pending === true,
+            title: GLOBAL_CHAT_RESENDS.get(item.id)?.pending === true ? 'Sending again…' : `${label} isn’t available right now.`}] : []),
           ...(dismissable ? [{key: 'dismiss', label: 'Dismiss'}] : []),
         ],
       };
@@ -368,7 +386,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   // What the conversation holds, and whether a message that starts the session is on its way: the wording of the session line.
   const hasHistory = () => entries.size > 0 || shownInputs.length > 0 || hasLocal;
   const sessionSummary = () => session ? agentRuntime.summary(session, label, viewingLive(), {history: hasHistory(),
-    opening: agentRuntime.closed(session) && GLOBAL_CHAT_INFLIGHT.has(composerScope)}) : {key: 'loading', line: ''};
+    opening: agentRuntime.closed(session) && (GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId))}) : {key: 'loading', line: ''};
   // ---- slash commands: the catalog for the CLI this session runs
   const commandCatalogs = new Map();
   let slashMenu = null;
@@ -418,18 +436,24 @@ function mountGlobalChat(pane, agent, options = {}) {
     // The activity line (Stop, what the agent is doing) already shows the dots while it is there; in the focus panel they stay.
     workingTag.hidden = !working || (workingTag.parentElement === sessionLine && !!agentRuntime.activity(session).text);
     contextStatus?.show();
+    // The question card and the activity line take room from the message list. Whether the owner was at the end of it is read before
+    // they appear, so the list stays at its end (the last message is never under the card) and a list scrolled up stays where it is.
+    const pinned = !!view?.isAtBottom?.();
     syncManaged();
     sessionLine.hidden = !sessionText.textContent && endSession.el.hidden && (!working || workingTag.parentElement !== sessionLine);
-    const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
+    const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId);
     const pending = presentInputs();
     view.render({
       ...patch, pending,
-      composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, filesDisabled: !enabled || sending || agentRuntime.canOpen(session),
+      composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, filesDisabled: !enabled || sending,
+        disabledReason: enabled ? '' : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost}),
+        sendingReason: GLOBAL_CHAT_OPENING.has(agentId) ? `Starting ${label}…` : 'Sending your message…', filesReason: 'Wait until your message is sent.',
         attachments: selectedFiles().map(file => ({key: file.key, name: file.file.name})),
-        placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : 'Not available to send'},
+        placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost})},
       older: {visible: older != null, disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
+    if (pinned && !view.isAtBottom()) view.scrollToBottom();
     // Load the slash command catalog as soon as the running CLI is known, so "/" lists commands at once.
     if (session?.provider) commandCatalog();
   }
@@ -471,6 +495,31 @@ function mountGlobalChat(pane, agent, options = {}) {
   // A closed managed agent has no session to pin: the message goes without a binding and opens one.
   // The owner's explicit choice to start a fresh conversation instead of the one that can't be continued: the next request (and its
   // retries, which keep their key) is sent with ``new_conversation``; ``key`` is bound when that request is first made.
+  // A message to a closed session: the owner sees it at once, the composer is empty meanwhile, and a failed open puts the text back.
+  const opening = {
+    active: () => GLOBAL_CHAT_OPENING.has(agentId),
+    start(text, attempt) {
+      if (attempt.pin !== null || !agentRuntime.closed(session)) return false;
+      const names = attempt.files.map(item => item.file.name).join(', ');
+      GLOBAL_CHAT_OPENING.set(agentId, {text: text.trim() ? text : names, probe: text.trim() ? text : '', at: Date.now(), position: attempt.position});
+      if (composerScope) GLOBAL_CHAT_DRAFTS.delete(composerScope);
+      if (view.getDraft() === text) view.setDraft('');
+      return true;
+    },
+    // Nothing the owner typed is lost: the text returns to the composer (ahead of anything typed meanwhile).
+    restore(scope, text) {
+      const target = live() && composerScope ? composerScope : scope;
+      const now = live() && composerScope === target ? view.getDraft() : GLOBAL_CHAT_DRAFTS.get(target) || '';
+      const draft = !now.trim() ? text : now.includes(text) ? now : `${text}\n${now}`;
+      GLOBAL_CHAT_DRAFTS.set(target, draft);
+      if (live() && composerScope === target) view.setDraft(draft);
+    },
+    end() { GLOBAL_CHAT_OPENING.delete(agentId); },
+    // A file opened the session: the message that follows names the binding that came up, as a message to an open session does.
+    async pin() {
+      try { return coreData(await api(stateUrl(), {signal: reads.signal})).session?.binding?.binding_id || null; } catch (_) { return null; }
+    },
+  };
   let freshChoice = null;
   async function startFresh(text) {
     freshChoice = {key: null};
@@ -504,7 +553,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   async function submit(text) {
     const mine = composerScope;
     const files = [...selectedFiles()], fileKey = files.map(file => file.key).join(',');
-    if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
+    if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine) || opening.active()) return;
     // A known slash command is judged for the session it is sent to, before anything is uploaded or sent. A shared Codex server
     // cannot run it: the draft and attachments stay as they are and the owner is told where it runs (the backend refuses it too).
     const slash = slashCommands.command(commandCatalog() || [], text);
@@ -515,6 +564,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     let attempt = GLOBAL_CHAT_SENDS.get(mine);
     if (!attempt || attempt.text !== text || attempt.fileKey !== fileKey) attempt = {text, fileKey, files, key: newRequestId(), pin: liveBinding()?.binding_id ?? null, position: newestPosition()};
     GLOBAL_CHAT_SENDS.set(mine, attempt);
+    const opened = opening.start(text, attempt);
     const run = (async () => {
       try {
         const references = [];
@@ -523,11 +573,20 @@ function mountGlobalChat(pane, agent, options = {}) {
             try {
               item.saved = coreData(await api(`${base}/attachments`, {method: 'POST',
                 headers: {'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(item.file.name),
-                  'Idempotency-Key': `${item.key}:${attempt.pin}`, 'X-Chat-Binding': attempt.pin}, body: item.file}));
+                  'Idempotency-Key': `${item.key}:${attempt.pin}`, ...(attempt.pin ? {'X-Chat-Binding': attempt.pin} : {})}, body: item.file}));
               item.savedPin = attempt.pin;
             } catch (error) { error.attachment = true; throw error; }
+            // The first file for a sleeping agent opened its session: the files after it, and the message, name the binding that came up.
+            if (attempt.pin === null) {
+              const pin = await opening.pin();
+              if (pin) { attempt.pin = pin; for (const other of attempt.files) if (other.saved) other.savedPin = pin; }
+            }
           }
           references.push(item.saved.reference);
+        }
+        if (attempt.pin === null && references.length) {
+          const pin = await opening.pin();
+          if (pin) { attempt.pin = pin; for (const item of attempt.files) item.savedPin = pin; }
         }
         const payload = references.length ? [text, references.join('\n')].filter(part => part.trim()).join('\n\n') : text;
         if (payload.length > GLOBAL_CHAT_MAX) {
@@ -535,6 +594,8 @@ function mountGlobalChat(pane, agent, options = {}) {
         }
         const result = await admit(payload, attempt.key, attempt.pin);
         globalChatAccept(mine, payload, result.input, attempt.position, !!slash);
+        // A first message opens the conversation, so the composer may have moved to its scope meanwhile: the bubble follows it.
+        if (composerScope && composerScope !== mine) globalChatAccept(composerScope, payload, result.input, attempt.position, !!slash);
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
         if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
         const sent = new Set(attempt.files.map(file => file.key));
@@ -544,6 +605,7 @@ function mountGlobalChat(pane, agent, options = {}) {
         takeInput(result.input);
         if (live()) { view.scrollToBottom(); void load(); }
       } catch (problem) {
+        if (opened) opening.restore(mine, text);
         // A refusal stores nothing, so its request is dropped; except one that is only "not yet" (``keepAttempt``, set by ``admit``: the
         // session is still starting, or the host is busy): that request keeps its key, so the retry is the same message, never a
         // second one and never a second open.
@@ -554,11 +616,13 @@ function mountGlobalChat(pane, agent, options = {}) {
         if (problem.code === 'capture_not_ready' || problem.code === 'terminal_changed') void load();
       } finally {
         GLOBAL_CHAT_INFLIGHT.delete(mine);
+        if (opened) opening.end();
         if (live()) paintSession();
       }
     })();
     GLOBAL_CHAT_INFLIGHT.set(mine, {text, promise: run});
     paintSession();
+    if (opened && live()) view.scrollToBottom();
     await run;
   }
   // A definitely undelivered input is resent only when the owner asks; the new send has its own key, stable across a retry.
@@ -594,7 +658,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     onReference: openReference,
     onFilePreview: ref => agentFilePreviewOpen(ref),
     onFiles: files => {
-      if (!composerScope || !canSend() || agentRuntime.canOpen(session) || GLOBAL_CHAT_INFLIGHT.has(composerScope) || !files.length) return;
+      if (!composerScope || !canSend() || GLOBAL_CHAT_INFLIGHT.has(composerScope) || opening.active() || !files.length) return;
       if (files.length + selectedFiles().length > 10 || files.some(file => file.size > 25 * 1024 * 1024)) {
         showBanner('Choose up to 10 files, each 25 MB or smaller.'); return;
       }

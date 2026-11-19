@@ -44,6 +44,8 @@ WAKE_TEXT = ('<qorqut-wake>\nQorqut started this session because input is waitin
 OFF_STATES = frozenset({"stopped"})
 # What a source never wakes: off, and paused (a recorded intent not to run).
 NOT_WAKEABLE = frozenset({"stopped", "paused"})
+# The sources that are the owner's own words: they may open an agent the product does not offer yet.
+OWNER_SOURCES = frozenset({"chat", "telegram"})
 # Open failures that repeat until someone changes something: what ``agents/unreachable.py`` tells Ordubashy about.
 REPEATING = frozenset({"cli_unavailable", "resume_failed", "resume_unavailable", "driver_unavailable"})
 # A host that is merely busy, starting or slow: asked again soon, never an alarm.
@@ -135,9 +137,29 @@ class SessionOpener:
     def is_off(self, agent_id: str) -> bool:
         return self.desired(agent_id) in OFF_STATES
 
-    def wakeable(self, agent_id: str) -> bool:
-        """Whether a non-owner input may open this agent's session: managed runtime composed, and not off or paused."""
-        return self.managed is not None and self.desired(agent_id) not in NOT_WAKEABLE
+    def offered(self, agent_id: str) -> bool:
+        """Whether the product offers this agent to the owner. The Learning Applier (shown as Overseer) is offered only while the
+        owner's Testing mode is on, the same condition under which the dashboard stops saying "Coming soon" for it; every other
+        agent is always offered, and so is a Learning Applier that has had a session before (someone started it: it keeps
+        working as it did). An unreadable preference counts as off, as it does on the dashboard."""
+        from qorqut.agents.roles import LEARNING_APPLIER_ROLE, profile_role
+        with self.database.read() as uow:
+            row = uow.connection.execute("SELECT profile_json FROM agent_profiles WHERE agent_id=?", (agent_id,)).fetchone()
+            owner = uow.connection.execute("SELECT owner_principal_id FROM installation WHERE id='service'").fetchone()
+            ran = uow.connection.execute("SELECT 1 FROM native_session_owners WHERE agent_id=?", (agent_id,)).fetchone()
+        if row is None or profile_role(row) != LEARNING_APPLIER_ROLE or ran is not None:
+            return True
+        try:
+            from qorqut.dashboard_preferences import testing_mode
+            return owner is not None and testing_mode(self.runtime.paths.runtime, owner[0])["enabled"]
+        except (DomainError, OSError, AttributeError):
+            return False
+
+    def wakeable(self, agent_id: str, *, owner: bool = False) -> bool:
+        """Whether an input may open this agent's session: managed runtime composed, not off or paused, and, unless the input is the
+        owner's own, the agent is one the product offers (``offered``): nothing but the owner opens an agent that is not offered."""
+        return (self.managed is not None and self.desired(agent_id) not in NOT_WAKEABLE
+                and (owner or self.offered(agent_id)))
 
     def set_desired(self, agent_id: str, state: str) -> bool:
         """Record the intent durably (the Chat view moves with it). False when there is no owner row to write: an agent that never
@@ -207,6 +229,8 @@ class SessionOpener:
         if not force:
             if self.desired(agent_id) in NOT_WAKEABLE:
                 raise DomainError("session_closed", "This agent is turned off")
+            if source not in OWNER_SOURCES and not self.offered(agent_id):
+                raise DomainError("session_closed", "This agent is not offered yet and is opened only by the owner")
             self._paced(agent_id)
         if wait:
             total = self._limits()[0]

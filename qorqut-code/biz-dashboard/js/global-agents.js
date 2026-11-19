@@ -2,6 +2,7 @@
 // Business agents are not resident: they are never listed, selected or started here.
 let globalAgentsGeneration = 0;
 let globalTestingModeUnsubscribe = null;
+let globalRosterUnsubscribe = null;
 const OVERSEER_ROLE = 'learning-applier';
 const overseerRole = agent => (agent?.role?.id || agent?.role_id) === OVERSEER_ROLE;
 const OVERSEER_UNAVAILABLE_LABEL = 'Overseer, available in testing mode only.';
@@ -123,6 +124,8 @@ function wireGlobalAgentNavOverlay(root) {
     const opened=nav.matches(':popover-open');trigger.setAttribute('aria-expanded',String(opened));
     if(opened){timeline.open();void focus.open();}else {clearTimeout(closeTimer);timeline.close();focus.close();}
   });
+  // Rows added while the menu is open get their focus line too.
+  timeline.reloadFocus=()=>{if(nav.matches(':popover-open'))void focus.open();};
   return timeline;
 }
 // The walkthrough holds the agent menu open while a step points at a button inside it. A held menu is a manual popover, so a
@@ -167,6 +170,8 @@ async function agentProfileOpen(agentId) {
 async function renderGlobalAgents(c) {
   globalTestingModeUnsubscribe?.();
   globalTestingModeUnsubscribe = null;
+  globalRosterUnsubscribe?.();
+  globalRosterUnsubscribe = null;
   const generation = ++globalAgentsGeneration;
   const current = () => generation === globalAgentsGeneration && c.isConnected
     && state.scope === 'global' && state.globalTab === 'agents';
@@ -188,7 +193,7 @@ async function renderGlobalAgents(c) {
     return;
   }
   if (!current()) return;
-  const rosterOverseer = agents.find(overseerRole) || null;
+  let rosterOverseer = agents.find(overseerRole) || null;
   c.innerHTML = `<div class="split global-agents agsplit agent-nav-overlay-mode">
     <button type="button" class="quiet agent-nav-trigger" data-agent-nav-trigger popovertarget="global-agent-navigation" aria-controls="global-agent-navigation" aria-expanded="false" aria-label="Agent navigation">${GLOBAL_MENU_ICON}</button>
     <div class="listcol agent-nav-overlay" id="global-agent-navigation" popover="auto" role="navigation" aria-label="Agent navigation">
@@ -221,14 +226,17 @@ async function renderGlobalAgents(c) {
   const comingSoonRetry = $('.overseer-coming-soon-retry', comingSoon);
   // The wider overlay shows the same saved avatar alongside the agent's name.
   // The unavailable Overseer row keeps its real avatar and gains an explicit hover/accessible status label.
-  list.innerHTML = agents.map((agent, index) => {
-    const gated = overseerRole(agent) && !testingModeEnabled();
-    const name = agent.display_name || agent.name;
-    return `${index > 0 && globalAgentNavRank(agents[index - 1]) < 2 && globalAgentNavRank(agent) >= 2
-      ? '<span class="global-agent-group-divider" aria-hidden="true"></span>' : ''}<button class="item agent${gated ? ' overseer-coming-soon-entry' : ''}" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(gated ? OVERSEER_UNAVAILABLE_LABEL : name)}"${gated ? ` title="${esc(OVERSEER_UNAVAILABLE_TITLE)}" data-overseer-coming-soon="1"` : ''}>
-    <span class="nm">${globalAgentNavAvatar(agent)}<span class="agent-nav-copy"><span class="agent-nav-label">${esc(name)}</span><span class="agent-nav-focus" data-agent-focus="${esc(agent.agent_id)}">Loading focus…</span></span></span><span class="agent-nav-status"><span class="agent-nav-working" data-agent-presence="${esc(agent.agent_id)}" role="img" aria-label="Working" hidden><i></i><i></i><i></i></span></span>
-  </button>`.replace(/\s*\n\s*/g, '');
-  }).join('');
+  const paintRoster = () => {
+    list.innerHTML = agents.map((agent, index) => {
+      const gated = overseerRole(agent) && !testingModeEnabled();
+      const name = agent.display_name || agent.name;
+      return `${index > 0 && globalAgentNavRank(agents[index - 1]) < 2 && globalAgentNavRank(agent) >= 2
+        ? '<span class="global-agent-group-divider" aria-hidden="true"></span>' : ''}<button class="item agent${gated ? ' overseer-coming-soon-entry' : ''}" type="button" data-global-agent="${esc(agent.agent_id)}" aria-pressed="false" aria-label="${esc(gated ? OVERSEER_UNAVAILABLE_LABEL : name)}"${gated ? ` title="${esc(OVERSEER_UNAVAILABLE_TITLE)}" data-overseer-coming-soon="1"` : ''}>
+      <span class="nm">${globalAgentNavAvatar(agent)}<span class="agent-nav-copy"><span class="agent-nav-label">${esc(name)}</span><span class="agent-nav-focus" data-agent-focus="${esc(agent.agent_id)}">Loading focus…</span></span></span><span class="agent-nav-status"><span class="agent-nav-working" data-agent-presence="${esc(agent.agent_id)}" role="img" aria-label="Working" hidden><i></i><i></i><i></i></span></span>
+    </button>`.replace(/\s*\n\s*/g, '');
+    }).join('');
+  };
+  paintRoster();
   wireGlobalAgentGaze();
   agentNavPaint(); agentNavRefresh();
   if (typeof replyNotifications !== 'undefined') replyNotifications.paint();
@@ -295,6 +303,27 @@ async function renderGlobalAgents(c) {
     }
   };
   paintOverseerEntry();
+  // The roster changes while the page is open (a worker is created, one is retired): the menu follows without touching the chat,
+  // the agent pane or the selection.
+  const rosterKey = list => list.map(agent => [agent.agent_id, agent.display_name || agent.name, agent.role?.id, agent.presentation?.glyph ?? '', agent.presentation?.color ?? ''].join('|')).join('\n');
+  let rosterReading = false, rosterAgain = false;
+  const refreshRoster = async () => {
+    if (rosterReading) { rosterAgain = true; return; }
+    rosterReading = true;
+    try {
+      if (typeof uiReads !== 'undefined') uiReads.invalidate('agent-roster');   // never the snapshot from before the change
+      const profiles = await loadGlobalAgentProfiles();
+      if (!current() || !Array.isArray(profiles)) return;
+      const next = profiles.filter(globalRosterAgent).sort((a, b) => globalAgentNavRank(a) - globalAgentNavRank(b));
+      if (rosterKey(next) === rosterKey(agents)) return;
+      agents = next; rosterOverseer = agents.find(overseerRole) || null;
+      paintRoster(); paintOverseerEntry(); paintSelection(); agentNavPaint(); agentNavRefresh(true);
+      if (typeof replyNotifications !== 'undefined') replyNotifications.paint();
+      navTimeline.reloadFocus?.();
+    } catch (_) { /* the next change event reads it again */ }
+    finally { rosterReading = false; if (rosterAgain) { rosterAgain = false; if (current()) void refreshRoster(); } }
+  };
+  if (typeof onChange === 'function') globalRosterUnsubscribe = onChange(['agents'], null, () => { void refreshRoster(); });
   const select = (agent, requestedView = null, remember = true, leaveChecked = false) => {
     if (!current()) return;
     const selection = leaveChecked || ++selectionVersion;

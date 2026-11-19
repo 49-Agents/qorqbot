@@ -153,6 +153,56 @@ class OpenerUnitTests(WakeCase):
         self.assertFalse(self.opener.wakeable(AGENT))
 
 
+class NotOfferedTests(WakeCase):
+    """The Learning Applier (Overseer) is not offered to the owner until Testing mode is on: no input but the owner's opens it."""
+
+    def make_overseer(self, testing=None):
+        self.db.connection.execute("INSERT INTO agent_profiles VALUES(?,?)",
+                                   (AGENT, '{"role": {"id": "learning-applier"}, "runtime": "claude-code"}'))
+        self.db.connection.execute("INSERT INTO installation VALUES('service', ?)", (OWNER,))
+        self.db.connection.commit()
+        from qorqut.dashboard_preferences import testing_mode
+        if testing is not None:
+            testing_mode(self.paths.runtime, OWNER, {"enabled": testing})
+
+    def test_an_agent_that_is_not_offered_is_not_woken_by_any_non_owner_input(self):
+        self.make_overseer()
+        self.assertFalse(self.opener.offered(AGENT))
+        self.assertFalse(self.opener.wakeable(AGENT))
+        for source in ("inbox", "attention", TYPE_DIRECT, TYPE_BROADCAST, TYPE_NUDGE, "ordubashy-unrelated"):
+            with self.subTest(source=source), self.assertRaises(DomainError) as refused:
+                self.opener.wake(self.profile(), source)
+            self.assertEqual(refused.exception.code, "session_closed")
+        self.assertEqual(self.managed.opened, [])
+
+    def test_the_owners_own_inputs_may_open_it(self):
+        self.make_overseer()
+        self.assertTrue(self.opener.wakeable(AGENT, owner=True))
+        self.assertEqual(self.opener.wake(self.profile(), "telegram"), "waking")
+        self.assertEqual(self.managed.opened, [AGENT])
+
+    def test_testing_mode_makes_it_an_ordinary_agent_and_turning_it_off_again_stops_waking(self):
+        self.make_overseer(testing=True)
+        self.assertTrue(self.opener.offered(AGENT))
+        self.assertTrue(self.opener.wakeable(AGENT))
+        from qorqut.dashboard_preferences import testing_mode
+        testing_mode(self.paths.runtime, OWNER, {"enabled": False})
+        self.assertFalse(self.opener.wakeable(AGENT))
+
+    def test_one_that_has_had_a_session_before_is_woken_like_any_agent(self):
+        self.make_overseer()
+        self.owner_row()
+        self.assertTrue(self.opener.offered(AGENT))
+        self.assertEqual(self.opener.wake(self.profile(), "inbox"), "waking")
+
+    def test_a_worker_that_was_never_started_is_still_woken_by_delegated_work(self):
+        self.db.connection.execute("INSERT INTO agent_profiles VALUES(?,?)", (AGENT, '{"role": {"id": "global-worker"}}'))
+        self.db.connection.execute("INSERT INTO installation VALUES('service', ?)", (OWNER,))
+        self.db.connection.commit()
+        self.assertTrue(self.opener.offered(AGENT))
+        self.assertEqual(self.opener.wake(self.profile(), "inbox"), "waking")
+
+
 class SourceTests(WakeCase):
     """One test per input source: asleep-and-on is opened and delivered once; off is not opened; a failed open leaves it waiting."""
 

@@ -627,7 +627,7 @@ class ClaudeLookup(ManagerFixture):
         for target, replacement in (
                 ("qorqut.agent_cli_launch.executable", lambda provider, default=None, environ=None: own or default),
                 ("qorqut.agent_cli_install.resolve", lambda provider, environ=None, **options: {"path": str(installed), "source": "system"} if installed else None),
-                ("qorqut.managed_runtime.manager.ManagedRuntime._search_environment", staticmethod(lambda env: {"PATH": path or ""}))):
+                ("qorqut.agent_cli_launch.search_environment", lambda env=None: {"PATH": path or ""})):
             patcher = mock.patch(target, replacement)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -642,10 +642,13 @@ class ClaudeLookup(ManagerFixture):
         self.manager.ensure_open(PROFILE, 5)
         self.assertEqual(self.launcher.started[0][1]["executable"], str(self.owner_claude))
 
-    def test_a_claude_on_the_owners_path_is_found_even_when_the_installer_check_is_not(self):
+    def test_a_claude_the_installer_does_not_accept_is_not_started_by_a_search_of_the_path(self):
+        # What the setup screen does not call Ready (too old, silent about its version) is not what a session runs either.
         self.patched(path=str(self.bin))
-        self.manager.ensure_open(PROFILE, 5)
-        self.assertEqual(self.launcher.started[0][1]["executable"], str(self.owner_claude))
+        with self.assertRaises(hosts.ManagedError) as refused:
+            self.manager.ensure_open(PROFILE, 5)
+        self.assertEqual(refused.exception.code, "cli_unavailable")
+        self.assertEqual(self.launcher.started, [])
 
     def test_when_it_is_nowhere_the_error_says_what_was_searched_in_plain_words(self):
         empty = self.base / "empty"

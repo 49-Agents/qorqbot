@@ -28,11 +28,13 @@ from qorqut_operations.contracts import DomainError, Principal, new_id, utc_now
 from qorqut_operations.storage import safe_io
 from .client import STARTUP_INSTRUCTIONS, auth_headers, path_has_symlink, service_url
 from . import email_guidance
+from qorqut import agent_cli_install
 from .tool_permissions import (VERSION as TOOL_CONFIGURATION_VERSION, fingerprint as tool_fingerprint,
                                permissions as tool_permissions, preparation_lock)
 
-MINIMUM_CLAUDE_VERSION = (2, 1, 263)
-MINIMUM_CODEX_VERSION = (0, 153, 4)
+# One minimum per client, owned by the installer: what the setup screen calls Ready is what preparation accepts.
+MINIMUM_CLAUDE_VERSION = agent_cli_install.MINIMUM_VERSIONS["claude"]
+MINIMUM_CODEX_VERSION = agent_cli_install.MINIMUM_VERSIONS["codex"]
 RUNTIMES = ("claude-code", "codex")
 LEGACY_PLUGINS = {"biz-agents-manager@bazarlyk", "biz-agents-marketing@bazarlyk"}
 # External MCP connections come only from installed extensions (resolver.native_connections); a registered role may
@@ -80,9 +82,10 @@ def durable_delegation_enabled(data: dict, *, delegate_operations: bool) -> bool
 
 
 def _agent_cli(provider: str) -> str:
-    """The CLI to probe: Qorqbot's own downloaded copy while it is the selected one, else the bare name found on PATH."""
+    """The CLI to probe: the one a managed session would start (``agent_cli_launch.locate``: Qorqbot's own copy, else the owner's own
+    that the installer accepts), else the bare name."""
     from qorqut import agent_cli_launch
-    return agent_cli_launch.executable(provider, provider)
+    return agent_cli_launch.locate(provider) or provider
 
 
 def installed_versions() -> dict[str, str]:

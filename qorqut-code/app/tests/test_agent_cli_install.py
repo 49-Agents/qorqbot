@@ -173,10 +173,10 @@ class ResolveTests(Case):
         self.executable(self.root / "bin/codex", "#!/bin/sh\nexit 4\n")
         self.assertIsNone(cli.resolve("codex", self.environ))
 
-    def test_the_minimum_is_the_pinned_major_and_minor_at_most(self):
+    def test_the_minimum_is_the_pinned_version_at_most(self):
         for provider in cli.PROVIDERS:
             pinned = tuple(int(part) for part in cli.VERSIONS[provider].split("."))
-            self.assertLessEqual(cli.MINIMUM_VERSIONS[provider], pinned[:2])
+            self.assertLessEqual(cli.MINIMUM_VERSIONS[provider], pinned)
 
     def test_the_owners_version_is_read_once_per_file_and_failures_are_remembered_too(self):
         calls = []

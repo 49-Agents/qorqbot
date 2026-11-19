@@ -87,6 +87,39 @@ def executable(provider, default=None, environ=None):
     return default if found is None else found["path"]
 
 
+def search_environment(session_env=None):
+    """The environment a CLI is looked up in: the owner's own (``QORQUT_NATIVE_USER_ENV`` over the service's, plus the usual system
+    folders, as the connectors check does), with the folders the session's own PATH names first."""
+    try:
+        from qorqut.connectors import _probe_environment
+        base = _probe_environment()
+    except Exception:  # noqa: BLE001
+        base = dict(os.environ)
+    folders = [folder for text in ((session_env or {}).get("PATH") or "", base.get("PATH") or "") for folder in text.split(os.pathsep) if folder]
+    return {**base, "PATH": os.pathsep.join(dict.fromkeys(folders))}
+
+
+def locate(provider, session_env=None):
+    """The one executable a managed session runs for ``provider``, or None: Qorqbot's own downloaded copy, else the owner's own
+    that the installer accepts (``agent_cli_install.resolve``: on the owner's PATH and at least ``MINIMUM_VERSIONS``). The setup
+    screen's "Ready", the session's start and the preparation of an agent's workspace all ask this, so they cannot disagree. A copy
+    the installer does not accept (too old, silent about its version) is not found here; the setup screen says why."""
+    own = executable(provider, None)
+    if own and os.access(own, os.X_OK):
+        return own
+    search = search_environment(session_env)
+    install = _install()
+    if install is None:
+        import shutil
+        return shutil.which(provider, path=search.get("PATH"))
+    try:
+        chosen = install.resolve(provider, search)
+    except Exception:  # noqa: BLE001 - not looking is "not found"
+        return None
+    path = chosen.get("path") if isinstance(chosen, dict) else None
+    return path if path and os.access(path, os.X_OK) else None
+
+
 def for_executable(provider, path, environ=None):
     """``{"args", "env"}`` for starting ``path`` as ``provider``: our no-self-update settings when ``path`` is our copy, else
     nothing. Arguments go before the caller's own; variables are added to the process environment."""

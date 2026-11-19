@@ -82,7 +82,7 @@ def _client(provider, env, run):
     progress. The download is Qorqbot's own (``agent_cli_install``); the sign-in is the owner's, in the browser."""
     from qorqut import agent_cli_sign_in as sign_in
     found = sign_in.resolve_cli(provider, env)
-    install = sign_in.install_status(provider, found)
+    install = sign_in.install_status(provider, found, env)
     row = {"installed": found is not None, "source": found["source"] if found else None,
            "install": {"phase": install.get("phase"), "progress": install.get("progress"), "message": install.get("message")},
            "sign_in": sign_in.sign_in_state(provider)}

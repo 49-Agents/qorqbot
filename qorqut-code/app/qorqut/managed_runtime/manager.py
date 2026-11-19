@@ -652,32 +652,24 @@ class ManagedRuntime:
                 return (self._executable if os.access(self._executable, os.X_OK) and os.path.isfile(self._executable) else None), [self._executable]
             found = shutil.which(self._executable, path=env.get("PATH") or os.environ.get("PATH"))
             return found, [env.get("PATH") or os.environ.get("PATH") or ""]
-        own = agent_cli_launch.executable(program, None)
-        if own and os.access(own, os.X_OK):
-            return own, []
-        search = self._search_environment(env)
-        folders = [item for item in (search.get("PATH") or "").split(os.pathsep) if item]
-        try:
-            from qorqut import agent_cli_install
-            chosen = agent_cli_install.resolve(program, search, probe=False)
-        except Exception:  # noqa: BLE001 - the installer is not part of the build, or could not look
-            chosen = None
-        path = chosen["path"] if isinstance(chosen, dict) else None
-        if not path:
-            path = shutil.which(program, path=search.get("PATH"))
-        return (path if path and os.access(path, os.X_OK) else None), folders
+        path = agent_cli_launch.locate(program, env)
+        folders = [item for item in (agent_cli_launch.search_environment(env).get("PATH") or "").split(os.pathsep) if item]
+        return path, folders
+
+    def _require_client(self, client, env) -> str:
+        """The executable to run for ``client``, or ``cli_unavailable`` (nothing starts) saying where Qorqbot looked."""
+        found, searched = self._locate(client, env)
+        if found:
+            return found
+        name = table.NAMES[client]
+        where = "Qorqbot's own copy and these folders: " + ", ".join(searched[:8]) if searched else "Qorqbot's own copy"
+        raise ManagedError("cli_unavailable", name + " could not be found. Qorqbot looked in " + where
+                           + (" and others" if len(searched) > 8 else "") + ". Install " + name + " from Settings, then send again.")
 
     @staticmethod
     def _search_environment(env) -> dict:
-        """The environment ``claude`` is looked up in: the owner's own (``QORQUT_NATIVE_USER_ENV`` over the service's, plus the
-        usual system folders, as the connectors check does), with the folders the prepared session environment names first."""
-        try:
-            from qorqut.connectors import _probe_environment
-            base = _probe_environment()
-        except Exception:  # noqa: BLE001
-            base = dict(os.environ)
-        folders = [folder for text in (env.get("PATH") or "", base.get("PATH") or "") for folder in text.split(os.pathsep) if folder]
-        return {**base, "PATH": os.pathsep.join(dict.fromkeys(folders))}
+        """The environment ``claude`` is looked up in (``agent_cli_launch.search_environment``)."""
+        return agent_cli_launch.search_environment(env)
 
     def _start(self, profile, resume, timeout, client=table.CLAUDE):
         """Prepare, launch and wait for ``ready``. Returns the verified host's record. ``client`` is the agent's effective client:
@@ -687,6 +679,9 @@ class ManagedRuntime:
         if not table.available(client):
             raise ManagedError("driver_unavailable", "Running this agent with " + str(client).capitalize() + " is not available yet")
         item, name = table.entry(client), table.NAMES[client]
+        # No usable client at all is said first and plainly: preparing a workspace for a client that cannot run refuses with a
+        # preparation reason the owner cannot act on ("no installed agent CLI meets the baseline").
+        self._require_client(client, {})
         prepared = self._prepared(agent_id)
         workspace, env = str(prepared["workspace"]), dict(prepared["env"])
         # The client's own configuration folder must be the one its conversations were created in: a resume only finds its
@@ -694,11 +689,7 @@ class ManagedRuntime:
         for variable in CLIENT_HOME_VARIABLES:
             if variable not in env and os.environ.get(variable):
                 env[variable] = os.environ[variable]
-        found, searched = self._locate(client, env)
-        if not found:
-            where = "Qorqbot's own copy and these folders: " + ", ".join(searched[:8]) if searched else "Qorqbot's own copy"
-            raise ManagedError("cli_unavailable", name + " could not be found. Qorqbot looked in " + where
-                               + (" and others" if len(searched) > 8 else "") + ". Install " + name + " from Settings, then send again.")
+        found = self._require_client(client, env)
         extra = agent_cli_launch.for_executable(item["provider"], found)
         args = list(extra["args"])
         args += table.settings_arguments(client, workspace)

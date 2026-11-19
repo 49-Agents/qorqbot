@@ -5,6 +5,7 @@ from dataclasses import replace
 import logging
 import queue
 import re
+import threading
 import time
 import uuid
 from contextlib import nullcontext
@@ -22,6 +23,9 @@ from .auth import AuthenticatedPrincipal
 from .mcp import split_options
 from .results import failure, response
 
+# Set when the service has been asked to stop (``service/main.py``): an event stream ends at its next turn of the loop instead of
+# keeping the server waiting for a browser tab that never closes it.
+STOPPING = threading.Event()
 _UUID_RE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 
 
@@ -934,7 +938,7 @@ class HTTPAPI:
                         for event in replay:
                             yield frame(event)
                             last_seq = event["seq"]
-                while not await request.is_disconnected():
+                while not STOPPING.is_set() and not await request.is_disconnected():
                     try:
                         event = await anyio.to_thread.run_sync(subscriber.queue.get, True, 1.0, limiter=idle_limiter)
                     except queue.Empty:
@@ -1007,7 +1011,7 @@ class HTTPAPI:
                 return
             try:
                 yield event("open", {"view": view.id, "tab": tab})
-                while not await request.is_disconnected():
+                while not STOPPING.is_set() and not await request.is_disconnected():
                     if time.monotonic() - checked_at >= 2:
                         current = await anyio.to_thread.run_sync(live.tabs, port)
                         checked_at = time.monotonic()

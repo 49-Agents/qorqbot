@@ -162,9 +162,19 @@ class TerminalControl:
         found = found if isinstance(found, dict) else {}
         is_open = bool(found.get('open'))
         off = opener.is_off(row['agent_id'])
-        return {'on': not off, 'off': off, 'open': is_open, 'asleep': not is_open and not off,
-                'working': is_open and found.get('phase') in ('working', 'blocked'), 'phase': found.get('phase'),
-                'activity': found.get('activity')}
+        working = is_open and found.get('phase') in ('working', 'blocked')
+        return {'state': 'off' if off else ('open' if is_open else 'asleep'), 'turn': 'working' if working else 'idle',
+                'client': self._client(row), 'on': not off, 'off': off, 'open': is_open, 'asleep': not is_open and not off,
+                'working': working, 'phase': found.get('phase'), 'activity': found.get('activity')}
+
+    def _client(self, row):
+        """The client the agent's session runs: the stored choice, else the one its profile names."""
+        from qorqut.managed_runtime import options
+        try:
+            stored = options.read(self.runtime.paths, row['agent_id']).client
+            return stored or options.profile_client(dict(row))
+        except Exception:  # noqa: BLE001 - a status read never fails for this
+            return 'claude'
 
     def _execute(self, target, action, message, input_key):
         """The meaning of the four actions.
@@ -311,7 +321,8 @@ class TerminalControl:
                 self.target(ctx, action['target_id'], uow, control=False)
             return {'batch_id':args['batch_id'], 'actions':actions}
         row = self.target(ctx, args['target_agent_id'], uow, control=False)
-        result = {'target_agent_id':row['agent_id'], **self.binding(row)}
+        # Session terms only: the stored plan binding keeps its ``terminal`` key (see ``binding``), the status an agent reads does not.
+        result = {'target_agent_id':row['agent_id'], 'profile_revision':row['revision']}
         try:
             result['session'] = self.session_state(row)
         except DomainError:

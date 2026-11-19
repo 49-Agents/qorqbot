@@ -417,7 +417,10 @@ class NativeChat:
                                   else "The session is still starting; try again in a moment")
             if not expected_binding or session["binding"]["binding_id"] != expected_binding:
                 raise DomainError("terminal_changed", "The agent conversation changed; send again")
-            return uploads.save(self.runtime.root, profile, principal_id, expected_binding, key, name, data)
+            saved = uploads.save(self.runtime.root, profile, principal_id, expected_binding, key, name, data)
+            # The session the file was attached to: the pin a following send names (the same field the chat state uses), which the
+            # page does not have yet when this upload is what opened the session.
+            return {**saved, "binding_id": expected_binding}
 
     def _session_for_upload(self, principal_id, agent_id, key, expected_binding):
         """A file for an asleep agent is owner input like a message: it turns the agent on and opens its session (nothing is held

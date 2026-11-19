@@ -150,7 +150,7 @@ class InputArbiter:
         try:
             if request.input_type in TURNS_ON:
                 opener.turn_on(agent_id)  # the owner's own input turns an off agent on
-            if not opener.wakeable(agent_id):
+            if not opener.wakeable(agent_id, owner=request.input_type in TURNS_ON):
                 return InputResult(state=RESULT_DEFERRED, reason=SESSION_CLOSED, origin=request.origin, input_type=request.input_type)
             state = opener.wake(profile, request.input_type, wait=request.input_type in WAKING_WAITS)
         except DomainError as error:
