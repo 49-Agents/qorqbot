@@ -383,7 +383,8 @@ class ManagedEndToEnd(unittest.TestCase):
                  message="the change event to carry the working phase")
         self.assertEqual(stack.view()["working"], True)
         second = self.say(stack, "second part DONE", pin)
-        self.assertEqual(self.submitted(stack, second)["reason"], "queued_mid_turn")
+        self.assertEqual(self.submitted(stack, second)["reason"], "queued_mid_turn",
+                         "the host's own log of this scenario: %r; its state: %r" % (stack.logged()[-6:], stack.managed_view()))
         self.settle(stack, "idle")
         self.assertEqual(stack.managed_view()["last_turn_status"], "completed")
         self.assertEqual([entry["text"] for entry in stack.logged("send")][-2:], ["SLOW first part", "second part DONE"])
@@ -454,6 +455,8 @@ class ManagedEndToEnd(unittest.TestCase):
         ended = stack.sessions()[-1]
         self.assertEqual((ended["id"], ended["end_reason"]), (pin, "process_gone"))
         self.assertGreater(stack.cursor(), before)
+        # the host summary is cached for up to 5 seconds (ManagedRuntime.snapshot): wait for the closed view to show
+        wait_for(lambda: stack.view()["reason"] == "session_closed", 12, message="the view to show the closed session")
         shut = stack.view()
         self.assertEqual((shut["state"], shut["reason"], shut["can_send"], shut["binding"], shut["managed"]["open"]),
                          ("offline", "session_closed", True, None, False))
