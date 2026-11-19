@@ -1,9 +1,10 @@
-// Connections: the agent browser, the websites agents use as the owner, and Qorqbot's extensions (treg, WhatsApp).
+// Connections: the agent browser, the websites agents use as the owner, and Qorqbot's extensions (OpenRouter, treg, WhatsApp).
 // `connectorsModel` is pure (unit tested with `node --test biz-dashboard/tests/*.test.js`); `connectorsPanel` renders the
 // panel shown in Settings. Extension status comes from /root/connectors (qorqut.connectors).
 const connectorsModel = (() => {
   const icon = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const ICONS = {
+    openrouter: icon('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>'),
     whatsapp: icon('<path d="M20 11.6a8 8 0 0 1-11.8 7L4 20l1.4-4.1A8 8 0 1 1 20 11.6z"/>'),
     treg: icon('<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M17 14v6M14 17h6"/>'),
   };
@@ -12,6 +13,12 @@ const connectorsModel = (() => {
     whatsapp: {name: 'WhatsApp', does: 'Ordubashy reads your chats to catch you up. Sending a message always needs your approval.',
       why: 'Catch up on chats without scrolling through them.',
       privacy: 'Runs on this computer and links like WhatsApp on a second device. Your messages stay in a private folder of this installation.'},
+    // A Qorqbot extension: the owner signs in with their own OpenRouter account (or pastes a key) and Chat gets voice input.
+    openrouter: {name: 'OpenRouter', does: 'Speak your Chat messages instead of typing them. Press the microphone in Chat, or Ctrl+Shift+Space, talk, and your words appear in the message box for you to check and send.',
+      why: 'Talking is faster than typing for long instructions. One OpenRouter account covers it, with no separate speech service to set up.',
+      privacy: 'Only what you record goes to OpenRouter and the speech model it runs, and only when you press the microphone. Recordings are not kept on this computer. Your key is kept in a private file on this computer and is never shown to your agents.',
+      needs: 'Your own OpenRouter account with a small balance. OpenRouter charges your account for each recording, usually a fraction of a cent.',
+      steps: ['Press Connect. OpenRouter opens in this tab.', 'Sign in or create an account there, set a spending limit if you like, and approve.', 'You come back here connected. If you already have an OpenRouter key, press Paste a key instead.']},
     // A Qorqbot extension: the owner pastes a treg key here and the tools reach every agent through Qorqbot itself.
     treg: {name: 'treg', does: 'Agents look up live data when a task needs it: search results, keyword and backlink numbers, company and contact details, social profiles and web pages. Lookups run on their own, each capped at $0.10. treg tools that post, send or buy stay switched off.',
       why: 'One key gives your agents thousands of data tools, so they don’t need a separate account for each service. It works with Claude Code and Codex alike.',
@@ -25,9 +32,14 @@ const connectorsModel = (() => {
     not_paired: {label: 'Not linked', tone: 'warn'}, coming_soon: {label: 'Coming soon on Mac', tone: 'idle'},
   };
   const status = item => STATUS[item.status] || STATUS.unknown;
-  // What the card's main button does: 'key' (open the card's key field) or 'none'.
+  // What the card's main button does: 'connect' (sign in with the service; `key` then names a second button that opens the
+  // card's key field), 'key' (open the card's key field) or 'none'.
   function action(item) {
     if (item.status === 'coming_soon') return {kind: 'none'};
+    if (item.id === 'openrouter') {
+      if (item.status === 'connected') return {kind: 'key', label: 'Change key', quiet: true};
+      return item.status === 'not_set_up' ? {kind: 'connect', label: 'Connect', key: 'Paste a key'} : {kind: 'none'};
+    }
     if (item.id === 'treg') {
       if (item.status === 'connected') return {kind: 'key', label: 'Change key', quiet: true};
       return item.status === 'not_set_up' ? {kind: 'key', label: 'Add key'} : {kind: 'none'};
@@ -41,6 +53,8 @@ const connectorsModel = (() => {
     return {text, tone: ['not_installed', 'coming_soon'].includes(item.status) ? 'info' : 'warn'};
   }
   function noteText(item) {
+    if (item.id === 'openrouter' && item.status === 'not_installed') return 'Comes with the OpenRouter extension, which isn’t part of this Qorqbot yet.';
+    if (item.id === 'openrouter' && item.status === 'not_set_up') return 'Connect your OpenRouter account to turn on voice input.';
     if (item.id === 'treg' && item.status === 'not_installed') return 'Comes with the treg extension, which isn’t part of this Qorqbot yet.';
     if (item.id === 'treg' && item.status === 'not_set_up') return 'Add your treg key to turn it on.';
     if (item.id === 'whatsapp' && item.status === 'coming_soon') return 'The WhatsApp extension is available for Windows (WSL) and Linux. A Mac version is in progress.';
@@ -65,18 +79,25 @@ const connectorsPanel = (() => {
   // The key field of a connector whose button is 'key'. It stays closed until that button is pressed; the saved key is
   // never sent back, so the field always starts empty.
   function keyForm(item, action) {
-    if (action.kind !== 'key') return '';
+    if (action.kind !== 'key' && !action.key) return '';
+    const name = esc((connectorsModel.COPY[item.id] || {name: item.id}).name);
     return `<form class="cx-key" data-cx-key="${esc(item.id)}" hidden>
-      <label><span>Your treg key</span><input type="password" name="key" autocomplete="off" spellcheck="false" placeholder="Paste the key from treg" required></label>
+      <label><span>Your ${name} key</span><input type="password" name="key" autocomplete="off" spellcheck="false" placeholder="Paste the key from ${name}" required></label>
       <div class="cx-key-actions"><button type="submit">Save key</button>
         ${item.status === 'connected' ? '<button type="button" class="quiet" data-cx-key-remove>Remove key</button>' : ''}
         <button type="button" class="quiet" data-cx-key-cancel>Cancel</button></div>
       <p class="cx-note" data-cx-key-error hidden></p></form>`;
   }
+  // The card's main button, and beside a 'connect' button the quiet one that opens the key field.
+  function buttons(item, action) {
+    if (action.kind === 'none') return '';
+    const one = (kind, label, quiet) => `<button type="button" class="${quiet ? 'quiet' : ''}" data-cx-action="${esc(kind)}" data-cx-id="${esc(item.id)}">${esc(label)}</button>`;
+    return one(action.kind, action.label, action.quiet) + (action.key ? one('key', action.key, true) : '');
+  }
   function card(item) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
-    const button = action.kind === 'none' ? '' : `<button type="button" class="${action.quiet ? 'quiet' : ''}" data-cx-action="${esc(action.kind)}" data-cx-id="${esc(item.id)}">${esc(action.label)}</button>`;
+    const button = buttons(item, action);
     const steps = copy.steps ? `<ol>${copy.steps.map(step => `<li>${esc(step)}</li>`).join('')}</ol>` : '';
     return `<article class="cx-card" data-cx-card="${esc(item.id)}" data-tone="${status.tone}">
       <div class="cx-card-head"><span class="cx-icon">${connectorsModel.ICONS[item.id] || ''}</span>
@@ -94,7 +115,7 @@ const connectorsPanel = (() => {
   function row(item) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
-    const button = action.kind === 'none' ? '' : `<button type="button" class="${action.quiet ? 'quiet' : ''}" data-cx-action="${esc(action.kind)}" data-cx-id="${esc(item.id)}">${esc(action.label)}</button>`;
+    const button = buttons(item, action);
     const steps = copy.steps ? `<ol>${copy.steps.map(step => `<li>${esc(step)}</li>`).join('')}</ol>` : '';
     const search = [copy.name, copy.does, copy.why, status.label, item.id.replace('_', ' ')].join(' ').toLowerCase();
     return `<div class="cx-row" data-cx-card="${esc(item.id)}" data-tone="${status.tone}" data-search="${esc(search)}">
@@ -289,6 +310,12 @@ const connectorsPanel = (() => {
         const form = root.querySelector(`[data-cx-key="${item.id}"]`);
         form.hidden = !form.hidden;
         if (!form.hidden) form.elements.key.focus();
+      }
+      // Signing in with the service leaves this page; it comes back connected (js/voice-input.js finishes the sign-in).
+      if (button.dataset.cxAction === 'connect' && typeof openrouterConnect !== 'undefined') {
+        button.disabled = true;
+        try { await openrouterConnect.start(); }
+        catch (failure) { if (live()) { error(failure.message || 'OpenRouter could not be opened.'); button.disabled = false; } }
       }
     });
     // Saves the pasted key (or removes the saved one when `key` is null) through the connector's own extension route.

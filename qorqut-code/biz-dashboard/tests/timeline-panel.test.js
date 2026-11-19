@@ -7,8 +7,8 @@ const read=name=>fs.readFileSync(require.resolve('../js/'+name),'utf8');
 function load(extra={}) {
   const ctx={window:{},document:{},T_VIEW_LABEL:{},T_VIEW_ICON:{},state:{bizs:[{id:'p1',slug:'example'}]},coreData:x=>x,...extra};
   vm.createContext(ctx);
-  vm.runInContext(read('timeline-panel.js')+'\n'+read('workflow-panel.js')+'\n'+read('agent-questions.js')
-    +'\nglobalThis.api={timelineHtml,timelinePanelMount,globalTimelineBlockMount,agentQuestionCard,agentQuestionPlace};',ctx);
+  vm.runInContext(read('timeline-panel.js')+'\n'+read('workflow-panel.js')
+    +'\nglobalThis.api={timelineHtml,timelinePanelMount,globalTimelineBlockMount};',ctx);
   return {api:ctx.api,ctx};
 }
 const entry=(id,text,more={})=>({id,text,created_at:'2026-11-13T10:00:00.000000Z',sequence:1,...more});
@@ -153,36 +153,15 @@ test('the Global block asks for the Global item through the owner read',async()=
   await block.refresh(true);
   assert.deepEqual(JSON.parse(JSON.stringify(posts)),[['/root/operations/timeline_view',{scope:'global',item:{type:'global',id:'global',business_id:null}}]]);
 });
-const ROWS=[
-  {id:'q1',text:'Pay <F> in dollars?',blocking:true,source:{type:'task',id:'t1',business_id:null},title:'Pay creators',business_name:'Global',created_at:'2026-11-13T10:00:00Z'},
-  {id:'q2',text:'Which month?',blocking:false,source:{type:'project',id:'p1',business_id:'p1'},title:'Example project',business_name:'Example project',created_at:'2026-11-14T10:00:00Z'},
-  {id:'q3',text:'Open the books?',blocking:true,source:{type:'global',id:'global',business_id:null},title:'Global',business_name:'Global',created_at:'2026-11-15T10:00:00Z'}];
-function cardDocument() {
-  const nodes=[];
-  const node=tag=>{const el={tag,className:'',children:[],attributes:{},listeners:{},hidden:false,value:'',disabled:false,
-    set innerHTML(v){this.html=v;},get innerHTML(){return this.html||'';},setAttribute(k,v){this.attributes[k]=v;},
-    addEventListener(k,f){this.listeners[k]=f;},querySelector(s){return node(s);},append(){},focus(){}};nodes.push(el);return el;};
-  return {createElement:node};
-}
-test('an open question shows where it was raised, blocking marked, all escaped',()=>{
-  const {api}=load({document:cardDocument()});
-  assert.equal(api.agentQuestionPlace(ROWS[0]),'Task · Pay creators');
-  assert.equal(api.agentQuestionPlace(ROWS[1]),'Project · Example project');
-  assert.equal(api.agentQuestionPlace(ROWS[2]),'Global');
-  const card=api.agentQuestionCard(ROWS[0]);
-  assert.ok(card.el.html.includes('Pay &lt;F&gt; in dollars?'));assert.equal(card.el.html.includes('<F>'),false);
-  assert.ok(card.el.html.includes('Blocks work'));assert.ok(card.el.html.includes('13 Nov'));
-  assert.ok(card.el.html.includes('<option value="decision">Decision</option>'));assert.ok(card.el.html.includes('<option value="fact">Fact</option>'));
-  assert.ok(card.el.html.includes('maxlength="400"'));assert.ok(card.el.html.includes('Send answer'));
-});
-test('questions sit in the sign-off queue and open their thread with the answer card on the right',()=>{
-  const queue=read('attention-queue.js'),code=read('agent-questions.js'),workspace=read('record-workspace.js');
-  assert.match(queue,/post\('\/root\/operations\/timeline_questions_list'/);
-  assert.match(queue,/\.\.\.questions\.map\(item=>\(\{kind:'question',id:item\.id,item\}\)\)/);
-  assert.match(queue,/data-question-key/);assert.match(queue,/entry\.kind === 'question'\) return agentQuestionOpen\(item/);
-  assert.match(code,/\/root\/operations\/timeline_question_answer/);assert.match(code,/idempotency_key: key/);
-  assert.match(code,/p\.focusWorkspace\.navigate\(target\)/);assert.match(code,/window\.focusExpansion\.open\(\{title: 'Open question'/);
-  assert.match(workspace,/if \(!record\.question\) return rwDashboardMountBody\(host, record, ctx\);/);
+test('open questions are question Signoffs in the sign-off strip, with their own icon and no separate card',()=>{
+  const queue=read('attention-queue.js'),signoffs=read('signoffs.js'),workspace=read('record-workspace.js');
+  assert.doesNotMatch(queue,/timeline_questions_list|agentQuestionOpen|data-question-key/);
+  assert.match(queue,/const askKind=s=>s\.asks===true \? 'question'/);assert.match(queue,/const asks=s=>!!askKind\(s\);/);
+  assert.match(queue,/toRead\(s\) \? 'read' : asks\(s\) \? askKind\(s\)/);assert.match(queue,/question:'M4\.8 8\.7C4\.8/);assert.match(queue,/request:'M12 20a8 8/);
+  assert.match(signoffs,/function sgIsAsk\(s\) \{ return s\.category === 'input_request' && \['question', 'request'\]\.includes\(s\.input\?\.kind\); \}/);
+  assert.match(signoffs,/sgIsAsk\(s\) \? 'Send' :/);assert.doesNotMatch(signoffs,/Clear selection/);
+  assert.doesNotMatch(workspace,/record\.question|openThread:/);
+  assert.equal(fs.existsSync(require.resolve('../index.html').replace('index.html','js/agent-questions.js')),false);
 });
 test('the pane has no separate questions view, and the panel and block are wired',()=>{
   const pane=read('agentpane.js'),conversation=read('conversation.js'),globalChat=read('global-chat.js');
@@ -190,5 +169,6 @@ test('the pane has no separate questions view, and the panel and block are wired
   assert.match(conversation,/timelinePanelMount\(timelineEl/);assert.match(conversation,/timelinePanel\?\.update\(/);
   assert.doesNotMatch(globalChat,/globalTimelineBlockMount\(/);
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  for(const asset of ['/js/timeline-panel.js','/js/agent-questions.js','/css/timeline-panel.css'])assert.ok(html.includes(asset),asset);
+  for(const asset of ['/js/timeline-panel.js','/css/timeline-panel.css'])assert.ok(html.includes(asset),asset);
+  assert.equal(html.includes('/js/agent-questions.js'),false);
 });

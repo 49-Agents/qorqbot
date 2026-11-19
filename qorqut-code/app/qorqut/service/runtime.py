@@ -620,7 +620,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     runtime.domains.records_health.bind(attention, runtime.focus.board)
     from qorqut.agentic.attention import register_workflow_attention
     register_workflow_attention(runtime)
-    # A delegated Task's plan: the three step tools, and the reading of where a plan stands for tasks_get.
+    # A delegated Task's plan: the step tools, and the reading of where a plan stands for tasks_get.
     from qorqut.agents.task_plans import register_task_plans
     register_task_plans(runtime)
     from qorqut.agents.attention_delivery import attach_attention_runtime

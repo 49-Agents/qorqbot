@@ -21,7 +21,7 @@ test('unknown statuses fall back safely', () => {
 });
 
 test('every catalog id has copy and an icon', () => {
-  for (const id of ['treg', 'whatsapp']) {
+  for (const id of ['openrouter', 'treg', 'whatsapp']) {
     assert.ok(model.COPY[id]?.name && model.COPY[id].does && model.COPY[id].privacy, id);
     assert.ok(model.ICONS[id], id);
   }
@@ -39,6 +39,18 @@ test('treg is set up with a key on its own card, not on claude.ai', () => {
   assert.deepStrictEqual(model.note(item('treg', 'extension', 'not_set_up')), {text: 'Add your treg key to turn it on.', tone: 'warn'});
   assert.strictEqual(model.note(item('treg', 'extension', 'not_installed')).tone, 'info');
   assert.strictEqual(model.note(item('treg', 'extension', 'connected')), null);
+});
+
+test('openrouter is connected by signing in, with a pasted key as the other way', () => {
+  assert.deepStrictEqual(model.action(item('openrouter', 'extension', 'not_set_up')), {kind: 'connect', label: 'Connect', key: 'Paste a key'});
+  assert.deepStrictEqual(model.action(item('openrouter', 'extension', 'connected')), {kind: 'key', label: 'Change key', quiet: true});
+  assert.deepStrictEqual(model.action(item('openrouter', 'extension', 'not_installed')), {kind: 'none'});
+  assert.deepStrictEqual(model.note(item('openrouter', 'extension', 'not_set_up')), {text: 'Connect your OpenRouter account to turn on voice input.', tone: 'warn'});
+  assert.strictEqual(model.note(item('openrouter', 'extension', 'not_installed')).tone, 'info');
+  assert.strictEqual(model.note(item('openrouter', 'extension', 'connected')), null);
+  assert.match(model.COPY.openrouter.does, /Ctrl\+Shift\+Space/);
+  assert.match(model.COPY.openrouter.privacy, /only when you press the microphone/);
+  assert.match(model.COPY.openrouter.needs, /Your own OpenRouter account/);
 });
 
 test('no Claude connector is described or offered', () => {

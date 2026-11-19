@@ -8,7 +8,9 @@ A plan run has no catalog entry: the host hands over an ordered list of step
 instructions (``start_plan``). Its steps run one after another, a step may be
 added while it runs (``add_step``) and a step may be skipped with a recorded
 reason (``skip_step``). A skipped step counts as finished for the order of the
-steps and for the end of the run.
+steps and for the end of the run. A plan step may carry host-defined metadata,
+which is stored and returned but never read here, and it may be handed in for
+review (``submit_step``) and then confirmed or sent back (``review_step``).
 """
 from __future__ import annotations
 
@@ -33,6 +35,10 @@ FINISHED_STEP_STATES = ("completed", "skipped")
 PLAN_REF = "task-plan"
 PLAN_STEP_LIMIT = 50
 PLAN_TEXT_LIMIT = 4000
+# The longest serialized metadata object a plan step may carry.
+PLAN_META_LIMIT = 2000
+# ``run_steps.verification`` of a plan step whose submitted work waits for its reviewer.
+AWAITING_REVIEW = "awaiting_review"
 
 
 class Workflows:
@@ -163,6 +169,8 @@ class Workflows:
             step["depends_on"] = definition.get("depends_on", [])
             if definition.get("added"):
                 step["added"] = True
+            if snapshot.get("plan") is True and "meta" in definition:
+                step["meta"] = definition["meta"]
             step["attempts"] = []
             for attempt in conn.execute("SELECT * FROM run_attempts WHERE run_id = ? AND step_id = ? ORDER BY attempt_id",
                                         (run_id, step["id"])):
@@ -176,6 +184,7 @@ class Workflows:
                                 for arg in snapshot.get("arguments", []))
             step["ready"] = (row["control"] == "running" and step["state"] not in FINISHED_STEP_STATES
                              and not missing_global and not missing_local and dependencies_ready
+                             and step["verification"] != AWAITING_REVIEW
                              and not any(a["status"] == "verifying" for a in step["attempts"]))
             if step["ready"]:
                 ready.append({"step_id": step["id"], "instructions": step["instructions"], "arguments": values})
@@ -307,6 +316,30 @@ class Workflows:
             raise InvalidRequestError(f"{field} must be text of 1-{PLAN_TEXT_LIMIT} characters", details={"field": field})
         return value.strip()
 
+    @staticmethod
+    def _plan_meta(value):
+        """A step's metadata as stored, or ``None`` for none. It is the host's own; only its shape and size are checked."""
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise InvalidRequestError("meta must be an object", details={"field": "meta"})
+        try:
+            text = dumps(value)
+        except (TypeError, ValueError) as exc:
+            raise InvalidRequestError(f"meta must contain JSON values: {exc}", details={"field": "meta"}) from exc
+        if len(text) > PLAN_META_LIMIT:
+            raise InvalidRequestError(f"meta must serialize to at most {PLAN_META_LIMIT} characters",
+                                      details={"field": "meta"})
+        return loads(text) or None
+
+    def _plan_item(self, item):
+        """One entry of ``start_plan``: the instruction text alone, or ``{instructions, meta}``."""
+        if isinstance(item, dict):
+            if "instructions" not in item or set(item) - {"instructions", "meta"}:
+                raise InvalidRequestError("a step is text or {instructions, meta}", details={"field": "steps"})
+            return self._plan_text(item["instructions"], "steps"), self._plan_meta(item.get("meta"))
+        return self._plan_text(item, "steps"), None
+
     def plan_template(self, ref, selection=None):
         """A saved workflow as an ordered list of step instructions, for a host that hands it over as a plan.
 
@@ -335,6 +368,7 @@ class Workflows:
     def start_plan(self, steps, actor, origin, operation_id):
         """Start a run from an ordered list of step instructions; each step waits for the one before it.
 
+        A step is its instruction text, or ``{"instructions": text, "meta": object}`` to carry host-defined metadata.
         ``origin`` names what the plan belongs to (the host's record) and is only stored. The operation ID is the
         host's key for the run: a repeated call with the same steps returns the same run.
         """
@@ -344,11 +378,15 @@ class Workflows:
             raise InvalidRequestError("origin must be a string of 1-500 characters", details={"field": "origin"})
         if not isinstance(steps, list) or not 1 <= len(steps) <= PLAN_STEP_LIMIT:
             raise InvalidRequestError(f"a plan holds 1-{PLAN_STEP_LIMIT} steps", details={"field": "steps"})
-        texts = [self._plan_text(text, "steps") for text in steps]
+        items = [self._plan_item(item) for item in steps]
+        texts, metas = [text for text, _ in items], [meta for _, meta in items]
         definition = {"plan": True, "origin": origin, "steps": [
-            {"id": f"s{number}", "instructions": text, **({"depends_on": [f"s{number - 1}"]} if number > 1 else {})}
-            for number, text in enumerate(texts, 1)]}
-        fingerprint = self._fingerprint("start_plan", actor, origin=origin, steps=texts)
+            {"id": f"s{number}", "instructions": text, **({"depends_on": [f"s{number - 1}"]} if number > 1 else {}),
+             **({"meta": meta} if meta else {})}
+            for number, (text, meta) in enumerate(items, 1)]}
+        # A plan without metadata keeps the fingerprint and revision it had before steps could carry any.
+        fingerprint = self._fingerprint("start_plan", actor, origin=origin, steps=texts,
+                                        **({"meta": metas} if any(metas) else {}))
         with self.ctx.store.reader() as conn:
             existing = self._op(conn, "start", operation_id, fingerprint)
             if existing is not None:
@@ -385,19 +423,22 @@ class Workflows:
     def _plan_snapshot(run):
         snapshot = loads(run["snapshot"])
         if snapshot.get("plan") is not True:
-            raise StateConflictError("only a plan run takes added or skipped steps")
+            raise StateConflictError("only a plan run takes added, skipped, submitted or reviewed steps")
         return snapshot
 
-    def add_step(self, run_id, instructions, actor, operation_id, after=None):
+    def add_step(self, run_id, instructions, actor, operation_id, after=None, meta=None):
         """Add one step to a running plan, right after ``after`` (default: after the last step).
 
-        The step that followed ``after`` now follows the new one, so it must not have started yet.
+        The step that followed ``after`` now follows the new one, so it must not have started yet. ``meta`` is the
+        step's host-defined metadata, as in ``start_plan``.
         """
         actor = normalize_actor(actor)
         text = self._plan_text(instructions, "instructions")
         if after is not None and not isinstance(after, str):
             raise InvalidRequestError("after must name a step", details={"field": "after"})
-        fingerprint = self._fingerprint("add_step", actor, run_id=run_id, instructions=text, after=after)
+        meta = self._plan_meta(meta)
+        fingerprint = self._fingerprint("add_step", actor, run_id=run_id, instructions=text, after=after,
+                                        **({"meta": meta} if meta else {}))
         with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
             self.ctx.guard_overseer_admission(conn, run_id=run_id)
             run = self._run(conn, run_id)
@@ -422,7 +463,8 @@ class Workflows:
                     raise StateConflictError("a step can only be added before work that has not started",
                                              details={"step_id": follower["id"]})
             # Step IDs are never reused: the next number is one more than every step the run has ever held.
-            new = {"id": f"s{len(steps) + 1}", "instructions": text, "depends_on": [anchor], "added": True}
+            new = {"id": f"s{len(steps) + 1}", "instructions": text, "depends_on": [anchor], "added": True,
+                   **({"meta": meta} if meta else {})}
             if follower is not None:
                 follower["depends_on"] = [new["id"]]
             steps.insert(index + 1, new)
@@ -447,17 +489,108 @@ class Workflows:
                 return loads(op["result"])
             self._progress_allowed(run)
             self._step(self._plan_snapshot(run), step_id)
-            state = conn.execute("SELECT state FROM run_steps WHERE run_id = ? AND step_id = ?",
-                                 (run_id, step_id)).fetchone()["state"]
+            state, verification = conn.execute("SELECT state, verification FROM run_steps WHERE run_id = ? AND step_id = ?",
+                                               (run_id, step_id)).fetchone()
             if state in FINISHED_STEP_STATES:
                 raise StateConflictError(f"step {step_id!r} is already {state}", details={"step_id": step_id})
             self._reserve(conn, run_id, operation_id, fingerprint)
             now = self.ctx.now()
-            conn.execute("UPDATE run_steps SET state = 'skipped', completed_at = ?, completed_by = ?, completion_note = ? "
-                         "WHERE run_id = ? AND step_id = ?", (now, dumps(actor), text, run_id, step_id))
+            # Work that waited for review is withdrawn with the step; nothing is left to review.
+            conn.execute("UPDATE run_attempts SET status = 'withdrawn', updated_at = ? "
+                         "WHERE run_id = ? AND step_id = ? AND status = 'submitted'", (now, run_id, step_id))
+            conn.execute("UPDATE run_steps SET state = 'skipped', completed_at = ?, completed_by = ?, completion_note = ?, "
+                         "verification = CASE WHEN verification = ? THEN 'none' ELSE verification END "
+                         "WHERE run_id = ? AND step_id = ?", (now, dumps(actor), text, AWAITING_REVIEW, run_id, step_id))
+            # ``withdrawn`` is recorded only for a step that waited for review, so its submitter can be told.
             self._event(conn, run_id, "step_skipped", actor,
-                        {"operation_id": operation_id, "step_id": step_id, "reason": text})
+                        {"operation_id": operation_id, "step_id": step_id, "reason": text,
+                         **({"withdrawn": True} if verification == AWAITING_REVIEW else {})})
             self._finish_if_done(conn, run_id, actor, now)
+            return self._result(conn, run_id, run_id, operation_id)
+
+    def submit_step(self, run_id, step_id, actor, operation_id, note="", output=None):
+        """Hand in one step of a running plan for review. The step stays unfinished until ``review_step`` passes it.
+
+        The note and output are kept on an attempt with status ``submitted``; who may submit is the host's decision.
+        """
+        actor = normalize_actor(actor)
+        if not isinstance(note, str):
+            raise InvalidRequestError("note must be a string", details={"field": "note"})
+        fingerprint = self._fingerprint("submit_step", actor, run_id=run_id, step_id=step_id, note=note, output=output)
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            self.ctx.guard_overseer_admission(conn, run_id=run_id)
+            run = self._run(conn, run_id)
+            op = self._op(conn, run_id, operation_id, fingerprint)
+            if op is not None:
+                return loads(op["result"])
+            self._progress_allowed(run)
+            self._step(self._plan_snapshot(run), step_id)
+            step = conn.execute("SELECT state, verification FROM run_steps WHERE run_id = ? AND step_id = ?",
+                                (run_id, step_id)).fetchone()
+            if step["state"] in FINISHED_STEP_STATES:
+                raise StateConflictError(f"step {step_id!r} is already {step['state']}", details={"step_id": step_id})
+            if step["verification"] == AWAITING_REVIEW:
+                raise StateConflictError(f"step {step_id!r} already awaits review", details={"step_id": step_id})
+            self._ready_step(conn, run_id, step_id)
+            self._reserve(conn, run_id, operation_id, fingerprint)
+            now = self.ctx.now()
+            conn.execute("INSERT INTO run_attempts(run_id, step_id, operation_id, at, updated_at, actor, note, "
+                         "output, status, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ?)",
+                         (run_id, step_id, operation_id, now, now, dumps(actor), note, dumps(output), dumps({})))
+            conn.execute("UPDATE run_steps SET state = 'active', started_at = COALESCE(started_at, ?), "
+                         "started_by = COALESCE(started_by, ?), verification = ? WHERE run_id = ? AND step_id = ?",
+                         (now, dumps(actor), AWAITING_REVIEW, run_id, step_id))
+            self._event(conn, run_id, "step_submitted", actor, {"operation_id": operation_id, "step_id": step_id})
+            return self._result(conn, run_id, run_id, operation_id)
+
+    def review_step(self, run_id, step_id, actor, operation_id, passed, feedback=""):
+        """Decide on a submitted plan step: pass it, which completes it, or send it back with feedback.
+
+        A passed step is completed with the submitted note and output, by the reviewer; the submitter stays on the
+        attempt. A step sent back is unfinished and ready again. Who may review is the host's decision.
+        """
+        actor = normalize_actor(actor)
+        if type(passed) is not bool:
+            raise InvalidRequestError("passed must be true or false", details={"field": "passed"})
+        if not isinstance(feedback, str) or len(feedback) > PLAN_TEXT_LIMIT:
+            raise InvalidRequestError(f"feedback must be text of at most {PLAN_TEXT_LIMIT} characters",
+                                      details={"field": "feedback"})
+        feedback = feedback.strip()
+        if not passed and not feedback:
+            raise InvalidRequestError("a step is sent back with feedback", details={"field": "feedback"})
+        fingerprint = self._fingerprint("review_step", actor, run_id=run_id, step_id=step_id, passed=passed,
+                                        feedback=feedback)
+        with self.ctx.store.lock(exclusive=True), self.ctx.store.transaction() as conn:
+            self.ctx.guard_overseer_admission(conn, run_id=run_id)
+            run = self._run(conn, run_id)
+            op = self._op(conn, run_id, operation_id, fingerprint)
+            if op is not None:
+                return loads(op["result"])
+            self._progress_allowed(run)
+            self._step(self._plan_snapshot(run), step_id)
+            attempt = conn.execute("SELECT * FROM run_attempts WHERE run_id = ? AND step_id = ? AND status = 'submitted' "
+                                   "ORDER BY attempt_id DESC LIMIT 1", (run_id, step_id)).fetchone()
+            verification = conn.execute("SELECT verification FROM run_steps WHERE run_id = ? AND step_id = ?",
+                                        (run_id, step_id)).fetchone()["verification"]
+            if verification != AWAITING_REVIEW or attempt is None:
+                raise StateConflictError(f"step {step_id!r} does not await review", details={"step_id": step_id})
+            self._reserve(conn, run_id, operation_id, fingerprint)
+            now = self.ctx.now()
+            details = {**(loads(attempt["details"]) or {}), "reviewed_by": actor, "reviewed_at": now,
+                       "review_operation_id": operation_id}
+            conn.execute("UPDATE run_attempts SET status = ?, feedback = ?, details = ?, updated_at = ? "
+                         "WHERE attempt_id = ?",
+                         ("approved" if passed else "rejected", feedback or None, dumps(details), now,
+                          attempt["attempt_id"]))
+            self._event(conn, run_id, "step_reviewed", actor,
+                        {"operation_id": operation_id, "step_id": step_id, "passed": passed,
+                         "submission_operation_id": attempt["operation_id"]})
+            if passed:
+                self._complete(conn, run_id, step_id, actor, attempt["note"], loads(attempt["output"]), "reviewed",
+                               operation_id)
+            else:
+                conn.execute("UPDATE run_steps SET verification = 'rejected' WHERE run_id = ? AND step_id = ?",
+                             (run_id, step_id))
             return self._result(conn, run_id, run_id, operation_id)
 
     def _write_arguments(self, conn, run_id, records):
@@ -598,6 +731,11 @@ class Workflows:
                 definition = self._step(loads(run["snapshot"]), step_id)
                 retry = True
             else:
+                waiting = conn.execute("SELECT 1 FROM run_steps WHERE run_id = ? AND step_id = ? AND verification = ?",
+                                       (run_id, step_id, AWAITING_REVIEW)).fetchone()
+                if waiting is not None and run["control"] == "running":
+                    raise StateConflictError(f"step {step_id!r} awaits review; it is completed by its review",
+                                             details={"step_id": step_id})
                 run, definition, view = self._ready_step(conn, run_id, step_id)
                 self._reserve(conn, run_id, operation_id, fingerprint)
                 invocation_id = ("wf-" + json_digest([run_id, operation_id])) if "verifier" in definition else None

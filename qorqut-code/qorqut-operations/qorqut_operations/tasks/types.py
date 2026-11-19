@@ -15,12 +15,16 @@ action. Both are single lines stored only while they hold something.
 
 A delegated Task may carry a ``plan``: the ordered step instructions its worker follows. The Task holds the plan as it
 was handed over; where the work stands on it is the host's reading (see ``TaskOperations.plan_steps``).
+A step is its instruction text, or ``{text, notify, check}`` when it carries a notify tag (tell the coordinator when the
+step starts, is done, or both) or a check (what finishes it besides the worker's word). A step with neither is stored as
+the plain text, so a plan without tags is stored exactly as before steps could carry any.
 ``queue_rank`` orders a worker's open Tasks: lower comes first, and a Task without one sorts as zero.
 ``plan_template`` names the saved plan the steps were copied from at hand-over, when there was one; the Task's own plan
 is what is worked, so later changes to the template never reach it.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime
 import unicodedata
@@ -67,11 +71,37 @@ STATUS_LINE_SCHEMA = {"type": "string", "maxLength": 1000,
 NEXT_STEP_SCHEMA = {"type": "string", "maxLength": 1000,
                     "description": f"The one pending action on this Task and who takes it, at most {LINE_LIMIT} characters. "
                                    "Replaced as a whole; empty when nothing is pending."}
-PLAN_SCHEMA = {"type": "array", "maxItems": PLAN_STEP_LIMIT,
-               "items": {"type": "string", "minLength": 1, "maxLength": PLAN_TEXT_LIMIT},
+NOTIFY_TAGS = ("start", "done", "both")
+# What finishes a step besides the worker's word, and the one field that may name the check's target.
+CHECK_TARGETS = {"review": None, "signoff": "signoff_id", "task": "task_id", "file": "path"}
+TARGET_LIMITS = {"signoff_id": 100, "task_id": 100, "path": 1000}
+NOTIFY_SCHEMA = {"enum": list(NOTIFY_TAGS),
+                 "description": "Tell the coordinator about this step: start (when it becomes the step in hand), done (when "
+                                "it is finished) or both. Left out, nobody is told. The start of the first step is the "
+                                "hand-over itself and is not announced, and neither is a step that becomes current by being "
+                                "added."}
+CHECK_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["kind"],
+                "properties": {"kind": {"enum": list(CHECK_TARGETS)},
+                               **{name: {"type": "string", "minLength": 1, "maxLength": limit}
+                                  for name, limit in TARGET_LIMITS.items()}},
+                "description": "What finishes this step besides the worker saying so. review: the coordinator confirms it. "
+                               "signoff: the owner has responded to the Signoff signoff_id (approved or answered it, "
+                               "whatever the answer says; a rejected or cancelled one never passes). task: another Task, "
+                               "task_id, is done. file: the file at path exists in the worker's own agent folder or the "
+                               "Task's project folder and is not empty. Name only the field of the chosen kind; left out, "
+                               "the worker names it as evidence when marking the step done."}
+PLAN_STEP_SCHEMA = {"anyOf": [
+    {"type": "string", "minLength": 1, "maxLength": PLAN_TEXT_LIMIT},
+    {"type": "object", "additionalProperties": False, "required": ["text"],
+     "properties": {"text": {"type": "string", "minLength": 1, "maxLength": PLAN_TEXT_LIMIT},
+                    "notify": NOTIFY_SCHEMA, "check": CHECK_SCHEMA}}]}
+PLAN_SCHEMA = {"type": "array", "maxItems": PLAN_STEP_LIMIT, "items": PLAN_STEP_SCHEMA,
                "description": f"The steps the worker follows, in order: at most {PLAN_STEP_LIMIT}, each one instruction of at "
-                              f"most {PLAN_TEXT_LIMIT} characters, including where to stop and ask. Leave it out for a quick "
-                              "Task that needs only the brief. Replaces an earlier plan as a whole; an empty list removes it."}
+                              f"most {PLAN_TEXT_LIMIT} characters, including where to stop and ask. A step is its text, or "
+                              "{text, notify, check} to have the coordinator told about it or to say what finishes it. "
+                              "Leave the plan out for a quick Task that needs only the brief. Replaces an earlier plan as a "
+                              "whole; an empty list removes it. While the earlier plan has an unfinished step with a check, "
+                              "only the coordinator or the owner replaces or removes it."}
 TEMPLATE_SCHEMA = {"type": "string", "minLength": 3, "maxLength": 200,
                    "description": "A saved plan to hand over instead of writing the steps: its reference, package-id/entry-id. "
                                   "Its steps are copied into the Task's plan. Give plan or template, not both."}
@@ -104,6 +134,53 @@ def resolve_state(value, known):
     return next((item for item in known if state_key(item) == key), shown)
 
 
+def normalize_check(value):
+    """A step's check in its stored form, ``{kind}`` or ``{kind, <target>}``; refuses any other shape with the reason."""
+    if not isinstance(value, Mapping) or not isinstance(value.get("kind"), str) or value["kind"] not in CHECK_TARGETS:
+        raise DomainError("validation_error", "A step's check names its kind: " + ", ".join(CHECK_TARGETS))
+    kind, target = value["kind"], CHECK_TARGETS[value["kind"]]
+    extra = sorted(set(value) - {"kind", target})
+    if extra:
+        allowed = f"takes only {target} besides its kind" if target else "takes nothing besides its kind"
+        raise DomainError("validation_error", f"A {kind} check {allowed}; remove {', '.join(map(str, extra))}")
+    if target is None or value.get(target) is None:
+        return {"kind": kind}
+    named = value[target].strip() if isinstance(value[target], str) else ""
+    if not named or len(named) > TARGET_LIMITS[target]:
+        raise DomainError("validation_error", f"A {kind} check's {target} is text of at most {TARGET_LIMITS[target]} characters")
+    return {"kind": kind, target: named}
+
+
+def normalize_step(step):
+    """One plan step in its stored form: the plain text, or ``{text, notify, check}`` when it carries a tag."""
+    if isinstance(step, str):
+        return step.strip()
+    if not isinstance(step, Mapping):
+        return step
+    extra = sorted(set(step) - {"text", "notify", "check"})
+    if extra or not isinstance(step.get("text"), str):
+        raise DomainError("validation_error", "A plan step is its text, or {text, notify, check}"
+                                              + (f"; remove {', '.join(map(str, extra))}" if extra else ""))
+    stored = {"text": step["text"].strip()}
+    if step.get("notify") is not None:
+        if step["notify"] not in NOTIFY_TAGS:
+            raise DomainError("validation_error", "A step's notify tag is start, done or both")
+        stored["notify"] = step["notify"]
+    if step.get("check") is not None:
+        stored["check"] = normalize_check(step["check"])
+    return stored if len(stored) > 1 else stored["text"]
+
+
+def step_text(step):
+    """The instruction text of a stored plan step."""
+    return step if isinstance(step, str) else step["text"]
+
+
+def step_tags(step):
+    """The notify tag and check of a stored plan step, holding only what the step carries."""
+    return {} if isinstance(step, str) else {name: deepcopy(step[name]) for name in ("notify", "check") if name in step}
+
+
 def attributes(task):
     stored = task.get("fields_json", {}).get(KEY, {})
     return {**deepcopy(DEFAULTS), **deepcopy(stored)} if isinstance(stored, dict) else deepcopy(DEFAULTS)
@@ -128,8 +205,8 @@ def apply_attributes(current, edits, states=()):
     for name in LINES:
         if isinstance(given.get(name), str):
             values[name] = normalize_state(given[name])
-    if isinstance(given.get("plan"), list):
-        values["plan"] = [step.strip() if isinstance(step, str) else step for step in given["plan"]]
+    if isinstance(given.get("plan"), (list, tuple)):
+        values["plan"] = [normalize_step(step) for step in given["plan"]]
     if values["status_line"] != attributes(current)["status_line"]:
         # Checked when the line changes, so a Task whose older line predates the rule can still be written.
         problem = owner_text.problem(values["status_line"])
@@ -184,10 +261,17 @@ def validate_lines(values):
 def validate_plan(values):
     """The plan's steps, the template they came from and the queue rank."""
     plan, rank, template = values["plan"], values["queue_rank"], values["plan_template"]
-    if (not isinstance(plan, list) or len(plan) > PLAN_STEP_LIMIT
-            or any(not isinstance(step, str) or not step or step != step.strip() or len(step) > PLAN_TEXT_LIMIT for step in plan)):
-        raise DomainError("validation_error", f"A plan is at most {PLAN_STEP_LIMIT} steps, each one instruction of at most "
-                                              f"{PLAN_TEXT_LIMIT} characters")
+    if not isinstance(plan, list) or len(plan) > PLAN_STEP_LIMIT:
+        raise DomainError("validation_error", f"A plan is at most {PLAN_STEP_LIMIT} steps")
+    for step in plan:
+        if isinstance(step, Mapping):
+            # A tagged step is stored only in its normalized form; a step without tags is stored as its text.
+            if "text" not in step or len(step) < 2 or normalize_step(step) != step:
+                raise DomainError("validation_error", "A plan step is its text, or {text, notify, check}")
+        text = step_text(step) if isinstance(step, (str, Mapping)) else None
+        if not isinstance(text, str) or not text or text != text.strip() or len(text) > PLAN_TEXT_LIMIT:
+            raise DomainError("validation_error", f"A plan is at most {PLAN_STEP_LIMIT} steps, each one instruction of at most "
+                                                  f"{PLAN_TEXT_LIMIT} characters")
     if rank is not None and (isinstance(rank, bool) or not isinstance(rank, (int, float))):
         raise DomainError("validation_error", "Invalid Task queue rank")
     if template is not None and (not isinstance(template, str) or not 3 <= len(template) <= 200 or not plan):

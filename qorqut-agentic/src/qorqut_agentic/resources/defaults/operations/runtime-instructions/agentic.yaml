@@ -96,6 +96,62 @@
       "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
     },
     {
+      "id": "attention-handover",
+      "kind": "instruction",
+      "path": "messages/attention-handover.md",
+      "description": "Attention handover",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-oversight",
+      "kind": "instruction",
+      "path": "messages/attention-oversight.md",
+      "description": "Attention oversight",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-step-returned",
+      "kind": "instruction",
+      "path": "messages/attention-step-returned.md",
+      "description": "Attention step returned",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-step-waiting",
+      "kind": "instruction",
+      "path": "messages/attention-step-waiting.md",
+      "description": "Attention step waiting",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-team-available",
+      "kind": "instruction",
+      "path": "messages/attention-team-available.md",
+      "description": "Attention team available",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-team-awaiting",
+      "kind": "instruction",
+      "path": "messages/attention-team-awaiting.md",
+      "description": "Attention team awaiting",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-team-blocked",
+      "kind": "instruction",
+      "path": "messages/attention-team-blocked.md",
+      "description": "Attention team blocked",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
+      "id": "attention-team-stalled",
+      "kind": "instruction",
+      "path": "messages/attention-team-stalled.md",
+      "description": "Attention team stalled",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
       "id": "background-recovered",
       "kind": "instruction",
       "path": "messages/background-recovered.md",

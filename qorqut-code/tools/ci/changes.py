@@ -40,7 +40,8 @@ def select(paths, *, full=False):
             selected.update(backend=True, distribution=True, connectors=True)
         elif path.startswith(CONNECTORS):
             selected.update(backend=True, distribution=True, connectors=True)
-        elif path.startswith(("qorqut-code/extensions/google-calendar/", "qorqut-code/extensions/treg/")):
+        elif path.startswith(("qorqut-code/extensions/google-calendar/", "qorqut-code/extensions/treg/",
+                              "qorqut-code/extensions/openrouter/")):
             selected.update(backend=True, distribution=True)
         elif path.startswith("qorqut-code/biz-dashboard/"):
             selected["dashboard"] = True

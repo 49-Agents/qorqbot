@@ -69,6 +69,8 @@ function sgReportHtml(text) {
   return typeof chatViewMarkdown === 'function' ? `<div class="sg-report">${chatViewMarkdown(text)}</div>` : sgInputExplanation(text);
 }
 function sgIsQuestionnaire(s) { return s.category === 'input_request' && s.input?.schema_version === 2; }
+// A question for the owner (asking or requesting something), as opposed to a draft to review or something to read.
+function sgIsAsk(s) { return s.category === 'input_request' && ['question', 'request'].includes(s.input?.kind); }
 function sgQuestionFormValid(s) {
   const f = s.input, qs = f?.questions;
   return sgIsQuestionnaire(s) && f.kind === 'question' && f.response_policy === 'owner_only'
@@ -505,14 +507,16 @@ function sgCreateView(options) {
       let group = [...fields.children].find(node => node.dataset.questionId === q.id);
       if (!group) {
         group = document.createElement('fieldset'); group.className = 'sg-question'; group.dataset.questionId = q.id;
-        const legend = document.createElement('legend'); legend.id = id; legend.textContent = `${q.prompt} ${q.required ? '(required)' : '(optional)'}`;
+        const legend = document.createElement('legend'); legend.id = id; legend.textContent = q.required ? q.prompt : `${q.prompt} (optional)`;
         const explanation = document.createElement('p'); explanation.className = 'sg-question-explanation'; explanation.innerHTML = q.explanation ? renderSafeLinks(q.explanation) : ''; explanation.hidden = !q.explanation;
         const guidance = document.createElement('p'); guidance.className = 'sg-notice';
-        guidance.textContent = q.selection_mode === 'none' ? '' : q.selection_mode === 'single' ? 'Choose one option or write an answer.' : 'Choose any options or write an answer.';
-        if (q.notes_required) guidance.textContent += ' Include written details if you answer.';
+        // The choices and the answer box explain themselves; only a written-details requirement is said.
+        guidance.textContent = q.notes_required && q.selection_mode !== 'none' ? 'Add a few words with your choice.' : '';
         guidance.hidden = !guidance.textContent;
         const choices = document.createElement('div'); choices.className = 'sg-question-choices'; choices.setAttribute('role',q.selection_mode === 'single' ? 'radiogroup' : 'group'); choices.setAttribute('aria-labelledby',id);
-        const control = sgAnswerTextField(q.notes_required ? 'Written answer (required if answering)' : q.selection_mode === 'none' ? 'Written answer' : 'Written answer or extra details', id+'-notes','sg-feedback sg-question-notes',8000);
+        const control = sgAnswerTextField(q.selection_mode === 'none' ? 'Your answer' : 'Something else', id+'-notes','sg-feedback sg-question-notes',8000);
+        // The box is named by its placeholder, as in a chat: no caption above it.
+        control.caption.hidden = true; control.field.placeholder = q.selection_mode === 'none' ? 'Your answer' : 'Something else…';
         // Validate Unicode code points on Done; native maxlength counts UTF-16 code units.
         control.field.removeAttribute('maxlength');
         control.field.dataset.questionNotes = q.id; control.field.setAttribute('aria-describedby',id+'-error');
@@ -522,11 +526,11 @@ function sgCreateView(options) {
         group.append(legend,explanation,guidance,choices,control.caption,control.field,error,saved,copy); fields.append(group);
       }
       const field = group.querySelector('.sg-question-notes'), choices = group.querySelector('.sg-question-choices');
-      field.hidden = final; field.previousElementSibling.hidden = final; choices.hidden = final || q.selection_mode === 'none';
+      field.hidden = final; choices.hidden = final || q.selection_mode === 'none';
       if (field.value !== a.notes) field.value = a.notes;
       field.readOnly = locked; field.setAttribute('aria-required',String(q.required && (q.selection_mode === 'none' || q.notes_required)));
       html(choices, q.choices.map(c => `<button type="button" class="sg-choice" role="${q.selection_mode === 'single' ? 'radio' : 'checkbox'}" aria-checked="${a.selected_choices.includes(c.id)}" data-question-choice="${esc(c.id)}"${locked ? ' disabled' : ''}><span class="sg-choice-name">${esc(c.label)}</span><span class="sg-choice-explanation">${esc(c.explanation)}</span></button>`).join('')
-        + (a.selected_choices.length ? `<button type="button" class="sg-command" data-question-clear${locked ? ' disabled' : ''}>Clear selection</button>` : ''));
+        );
       const error = group.querySelector('.sg-question-error'); error.textContent = final ? '' : draft.errors[q.id] || ''; error.hidden = !error.textContent;
       field.setAttribute('aria-invalid',String(!error.hidden)); choices.setAttribute('aria-describedby',error.id);
       const saved = group.querySelector('.sg-question-saved'); saved.hidden = !final; saved.textContent = final ? savedValid ? summary(q,a) : 'Saved answer unavailable. Reload this Signoff.' : '';
@@ -784,6 +788,12 @@ function sgCreateView(options) {
   function detailPaint(row, s) {
     const detail = row.querySelector(".sg-detail");
     detail.hidden = s.id !== sg.selected;
+    // A question reads as one: the question as a heading, its choices as buttons, a one-line answer and Send.
+    row.classList.toggle('sg-asks', sgIsAsk(s));
+    // In a chat a pending card is compact (its title, then its choices and Send) and opens in Focus. An email, a message
+    // or a draft keeps its full text, since that text is what the owner approves.
+    const fullText = sgIsEmail(s) || !!SG_MESSAGE_RENDERERS.get(s.operation_name)?.message || /message/.test(s.operation_name || '') || sgIsDraftReview(s);
+    row.classList.toggle('sg-compact', !!options.chatLayout && s.state === 'pending' && !fullText && !messageEdits.has(s.id) && !reviewEdits.has(s.id));
     row.querySelector(".sg-rowhead").setAttribute("aria-expanded", String(!detail.hidden));
     if (detail.hidden) return;
     const error = sg.detailErrors.get(s.id), busy = sg.busy.get(busyKey(sg.slug, s));
@@ -843,7 +853,7 @@ function sgCreateView(options) {
     const submitted = s.decision?.selected_choices || [];
     const choiceMode = s.input?.selection_mode;
     html(detail.querySelector(".sg-choices"), s.input && Array.isArray(s.input.choices) && choiceMode !== "none" ?
-      `${options.focusLayout ? `<h3 class="sg-choices-title" id="sg-choices-title-${prefix}${esc(s.id)}">Choices</h3>` : ""}<div role="${choiceMode === "single" ? "radiogroup" : "group"}" ${options.focusLayout ? `aria-labelledby="sg-choices-title-${prefix}${esc(s.id)}"` : 'aria-label="Answer choices"'}>${s.input.choices.map((choice,index) => {
+      `${options.focusLayout && !sgIsAsk(s) ? `<h3 class="sg-choices-title" id="sg-choices-title-${prefix}${esc(s.id)}">Choices</h3>` : ""}<div role="${choiceMode === "single" ? "radiogroup" : "group"}" ${options.focusLayout && !sgIsAsk(s) ? `aria-labelledby="sg-choices-title-${prefix}${esc(s.id)}"` : 'aria-label="Answer choices"'}>${s.input.choices.map((choice,index) => {
         const checked = (s.state === "pending" ? chosen : submitted).includes(choice.id);
         return `<button type="button" class="sg-choice" role="${choiceMode === "single" ? "radio" : "checkbox"}" aria-checked="${checked}" data-choice="${esc(choice.id)}" ${!canReview || busy || s.state !== "pending" ? "disabled" : ""}>
           ${options.inline ? "" : `<span class="sg-choice-marker ${choiceMode === "single" ? "sg-choice-letter" : "sg-choice-ball"}" aria-hidden="true">${choiceMode === "single" ? String.fromCharCode(65+index) : ""}</span>`}
@@ -860,21 +870,22 @@ function sgCreateView(options) {
       if (!feedback.querySelector("textarea")) {
         const fieldId = `sg-feedback-${prefix}${esc(s.id)}`;
         // Inline action cards drop the visible label: the one-line field is named by aria-label and placeholder. Questions keep "Answer".
-        const unlabeled = !s.input || sgIsDraftReview(s);
-        const placeholder = sgIsDraftReview(s) ? "Add feedback…" : rejectionNeedsMessage(s) ? "Add a reason to reject…" : "Add a note…";
-        feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${sgIsDraftReview(s) ? "Feedback" : s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback${!s.input ? " sg-decision-feedback" : ""}" rows="${!s.input || options.inline || sgIsDraftReview(s) ? 1 : 3}"${!s.input ? ' wrap="off"' : ""} spellcheck="true"${unlabeled ? ` aria-label="${sgIsDraftReview(s) ? "Feedback" : "Message to send with decision"} ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
+        const unlabeled = !s.input || sgIsDraftReview(s) || sgIsAsk(s);
+        const offered = Array.isArray(s.input?.choices) && s.input.choices.length && s.input.selection_mode !== "none";
+        const placeholder = sgIsAsk(s) ? (offered ? "Something else…" : "Your answer") : sgIsDraftReview(s) ? "Add feedback…" : rejectionNeedsMessage(s) ? "Add a reason to reject…" : "Add a note…";
+        feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${sgIsDraftReview(s) ? "Feedback" : s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback${!s.input ? " sg-decision-feedback" : ""}" rows="${!s.input || options.inline || sgIsDraftReview(s) || sgIsAsk(s) ? 1 : 3}"${!s.input ? ' wrap="off"' : ""} spellcheck="true"${unlabeled ? ` aria-label="${sgIsDraftReview(s) ? "Feedback" : sgIsAsk(s) ? "Answer" : "Message to send with decision"} ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
         feedback.querySelector("textarea").value = draft(s);
       }
       feedback.querySelector("textarea").disabled = !retainedFeedback && (!!busy || !canReview);
       feedback.querySelector("textarea").readOnly = retainedFeedback;
-      if (s.input && (options.inline || sgIsDraftReview(s))) fitFeedback(feedback.querySelector("textarea"));
+      if (s.input && (options.inline || sgIsDraftReview(s) || sgIsAsk(s))) fitFeedback(feedback.querySelector("textarea"));
     } else feedback.innerHTML = "";
     const disabled = !canReview || !!busy ? " disabled" : "";
     let controls = "";
     const withFeedback = !s.input && !!draft(s).trim();
     const plainDecisionControls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id
       ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}${withFeedback ? "Send and approve" : "Approve"}</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}${withFeedback ? "Send and reject" : "Reject"}</button></div>` : "";
-    if (s.input) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-approve" data-sg="respond"${disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '')}>${sgIsQuestionnaire(s) ? 'Done' : sgIsDraftReview(s) ? 'Return draft' : sgIsAcknowledge(s) ? `${SVG_CHECK}Acknowledge` : 'Submit'}</button></div>` : "";
+    if (s.input) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-approve" data-sg="respond"${disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '')}>${sgIsAsk(s) ? 'Send' : sgIsDraftReview(s) ? 'Return draft' : sgIsAcknowledge(s) ? `${SVG_CHECK}Acknowledge` : 'Submit'}</button></div>` : "";
     else controls = plainDecisionControls;
     if (busy) controls += `<p class="sg-notice" role="status">${busy.unknown ? "The response was lost. Checking the saved decision..." : "Saving decision..."}</p>${busy.unknown ? `<button type="button" class="sg-command" data-sg="reconcile"${busy.checking ? " disabled" : ""}>Check decision</button>` : ""}`;
     if (verified && !owner()) controls += `<p class="sg-notice">Signoff review requires an owner session.</p>`;
@@ -902,11 +913,9 @@ function sgCreateView(options) {
       for (const cancel of area.querySelectorAll('[data-sg="cancel-message"],[data-sg="discard-draft"]')) cancel.textContent = 'Cancel';
       let status = area.querySelector('.sg-chat-status');
       if (!status) { status = document.createElement('span'); status.className = 'sg-chat-status'; (actions || area).prepend(status); }
-      status.textContent = editing ? 'Editing draft' : s.state !== 'pending' ? sgItemStatus(s, labels) : sgIsAcknowledge(s) ? 'To read' : 'Needs review';
-      if (actions && !editing && canEditMessage(s) && !actions.querySelector('[data-sg="edit-message"]')) {
-        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'sg-edit';
-        edit.dataset.sg = 'edit-message'; edit.textContent = 'Edit'; actions.append(edit);
-      }
+      status.textContent = editing ? 'Editing draft' : s.state !== 'pending' ? sgItemStatus(s, labels) : sgIsAcknowledge(s) ? 'To read' : '';
+      // No Edit button: an email, message or draft shown in full is edited by clicking its text.
+      actions?.querySelector('[data-sg="edit-message"]')?.remove();
     }
   }
   function render() {
@@ -945,6 +954,8 @@ function sgCreateView(options) {
         }
         if (content.children[index] !== row) content.insertBefore(row, content.children[index] || null);
         row.dataset.state = s.state;
+        // Work is waiting on a blocking Signoff: its row carries a red frame wherever the list is shown.
+        row.classList.toggle('sg-row-blocking', s.state === 'pending' && !!s.attention?.blocking);
         row.querySelector(".sg-rowtitle").textContent = s.title || s.preview && s.preview.title || s.operation_name;
         html(row.querySelector(".sg-state"), `<span class="sg-state-tags">${sgAttentionTags(s) || (s.state === "pending" ? "" : esc(sgItemStatus(s, labels)))}</span><time datetime="${esc(s.created_at)}" title="${esc(stamp(s.created_at))}">${esc(age(s.created_at))}</time>`);
         if (options.inline) html(row.querySelector(".sg-state"), `<span class="sg-state-tags">${esc(sgItemStatus(s, labels))}</span>`);
@@ -1364,7 +1375,7 @@ function sgCreateView(options) {
         const s = sg.items.get(questionChoice.closest('.sg-row').dataset.id), group = questionChoice.closest('.sg-question');
         const q = s.input.questions.find(q => q.id === group.dataset.questionId), a = questionDraft(s).answers.find(a => a.question_id === q.id);
         const id = questionChoice.dataset.questionChoice;
-        a.selected_choices = !id ? [] : q.selection_mode === 'single' ? [id] : a.selected_choices.includes(id) ? a.selected_choices.filter(x => x !== id) : [...a.selected_choices,id].sort();
+        a.selected_choices = !id ? [] : q.selection_mode === 'single' ? (a.selected_choices.includes(id) ? [] : [id]) : a.selected_choices.includes(id) ? a.selected_choices.filter(x => x !== id) : [...a.selected_choices,id].sort();
         questionChanged(s);
         ([...group.querySelectorAll('[data-question-choice]')].find(el => el.dataset.questionChoice === id) || group.querySelector('button'))?.focus();
         return;
@@ -1373,7 +1384,7 @@ function sgCreateView(options) {
       if (choice && !choice.disabled) {
         const s = sg.items.get(sg.selected), key = draftKey(s), id = choice.dataset.choice;
         const selected = sg.choices.get(key) || [];
-        sg.choices.set(key, s.input.selection_mode === 'single' ? [id] : selected.includes(id) ? selected.filter(x => x !== id) : [...selected,id]);
+        sg.choices.set(key, s.input.selection_mode === 'single' ? (selected.includes(id) ? [] : [id]) : selected.includes(id) ? selected.filter(x => x !== id) : [...selected,id]);
         render();
         [...body.querySelectorAll('[data-choice]')].find(x => x.dataset.choice === id)?.focus();
         return;
@@ -1384,7 +1395,8 @@ function sgCreateView(options) {
         const action = command.dataset.sg;
         if (action === 'edit-message') {
           const s = sg.items.get(commandRow?.dataset.id);
-          if (s && canEditMessage(s)) commandRow.querySelector('textarea.sg-message-editor[data-editable="true"]')?.focus({preventScroll:true});
+          // A compact chat card shows its message once the owner edits it.
+          if (s && canEditMessage(s)) { commandRow.classList.remove('sg-compact'); commandRow.querySelector('textarea.sg-message-editor[data-editable="true"]')?.focus({preventScroll:true}); }
           return;
         }
         if (['save-draft', 'discard-draft', 'rebase-draft'].includes(action)) {
@@ -1464,7 +1476,7 @@ function sgCreateView(options) {
         if(edit && !edit.saving && !edit.receipt){edit.values[event.target.dataset.sgEditField]=event.target.value;edit.error='';fitMessage(event.target);}
         return;
       }
-      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); if (s.input && (options.inline || sgIsDraftReview(s))) fitFeedback(event.target); render(); } } };
+      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); if (s.input && (options.inline || sgIsDraftReview(s) || sgIsAsk(s))) fitFeedback(event.target); render(); } } };
     render(); refresh();
   }
   function businessChanged() {
@@ -1506,7 +1518,7 @@ function sgCreateView(options) {
       const selected = sg.items.get(sg.selected);
       const row = sg.mount && [...sg.mount.querySelectorAll(".sg-row")].find(row => row.dataset.id === sg.selected);
       const textarea = row && row.querySelector(".sg-feedbackwrap .sg-feedback");
-      if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (selected.input && (options.inline || sgIsDraftReview(selected))) fitFeedback(textarea); }
+      if (selected && draftKey(selected) === key && textarea && textarea.value !== value) { textarea.value = value; if (selected.input && (options.inline || sgIsDraftReview(selected) || sgIsAsk(selected))) fitFeedback(textarea); }
     },
     suspend() { readObserver?.disconnect();readTarget=null;readVisible=false;sg.generation++; sg.mount = null; sg.loading = false; sg.detailLoading = null; },
     dispose() { clearInterval(ageTimer); this.suspend();window.removeEventListener('focus',markSelectedRead);document.removeEventListener('visibilitychange',markSelectedRead);window.removeEventListener('resize',resizeMessages); sgViews.delete(view); document.removeEventListener('click', outsideClick); document.removeEventListener('pointerdown', outsidePointer, true); },
@@ -1580,6 +1592,27 @@ function sgChatMount(ref, host, options = {}) {
     }, {rootMargin: '300px 0px'});
     observer.observe(host);
   });
+  const focusOpen = () => void Promise.resolve(window.sgAttentionNavigate?.(slug || null, ref.id)).catch(() => {});
+  // A click on a compact card, away from its choices and buttons, opens the whole Signoff in Focus.
+  const openInFocus = event => {
+    const card = event.target.closest('.sg-row.sg-compact');
+    if (!card || !host.contains(card) || event.target.closest('.sg-choices, .sg-detail-footer, textarea, input, select, a, label, button:not(.sg-rowhead)')) return;
+    if (String(window.getSelection?.() || '').trim()) return;
+    event.preventDefault(); focusOpen();
+  };
+  // A chat card has no comment line: a decision that needs written words (a rejection that must say why, an answer that
+  // must be written) is made in Focus instead.
+  const needsWords = event => {
+    const button = event.target.closest('[data-sg="reject"],[data-sg="respond"],[data-sg="approve"]'), card = button?.closest('.sg-row');
+    const words = card?.querySelector('.sg-feedback');
+    if (!button || !words || words.value.trim()) return;
+    const label = words.getAttribute('aria-label') || '';
+    const required = button.dataset.sg === 'reject' ? /required to reject/i.test(label) : /\(required\)/i.test(label);
+    if (!required || (button.dataset.sg !== 'reject' && card.querySelector('.sg-choice[aria-checked="true"]') && !/\(required\)/i.test(label))) return;
+    event.preventDefault(); event.stopPropagation(); focusOpen();
+  };
+  host.addEventListener('click', needsWords, true);
+  host.addEventListener('click', openInFocus);
   const dispose = signoff.dispose.bind(signoff);
   signoff.dispose = () => { disposed = true; observer?.disconnect(); dispose(); };
   return signoff;

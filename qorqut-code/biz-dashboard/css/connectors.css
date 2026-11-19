@@ -98,7 +98,7 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-panel .cx-row h3 { margin: 0; font-size: 13.5px; font-weight: 600; text-transform: none; color: var(--fg); }
 .cx-row-does { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--fg-2); }
 .cx-row .cx-more { margin-top: 2px; padding-top: 0; border-top: 0; }
-.cx-row-action { padding-top: 2px; }
+.cx-row-action { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 2px; }
 .cx-row-action button { height: 30px; padding: 0 13px; font-size: 12px; }
 @media (max-width: 600px) {
   .cx-row { grid-template-columns: 34px minmax(0, 1fr); }

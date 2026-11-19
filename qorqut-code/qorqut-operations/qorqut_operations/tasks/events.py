@@ -80,6 +80,56 @@ def announce(uow, routing, business_id, task: Mapping, actor_id, kinds, *, respo
     return event_id
 
 
+# What happens to one step of a Task's plan. These are told to exactly the principals the host names, never to the
+# Task's followers: ``plan_step_started`` and ``plan_step_done`` (a step tagged for it became the step in hand, or was
+# finished) and ``plan_step_submitted`` (a step waits for confirmation) go to the coordinator; ``plan_step_approved``,
+# ``plan_step_returned`` and ``plan_step_skipped`` (the decision on a submitted step) go to the Task's workers.
+STEP_EVENTS = ("plan_step_started", "plan_step_done", "plan_step_submitted", "plan_step_approved", "plan_step_returned",
+               "plan_step_skipped")
+SETTLED = "Settled: the step no longer waits for confirmation"
+
+
+def announce_step(uow, business_id, task: Mapping, actor_id, kinds, summary: str, recipients: Iterable[str],
+                  marker: Mapping | None = None) -> int | None:
+    """Emit the one event for what an action on a Task's plan did to its steps, to ``recipients`` only.
+
+    A step action does not write the Task, so the event carries the Task's unchanged revision and no thread entry.
+    ``marker`` is kept on the event: ``plan_notice`` names the engine operation and the side that was told, so the host
+    can tell that this was already said, and ``plan_operation`` and ``plan_step`` name the operation and its step."""
+    unknown = [kind for kind in kinds if kind not in STEP_EVENTS]
+    if unknown or not kinds:
+        raise ValueError(f"Unknown plan step event: {unknown}")
+    return emit_event(uow, business_id=business_id, source_type=SOURCE_TYPE, source_id=task["id"],
+                      source_revision=task["revision"], actor_id=actor_id, event_type=",".join(kinds), summary=summary,
+                      required=recipients, visibility=dict(marker) if marker else None)
+
+
+def step_announced(uow, business_id, task_id, notice: str) -> bool:
+    """Whether the plan step event marked ``plan_notice: notice`` was already written for this Task."""
+    return uow.connection.execute(
+        "SELECT 1 FROM inbox_events WHERE source_type=? AND source_id=? AND business_id IS ? "
+        "AND json_extract(visibility_json,'$.plan_notice')=? LIMIT 1", (SOURCE_TYPE, task_id, business_id, notice)).fetchone() is not None
+
+
+def settle_submissions(uow, business_id, task_id, operations: Iterable[str] | None = None, *, at) -> int:
+    """Acknowledge the pending deliveries that say a step of this Task's plan waits for confirmation; returns how many.
+
+    ``operations`` are the engine operations the steps were handed in with: only their events are settled, when the
+    step was decided or skipped. Left out, every such event of the Task is settled: the Task was closed or its plan
+    replaced, so nothing of it waits any more."""
+    chosen = None if operations is None else list(operations)
+    if chosen is not None and not chosen:
+        return 0
+    narrow = "" if chosen is None else (" AND json_extract(e.visibility_json,'$.plan_operation') IN ("
+                                        + ",".join("?" for _ in chosen) + ")")
+    cursor = uow.connection.execute(
+        "UPDATE inbox_deliveries SET acknowledged_at=?,outcome=? WHERE acknowledged_at IS NULL AND event_id IN ("
+        "SELECT e.id FROM inbox_events e WHERE e.source_type=? AND e.source_id=? AND e.business_id IS ? "
+        "AND e.event_type LIKE '%plan_step_submitted%'" + narrow + ")",
+        (at, SETTLED, SOURCE_TYPE, task_id, business_id, *(chosen or ())))
+    return cursor.rowcount
+
+
 def state(uow, business_id, task_id) -> dict | None:
     """Everything a change of the Task can alter, for comparing before and after one operation."""
     row = uow.connection.execute("SELECT * FROM tasks WHERE business_id IS ? AND id=?", (business_id, task_id)).fetchone()
@@ -263,5 +313,6 @@ def assignment_targets(uow, before: Mapping | None, after: Mapping) -> set[str]:
     return agents
 
 
-__all__ = ["announce", "assigned", "assignment_targets", "blockers", "change", "changed_details", "dependency_followers",
-           "describe", "detail_changes", "event_kinds", "principal_names", "record_change", "routes", "state", "workers"]
+__all__ = ["SETTLED", "STEP_EVENTS", "announce", "announce_step", "assigned", "assignment_targets", "blockers", "change", "changed_details", "dependency_followers",
+           "describe", "detail_changes", "event_kinds", "principal_names", "record_change", "routes", "settle_submissions", "state",
+           "step_announced", "workers"]

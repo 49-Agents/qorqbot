@@ -639,7 +639,7 @@ class HTTPAPI:
                     "attention_get", "attention_add", "attention_remove", "todo_get", "todo_add", "todo_remove", "workers_list",
                     "workspace_types", "workspace_get",
                     "owner_conversation_get", "owner_conversation_send", "owner_conversation_mark_read", "owner_conversations_list", "owner_conversation_related", "owner_conversation_peers",
-                    "timeline_view", "timeline_questions_list", "timeline_question_answer",
+                    "timeline_view",
                     "side_chats_create", "side_chats_rename", "side_chats_close",
                     # Project record reads and explicit links: the six project_* operations and the narrow reminder read.
                     # The root route names the Project with scope=global and no business option; a business route must agree
