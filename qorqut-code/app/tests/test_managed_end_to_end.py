@@ -303,6 +303,14 @@ class EndToEndCase(unittest.TestCase):
         return Stack(self, **options)
 
     def settle(self, stack, phase, timeout=WAIT):
+        # The host itself first: the view below may be a reading from a moment ago, and a phase read from it too early lets the
+        # next message of a scenario join a turn that is still running (seen on a loaded Mac: "idle" from before the turn).
+        def now():
+            try:
+                return stack.managed.status(stack.agent)["phase"] == phase
+            except DomainError:
+                return False
+        wait_for(now, timeout, message="the host to be " + phase)
         return wait_for(lambda: (lambda view: view if view["phase"] == phase else None)(stack.managed_view()), timeout,
                         message="the session to be " + phase)
 
