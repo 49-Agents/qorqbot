@@ -330,6 +330,15 @@ are fixed with unit tests that fail without the fix.
   cannot start here because of a denied sandbox or missing libraries is not retried by the automatic loop until the pin
   changes or the owner presses Retry setup.
 
+## Tried on the owner's installation (2026-11-19)
+
+Commit `f0aaeb8a` of this branch runs on the owner's local installation since 07:57 UTC. All eight agent browsers were
+restarted onto the new supervisor; each log says both watchers run. Observed there: the live view lists an agent's
+tabs and streams a picture, a cross-site request is refused, Qorqbot's own Chrome was downloaded and correctly found
+unusable on this Ubuntu (the installed Chrome keeps being used). A release switch does not restart agent browsers by
+itself; they keep their old supervisor code until each unit is stopped once. Not yet observed there: an idle tab
+unloaded after 30 minutes, a cookie banner refused on a real site, the captcha command on a real captcha.
+
 ## Not in this plan
 
 Tab lock, named profiles, proxies, an embedded (in-app) browser, the standalone app, managed CLI install and the headless
