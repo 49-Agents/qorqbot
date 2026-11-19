@@ -185,6 +185,8 @@ async def _events(chat, request, principal_id, agent_id):
         header = None
     cursor = int(header) if header is not None else _integer(request, "cursor", 0)
 
+    from ..transport.http import STOPPING  # set when the service is asked to stop; the stream ends instead of holding the shutdown
+
     async def stream():
         position, beat = cursor, time.monotonic()
         limiter = anyio.CapacityLimiter(1)
@@ -194,7 +196,7 @@ async def _events(chat, request, principal_id, agent_id):
                 # The cursor is ahead of anything this installation has (a restored database): the client must reload.
                 yield b"event: reset\ndata: {}\n\n"
                 position = 0
-            while not await request.is_disconnected():
+            while not STOPPING.is_set() and not await request.is_disconnected():
                 events, latest = await run(partial(chat.events, principal_id, agent_id, position), limiter=limiter)
                 for event in events:
                     position = event["cursor"]

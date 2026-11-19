@@ -10,6 +10,9 @@ const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
 const GLOBAL_CHAT_OPENING = new Map();          // agent id -> {text, at, position}: a message (or file) that is opening a closed session, shown at once as a pending bubble
 const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
+// A session that was just opened writes the owner's line to the transcript about 0.1 s before the input record is stamped, so an echo up to this
+// much older than the receipt still belongs to it (the same slack the opening bubble uses).
+const GLOBAL_CHAT_ECHO_SLACK = 2000;
 // scope -> {records, consumed}: owner messages accepted by the backend whose transcript entry has not been seen yet. Browser-only and
 // presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
 const GLOBAL_CHAT_ACCEPTED = new Map();
@@ -334,7 +337,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       const echo = users.find(entry => {
         const at = Date.parse(entry.timestamp);
         return !held.consumed.has(entry.id) && entry.position > record.position && globalChatText(entry.text) === globalChatText(record.text)
-          && !(Number.isFinite(at) && Number.isFinite(record.createdAt) && at < record.createdAt);
+          && !(Number.isFinite(at) && Number.isFinite(record.createdAt) && at < record.createdAt - GLOBAL_CHAT_ECHO_SLACK);
       });
       if (echo) { held.consumed.add(echo.id); record.entry = echo.id; }
       // A slash command is done once it is typed: Codex records no entry for it, and Claude may record an alias.
