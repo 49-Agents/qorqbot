@@ -867,6 +867,11 @@ def validate_arguments(args: list[str]) -> None:
         parse_observation_args(args)
 
 
+def session_name(workspace: Path, endpoint: str, instance: str = "") -> str:
+    """The ``agent-browser`` session of one workspace on one browser. The captcha command finds the session's tab by it."""
+    return "qorqut-" + hashlib.sha256((str(workspace.resolve()) + "\n" + endpoint + instance).encode()).hexdigest()[:20]
+
+
 def run(workspace: Path, args: list[str], *, target=None, instance="", capture=False, pinned=None):
     """Run one browser command. ``pinned`` says the target is a Chrome that several agents share (see
     ``agent_browser.command``); left out, it is read from the workspace's own saved target when that is the target used."""
@@ -875,8 +880,7 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
     if pinned is None:
         pinned = target is None and target_shared(workspace)
     endpoint, executable = target or load_target(workspace)
-    identity = hashlib.sha256((str(workspace.resolve()) + "\n" + endpoint + instance).encode()).hexdigest()[:20]
-    session = "qorqut-" + identity
+    session = session_name(workspace, endpoint, instance)
     directory = workspace / "work/browser" / session
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     if path_has_symlink(directory):

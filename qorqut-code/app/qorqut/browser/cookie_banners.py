@@ -33,8 +33,8 @@ def script() -> str:
 
 def _connect(port):
     from websockets.sync.client import connect
-    from .sign_in import _get_json
-    return connect(_get_json(port, "/json/version")["webSocketDebuggerUrl"], proxy=None, max_size=None, open_timeout=5,
+    from . import control
+    return connect(control.devtools_json(port, "/json/version")["webSocketDebuggerUrl"], proxy=None, max_size=None, open_timeout=5,
                    close_timeout=2)
 
 
@@ -93,16 +93,22 @@ class Installer:
 
 def watch(port, stop, *, connect=_connect):
     """Keep the script installed in the Chrome on ``port`` until ``stop`` is set. Run by the supervisor in a thread of its
-    own; it never raises, because a browser without this must keep running."""
+    own; it never raises, because a browser without this must keep running. The first connection that fails is written
+    to the supervisor's log, and only that one: a fault that stays would otherwise write a line every few seconds."""
     try:
         source = script()
     except OSError:
         print("Browser supervisor: the cookie banner script is missing; banners are left alone.", file=sys.stderr)
         return
+    reported = False
     while not stop.is_set():
         try:
             socket = connect(port)
-        except Exception:
+        except Exception as error:
+            if not reported:
+                reported = True
+                print(f"Browser supervisor: cookie banners are left alone while Chrome cannot be reached "
+                      f"({type(error).__name__}: {error}). It keeps trying; further failures are not logged.", file=sys.stderr)
             stop.wait(RETRY_AFTER)
             continue
         try:

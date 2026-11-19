@@ -27,7 +27,7 @@ from websockets.sync.client import connect
 
 from qorqut.bootstrap import browser
 from qorqut.browser import cookie_banners, idle_tabs
-from qorqut.browser.sign_in import _get_json
+from qorqut.browser.control import devtools_json
 
 CHROME, WEB, RUNTIME = int(sys.argv[1]), int(sys.argv[2]), Path(sys.argv[3])
 ENDPOINT = f"http://127.0.0.1:{CHROME}"
@@ -141,6 +141,10 @@ PAGES["animated"] = ("""<!doctype html><title>animated</title><input id=f><canva
 var ticks=0, x=c.getContext('2d'), heavy=[]; for (let i=0;i<40;i++) heavy.push(new Float64Array(250000).fill(i));
 (function draw(t){for(let i=0;i<400;i++){x.fillStyle=`hsl(${(t/10+i)%360},80%,50%)`;x.fillRect(Math.random()*800,Math.random()*500,60,60)}
 requestAnimationFrame(draw)})(0); setInterval(()=>{let s=0;for(let i=0;i<3e6;i++)s+=Math.sqrt(i);ticks++},50)</script>""", None)
+
+
+PAGES["unsaved"] = ("""<!doctype html><title>unsaved</title><input id=f><button id=b>Click</button><script>
+var asked=0; addEventListener('beforeunload', e => { asked++; e.preventDefault(); e.returnValue = 'x' })</script>""", None)
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -265,6 +269,22 @@ def idle(scratch):
     check("the pinned session's next command finds its page loaded again", code == 0 and url in out and "tab_gone" not in out, out[:120])
     check("what was typed is still there", "typed" in out, out[:120])
     check("the tab still has its id", urls().get(tab_a) == url and bound("a") == tab_a)
+    # A page that wants to be asked before it is left (unsaved work) stays, and is not even asked: with a session
+    # connected to the browser, as here, agent-browser would answer "leave" before anyone else could.
+    with connect(devtools_json(CHROME, "/json/version")["webSocketDebuggerUrl"], proxy=None, max_size=None) as devtools:
+        tab_d = call(devtools, "Target.createTarget", {"url": f"http://127.0.0.1:{WEB}/unsaved"})["targetId"]
+    time.sleep(1)
+    with page_socket(tab_d) as socket:          # a click and typed text: without them Chrome would not ask at all
+        for kind in ("mousePressed", "mouseReleased"):
+            call(socket, "Input.dispatchMouseEvent", {"type": kind, "x": 30, "y": 15, "button": "left", "buttons": 1, "clickCount": 1})
+        call(socket, "Input.insertText", {"text": "unsaved"})
+    began = time.time()
+    unloaded = idle_tabs.park(CHROME, next(page for page in idle_tabs.pages(CHROME) if page["id"] == tab_d))
+    state = evaluate(tab_d, "location.pathname + ' ' + document.getElementById('f').value + ' ' + asked")
+    check(f"a page that wants to be asked before it is left stays loaded, unasked ({time.time() - began:.1f} s)",
+          unloaded is False and state == "/unsaved unsaved 0" and urls().get(tab_d, "").endswith("/unsaved"), state)
+    with connect(devtools_json(CHROME, "/json/version")["webSocketDebuggerUrl"], proxy=None, max_size=None) as devtools:
+        call(devtools, "Target.closeTarget", {"targetId": tab_d})
     # An unpinned session whose tab is unknown (a new session) takes over some open tab: all unloaded tabs are loaded again.
     for page in idle_tabs.pages(CHROME):
         if page["url"].startswith("http"):
@@ -279,7 +299,7 @@ def idle(scratch):
 def main():
     server = http.server.ThreadingHTTPServer(("127.0.0.1", WEB), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    with connect(_get_json(CHROME, "/json/version")["webSocketDebuggerUrl"], proxy=None, max_size=None) as devtools:
+    with connect(devtools_json(CHROME, "/json/version")["webSocketDebuggerUrl"], proxy=None, max_size=None) as devtools:
         banners(devtools)
     with tempfile.TemporaryDirectory() as scratch:
         idle(Path(scratch))

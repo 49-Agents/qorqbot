@@ -128,17 +128,14 @@ class BrowserAccess:
         command = body.get("command")
         if not isinstance(command, list) or not command or any(not isinstance(item, str) for item in command):
             raise DomainError("validation_error", "command must be a non-empty list of strings")
-        try:
-            browser.validate_arguments(command)
-        except browser.BrowserError as exc:
-            raise DomainError("validation_error", str(exc)) from exc
+        run = self._runner(actor, command)
         workspace = self._artifact_root(actor.principal.id, handle)
         owner = self._browser_owner(actor, browser_key)
         try:
             with self._selected_worker(actor, owner):
                 target = self._worker_target(browser_key, owner)
                 with self._managed_use(browser_key):
-                    code, stdout, errors = browser.run(workspace, command, target=(target["cdp_endpoint"],
+                    code, stdout, errors = run(workspace, command, target=(target["cdp_endpoint"],
                         browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True,
                         pinned=bool(target.get("shared")))
         except browser.BrowserTimeout:
@@ -152,6 +149,18 @@ class BrowserAccess:
         if action_id:
             result["action"] = {"action_id": action_id, "state": "succeeded" if code == 0 else "failed"}
         return {key: value for key, value in result.items() if value or key in {"exit_code", "stdout"}}
+
+    def _runner(self, actor, command):
+        """What runs a checked command: ``agent-browser`` for a page command, the server itself for ``captcha``."""
+        from qorqut.bootstrap import browser
+        from . import captcha
+        if captcha.is_command(command):
+            return captcha.runner(self.runtime, actor.principal.id)
+        try:
+            browser.validate_arguments(command)
+        except browser.BrowserError as exc:
+            raise DomainError("validation_error", str(exc)) from exc
+        return browser.run
 
     def tool(self, actor, action, body):
         """Agent-facing browser calls carry only a short, persisted handle."""
@@ -381,10 +390,7 @@ class BrowserAccess:
         from qorqut.bootstrap import browser
         if not isinstance(command, list) or not command or any(not isinstance(item, str) for item in command):
             raise DomainError("validation_error", "command must be a non-empty list of strings")
-        try:
-            browser.validate_arguments(command)
-        except browser.BrowserError as exc:
-            raise DomainError("validation_error", str(exc)) from exc
+        run = self._runner(actor, command)
         with self.runtime.database.transaction(operation="browser.turn.intent") as uow:
             intent, fresh = self.turns.begin_action(uow, turn_id, parent_principal_id=actor.principal.id,
                 requester_id=requester, generation=generation, lease_id=lease_id,
@@ -396,7 +402,7 @@ class BrowserAccess:
         workspace = self._artifact_root(owner_id, turn_id)
         try:
             target = self._worker_target(browser_key, actor.principal.id)
-            code, stdout, errors = browser.run(workspace, command, target=(target["cdp_endpoint"],
+            code, stdout, errors = run(workspace, command, target=(target["cdp_endpoint"],
                 browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True,
                         pinned=bool(target.get("shared")))
             outcome_state = "succeeded" if code == 0 else "failed"

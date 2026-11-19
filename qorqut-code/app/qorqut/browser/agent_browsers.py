@@ -493,10 +493,14 @@ class UserUnitLauncher:
         if state in UNIT_RUNNING:
             return False
         import qorqut
+        from . import idle_tabs
         state = outside_private_mounts(directory)
         package = outside_private_mounts(Path(qorqut.__file__).resolve().parent.parent)
+        # The last entry: where this application's browser commands record that a tab is in use (idle_tabs).
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(state), "PYTHONDONTWRITEBYTECODE": "1",
-                       "PYTHONPATH": os.pathsep.join(filter(None, [str(package), os.environ.get("PYTHONPATH", "")]))}
+                       "PYTHONPATH": os.pathsep.join(filter(None, [str(package), os.environ.get("PYTHONPATH", "")])),
+                       idle_tabs.SESSIONS: os.pathsep.join(str(outside_private_mounts(place))
+                                                           for place in idle_tabs.session_directories())}
         argv = [SYSTEMD_RUN, "--user", f"--unit={unit}", "--collect", "--quiet",
                 "--description=Qorqut agent browser supervisor", f"--working-directory={state}",
                 "--property=TimeoutStopSec=30", *(f"--setenv={key}={value}" for key, value in environment.items()),
@@ -763,8 +767,8 @@ class AgentBrowserManager:
             raise DomainError("browser_state_unverified", "A process holds this browser's lock but its identity cannot be "
                               "verified; nothing was started or stopped")
         if not (Path(meta["managed"]["chrome"]).is_file() and os.access(meta["managed"]["chrome"], os.X_OK)):
-            raise DomainError("browser_capability_missing", "Chrome is not installed at the supported path "
-                              + meta["managed"]["chrome"] + "; install the OS browser package (nothing is downloaded here)")
+            raise DomainError("browser_capability_missing", "This browser's Chrome is missing at " + meta["managed"]["chrome"]
+                              + ". Qorqbot's own Chrome is downloaded again by itself; an installed one has to be installed again")
         unit = meta["managed"]["unit"]
         if state["state"] == "starting" or self.launcher.active(unit):
             ctx.effect = True          # an earlier start is still in flight: wait for it, never launch a second browser
@@ -969,8 +973,11 @@ class AgentBrowserManager:
             raise DomainError("browser_capability_missing", _bound("The browser command is unavailable: " + str(exc))) from None
         chrome = self._new_chrome()
         if not (Path(chrome).is_absolute() and Path(chrome).is_file() and os.access(chrome, os.X_OK)):
-            raise DomainError("browser_capability_missing", "Chrome is not installed at the supported path " + chrome +
-                              "; install Chrome or set QORQUT_CHROME_EXECUTABLE to its absolute executable path")
+            from . import managed_chrome
+            raise DomainError("browser_capability_missing", (
+                "The Chrome this installation is set to use is missing at " + chrome if managed_chrome.external_choice() else
+                "No Chrome can be used yet: Qorqbot's own is still being downloaded or does not start here (Settings says "
+                "which), and none is installed at " + chrome))
         workspace = s.workspace
         if path_has_symlink(workspace) or not workspace.is_dir():
             raise DomainError("browser_workspace_unavailable", "The agent's workspace is not prepared; start the agent once first")

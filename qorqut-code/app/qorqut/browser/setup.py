@@ -23,7 +23,7 @@ RETRY = "Press Retry setup."
 RETRY_AFTER = "press Retry setup."
 RESTART = "If it keeps happening, restart Qorqbot."
 FAILURE_TEXT = {
-    "browser_capability_missing": "Qorqbot couldn't find Google Chrome or the browser tool on this computer. Install Chrome, then " + RETRY_AFTER,
+    "browser_capability_missing": "Chrome or the browser tool wasn't ready on this computer. Qorqbot tries again by itself, or " + RETRY_AFTER,
     "browser_workspace_unavailable": "This agent's folder isn't ready yet. Start the agent once in its terminal, then " + RETRY_AFTER,
     "browser_not_ready": "Chrome started but didn't respond in time. " + RETRY + " " + RESTART,
     "browser_management_busy": "Browser setup is already running for this agent. This card updates by itself.",
@@ -37,7 +37,7 @@ STATE_TEXT = {
     "missing": "This agent's browser hasn't been set up yet. " + RETRY,
     "stopped": "This agent's browser isn't running. " + RETRY + " " + RESTART,
     "target_missing": "This agent's browser settings are missing. " + RETRY + " Qorqbot will restore them.",
-    "unsupported": "Qorqbot can't create a browser here because Google Chrome or the browser tool is missing. Install Chrome, then " + RETRY_AFTER,
+    "unsupported": "Qorqbot can't create a browser here until Chrome and the browser tool are ready. It tries again by itself, or " + RETRY_AFTER,
     "busy": "Browser setup is in progress for this agent. This card updates by itself.",
     "conflict": FAILURE_TEXT["browser_target_conflict"],
     "invalid": FAILURE_TEXT["browser_configuration_invalid"],

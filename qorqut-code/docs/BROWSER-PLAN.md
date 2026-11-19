@@ -28,6 +28,10 @@ built and what was verified; an item without a "Verified" line is not done.
 13. **Captcha tool later.** Items 1, 2, 3 and 5 are built first. The solver key is saved in Global Settings as
     `CAPTCHA_SOLVER_API_KEY` (2026-11-18).
 14. **Quality over speed.** Nothing here is urgent.
+15. **No root step for the downloaded Chrome (2026-11-19).** On Ubuntu 23.10 and later Qorqbot keeps using the installed
+    Google Chrome; its own downloaded Chrome is used only where it starts with its sandbox by itself.
+16. **Idle limit stays 30 minutes (2026-11-19).**
+17. **Captcha tool starts now (2026-11-19).** The Mac check comes later.
 
 ## What exists today
 
@@ -216,20 +220,61 @@ Verified: unit tests (`tests/test_browser_idle_tabs.py`, `test_browser_cookie_ba
 fresh headless Chrome 153 with real commands through `bootstrap.browser.run` (idle tab unloaded and keeps its id,
 processor 57% to 15% of a core, the pinned session's next command finds its page again with the typed value).
 
-Not verified: under a real supervisor unit; a real 30-minute wait (the check moves the clock); macOS; Chrome for Testing;
-sites as seen from an EU address. Running browsers get neither feature until they restart.
+Verified under real supervisor units (2026-11-19, systemd user units, installed Chrome, real adapter, real 30-minute
+limit): each unit's log says once that both watchers run; the units are handed the application's session directories;
+a reject button is clicked and an accept-only banner left alone on pages opened by agent commands, in an own browser,
+the Shared browser and the Shared browser after a member restarted it (also inside a cross-site frame); an idle own tab
+was unloaded after 30.3 minutes and an idle pinned Shared tab after 30.8, both kept and both back on the next command
+in 0.1-0.2 s with their typed text; a Shared session used at minute 20 and a tab the owner watched the whole time were
+not unloaded; a page with a beforeunload handler and typed text was not unloaded and never asked; the owner opening the
+live view on an unloaded tab loads it again.
+
+Fixed after an independent review (2026-11-19): the supervisor could not see where the application keeps agent
+sessions, so a tab in use would have been unloaded (the launcher now hands the directories over); a page that asks
+before leaving froze behind its question (such a page is now left loaded); the live view counts as use of a tab
+(a mark in the browser's state folder); a missing dependency in the supervisor is logged once instead of silently
+disabling both features.
+
+Not verified: macOS and the folder installation's supervisor; a watched tab in an own browser; a wake after more than a
+few minutes unloaded; the live installation's private-mount layout; Qorqbot's own downloaded Chrome; sites as seen from
+an EU address. Running browsers get neither feature until they restart.
 
 Known limits: a closed shadow tree, settings that open in another frame, two-step refusal outside en, de, fr, es, it, nl,
 and accept-or-pay walls are not handled. A small floating box that explains cookies and holds an unrelated "Decline"
 would be clicked. A page reached by a form POST may not come back after 10 minutes. `tab-list` shows an unloaded tab as
-"Idle: <title>". The features depend on agent-browser 0.38.1's `.target` file.
+"Idle: <title>". The features depend on agent-browser 0.38.1's `.target` file. A command sent from a shell with another
+runtime or home directory than the application's does not count as use. A page that always registers `beforeunload`
+(many editors and web mail) is never unloaded. A dashboard left open on the live view keeps its tab loaded and in front.
 
 ### 4. Captcha tool (later, decision 13)
 
-- One operation the agent calls for the current tab. The server finds the captcha, clicks a checkbox type, otherwise calls
-  the solver, inserts the answer and reports the result. The key is read on the server and never reaches the agent.
+- One command the agent calls for the current tab. The server finds the captcha, clicks a checkbox type, otherwise calls
+  the solver, inserts the answer and reports the result. The key is read on the server.
 - Each solve is logged (site, type, outcome).
-- Cloudflare's check is not covered by the existing script and is new work.
+
+#### Built (2026-11-19)
+
+`captcha` command inside `browser_turn` (`["captcha"]`, no arguments). Server-side: finds reCAPTCHA v2 (checkbox,
+invisible, Enterprise), reCAPTCHA v3, hCaptcha, Cloudflare Turnstile and Cloudflare's own challenge page on the caller's
+tab, cross-site frames included; clicks a checkbox with a real mouse click; otherwise asks Anti-Captcha for a token and
+puts it into the page; answers solved / not_found / again / failed with a plain reason ("again" is for reCAPTCHA v3,
+which needs the form sent once more). The whole command stops after 150 seconds. Cloudflare's own page gets the click
+and a wait only. Key read on the server from Settings (`CAPTCHA_SOLVER_API_KEY`); never in a reply, log or error. Every
+attempt is logged to `operations/.runtime/browser-captcha.jsonl`. One instruction line in both browser skills: "If you
+see a captcha, run `captcha` and do what its answer says; if it fails, ask the owner." Code: `qorqut/browser/captcha.py`,
+`captcha.js`, `captcha_solver.py`; described in [control](BROWSER-CONTROL.md).
+
+Verified: 79 unit tests (`tests/test_browser_captcha.py`, `test_browser_captcha_solver.py`) and 34 checks on a real
+headless Chrome 153 with local stand-in widget pages and a local mock solver (`scripts/check_browser_captcha.py`).
+
+Not verified: no real widget and not the real solver. Unknown: whether a real checkbox passes on a click, whether sites
+accept the inserted token, Anti-Captcha's task names (hCaptcha may no longer be offered there), a real Cloudflare
+full-page challenge, headless detection. Needs one supervised run on public demo pages with the real key (three solves,
+under two cents). The skill line reaches existing agents only with an instruction update.
+
+Open: a key saved in the shared Global Settings file is also delivered to every agent terminal; the tool reads a
+private, server-only setting first. With about seven or more agent sessions attached to one Chrome, pages with
+cross-site frames timed out in the check (matters for the Shared browser; not investigated).
 
 ### 5. Managed Chrome download
 
@@ -259,8 +304,8 @@ AppArmor allows user namespaces only for `/opt/google/chrome/chrome`), so it is 
 installed Chrome stays in use; `--no-sandbox` was not added. Also not verified: macOS (start, Gatekeeper), website
 sign-in in Chrome for Testing, a real supervisor on the managed build, a pin change on a running installation.
 
-Open decisions: the sandbox on Ubuntu 23.10+ (a one-time AppArmor profile step, or keep requiring Google Chrome there);
-how often the pin is bumped (there is no automatic update); whether browsers restart at a pin change.
+Decided: no AppArmor step (decision 15). Still open: how often the pin is bumped (there is no automatic update); whether
+browsers restart at a pin change.
 
 ## Not in this plan
 

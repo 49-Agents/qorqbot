@@ -123,6 +123,8 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
 * For an agent on the Shared browser the list shows every tab of the Shared browser. The view does not know which tab
   belongs to which agent.
 * A stream ends when its tab closes or the connection drops; the dashboard does not reconnect by itself.
+* Watching is use: a tab with an open view is not [unloaded as idle](#idle-tabs-and-cookie-banners), and opening a view
+  on an unloaded tab loads its page again without waiting for it, so the owner sees it load.
 * The visible sign-in window stays for what a picture cannot do: file pickers, passkeys, downloads.
 
 ## Qorqbot's own Chrome
@@ -175,12 +177,27 @@ Settings reports `managed_chrome` in `/api/root/browser-setup`: `state` is `read
 Each managed browser's supervisor also looks after its pages (`qorqut/browser/idle_tabs.py`, `cookie_banners.py`); agents
 need no instruction for either.
 
-* **Idle tabs.** A web tab that no session used and whose address did not change for 30 minutes is unloaded: the same tab
-  goes to a small "Idle" page, so its identifier and the agent's binding to it stay. The agent's next command loads the
-  page again (one history step back). Within about 10 minutes the page returns exactly as it was; later it reloads.
+* **Idle tabs.** A web tab that no session used, that the owner did not watch and whose address did not change for 30
+  minutes is unloaded: the same tab goes to a small "Idle" page, so its identifier and the agent's binding to it stay.
+  The agent's next command loads the page again (one history step back). Within about 10 minutes the page returns
+  exactly as it was; later it reloads.
+* **What counts as use.** An agent's command: it sets the modification time of its `agent-browser` session file
+  (`<session>.target`). The supervisor's home is its browser's state directory, so the application hands each
+  supervisor it starts the directories its own commands keep those files in (`QORQUT_BROWSER_SESSION_DIRECTORIES` in the
+  unit's environment). A command run from a shell whose runtime or home directory is neither the application's nor
+  `/run/user/<uid>` is not seen. And the owner's live view: while a view is open it renews an empty file named by the
+  tab in `agent-browsers/<browser>/watched/` about once a minute; the supervisor removes a file older than the limit.
+* **A page that wants to be asked before it is left** (a `beforeunload` handler: unsaved work) is not unloaded and not
+  asked; it is looked at again after another 30 minutes. Should the question come up all the same (a frame inside the
+  page asks), it is answered "stay" so that it cannot block the page, unless `agent-browser`, which answers every
+  dialog of a browser it is connected to with "leave", was first; then the tab is unloaded like any other.
+* **Many unloaded tabs.** A command of a session that has no tab yet (own browser only) loads every unloaded tab again,
+  and waits 15 seconds at most for all of them together.
 * **Cookie banners.** A banner is refused when it offers a refusal; it is never accepted, and a page without a refusal
   control is left alone.
-* A browser gets both when it next starts.
+* A browser gets both when it next starts. The supervisor's log (the unit's journal; `supervisor.log` in a folder
+  installation) says once that both run, or once why they do not (its Python cannot import `websockets`), and the first
+  failure of each afterwards.
 
 ## Preservation
 

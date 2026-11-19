@@ -565,6 +565,35 @@ class NewAndExistingBrowsersTest(SharedProfileTest):
         self.assertEqual(self.manage(ATLAS, "ensure")["state"], "healthy")
         self.assertEqual(self.chrome(ATLAS), managed)
 
+    def refused(self, agent, action="ensure"):
+        with self.assertRaises(DomainError) as raised:
+            self.manage(agent, action)
+        self.assertEqual(raised.exception.code, "browser_capability_missing")
+        return str(raised.exception)
+
+    def test_a_browser_that_has_no_chrome_yet_is_told_that_qorqbots_own_is_on_its_way(self):
+        self.manager.chrome = "/usr/bin/google-chrome-stable-is-not-installed"
+        with mock.patch.object(self.manager, "_capable", return_value=True):      # as when Chrome goes after the check
+            message = self.refused(ATLAS)
+            self.assertIn("downloaded", message)
+            self.assertIn(self.manager.chrome, message)
+            self.assertNotRegex(message, "(?i)install chrome|nothing is downloaded")
+            with mock.patch.dict(os.environ, {"QORQUT_CHROME_EXECUTABLE": self.manager.chrome}):
+                message = self.refused(ATLAS)                # an explicit choice: nothing is downloaded, and it says so
+            self.assertNotIn("downloaded", message)
+            self.assertIn(self.manager.chrome, message)
+
+    def test_a_browser_whose_own_chrome_is_gone_is_told_what_brings_it_back(self):
+        import shutil
+        managed = str(self.install())
+        self.manage(ATLAS, "ensure")
+        self.manage(ATLAS, "stop")
+        shutil.rmtree(mc.chrome_root(self.paths.runtime))
+        message = self.refused(ATLAS)
+        self.assertIn(managed, message)
+        self.assertIn("downloaded again", message)
+        self.assertNotIn("nothing is downloaded", message)
+
     def test_an_explicitly_chosen_chrome_is_never_replaced(self):
         self.install()
         with mock.patch.dict(os.environ, {"QORQUT_CHROME_EXECUTABLE": self.manager.chrome}):

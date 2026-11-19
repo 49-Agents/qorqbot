@@ -1,12 +1,14 @@
 """The owner's live view of an agent's browser: which tabs it lists, what reaches the page, and when a stream ends."""
 
 import json
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
 
 from qorqut_operations.contracts import DomainError
-from qorqut.browser import live, setup, sign_in
+from qorqut.browser import idle_tabs, live, setup, sign_in
 
 AGENT = "11111111-1111-4111-8111-111111111111"
 TAB = "C3016B049B49B2E2FBC864793BBCF652"
@@ -48,9 +50,9 @@ class ViewTest(unittest.TestCase):
         self.now = 0.0
         self.addCleanup(live._views.clear)
 
-    def open(self, incoming=()):
+    def open(self, incoming=(), marks=None):
         self.socket = Socket(incoming)
-        view = live.View(AGENT, 20400, TAB, connect=lambda _port, _tab: self.socket, clock=lambda: self.now)
+        view = live.View(AGENT, 20400, TAB, marks=marks, connect=lambda _port, _tab: self.socket, clock=lambda: self.now)
         self.addCleanup(view.close)
         return view
 
@@ -112,6 +114,43 @@ class ViewTest(unittest.TestCase):
         with self.assertRaises(DomainError) as refused:
             view.send([{"type": "text", "text": "x"}])
         self.assertEqual(refused.exception.code, "browser_not_ready")
+
+    def marked(self):
+        """How often the view recorded that its tab is being watched."""
+        marks = []
+        patcher = mock.patch.object(idle_tabs, "note_watch", side_effect=lambda directory, tab: marks.append((directory, tab)))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return marks
+
+    def test_an_open_view_keeps_its_tab_marked_as_watched_about_once_a_minute(self):
+        marks, folder = self.marked(), Path("/state/watched")
+        view = self.open(marks=folder)
+        self.assertEqual(marks, [(folder, TAB)])                      # at once, before the first picture
+        for _ in range(10):
+            view.next(0.5)                                            # a page that stands still sends no pictures
+        self.assertEqual(len(marks), 1)
+        self.now += live.WATCH_MARK_EVERY
+        view.next(0.5)
+        view.next(0.5)
+        self.assertEqual(marks, [(folder, TAB)] * 2)
+
+    def test_the_owners_input_counts_as_watching_too(self):
+        marks = self.marked()
+        view = self.open(marks=Path("/state/watched"))
+        self.now += live.WATCH_MARK_EVERY
+        view.send([{"type": "text", "text": "x"}])
+        self.assertEqual(len(marks), 2)
+
+    def test_a_mark_that_cannot_be_written_does_not_disturb_the_view(self):
+        with mock.patch.object(idle_tabs, "note_watch", side_effect=OSError("read-only")):
+            view = self.open([frame(1)], marks=Path("/state/watched"))
+            self.assertEqual(view.next(1)["data"], "jpeg-1")
+
+    def test_the_mark_is_where_the_sweeper_reads_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.open(marks=Path(folder, idle_tabs.WATCHED))
+            self.assertEqual(list(idle_tabs.recent_watches(__import__("time").time(), Path(folder, idle_tabs.WATCHED))), [TAB])
 
     def test_a_view_is_found_only_by_its_own_agent_and_only_while_open(self):
         view = self.open()
@@ -187,15 +226,36 @@ class BrowserTest(unittest.TestCase):
                 live.port(runtime, "22222222-2222-4222-8222-222222222222")
             self.assertEqual(refused.exception.code, "not_found")
 
-    def test_a_view_opens_only_on_a_tab_the_browser_lists(self):
-        with mock.patch.object(live, "port", return_value=20400), mock.patch.object(live, "tabs", return_value=[{"id": TAB}]), \
-                mock.patch.object(live, "View") as view:
-            self.assertEqual(live.open_view(None, AGENT, TAB), (view.return_value, 20400))
+    def opened(self, url, wake=None):
+        """Open a view on a tab at ``url``; returns what the view was created with and which tabs were loaded again."""
+        runtime, woken = SimpleNamespace(), []
+        def load(port, tab, wait):
+            woken.append((port, tab, wait))
+            if wake is not None:
+                raise wake
+        with mock.patch.object(live, "port", return_value=20400), mock.patch.object(live, "tabs", return_value=[{"id": TAB, "url": url}]), \
+                mock.patch.object(sign_in, "_state", return_value=Path("/state")) as state, \
+                mock.patch.object(idle_tabs, "wake", load), mock.patch.object(live, "View") as view:
+            self.assertEqual(live.open_view(runtime, AGENT, TAB), (view.return_value, 20400))
             for tab in ("B61A88157A879FBF6E4EFFB3355F8F17", None, "../x"):
                 with self.subTest(tab=tab), self.assertRaises(DomainError) as refused:
-                    live.open_view(None, AGENT, tab)
+                    live.open_view(runtime, AGENT, tab)
                 self.assertEqual(refused.exception.code, "not_found")
-        view.assert_called_once_with(AGENT, 20400, TAB)
+        state.assert_called_once_with(runtime, AGENT)                 # the browser the agent uses: its own, or the Shared one
+        view.assert_called_once_with(AGENT, 20400, TAB, marks=Path("/state", idle_tabs.WATCHED))
+        return woken
+
+    def test_a_view_opens_only_on_a_tab_the_browser_lists(self):
+        self.assertEqual(self.opened("https://mail.example/"), [])
+
+    def test_opening_an_unloaded_tab_loads_its_page_again_and_shows_it_loading(self):
+        self.assertEqual(self.opened(idle_tabs.parked_page("Inbox", "https://mail.example/")), [(20400, TAB, 0)])
+
+    def test_an_unloaded_tab_that_cannot_be_loaded_again_is_shown_as_it_is(self):
+        # The owner then sees the unloaded tab's own small page, whose link loads the page.
+        for failure in (OSError("gone"), ImportError("websockets")):
+            with self.subTest(failure=failure):
+                self.assertEqual(len(self.opened(idle_tabs.parked_page("Inbox", "https://mail.example/"), wake=failure)), 1)
 
     def test_the_picture_stream_is_never_compressed(self):
         from qorqut.service.web import SelectiveGZip

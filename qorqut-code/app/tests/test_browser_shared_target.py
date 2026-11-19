@@ -2,15 +2,31 @@
 
 import json
 from pathlib import Path
+import socket
 import tempfile
 import unittest
 from unittest import mock
 
 from qorqut.bootstrap import agent_browser, browser
+from qorqut.browser import idle_tabs
 
 
 def target(**extra):
     return {"schema_version": 1, "cdp_endpoint": "http://127.0.0.1:20400", "runtime_dir": "/runtime", **extra}
+
+
+def keep_off_real_browsers(test):
+    """The endpoints here are ports the product gives to real browsers, and ``browser.run`` looks at its browser's tabs
+    before each command (``idle_tabs.before_command``: on a live browser it would load unloaded tabs again and mark a
+    real session as used). So the hook is stood in for, and a test that opens any connection fails. The attempt is
+    counted and checked afterwards because the hook itself swallows every error."""
+    connect = mock.patch.object(socket.socket, "connect", side_effect=OSError("no network in this test"))
+    attempts = connect.start()
+    test.addCleanup(lambda: test.assertEqual(attempts.call_args_list, [], "this test tried to open a network connection"))
+    test.addCleanup(connect.stop)
+    before = mock.patch.object(idle_tabs, "before_command")
+    before.start()
+    test.addCleanup(before.stop)
 
 
 class SharedTargetTest(unittest.TestCase):
@@ -58,6 +74,7 @@ class PinnedCommandTest(unittest.TestCase):
         self.addCleanup(folder.cleanup)
         self.workspace = Path(folder.name)
         (self.workspace / ".qorqut").mkdir()
+        keep_off_real_browsers(self)
 
     def command(self, args, **options):
         with tempfile.TemporaryDirectory() as directory:
@@ -119,6 +136,7 @@ class FailedCommandTest(unittest.TestCase):
         self.addCleanup(folder.cleanup)
         self.workspace = Path(folder.name)
         self.target = ("http://127.0.0.1:20999", Path("/runtime/agent-browser"))
+        keep_off_real_browsers(self)
 
     def run_command(self, args, outcome, pinned=True):
         effect = outcome if isinstance(outcome, Exception) else None

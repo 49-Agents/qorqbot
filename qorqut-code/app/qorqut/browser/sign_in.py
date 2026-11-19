@@ -209,7 +209,7 @@ def _open_window(runtime, owner, agent_id, url):
                                start_new_session=True)
     time.sleep(1)
     if process.poll() is not None:
-        raise DomainError("browser_start_failed", "Chrome couldn't open a sign-in window. Make sure Chrome is installed, then try again.")
+        raise DomainError("browser_start_failed", "Chrome couldn't open a sign-in window. Try again, or sign in through the agent's Browser tab.")
     return process, port
 
 

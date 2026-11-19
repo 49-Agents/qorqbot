@@ -1,6 +1,8 @@
 """Cookie banners: how the refusal script reaches every document of a browser, and that the watcher outlives failures."""
 
 import json
+from pathlib import Path
+import sys
 import threading
 import unittest
 from unittest import mock
@@ -110,11 +112,37 @@ class WatchTest(unittest.TestCase):
             return original(timeout)
 
         second.recv = last
-        with mock.patch.object(cookie_banners, "RETRY_AFTER", 0), mock.patch.object(cookie_banners, "script", return_value="SCRIPT"):
+        with mock.patch.object(cookie_banners, "RETRY_AFTER", 0), mock.patch.object(cookie_banners, "script", return_value="SCRIPT"), \
+                mock.patch("builtins.print"):
             cookie_banners.watch(20400, stop, connect=connect)
         self.assertEqual([item["params"]["filter"] for item in first.sent], [[{"type": "tab"}], [{"type": "page"}]])
         self.assertEqual([item.get("sessionId") for item in second.sent], [None, "T2"])
         self.assertTrue(first.closed and second.closed)
+
+    def test_a_connection_that_fails_is_reported_once_however_often_it_is_tried(self):
+        stop, tries = threading.Event(), []
+
+        def connect(port):
+            tries.append(port)
+            if len(tries) == 3:
+                stop.set()
+            raise TypeError("connect() got an unexpected keyword argument 'proxy'")
+
+        with mock.patch.object(cookie_banners, "RETRY_AFTER", 0), mock.patch.object(cookie_banners, "script", return_value="SCRIPT"), \
+                mock.patch("builtins.print") as printed:
+            cookie_banners.watch(20400, stop, connect=connect)
+        self.assertEqual(len(tries), 3)
+        printed.assert_called_once()
+        self.assertIn("unexpected keyword argument 'proxy'", printed.call_args.args[0])
+
+    def test_the_connection_is_made_to_the_address_chrome_names_without_anything_of_the_application(self):
+        from qorqut.browser import control
+        blocked = {name: None for name in ("qorqut.browser.sign_in", "qorqut.browser.agent_browsers", "qorqut.agent_trust")}
+        with mock.patch.dict(sys.modules, blocked), mock.patch("websockets.sync.client.connect") as connect, \
+                mock.patch.object(control, "devtools_json", return_value={"webSocketDebuggerUrl": "ws://127.0.0.1:20400/devtools/browser/x"}) as asked:
+            self.assertIs(cookie_banners._connect(20400), connect.return_value)
+        asked.assert_called_once_with(20400, "/json/version")
+        self.assertEqual(connect.call_args.args, ("ws://127.0.0.1:20400/devtools/browser/x",))
 
     def test_a_missing_script_leaves_the_browser_alone(self):
         with mock.patch.object(cookie_banners, "script", side_effect=OSError("missing")), mock.patch("sys.stderr"):
@@ -122,20 +150,45 @@ class WatchTest(unittest.TestCase):
 
 
 class SupervisorTest(unittest.TestCase):
-    def test_a_ready_browser_gets_both_watchers(self):
-        started, stop = [], threading.Event()
+    STATE = Path("/runtime/agent-browsers/browser")
+
+    def attend(self, started=None):
+        """Run ``attend`` with stand-in watchers; returns what it wrote to the supervisor's log."""
+        stop, started = threading.Event(), [] if started is None else started
         done = threading.Barrier(3)
 
         def watcher(name):
-            def watch(port, stopping):
-                started.append((name, port, stopping is stop))
+            def watch(*args):
+                started.append((name, *args[:1], args[1] is stop, *args[2:]))
                 done.wait(timeout=5)
             return watch
 
-        with mock.patch.object(cookie_banners, "watch", watcher("banners")), mock.patch.object(idle_tabs, "watch", watcher("idle")):
-            agent_supervisor.attend(20400, stop)
-            done.wait(timeout=5)
-        self.assertEqual(sorted(started), [("banners", 20400, True), ("idle", 20400, True)])
+        with mock.patch.object(cookie_banners, "watch", watcher("banners")), mock.patch.object(idle_tabs, "watch", watcher("idle")), \
+                mock.patch("builtins.print") as printed:
+            agent_supervisor.attend(self.STATE, 20400, stop)
+            if threading.active_count() > 1:
+                try:
+                    done.wait(timeout=1)
+                except threading.BrokenBarrierError:
+                    pass
+        self.assertTrue(all(call.kwargs.get("file") is sys.stderr for call in printed.call_args_list))
+        return [call.args[0] for call in printed.call_args_list]
+
+    def test_a_ready_browser_gets_both_watchers_and_its_log_says_so(self):
+        started = []
+        log = self.attend(started)
+        self.assertEqual(sorted(started), [("banners", 20400, True), ("idle", 20400, True, self.STATE / idle_tabs.WATCHED)])
+        self.assertEqual(len(log), 1)
+        self.assertRegex(log[0], "cookie banners.*idle tabs")
+
+    def test_a_python_without_what_the_watchers_need_is_reported_once_and_the_browser_runs_on(self):
+        started = []
+        with mock.patch.dict(sys.modules, {"websockets.sync.client": None}):          # importing it now fails
+            log = self.attend(started)
+        self.assertEqual(started, [])
+        self.assertEqual(len(log), 1)
+        self.assertRegex(log[0], "not refused.*not unloaded")
+        self.assertIn("websockets", log[0])
 
 
 if __name__ == "__main__":

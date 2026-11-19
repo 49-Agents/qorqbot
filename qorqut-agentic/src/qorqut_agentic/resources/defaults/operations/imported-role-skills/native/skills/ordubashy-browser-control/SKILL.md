@@ -108,6 +108,7 @@ Pass these commands as the `browser_turn` command array:
   costs CPU even when nobody looks at it. Never close owner tabs or tabs you did not open.
 - `screenshot` is a fallback for visual tasks or inaccessible controls. Inspect
   the image before coordinate actions. Avoid repeated full snapshots/screenshots.
+- If you see a captcha, run `captcha` and do what its answer says; if it fails, ask the owner.
 - `type "text"` sends text to the focused element; `click` the field first and verify
   the result. `press <key>` sends a single key.
 - `frame <ref-or-selector>` switches into an iframe, such as an embedded payment form,

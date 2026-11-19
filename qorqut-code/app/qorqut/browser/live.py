@@ -4,6 +4,9 @@ It talks to the agent's managed Chrome over that Chrome's own loopback DevTools 
 it opens no tab, holds no browser lock and does not pause the agent: the agent keeps working while the owner watches or
 types. Chrome only draws the tab that is in front, so opening a view brings its tab to the front.
 
+Watching is use: a tab with an open view is not unloaded for idleness (``idle_tabs``), and a view opened on a tab that
+was unloaded loads its page again, as an agent's next command would.
+
 Nothing here decides who may watch; the HTTP route admits the installation owner only.
 """
 
@@ -20,6 +23,7 @@ from qorqut_operations.contracts import DomainError
 TAB_ID = re.compile(r"[0-9A-F]{32}")
 FRAME_INTERVAL = 1 / 20          # At most this many pictures a second reach the dashboard; Chrome offers up to 60.
 JPEG_QUALITY = 70
+WATCH_MARK_EVERY = 60            # Seconds between renewals of an open view's "watched" mark; far below the idle limit.
 MAX_EVENTS, MAX_TEXT, MAX_KEY = 64, 10000, 64
 MOUSE = {"move": "mouseMoved", "down": "mousePressed", "up": "mouseReleased"}
 BUTTONS = {"none", "left", "middle", "right"}
@@ -106,13 +110,15 @@ def _connect(port_, tab_id):
 class View:
     """One open stream of one tab. ``next`` is called by the stream's own thread; ``send`` by any request thread."""
 
-    def __init__(self, agent_id, port_, tab_id, *, connect=_connect, clock=time.monotonic):
+    def __init__(self, agent_id, port_, tab_id, *, marks=None, connect=_connect, clock=time.monotonic):
         self.agent_id, self.tab_id, self.id = agent_id, tab_id, str(uuid.uuid4())
         self._clock, self._calls, self._sent_at, self._write = clock, 0, None, threading.Lock()
+        self._marks, self._marked_at = marks, None
         try:
             self._socket = connect(port_, tab_id)
         except Exception as error:
             raise DomainError("browser_not_ready", "This tab could not be opened. It may have been closed.") from error
+        self._watching()
         try:
             self._call("Page.bringToFront")
             self._call("Page.startScreencast", {"format": "jpeg", "quality": JPEG_QUALITY})
@@ -130,11 +136,25 @@ class View:
         except Exception as error:
             raise Closed() from error
 
+    def _watching(self):
+        """Renew the mark that keeps this tab from being unloaded as idle (``idle_tabs.note_watch``) when it is due. The
+        view goes on without it: at worst the tab is unloaded and the owner sees that page's link to load it again."""
+        now = self._clock()
+        if self._marks is None or (self._marked_at is not None and now - self._marked_at < WATCH_MARK_EVERY):
+            return
+        self._marked_at = now
+        from . import idle_tabs
+        try:
+            idle_tabs.note_watch(self._marks, self.tab_id)
+        except OSError:
+            pass
+
     def next(self, timeout):
         """The next picture to show as ``{"data", "width", "height"}``, or None when none arrived within ``timeout`` seconds.
 
         Every picture is acknowledged, since Chrome sends the next one only after that; pictures arriving faster than the
         dashboard's rate are acknowledged and dropped."""
+        self._watching()               # here, not on a picture: a page that stands still sends none while it is watched
         deadline = self._clock() + timeout
         while True:
             remaining = deadline - self._clock()
@@ -162,6 +182,7 @@ class View:
         if not isinstance(events, list) or not 0 < len(events) <= MAX_EVENTS:
             raise DomainError("validation_error", "Browser input is invalid")
         commands = [command(event) for event in events]      # all checked before any reaches the page
+        self._watching()
         try:
             for method, params in commands:
                 self._call(method, params)
@@ -187,7 +208,16 @@ def view(agent_id, view_id):
 
 
 def open_view(runtime, agent_id, tab_id):
+    """Open a view of one listed tab. A tab that was unloaded for idleness gets its page back first, without waiting for
+    it, so the owner sees it load. When that fails the view shows the unloaded tab's own page, whose link does the same."""
+    from . import idle_tabs, sign_in
     port_ = port(runtime, agent_id)
-    if tab_id not in [tab["id"] for tab in tabs(port_)]:
+    listed = [tab for tab in tabs(port_) if tab["id"] == tab_id]
+    if not listed:
         raise DomainError("not_found", "This tab is closed")
-    return View(agent_id, port_, tab_id), port_
+    if idle_tabs.is_parked(listed[0].get("url")):
+        try:
+            idle_tabs.wake(port_, tab_id, 0)
+        except Exception:
+            pass
+    return View(agent_id, port_, tab_id, marks=sign_in._state(runtime, agent_id) / idle_tabs.WATCHED), port_

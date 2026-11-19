@@ -96,6 +96,10 @@ class FlowTest(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.addCleanup(sign_in._active.clear)
 
+    def no_window(self):
+        """The window is a stand-in without a DevTools port: nothing may ask a real port on this computer for its cookies."""
+        return mock.patch.multiple(sign_in, _window_cookies=mock.Mock(return_value=[]), _quit_cleanly=mock.Mock())
+
     def test_unknown_agent_is_refused(self):
         with self.assertRaises(DomainError):
             sign_in.start(self.runtime, "other", "slack.com")
@@ -117,10 +121,21 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(self.calls, ["stop", "ensure"])
         self.assertFalse(sign_in.active(AGENT))
 
+    def test_a_window_that_closes_at_once_points_the_owner_to_the_live_view_not_to_installing_chrome(self):
+        # The browser's own Chrome ran headless a moment ago, so it is installed; a computer without a screen is the usual cause.
+        with mock.patch.object(sign_in, "chrome_environment", return_value={}), mock.patch.object(sign_in.time, "sleep"), \
+                mock.patch.object(sign_in.subprocess, "Popen", return_value=SimpleNamespace(poll=lambda: 1)), \
+                self.assertRaises(DomainError) as refused:
+            sign_in.start(self.runtime, AGENT, "slack.com")
+        self.assertEqual(refused.exception.code, "browser_start_failed")
+        self.assertIn("Browser tab", str(refused.exception))
+        self.assertNotIn("installed", str(refused.exception))
+        self.assertEqual(self.calls, ["stop", "ensure"])
+
     def test_finish_records_the_site_once_and_restores_the_browser(self):
         process = SimpleNamespace()
         sign_in._active[AGENT] = "slack.com"
-        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child") as stop:
+        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child") as stop, self.no_window():
             sign_in._finish(self.runtime, "owner", AGENT, "slack.com", process, 1)
             sign_in._active[AGENT] = "slack.com"
             sign_in._finish(self.runtime, "owner", AGENT, "slack.com", process, 1)
@@ -130,7 +145,7 @@ class FlowTest(unittest.TestCase):
         self.assertFalse(sign_in.active(AGENT))
 
     def test_nothing_secret_is_recorded(self):
-        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child"):
+        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child"), self.no_window():
             sign_in._active[AGENT] = "slack.com"
             sign_in._finish(self.runtime, "owner", AGENT, "slack.com", SimpleNamespace(), 1)
         self.assertEqual(set(json.loads((self.root / AGENT / sign_in.SITES_FILE).read_text())[0]), {"site", "added_at"})

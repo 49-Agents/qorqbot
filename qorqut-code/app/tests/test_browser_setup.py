@@ -56,6 +56,12 @@ class BrowserSetupTest(unittest.TestCase):
                 self.assertNotRegex(text, r'action=|[a-z]+_[a-z]+|docs/|QORQUT')
         self.assertEqual(setup.explanation('healthy'), '')
 
+    def test_the_owner_is_not_told_to_install_chrome_which_qorqbot_downloads_itself(self):
+        # Shown per agent only while a Chrome is there; with none the card shows the download's own explanation.
+        for text in (setup.explanation('unsupported'), setup.explanation('missing', failure_code='browser_capability_missing')):
+            self.assertNotIn('Install Chrome', text)
+            self.assertIn('Retry setup', text)
+
     def test_a_deliberate_stop_is_explained_as_one(self):
         self.assertIn('on purpose', setup.explanation('stopped', stop_requested=True))
         self.assertNotIn('on purpose', setup.explanation('stopped'))

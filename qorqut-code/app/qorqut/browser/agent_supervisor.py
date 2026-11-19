@@ -191,12 +191,23 @@ def stop_child(child: subprocess.Popen, port: int | None = None) -> None:
     child.wait(timeout=5)
 
 
-def attend(port: int, stop: threading.Event) -> None:
+def attend(state: Path, port: int, stop: threading.Event) -> None:
     """What this browser gets for as long as it runs, from here because the supervisor lives exactly as long as its Chrome
-    and outlives the application: cookie banners refused and idle tabs unloaded. Neither can stop the browser."""
-    from . import cookie_banners, idle_tabs
-    for watch in (cookie_banners.watch, idle_tabs.watch):
-        threading.Thread(target=watch, args=(port, stop), daemon=True).start()
+    and outlives the application: cookie banners refused and idle tabs unloaded. Neither can stop the browser.
+
+    Both import what they talk to Chrome with only when they first need it, inside loops that survive every error. So a
+    supervisor whose Python lacks one of those modules would run a browser with neither, and say nothing. They are
+    imported here first, and the supervisor's log gets one line either way."""
+    try:
+        import websockets.sync.client          # beyond the standard library, the one thing the two need
+        from . import cookie_banners, idle_tabs
+    except ImportError as error:
+        print("Browser supervisor: cookie banners are not refused and idle tabs are not unloaded in this browser, because "
+              f"this Python ({sys.executable}) cannot import what they need: {error}", file=sys.stderr)
+        return
+    for watch, arguments in ((cookie_banners.watch, ()), (idle_tabs.watch, (state / idle_tabs.WATCHED,))):
+        threading.Thread(target=watch, args=(port, stop, *arguments), daemon=True).start()
+    print("Browser supervisor: refusing cookie banners and unloading idle tabs in this browser.", file=sys.stderr)
 
 
 def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> int:
@@ -246,7 +257,7 @@ def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> i
                 raise RuntimeError("start_timeout")
             time.sleep(0.1)
         publish(state="ready", instance=str(uuid.uuid4()))
-        attend(managed["port"], stop)
+        attend(state, managed["port"], stop)
         while not stop.wait(0.5):
             if child.poll() is not None:
                 raise RuntimeError("chrome_exited")
