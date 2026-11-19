@@ -111,6 +111,64 @@ overview response (about 85% fewer characters). These are local character
 measurements, not provider-token billing or live-browser benchmarks; small
 pages can be larger because the compact JSON carries refs and evidence handles.
 
+## Command vocabulary
+
+The launcher drives the pinned agent-browser 0.38.1 (see [AGENT-BROWSER-BACKEND.md](AGENT-BROWSER-BACKEND.md); the
+paragraphs above that name the Playwright CLI are older). It accepts the words an agent is likely to send, whether they
+are the launcher's own or the tool's, and turns them into the tool's commands in `qorqut/bootstrap/agent_browser.py`.
+`validate_arguments` in `qorqut/bootstrap/browser.py` runs that same translation without running anything, so a command
+that cannot run is refused before it starts, on every path that calls it.
+
+| Sent | Becomes |
+| --- | --- |
+| `read` | A batch of `get url`, `get title` and the tool's `read` of the page the tab shows. The reply is `Address:`, `Title:` and the readable text, in at most 4,000 characters in all; `--budget=N` takes 1,000 to 24,000. `--filter <text>` and `--outline` pass through. When the text is cut, the reply says by how much and how to get more. |
+| `open <url>`, `goto <url>` | `open <url>` |
+| `type <text>`, `keyboard type <text>` | `keyboard type <text>`: one argument, typed into the focused field |
+| `tab`, `tab list`, `tab new [url]`, `tab close [id]`, `tab <id>` | `tab-list`, `tab-new`, `tab-close`, `tab-select`, which are the same commands |
+| `back`, `forward` | `go-back`, `go-forward` |
+| `snapshot -s <selector>` | `snapshot --selector <selector>`; the other snapshot options are `-i`, `-c`, `-d <n>`, `--delta` and `--full` |
+| `find <locator> <value> <action> [text]` | Passed through. Locators `role`, `text`, `label`, `placeholder`, `alt`, `title`, `testid`, `first <css>`, `last <css>`, `nth <n> <css>`; actions `click`, `fill <text>`, `check`, `hover`, `text`; options `--name <name>` (role only) and `--exact`. `find <text>` alone still reads the matching text. |
+| `scroll [up\|down\|left\|right] [pixels] [--selector <sel>]` | Passed through; `scroll 500` means `scroll down 500` |
+| `focus <ref or selector>` | Passed through |
+| `wait <ms>`, `wait <selector>`, `wait --text <t>`, `wait --url <pattern>`, `wait --load <state>`, `wait --fn <expression>` | Passed through. A time is at most 30,000 ms, so the wait ends inside the 45-second limit of a command. A wait for a selector or text that never comes ends by itself after 25 seconds. |
+| `get url`, `get title`, `get text <sel>`, `get value <sel>`, `get attr <sel> <name>`, `get count <sel>` | Passed through |
+| `eval <function>` | The function is called, as before |
+| `eval <expression or statements>` | Run as written; the value of the last statement is printed |
+
+A snapshot ref (`e12`) is sent as `@e12` to `click`, `fill`, `focus`, `get text`, `get value`, `get attr`, `frame` and the
+like. `wait`, `get count`, `snapshot --selector` and the selectors of `find first`, `last` and `nth` take CSS only, and a
+ref given there is refused with that sentence instead of waiting for it.
+
+A refusal says what to send instead. A word near a supported command names it ("Did you mean 'click'?"). A command of
+the tool that is closed on purpose is called that: browser start and stop (`launch`, `quit`, `kill`, `install`),
+`connect` and `close` (use `attach` and `detach`, which leave Chrome running), `cookies`, `storage`, `network`, `set`
+(use `resize <width> <height>`), `mouse`, `clipboard`, `download` and `wait --download`. Also closed: `get cdp-url`,
+which would hand out the browser's connection address; `get html`, `box` and `styles` (use `eval`); and `read <url>`,
+because a read by address is fetched over HTTP outside the browser's own session (send `goto <url>`, then `read`).
+
+Options are checked per command against a table. An argument that begins with `-` and is not in the command's table is
+refused in every position, including after the positional arguments, as the value of another option and in the
+`--option=value` form, so `--session`, `--cdp`, `--config`, `--profile` and the rest of the tool's lifecycle options
+cannot be added to any command. This also means a text argument cannot begin with `-`; the refusal says so. The tool
+ignores the `=` form of `--name` and `--selector` and falls back to its default (the first match, the whole page), so
+the launcher sends every `--option=value` as `--option value`.
+
+Two refusals protect against a silent wrong result. `type` takes one text argument: the tool's own `type <selector>
+<text>` would type "e5 text" into whatever has focus. `find <locator> <value>` needs an action, because the tool would
+click.
+
+What the pinned tool does, found against a throwaway headless Chrome on 2026-11-19:
+
+* `find ... click` on a name that matches several elements does not refuse: it takes the first match in page order and
+  prints "Done". `--exact` (or `find role button click --name <exact name>`) and a ref avoid this. `find role button
+  text --name X` for a name that matches nothing lists the names it saw.
+* `eval` runs an expression as written (`document.title`), and runs several statements, printing the last value. A
+  top-level `return` is a syntax error, and a top-level `const` or `let` stays in the page, so sending the same
+  `const x = 1` twice fails the second time: use `var` or a function. A function that is not called prints `{}`.
+* `read` without an address prints only the text; it carries neither the address nor the title, which is why the
+  launcher asks for all three in one batch.
+* `wait` reads `+2000` and `02000` as a time, which is why a time is checked in every form that starts like a number.
+
 ## qocaat finding and rollout
 
 On 2026-09-11 the existing `remote-browser.service` was active and exposed Chrome
@@ -158,6 +216,9 @@ rechecked on every call, and a handle is bound to the authenticated credential, 
 session binding, environment isolation, timeout handling, empty-tab diagnosis,
 selected-role projection, absence from startup/MCP configuration, and removal on
 role change while preserving operator configuration.
+
+`tests/test_browser_command_vocabulary.py` checks every row of the vocabulary above, every refusal and its advice, the
+lifecycle options in every position of every command, and that `read` is answered from one batch. It needs no Chrome.
 
 The opt-in real test launches and terminates only a disposable headless Chrome
 profile on an ephemeral port. It attaches through the locked CLI, creates a test

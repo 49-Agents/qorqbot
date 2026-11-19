@@ -29,7 +29,7 @@ COMMANDS = frozenset("""
 attach detach goto type click dblclick fill drag hover select upload check
 uncheck snapshot find eval dialog-accept dialog-dismiss resize go-back go-forward
 reload press screenshot pdf tab-list tab-new tab-close tab-select console observe
-frame
+frame read wait get scroll focus
 """.split())
 GLOBAL_OPTIONS = {"--session", "-s", "--cdp", "--endpoint", "--extension", "--config",
                   "--browser", "--profile", "--persistent", "--headed", "--isolated"}
@@ -821,15 +821,13 @@ def preflight(endpoint: str) -> None:
 
 
 def validate_arguments(args: list[str]) -> None:
+    """Refuse a command that cannot be run, before anything starts; the reply says what to send instead."""
     try:
         args = agent_browser.normalize_arguments(args)
     except ValueError as exc:
         raise BrowserError(str(exc)) from exc
     if not args or args[0] not in COMMANDS:
-        name = repr(args[0]) if args else "An empty command"
-        raise BrowserError(f"{name} is not a supported browser command. Supported: "
-                           f"{' '.join(sorted(COMMANDS))}. Browser launch, shutdown and "
-                           "global management stay disabled.")
+        raise BrowserError(agent_browser.refusal(args[0] if args else None, COMMANDS))
     if args[0] in {"attach", "detach"} and len(args) != 1:
         raise BrowserError("attach/detach take no arguments; the workspace selects the target.")
     for arg in args[1:]:
@@ -837,6 +835,11 @@ def validate_arguments(args: list[str]) -> None:
             raise BrowserError("Browser target, config and session overrides are disabled.")
     if args[0] == "observe":
         parse_observation_args(args)
+        return
+    try:
+        agent_browser.translate(args)
+    except ValueError as exc:
+        raise BrowserError(str(exc)) from exc
 
 
 def run(workspace: Path, args: list[str], *, target=None, instance="", capture=False):
@@ -866,7 +869,9 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
             raise BrowserError(str(exc)) from exc
         try:
             completed = subprocess.run(command, cwd=directory, env=env, timeout=45, check=False,
+                                       input=agent_browser.standard_input(args),
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            completed = agent_browser.reply(args, completed)      # only read has its own reply
             if capture:
                 return completed.returncode, completed.stdout, completed.stderr
             if completed.stdout:
@@ -909,7 +914,7 @@ def run_owner(workspace, args):
         write_json_private(receipt, {})
         return 0
     body = {'registration_id': registration['registration_id'], 'consumer_id': consumer,
-        'command': arguments[0], 'command_id': new_id()}
+        'command': agent_browser.normalize_arguments(arguments)[0], 'command_id': new_id()}
     phase = 'active' if saved.get('turn_id') else 'running'
     if phase == 'active':
         body.update({'turn_id': saved['turn_id'], 'lease_id': saved.get('lease_id')})
