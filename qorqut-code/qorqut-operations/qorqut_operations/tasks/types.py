@@ -190,8 +190,9 @@ def custom_fields(task):
     return {key: value for key, value in task["fields_json"].items() if key not in {KEY, "$task_links"}}
 
 
-def apply_attributes(current, edits, states=()):
-    """Apply the typed edits (popping them) and the custom-field replacement; ``states`` is the scope's label vocabulary."""
+def apply_attributes(current, edits, states=(), mentions=None):
+    """Apply the typed edits (popping them) and the custom-field replacement; ``states`` is the scope's label vocabulary and
+    ``mentions`` the lookup of quoted Task ids for the status line (``owner_text.problem``)."""
     links = deepcopy(current.get("fields_json", {}).get("$task_links", []))
     values = attributes(current)
     given = {key: edits.pop(key) for key in DEFAULTS if key in edits}
@@ -209,7 +210,7 @@ def apply_attributes(current, edits, states=()):
         values["plan"] = [normalize_step(step) for step in given["plan"]]
     if values["status_line"] != attributes(current)["status_line"]:
         # Checked when the line changes, so a Task whose older line predates the rule can still be written.
-        problem = owner_text.problem(values["status_line"])
+        problem = owner_text.problem(values["status_line"], mentions)
         if problem:
             raise DomainError("validation_error", f"The status line is read by the owner, and {problem}: say where the work "
                                                   "stands in words and put the detail in a working note")

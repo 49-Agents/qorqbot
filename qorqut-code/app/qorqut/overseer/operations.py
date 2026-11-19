@@ -20,7 +20,8 @@ _UUID = {'type': 'string', 'format': 'uuid'}
 _PAGE = {'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}, 'cursor': {'type': 'string', 'maxLength': 4096}}
 _TASK_REF = {'type': 'object', 'additionalProperties': False,
     'required': ['provider', 'kind', 'id', 'revision', 'namespace'], 'properties': {
-        'provider': {'const': 'operations'}, 'kind': {'const': 'task'}, 'id': _UUID, 'revision': _STR,
+        # A Task id is a short generated code, or a UUID or slug on an older Task: any stored id, never only a UUID.
+        'provider': {'const': 'operations'}, 'kind': {'const': 'task'}, 'id': _STR, 'revision': _STR,
         'namespace': {'type': 'object', 'additionalProperties': False, 'required': ['kind', 'business_id'],
                       'properties': {'kind': {'enum': ['global', 'business']}, 'business_id': {'type': ['string', 'null']}}}}}
 

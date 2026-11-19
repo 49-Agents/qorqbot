@@ -131,21 +131,27 @@ def read_attribution(uow, message_type, message_id, recorder_id):
             "attribution": json.loads(row["attribution_json"]) if row else dict(SELF)}
 
 
-def owner_post(note: str) -> None:
+def task_mentions(uow):
+    """``owner_text``'s lookup of quoted short Task ids, against this unit's Tasks."""
+    from qorqut_operations.tasks.identity import mentioned  # the Task package imports this module
+    return lambda text: mentioned(uow.connection, text)
+
+
+def owner_post(note: str, mentions=None) -> None:
     """Refuse a note that is posted for the owner but is not written for a person to read."""
     if len(note) > OWNER_POST_LIMIT:
         raise DomainError("validation_error",
                           f"A note for the owner is at most {OWNER_POST_LIMIT} characters: say the result, the question or the "
                           "blocker, and put the detail in a linked file or a working note")
-    if owner_text.problem(note):
+    if owner_text.problem(note, mentions):
         raise DomainError("validation_error",
                           "A note for the owner names no record identifiers, short IDs, commits or revision numbers: name "
                           "things in words and link the record with note_refs instead")
 
 
-def reads_as_owner_post(note: str) -> bool:
+def reads_as_owner_post(note: str, mentions=None) -> bool:
     """Whether a note the owner would be shown without asking is written for them; one that is not stays a working note."""
-    return len(note) <= OWNER_POST_LIMIT and owner_text.problem(note) is None
+    return len(note) <= OWNER_POST_LIMIT and owner_text.problem(note, mentions) is None
 
 
 def replies_to_owner(uow, item: ThreadItem) -> bool:
@@ -207,9 +213,9 @@ def plan_comment(ctx, uow, builder, item: ThreadItem, *, note, summary, refs, re
     speaker, attributed = attribution(ctx, uow, relay)
     if ctx.principal_kind == "agent":
         if for_owner:
-            owner_post(note)
+            owner_post(note, task_mentions(uow))
             attributed = {**attributed, "audience": "owner"}
-        elif (for_owner is None and attributed["kind"] == "self" and reads_as_owner_post(note)
+        elif (for_owner is None and attributed["kind"] == "self" and reads_as_owner_post(note, task_mentions(uow))
               and (outcome or replies_to_owner(uow, item))):
             attributed = {**attributed, "audience": "owner"}
     values = message_values(ctx, item, body=note, summary=summary, refs=refs, speaker=speaker, attributed=attributed, at=builder.at)

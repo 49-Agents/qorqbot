@@ -21,7 +21,7 @@ from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UUI
                                                  require_revision, rows, schema, timestamp, utc_clock)
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.business_lifecycle import active_business_ids
-from qorqut_operations.contracts import DomainError, new_id, plain
+from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.conversations import SUMMARY, participants
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, can_follow, follow_state
 from qorqut_operations.discussion.threads import (AUDIENCE, BODY, FOR_OWNER, RELAY, DiscussionReferences, plan_comment,
@@ -36,6 +36,7 @@ from qorqut_operations.tasks.kinds import KIND_INPUT, normalize_arguments, proje
 from qorqut_operations.tasks.associated import TaskAssociatedRecords
 from qorqut_operations.tasks.detail import task_views
 from qorqut_operations.tasks.history import HistoricalReferences
+from qorqut_operations.tasks.identity import in_use, mentioned, new_task_id, taken
 from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, stored_fields,
                                             validate_config, validate_dependencies, validate_parent, validate_task)
 from qorqut_operations.tasks.overview import TaskOverview
@@ -175,7 +176,8 @@ class TaskOperations:
                 **common, effect_kind="read", supports_signoff=False, read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY, "for_owner": FOR_OWNER}
         mutations = {
-            "tasks_create": ({**TASK_FIELDS, "id": IDENTITY, "note": TEXT, **comment,
+            "tasks_create": ({**TASK_FIELDS, "id": {**IDENTITY, "description": instruction_text('operations-leave-out-a-short-task-id-is-generated')},
+                              "note": TEXT, **comment,
                               "allow_duplicate": lifecycle.ALLOW_DUPLICATE, "owner_requested": lifecycle.OWNER_REQUESTED}, ("title",)),
             "tasks_update": ({"task_id": IDENTITY, "changes": {**schema({**TASK_FIELDS, "related_task": links.EDIT}), "minProperties": 1}, "note": TEXT, **comment,
                               "owner_requested": lifecycle.OWNER_REQUESTED}, ("task_id", "changes")),
@@ -504,10 +506,14 @@ class TaskOperations:
         if operation == "tasks_config_update":
             return self.prepare_config(ctx, arguments, options, uow, builder, config_row)
         creating = operation == "tasks_create"
-        identity = arguments.get("id") or new_id() if creating else arguments["task_id"]
+        # A new Task's id is generated unless the caller names one; either way no other Task, in any scope, may have it
+        # (see ``tasks.identity``). ``validate_prepared`` checks again in the applying transaction.
+        identity = (arguments.get("id") or new_task_id(uow.connection)) if creating else arguments["task_id"]
         before = uow.repository("tasks", business_id=ctx.business_id).get(identity)
         if creating and before is not None:
             raise DomainError("revision_conflict", "Task identity already exists", current_revision=before["revision"])
+        if creating and "id" in arguments and taken(uow.connection, identity):
+            raise in_use()
         if not creating:
             if before is None:
                 raise self.missing(ctx, uow, identity)
@@ -571,7 +577,7 @@ class TaskOperations:
                 if requested is not None:
                     current["snooze_generation"] += 1
         states, states_row = customers.read(uow, ctx.business_id) if "customer_state" in edits else ([], None)
-        apply_attributes(current, edits, states)
+        apply_attributes(current, edits, states, mentions=lambda text: mentioned(uow.connection, text))
         if before and self.plan_guard is not None and attributes(current)["plan"] != attributes(before)["plan"]:
             self.plan_guard(ctx, before, uow)
         if link_edit is not None:
@@ -686,6 +692,12 @@ class TaskOperations:
             return
         task_id = self.planned_task(plan)
         task_change = next((change for change in plan.changes if change.resource.resource_type == "tasks"), None)
+        if task_change is not None and task_change.action == "insert" and taken(uow.connection, task_id):
+            # Free when prepared, taken since in some other scope (the engine's target check covers this scope). At apply
+            # this runs in the writing transaction, so no other Task write can come between the check and the insert.
+            if plan.arguments.get("id"):
+                raise in_use()
+            raise DomainError("revision_conflict", "The new Task's id was taken meanwhile; prepare the change again", retryable=True)
         current = uow.repository("tasks", business_id=ctx.business_id).get(task_id) or {}
         proposed = {**current, **plain(task_change.values)} if task_change else current
         validate_task(proposed, fields, current)

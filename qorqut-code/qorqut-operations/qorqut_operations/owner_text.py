@@ -3,6 +3,9 @@
 The owner reads status lines and the notes posted for them. A full record ID, a short ID or commit hash, or a table
 revision in that text is working detail pasted in place of a sentence; the record is linked instead and the detail goes
 in a working note or a file.
+
+A short Task id (``tasks.identity``) has no form that sets it apart from a word, so it is found by looking it up: a
+caller with a database passes ``mentions``, and only a token that is a real Task's id counts.
 """
 
 from __future__ import annotations
@@ -18,9 +21,10 @@ REVISION = re.compile(r"\brev(?:ision)?\.?\s*#?\d+\b", re.IGNORECASE)
 REVISION_SHORT = re.compile(r"\br\d{2,}\b")
 
 
-def problem(text: str) -> str | None:
-    """Why ``text`` is not written for the owner, or ``None`` when it is."""
-    if RECORD_ID.search(text) or SHORT_ID.search(text):
+def problem(text: str, mentions=None) -> str | None:
+    """Why ``text`` is not written for the owner, or ``None`` when it is. ``mentions(text)`` says whether the text quotes
+    an existing short Task id."""
+    if RECORD_ID.search(text) or SHORT_ID.search(text) or (mentions is not None and mentions(text)):
         return "it names a record by identifier"
     if REVISION.search(text) or REVISION_SHORT.search(text):
         return "it quotes a record revision"

@@ -1174,7 +1174,7 @@
     {
       "id": "operations-also-return-the-first-page-of-the-associated",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
-      "line": 166
+      "line": 167
     },
     {
       "id": "operations-tags-are-ordinary-labels-that-group-work-they",
@@ -1185,6 +1185,11 @@
       "id": "operations-follow-or-unfollow-a-task-s-discussion-for",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
       "line": 171
+    },
+    {
+      "id": "operations-leave-out-a-short-task-id-is-generated",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
+      "line": 179
     },
     {
       "id": "overview-ordubashy-only-brief-owner-self-task-overview-across",
