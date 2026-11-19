@@ -30,7 +30,7 @@ from qorqut.managed_runtime import clients, options
 from qorqut.managed_runtime import manager as hosts
 from qorqut.managed_runtime import state as layout
 
-import test_managed_mode as base
+import test_managed_manager as base
 
 AGENT = base.AGENT
 OTHER = base.OTHER
@@ -172,8 +172,8 @@ class ClientTable(base.Fixture):
         with self.assertRaises(clients.UnknownClient):
             clients.entry("gemini")
 
-    def test_only_claude_has_a_driver_for_now(self):
-        self.assertEqual((clients.available("claude"), clients.available("codex"), clients.available("gemini")), (True, False, False))
+    def test_both_clients_have_a_driver(self):
+        self.assertEqual((clients.available("claude"), clients.available("codex"), clients.available("gemini")), (True, True, False))
 
     def test_prepared_allow_rules_go_on_the_command_line_for_an_untrusted_folder(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -193,7 +193,8 @@ class ClientTable(base.Fixture):
         self.assertEqual(clients.launch_arguments("claude", None, "high"), ["--effort", "high"])
         self.assertEqual(clients.launch_arguments("claude", "opus", "xhigh"), ["--model", "opus", "--effort", "xhigh"])
         self.assertEqual(clients.launch_arguments("claude", None, "minimal"), ["--effort", "low"], "the lowest level Claude has")
-        self.assertEqual(clients.launch_arguments("codex", "gpt", "high"), [], "Codex takes them through its driver")
+        self.assertEqual(clients.launch_arguments("codex", "gpt", "high"), ["--model", "gpt", "--effort", "high", "--scoped-permissions"],
+                         "Codex takes both, always together, plus its permission mode, through its driver")
 
     def test_permission_mode_fails_closed(self):
         workspace = self.base / "ws"
@@ -207,13 +208,18 @@ class ClientTable(base.Fixture):
                                (json.dumps({}), "deny"), ("[]", "deny"), ("not json", "deny"), ("", "deny")):
             settings.write_text(text)
             self.assertEqual(clients.permission_mode("claude", workspace), expected, text)
-        self.assertEqual(clients.permission_mode("codex", workspace), "deny", "no way to tell for Codex yet")
+        self.assertEqual(clients.permission_mode("codex", workspace), "deny", "no Codex config")
+        (workspace / ".codex").mkdir()
+        config = workspace / ".codex" / "config.toml"
+        for text, expected in (('default_permissions = ":danger-full-access"\n', "bypass"), ('default_permissions = "workspace"\n', "deny"),
+                               ("", "deny"), ("not = toml = at all", "deny")):
+            config.write_text(text)
+            self.assertEqual(clients.permission_mode("codex", workspace), expected, text)
         self.assertEqual(clients.permission_mode("gemini", workspace), "deny")
 
 
 class ManagerLaunch(base.ManagerFixture):
     def open(self, **options_):
-        self.switch()
         if options_:
             options.write(self.paths, AGENT, **options_)
         return self.manager.ensure_open(base.PROFILE, 30)
@@ -270,37 +276,67 @@ class ManagerLaunch(base.ManagerFixture):
             self.open()
         self.assertIsNone(options.read(self.paths, AGENT).client)
 
-    def test_a_client_without_a_driver_fails_before_anything_is_prepared(self):
-        self.switch()
-        options.write(self.paths, AGENT, client="codex")
-        with self.assertRaises(hosts.ManagedError) as raised:
-            self.manager.ensure_open(base.PROFILE, 30)
-        self.assertEqual(raised.exception.code, "driver_unavailable")
-        self.assertEqual((self.launcher.started, self.prepared), ([], []))
-
     def test_readiness_picks_the_client_of_an_agent_with_none_stored(self):
-        self.switch()
         manager = hosts.ManagedRuntime(self.runtime, launcher=self.launcher, prepare=self.manager._prepare_override, resume=lambda a: None,
                                        executable=str(self.cli), clock=lambda: self.now[0], sleep=self.advance,
                                        ready=lambda client: client == "codex")
         self.assertEqual(manager.client_for(profile("claude-code")), "codex")
-        with self.assertRaises(hosts.ManagedError) as raised:
-            manager.ensure_open(profile("claude-code"), 30)
-        self.assertEqual(raised.exception.code, "driver_unavailable")
-        self.assertIsNone(options.read(self.paths, AGENT).client, "nothing opened, so nothing is sticky")
+        manager.ensure_open(profile("claude-code"), 30)
+        self.assertEqual(self.spec()["client"], "codex")
+        self.assertEqual(options.read(self.paths, AGENT).client, "codex")
 
     def test_with_a_driver_the_codex_entry_launches_codex_pieces(self):
-        self.switch()
         options.write(self.paths, AGENT, client="codex", model="gpt-x", effort="high")
-        with mock.patch.dict(clients.DRIVER_READY, {"codex": True}):
-            with mock.patch.object(hosts.ManagedRuntime, "_resume_id", return_value=None) as resume:
-                self.manager.ensure_open(base.PROFILE, 30)
+        with mock.patch.object(hosts.ManagedRuntime, "_resume_id", return_value=None) as resume:
+            self.manager.ensure_open(base.PROFILE, 30)
         spec = self.spec()
         self.assertEqual((spec["client"], spec["driver"], spec["send_role"], spec["model"], spec["effort"]),
                          ("codex", "qorqut.managed_runtime.codex_driver:CodexSession", "$role", "gpt-x", "high"))
         self.assertEqual(spec["permission_mode"], "deny")
-        self.assertNotIn("--model", spec["args"])
+        self.assertEqual(spec["args"], ["--model", "gpt-x", "--effort", "high", "--scoped-permissions"])
+        self.assertEqual(spec["ready_seconds"], 0)
         self.assertEqual(resume.call_args.args[-1], "codex")
+
+    def test_codex_always_gets_model_and_effort_together_from_the_prepared_config(self):
+        (self.workspace / ".codex").mkdir()
+        (self.workspace / ".codex/config.toml").write_text(
+            'model = "gpt-5.5"\nmodel_reasoning_effort = "high"\ndefault_permissions = ":danger-full-access"\n')
+        for chosen, expected in (({}, ["--model", "gpt-5.5", "--effort", "high"]),
+                                 ({"model": "gpt-x"}, ["--model", "gpt-x", "--effort", "high"]),
+                                 ({"effort": "low"}, ["--model", "gpt-5.5", "--effort", "low"])):
+            with self.subTest(chosen=chosen):
+                self.assertEqual(clients.launch_arguments("codex", chosen.get("model"), chosen.get("effort"), self.workspace),
+                                 expected + ["--bypass-permissions"])
+        self.assertEqual(clients.launch_arguments("codex", None, None, self.base / "nothing"), ["--scoped-permissions"],
+                         "no prepared config and nothing chosen: the driver's own defaults, never half of a pair")
+
+    def test_a_codex_agent_opens_through_the_client_table_with_the_bypass_of_its_prepared_mode(self):
+        (self.workspace / ".codex").mkdir()
+        (self.workspace / ".codex/config.toml").write_text('default_permissions = ":danger-full-access"\n')
+        self.open(client="codex")
+        spec = self.spec()
+        self.assertEqual((spec["client"], spec["permission_mode"], spec["send_role"]), ("codex", "bypass", "$role"))
+        self.assertIn("--bypass-permissions", spec["args"])
+        self.assertNotIn("--settings", spec["args"], "the Claude settings file is a Claude flag")
+
+    def test_the_clients_own_home_folders_reach_the_launch_environment(self):
+        with mock.patch.dict(os.environ, {"CODEX_HOME": "/scratch/codex-home", "CLAUDE_CONFIG_DIR": "/scratch/claude-config"}):
+            self.open()
+        env = self.spec()["env"]
+        self.assertEqual((env["CODEX_HOME"], env["CLAUDE_CONFIG_DIR"]), ("/scratch/codex-home", "/scratch/claude-config"))
+
+    def test_every_supported_role_opens_alike(self):
+        # Ordubashy, a global worker, the learning applier: the manager no longer asks the role. What differs is the prepared
+        # workspace: an ecosystem scope is prepared to bypass, any other scope to deny (and the allowed tools on the command line).
+        for role, mode_text, expected in (("ordubashy", "bypassPermissions", "bypass"), ("global-worker", "dontAsk", "deny"),
+                                          ("learning-applier", "dontAsk", "deny")):
+            with self.subTest(role=role):
+                self.launcher.started.clear()
+                self.launcher.inspections.clear()
+                (self.workspace / ".qorqut" / "claude-launch-settings.json").write_text(
+                    json.dumps({"permissions": {"defaultMode": mode_text}}))
+                self.manager.ensure_open({"agent_id": AGENT, "workspace": "/w", "role": role}, 30)
+                self.assertEqual(self.spec()["permission_mode"], expected)
 
     def test_the_host_record_names_its_client_and_identity_follows_it(self):
         self.assertEqual(hosts.identity_of(AGENT, {"client": "codex"})["provider"], "codex")
@@ -326,9 +362,9 @@ class ResumeByClient(base.Fixture):
             self.assertIsNone(manager._resume_id(AGENT, False, "claude"))
             chosen.provider = "claude"
             self.assertEqual(manager._resume_id(AGENT, False, "claude"), base.SESSION)
-            with self.assertRaises(hosts.ManagedError) as raised:
-                manager._resume_id(AGENT, False, "codex")
-            self.assertEqual(raised.exception.code, "driver_unavailable")
+            self.assertIsNone(manager._resume_id(AGENT, False, "codex"), "a Claude conversation is not resumed by Codex")
+            chosen.provider = "codex"
+            self.assertEqual(manager._resume_id(AGENT, False, "codex"), base.SESSION, "a Codex thread id is resumed by Codex")
 
 
 # ----- the routes -----------------------------------------------------------------------------------------------------

@@ -419,7 +419,7 @@ def status_counts(uow, now):
             "SELECT agent_id, deferral_reason AS reason, count(*) AS queued FROM telegram_owner_inputs "
             "WHERE state='queued' AND deferral_reason IS NOT NULL GROUP BY agent_id, deferral_reason LIMIT 20")],
         "uncertain_inputs": c.execute("SELECT count(*) FROM telegram_owner_inputs WHERE state='uncertain'").fetchone()[0],
-        # Direct terminal delivery that did not happen (the canonical inbox event or Signoff note still holds the text).
+        # Direct delivery to the session that did not happen (the canonical inbox event or Signoff note still holds the text).
         "undelivered_inputs": [dict(row) for row in c.execute(
             "SELECT purpose, state, error_code, count(*) AS count FROM telegram_owner_inputs WHERE state IN ('failed','expired') "
             "GROUP BY purpose, state, error_code LIMIT 20")],

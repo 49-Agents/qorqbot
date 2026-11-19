@@ -7,9 +7,9 @@
 .workspace-back button:hover { color:var(--fg); background:var(--hover); }
 
 /* Icon rail. The lookup expands out over the chat instead of widening the rail. */
-.agent-workspace-app .split.global-agents.agsplit { --ag-divider-width:9px; grid-template-columns:76.8px minmax(0,var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }
+.agent-workspace-app .split.global-agents.agsplit { --ag-divider-width:9px; grid-template-columns:76.8px minmax(0,var(--ag-chat-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }
 .agent-workspace-app .split.global-agents.agsplit.pad-off { grid-template-columns:76.8px minmax(0,1fr) 0; }
-.agent-workspace-app .split.global-agents.agsplit.nav-off { grid-template-columns:0 minmax(0,var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }
+.agent-workspace-app .split.global-agents.agsplit.nav-off { grid-template-columns:0 minmax(0,var(--ag-chat-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }
 .agent-workspace-app .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns:0 minmax(0,1fr) 0; }
 /* Testing mode OFF keeps the icon rail and gives the centered state the rest of the row. */
 .agent-workspace-app .split.global-agents.agsplit.overseer-gated { grid-template-columns:76.8px minmax(0,1fr); }
@@ -33,14 +33,14 @@
 .agent-workspace-app .global-agents .global-roster .nav-primary-face,
 .agent-workspace-app .global-agents .global-roster .nav-primary-face svg { width:31.68px; height:31.68px; }
 .agent-workspace-app .global-agents .global-roster .nav-secondary-icon svg { width:18px; height:18px; }
-.agent-workspace-app .global-agents .global-workspace-terminals { padding-top:9px; }
-.agent-workspace-app .global-agents .global-workspace-terminals .item.agent { width:64.8px; min-height:62.4px; justify-content:center; padding:7.2px 3.6px; border-radius:6px; }
-.agent-workspace-app .global-agents .global-workspace-terminals .item.agent .nm { flex-direction:column; justify-content:center; gap:4px; width:100%; }
-.agent-workspace-app .global-agents .global-workspace-terminals .item.agent .tt { font-size:10px; }
+.agent-workspace-app .global-agents .global-workspace-links { padding-top:9px; }
+.agent-workspace-app .global-agents .global-workspace-links .item.agent { width:64.8px; min-height:62.4px; justify-content:center; padding:7.2px 3.6px; border-radius:6px; }
+.agent-workspace-app .global-agents .global-workspace-links .item.agent .nm { flex-direction:column; justify-content:center; gap:4px; width:100%; }
+.agent-workspace-app .global-agents .global-workspace-links .item.agent .tt { font-size:10px; }
 .agent-workspace-app .global-agents .nm > .chat-unread-dot { width:6px; height:6px; top:-2px; right:-4px; }
 
 /* Chat keeps its native history, composer, attachments and session controls (message and composer styling: css/chat-view.css). */
-.agent-workspace-app .global-agent-session .chat.termmode { padding:var(--ag-header-inset) 24px 20px; }
+.agent-workspace-app .global-agent-session .chat.agentchat { padding:var(--ag-header-inset) 24px 20px; }
 .agent-workspace-app .agpad .thead { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:calc(var(--ag-header-inset) / .9) 18px 10px; }
 .agent-workspace-app .agpad .thead.agpad-ping-head { gap:4px; padding-right:18px; }
 .agent-workspace-app .agpad .thead .ttabs { flex:1 1 180px; min-width:0; gap:4px; margin:0; padding:0; overflow-y:hidden; }
@@ -138,7 +138,7 @@
   .agent-workspace-app .global-agents:not(.pad-off) > .agent-pane-divider { display:block; }
 }
 @media (max-width:1000px) {
-  .agent-workspace-app .global-agent-session .chat.termmode { padding:var(--ag-header-inset) 16px 16px; }
+  .agent-workspace-app .global-agent-session .chat.agentchat { padding:var(--ag-header-inset) 16px 16px; }
   .agent-workspace-app .agpad .tbody { padding-left:14px; padding-right:14px; }
   .agent-workspace-app .agpad .tbody:has(> .agfocus) { padding-left:10px; padding-right:7px; }
   .agent-workspace-app .agpad .agent-workspace-body { padding-left:0; padding-right:0; }
@@ -161,12 +161,12 @@
   .agent-workspace-app .split.global-agents.agsplit.pad-off > .agpad { display:none; }
 }
 
-.agent-workspace-app .global-agents .global-workspace-projects svg, .agent-workspace-app .global-agents .global-workspace-terminal svg, .agent-workspace-app .global-agents .global-workspace-settings svg, .agent-workspace-app .global-agents .global-workspace-guide svg { width:24px; height:24px; }
+.agent-workspace-app .global-agents .global-workspace-projects svg, .agent-workspace-app .global-agents .global-workspace-settings svg, .agent-workspace-app .global-agents .global-workspace-guide svg { width:24px; height:24px; }
 
 .agent-workspace-app .agfocus[data-attention-board]{--agfocus-lead:56px}
 
 /* Hover navigation occupies the browser's top layer, never a workspace column. */
-.agent-workspace-app .split.global-agents.agsplit.agent-nav-overlay-mode { grid-template-columns:minmax(0,var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }
+.agent-workspace-app .split.global-agents.agsplit.agent-nav-overlay-mode { grid-template-columns:minmax(0,var(--ag-chat-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }
 .agent-workspace-app .split.global-agents.agsplit.agent-nav-overlay-mode:is(.pad-off,.overseer-gated) { grid-template-columns:minmax(0,1fr); }
 .agent-nav-overlay-mode > .global-agent-session { grid-column:1; grid-row:1; }
 .agent-nav-overlay-mode > .agent-pane-divider { grid-column:2; grid-row:1; }
@@ -194,7 +194,7 @@
 .agent-workspace-app .global-agents .agent-nav-overlay .agent-nav-working { position:static; flex:none; align-self:center; margin:0; transform:none; gap:4px; }
 .agent-nav-overlay .agent-nav-working i { width:5px; height:5px; }
 .agent-nav-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; line-height:1.4; }
-.agent-workspace-app .global-agents .agent-nav-overlay .global-workspace-terminals { flex:none; margin-top:auto; padding-top:8px; }
+.agent-workspace-app .global-agents .agent-nav-overlay .global-workspace-links { flex:none; margin-top:auto; padding-top:8px; }
 @media (max-width:700px) {
   .agent-workspace-app .split.global-agents.agsplit.agent-nav-overlay-mode { grid-template-columns:minmax(0,1fr); }
   .agent-workspace-app .global-agents.agent-nav-overlay-mode > .global-agent-session { grid-column:1; grid-row:1; }

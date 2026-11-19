@@ -7,19 +7,23 @@ names, so the request and result of an input have exactly one definition.
 
 from __future__ import annotations
 
+from collections import namedtuple
 from dataclasses import dataclass, field
 from typing import Any, Mapping
+
+# What an adapter reports once an input was attempted. ``receipt`` names what was observed (client, host, message id); it
+# never carries the typed text.
+OwnerInputOutcome = namedtuple("OwnerInputOutcome", "status reason receipt", defaults=(None,))
 
 # Archive providers; the registered profile runtime names them ``claude-code`` and ``codex``.
 PROVIDERS = ("claude", "codex")
 RUNTIME_PROVIDERS = {"claude-code": "claude", "codex": "codex"}
 PROVIDER_RUNTIMES = {value: key for key, value in RUNTIME_PROVIDERS.items()}
 
-# How an input reaches the native session. ``terminal`` types into the registered tmux pane's verified empty composer;
-# ``codex_queue`` queues into one conversation of a shared Codex desktop server. ``managed`` sends to the headless Claude
-# session of a managed runtime host (its owner is ``host:<host pid>:<host start ticks>``).
+# How an input reaches the native session. Only ``managed`` (the headless session of a managed runtime host, its owner
+# ``host:<host pid>:<host start ticks>``) is ever written now; ``terminal`` and ``codex_queue`` stay valid values because rows
+# of earlier installations carry them and the stored CHECK and the nudge contract still list them.
 TRANSPORTS = ("terminal", "codex_queue", "managed")
-EXECUTION_TERMINAL, EXECUTION_MANAGED = "terminal", "managed"
 
 # Claude Code commands that open a menu or panel only a terminal can show. A managed session has no terminal, so Chat refuses
 # them for it rather than send text the headless client cannot act on. ``/model`` is refused only without a model name.

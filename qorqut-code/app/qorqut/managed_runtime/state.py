@@ -1,6 +1,6 @@
 """The state directory of one managed agent host, and the process and socket facts every side of it needs.
 
-Layout, ``<runtime>/managed-agents/<agent_id>/`` (0700). ``mode.json`` belongs to ``mode.py``; the host owns the rest::
+Layout, ``<runtime>/managed-agents/<agent_id>/`` (0700). the host owns the files below (``options.json`` belongs to ``options.py``)::
 
     host.lock     held with flock for the host's whole life (a second copy exits 75); probed with a shared lock
     host.json     the host's public record (see HOST_FIELDS), rewritten on every state change
@@ -38,7 +38,7 @@ EXIT_STOPPED, EXIT_FAILED, EXIT_BUSY, EXIT_CONFIG = 0, 1, 75, 78
 HOST_MODULE = "qorqut.managed_runtime.host"
 DEFAULT_DRIVER = "qorqut.managed_runtime.claude_driver:ClaudeSession"
 
-MODE_FILE, LOCK_FILE, HOST_FILE, TOKEN_FILE = "mode.json", "host.lock", "host.json", "token"
+LOCK_FILE, HOST_FILE, TOKEN_FILE = "host.lock", "host.json", "token"
 SOCKET_FILE, EVENTS_FILE, SENT_FILE, LOG_FILE, LAUNCH_FILE = "control.sock", "events.jsonl", "sent.jsonl", "host.log", "launch.json"
 
 STATES = ("starting", "ready", "closing", "closed", "failed")
@@ -382,7 +382,7 @@ def clean_stale(state) -> bool:
     ``host.json`` is terminated here when that exact process (pid and start time) is still alive. Without that a new host would
     start a second Claude in the same workspace. Returns True when such a process was stopped.
 
-    Keeps ``mode.json``, ``host.log``, ``events.jsonl`` and the final ``host.json`` (rewritten as failed when it still claims a
+    Keeps ``options.json``, ``host.log``, ``events.jsonl`` and the final ``host.json`` (rewritten as failed when it still claims a
     live state), so the reason an agent's session ended stays readable."""
     state = Path(state)
     raw = read_json(state / HOST_FILE) or {}

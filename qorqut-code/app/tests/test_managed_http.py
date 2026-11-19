@@ -38,7 +38,6 @@ class FakeChat:
         self.calls = []
         self.reply = {}
         self.error = None
-        self.execution = "managed"
 
     def _call(self, name, *args, **options):
         self.calls.append((name, args, options))
@@ -58,14 +57,10 @@ class FakeChat:
     def close(self, *args):
         return self._call("close", *args)
 
-    def set_runtime(self, *args):
-        return self._call("set_runtime", *args)
-
-    def execution_of(self, principal_id, agent_id):
-        self.calls.append(("execution_of", (principal_id, agent_id), {}))
+    def check_events(self, principal_id, agent_id):
+        self.calls.append(("check_events", (principal_id, agent_id), {}))
         if self.error is not None:
             raise self.error
-        return self.execution
 
 
 @unittest.skipUnless(SERVICE, "Starlette is not installed")
@@ -108,8 +103,7 @@ class RouteTest(unittest.TestCase):
 
     def test_every_managed_route_refuses_an_authorization_header_before_anything_runs(self):
         for tail, body in (("messages", {"text": "hi", "idempotency_key": "key-0000001"}), ("interrupt", {"expected_binding": PIN}),
-                           ("answer", {"expected_binding": PIN, "request_id": "r1", "decision": "allow"}), ("close", {}),
-                           ("runtime", {"mode": "managed"})):
+                           ("answer", {"expected_binding": PIN, "request_id": "r1", "decision": "allow"}), ("close", {})):
             with self.subTest(route=tail):
                 response = self.post(tail, body, headers={"Authorization": "Bearer agent-credential"})
                 self.assertEqual((response.status_code, response.json()["error"]["code"]), (403, "forbidden"))
@@ -117,7 +111,7 @@ class RouteTest(unittest.TestCase):
 
     def test_the_facade_is_handed_the_authenticated_principal_and_a_body_cannot_name_another(self):
         for tail, body in (("interrupt", {"expected_binding": PIN, "principal_id": "someone-else"}),
-                           ("close", {"principal_id": "someone-else"}), ("runtime", {"mode": "managed", "principal_id": "someone-else"}),
+                           ("close", {"principal_id": "someone-else"}),
                            ("messages", {"text": "hi", "idempotency_key": "key-0000001", "principal_id": "someone-else"})):
             response = self.post(tail, body)
             self.assertEqual((response.status_code, response.json()["error"]["code"]), (422, "validation_error"), tail)
@@ -206,33 +200,28 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(self.post("close", {"expected_binding": PIN, "mode": "now"}).status_code, 422)
         self.assertEqual(len(self.chat.calls), 2)
 
-    def test_runtime_takes_a_mode_and_reports_the_new_execution(self):
-        self.chat.reply["set_runtime"] = {"execution": "managed", "changed": True}
-        response = self.post("runtime", {"mode": "managed"})
-        self.assertEqual((response.status_code, response.json()["data"]), (200, {"execution": "managed", "changed": True}))
-        self.assertEqual(self.chat.calls, [("set_runtime", (OWNER, AGENT, "managed"), {})])
-        for body in ({}, {"mode": "managed", "force": True}, {"execution": "managed"}):
-            self.assertEqual(self.post("runtime", body).status_code, 422, body)
-        self.assertEqual(len(self.chat.calls), 1)
+    def test_the_runtime_switch_route_is_gone(self):
+        self.assertEqual(self.post("runtime", {"mode": "managed"}).status_code, 404)
+        self.assertEqual(self.chat.calls, [])
 
     def test_every_refusal_the_facade_can_give_keeps_its_code_and_a_retryable_one_says_so(self):
         refusals = {
-            "session_closed": 422, "terminal_changed": 422, "binding_not_ready": 422, "managed_command": 422, "not_managed": 422,
+            "session_closed": 422, "terminal_changed": 422, "binding_not_ready": 422, "managed_command": 422,
             "cli_unavailable": 422, "resume_failed": 422, "open_timeout": 422, "host_unverified": 422, "driver_unavailable": 422,
-            "unsupported_role": 422, "unsupported_runtime": 422, "session_open": 422, "waiting_inputs": 422, "terminal_present": 422,
+            "session_open": 422,
             "validation_error": 422, "not_found": 404, "forbidden": 403, "idempotency_conflict": 409, "operation_unavailable": 503}
         for code, status in refusals.items():
             for retryable in (False, True):
                 with self.subTest(code=code, retryable=retryable):
                     self.chat.error = DomainError(code, "Plain words for the owner", retryable=retryable)
-                    response = self.post("runtime", {"mode": "managed"})
+                    response = self.post("close", {})
                     self.assertEqual((response.status_code, response.json()["error"]["code"]), (status, code))
                     self.assertEqual(response.json()["error"]["message"], "Plain words for the owner")
                     self.assertEqual(response.headers.get("retry-after"), "2" if retryable else None)
 
     def test_an_unknown_post_a_get_on_a_post_route_or_a_bad_agent_id_is_not_found(self):
         self.assertEqual(self.post("explode", {}).status_code, 404)
-        for tail in ("interrupt", "answer", "close", "runtime", "messages"):
+        for tail in ("interrupt", "answer", "close", "messages"):
             self.assertEqual(self.client.get(f"{CHAT}/{tail}").status_code, 404, tail)
         self.assertEqual(self.post("close", {}, agent="not-a-uuid").status_code, 404)
         self.assertEqual(self.post("close", {}, agent=AGENT.upper()).status_code, 404)
@@ -240,28 +229,25 @@ class RouteTest(unittest.TestCase):
 
     # ----- GET commands --------------------------------------------------------------------------------------------------
 
-    def commands(self, execution):
-        self.chat.execution = execution
+    def commands(self, client="claude"):
         with mock.patch("qorqut.composition.locations.agent_workspace", return_value=None), \
                 mock.patch("qorqut.connectors._probe_environment", return_value={"HOME": None}):
-            return self.client.get(f"{CHAT}/commands?client=claude")
+            return self.client.get(f"{CHAT}/commands?client={client}")
 
-    def test_the_slash_catalog_marks_the_menu_commands_unavailable_for_a_managed_agent_only(self):
-        managed = self.commands("managed")
-        terminal = self.commands("terminal")
-        self.assertEqual((managed.status_code, terminal.status_code), (200, 200))
-        self.assertEqual(managed.headers["cache-control"], "private, no-store")
-        managed_commands = {item["name"]: item["where"] for item in managed.json()["data"]["commands"]}
-        terminal_commands = {item["name"]: item["where"] for item in terminal.json()["data"]["commands"]}
-        self.assertEqual((managed_commands["/clear"], managed_commands["/model"], managed_commands["/compact"]),
+    def test_the_slash_catalog_marks_the_menu_commands_unavailable(self):
+        claude, codex = self.commands(), self.commands("codex")
+        self.assertEqual((claude.status_code, codex.status_code), (200, 200))
+        self.assertEqual(claude.headers["cache-control"], "private, no-store")
+        claude_commands = {item["name"]: item["where"] for item in claude.json()["data"]["commands"]}
+        codex_commands = {item["name"]: item["where"] for item in codex.json()["data"]["commands"]}
+        self.assertEqual((claude_commands["/clear"], claude_commands["/model"], claude_commands["/compact"]),
                          ("unavailable", "unavailable", "chat"))
-        self.assertEqual((terminal_commands["/clear"], terminal_commands["/model"]), ("chat", "terminal"))
-        self.assertNotIn("unavailable", terminal_commands.values())
-        self.assertEqual(self.names(), ["execution_of", "execution_of"])
+        self.assertEqual((codex_commands["/compact"], codex_commands["/model"], codex_commands["/new"]), ("chat", "chat", "unavailable"))
+        self.assertEqual(self.names(), ["check_events", "check_events"])
 
     def test_the_catalog_is_owner_only_like_every_chat_read(self):
         self.chat.error = DomainError("forbidden", "Agent chat is for the installation owner")
-        self.assertEqual(self.commands("managed").status_code, 403)
+        self.assertEqual(self.commands().status_code, 403)
         denied = self.client.get(f"{CHAT}/commands?client=claude", headers={"Authorization": "Bearer x"})
         self.assertEqual(denied.status_code, 403)
 
@@ -303,14 +289,6 @@ class EventStreamTest(base.ChatCase):
         self.assertEqual(event["data"]["managed"]["phase"], "blocked")
         self.assertEqual([item["request_id"] for item in event["data"]["managed"]["pending"]], ["r1"])
         self.assertEqual(lines["id"], str(event["cursor"]))
-
-    def test_a_terminal_agents_stream_is_unchanged(self):
-        self.switch("terminal")
-        self.chat.managed = base.Untouchable()
-        with self.db.transaction() as uow:
-            base.store.bump(uow.connection, base.AGENT)
-        event = json.loads(self.stream_first(0).decode().split("data: ", 1)[1])
-        self.assertEqual(set(event["data"]), {"revision", "newest_sequence", "waiting"})
 
 
 if __name__ == "__main__":

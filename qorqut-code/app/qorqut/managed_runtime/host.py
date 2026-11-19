@@ -1024,6 +1024,26 @@ class ManagedHost:
                 self._touch()
             return protocol.ok(request_id, delivered=delivered)
 
+    def _op_command(self, request_id, arguments):
+        """A command the client takes only through its own interface (Codex ``/compact`` and ``/model`` are plain text as messages)."""
+        name = arguments["name"]
+        with self._lock:
+            refusal = self._unavailable(request_id)
+            if refusal is not None:
+                return refusal
+            method = getattr(self._driver, "compact" if name == "compact" else "update_settings", None)
+            if method is None:
+                return protocol.rejected(request_id, protocol.REJECT_UNSUPPORTED_COMMAND)
+            try:
+                accepted = bool(method() if name == "compact" else method(model=arguments["model"], effort=arguments["effort"]))
+            except ValueError:
+                return protocol.error(request_id, protocol.ERROR_BAD_REQUEST, "the client refused that value")
+            except Exception:
+                return protocol.rejected(request_id, protocol.REJECT_SESSION_CLOSED)
+            if accepted:
+                self._touch()
+            return protocol.ok(request_id, name=name, accepted=accepted)
+
     def _op_close(self, request_id, arguments):
         mode = arguments["mode"]
         with self._lock:

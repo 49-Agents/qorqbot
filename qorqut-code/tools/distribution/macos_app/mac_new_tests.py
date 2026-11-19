@@ -26,8 +26,8 @@ import time
 
 APP_MODULES = (
     "test_agent_cli_install", "test_agent_cli_sign_in", "test_agent_cli_launch", "test_owner_settings", "test_agent_clients_route",
-    "test_managed_claude_driver", "test_managed_host", "test_managed_protocol", "test_managed_mode", "test_managed_adapter",
-    "test_managed_session_binding", "test_managed_chat_send", "test_managed_http", "test_managed_end_to_end",
+    "test_managed_claude_driver", "test_managed_host", "test_managed_host_process", "test_managed_protocol", "test_managed_manager", "test_managed_adapter",
+    "test_managed_session_binding", "test_managed_chat_send", "test_managed_http", "test_managed_end_to_end", "test_managed_end_to_end_close",
     "test_native_transport_migration",
 )
 DISTRIBUTION_MODULES = ("test_native_launch_agent_clis",)

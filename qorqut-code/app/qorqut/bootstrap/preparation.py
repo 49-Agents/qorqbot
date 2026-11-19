@@ -255,88 +255,11 @@ def seed_instance_guidance(resolver, data) -> dict:
     return validated
 
 
-def _cli_wrappers(launch_settings: str, consent_marker: str, workspace: str, trust_command: str = ":") -> str:
-    """The claude and codex wrappers, valid in both bash and zsh. Every argument is already shell-quoted.
-
-    Qorqbot's options, trust refresh and role prompt apply only when the shell is physically in this agent's
-    workspace root (``workspace``, an absolute path): the same folder as ``pwd -P`` reports, compared exactly. From any other
-    folder, a subfolder of the workspace included, ``claude`` and ``codex`` run unchanged with the owner's own arguments, and
-    so they do when the current folder cannot be determined.
-
-    ``trust_command`` re-records folder trust for this workspace before each launch while the owner's consent exists
-    (``python -m qorqut.agent_trust ensure``): another program that rewrites ``~/.claude.json`` from an older copy, such
-    as another running Claude Code session, can drop the entry between the consent and the owner typing claude."""
-    return (
-        'unalias claude codex 2>/dev/null || true\n'
-        # The trailing x keeps a path's own trailing newlines from being dropped by the command substitution. ``builtin``
-        # skips the owner's own cd and pwd, and the cd output (a zsh chpwd hook or AUTO_PUSHD can print) is discarded.
-        '_qorqbot_in_agent_root() { local here root; case ' + workspace + ' in /*) ;; *) return 1 ;; esac; '
-        'here=$(builtin pwd -P 2>/dev/null && printf x) || return 1; '
-        'root=$(builtin cd -P -- ' + workspace + ' >/dev/null 2>&1 && builtin pwd -P && printf x) || return 1; '
-        '[ "$here" = "$root" ]; }\n'
-        '_qorqbot_prelaunch() { if [ -f ' + consent_marker + ' ]; then ' + trust_command + ' >/dev/null 2>&1 || true; fi; }\n'
-        # Qorqbot's own downloaded copy never updates itself. When the session was created while our copy was the selected one,
-        # QORQBOT_MANAGED_CLAUDE/CODEX name it (the stable path, qorqut/agent_cli_launch.py) and that file is what runs, with its
-        # no-update settings, wherever the owner's shell files put their own CLIs on PATH, so the terminal and the queue
-        # that talks to it run the same version. Without the marker, or when it no longer names an executable file, the claude or
-        # codex found on PATH runs exactly as before. Quoted expansion keeps any path safe; ``command`` skips these functions.
-        '_qorqbot_run_claude() { local m=${QORQBOT_MANAGED_CLAUDE:-}; '
-        'if [ -n "$m" ] && [ "${m#/}" != "$m" ] && [ -f "$m" ] && [ -x "$m" ]; then '
-        'DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 "$m" "$@"; else command claude "$@"; fi; }\n'
-        '_qorqbot_run_codex() { local m=${QORQBOT_MANAGED_CODEX:-}; '
-        'if [ -n "$m" ] && [ "${m#/}" != "$m" ] && [ -f "$m" ] && [ -x "$m" ]; then '
-        '"$m" -c check_for_update_on_startup=false "$@"; else command codex "$@"; fi; }\n'
-        # A bare claude or codex, as the owner types it in the agent's terminal, opens with the role prompt Start would
-        # type: the agent takes up its work, and Codex writes the session file Chat needs (it does so only on a first turn).
-        # Start itself types the prompt after launch and sets QORQBOT_ROLE_SENT so it is not sent twice.
-        'claude() { if ! _qorqbot_in_agent_root; then _qorqbot_run_claude "$@"; return $?; fi; _qorqbot_prelaunch; '
-        'if [ $# -eq 0 ] && [ -z "${QORQBOT_ROLE_SENT:-}" ]; then set -- /role; fi; '
-        '_qorqbot_run_claude --settings ' + launch_settings + ' "$@"; }\n'
-        'codex() { if ! _qorqbot_in_agent_root; then _qorqbot_run_codex "$@"; return $?; fi; _qorqbot_prelaunch; '
-        'if [ $# -eq 0 ] && [ -z "${QORQBOT_ROLE_SENT:-}" ]; then set -- \'$role\'; fi; '
-        'if [ -f ' + consent_marker + ' ]; then '
-        '_qorqbot_run_codex --dangerously-bypass-hook-trust "$@"; '
-        'else _qorqbot_run_codex "$@"; fi; }\n'
-    )
-
-
-def agent_shell(launch_settings: str, consent_marker: str, workspace: str, trust_command: str = ":") -> str:
-    """The prepared bash agent shell (``bash --rcfile``)."""
-    return ('# Generated Qorqut agent shell; keep personal shell setup.\n'
-            'if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi\n'
-            + _cli_wrappers(launch_settings, consent_marker, workspace, trust_command))
-
-
-# zsh (the macOS default) has no --rcfile: an agent terminal starts with ZDOTDIR at .qorqut/zsh (transport/terminals.py).
-# These files load the owner's own .zshenv and .zshrc from their usual folder first, then add the wrappers, and leave
-# ZDOTDIR as the owner had it so shells started from the agent terminal behave normally.
-ZSH_ENV = (
-    '# Generated Qorqut agent shell for zsh; loads your own .zshenv.\n'
-    '_qorqbot_zdotdir="$ZDOTDIR"\n'
-    'ZDOTDIR="${QORQBOT_USER_ZDOTDIR:-$HOME}"\n'
-    'if [ -f "$ZDOTDIR/.zshenv" ]; then . "$ZDOTDIR/.zshenv"; fi\n'
-    'QORQBOT_USER_ZDOTDIR="$ZDOTDIR"\n'
-    'ZDOTDIR="$_qorqbot_zdotdir"\n'
-    'unset _qorqbot_zdotdir\n'
-)
-
-
-def agent_zshrc(launch_settings: str, consent_marker: str, workspace: str, trust_command: str = ":") -> str:
-    return ('# Generated Qorqut agent shell for zsh; loads your own .zshrc.\n'
-            'ZDOTDIR="${QORQBOT_USER_ZDOTDIR:-$HOME}"\n'
-            'if [ -f "$ZDOTDIR/.zshrc" ]; then . "$ZDOTDIR/.zshrc"; fi\n'
-            'if [ "$ZDOTDIR" = "$HOME" ]; then unset ZDOTDIR; fi\n'
-            'unset QORQBOT_USER_ZDOTDIR\n'
-            + _cli_wrappers(launch_settings, consent_marker, workspace, trust_command))
-
-
 # What an agent tells the owner about starting it. Its own "/role" instruction is about its work loop, and in a real
 # run Ordubashy passed it on to the owner as the way to start him.
-OWNER_START = ("/role and $role are for you, not the owner. The owner starts you from the Qorqbot dashboard: your own\n"
-               "terminal there (the >_ button above your Chat), typing claude or codex, or the Start button in Chat. When the\n"
-               "owner asks how to use Qorqbot, answer from the qorqut-qorqbot-guide skill; never send them to another\n"
-               "terminal window, to cd into this folder or to type /role.\n")
-
+OWNER_START = ("/role and $role are for you, not the owner. Qorqbot starts you itself when the owner writes to you in Chat; "
+               "the owner opens no terminal and types no command. When the owner asks how to use Qorqbot, answer from the "
+               "qorqut-qorqbot-guide skill; never send them to a terminal, to cd into this folder or to type /role.\n")
 
 
 def build_projection(resolver, config, *, registration_id: str, endpoint: str, interpreter: str,
@@ -562,17 +485,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     }
     claude_mode = "bypassPermissions" if data["scope"]["kind"] == "ecosystem" else "dontAsk"
     files[".qorqut/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": claude_mode}})
-    launch_settings = shlex.quote(str(workspace / ".qorqut/claude-launch-settings.json"))
-    from qorqut.agent_trust import marker_path
-    # Codex runs Qorqbot's prepared hooks without a separate review only while the owner's consent file exists
-    # (qorqut.agent_trust); removing it restores Codex's own hook review for the next launch.
-    consent_marker = shlex.quote(str(marker_path(resolver.paths.runtime)))
-    trust_command = " ".join(shlex.quote(part) for part in (
-        executable, "-I", "-m", "qorqut.agent_trust", "ensure", "--runtime", str(resolver.paths.runtime), "--folder", str(workspace)))
-    workspace_root = shlex.quote(str(workspace))
-    files[".qorqut/agent-shell.bash"] = agent_shell(launch_settings, consent_marker, workspace_root, trust_command).encode()
-    files[".qorqut/zsh/.zshenv"] = ZSH_ENV.encode()
-    files[".qorqut/zsh/.zshrc"] = agent_zshrc(launch_settings, consent_marker, workspace_root, trust_command).encode()
     for name in extension_files:
         if name in files:
             raise DomainError("invalid_configuration", "An extension helper duplicates a generated file")

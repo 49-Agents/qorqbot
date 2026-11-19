@@ -19,7 +19,7 @@ from qorqut.native_chat.arbiter import SESSION_STARTING
 from qorqut.native_chat.contracts import (InputRequest, RESULT_DEFERRED, TYPE_BROADCAST, TYPE_DIRECT, TYPE_NUDGE, TYPE_TELEGRAM)
 from qorqut.native_chat.opener import FAILURES, OpenFailures, SessionOpener, WAKE_TEXT
 
-from test_managed_chat_send import AGENT, OPEN_VIEW, OWNER, ChatCase, FakeManaged, Untouchable
+from test_managed_chat_send import AGENT, OPEN_VIEW, OWNER, ChatCase, FakeManaged
 
 
 class WakeCase(ChatCase):
@@ -30,11 +30,11 @@ class WakeCase(ChatCase):
         self.addCleanup(FAILURES._streaks.clear) if hasattr(FAILURES, "_streaks") else None
         self.host_starts()
         self.delivered = []
-        self.adapters["managed"].submit = self.submit
-        self.adapters["managed"].name = "managed"
+        self.adapter.submit = self.submit
+        self.adapter.name = "managed"
 
     def submit(self, profile, session, text, **options):
-        from qorqut.transport.agent_terminal_control import OwnerInputOutcome
+        from qorqut.native_chat.contracts import OwnerInputOutcome
         options['checkpoint']()
         self.delivered.append(text)
         return OwnerInputOutcome("submitted", "accepted_by_host", {"adapter": "managed", "client": "claude", "transport": "managed",
@@ -145,13 +145,6 @@ class OpenerUnitTests(WakeCase):
         self.addCleanup(lock.release)
         self.assertEqual(self.opener.wake(self.profile(), "inbox"), "waking")
         self.assertEqual(self.managed.opened, [])
-
-    def test_a_terminal_agent_is_not_opened(self):
-        self.owner_row()
-        self.switch("terminal")
-        self.managed.open_error = DomainError("not_managed", "terminal agent")
-        with self.assertRaises(DomainError):
-            self.opener.wake(self.profile(), "inbox", wait=True)
 
     def test_without_a_managed_runtime_nothing_is_woken(self):
         self.chat.managed = None
@@ -324,7 +317,6 @@ class OrdubashyToolTests(WakeCase):
         from qorqut.agents.terminal_control import TerminalControl as AgentTerminalControl
         control = AgentTerminalControl.__new__(AgentTerminalControl)
         control.runtime = SimpleNamespace(native_chat=self.chat, database=self.db, paths=self.paths, application=self.runtime.application)
-        control.backend = Untouchable()
         return control
 
     def target(self):
@@ -336,20 +328,20 @@ class OrdubashyToolTests(WakeCase):
     def test_start_turns_a_worker_on_and_opens_it_even_from_off(self):
         self.owner_row("stopped")
         with self.profile_patch():
-            detail = self.control()._execute_managed(self.target(), "start", None, "k")
+            detail = self.control()._execute(self.target(), "start", None, "k")
         self.assertEqual((self.desired(), self.managed.opened, detail), ("running", [AGENT], "Managed session open"))
 
     def test_restart_closes_and_opens_again(self):
         self.owner_row("running")
         self.managed.handle = lambda agent_id: None
         with self.profile_patch():
-            detail = self.control()._execute_managed(self.target(), "restart", None, "k")
+            detail = self.control()._execute(self.target(), "restart", None, "k")
         self.assertIn(("close", AGENT, "graceful"), self.managed.calls)
         self.assertEqual((self.managed.opened, detail), ([AGENT], "Managed session restarted"))
 
     def test_kill_closes_the_session(self):
         self.owner_row("running")
-        detail = self.control()._execute_managed(self.target(), "kill", None, "k")
+        detail = self.control()._execute(self.target(), "kill", None, "k")
         self.assertIn(("close", AGENT, "now"), self.managed.calls)
         self.assertIn("off", detail)
 
@@ -358,7 +350,7 @@ class OrdubashyToolTests(WakeCase):
         from qorqut.managed_runtime.manager import ManagedError
         self.managed.open_error = ManagedError("cli_unavailable", "no")
         with self.profile_patch(), self.assertRaises(DomainError) as failed:
-            self.control()._execute_managed(self.target(), "start", None, "k")
+            self.control()._execute(self.target(), "start", None, "k")
         self.assertEqual(failed.exception.code, "not_delivered")
 
     def test_status_says_on_off_asleep_open_and_working(self):
@@ -370,13 +362,6 @@ class OrdubashyToolTests(WakeCase):
         self.assertTrue(control.session_state(self.target())["off"])
         self.managed.view = {**OPEN_VIEW, "phase": "working"}
         self.assertTrue(control.session_state(self.target())["working"])
-
-    def test_a_managed_worker_is_never_held_to_the_terminals_preconditions(self):
-        control = self.control()
-        for action in ("start", "restart", "kill", "ping"):
-            control._validate(action, {"managed": True, "state": "absent"})
-        with self.assertRaises(Exception):
-            control._validate("start", {"state": "present"})  # the untouchable terminal backend is asked, not skipped
 
 
 if __name__ == "__main__":

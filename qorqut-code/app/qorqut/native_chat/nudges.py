@@ -44,12 +44,11 @@ LOG = logging.getLogger(__name__)
 PASS_SECONDS = 3.0
 REVALIDATE_SECONDS = 30.0
 MAX_RECEIPT_KEYS = 12
-# Reasons the transport gives when it can never type this exact session: the nudge is visibly unavailable, never retried at once.
-UNAVAILABLE_REASONS = frozenset({"unsupported_transport", "unsupported_target", "unsupported_runtime", "capture_disabled",
-                                 "terminal_unavailable"})
+# Reasons the transport gives when it can never send to this exact session: the nudge is visibly unavailable, never retried at once.
+UNAVAILABLE_REASONS = frozenset({"unsupported_transport", "unsupported_target", "unsupported_runtime", "capture_disabled"})
 # A session that changed or an agent that is no longer registered: the reservation is stale, not a failed delivery.
 STALE_REASONS = frozenset({"stale_session", "agent_unavailable"})
-# A managed agent whose session is closed (its host is gone or closed): the steady "offline" state of an agent nobody opened, not
+# An agent whose session is closed (its host is gone or closed): the steady "offline" state of an agent nobody opened, not
 # an error and not a delivery to retry every few seconds. The reservation ended with the session, so it is cancelled as stale and
 # the next pass finds no binding and waits (``offline``) for the owner to open one. A host that is merely starting, closing or
 # busy is a plain deferral and is asked again.
@@ -207,7 +206,7 @@ def _scalar(value) -> bool:
 
 def receipt_of(result: InputResult, binding: Binding) -> dict:
     """The exact, bounded receipt of one transport result: the native input and the report's plain facts. It never carries the
-    typed text, a screen or a terminal identity (the arbiter's evidence does not either)."""
+    sent text (the arbiter's evidence does not either)."""
     facts = {key: value for key, value in dict(result.evidence).items()
              if isinstance(key, str) and len(key) <= 40 and _scalar(value) and key not in {"binding", "effect"}}
     return {"input_id": result.input_id, "input_state": result.state, "marker_recorded": bool(result.marker),
@@ -452,7 +451,7 @@ class NudgeBackend:
 
     def _wake_agent(self, profile: dict) -> bool:
         """Something authorized waits for an agent with no bound session: start opening it, without waiting for it. True when an
-        open runs or was started; False when it must not or cannot be opened now (off, paced, not managed): the need stays
+        open runs or was started; False when it must not or cannot be opened now (off, paced, no managed runtime): the need stays
         ``offline`` exactly as before and the next revalidation asks again."""
         opener = self.opener
         if opener is None:

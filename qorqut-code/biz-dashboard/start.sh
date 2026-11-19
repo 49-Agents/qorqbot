@@ -9,8 +9,8 @@
 # Config: .env.dashboard next to this script (gitignored; copy .env.dashboard.example). Plain
 # KEY=VALUE lines. HOST and PORT become --host/--port. INTERPRETER, WORKSPACE, INSTANCE_ROOT and
 # COMPONENT_<NAME> are the launcher's explicit host selection (below); they become arguments and are never
-# passed on as environment. Everything else is passed as environment (QORQUT_TERMINAL_WORKSPACE,
-# BIZ_SERVICE_ORIGINS, DEEPSEEK_API_KEY, ...). The operational database must already exist. This script never
+# passed on as environment. Everything else is passed as environment (BIZ_SERVICE_ORIGINS,
+#  DEEPSEEK_API_KEY, ...). The operational database must already exist. This script never
 # migrates data and never searches a sibling checkout, a default interpreter or an old businesses root.
 #
 # Explicit host selection (every one required; absolute, normalized paths; nothing is discovered):
@@ -22,9 +22,7 @@
 #   COMPONENT_OPERATIONS_ENGINE, COMPONENT_CONTEXT_ENGINE, COMPONENT_ROLES   optional component locations
 # `start.sh argv` prints the exact launch command, one element per line, without starting anything.
 #
-# `stop` ends the dashboard only. Agent shells live in tmux (`tmux -L qorqut`) and keep running;
-# the next `start` re-attaches to them. Kill one on purpose with the Stop button or
-# `tmux -L qorqut kill-session -t =<slug>__<agent>`.
+# `stop` ends the dashboard only. Agent sessions run in their own host processes; they close on their own when idle.
 set -euo pipefail
 umask 077
 
@@ -157,7 +155,7 @@ cmd_stop() {
   for _ in {1..40}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
   if kill -0 "$pid" 2>/dev/null; then die "graceful shutdown timed out (pid $pid); inspect before recovery"; fi
   rm -f "$PIDFILE"
-  echo "stopped (pid $pid). Agent shells in tmux keep running; 'start' re-attaches."
+  echo "stopped (pid $pid). Open agent sessions keep running until they are idle."
 }
 
 cmd_foreground() {
@@ -177,10 +175,6 @@ cmd_foreground() {
 
 cmd_status() {
   if pid=$(running_pid); then echo "running (pid $pid)"; else echo "not running"; fi
-  if command -v tmux >/dev/null; then
-    echo "agent shells (tmux -L qorqut):"
-    tmux -L qorqut list-sessions -F '  #{session_name}  #{pane_current_command}  #{pane_current_path}' 2>/dev/null || echo "  none"
-  fi
 }
 
 case ${1:-} in

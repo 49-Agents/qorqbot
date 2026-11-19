@@ -1,12 +1,13 @@
 """The slash commands Chat offers for an agent's running CLI.
 
-Each command says where its result appears:
+Qorqbot runs every agent itself, as a headless session, so each command says whether it can run there:
 
-* ``chat``: typed into the session like a message; what it does shows in Chat (``/compact``, a custom command, a skill).
-* ``terminal``: the CLI opens a menu or panel that only its terminal can show (``/model`` without a name, ``/resume``,
-  ``/cost``); Chat sends it and the owner finishes in the agent's Terminal. Chat never sends keys the owner did not type.
-* ``unavailable``: the same menu-only commands for a managed agent, which runs headless and has no terminal to finish them in.
-  Chat refuses them (``managed_command``) instead of sending text the client cannot act on; the rest stay ``chat``.
+* ``chat``: sent into the session like a message, or carried out through the client's own interface; what it does shows in Chat
+  (``/compact``, a custom command, a skill). Claude takes a slash command typed as message text. Codex takes ``$role`` as text but
+  not ``/compact`` or ``/model``: those are plain text to its app-server, so the managed adapter turns them into the host's
+  ``command`` operation (``codex_command``: ``thread/compact/start``, ``thread/settings/update``).
+* ``unavailable``: the CLI opens a menu or panel only a terminal can show (``/model`` without a name, ``/resume``, ``/cost``). Chat
+  refuses them (``managed_command``) instead of sending text the client cannot act on.
 
 Built-ins are a curated list per client (checked against Claude Code 2.1 and Codex 0.166). The owner's own Claude Code
 commands (``~/.claude/commands``, ``<agent>/.claude/commands``) and skills (``~/.claude/skills``, ``<agent>/.claude/skills``)
@@ -19,7 +20,7 @@ import re
 
 import yaml
 
-from .contracts import MANAGED_MENU_COMMANDS
+from .contracts import managed_menu_command
 
 CLIENTS = ("claude", "codex")
 MAX_CUSTOM = 200
@@ -28,36 +29,36 @@ MAX_DESCRIPTION = 160
 BUILT_IN = {
     "claude": (
         ("/compact", "Summarize the conversation so far to free up context. Add instructions to say what to keep.", "chat"),
-        ("/clear", "Start a new conversation in this session.", "chat"),
+        ("/clear", "Start a new conversation in this session.", "unavailable"),
         ("/init", "Write a CLAUDE.md with notes about this folder.", "chat"),
         ("/review", "Review the changes in this folder.", "chat"),
         ("/security-review", "Check the pending changes for security problems.", "chat"),
-        ("/model", "Switch model. Add a name (for example /model sonnet), or pick one in Terminal.", "terminal"),
-        ("/cost", "Show what this session has used.", "terminal"),
-        ("/usage", "Show your plan's usage limits.", "terminal"),
-        ("/status", "Show the version, model, account and connections.", "terminal"),
-        ("/context", "Show how full the context is.", "terminal"),
-        ("/resume", "Pick an earlier conversation to continue.", "terminal"),
-        ("/permissions", "Review which tools are allowed.", "terminal"),
-        ("/mcp", "Manage connected servers and connectors.", "terminal"),
-        ("/memory", "Edit Claude's memory files.", "terminal"),
-        ("/agents", "Manage subagents.", "terminal"),
-        ("/config", "Open Claude Code's settings.", "terminal"),
-        ("/doctor", "Check the Claude Code installation.", "terminal"),
-        ("/help", "List every command.", "terminal"),
-        ("/exit", "End this session. Start the agent again to continue.", "chat"),
+        ("/model", "Switch model. Add a name (for example /model sonnet).", "unavailable"),
+        ("/cost", "Show what this session has used.", "unavailable"),
+        ("/usage", "Show your plan's usage limits.", "unavailable"),
+        ("/status", "Show the version, model, account and connections.", "unavailable"),
+        ("/context", "Show how full the context is.", "unavailable"),
+        ("/resume", "Pick an earlier conversation to continue.", "unavailable"),
+        ("/permissions", "Review which tools are allowed.", "unavailable"),
+        ("/mcp", "Manage connected servers and connectors.", "unavailable"),
+        ("/memory", "Edit Claude's memory files.", "unavailable"),
+        ("/agents", "Manage subagents.", "unavailable"),
+        ("/config", "Open Claude Code's settings.", "unavailable"),
+        ("/doctor", "Check the Claude Code installation.", "unavailable"),
+        ("/help", "List every command.", "unavailable"),
+        ("/exit", "End this session. Sending a message starts a new one.", "chat"),
     ),
     "codex": (
         ("/compact", "Summarize the conversation so far to free up context.", "chat"),
-        ("/new", "Start a new conversation in this session.", "chat"),
-        ("/init", "Write an AGENTS.md with notes about this folder.", "chat"),
-        ("/review", "Review changes; choose what to review in Terminal.", "terminal"),
-        ("/model", "Pick the model and reasoning effort.", "terminal"),
-        ("/permissions", "Choose what Codex may do without asking.", "terminal"),
-        ("/status", "Show the session's model, folder and limits.", "terminal"),
-        ("/diff", "Show the changes in this folder.", "terminal"),
-        ("/mcp", "List connected servers.", "terminal"),
-        ("/exit", "End this session. Start the agent again to continue.", "chat"),
+        ("/new", "Start a new conversation in this session.", "unavailable"),
+        ("/init", "Write an AGENTS.md with notes about this folder.", "unavailable"),
+        ("/review", "Review changes.", "unavailable"),
+        ("/model", "Switch model and reasoning effort: /model name [effort].", "chat"),
+        ("/permissions", "Choose what Codex may do without asking.", "unavailable"),
+        ("/status", "Show the session's model, folder and limits.", "unavailable"),
+        ("/diff", "Show the changes in this folder.", "unavailable"),
+        ("/mcp", "List connected servers.", "unavailable"),
+        ("/exit", "End this session. Sending a message starts a new one.", "chat"),
     ),
 }
 
@@ -128,28 +129,13 @@ def _claude_custom(roots) -> list[dict]:
     return list(found.values())[:MAX_CUSTOM]
 
 
-MANAGED_EXIT = "End this session. Sending a message starts a new one."
-
-
-def _managed(item: dict) -> dict:
-    """A built-in Claude command as a managed (headless) agent has it: a menu-only command cannot be run, and ``/exit`` ends the
-    session through its host."""
-    if item["name"] in MANAGED_MENU_COMMANDS:
-        return {**item, "where": "unavailable"}
-    if item["name"] == "/exit":
-        return {**item, "description": MANAGED_EXIT}
-    return item
-
-
-def catalog(client: str, *, home=None, workspace=None, managed: bool = False) -> dict:
-    """The commands for ``client`` ("claude" or "codex"), built-ins first, then the owner's own (Claude only). ``managed`` is a
-    managed agent's catalog: the commands only a terminal can show are ``unavailable``."""
+def catalog(client: str, *, home=None, workspace=None) -> dict:
+    """The commands for ``client`` ("claude" or "codex"), built-ins first, then the owner's own (Claude only). The commands only a
+    terminal can show are ``unavailable``."""
     if client not in CLIENTS:
         return {"client": None, "commands": []}
     commands = [{"name": name, "description": description, "where": where, "source": "built-in"}
                 for name, description, where in BUILT_IN[client]]
-    if managed and client == "claude":
-        commands = [_managed(item) for item in commands]
     if client == "claude":
         roots = [(Path(workspace), "agent")] if workspace else []
         if home:
@@ -171,9 +157,34 @@ def codex_builtin(text: str) -> str | None:
     return next((name for name, _, _ in BUILT_IN["codex"] if name == word), None)
 
 
-def delivery_text(text: str) -> str:
-    """What Chat types for a slash command: a bare command gets one trailing space, which closes the CLI's completion
-    menu so the paste can be confirmed and Enter runs exactly that command. Anything else is typed unchanged."""
-    if re.fullmatch(r"/[A-Za-z0-9][A-Za-z0-9:_-]{0,80}", text.strip()) and text == text.strip():
-        return text + " "
-    return text
+EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
+
+
+def codex_command(text: str):
+    """What a Codex session does for ``text`` through its own interface, or None for text it takes as a message.
+
+    ``("compact", {})`` for ``/compact`` (anything after it is ignored: Codex's compaction takes no instruction), and
+    ``("model", {"model": name, "effort": level or None})`` for ``/model <name> [effort]`` or ``/model <effort>``."""
+    command = codex_builtin(text)
+    words = text.split()
+    if command == "/compact":
+        return "compact", {}
+    if command == "/model" and len(words) > 1:
+        rest = [word for word in words[1:3]]
+        if rest[0].lower() in EFFORTS and len(rest) == 1:
+            return "model", {"model": None, "effort": rest[0].lower()}
+        effort = rest[1].lower() if len(rest) > 1 and rest[1].lower() in EFFORTS else None
+        return "model", {"model": rest[0], "effort": effort}
+    return None
+
+
+def unrunnable(provider: str | None, text: str) -> str | None:
+    """The command ``text`` runs that a managed session cannot carry out (a menu or panel only a terminal can show), or None.
+    Claude: its menu-only commands (``/model`` without a name is one). Codex: every built-in except ``/compact``, ``/exit`` and
+    ``/model`` with a name."""
+    if provider == "codex":
+        command = codex_builtin(text)
+        if command is None or command == "/exit" or codex_command(text) is not None:
+            return None
+        return command
+    return managed_menu_command(text)

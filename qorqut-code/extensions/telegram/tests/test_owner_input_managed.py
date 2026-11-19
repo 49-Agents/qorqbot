@@ -1,7 +1,6 @@
 """Telegram owner input for a managed agent: what the shared arbiter reports for a headless session, and what the owner is told.
 
-A managed agent has no terminal, so a message that cannot be delivered now must not say "typed into the terminal when the
-composer is free". The worker is exercised with stand-in bridge and store objects; nothing here reaches Telegram or an agent.
+Every agent runs as a managed session, so a message that cannot be delivered now speaks of its session, never of a terminal. The worker is exercised with stand-in bridge and store objects; nothing here reaches Telegram or an agent.
 """
 from types import SimpleNamespace as NS
 import unittest
@@ -9,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from qorqut.native_chat.contracts import InputResult, RESULT_DEFERRED, RESULT_REJECTED, STATE_FAILED, STATE_SUBMITTED, STATE_UNCERTAIN
 from qorqut_telegram import owner_input
-from qorqut_telegram.owner_input import DEFERRALS, MANAGED_REASONS, NOTICE_REASONS, OwnerInputs
+from qorqut_telegram.owner_input import DEFERRALS, NOTICE_REASONS, OwnerInputs
 
 
 class Writer:
@@ -52,7 +51,7 @@ class ManagedOwnerInputTests(unittest.TestCase):
         self.assertEqual((outcome.status, outcome.reason), ("deferred", "session_closed"))
         self.assertEqual(DEFERRALS["session_closed"], "session_closed")
 
-    def test_the_terminal_codes_map_as_before(self):
+    def test_the_legacy_arbiter_codes_still_map(self):
         for arbiter, worker in (("terminal_offline", "terminal_absent"), ("unsupported_target", "terminal_unsupported")):
             outcome = OwnerInputs._outcome(InputResult(state=RESULT_DEFERRED, reason=arbiter))
             self.assertEqual((outcome.status, outcome.reason), ("deferred", worker))
@@ -97,25 +96,18 @@ class ManagedOwnerInputTests(unittest.TestCase):
         self.assertNotIn("composer", text)
 
     def test_every_managed_reason_has_its_own_wording(self):
-        for reason in MANAGED_REASONS:
+        for reason in NOTICE_REASONS:
             with self.subTest(reason=reason):
                 text = self.deliver(reason)
                 self.assertIn(NOTICE_REASONS[reason], text)
                 self.assertNotIn("composer", text)
                 self.assertNotIn("terminal is busy", text)
 
-    def test_a_reason_nobody_worded_keeps_the_terminal_text(self):
-        # A reason nobody worded keeps the terminal text it always had (a terminal agent's deferral).
+    def test_a_reason_nobody_worded_reads_as_a_session(self):
         text = self.deliver("composer_busy")
-        self.assertIn("its terminal is busy or not ready for input", text)
-        self.assertIn("will be typed into the terminal when the composer is free", text)
-
-    def test_terminal_notices_are_unchanged(self):
-        for reason in ("terminal_absent", "terminal_unverified", "terminal_unsupported"):
-            with self.subTest(reason=reason):
-                text = self.deliver(reason)
-                self.assertIn(NOTICE_REASONS[reason], text)
-                self.assertIn("will be typed into the terminal when the composer is free", text)
+        self.assertIn("its session is not ready for input", text)
+        self.assertNotIn("terminal", text)
+        self.assertNotIn("composer", text)
 
     def test_the_notice_comes_once_per_queue_episode(self):
         worker, row = self.inputs({"notice_sent_at": "2026-01-01T00:00:00Z"})
@@ -149,11 +141,13 @@ class ManagedOwnerInputTests(unittest.TestCase):
         self.assertIn("could not be delivered to its session (driver_unavailable)", text)
         self.assertNotIn("terminal", text)
 
-    def test_a_terminal_agents_failures_read_as_before(self):
-        self.assertIn("could not be typed into its terminal (terminal_unsupported)",
+    def test_every_failure_reads_as_a_session_whatever_the_receipt(self):
+        self.assertIn("could not be delivered to its session (terminal_unsupported)",
                       self.settled("failed", "terminal_unsupported", {"client": "claude"}))
-        self.assertIn("may or may not have reached the terminal", self.settled("uncertain", "submit_unconfirmed", None))
-        self.assertIn("may or may not have reached the terminal", self.settled("uncertain", "session_changed", '{"client": "claude"}'))
+        for code, receipt in (("submit_unconfirmed", None), ("session_changed", '{"client": "claude"}')):
+            text = self.settled("uncertain", code, receipt)
+            self.assertIn("reached its session", text)
+            self.assertNotIn("terminal", text)
 
     def test_session_changed_on_a_managed_receipt_reads_as_a_session(self):
         self.assertIn("reached its session", self.settled("uncertain", "session_changed", {"transport": "managed"}))

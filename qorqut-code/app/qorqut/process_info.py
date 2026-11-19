@@ -23,21 +23,6 @@ def _psutil():
     return psutil
 
 
-def _terminal(process):
-    """The process's terminal device path. psutil maps devices to paths once and caches that map, while macOS creates
-    a /dev/ttysNNN for each new pseudo-terminal; a terminal opened after the first lookup (a new agent pane) would read
-    as none. A missing terminal therefore rebuilds the map once before it is reported as none."""
-    tty = process.terminal()
-    if tty is None:
-        try:
-            from psutil import _psposix
-            _psposix.get_terminal_map.cache_clear()
-        except (ImportError, AttributeError):
-            return None
-        tty = process.terminal()
-    return tty
-
-
 def _read(pid, operation):
     psutil = _psutil()
     try:
@@ -54,32 +39,14 @@ def _read(pid, operation):
 
 
 def fields(pid):
-    """Existing stat field positions, populated from actual OS observations."""
+    """Existing stat field positions, populated from actual OS observations (the terminal device and foreground group, fields 4 and 5, read 0 and -1 on macOS)."""
     if not darwin():
         return Path(f'/proc/{int(pid)}/stat').read_text().rsplit(')', 1)[1].split()
     def observe(process):
-        tty = _terminal(process)
-        foreground, device = -1, 0
-        if tty:
-            descriptor = os.open(tty, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
-            try:
-                try:
-                    foreground = os.tcgetpgrp(descriptor)
-                except OSError:
-                    # A different terminal session can reject tcgetpgrp. Darwin ps
-                    # reads the kernel's foreground group without acquiring that tty.
-                    try:
-                        output = subprocess.check_output(['/bin/ps', '-o', 'tpgid=', '-p', str(int(pid))], text=True, timeout=2)
-                        foreground = int(output.strip())
-                    except (subprocess.SubprocessError, ValueError) as exc:
-                        raise OSError('Cannot inspect terminal foreground process group') from exc
-                device = os.fstat(descriptor).st_rdev
-            finally:
-                os.close(descriptor)
         value = ['0'] * 20
         value[:6] = ['Z' if process.status() in {_psutil().STATUS_ZOMBIE, _psutil().STATUS_DEAD} else 'S',
                      str(process.ppid()), str(os.getpgid(int(pid))), str(os.getsid(int(pid))),
-                     str(device), str(foreground)]
+                     '0', '-1']  # no controlling terminal is ever read: agents have none
         value[19] = str(round(process.create_time() * 1_000_000))
         return value
     return _read(pid, observe)

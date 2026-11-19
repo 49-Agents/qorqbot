@@ -387,16 +387,14 @@ class NativeBindingAdapter:
     def managed_identity(self, agent_id, session_id):
         """The service-held, token-verified identity of this agent's running managed host, or ``None``.
 
-        This is the anchor of the managed path. It needs: the agent's mode is ``managed`` (a ``managed-host.json`` in the workspace
-        of a terminal agent has no effect), the managed runtime is reachable from this service runtime, and it reports a live host
+        This is the anchor of the managed path. It needs: the managed runtime is reachable from this service runtime, and it reports a live host
         with the claude process it spawned (pid and start ticks) and the host's own pid and start ticks. A conversation the host
         already knows must be the one being bound. Anything else, including a runtime that cannot be reached, is ``None``: the
         managed path then refuses and the terminal probe judges the session as it always did."""
         try:
             from qorqut.managed_runtime.manager import managed_of
-            from qorqut.managed_runtime.mode import MANAGED, mode_of
             managed = managed_of(self.runtime)
-            if managed is None or mode_of(getattr(managed, 'paths', None), agent_id) != MANAGED:
+            if managed is None:
                 return None
             identity = managed.identity(agent_id)
         except Exception:  # noqa: BLE001 - a runtime that cannot answer is not an authority

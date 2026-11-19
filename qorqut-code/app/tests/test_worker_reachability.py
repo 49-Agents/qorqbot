@@ -68,14 +68,14 @@ class UnreachableWorkerTests(unittest.TestCase):
 
     def test_a_worker_blocked_for_a_while_is_reported_once_with_the_repair(self):
         self.need(SCOUT)
-        self.attempts(SCOUT, ('submitted', 'processing_not_confirmed', 90), ('deferred', 'composer_not_empty', 25),
-                      ('deferred', 'composer_not_empty', 1))
+        self.attempts(SCOUT, ('submitted', 'processing_not_confirmed', 90), ('deferred', 'host_unverified', 25),
+                      ('deferred', 'host_unverified', 1))
         self.conn.executemany('INSERT INTO inbox_deliveries VALUES(?,?,?,1)', [(SCOUT, 1, None), (SCOUT, 2, None), (SCOUT, 3, ago(hours=1))])
         self.assertEqual(self.told(), [SCOUT])
         self.assertEqual(self.sent, [[COORDINATOR]])
         event = dict(self.conn.execute('SELECT * FROM inbox_events').fetchone())
         self.assertEqual((event['source_type'], event['source_id'], event['event_type']), ('agent_profiles', SCOUT, 'unreachable'))
-        for part in ('scout cannot receive inbox notices since 2026-11-12 11:35 UTC', 'its input box holds unsent text',
+        for part in ('scout cannot receive inbox notices since 2026-11-12 11:35 UTC', 'its session could not be verified',
                      '2 inbox items waiting', 'agent_terminal_status', 'agent_terminal_restart', 'reassign its open work'):
             self.assertIn(part, event['summary'])
         self.assertLessEqual(len(event['summary']), 500)
@@ -88,10 +88,10 @@ class UnreachableWorkerTests(unittest.TestCase):
 
     def test_a_short_stretch_a_busy_turn_and_a_recovered_worker_are_not_reported(self):
         self.need(SCOUT)
-        self.attempts(SCOUT, ('deferred', 'composer_unrecognized', 10))
+        self.attempts(SCOUT, ('deferred', 'host_unverified', 10))
         self.assertEqual(self.told(), [])
         self.need(COMPASS)
-        self.attempts(COMPASS, ('deferred', 'composer_busy', 60), ('deferred', 'composer_busy', 2))
+        self.attempts(COMPASS, ('deferred', 'turn_running', 60), ('deferred', 'turn_running', 2))
         self.assertEqual(self.told(), [])
         # A notice that got through ends the stretch, and a superseded reservation says nothing either way.
         self.attempts(SCOUT, ('submitted', 'processing_not_confirmed', 3), ('stale', 'coverage_handled', 2))
@@ -152,7 +152,7 @@ class UnreachableWorkerTests(unittest.TestCase):
 
     def test_a_new_stretch_after_a_recovery_is_reported_within_the_period(self):
         self.need(SCOUT)
-        self.attempts(SCOUT, ('deferred', 'composer_unrecognized', 40))
+        self.attempts(SCOUT, ('deferred', 'host_unverified', 40))
         self.assertEqual(self.told(), [SCOUT])
         self.now = NOW + timedelta(hours=1)
         self.conn.execute('INSERT INTO inbox_nudge_attempts VALUES(?,?,?,?,?)', (SCOUT, 2, 'submitted', None, stamp(NOW + timedelta(minutes=5))))
@@ -163,7 +163,7 @@ class UnreachableWorkerTests(unittest.TestCase):
     def test_only_permanent_workers_are_reported_and_only_to_a_configured_coordinator(self):
         for agent in (APPLIER, COORDINATOR, SCOUT):
             self.need(agent)
-            self.attempts(agent, ('deferred', 'composer_unrecognized', 120))
+            self.attempts(agent, ('deferred', 'host_unverified', 120))
         self.assertEqual(self.told(), [SCOUT])
         self.conn.execute('DELETE FROM inbox_events')
         self.coordinator = None

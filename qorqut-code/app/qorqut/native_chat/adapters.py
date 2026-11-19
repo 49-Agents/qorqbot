@@ -1,115 +1,27 @@
-"""Safe provider input adapters: the only code that types into a native session.
+"""The input adapter: the only code that writes into a session.
 
 An adapter receives a verified binding, the exact text, and a ``checkpoint`` it calls once, after its last pre-input check and
 before the first input. The arbiter's checkpoint re-verifies the exact session and makes the durable claim; if it raises, nothing
-is typed. After the checkpoint every outcome other than an explicit ``deferred`` may follow a write, so it is reported as
-``submitted`` or ``uncertain`` and is never replayed. The text, the screen and the terminal identity never appear in a result:
-``receipt`` names only what was observed (client, a digest of the terminal identity, the composer fingerprint).
+is sent. After the checkpoint every outcome other than an explicit ``deferred`` may follow a write, so it is reported as
+``submitted`` or ``uncertain`` and is never replayed. The text never appears in a result: ``receipt`` names only what was observed
+(client, host, message uuid).
 
-* ``TerminalAdapter`` types into the agent's one registered tmux pane for Claude Code or Codex through the existing verified
-  composer path (one bracketed paste, Enter with one verified pending-paste retry, no input into a modal).
-  Owner Chat can replace an existing draft.
-* ``CodexQueueAdapter`` uses explicit turn/steer (busy) or turn/start (idle) for steering inputs on the verified
-  shared server. Non-steering producers retain codex queue. It never starts or resumes a client.
-* ``ManagedAdapter`` sends to the one verified host of a managed agent (``managed_runtime``) over its control socket. The host
-  dedupes by message uuid, so an unanswered send is resolved by asking the host (``lookup`` with a fence) instead of guessing.
-  It never opens a session and never types into a terminal.
+``ManagedAdapter`` sends to the one verified host of an agent (``managed_runtime``) over its control socket. The host dedupes by
+message uuid, so an unanswered send is resolved by asking the host (``lookup`` with a fence) instead of guessing. It never opens a
+session. A Codex session takes ``/compact`` and ``/model <name>`` through the host's ``command`` operation, because its app-server
+reads them as plain text (``commands.codex_command``); ``$role`` and every other text is a message.
 """
 
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
-import subprocess
 import uuid
 
-from qorqut import agent_cli_launch
-from qorqut.bootstrap import codex_session
-from qorqut.transport.agent_terminal_control import OwnerInputOutcome
+from .contracts import OwnerInputOutcome
 
-from .contracts import PROVIDER_RUNTIMES
-from . import codex_control
-
-CODEX_QUEUE_TIMEOUT = 30
 SUBMITTED = "submitted"
 DEFERRED = "deferred"
 UNCERTAIN = "uncertain"
 FAILED = "failed"
-
-
-class TerminalAdapter:
-    """Claude Code or Codex in the registered tmux terminal. ``backend`` is a callable returning the host terminal backend."""
-
-    name = "terminal"
-
-    def __init__(self, backend):
-        self._backend = backend
-
-    def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint, replace_composer=False) -> OwnerInputOutcome:
-        backend = self._backend()
-        if backend is None:
-            return OwnerInputOutcome(DEFERRED, "terminal_unavailable")
-        workdir = Path(profile["workspace"]) / ".qorqut/chat-input"
-        try:
-            workdir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        except OSError:
-            return OwnerInputOutcome(DEFERRED, "terminal_unavailable")
-        # The exact native client of the bound session decides the composer rules, including an owner who chose another CLI
-        # in the terminal than the profile names.
-        delivery = {**profile, "profile_json": json.dumps({**json.loads(profile["profile_json"]),
-                                                           "runtime": PROVIDER_RUNTIMES[session["provider"]]})}
-        # ``steer`` lets the text coexist with a running turn (the client queues or steers it as if the owner typed it); the
-        # composer must be verified editable. Only owner Chat replaces drafts with editing keys; ``echo`` demands the whole pasted
-        # text visible in the composer before it is submitted; Chat, Telegram and nudge text may be collapsed by the client
-        # and may do without the whole-text echo unless replacing a draft. Replacement always verifies
-        # the paste. A producer without ``steer`` also keeps the idle-only default.
-        # A bare slash command is typed with one trailing space, which closes the CLI's completion menu (commands.py).
-        from .commands import delivery_text
-        return backend.owner_input(delivery, delivery_text(text), workdir=workdir, checkpoint=checkpoint,
-                                   require_paste_echo=echo or replace_composer, allow_busy=steer,
-                                   replace_composer=replace_composer)
-
-
-class CodexQueueAdapter:
-    """Queue into the exact existing Codex desktop conversation (its thread-writer lock must still be held)."""
-
-    name = "codex_queue"
-
-    def __init__(self, *, run=subprocess.run, alive=codex_session.owner_alive, executable=None, steering=codex_control.submit):
-        # No executable given: the Codex Qorqbot selects at each queue (its own downloaded copy once there is one, else ``codex``).
-        self._run, self._alive, self._executable = run, alive, executable
-        self._steering = steering
-
-    def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint, replace_composer=False) -> OwnerInputOutcome:
-        owner = session.get("owner")
-        if not owner or not self._alive(owner):
-            return OwnerInputOutcome(DEFERRED, "codex_session_closed")
-        if steer:
-            return self._steering(session, text, checkpoint, alive=self._alive)
-        try:
-            checkpoint()
-        except Exception:
-            return OwnerInputOutcome(DEFERRED, "checkpoint_failed")
-        if not self._alive(owner):
-            return OwnerInputOutcome(DEFERRED, "codex_session_closed")
-        receipt = {"client": "codex", "transport": "codex_queue"}
-        executable = self._executable or agent_cli_launch.executable("codex", "codex")
-        managed = agent_cli_launch.for_executable("codex", executable)
-        try:
-            result = self._run([executable, *managed["args"], "queue", "--thread", session["conversation_id"], "--message", text],
-                               cwd=profile["workspace"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=CODEX_QUEUE_TIMEOUT, env={**os.environ, **managed["env"]})
-        except subprocess.TimeoutExpired:
-            return OwnerInputOutcome(UNCERTAIN, "codex_queue_timeout", receipt)
-        except OSError:
-            # The executable could not start: nothing reached the queue, but the claim was made, so this is a failure, not a
-            # deferral to retry blindly.
-            return OwnerInputOutcome(FAILED, "codex_queue_unavailable", receipt)
-        # A nonzero exit may follow a queue write; the saved attempt is never replayed.
-        if result.returncode == 0:
-            return OwnerInputOutcome(SUBMITTED, "processing_not_confirmed", {**receipt, "exit": 0})
-        return OwnerInputOutcome(UNCERTAIN, "codex_queue_refused", {**receipt, "exit": result.returncode})
 
 
 # Host rejections that mean nothing reached Claude: the producer may try again later.
@@ -121,8 +33,8 @@ MANAGED_EXIT = "/exit"
 
 
 class ManagedAdapter:
-    """A managed agent's session (Claude Code or Codex), reached through its host. The client is the bound session's
-    (``session["provider"]``), looked up in ``managed_runtime.clients``: a client with no driver yet fails ``driver_unavailable``. ``managed`` is the ``ManagedRuntime`` (or a callable
+    """An agent's session (Claude Code or Codex), reached through its host. The client is the bound session's
+    (``session["provider"]``), looked up in ``managed_runtime.clients``. ``managed`` is the ``ManagedRuntime`` (or a callable
     returning it, or None while it is not composed: every input is then deferred as ``session_closed``)."""
 
     name = "managed"
@@ -139,7 +51,7 @@ class ManagedAdapter:
 
     def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint,
                replace_composer=False) -> OwnerInputOutcome:
-        # ``echo`` and ``replace_composer`` are about a terminal's composer; a headless session has none.
+        # ``echo`` and ``replace_composer`` are kept for the arbiter's call; a headless session has no composer.
         from qorqut.managed_runtime import clients, manager as hosts
         client = clients.by_provider(session.get("provider"))
         if client is None:
@@ -176,6 +88,11 @@ class ManagedAdapter:
             return OwnerInputOutcome(DEFERRED, "checkpoint_failed")
         if text.strip() == MANAGED_EXIT:
             return self._close(hosts, host, named)
+        if client == "codex":
+            from .commands import codex_command
+            command = codex_command(text)
+            if command is not None:
+                return self._command(hosts, host, named, *command)
         # An owner message that opened the session was already handed to the host (``ManagedRuntime.send_first``) with its own
         # uuid, because the session could not be bound before Claude had taken a first message. The host keeps one copy of each
         # uuid, so sending that uuid again is recognised (``accepted_by_host``) and the message is not typed twice.
@@ -240,6 +157,31 @@ class ManagedAdapter:
         if isinstance(reply, dict) and reply.get("status") == "rejected":
             return OwnerInputOutcome(DEFERRED, reply.get("reason") or "session_closed", receipt)
         return OwnerInputOutcome(SUBMITTED, "session_closing", receipt)
+
+    @staticmethod
+    def _command(hosts, host, named, name, arguments) -> OwnerInputOutcome:
+        """``/compact`` or ``/model`` of a Codex session, through the host (``thread/compact/start``, ``thread/settings/update``).
+        Nothing is replayed after the request may have been written."""
+        receipt = {"client": named, "transport": "managed", "command": name}
+        try:
+            reply = host.client.command(name, **arguments)
+        except Exception as error:  # noqa: BLE001
+            if not hosts.is_host_error(error):
+                raise
+            if getattr(error, "sent", True) is False:
+                return OwnerInputOutcome(DEFERRED, ManagedAdapter._unreachable(error))
+            return OwnerInputOutcome(UNCERTAIN, "host_timeout" if hosts.is_timeout(error) else "host_connection_lost", receipt)
+        if not isinstance(reply, dict):
+            return OwnerInputOutcome(UNCERTAIN, "host_connection_lost", receipt)
+        if reply.get("status") == "rejected":
+            reason = reply.get("reason")
+            return OwnerInputOutcome(DEFERRED, reason if reason in MANAGED_DEFERRALS else "command_unsupported", receipt)
+        if reply.get("status") != "ok":
+            return OwnerInputOutcome(FAILED, "command_refused", receipt)
+        if not reply.get("accepted"):
+            # The thread is not ready for it or a turn is running: nothing was changed.
+            return OwnerInputOutcome(DEFERRED, "turn_running", receipt)
+        return OwnerInputOutcome(SUBMITTED, "command_accepted", receipt)
 
     @staticmethod
     def _reply(reply, receipt) -> OwnerInputOutcome:

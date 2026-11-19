@@ -1,4 +1,4 @@
-/* The roster leaves room for the workspace Terminal entry below it. */
+/* The roster leaves room for the Walkthrough and Settings entries below it. */
 .agent-workspace-app .global-agents .global-primary { max-height:calc(100vh - 208px); }
 
 /* Agent roster: the selected agent and an unread reply read clearly in the icon rail without changing its size or order. */

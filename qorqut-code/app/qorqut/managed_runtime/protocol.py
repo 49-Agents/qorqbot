@@ -18,6 +18,9 @@ Operations and their arguments:
                                                    or an object limited to ``behavior`` ("allow"|"deny"), ``message``, ``interrupt``
                                                    and ``answers`` (AskUserQuestion only); other keys (``updated_input``,
                                                    ``updated_permissions`` ...) are dropped, never passed to the CLI
+    command    name="compact"|"model", model, effort   a client command the client takes only through its own interface, not as
+                                                   message text (Codex: ``thread/compact/start``, ``thread/settings/update``); a
+                                                   client without that command rejects it as ``unsupported_command``
     close      mode="graceful"|"now"               end the session and exit
     events     since=0, limit=200                  events with ``seq > since``
 """
@@ -32,7 +35,10 @@ MAX_LINE = 4 * 1024 * 1024        # a message may be 2 MiB, JSON-escaped
 MAX_TEXT_BYTES = 2 * 1024 * 1024
 MAX_DECISION_BYTES = 64 * 1024
 
-OPS = ("hello", "status", "send", "lookup", "interrupt", "answer", "close", "events")
+OPS = ("hello", "status", "send", "lookup", "interrupt", "answer", "command", "close", "events")
+COMMANDS = ("compact", "model")
+EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
+_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,99}")
 STATUS_OK, STATUS_REJECTED, STATUS_ERROR = "ok", "rejected", "error"
 
 REJECT_SESSION_STARTING = "session_starting"
@@ -41,8 +47,9 @@ REJECT_SESSION_CLOSED = "session_closed"
 REJECT_TURN_RUNNING = "turn_running"
 REJECT_HOST_BUSY = "host_busy"
 REJECT_FENCED = "fenced"
+REJECT_UNSUPPORTED_COMMAND = "unsupported_command"
 REJECT_REASONS = (REJECT_SESSION_STARTING, REJECT_SESSION_CLOSING, REJECT_SESSION_CLOSED, REJECT_TURN_RUNNING,
-                  REJECT_HOST_BUSY, REJECT_FENCED)
+                  REJECT_HOST_BUSY, REJECT_FENCED, REJECT_UNSUPPORTED_COMMAND)
 
 ERROR_BAD_REQUEST, ERROR_UNAUTHORIZED, ERROR_UNKNOWN_OP = "bad_request", "unauthorized", "unknown_op"
 ERROR_TOO_LARGE, ERROR_INTERNAL = "too_large", "internal"
@@ -216,6 +223,18 @@ def validate_request(message: dict):
         if len(json.dumps(decision).encode("utf-8")) > MAX_DECISION_BYTES:
             raise ProtocolError(ERROR_TOO_LARGE, "decision too large")
         arguments = {"request_id": identifier, "decision": sanitize_decision(decision)}
+    elif op == "command":
+        name = message.get("name")
+        if name not in COMMANDS:
+            raise ProtocolError(ERROR_BAD_REQUEST, "name must be compact or model")
+        model, effort = message.get("model"), message.get("effort")
+        if model is not None and (not isinstance(model, str) or _MODEL.fullmatch(model) is None):
+            raise ProtocolError(ERROR_BAD_REQUEST, "model must be a plain model name")
+        if effort is not None and effort not in EFFORTS:
+            raise ProtocolError(ERROR_BAD_REQUEST, "effort must be one of " + ", ".join(EFFORTS))
+        if name == "model" and model is None and effort is None:
+            raise ProtocolError(ERROR_BAD_REQUEST, "model needs a model or an effort")
+        arguments = {"name": name, "model": model, "effort": effort}
     elif op == "close":
         mode = message.get("mode", "graceful")
         if mode not in CLOSE_MODES:

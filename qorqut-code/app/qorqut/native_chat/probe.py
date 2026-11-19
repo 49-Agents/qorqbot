@@ -1,10 +1,9 @@
-"""Observe the registered agent's native session: the hook marker, then verification against the live process and pane.
+"""Observe the agent's native session: the hook marker, then verification against the live process and its host.
 
 Nothing is launched, resumed or written. The marker (``.qorqut/terminal-chat.json``, published by the native client's own
 hook) names a conversation, a transcript and a process; it is a claim, not proof. It counts only while the process exists with
-the recorded start ticks and is reachable the way its transport requires: inside the agent's one registered tmux pane, or, for a
-shared Codex desktop server, through that exact conversation's held thread-writer lock. A managed agent has no pane: its
-client process counts while the managed runtime verifies the host process that drives it and that the client descends from it.
+the recorded start ticks and the managed runtime verifies the host process that drives it and that the client descends from it
+(for Codex also that the client is the app-server holding that exact conversation's thread-writer lock).
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ import json
 import logging
 from pathlib import Path
 import re
-import sqlite3
 import sys
 
 from qorqut_operations.contracts import DomainError
@@ -22,9 +20,7 @@ from qorqut.bootstrap import codex_session
 from qorqut.bootstrap.client import path_has_symlink
 from qorqut.bootstrap.terminal_chat import CODEX_SUFFIX, NATIVE_IDENTITY, process_fields
 from qorqut.bootstrap.transcript_snapshot import SESSION_ID
-from qorqut.transport.agent_terminal_control import NATIVE_ONLY
 
-from . import codex_control, codex_viewer, liveness
 from .contracts import RUNTIME_PROVIDERS
 
 LOG = logging.getLogger(__name__)
@@ -68,8 +64,7 @@ class Observation:
     working: bool = False
     capture: bool = True
     capture_enabled: bool = True
-    # What a managed host reports about its session (``phase`` is one of starting/idle/working/blocked/closing); a terminal or
-    # shared-server observation never has them.
+    # What the managed host reports about its session (``phase`` is one of starting/idle/working/blocked/closing).
     phase: str | None = None
     activity: str | None = None
     pending: tuple = ()
@@ -79,8 +74,7 @@ class Observation:
 class ProbeResult:
     """``observation`` is set only for ``reason == 'live'``; every other reason says why the agent has no usable session.
 
-    ``candidate`` is a second, different live conversation seen in the workspace marker while ``observation`` is the selected
-    shared Codex thread, verified independently of that marker (see ``SessionProbe.observe``). It is never an input target."""
+    ``candidate`` is kept for callers that name a second conversation; the probe no longer sets it."""
 
     reason: str
     observation: Observation | None = None
@@ -105,71 +99,19 @@ def transcript_matches(runtime: str, session: str, source: Path) -> bool:
 
 
 class SessionProbe:
-    """Read and verify an agent's native session. ``backend`` returns the terminal control backend (late-bound: it is
-    attached to the runtime after construction). ``marker_reader`` and ``process_probe`` are injection points for synthetic
-    checks; the defaults read the workspace marker and the real ``/proc`` and tmux state."""
+    """Read and verify an agent's native session. ``marker_reader`` and ``process_probe`` are injection points for synthetic
+    checks; the defaults read the workspace marker and the real ``/proc`` state. ``managed`` is the managed runtime, used duck-typed:
+    ``verify(profile, marker) -> {"transport", "owner"} | None``, ``identity(agent_id)`` and ``snapshot(agent_id) -> dict | None``.
+    ``backend`` and ``selected_reader`` are accepted for old callers and unused: there is no terminal to look at."""
 
-    def __init__(self, backend=lambda: None, *, marker_reader=None, process_probe=None, selected_reader=None, managed=None):
-        self._backend = backend
-        # The managed runtime, used duck-typed and only for an agent whose profile says ``execution == "managed"``:
-        # ``verify(profile, marker) -> {"transport", "owner"} | None`` and ``snapshot(agent_id) -> dict | None``.
+    def __init__(self, backend=None, *, marker_reader=None, process_probe=None, selected_reader=None, managed=None):
         self._managed = managed
         self._marker_reader = marker_reader or self._read_marker
         self._process_probe = process_probe or self._verify_process
-        # ``selected_reader(profile) -> (Selection | None, open native_sessions row | None)``; without it the marker decides.
-        self._selected_reader = selected_reader
 
     def observe(self, profile: dict) -> ProbeResult:
-        """Follow the verified foreground conversation in the registered terminal.
-
-        A shared server may hold many threads. Its marker or saved binding counts only when the terminal displays that thread.
-        """
-        result = self._observe_marker(profile)
-        if result.reason == REASON_LIVE or self._selected_reader is None:
-            return result
-        try:
-            chosen, latest = self._selected_reader(profile)
-        except (OSError, DomainError, sqlite3.Error):
-            return result
-        if chosen is None or not chosen.shared_server:
-            return result
-        if (result.reason == REASON_SESSION_END and (result.marker or {}).get("session_id") == chosen.conversation_id
-                and RUNTIME_PROVIDERS.get((result.marker or {}).get("runtime")) == chosen.provider):
-            return result
-        selected = self._observe_selected(profile, chosen, latest)
-        if selected is None:
-            return result
-        return ProbeResult(REASON_LIVE, selected, result.marker)
-
-    def _observe_selected(self, profile: dict, chosen, latest: dict | None) -> Observation | None:
-        """The selected shared Codex thread, from the owner row alone: its server process still exists with the recorded start
-        ticks, is an app-server, and still holds this thread's exact writer lock as the adopted owner tuple. ``None`` when
-        any of that is not positively verified; an unreadable process is not evidence."""
-        pid, started, owner = chosen.pid, chosen.started, chosen.owner
-        if liveness.of_binding(chosen.binding) != liveness.ALIVE or owner is None:
-            return None
-        try:
-            argv = _process_argv(pid)
-            if b"app-server" not in argv or codex_session.thread_owner(pid, chosen.conversation_id) != owner:
-                return None
-            if not self._displayed_codex(profile, owner, chosen.conversation_id):
-                return None
-            workspace = Path(profile["workspace"])
-            config = _read_json(workspace / REGISTRATION)
-        except (OSError, ValueError, KeyError, TypeError):
-            return None
-        if not config or config.get("agent_id") != profile["agent_id"]:
-            return None
-        transcript = None
-        if latest is not None and chosen.matches(latest.get("provider"), latest.get("conversation_id")):
-            transcript = latest.get("transcript_path")
-        stand_in = {"agent_id": profile["agent_id"], "session_id": chosen.conversation_id, "runtime": chosen.runtime,
-                    "pid": pid, "started": started}
-        return Observation(
-            agent_id=profile["agent_id"], runtime=chosen.runtime, provider=chosen.provider, conversation_id=chosen.conversation_id,
-            transcript_path=transcript, pid=pid, started=started, transport="codex_queue", owner=owner,
-            working=self._working(profile, stand_in, {"owner": owner}), capture=bool(transcript),
-            capture_enabled=config.get("capture_transcripts") is True)
+        """The agent's verified live session, or the reason it has none."""
+        return self._observe_marker(profile)
 
     def _observe_marker(self, profile: dict) -> ProbeResult:
         runtime = _runtime(profile)
@@ -186,7 +128,7 @@ class SessionProbe:
         try:
             verified = self._process_probe(profile, dict(marker))
         except DomainError as error:
-            return ProbeResult(REASON_UNSUPPORTED if error.message == NATIVE_ONLY else REASON_PROCESS_GONE, marker=marker)
+            return ProbeResult(REASON_PROCESS_GONE, marker=marker)
         except (OSError, ValueError, KeyError, IndexError, AttributeError):
             verified = None
         if not verified:
@@ -292,56 +234,11 @@ class SessionProbe:
         native = process_fields(pid)
         if native[0] == "Z" or native[19] != marker["started"]:
             return None
-        if self._managed is not None and profile.get("execution") == "managed" and marker["runtime"] in ("claude-code", "codex"):
-            # A managed agent's client has no pane: Claude's ``claude -p``, Codex's ``app-server --listen stdio://`` (one thread per
-            # app-server). Its host must be verified and the marker's process must be the very client the host reports. This comes
-            # BEFORE the shared-server branch below: an app-server whose parent is the agent's own host is not a shared desktop server.
-            # A miss falls through: a managed-mode agent whose client runs in a tmux pane is still judged by that pane.
-            hit = self._managed_hit(profile, marker, pid)
-            if hit:
-                return hit
-        if (marker["runtime"] == "codex"
-                and b"app-server" in _process_argv(pid)):
-            # The desktop server is shared by many conversations. Only this session's held writer lock proves that its
-            # native thread is open.
-            owner = codex_session.thread_owner(pid, marker["session_id"])
-            return ({"transport": "codex_queue", "owner": owner}
-                    if owner and self._displayed_codex(profile, owner, marker["session_id"]) else None)
-        backend = self._backend()
-        if backend is None:
-            return None
-        broker, _, session, _, _ = backend.selected(profile)
-        code, output = broker.tmux("list-panes", "-t", "=" + session, "-F", "#{pane_pid}")
-        if code or len(output.strip().splitlines()) != 1:
-            return None
-        pane_pid = int(output.strip())
-        if native[2] != process_fields(pane_pid)[5]:
-            return None
-        for _ in range(24):
-            if pid == pane_pid:
-                return {"transport": "terminal", "owner": None}
-            pid = int(process_fields(pid)[1])
-            if pid <= 1:
-                break
+        if self._managed is not None and marker["runtime"] in ("claude-code", "codex"):
+            # The client has no pane: Claude's ``claude -p``, Codex's ``app-server --listen stdio://`` (one thread per app-server).
+            # Its host must be verified and the marker's process must be the very client the host reports.
+            return self._managed_hit(profile, marker, pid)
         return None
-
-    def _displayed_codex(self, profile: dict, owner: str, conversation: str) -> bool:
-        """A server-held thread is current only when the registered foreground TUI displays it."""
-        backend = self._backend()
-        if backend is None:
-            return False
-        try:
-            pane = backend.pane_observation(profile, "codex")
-            client = pane.get("client")
-            endpoint = "unix://" + codex_control.control_socket(owner)
-            if (pane.get("kind") != "client" or not client
-                    or not codex_viewer.configured(client["argv"], endpoint, profile["workspace"])
-                    or codex_viewer.displayed_thread(owner, pane.get("title")) != conversation):
-                return False
-            # Thread lookup must not outlive a change of pane or foreground client.
-            return backend.pane_observation(profile, "codex") == pane
-        except (OSError, ValueError, TypeError, KeyError, DomainError):
-            return False
 
     @staticmethod
     def _working(profile: dict, marker: dict, verified: dict) -> bool:

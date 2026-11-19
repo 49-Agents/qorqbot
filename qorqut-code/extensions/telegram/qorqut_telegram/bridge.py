@@ -2,7 +2,7 @@
 
 Construction is inert. ``start`` reads the private configuration and spawns two bounded threads; all token reads,
 network verification and database recovery happen on those threads. A bridge failure degrades bridge health only.
-No terminal session is ever started, restarted or killed from here.
+No agent session is ever started, restarted or closed from here (the arbiter opens one for an input).
 """
 
 from __future__ import annotations

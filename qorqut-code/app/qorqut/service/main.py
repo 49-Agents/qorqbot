@@ -3,18 +3,16 @@
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 import argparse
-import importlib.util
 import json
 import logging
 import os
 from pathlib import Path
-import sys
 
 from qorqut.background.providers import BackgroundModelClient, ProviderConfig
 from qorqut_operations.contracts import DomainError
 from qorqut.transport.auth import Authentication
 from qorqut.transport.compatibility import DashboardCompatibility
-from qorqut.transport.terminals import TerminalService
+from qorqut.transport.managed_launch import ManagedLaunch
 from .local import LocalFiles
 from .instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from .runtime import build_runtime
@@ -45,20 +43,9 @@ def transcript_capture_configuration(value=None):
     return value
 
 
-def load_terminal_broker(paths):
-    from qorqut.installation import component
-    path = component(paths, 'dashboard') / 'pty_broker.py'
-    spec = importlib.util.spec_from_file_location("qorqut_dashboard_pty_broker", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="/bin/bash",
-             model_client_factory=None, broker=None, database=None, signing_key=None,
-             nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
-             execution_provider=None, recovery_config=None,
+def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="",
+             model_client_factory=None, database=None, signing_key=None,
+             nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, recovery_config=None,
              context=None, extensions=None):
     from qorqut.background.integration import attach_background
     from qorqut_operations.background.programs import ProgramRegistry
@@ -76,28 +63,23 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     runtime.resolver.context_home = published_context.home_text
     runtime.owner_bootstrap.context_home = published_context.home_text
     runtime.owner_bootstrap.context_status = published_context.status
-    broker = broker or load_terminal_broker(paths)
     from qorqut_operations.storage.quiescence import KnownZeroWriters
-    from qorqut.storage.host_writers import HostTerminalWriters, LegacyHostWriters, ManagedHostWriters
+    from qorqut.storage.host_writers import ManagedHostWriters
     from qorqut.browser.access import BrowserAccess
     runtime.browser_access = BrowserAccess(runtime)
     # Browser lease mutations participate in shared admission; the browser class has no separate writer service.
     runtime.recovery_quiescer.browser_writers = KnownZeroWriters("browser")
-    # The managed leg: a live managed agent host (a headless Claude session that outlives the service) refuses the window like a
-    # live terminal session does; it never closes or kills one.
+    # A live managed agent host (a headless client session that outlives the service) refuses the window; it never closes or
+    # kills one.
     from qorqut.managed_runtime.mode import state_root
-    runtime.recovery_quiescer.host_writers = LegacyHostWriters(ManagedHostWriters(
-        HostTerminalWriters(getattr(broker, "TMUX", None) or "/usr/bin/tmux"), lambda: state_root(runtime.paths)))
-    terminals = TerminalService(runtime, broker, service_url=endpoint, shell=shell,
+    runtime.recovery_quiescer.host_writers = ManagedHostWriters(lambda: state_root(runtime.paths))
+    launch = ManagedLaunch(runtime, service_url=endpoint,
         environment=local.environment, global_environment=local.environment,
-        agent_environment=local.agent_environment, capture_transcripts=capture_transcripts,
-        workspace=terminal_workspace, execution_provider=execution_provider)
-    # The native binding adapter selects its execution target through this same service.
-    runtime.terminals = terminals
-    from qorqut.transport.agent_terminal_control import AgentTerminalBackend
-    runtime.terminal_control.backend = AgentTerminalBackend(terminals)
+        agent_environment=local.agent_environment, capture_transcripts=capture_transcripts)
+    # The managed runtime prepares every session it opens through this service (``runtime.terminals`` is the name it still reads).
+    runtime.managed_launch = runtime.terminals = launch
     from qorqut.inbox.broadcasts import BroadcastDispatcher
-    runtime.broadcast_dispatcher = BroadcastDispatcher(runtime, runtime.broadcasts, terminals)
+    runtime.broadcast_dispatcher = BroadcastDispatcher(runtime, runtime.broadcasts, launch)
     if model_client_factory is None:
         service_provider = {key: os.environ[key] for key in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "BIZ_BACKGROUND_MODEL") if key in os.environ}
         model_client_factory = background_model_factory(local, service_provider)
@@ -113,22 +95,24 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         selected = RecoveryAdminConfig.load(recovery_config, paths=paths)
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
             lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)
-    runtime.domains.archive.reset_terminals = terminals.reset_business_for_archive
-    compatibility = DashboardCompatibility(runtime, terminals=terminals, background=runtime.background, local_files=local)
+    # Project agents have no resident sessions (only global agents run), so the approved archive has none to reset.
+    runtime.domains.archive.reset_terminals = lambda business, agents: None
+    compatibility = DashboardCompatibility(runtime, background=runtime.background, local_files=local)
     authentication = Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token, signing_key=signing_key,
                                     integration_adapter=runtime.selection.integration_adapter)
     from qorqut.installation import component
     # Trusted registration is complete: nothing can declare or install an operation once traffic is served.
     runtime.freeze_registry()
     return create_app(runtime, dashboard_root=component(paths, 'dashboard'), authentication=authentication, origins=origins,
-        compatibility=compatibility, terminals=terminals)
+        compatibility=compatibility)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=instruction_text('main-shared-qorqut-dashboard-and-http-mcp-service'))
     parser.add_argument("--workspace", type=Path, default=None)
     add_instance_arguments(parser)
-    parser.add_argument("--terminal-workspace", type=Path, default=os.environ.get("QORQUT_TERMINAL_WORKSPACE"))
+    # Accepted so an existing service unit that still passes it starts; it has no effect (the owner's workspace shell is gone).
+    parser.add_argument("--terminal-workspace", type=Path, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--biz", action="append", default=[])
     parser.add_argument("--host", default=os.environ.get("BIZ_DASH_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("BIZ_DASH_PORT", "1049")))
@@ -182,7 +166,7 @@ def main(argv=None):
             from qorqut.shared_context.service import runner_config_from_file
             context_settings = ContextSettings(config=runner_config_from_file(args.context_config))
         app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=token,
-            shell=os.environ.get("SHELL", "/bin/bash"), database=database, terminal_workspace=args.terminal_workspace,
+            database=database,
             recovery_config=args.recovery_config, context=context_settings, extensions=selection)
         if args.prepare_agent:
             # Preparing an agent writes its bootstrap material, so only the backend that owns the instance may do it:
@@ -193,21 +177,10 @@ def main(argv=None):
                     actor = app.state.authentication.installation_owner(connection=uow.connection)[0]
                 from qorqut.transport.auth import AuthenticatedPrincipal
                 context, business = app.state.http_api.context(AuthenticatedPrincipal(actor), slug, owner=True)
-                profile, _ = app.state.http_api.terminals.agent(context, selector)
-                from qorqut_operations.contracts import Principal
-                terminals = app.state.http_api.terminals
-                execution = terminals.execution(business)
-                versions = execution.version_provider()
-                if execution.target_identity is None and (args.claude_version or args.codex_version):
-                    versions = {"claude-code": args.claude_version or "", "codex": args.codex_version or ""}
-                preparation = {"endpoint": execution.endpoint,
-                    "versions": versions,
-                    "capture_transcripts": terminals.capture_transcripts}
-                if execution.interpreter is not None:
-                    preparation["interpreter"] = execution.interpreter
-                if execution.interpreter_validator is not None:
-                    preparation["interpreter_validator"] = execution.interpreter_validator
-                result = terminals.preparation(runtime.resolver, Principal(profile.agent_id, "agent"), **preparation)
+                profile, _ = runtime.managed_launch.agent(context, selector)
+                versions = ({"claude-code": args.claude_version or "", "codex": args.codex_version or ""}
+                            if args.claude_version or args.codex_version else None)
+                result = runtime.managed_launch.prepare(profile.agent_id, versions=versions)
                 print(json.dumps(result, sort_keys=True))
                 return 0
         import uvicorn

@@ -15,7 +15,7 @@ async function fixture(browser) {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setContent('<body><main id="pane" style="display:flex;flex-direction:column;height:700px;width:800px"></main></body>');
-  for (const file of ['app.css', 'css/chat-view.css', 'css/global-chat.css', 'css/xterm.css']) await page.addStyleTag({path: path.join(root, file)});
+  for (const file of ['app.css', 'css/chat-view.css', 'css/global-chat.css']) await page.addStyleTag({path: path.join(root, file)});
   await page.evaluate(() => {
     window.esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     window.$ = (selector, host = document) => host.querySelector(selector);

@@ -91,9 +91,8 @@ class MessageHost:
         controller = getattr(self.app, 'terminal_control', None)
         if controller is None:
             raise DomainError('operation_unavailable', 'Terminal message delivery is unavailable; use inbox delivery')
-        target = controller.message_target(ctx, recipient, uow)
-        binding = controller.binding(target)
-        controller.backend.validate('ping', binding['terminal'])
+        # Direct messages to a retired project Dev are refused for every caller; inbox delivery is the way.
+        controller.message_target(ctx, recipient, uow)
 
     def queue_terminal(self, ctx, row, uow):
         self.app.terminal_control.queue_message(ctx, row, uow)

@@ -29,8 +29,7 @@ permission checks. Long-running background work may use managed subprocesses,
 but there is one shared service and no MCP server or model runner per agent.
 
 The application supplies Claude with tools; it does not replace Claude Code's
-conversation loop. tmux shells and terminal mirroring remain the interactive
-runtime. Background DeepSeek jobs are explicitly named workloads such as filing
+conversation loop. Qorqbot runs Claude Code and Codex as managed sessions. Background DeepSeek jobs are explicitly named workloads such as filing
 or extraction, not members of the business-agent roster.
 
 ## Four independent concepts

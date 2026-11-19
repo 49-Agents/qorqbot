@@ -15,7 +15,6 @@ from qorqut.bootstrap.codex_config import configuration
 from qorqut.native_chat.projection import _codex_result
 from qorqut.service.main import transcript_capture_configuration
 from qorqut.storage.recovery import _walk
-from qorqut.storage.host_writers import CommandResult, HostTerminalWriters
 from qorqut.storage.versioning import GitVersioner, public_path
 from qorqut_operations.contracts import DomainError
 
@@ -102,15 +101,6 @@ class RenameCompatibilityTests(unittest.TestCase):
             self.assertEqual(result['ref'], 'refs/heads/qorqut-history')
             self.assertEqual(git('rev-parse', 'qorqut-history'), previous)
             self.assertEqual(git('rev-parse', 'bazarlyk-history'), previous)
-
-    def test_recovery_inventory_also_rejects_live_pre_rename_terminals(self):
-        replies = [CommandResult(1, 'no server running on /tmp/fixture/qorqut\n'),
-                   CommandResult(0, '$1\tworker\n')]
-        run = mock.Mock(side_effect=replies)
-        writers = HostTerminalWriters('/usr/bin/tmux', command_runner=run)
-        with self.assertRaisesRegex(DomainError, 'Live host terminal'):
-            writers.inventory_and_freeze(timeout=5)
-        self.assertEqual([call.args[0][2] for call in run.call_args_list], ['qorqut', 'bazarlyk'])
 
     def test_layout_receipts_preserve_pre_rename_retirement(self):
         from qorqut.agentic.layout_inspection import retained_layout_inventory

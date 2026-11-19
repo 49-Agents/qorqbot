@@ -27,12 +27,11 @@ from qorqut_operations.contracts import DomainError
 from qorqut_operations.inbox_nudges.contracts import Binding as NudgeBinding, TRANSPORTS as NUDGE_TRANSPORTS
 
 from qorqut.bootstrap.terminal_chat import process_fields
-from qorqut.managed_runtime import mode as modes
 from qorqut.managed_runtime.manager import CLOSED_VIEW, HostUnverified, ManagedError, ManagedRuntime
-from qorqut.native_chat import arbiter as arbiter_module, attachment, chat as chat_module, commands, nudges, schema, store
+from qorqut.native_chat import arbiter as arbiter_module, chat as chat_module, commands, nudges, schema, store
 from qorqut.native_chat.arbiter import AgentLocks, InputArbiter
 from qorqut.native_chat.chat import MANAGED_FIELDS, NativeChat
-from qorqut.native_chat.contracts import InputResult, RESULT_DEFERRED, STATE_WAITING, TRANSPORTS
+from qorqut.native_chat.contracts import InputResult, MANAGED_MENU_COMMANDS, RESULT_DEFERRED, STATE_WAITING, TRANSPORTS
 from qorqut.native_chat.probe import SessionProbe
 from qorqut.native_chat.service import NativeBackend
 from qorqut.native_chat.sessions import SessionRegistry
@@ -193,8 +192,7 @@ class Sleeper:
 
 
 class ChatCase(unittest.TestCase):
-    """A ``NativeChat`` over the real probe, registry and arbiter, with a fake managed runtime and a profile whose ``execution`` is
-    read from the real mode file (so ``set_runtime`` changes what the next call sees)."""
+    """A ``NativeChat`` over the real probe, registry and arbiter, with a fake managed runtime."""
 
     runtime_extra = WORKER
 
@@ -212,15 +210,14 @@ class ChatCase(unittest.TestCase):
         self.marker = None
         self.probe = SessionProbe(marker_reader=lambda profile: dict(self.marker) if self.marker else None, managed=self.managed)
         self.registry = SessionRegistry(self.runtime)
-        self.adapters = {"managed": SimpleNamespace(), "terminal": SimpleNamespace(), "codex_queue": SimpleNamespace()}
+        self.adapter = SimpleNamespace()
         self.locks = AgentLocks()
-        self.arbiter = InputArbiter(self.runtime, self.probe, self.registry, self.adapters, locks=self.locks)
+        self.arbiter = InputArbiter(self.runtime, self.probe, self.registry, self.adapter, locks=self.locks)
         indexer = SimpleNamespace(step=mock.Mock())
         self.backend = NativeBackend(self.runtime, self.probe, self.registry, indexer, self.arbiter, self.locks, managed=self.managed)
         self.chat = NativeChat(self.runtime, probe=self.probe, registry=self.registry, indexer=indexer, arbiter=self.arbiter,
                                backend=self.backend, managed=self.managed)
         self.chat._target = self.target
-        self.switch("managed")
         for patcher in (mock.patch.object(chat_module, "require_protected_control", lambda uow, principal, kind, agents: None),
                         mock.patch.object(chat_module, "installation_owner", lambda uow: OWNER),
                         mock.patch.object(arbiter_module, "forward_owner_message", mock.Mock()),
@@ -237,13 +234,9 @@ class ChatCase(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def switch(self, mode):
-        modes.set_mode(self.paths, AGENT, mode)
-
     def profile(self, runtime=None):
         return {"agent_id": AGENT, "name": "Worker", "workspace": str(self.root / "workspace"),
-                "profile_json": json.dumps(runtime if runtime is not None else self.runtime_extra),
-                "execution": modes.mode_of(self.paths, AGENT)}
+                "profile_json": json.dumps(runtime if runtime is not None else self.runtime_extra)}
 
     def target(self, uow, principal_id, agent_id):
         if principal_id != OWNER:
@@ -360,17 +353,6 @@ class SendOpenTests(ChatCase):
         self.assertEqual((ok["created"], ok["binding"]["binding_id"], self.managed.opened), (True, pin, []))
         self.assertEqual(self.inputs(), 2)
 
-    def test_a_terminal_agent_still_needs_its_pin_and_never_reaches_the_managed_runtime(self):
-        self.switch("terminal")
-        self.chat.managed = Untouchable()
-        with self.assertRaises(DomainError) as unpinned:
-            self.chat.send(OWNER, AGENT, "hello", "key-0000009")
-        self.assertEqual(unpinned.exception.code, "validation_error")
-        with self.assertRaises(DomainError) as short:
-            self.chat.send(OWNER, AGENT, "hello", "key-0000009", "short")
-        self.assertEqual(short.exception.code, "validation_error")
-        self.assertEqual(self.inputs(), 0)
-
     def test_what_cannot_be_admitted_is_refused_before_anything_starts(self):
         self.host_starts()
         cases = [("/clear", "key-0000010", "managed_command"), ("/model", "key-0000011", "managed_command"),
@@ -401,10 +383,10 @@ class SendOpenTests(ChatCase):
         self.assertEqual(self.inputs(), 1)  # only the message that opened the session
 
     def test_every_open_failure_is_a_refusal_with_a_stable_code_and_stores_nothing(self):
-        cases = [("resume_failed", "resume_failed", False), ("open_busy", "open_busy", True), ("terminal_present", "terminal_present", False),
+        cases = [("resume_failed", "resume_failed", False), ("open_busy", "open_busy", True),
                  ("session_opening", "session_opening", True),
                  ("open_timeout", "open_timeout", True), ("host_unverified", "host_unverified", True),
-                 ("not_managed", "terminal_offline", False), ("session_closed", "session_closed", False),
+                 ("session_closed", "session_closed", False),
                  ("session_starting", "binding_not_ready", True), ("host_failed", "driver_unavailable", False),
                  ("host_start_failed", "driver_unavailable", False), ("managed_unavailable", "driver_unavailable", False)]
         for raised, shown, retryable in cases:
@@ -468,15 +450,12 @@ class OpenFlowTests(ChatCase):
         self.chat.send(OWNER, AGENT, "again", "key-0000034", new_conversation=True)
         self.assertEqual(self.managed.open_options[-1]["new_conversation"], True)
 
-    def test_a_new_conversation_is_refused_with_a_pin_for_a_live_session_for_a_terminal_agent_and_when_not_a_boolean(self):
+    def test_a_new_conversation_is_refused_with_a_pin_for_a_live_session_and_when_not_a_boolean(self):
         pin = self.open()
         self.assertEqual(self.refusal("hello", "key-0000035", pin, new_conversation=True).code, "validation_error")
         self.assertEqual(self.refusal("hello", "key-0000036", new_conversation=True).code, "validation_error")
         for bad in ("yes", 1, None):
             self.assertEqual(self.refusal("hello", "key-0000037", new_conversation=bad).code, "validation_error")
-        self.switch("terminal")
-        self.chat.managed = Untouchable()
-        self.assertEqual(self.refusal("hello", "key-0000038", new_conversation=True).code, "validation_error")
         self.assertEqual(self.managed.opened, [])
 
     def test_the_new_conversation_is_followed_while_the_open_waits_so_that_it_can_bind(self):
@@ -486,7 +465,7 @@ class OpenFlowTests(ChatCase):
         def follow(profile):
             followed.append(profile["agent_id"])
             self.bring_up()  # the observer pass adopts the conversation the session announced
-        with mock.patch.object(self.chat, "follow_terminal", follow):
+        with mock.patch.object(self.chat, "adopt_session", follow):
             result = self.chat.send(OWNER, AGENT, "hello", "key-0000039", new_conversation=True)
         self.assertEqual((followed, result["created"]), ([AGENT], True))
 
@@ -581,10 +560,10 @@ class SessionViewTests(ChatCase):
 
     def test_a_closed_managed_agent_can_send_without_a_binding_and_says_how_it_starts(self):
         view = self.view()
-        self.assertEqual((view["execution"], view["state"], view["reason"], view["can_send"], view["binding"], view["working"]),
-                         ("managed", "offline", "session_closed", True, None, False))
+        self.assertEqual((view["state"], view["reason"], view["can_send"], view["binding"], view["working"]),
+                         ("offline", "session_closed", True, None, False))
+        self.assertNotIn("execution", view)
         self.assertEqual(view["detail"], "Sending a message starts a session")
-        self.assertEqual(view["launch_commands"], [])
         self.assertEqual(set(view["managed"]), set(MANAGED_FIELDS))
         self.assertEqual((view["managed"]["open"], view["managed"]["pending"]), (False, []))
 
@@ -603,14 +582,6 @@ class SessionViewTests(ChatCase):
         self.assertEqual(view["detail"], "Working…")  # a blocked session is mid-turn
         self.assertEqual((view["managed"]["phase"], view["managed"]["can_stop"], view["managed"]["pending"][0]["request_id"]),
                          ("blocked", True, "r1"))
-        self.assertEqual(view["launch_commands"], [])
-
-    def test_a_terminal_agent_view_is_unchanged_and_never_asks_the_managed_runtime(self):
-        self.switch("terminal")
-        self.chat.managed = Untouchable()
-        view = self.view()
-        self.assertEqual((view["execution"], view["reason"], view["can_send"], "managed" in view), ("terminal", "no_session", False, False))
-        self.assertEqual(view["launch_commands"], ["claude", "codex"])
 
     def test_a_runtime_that_cannot_be_read_is_a_closed_session(self):
         self.managed.view = OSError("host unreadable")
@@ -619,7 +590,7 @@ class SessionViewTests(ChatCase):
         self.assertEqual(self.view()["managed"]["open"], False)
         self.assertEqual(self.view()["can_send"], True)
 
-    def test_the_change_event_carries_the_managed_summary_only_for_a_managed_agent(self):
+    def test_the_change_event_carries_the_managed_summary(self):
         with self.db.transaction() as uow:
             store.bump(uow.connection, AGENT)
         self.managed.view = {**OPEN_VIEW, "phase": "working", "can_stop": True, "activity": "Reading a file"}
@@ -630,18 +601,6 @@ class SessionViewTests(ChatCase):
         self.assertEqual((data["managed"]["phase"], data["managed"]["activity"], data["managed"]["can_stop"]),
                          ("working", "Reading a file", True))
         self.assertEqual(self.chat.events(OWNER, AGENT, latest), ([], latest))
-        self.switch("terminal")
-        self.chat.managed = Untouchable()
-        data = self.chat.events(OWNER, AGENT, 0)[0][0]["data"]
-        self.assertEqual(set(data), {"revision", "newest_sequence", "waiting"})
-
-    def test_execution_of_answers_after_the_owner_check(self):
-        self.assertEqual(self.chat.execution_of(OWNER, AGENT), "managed")
-        self.switch("terminal")
-        self.assertEqual(self.chat.execution_of(OWNER, AGENT), "terminal")
-        with self.assertRaises(DomainError):
-            self.chat.execution_of("someone-else", AGENT)
-
 
 # ===== uploads ===================================================================================================================
 
@@ -672,13 +631,6 @@ class UploadTests(ChatCase):
             self.upload("pin-not-used")
         self.assertEqual(refused.exception.code, "binding_not_ready")
 
-    def test_a_terminal_agent_keeps_its_wording(self):
-        self.switch("terminal")
-        self.chat.managed = Untouchable()
-        with self.assertRaises(DomainError) as refused:
-            self.upload("pin-not-used")
-        self.assertEqual((refused.exception.code, refused.exception.message), ("terminal_offline", "Start the agent in Terminal before sending files"))
-
     def test_an_open_session_takes_the_file_for_exactly_its_binding(self):
         pin = self.open()
         (self.root / "workspace").mkdir()
@@ -693,16 +645,6 @@ class UploadTests(ChatCase):
 # ===== the controls ==============================================================================================================
 
 class ControlTests(ChatCase):
-    def test_a_terminal_agent_has_no_managed_controls(self):
-        self.switch("terminal")
-        self.chat.managed = Untouchable()
-        for call in (lambda: self.chat.interrupt(OWNER, AGENT, "pin-0000001"),
-                     lambda: self.chat.answer(OWNER, AGENT, "pin-0000001", "r1", "allow"),
-                     lambda: self.chat.close(OWNER, AGENT)):
-            with self.assertRaises(DomainError) as refused:
-                call()
-            self.assertEqual(refused.exception.code, "not_managed")
-
     def test_only_the_installation_owner_may_control(self):
         pin = self.open()
         for call in (lambda: self.chat.interrupt("someone-else", AGENT, pin), lambda: self.chat.close("someone-else", AGENT),
@@ -881,184 +823,33 @@ class ControlTests(ChatCase):
 
 # ===== the runtime switch ========================================================================================================
 
-class SwitchTests(ChatCase):
-    def setUp(self):
-        super().setUp()
-        self.switch("terminal")
-        self.mock_terminal(False)
-
-    def mock_terminal(self, present):
-        patcher = mock.patch.object(NativeChat, "_terminal_present", lambda chat, profile: present)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def set(self, mode, runtime=None):
-        self.runtime_extra = runtime if runtime is not None else self.runtime_extra
-        return self.chat.set_runtime(OWNER, AGENT, mode)
-
-    def refused(self, mode, code, runtime=None):
-        with self.assertRaises(DomainError) as refused:
-            self.set(mode, runtime)
-        self.assertEqual(refused.exception.code, code)
-        return refused.exception
-
-    def test_a_worker_with_nothing_running_switches_to_managed_and_back(self):
-        revision = store.revision(self.db.connection, AGENT)
-        self.assertEqual(self.set("managed"), {"execution": "managed", "changed": True})
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "managed")
-        self.assertGreater(store.revision(self.db.connection, AGENT), revision)
-        self.assertEqual(self.set("managed"), {"execution": "managed", "changed": False})
-        self.assertEqual(self.set("terminal"), {"execution": "terminal", "changed": True})
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-        self.assertEqual(self.set("terminal"), {"execution": "terminal", "changed": False})
-
-    def test_ordubashy_with_nothing_running_switches_to_managed_and_back(self):
-        ordubashy = {"runtime": "claude-code", "role": {"id": "ordubashy"}}
-        self.assertEqual(self.set("managed", ordubashy), {"execution": "managed", "changed": True})
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "managed")
-        self.assertEqual(self.set("managed"), {"execution": "managed", "changed": False})
-        self.assertEqual(self.set("terminal"), {"execution": "terminal", "changed": True})
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_ordubashy_meets_the_same_preconditions_as_a_worker(self):
-        ordubashy = {"runtime": "claude-code", "role": {"id": "ordubashy"}}
-        self.mock_terminal(True)
-        self.refused("managed", "terminal_present", ordubashy)
-        self.mock_terminal(False)
-        self.refused("managed", "unsupported_runtime", {"runtime": "codex", "role": {"id": "ordubashy"}})
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_only_ordubashy_or_a_worker_running_claude_code_switches(self):
-        refusal = self.refused("managed", "unsupported_role", {"runtime": "claude-code", "role": {"id": "learning-applier"}})
-        self.assertIn("Ordubashy and worker", refusal.message)
-        self.refused("managed", "unsupported_role", {"runtime": "claude-code", "role": {"id": "global-ordubashy"}})
-        self.refused("managed", "unsupported_role", {"runtime": "claude-code"})
-        self.refused("managed", "unsupported_runtime", {"runtime": "codex", "role": {"id": "global-worker"}})
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_a_live_native_session_a_waiting_input_or_a_present_terminal_refuses_the_switch(self):
-        self.mock_terminal(True)
-        self.refused("managed", "terminal_present")
-        self.mock_terminal(False)
-        with self.db.transaction() as uow:
-            uow.connection.execute(
-                "INSERT INTO native_sessions(id,agent_id,provider,conversation_id,generation,transport,process_pid,process_started,"
-                "owner,observed_at,verified_at) VALUES('s1',?,?,?,1,'terminal',?,?,NULL,'now','now')",
-                (AGENT, "claude", CONVERSATION, self.client.pid, self.client.started))
-        self.refused("managed", "session_open")
-        with self.db.transaction() as uow:
-            uow.connection.execute("UPDATE native_sessions SET ended_at='then',end_reason='process_gone'")
-            uow.connection.execute(
-                "INSERT INTO native_inputs(id,agent_id,session_id,origin,input_type,source_key,attempt,request_hash,principal_id,body,"
-                "sensitive,steer,marker,metadata_json,state,reason,evidence_json,sequence,created_at,updated_at) "
-                "VALUES('i1',?,'s1','owner','chat','chat:o:k1',1,?,?,'x',0,1,NULL,'{}','waiting',NULL,'{}',1,'now','now')",
-                (AGENT, "0" * 64, OWNER))
-        self.refused("managed", "waiting_inputs")
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_a_live_terminal_conversation_refuses_the_switch_even_before_its_binding_is_recorded(self):
-        self.marker = {"agent_id": AGENT, "session_id": CONVERSATION, "runtime": "claude-code", "pid": self.client.pid,
-                       "started": self.client.started, "transcript_path": "/nonexistent/t.jsonl", "capture": True, "capture_enabled": True}
-        with mock.patch.object(self.probe, "_process_probe", return_value={"transport": "terminal", "owner": None}):
-            self.refused("managed", "session_open")
-
-    def test_a_managed_session_that_is_open_or_unverifiable_refuses_the_switch_back(self):
-        self.set("managed")
-        self.managed.host = SimpleNamespace(client=object())
-        self.refused("terminal", "session_open")
-        self.managed.host, self.managed.host_error = None, HostUnverified(AGENT)
-        self.refused("terminal", "session_open")
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "managed")
-        self.managed.host_error = None
-        self.assertEqual(self.set("terminal"), {"execution": "terminal", "changed": True})
-
-    def test_a_managed_binding_whose_process_may_live_refuses_the_switch_back(self):
-        self.set("managed")
-        with self.db.transaction() as uow:
-            uow.connection.execute(
-                "INSERT INTO native_sessions(id,agent_id,provider,conversation_id,generation,transport,process_pid,process_started,"
-                "owner,observed_at,verified_at) VALUES('s2',?,?,?,1,'managed',?,?,?,'now','now')",
-                (AGENT, "claude", CONVERSATION, self.client.pid, self.client.started, f"host:{os.getpid()}:{ticks(os.getpid())}"))
-        self.refused("terminal", "session_open")
-
-    def test_a_switch_keeps_every_open_of_the_agent_out_and_a_session_being_opened_is_a_retryable_refusal(self):
-        self.assertEqual(self.set("managed"), {"execution": "managed", "changed": True})
-        self.assertEqual(self.set("terminal"), {"execution": "terminal", "changed": True})
-        self.assertEqual(self.managed.holds, [AGENT, AGENT])
-        self.managed.hold_error = ManagedError("session_opening", "A session is being opened for this agent; try again in a moment", retryable=True)
-        refused = self.refused("managed", "session_opening")
-        self.assertTrue(refused.retryable)
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_a_terminal_that_appears_while_the_switch_is_written_undoes_the_switch(self):
-        with mock.patch.object(NativeChat, "_terminal_present", side_effect=[False, True]):
-            self.refused("managed", "terminal_present")
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_a_terminal_agent_is_switched_without_a_managed_runtime(self):
-        self.chat.managed = None
-        self.assertEqual(self.set("managed"), {"execution": "managed", "changed": True})
-
-    def test_the_mode_must_be_one_of_the_two_and_the_owner_must_ask(self):
-        for mode in ("auto", None, "", True, ["managed"]):
-            self.refused(mode, "validation_error")
-        with self.assertRaises(DomainError) as refused:
-            self.chat.set_runtime("someone-else", AGENT, "managed")
-        self.assertEqual(refused.exception.code, "forbidden")
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_a_setting_that_cannot_be_saved_is_a_plain_refusal(self):
-        with mock.patch.object(modes, "set_mode", side_effect=OSError("disk full")):
-            self.refused("managed", "operation_unavailable")
-
-
-# ===== the managed slash catalog =================================================================================================
-
 class CatalogTests(unittest.TestCase):
     def by_name(self, **options):
         return {item["name"]: item for item in commands.catalog("claude", **options)["commands"]}
 
-    def test_the_menu_only_commands_are_unavailable_for_a_managed_agent_and_the_rest_are_unchanged(self):
-        terminal, managed = self.by_name(), self.by_name(managed=True)
-        menu = {name for name in terminal if name in commands.MANAGED_MENU_COMMANDS}
+    def test_the_menu_only_commands_are_unavailable_and_the_rest_run_in_chat(self):
+        managed = self.by_name()
+        menu = {name for name in managed if name in MANAGED_MENU_COMMANDS}
         self.assertTrue({"/clear", "/resume", "/cost", "/status", "/model", "/help", "/context"} <= menu)
         for name in menu:
             self.assertEqual(managed[name]["where"], "unavailable", name)
-            self.assertEqual({key: value for key, value in managed[name].items() if key != "where"},
-                             {key: value for key, value in terminal[name].items() if key != "where"}, name)
-        for name in set(terminal) - menu - {"/exit"}:
-            self.assertEqual(managed[name], terminal[name], name)
         self.assertEqual(managed["/exit"]["where"], "chat")
-        self.assertEqual(managed["/exit"]["description"], commands.MANAGED_EXIT)
         self.assertEqual(managed["/compact"]["where"], "chat")
-        self.assertEqual(list(terminal), list(managed))
-        self.assertNotIn("unavailable", {item["where"] for item in terminal.values()})
 
     def test_the_owners_own_commands_stay_chat_commands_and_codex_has_no_managed_catalog(self):
         with tempfile.TemporaryDirectory() as home:
             folder = Path(home) / ".claude" / "commands"
             folder.mkdir(parents=True)
             (folder / "deploy.md").write_text("---\ndescription: Ship it\n---\nShip.\n")
-            catalog = {item["name"]: item for item in commands.catalog("claude", home=home, managed=True)["commands"]}
+            catalog = {item["name"]: item for item in commands.catalog("claude", home=home)["commands"]}
         self.assertEqual((catalog["/deploy"]["where"], catalog["/deploy"]["source"]), ("chat", "yours"))
-        self.assertEqual(commands.catalog("codex", managed=True), commands.catalog("codex"))
-        self.assertEqual(commands.catalog("other", managed=True), {"client": None, "commands": []})
+        codex = {item["name"]: item for item in commands.catalog("codex")["commands"]}
+        self.assertEqual((codex["/compact"]["where"], codex["/model"]["where"], codex["/exit"]["where"]), ("chat", "chat", "chat"))
+        self.assertEqual(codex["/new"]["where"], "unavailable")
+        self.assertEqual(commands.catalog("other"), {"client": None, "commands": []})
 
 
 # ===== the attachment view =======================================================================================================
-
-class AttachmentTests(ChatCase):
-    def test_a_managed_agent_has_no_pane_to_attach_and_no_pane_is_looked_at(self):
-        service = attachment.AttachmentService(self.runtime, Untouchable(), self.locks)
-        view = service._evaluate(self.profile(), None)
-        self.assertEqual((view["state"], view["reason"], view["mode"], view["action"]), (attachment.UNSUPPORTED, "managed", "selected", None))
-        self.assertIn("no terminal to attach", view["detail"])
-        # the raw terminal input boundary stays closed for it, whatever token the caller holds
-        with mock.patch.object(service, "_load", lambda agent_id: (self.profile(), None)):
-            with self.assertRaises(DomainError) as refused:
-                service.check_input(AGENT, "token")
-        self.assertEqual(refused.exception.code, "terminal_not_attached")
-
 
 # ===== the nudge outcome =========================================================================================================
 
@@ -1095,8 +886,6 @@ class ManagedHostWritersTests(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix="mhw-")).resolve()
         self.addCleanup(shutil.rmtree, self.root, True)
         self.states = {}
-        self.terminals = mock.Mock()
-        self.terminals.inventory_and_freeze.return_value = "proof"
 
     def inspect(self, directory):
         found = self.states[directory.name]
@@ -1105,7 +894,7 @@ class ManagedHostWritersTests(unittest.TestCase):
         return SimpleNamespace(status=found)
 
     def writers(self, root=None):
-        return ManagedHostWriters(self.terminals, root if root is not None else (lambda: self.root), inspect=self.inspect)
+        return ManagedHostWriters(root if root is not None else (lambda: self.root), inspect=self.inspect)
 
     def folder(self, name, status):
         (self.root / name).mkdir()
@@ -1113,8 +902,7 @@ class ManagedHostWritersTests(unittest.TestCase):
 
     def test_no_managed_agent_ever_switched_on_is_no_writer(self):
         self.assertEqual(self.writers(self.root / "missing").running(), [])
-        self.assertEqual(self.writers().inventory_and_freeze(timeout=5), "proof")
-        self.terminals.inventory_and_freeze.assert_called_once_with(timeout=5)
+        self.assertEqual(self.writers().inventory_and_freeze(timeout=5).state, "frozen")
 
     def test_a_live_starting_or_unverified_host_refuses_the_window_and_nothing_is_closed(self):
         self.folder("idle-agent", "absent")
@@ -1133,20 +921,17 @@ class ManagedHostWritersTests(unittest.TestCase):
             self.writers().running()
         self.assertEqual(refused.exception.code, "recovery_not_quiescent")
 
-    def test_links_and_loose_files_are_skipped_and_thaw_is_the_terminals(self):
+    def test_links_and_loose_files_are_skipped_and_thaw_does_nothing(self):
         (self.root / "file.txt").write_text("x")
         os.symlink(self.root, self.root / "link-agent")
         self.states["link-agent"] = "running"
         self.assertEqual(self.writers().running(), [])
-        self.writers().thaw()
-        self.terminals.thaw.assert_called_once_with()
+        self.assertIsNone(self.writers().thaw())
 
-    def test_the_terminal_inventory_is_asked_first_and_its_refusal_stands(self):
-        self.terminals.inventory_and_freeze.side_effect = DomainError("recovery_not_quiescent", "A terminal is live")
-        self.folder("running-agent", "running")
-        with self.assertRaises(DomainError) as refused:
-            self.writers().inventory_and_freeze(timeout=5)
-        self.assertEqual(refused.exception.message, "A terminal is live")
+    def test_the_timeout_must_be_bounded(self):
+        for bad in (0, 601, "5"):
+            with self.assertRaises(ValueError):
+                self.writers().inventory_and_freeze(timeout=bad)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 """Owner-facing derived Chat for any registered agent, global or business.
 
 Chat is a projection. It never launches, resumes or stops an agent, and opening it or switching agents starts nothing:
-(the one exception is an owner message to a *managed* agent with no session open: sending it starts that agent's headless session,
-see ``send``; a terminal agent is never started by Chat)
+(the one exception is an owner message to an agent with no session open: sending it starts that agent's headless session,
+see ``send``)
 * the conversation is read from the transcript archive (the backend keeps it current whether or not Chat is open);
 * delivery state comes from the shared input arbiter's durable inputs;
 * "read" is a boundary on the agent's per-agent completion sequence, owned by the installation owner.
@@ -14,7 +14,6 @@ registered profile and, for a business agent, that its business is live and the 
 from __future__ import annotations
 
 import json
-from contextlib import nullcontext
 import logging
 from pathlib import Path
 import time
@@ -25,14 +24,14 @@ from qorqut.bootstrap.client import path_has_symlink
 from qorqut.management.identity import installation_owner, require_protected_control
 from qorqut.native_archive import CaptureError
 
-from . import liveness, selection, store
-from .adapters import CodexQueueAdapter, ManagedAdapter, TerminalAdapter
-from .attachment import AttachmentService
-from .arbiter import AgentLocks, InputArbiter, MANAGED_COMMAND, SESSION_CLOSED, TERMINAL_COMMAND
+from . import selection, store
+from .adapters import ManagedAdapter
+from .arbiter import AgentLocks, InputArbiter, MANAGED_COMMAND, SESSION_CLOSED
+from .commands import unrunnable
 from .captures import Indexer
 from .opener import SessionOpener, WAKE_TEXT
-from .contracts import (EXECUTION_MANAGED, EXECUTION_TERMINAL, InputRequest, NativeChatError, PROVIDER_RUNTIMES, PROVIDERS,
-                        RESULT_DEFERRED, RESULT_REJECTED, TYPE_CHAT, managed_menu_command)
+from .contracts import (InputRequest, NativeChatError, PROVIDER_RUNTIMES, PROVIDERS, RESULT_DEFERRED, RESULT_REJECTED, RUNTIME_PROVIDERS,
+                        TYPE_CHAT)
 from .probe import (BINDING, ProbeResult, REASON_CAPTURE_DISABLED, REASON_CAPTURE_NOT_READY, REASON_LIVE, REASON_NO_MARKER,
                     REASON_PROCESS_GONE, REASON_SESSION_END, REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME, SessionProbe)
 from .projection import Lineage, SPEAKER_AGENT
@@ -49,31 +48,20 @@ REASON_BINDING_NOT_READY = "binding_not_ready"
 _UNREAD = object()
 # The probe's reasons for "no session": a managed agent in one of them has an open host (still connecting) or a closed session.
 _NO_SESSION = frozenset({REASON_NO_MARKER, REASON_PROCESS_GONE, REASON_SESSION_END})
-# The commands the owner may type in an agent's own terminal; Chat names them while the agent is offline. Any supported CLI
-# connects; the profile's runtime is only the default, listed first.
-LAUNCH_COMMANDS = {"codex": "codex", "claude-code": "claude"}
-
-
-def launch_commands(profile) -> list[str]:
-    preferred = store.profile_runtime(profile)
-    ordered = sorted(LAUNCH_COMMANDS, key=lambda runtime: runtime != preferred)
-    return [LAUNCH_COMMANDS[runtime] for runtime in ordered]
 
 _REFUSALS = {
-    "terminal_offline": ("terminal_offline", "Start or resume the agent in its terminal first"),
     "capture_disabled": ("capture_disabled", "Transcript capture is off for this agent, so Chat has no conversation to show"),
     "capture_not_ready": ("capture_not_ready", "Transcript capture is on but this session has not published its transcript yet; send again shortly"),
     "unsupported_target": ("operation_unavailable", "Chat needs this agent's native session on the host"),
     "unsupported_runtime": ("unsupported_runtime", "Chat supports Claude Code and Codex agents only"),
-    "stale_session": ("terminal_changed", "The terminal conversation changed; send again"),
+    "stale_session": ("terminal_changed", "The agent's conversation changed; send again"),
     "agent_unavailable": ("not_found", "Select an active registered agent"),
-    TERMINAL_COMMAND: ("terminal_required", "Codex commands run only in the agent's Terminal. Open Terminal and run it there."),
-    # A managed agent has no terminal: the owner never has to open one.
+    # Qorqbot runs every agent without a terminal: the owner never has to open one.
     MANAGED_COMMAND: ("managed_command", "This command isn't available when Qorqbot runs the agent"),
     SESSION_CLOSED: ("session_closed", "This agent's session is not open. Send the message again to start it"),
 }
 
-# How long an owner message to a closed managed agent waits in all: for its host to be ready (another caller's open included) and for
+# How long an owner message to a closed agent waits in all: for its host to be ready (another caller's open included) and for
 # its session to bind. One shared budget (the host's own start-up limit is the same 45 seconds); the host keeps starting after this
 # call gives up, and the owner's retry with the same key finds it.
 OPEN_TOTAL_SECONDS = 45.0
@@ -94,8 +82,6 @@ _OPEN_REFUSALS = {
     "open_timeout": ("open_timeout", "The session did not become ready in time; send again"),
     "open_busy": ("open_busy", "Several sessions are starting right now. Try again in a moment"),
     "host_unverified": ("host_unverified", "A session of this agent could not be verified; try again shortly"),
-    "not_managed": ("terminal_offline", "This agent runs in its terminal"),
-    "terminal_present": ("terminal_present", "This agent's Terminal is still running. Close it first, then send the message again"),
     "session_opening": ("session_opening", "A session is being opened for this agent; try again in a moment"),
     "session_closed": ("session_closed", "This agent's session is not open. Send the message again to start it"),
     "session_starting": ("binding_not_ready", "The session is still starting; try again in a moment"),
@@ -108,7 +94,6 @@ _OPEN_FAILED = ("driver_unavailable", "The session could not be started")
 MANAGED_FIELDS = ("open", "phase", "activity", "turn_started_at", "can_stop", "pending", "last_turn_status", "closed_reason", "closed_text", "off")
 # An answer to a permission request, or to a question: ``{"answers": {<question text>: <answer text>}}``.
 ANSWER_DECISIONS = ("allow", "deny")
-RUNTIME_MODES = (EXECUTION_TERMINAL, EXECUTION_MANAGED)
 
 
 class NativeChat:
@@ -118,43 +103,36 @@ class NativeChat:
                  backend: NativeBackend, reader: ConversationReader | None = None, managed=None):
         self.runtime, self.probe, self.registry, self.indexer = runtime, probe, registry, indexer
         self.arbiter, self.backend, self.reader = arbiter, backend, reader or ConversationReader()
-        # The managed runtime (``managed_runtime.manager.ManagedRuntime``), used duck-typed and only for an agent whose profile says
-        # ``execution == "managed"``. None while it is not composed: a managed agent then has no session that can be opened.
+        # The managed runtime (``managed_runtime.manager.ManagedRuntime``), used duck-typed. None while it is not composed: an agent
+        # then has no session that can be opened.
         self.managed = managed
         self.transcripts = ArchiveTranscripts(runtime, indexer)
-        # One instance for the life of the runtime, on the same per-agent locks as the arbiter and the backend, so Chat sends,
-        # selection, reconnect, raw terminal input and controller lifecycle are never driven by two threads at once.
-        self.attachment_locks = getattr(arbiter, "locks", None) or AgentLocks()
-        self.attachment = AttachmentService(runtime, probe, self.attachment_locks)
-        # The one opener of a managed agent's session, for the owner's message and for every other input source (``opener.py``);
+        # The per-agent locks of the arbiter and the backend, so Chat sends, selection and session lifecycle are never driven by two
+        # threads at once.
+        self.locks = getattr(arbiter, "locks", None) or AgentLocks()
+        # The one opener of an agent's session, for the owner's message and for every other input source (``opener.py``);
         # the arbiter wakes an asleep agent through it, and so do the nudge pass, reminders and Telegram's retry.
-        self.opener = SessionOpener(runtime, managed_of=lambda: self.managed, probe=probe, registry=registry, locks=self.attachment_locks,
-                                    wake=lambda: self.backend.wake(), adopt=lambda profile: self.follow_terminal(profile), failure=self._open_failure,
+        self.opener = SessionOpener(runtime, managed_of=lambda: self.managed, probe=probe, registry=registry, locks=self.locks,
+                                    wake=lambda: self.backend.wake(), adopt=lambda profile: self.adopt_session(profile), failure=self._open_failure,
                                     limits=lambda: (OPEN_TOTAL_SECONDS, OPEN_POLL_SECONDS, ROLE_GRACE_SECONDS, OPEN_RECORD_SECONDS))
         self.arbiter.opener = self.opener
-        self.backend.follow_terminal = self.follow_terminal
+        self.backend.adopt = self.adopt_session
 
     @classmethod
-    def build(cls, runtime, *, probe: SessionProbe | None = None, adapters=None, archive_factory=None,
+    def build(cls, runtime, *, probe: SessionProbe | None = None, adapter=None, archive_factory=None,
               interval: float = 1.0, managed=None) -> "NativeChat":
-        """The default object graph of one host runtime. The terminal backend is read late: it is attached after construction.
-        ``managed`` is the managed runtime: the probe verifies a managed agent's session through it, the ``managed`` adapter
-        delivers to it, and the backend pass reads its host state."""
-        def terminal_backend():
-            return getattr(getattr(runtime, "terminal_control", None), "backend", None)
-
+        """The default object graph of one host runtime. ``managed`` is the managed runtime: the probe verifies an agent's session
+        through it, the adapter delivers to it, and the backend pass reads its host state."""
         def selected_reader(profile):
             with runtime.database.read() as uow:
                 agent_id = profile["agent_id"]
                 return selection.selected(uow.connection, agent_id), store.live_session(uow.connection, agent_id)
 
         locks = AgentLocks()
-        probe = probe or SessionProbe(terminal_backend, selected_reader=selected_reader, managed=managed)
+        probe = probe or SessionProbe(selected_reader=selected_reader, managed=managed)
         registry = SessionRegistry(runtime)
         indexer = Indexer(runtime, archive_factory=archive_factory)
-        adapters = adapters or {"terminal": TerminalAdapter(terminal_backend), "codex_queue": CodexQueueAdapter(),
-                                "managed": ManagedAdapter(managed)}
-        arbiter = InputArbiter(runtime, probe, registry, adapters, locks=locks)
+        arbiter = InputArbiter(runtime, probe, registry, adapter or ManagedAdapter(managed), locks=locks)
         backend = NativeBackend(runtime, probe, registry, indexer, arbiter, locks, interval=interval, managed=managed)
         return cls(runtime, probe=probe, registry=registry, indexer=indexer, arbiter=arbiter, backend=backend, managed=managed)
 
@@ -196,12 +174,11 @@ class NativeChat:
         A composer may send only to a captured conversation whose exact binding the backend observer has already recorded; until
         then the view says it is connecting.
 
-        The view follows the terminal conversation adopted by the observer (``chosen``, read here when not supplied).
-        During a switch the composer waits for adoption instead of retargeting an already queued input.
+        The view follows the conversation adopted by the observer (``chosen``, read here when not supplied). During a switch the
+        composer waits for adoption instead of retargeting an already queued input.
 
-        ``execution`` is how the agent runs (``terminal``, or ``managed``: a headless session under a runtime host). A managed
-        agent's view adds ``managed`` (the host's phase, activity and pending requests). A managed agent with no session open
-        reports ``can_send`` with no binding: sending a message is what starts one."""
+        The view adds ``managed`` (the host's phase, activity and pending questions). An agent with no session open reports
+        ``can_send`` with no binding: sending a message is what starts one."""
         observed = observed or self.probe.observe(profile)
         if chosen is _UNREAD:
             with self.database.read() as uow:
@@ -219,13 +196,10 @@ class NativeChat:
         binding = store.binding_of(persisted).public() if bound else None
         captured = bool(live and observation.capture)
         sendable = captured and bound
-        execution = EXECUTION_MANAGED if profile.get("execution") == EXECUTION_MANAGED else EXECUTION_TERMINAL
-        summary = self._managed_summary(profile) if execution == EXECUTION_MANAGED else None
+        summary = self._managed_summary(profile)
         state, can_send = "live" if live else "offline", sendable
         if live:
-            surface = ("Session" if observation.transport == "managed"
-                       else "Codex" if observation.transport == "codex_queue" else "Terminal")
-            connected = "Session open" if surface == "Session" else f"{surface} connected"
+            connected = "Session open"
             if sendable:
                 reason, detail = REASON_LIVE, "Working…" if observation.working else connected
             elif captured:
@@ -236,31 +210,27 @@ class NativeChat:
             else:
                 reason, detail = REASON_CAPTURE_DISABLED, "Transcript capture is off for this agent, so Chat has no conversation to show"
         elif pending:
-            reason, detail = selection.REASON_PENDING, "Connecting to the conversation in Terminal…"
+            reason, detail = selection.REASON_PENDING, "Connecting to the conversation…"
         elif candidate is not None:
             reason = selection.REASON_CANDIDATE if chosen is not None else selection.REASON_NO_SELECTION
-            detail = "Connecting to the conversation in Terminal…"
-        elif summary is not None and observed.reason in _NO_SESSION:
+            detail = "Connecting to the conversation…"
+        elif observed.reason in _NO_SESSION:
             if summary["open"]:
                 # The host runs but its session is not bound yet (the client's hook has not published it): connecting, not closed.
                 state, reason, detail = "live", REASON_BINDING_NOT_READY, "Starting the session…"
             else:
-                # Closed is the steady state of a managed agent nobody opened: nothing is wrong, and a message opens it.
+                # Closed is the steady state of an agent nobody opened: nothing is wrong, and a message opens it.
                 reason, detail, can_send = SESSION_CLOSED, "Sending a message starts a session", True
         else:
             reason = observed.reason
             detail = {REASON_UNSUPPORTED: "Chat needs this agent's native session on the host",
                       REASON_UNSUPPORTED_RUNTIME: "Chat supports Claude Code and Codex agents only"}.get(
-                reason, "Start the session by sending a message" if execution == EXECUTION_MANAGED
-                else "Start or resume the agent in its terminal")
+                reason, "Start the session by sending a message")
         view = {"state": state, "reason": reason, "can_send": can_send,
                 "working": bool(captured and observation.working), "provider": observation.provider if live else None,
                 "conversation_id": observation.conversation_id if live else None,
                 "transport": observation.transport if live else None, "binding": binding, "detail": detail,
-                "selection": chosen.public() if chosen is not None else None, "candidate": candidate,
-                "launch_commands": [] if execution == EXECUTION_MANAGED else launch_commands(profile), "execution": execution}
-        if summary is not None:
-            view["managed"] = summary
+                "selection": chosen.public() if chosen is not None else None, "candidate": candidate, "managed": summary}
         return view
 
     def _managed_summary(self, profile: dict) -> dict:
@@ -428,17 +398,10 @@ class NativeChat:
         if cursor >= latest:
             return [], latest
         data = {"revision": latest, "newest_sequence": counters["completion_sequence"], "waiting": len(pending)}
-        if profile.get("execution") == EXECUTION_MANAGED:
-            # The managed summary rides on the event, so Stop, the activity line and the request cards follow a turn without
-            # waiting for the page read that every event also triggers. A terminal agent's event is unchanged.
-            data["managed"] = self._managed_summary(profile)
+        # The managed summary rides on the event, so Stop, the activity line and the request cards follow a turn without waiting for
+        # the page read that every event also triggers.
+        data["managed"] = self._managed_summary(profile)
         return [{"cursor": latest, "kind": "changed", "data": data}], latest
-
-    def execution_of(self, principal_id: str, agent_id: str) -> str:
-        """How this agent runs (``terminal`` or ``managed``), after the same owner and agent checks as every Chat read."""
-        with self.database.read() as uow:
-            profile = self._target(uow, principal_id, agent_id)
-        return EXECUTION_MANAGED if profile.get("execution") == EXECUTION_MANAGED else EXECUTION_TERMINAL
 
     # ----- owner actions ---------------------------------------------------------------------------------------------
 
@@ -453,25 +416,22 @@ class NativeChat:
                 persisted = store.live_session(uow.connection, agent_id)
             session = self.session_view(profile, persisted)
             if not session["can_send"] or session["binding"] is None:
-                if session.get("execution") == EXECUTION_MANAGED:
-                    # A managed agent's session is opened by a message; files are attached to a session that is open.
-                    closed = not (session.get("managed") or {}).get("open")
-                    raise DomainError("session_closed" if closed else "binding_not_ready",
-                                      "Send a message to start the session, then attach files" if closed
-                                      else "The session is still starting; try again in a moment")
-                raise DomainError("terminal_offline", "Start the agent in Terminal before sending files")
+                # A session is opened by a message; files are attached to a session that is open.
+                closed = not (session.get("managed") or {}).get("open")
+                raise DomainError("session_closed" if closed else "binding_not_ready",
+                                  "Send a message to start the session, then attach files" if closed
+                                  else "The session is still starting; try again in a moment")
             if not expected_binding or session["binding"]["binding_id"] != expected_binding:
                 raise DomainError("terminal_changed", "The agent conversation changed; send again")
             return uploads.save(self.runtime.root, profile, principal_id, expected_binding, key, name, data)
 
     def _session_for_upload(self, principal_id, agent_id, key, expected_binding):
-        """A file for an asleep managed agent is owner input like a message: it turns the agent on and opens its session (nothing is
-        held while it opens), and the file is attached to the binding that comes up, whatever the page last saw. Any other
-        agent, and a session that is open, keep the binding the caller named."""
+        """A file for an asleep agent is owner input like a message: it turns the agent on and opens its session (nothing is held
+        while it opens), and the file is attached to the binding that comes up, whatever the page last saw. A session that is open
+        keeps the binding the caller named."""
         with self.database.read() as uow:
             profile = self._target(uow, principal_id, agent_id)
-        if (profile.get("execution") != EXECUTION_MANAGED or self.managed is None or self._managed_summary(profile)["open"]
-                or not self._asleep(profile)):
+        if self.managed is None or self._managed_summary(profile)["open"] or not self._asleep(profile):
             return expected_binding  # a host that is up but not bound yet is the caller's ``binding_not_ready``, as before
         return self.opener.open(profile, WAKE_TEXT, "upload:" + key)
 
@@ -506,13 +466,13 @@ class NativeChat:
         ended; the same key with another text or pin conflicts; a new request for a pin that is no longer the live session is
         ``terminal_changed`` and admits nothing.
 
-        A managed agent with no session open is the one case without a pin: the message itself opens its session. It is checked
+        An agent with no session open is the one case without a pin: the message itself opens its session. It is checked
         (text, key, a menu-only command) before anything starts, the host is started and waited for, the session's binding is
-        waited for, and the message is then admitted for that binding exactly as a pinned one is. A managed agent whose session is
-        open, and every terminal agent, still need the pin. Opening Chat or switching agents never starts anything.
+        waited for, and the message is then admitted for that binding exactly as a pinned one is. An agent whose session is
+        open still needs the pin. Opening Chat or switching agents never starts anything.
 
-        ``new_conversation`` is the owner's explicit choice to start a fresh conversation for a managed agent whose earlier one
-        cannot be resumed (``resume_unavailable``): meaningful only for a managed agent with no session open, without a pin; it is
+        ``new_conversation`` is the owner's explicit choice to start a fresh conversation for an agent whose earlier one
+        cannot be resumed (``resume_unavailable``): meaningful only for an agent with no session open, without a pin; it is
         refused for any other send. A session is never silently replaced by a fresh conversation."""
         if not isinstance(key, str) or not 8 <= len(key) <= 120:
             raise DomainError("validation_error", "An idempotency key of 8-120 characters is required")
@@ -524,21 +484,16 @@ class NativeChat:
             raise DomainError("validation_error", "The binding_id of the session being written to is required")
         with self.database.read() as uow:
             profile = self._target(uow, principal_id, agent_id)
-        if new_conversation and profile.get("execution") != EXECUTION_MANAGED:
-            raise DomainError("validation_error", "A new conversation can only be started for an agent Qorqbot runs")
         opened = False
-        if (expected_binding is not None and not new_conversation and profile.get("execution") == EXECUTION_MANAGED
-                and self._asleep(profile)):
+        if expected_binding is not None and not new_conversation and self._asleep(profile):
             # A pin names a session that has since closed (idle close, a restart): the agent is asleep, so this is the message that
             # starts it, exactly as one without a pin. A pin for a live session of another conversation is still refused below.
             expected_binding = None
         if expected_binding is None:
-            if profile.get("execution") != EXECUTION_MANAGED:
-                raise DomainError("validation_error", "The binding_id of the session being written to is required")
             expected_binding, opened = self._binding_for_open(profile, principal_id, text, key, new_conversation)
         elif new_conversation:
             raise DomainError("validation_error", "A new conversation can only be started when no session is open")
-        elif profile.get("execution") == EXECUTION_MANAGED:
+        else:
             self.opener.turn_on(agent_id)  # owner input turns the agent on, whatever the session state
         request = InputRequest(agent_id, TYPE_CHAT, store.chat_source_key(principal_id, key), text, wait=True,
                                principal_id=principal_id, expected_binding=expected_binding, steer=True)
@@ -558,7 +513,7 @@ class NativeChat:
         return {"input": store.input_view(row, binding), "binding": binding, "created": result.created}
 
     def _binding_for_open(self, profile: dict, principal_id: str, text: str, key: str, new_conversation: bool = False) -> tuple[str, bool]:
-        """The binding a pinless message to a managed agent is admitted for, and whether this call opened the session.
+        """The binding a pinless message to an agent is admitted for, and whether this call opened the session.
 
         An exact repeat of a message already admitted names the session it was admitted for (the first response may have been
         lost), and nothing is opened. A live session needs its pin, except for the retry of the very message (same key) whose open
@@ -577,7 +532,7 @@ class NativeChat:
                 self.arbiter.validate(request)
             except NativeChatError as error:
                 raise DomainError("validation_error", error.message) from None
-            if managed_menu_command(text) is not None:
+            if unrunnable(self._client_of(profile), text) is not None:
                 # Refused before anything starts: it could not run in the session that would be opened for it.
                 raise DomainError(*_REFUSALS[MANAGED_COMMAND])
             live = self.registry.reconcile(profile, self.probe.observe(profile))
@@ -589,8 +544,18 @@ class NativeChat:
                 raise DomainError("session_closed", "There is no open session to end")
         return self._open_session(profile, text, key, new_conversation), True
 
+    def _client_of(self, profile: dict):
+        """The client (``claude`` or ``codex``) a session opened now for this agent would run: the managed runtime's effective
+        client, else the profile runtime's. Only used to say which commands could run in it."""
+        try:
+            if self.managed is not None:
+                return self.managed.client_for(profile)
+        except Exception:  # noqa: BLE001 - a check that cannot be made falls back to the profile
+            LOG.debug("The client of %s could not be resolved", profile["agent_id"], exc_info=True)
+        return RUNTIME_PROVIDERS.get(store.profile_runtime(profile))
+
     def _asleep(self, profile: dict) -> bool:
-        """Whether this managed agent has no verified live session now (nothing opens or writes)."""
+        """Whether this agent has no verified live session now (nothing opens or writes)."""
         with self.arbiter.locks(profile["agent_id"]):
             return not self.registry.reconcile(profile, self.probe.observe(profile)).live
 
@@ -598,7 +563,7 @@ class NativeChat:
         return self.opener.opened_by(agent_id, key)
 
     def _open_session(self, profile: dict, text: str, key: str, new_conversation: bool = False) -> str:
-        """Start (or find) this managed agent's host, get the owner's message to it, and wait until its session is bound with a
+        """Start (or find) this agent's host, get the owner's message to it, and wait until its session is bound with a
         transcript Chat can show. The binding id is the pin the message is then admitted for. ``DomainError`` with a refusal code
         when it cannot be opened; nothing was admitted then, and the host (if it started) keeps starting for the retry.
 
@@ -621,9 +586,8 @@ class NativeChat:
     # ----- managed session controls ----------------------------------------------------------------------------------
 
     def _managed_session(self, principal_id: str, agent_id: str, expected_binding, *, pinned: bool) -> tuple[dict, dict | None]:
-        """Authorize a control of a managed agent's session and return its profile and its verified binding view. Call with the
-        agent's lock held. A terminal agent is refused (``not_managed``). When ``pinned`` the pin must name the live, verified
-        session: any other is ``terminal_changed``."""
+        """Authorize a control of an agent's session and return its profile and its verified binding view. Call with the
+        agent's lock held. When ``pinned`` the pin must name the live, verified session: any other is ``terminal_changed``."""
         if pinned and (not isinstance(expected_binding, str) or not 8 <= len(expected_binding) <= 120):
             raise DomainError("validation_error", "The binding_id of the session being controlled is required")
         if not pinned and expected_binding is not None and (not isinstance(expected_binding, str) or not 8 <= len(expected_binding) <= 120):
@@ -632,8 +596,8 @@ class NativeChat:
             profile = self._target(uow, principal_id, agent_id)
             require_protected_control(uow, principal_id, "human", [agent_id])
             persisted = store.live_session(uow.connection, agent_id)
-        if profile.get("execution") != EXECUTION_MANAGED or self.managed is None:
-            raise DomainError("not_managed", "This agent runs in its terminal")
+        if self.managed is None:
+            raise DomainError("managed_unavailable", "Qorqbot cannot run this agent's session right now")
         session = None
         if expected_binding is not None:
             session = self.session_view(profile, persisted)
@@ -647,7 +611,7 @@ class NativeChat:
         return DomainError(code, message, retryable=bool(error.retryable))
 
     def interrupt(self, principal_id: str, agent_id: str, expected_binding) -> dict:
-        """Stop the turn the managed session is running. A control operation, not an input: it takes no key, is never stored and
+        """Stop the turn the session is running. A control operation, not an input: it takes no key, is never stored and
         never waits for anything. ``{"stopped": bool}``: false when nothing was running."""
         with self.arbiter.locks(agent_id):
             self._managed_session(principal_id, agent_id, expected_binding, pinned=True)
@@ -744,103 +708,8 @@ class NativeChat:
         self.backend.wake()
         return {"closing": closing}
 
-    # ----- the runtime switch ----------------------------------------------------------------------------------------
-
-    def set_runtime(self, principal_id: str, agent_id: str, mode) -> dict:
-        """Switch how this agent runs: ``terminal`` (its tmux terminal, the default) or ``managed`` (a headless session that
-        only the owner's Chat message opens). The choice is a host-local setting, never part of the profile.
-
-        Refused, with a stable code and a plain message, unless it is safe now (checked under the agent's lock, so no input
-        lands between the check and the switch):
-
-        * to ``managed``: ``unsupported_role`` (only Ordubashy or a worker), ``unsupported_runtime`` (only Claude Code), ``session_open``
-          (a live native session), ``waiting_inputs`` (Chat messages not delivered yet), ``terminal_present`` (its tmux session
-          exists, or cannot be proved gone);
-        * to ``terminal``: ``session_open`` (its managed session is open, or cannot be proved closed).
-
-        ``{"execution": mode, "changed": bool}``."""
-        if mode not in RUNTIME_MODES:
-            raise DomainError("validation_error", "mode is terminal or managed")
-        from qorqut.managed_runtime import mode as modes
-        # No open of this agent runs while the setting changes: ``hold`` takes the managed runtime's per-agent lifecycle lock (and
-        # waits for an open in progress, which then finishes first or is refused ``session_opening``). It is taken before the
-        # arbiter's lock, the order every open uses, so the two cannot wait on each other.
-        hold = self.managed.hold(agent_id) if self.managed is not None and hasattr(self.managed, "hold") else nullcontext()
-        with self.runtime.application.writer_admission.writer(), hold, self.arbiter.locks(agent_id):
-            with self.database.read() as uow:
-                profile = self._target(uow, principal_id, agent_id)
-                require_protected_control(uow, principal_id, "human", [agent_id])
-                self.runtime.application.ensure_writes_open(uow)
-                persisted = store.live_session(uow.connection, agent_id)
-                waiting = store.waiting_inputs(uow.connection, agent_id)
-            current = EXECUTION_MANAGED if profile.get("execution") == EXECUTION_MANAGED else EXECUTION_TERMINAL
-            if mode == current:
-                return {"execution": current, "changed": False}
-            if mode == EXECUTION_MANAGED:
-                self._may_manage(profile, persisted, waiting)
-            else:
-                self._may_release(profile, persisted)
-            try:
-                modes.set_mode(self.runtime.paths, agent_id, mode)
-            except (OSError, ValueError):
-                raise DomainError("operation_unavailable", "The setting could not be saved") from None
-            if mode == EXECUTION_MANAGED and self._terminal_present(profile):
-                # A terminal came up between the check and the write (its open does not take this lock): the switch is undone.
-                try:
-                    modes.set_mode(self.runtime.paths, agent_id, current)
-                except (OSError, ValueError):
-                    LOG.warning("The runtime setting of %s could not be put back", agent_id, exc_info=True)
-                raise DomainError("terminal_present", "The agent's Terminal is still running. Close it, then switch")
-            with self.database.transaction(operation="native_chat.runtime") as uow:
-                self.runtime.application.ensure_writes_open(uow)
-                store.bump(uow.connection, agent_id)
-        self.backend.wake()
-        return {"execution": mode, "changed": True}
-
-    def _may_manage(self, profile: dict, persisted, waiting) -> None:
-        from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, profile_role
-        if profile_role(profile) not in (GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE):
-            raise DomainError("unsupported_role", "Only Ordubashy and worker agents can be run by Qorqbot")
-        if store.profile_runtime(profile) != "claude-code":
-            raise DomainError("unsupported_runtime", "Only Claude Code agents can be run by Qorqbot")
-        if persisted is not None or self.probe.observe(profile).reason == REASON_LIVE:
-            raise DomainError("session_open", "A session is still open. End it, then switch")
-        if waiting:
-            raise DomainError("waiting_inputs", "Messages are still waiting for this agent. Let them finish, then switch")
-        if self._terminal_present(profile):
-            raise DomainError("terminal_present", "The agent's Terminal is still running. Close it, then switch")
-
-    def _may_release(self, profile: dict, persisted) -> None:
-        from qorqut.managed_runtime.manager import HostUnverified
-        try:
-            host = self.managed.handle(profile["agent_id"]) if self.managed is not None else None
-        except HostUnverified:
-            host = True  # a host that holds the agent but cannot be verified is not provably closed
-        if host is not None or (persisted is not None and liveness.of_session(persisted) != liveness.DEAD):
-            raise DomainError("session_open", "The session is still open. End it, then switch")
-
-    def _terminal_present(self, profile: dict) -> bool:
-        """Whether the agent's tmux session exists, or cannot be proved absent (fail closed). No composition, no terminal."""
-        backend = getattr(getattr(self.runtime, "terminal_control", None), "backend", None)
-        if backend is None:
-            return False
-        try:
-            # ``terminal_selected``: ``selected`` refuses a managed agent, which this check asks about right after the switch.
-            broker, _, session, _, _ = (getattr(backend, "terminal_selected", None) or backend.selected)(profile)
-            return bool(broker.session_alive(session))
-        except Exception:
-            LOG.debug("The terminal of %s could not be checked", profile["agent_id"], exc_info=True)
-            return True
-
-    def attachment_state(self, principal_id: str, agent_id: str) -> dict:
-        """The shared selected-conversation attachment of this agent's terminal, for the Chat surface. Starts nothing."""
-        with self.database.read() as uow:
-            self._target(uow, principal_id, agent_id)
-            require_protected_control(uow, principal_id, "human", [agent_id])
-        return self.attachment.state(agent_id)
-
-    def follow_terminal(self, profile: dict) -> None:
-        """Adopt the terminal's verified current conversation through the existing binding transaction."""
+    def adopt_session(self, profile: dict) -> None:
+        """Adopt the session's verified current conversation through the existing binding transaction."""
         observed = self.probe.observe(profile)
         if observed.reason != REASON_LIVE:
             return
@@ -855,15 +724,15 @@ class NativeChat:
                         current.generation if current is not None else 0)
         except DomainError:
             # A switch or an unfinished hook is retried by the next observer pass.
-            LOG.debug("Terminal conversation adoption deferred for %s", profile["agent_id"], exc_info=True)
+            LOG.debug("Conversation adoption deferred for %s", profile["agent_id"], exc_info=True)
 
     def select(self, principal_id: str, agent_id: str, provider, conversation, expected_generation) -> dict:
-        """The installation owner explicitly selects the native conversation this agent's Chat and Terminal show.
+        """The installation owner explicitly selects the native conversation this agent's Chat shows.
 
-        The observer also uses this transaction to follow a verified terminal conversation. ``expected_generation`` is the
+        The observer also uses this transaction to adopt a verified session's conversation. ``expected_generation`` is the
         owner generation the caller saw (0 when none exists). The named conversation must be the one the agent's native client
         is running right now, proved here by the same trusted probe the binding uses (hook marker, live process with its start
-        ticks, registered pane or held thread-writer lock): an id from the caller is never proof. The change goes through the
+        ticks, its verified host): an id from the caller is never proof. The change goes through the
         ordinary binding transaction with owner-selection authority; history, captures and append-only identity rows are
         untouched, and a waiting input of the earlier binding is settled by the registry exactly as for any binding change."""
         if provider not in PROVIDERS:
@@ -880,14 +749,13 @@ class NativeChat:
                 require_protected_control(uow, principal_id, "human", [agent_id])
                 self.runtime.application.ensure_writes_open(uow)
                 current = selection.selected(uow.connection, agent_id)
-            # Any supported runtime the terminal verifiably runs may be selected; the profile runtime only says what a
-            # fresh start launches, so switching the terminal between Claude and Codex is followed like any other change.
+            # Any supported client the session verifiably runs may be selected; the profile runtime is only the default.
             if (current.generation if current is not None else 0) != expected_generation:
                 raise DomainError("revision_conflict", "The selected conversation changed; reload and try again")
             observed = self.probe.observe(profile)
             live = observed.observation if observed.reason == REASON_LIVE else None
             if live is None or live.provider != provider or live.conversation_id != conversation:
-                raise DomainError("not_found", "The terminal conversation is still connecting")
+                raise DomainError("not_found", "The session's conversation is still connecting")
             from qorqut.bootstrap.native_binding import NativeBindingAdapter
             adapter = getattr(self.runtime, "native_binding_adapter", None) or NativeBindingAdapter(self.runtime)
             if current is not None and current.holds(live):
@@ -898,9 +766,9 @@ class NativeChat:
                 binding, old_state = adapter.verify(agent_id, marker["registration_id"], conversation,
                                                     previous=current.binding if current is not None else None)
             except DomainError:
-                raise DomainError("not_found", "That conversation is not verifiably running in this agent's terminal") from None
+                raise DomainError("not_found", "That conversation is not verifiably running in this agent's session") from None
             if binding.get("session_id") != conversation or binding.get("runtime") != PROVIDER_RUNTIMES[provider]:
-                raise DomainError("not_found", "That conversation is not verifiably running in this agent's terminal")
+                raise DomainError("not_found", "That conversation is not verifiably running in this agent's session")
             confirmed = self.probe.observe(profile)
             latest = confirmed.observation if confirmed.reason == REASON_LIVE else None
             if (latest is None or latest.provider != provider or latest.conversation_id != conversation
@@ -909,7 +777,7 @@ class NativeChat:
                     # client process, which pid and started above already compare.
                     or (getattr(latest, "transport", None) != "managed"
                         and (latest.owner or f"{latest.pid}:{latest.started}") != binding.get("owner"))):
-                raise DomainError("revision_conflict", "The terminal conversation changed; reconnecting")
+                raise DomainError("revision_conflict", "The session's conversation changed; reconnecting")
             with self.runtime.resolver.require_agentic_view().read_snapshot():
                 context = self.runtime.agent_context(Principal(agent_id, "agent"))
             self.runtime.inbox.start_session(context, marker["registration_id"], conversation,
@@ -949,7 +817,7 @@ class NativeChat:
                 raise ValueError("another conversation")
             return marker
         except (OSError, ValueError, TypeError):
-            raise DomainError("not_found", "That conversation is not the one running in this agent's terminal") from None
+            raise DomainError("not_found", "That conversation is not the one running in this agent's session") from None
 
     def mark_read(self, principal_id: str, agent_id: str, sequence: int) -> dict:
         if type(sequence) is not int or sequence < 0:

@@ -51,6 +51,13 @@ class RequestTest(unittest.TestCase):
     def check(self, **message):
         return protocol.validate_request({"id": "r1", "token": "t", **message})
 
+    def test_command_takes_compact_or_model_with_a_model_and_an_effort(self):
+        self.assertEqual(self.check(op="command", name="compact")[2]["name"], "compact")
+        arguments = self.check(op="command", name="model", model="gpt-x", effort="high")[2]
+        self.assertEqual((arguments["name"], arguments["model"], arguments["effort"]), ("model", "gpt-x", "high"))
+        for bad in ({"name": "rm"}, {}, {"name": "model", "model": 5}, {"name": "model", "effort": "extreme"}, {"name": "model", "model": "a b"}):
+            self.refused(op="command", **bad)
+
     def refused(self, code=protocol.ERROR_BAD_REQUEST, **message):
         with self.assertRaises(protocol.ProtocolError) as caught:
             self.check(**message)

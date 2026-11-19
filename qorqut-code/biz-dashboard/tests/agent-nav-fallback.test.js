@@ -11,15 +11,17 @@ const available=!!chromium && fs.existsSync(executable);
 const browserTest=(name,run)=>test(name,{skip:!available && 'Local Playwright Chromium is unavailable'},run);
 const root=path.join(__dirname,'..');
 
-// `shell`: whether the menu offers the owner's workspace shell; `saved`: the remembered selection.
-async function fixture({shell=true,remembered='__qorqut_workspace_terminal__'}={}) {
+// `remembered`: the saved selection; `link`: an agent id named by an old deep link.
+async function fixture({remembered='__qorqut_workspace_terminal__',link=null}={}) {
   const mobile=false,many=false;
   const browser=await chromium.launch({headless:true,executablePath:executable});
   const page=await browser.newPage({viewport:{width:mobile?390:1200,height:800},hasTouch:mobile,isMobile:mobile});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.route('http://qorqbot.test/**',route=>route.fulfill({contentType:'text/html',body:'<body></body>'}));
+  await page.goto('http://qorqbot.test/'+(link?'?agent='+encodeURIComponent(link):''));
   await page.setContent('<meta name="viewport" content="width=device-width, initial-scale=1"><body class="agent-workspace-app"><main id="host" style="display:flex;height:100vh;min-width:0"></main></body>');
   for(const file of ['app.css','css/context.css','css/global.css','css/global-chat.css','css/agentpane.css','css/agent-workspace.css','css/agent-workspace-nav.css','css/agent-timeline.css'])await page.addStyleTag({path:path.join(root,file)});
-  await page.evaluate(({many,remembered})=>{
+  await page.evaluate(({many,remembered,link})=>{
     window.$=(selector,host=document)=>host.querySelector(selector);
     window.esc=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     window.state={scope:'global',globalTab:'agents'};
@@ -40,25 +42,25 @@ async function fixture({shell=true,remembered='__qorqut_workspace_terminal__'}={
     window.agentWorkspaceRequest=null;window.agentWorkspaceApplied=null;window._agpad=null;
     window.agentViewDispose=()=>{};window.mounts=[];
     window.mountAgentView=(pane,agent)=>{mounts.push(agent.agent_id);pane.innerHTML='<p style="padding-top:48px">Chat with '+esc(agent.display_name)+'</p>';};
-    window.mountTerminal=(_id,pane)=>{window.mounts.push('shell');pane.textContent='Workspace shell';};
     window.agpadMount=(_name,pane,options)=>{
       window._agpad={agentId:options.agentId};pane.hidden=!options.open;pane.textContent='Agent workspace';
       pane.closest('.agsplit').classList.toggle('pad-off',!options.open);
     };
     window.goGlobalTab=tab=>{window.destination=tab;};window.onboarding={open(){window.walkthrough=true;}};
-  },{many,remembered});
+  },{many,remembered,link});
   await page.addScriptTag({path:path.join(root,'js/san-juan-time.js')});
   await page.clock.setFixedTime(new Date('2026-11-11T18:00:00Z'));
   await page.addScriptTag({path:path.join(root,'js/agent-nav-timeline.js')});
   let code=fs.readFileSync(path.join(root,'js/global-agents.js'),'utf8');
-  if(!shell)code=code.replace(/^\s*<button class="item agent global-workspace-terminal".*$/m,'');
   await page.addScriptTag({content:code});
   await page.evaluate(()=>renderGlobalAgents(document.querySelector('#host')));
   return {browser,page,errors};
 }
 
-browserTest('a saved selection of the workspace shell falls back to Ordubashy, silently, when the menu has no such entry',async()=>{
-  const {browser,page,errors}=await fixture({shell:false});
+const OLD_IDS=['__qorqut_workspace_terminal__','__qorqut_workspace_terminal_2__','__qorqut_workspace_terminal_3__'];
+
+browserTest('a saved selection of the retired workspace shell falls back to Ordubashy, silently',async()=>{
+  const {browser,page,errors}=await fixture();
   try {
     assert.equal(await page.locator('[data-global-agent="__qorqut_workspace_terminal__"]').count(),0);
     assert.deepEqual(await page.evaluate(()=>mounts),['ord']);
@@ -68,19 +70,18 @@ browserTest('a saved selection of the workspace shell falls back to Ordubashy, s
   } finally { await browser.close(); }
 });
 
-browserTest('an old Terminal 2 or 3 selection, or an id that no longer exists, also falls back without the shell entry',async()=>{
-  for(const saved of ['__qorqut_workspace_terminal_2__','__qorqut_workspace_terminal_3__']){
-    const {browser,page}=await fixture({shell:false,remembered:saved});
-    try { assert.deepEqual(await page.evaluate(()=>mounts),['ord'],saved); assert.deepEqual(await page.evaluate(()=>toasts),[],saved); }
-    finally { await browser.close(); }
+browserTest('an old shell link, or a Terminal 2 or 3 selection, falls back without a message',async()=>{
+  for(const id of OLD_IDS){
+    for(const options of [{remembered:id},{remembered:'ord',link:id}]){
+      const {browser,page,errors}=await fixture(options);
+      try { assert.deepEqual(await page.evaluate(()=>mounts),['ord'],id); assert.deepEqual(await page.evaluate(()=>toasts),[],id); assert.deepEqual(errors,[],id); }
+      finally { await browser.close(); }
+    }
   }
 });
 
-browserTest('the same saved selection still opens the workspace shell when the menu offers it',async()=>{
-  const {browser,page,errors}=await fixture({shell:true});
-  try {
-    assert.deepEqual(await page.evaluate(()=>mounts),['shell']);
-    assert.deepEqual(await page.evaluate(()=>toasts),[]);
-    assert.deepEqual(errors,[]);
-  } finally { await browser.close(); }
+browserTest('an id that was never an agent still says so',async()=>{
+  const {browser,page}=await fixture({remembered:'gone-agent'});
+  try { assert.deepEqual(await page.evaluate(()=>toasts),['This agent is no longer active. Its history is kept.']); }
+  finally { await browser.close(); }
 });

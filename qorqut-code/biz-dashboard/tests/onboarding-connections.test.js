@@ -79,7 +79,7 @@ test('extensions are shown open below the browser, and no Claude connector is of
 
 test('no tour step, Settings row or setup text sends the owner to a terminal or the folder-trust consent', () => {
   for (const file of ['js/onboarding.js', 'js/settings.js', 'js/agent-clients.js', 'js/agent-options.js', 'js/setup-notice.js'])
-    assert.ok(!/terminal|type claude|type <code>|folder-trust|agentStart/i.test(read(file).replace(/#global-agent-terminal/g, '')), file);
+    assert.ok(!/terminal|type claude|type <code>|folder-trust|agentStart/i.test(read(file).replace(/#global-agent-chat/g, '')), file);
   assert.ok(!fs.existsSync(path.join(__dirname, '../js/agent-start.js')));
   assert.ok(!read('index.html').includes('agent-start.js'));
   assert.ok(!/agent-trust/.test(read('js/settings.js')));

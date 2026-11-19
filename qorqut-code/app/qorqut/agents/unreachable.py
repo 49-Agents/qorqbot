@@ -2,7 +2,7 @@
 
 Inbox notices are delivered into an agent's session. The nudge engine records every attempt, so its rows already say
 when a worker stopped being reachable: every attempt since the last one that may have arrived was definitely not
-typed (the composer holds text, shows something unrecognized or a dialog, the terminal is gone). Work assigned to such
+sent (the session could not be verified, kept refusing, or cannot be opened). Work assigned to such
 a worker waits unseen. Ordubashy is told once the condition has lasted ``BLOCKED_AFTER``; he is told again only after
 ``REPEAT_AFTER`` while it still lasts.
 
@@ -37,14 +37,14 @@ REPEAT_AFTER = timedelta(hours=6)
 # Attempt states of the nudge engine: a notice that may have arrived, and one that was definitely not typed.
 ARRIVED = ("submitted", "uncertain")
 NOT_TYPED = ("deferred", "failed", "unavailable")
-# A notice deferred for these reasons waits for a running turn to end; the session itself is fine.
-BUSY = frozenset({"composer_busy", "submit_interrupts"})
+# A notice deferred for these reasons waits for a running turn to end or a session to finish starting or closing; the session itself
+# is fine.
+BUSY = frozenset({"turn_running", "session_starting", "session_closing", "host_busy"})
 OFFLINE = "offline"
 OFF = "off"
 REASONS = {
-    "composer_not_empty": "its input box holds unsent text",
-    "composer_unrecognized": "its screen shows something other than the input box",
-    "composer_modal": "a dialog is open in its terminal",
+    "host_unverified": "its session could not be verified",
+    "host_rejected": "its session keeps refusing input",
     OFFLINE: "it has no running session",
     OFF: "it is turned off",
     "cli_unavailable": "Claude Code is not installed on this computer, so its session cannot be opened",

@@ -61,10 +61,10 @@ class BrowserSetupTest(unittest.TestCase):
         def status(_owner, arguments, **_k):
             return states[arguments['agent_id']]
         lead = self.read_view(status)['agents'][0]
-        self.assertIn('Start the agent once', lead['explanation'])
+        self.assertIn('Send the agent a message in Chat once', lead['explanation'])
         self.assertNotIn('internal wording', lead['explanation'])
         self.run_setup(states)
-        self.assertNotIn('Start the agent once', self.read_view(status)['agents'][0]['explanation'])
+        self.assertNotIn('Send the agent a message in Chat once', self.read_view(status)['agents'][0]['explanation'])
 
     def test_an_unknown_failure_still_tells_the_owner_what_to_do(self):
         text = setup.explanation('missing', failure_code='unexpected')

@@ -2,8 +2,8 @@
 
 The owner dashboard for the Qorqut agent platform. It is a component of the
 Qorqut host, not an independent production server: the host service
-(`qorqut.service`, from `qorqut-code/app`) serves these static assets, the
-workspace terminal and the authenticated HTTP MCP endpoint from one process.
+(`qorqut.service`, from `qorqut-code/app`) serves these static assets and the
+authenticated HTTP MCP endpoint from one process.
 `start.sh` launches that service; `server.py` is only a thin entry point that
 forwards its arguments to it. There is no business-chat subprocess, CLI domain
 bridge, per-agent MCP server or arbitrary command runner.
@@ -24,7 +24,6 @@ Nothing in this component installs, deploys or restarts a service.
 | `index.html`, `file-viewer.html`, `tables-view.html` | Entry pages: the shell, the standalone file reader and the read-only table page. |
 | `js/`, `css/`, `app.css` | Static modules and styles. There is no frontend build step. |
 | `server.py` | Thin entry point: imports the installed host's `qorqut.service.main` and forwards its arguments. It never looks for a sibling host checkout and holds no service, configuration or write logic. |
-| `pty_broker.py` | The workspace Terminal's shell (the owner's own, not an agent's; needs `tmux` on the computer). |
 | `start.sh`, `.env.dashboard.example` | Launcher and its machine config (see [Setup and lifecycle](#setup-and-lifecycle)). |
 | `docs/` | Component contracts (see [Documents](#documents)). |
 | `tests/` | Node browser fixtures and Python launcher/broker tests. |
@@ -86,8 +85,8 @@ forwards them as `--workspace`, `--instance-root` and `--component NAME=PATH` to
 ./start.sh argv        # print the command without starting anything
 ```
 
-Terminal state lives under `BIZ_DASH_STATE`, else
-`$XDG_STATE_HOME/qorqut/terminals`. The default private origin is
+Dashboard state lives under `BIZ_DASH_STATE`, else
+`.state` beside `start.sh`. The default private origin is
 `http://127.0.0.1:1049`; a host behind another address lists explicit origins in
 `BIZ_SERVICE_ORIGINS` (for example `http://qorqut.example:1071`).
 
@@ -121,14 +120,14 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   stop while collapsed, and all focus reads stop when the chat is hidden.
   Working dots remain tied to the chat's
   own session. Check: `node --test tests/chat-focus.test.js` (requires Playwright Chromium).
-- **No main menu.** The Agents navigation (roster, Terminal, Settings below it)
+- **No main menu.** The Agents navigation (roster, Walkthrough and Settings below it)
   is the only navigation. A non-Agent top-level page such as Settings offers one
   **Back to agents** action. First visits open Global → Agents with the registered
   Ordubashy selected; explicit URL destinations win over the saved workspace
   route, and a missing saved agent falls back to Ordubashy, then the first
-  Global agent or the workspace terminal. Check: `node tests/test_initial_navigation.js`.
+  Global agent. Check: `node tests/test_initial_navigation.js`.
 - **Global and projects.** The workspace selector keeps **Global** above the
-  projects. Global has no selected project, disconnects the terminal mirror and
+  projects. Global has no selected project and
   keeps the personal task drawer. Global pages use `#/global/<page>` with refresh
   and history support, and the shell works with no registered projects. Project
   entries can be dragged into a custom order, saved by stable id in browser local
@@ -146,12 +145,10 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   `tests/test_business_archive_browser.js`, `tests/test_business_restore_browser.js`.
 - **Global roster.** Agents lists the active Global agents (Ordubashy, the
   Learning Applier and any number of `global-worker` agents) from
-  `/api/root/agents`, then one plainly named workspace Terminal below a rule. There
+  `/api/root/agents`, then Walkthrough and Settings below a rule. There
   are no lookup or pin controls. A saved or linked agent that is not an active
   Global agent shows "This agent is no longer active. Its history is kept." and
-  falls back to Ordubashy. Terminal opens a plain shell at the configured Qorqut
-  workspace with no agent profile, inbox, preparation, credential or transcript
-  capture. Check: `node tests/test_global_roster_browser.js`.
+  falls back to Ordubashy, as does a saved or linked selection of the retired workspace shell (without a message). Check: `node tests/test_global_roster_browser.js`.
 - **Weekly report.** Desktop agent navigation counts the selected agent's actions
   for today and the previous six days in the installation timezone. It follows
   every page of the date-filtered action read before displaying totals; failed
@@ -163,7 +160,7 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   through `GET|POST /api/root/testing-mode`. While it is off, Overseer stays in the
   Global roster with a dimmed avatar and an accessible "Available in testing
   mode only" label; selecting it shows one restrained centered availability
-  state instead of mounting its chat, terminal or agent pane. Saved pins and other preferences are untouched, and a
+  state instead of mounting its chat or agent pane. Saved pins and other preferences are untouched, and a
   failed or unknown preference read stays closed. Turning it back on restores the
   normal Overseer view without stopping any backend session.
 - **Agent-pane views.** Context is the Learning Applier's first tab (graph and
@@ -282,7 +279,7 @@ No normal Broadcast or Working Memory entry point is currently exposed in the
 navigation. Their modules (`js/broadcast.js`, `css/broadcast.css`,
 `js/working-memory.js`) and draft lifecycle are retained, and they are covered only
 as components mounted directly in a test page, not as reachable features. Checks:
-`tests/test_terminal_browser.js`, `tests/test_broadcast_browser.js` and
+`tests/test_broadcast_browser.js` and
 `tests/test_broadcast_real_browser.js` (direct `renderBroadcast` mounts),
 `tests/test_working_memory_browser.js` (direct
 `workingMemoryMount`).
@@ -432,7 +429,7 @@ Checks: `tests/test_context_published_browser.js`, `tests/test_context_source_br
 ## File viewer
 
 `GET /files/view` (`file-viewer.html`, `js/file-viewer.js`, `css/file-viewer.css`) is a
-standalone owner page for one file with no shell, terminal, polling or edit controls.
+standalone owner page for one file with no application shell, polling or edit controls.
 `?path=<root-relative path>` shows the current file;
 `?document_id=<uuid>&business_id=<uuid>` (omit `business_id` for Global) with optional
 `&version=N` opens a registered document or one saved version, with paged history and

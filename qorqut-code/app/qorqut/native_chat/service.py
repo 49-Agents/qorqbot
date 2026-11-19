@@ -8,9 +8,9 @@ undelivered (maintenance, never delivery). Nothing here launches, resumes or sto
 The drain is bounded: ``stop_observer`` joins the thread within its timeout and raises ``TimeoutError`` when it survives, keeping
 the reference so a later stop can still prove the drain.
 
-A managed agent's pass also asks the managed runtime for the host's latest state and events: a change of its phase, pending
+Each agent's pass also asks the managed runtime for the host's latest state and events: a change of its phase, pending
 request or activity reaches Chat as a visible change (activity text at most once a second), and a prompt a hook blocked is
-recorded on the input that carried it. A terminal agent never touches the managed runtime.
+recorded on the input that carried it.
 """
 
 from __future__ import annotations
@@ -41,8 +41,7 @@ class NativeBackend:
                  locks: AgentLocks, *, interval: float = PASS_SECONDS, managed=None):
         self.runtime, self.probe, self.registry, self.indexer, self.arbiter, self.locks = runtime, probe, registry, indexer, arbiter, locks
         self.interval = interval
-        # The managed runtime, used duck-typed and only for agents whose profile says ``execution == "managed"``:
-        # ``refresh(agent_id) -> changed`` and ``drain_events(agent_id) -> [event dict]``.
+        # The managed runtime, used duck-typed: ``refresh(agent_id) -> changed`` and ``drain_events(agent_id) -> [event dict]``.
         self.managed = managed
         self._bumped: dict[str, float] = {}
         self._blocked: dict[str, dict[str, list]] = {}
@@ -52,7 +51,7 @@ class NativeBackend:
         self._thread: threading.Thread | None = None
         self._recovered = False
         self._working = {}
-        self.follow_terminal = None
+        self.adopt = None
         arbiter.wake = self.wake
 
     @property
@@ -145,9 +144,9 @@ class NativeBackend:
 
     def observe(self, profile: dict) -> None:
         """Bind, capture and index one agent, then deliver its waiting inputs. Safe to repeat."""
-        if self.follow_terminal is not None:
-            self.follow_terminal(profile)
-        managed = self.managed if profile.get("execution") == "managed" else None
+        if self.adopt is not None:
+            self.adopt(profile)
+        managed = self.managed
         with self.locks(profile["agent_id"]):
             changed = self._refresh_managed(managed, profile["agent_id"]) if managed is not None else False
             observed = self.probe.observe(profile)
@@ -160,7 +159,7 @@ class NativeBackend:
             if managed is not None:
                 self._publish_managed(agent_id, reconciled, observed, changed)
                 self._apply_blocked(managed, agent_id)
-            elif self._working.get(agent_id) != working:
+            elif self._working.get(agent_id) != working:   # no managed runtime composed
                 with self.database.transaction(operation="native_chat.working") as uow:
                     self.runtime.application.ensure_writes_open(uow)
                     store.bump(uow.connection, agent_id)
@@ -187,8 +186,8 @@ class NativeBackend:
             return False
 
     def _publish_managed(self, agent_id: str, reconciled, observed, changed: bool) -> None:
-        """Make a change a viewer can see (working, phase, a pending request, the activity line) a visible change. The key of a
-        terminal agent is only ``(session, working)``; a managed one adds what the host reports. A change of the activity
+        """Make a change a viewer can see (working, phase, a pending request, the activity line) a visible change. The key is
+        ``(session, working)`` plus what the host reports. A change of the activity
         text alone waits out ``ACTIVITY_SECONDS`` since the last one, so a chatty turn does not make every viewer re-read
         Chat many times a second; it is not recorded as published until it bumps, so a later pass publishes it."""
         key = None

@@ -37,7 +37,6 @@ async function fixture({mobile=false,many=false}={}) {
     window.agentWorkspaceRequest=null;window.agentWorkspaceApplied=null;window._agpad=null;
     window.agentViewDispose=()=>{};window.mounts=[];
     window.mountAgentView=(pane,agent)=>{mounts.push(agent.agent_id);pane.innerHTML='<p style="padding-top:48px">Chat with '+esc(agent.display_name)+'</p>';};
-    window.mountTerminal=(_id,pane)=>{pane.textContent='Workspace terminal';};
     window.agpadMount=(_name,pane,options)=>{
       window._agpad={agentId:options.agentId};pane.hidden=!options.open;pane.textContent='Agent workspace';
       pane.closest('.agsplit').classList.toggle('pad-off',!options.open);
@@ -113,11 +112,6 @@ browserTest('the trigger follows agent selection and mouse focus never keeps the
     assert.match(await trigger.getAttribute('aria-label'),/Ordubashy selected/);
     await page.mouse.move(420,780);await page.waitForFunction(()=>!document.querySelector('.agent-nav-overlay').matches(':popover-open'));
     assert.equal(await nav.isVisible(),false);
-    { const box=await trigger.boundingBox(); await page.mouse.move(box.x+box.width/2,box.y+box.height/2); }
-    await nav.locator('.global-workspace-terminal').click();
-    assert.match(await trigger.getAttribute('aria-label'),/Terminal selected/);
-    assert.equal(await trigger.locator('.identity-avatar').count(),0);
-    assert.equal(await page.locator('.global-agent-session').evaluate(el=>el.getBoundingClientRect().width),1200);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });

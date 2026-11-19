@@ -89,18 +89,10 @@ def worst(*answers: str) -> str:
 
 
 def of_session(row: dict) -> str:
-    """The answer for a ``native_sessions`` row: a shared Codex thread is judged by its owner tuple, a managed session by its
-    client process and its host process together, anything else by the process identity alone. A shared-thread row that lost
-    its owner cannot be judged. The client process alone is not enough for a managed session: one whose host is gone cannot be
-    driven, so the verified death of either ends the binding."""
-    if row["transport"] == "codex_queue":
-        owner = row["owner"]
-        if not owner:
-            return UNKNOWN
-        parts = owner.split(":")
-        if len(parts) != 5 or not parts[0].isdigit():
-            return UNKNOWN
-        return state(int(parts[0]), parts[1], owner)
+    """The answer for a ``native_sessions`` row: a managed session by its client process and its host process together, a row of an
+    older transport (a terminal pane, a shared Codex server; history after the cutover) by the process identity alone. The client
+    process alone is not enough for a managed session: one whose host is gone cannot be driven, so the verified death of either ends
+    the binding."""
     if row["transport"] == "managed":
         host = managed_host(row["owner"])
         return worst(state(row["process_pid"], row["process_started"]), UNKNOWN if host is None else state(*host))

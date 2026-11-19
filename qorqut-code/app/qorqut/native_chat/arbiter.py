@@ -1,30 +1,29 @@
-"""The one input arbiter: every input to a native session passes through ``InputArbiter.submit``.
+"""The one input arbiter: every input to an agent's session passes through ``InputArbiter.submit``.
 
-Chat, Telegram owner input, broadcasts, terminal-control direct messages and (later) the inbox nudge dispatcher build an
-``InputRequest`` and receive an ``InputResult``. The arbiter alone decides whether the exact registered session is verifiably
-there, makes the durable claim, calls the provider adapter and records what it reported. It never launches, resumes or restarts
-an agent.
+Chat, Telegram owner input, broadcasts, direct messages and the inbox nudge dispatcher build an ``InputRequest`` and receive an
+``InputResult``. The arbiter alone decides whether the exact registered session is verifiably there, makes the durable claim,
+calls the managed adapter and records what it reported. It never starts or resumes a session itself: an asleep agent is opened by
+the opener (``opener.py``) in the branch below.
 
 Delivery rules, in order of precedence:
 
-* Nothing is typed unless the session the input was admitted for is still the verified live one, checked again at the
+* Nothing is sent unless the session the input was admitted for is still the verified live one, checked again at the
   adapter's checkpoint. A different or ended session never receives it.
-* The durable claim (``waiting``/new row → ``submitting``) is the crash boundary. From it on an input is never typed again:
+* The durable claim (``waiting``/new row -> ``submitting``) is the crash boundary. From it on an input is never sent again:
   a crash, a restart or a doubtful adapter outcome leaves it ``uncertain``.
-* An input that was definitely never typed (the adapter deferred, or the session ended/changed while it waited) is not
+* An input that was definitely never sent (the adapter deferred, or the session ended/changed while it waited) is not
   uncertain: a waiting one becomes ``undelivered`` at session end; an attempt that deferred after its claim is ``failed``
   (``not_typed``) and the same source key may be attempted again.
 * Chat inputs wait (durably, in order) for the same conversation to be ready; every other producer attempts once, now, and is
   told ``deferred`` when the session is not ready.
-* The shared Codex server takes plain text only and cannot run a CLI slash command, so an owner Chat input that is one of
-  Codex's built-in commands is refused (``terminal_command``) before anything is stored or typed; it needs the agent's Terminal.
-* A managed session has no terminal either: an owner Chat input that is one of Claude's menu-only commands is refused
-  (``managed_command``) the same way. With no session open, a managed agent is ``session_closed`` rather than ``terminal_offline``.
-* An asleep managed agent that is on (``opener.py``) is opened by the producers that attempt once (Telegram owner input, broadcast,
+* A session has no terminal: an owner Chat input that is a command only a terminal can show (``commands.unrunnable``: a menu
+  command of Claude, or a Codex built-in other than ``/compact``, ``/model <name>`` and ``/exit``) is refused (``managed_command``)
+  before anything is stored or sent.
+* An asleep agent that is on (``opener.py``) is opened by the producers that attempt once (Telegram owner input, broadcast,
   direct message) instead of being reported closed: Telegram's attempt starts the open in the background and is told
   ``session_starting``, and asks again on its own schedule; a broadcast or direct message waits for the open and is then delivered
   in the same call. The wake carries none of the input: the input is delivered afterwards by its own claim, exactly once. An agent
-  that is off is reported ``session_closed`` as before, except that Telegram owner input turns it on first.
+  that is off is reported ``session_closed``, except that Telegram owner input turns it on first.
 """
 
 from __future__ import annotations
@@ -40,11 +39,10 @@ from qorqut_operations.contracts import DomainError
 from qorqut.inbox.owner_forwarding import forward_owner_message
 
 from . import store
-from .commands import codex_builtin
+from .commands import unrunnable
 from .contracts import (INPUT_TYPES, MAX_TEXT_CHARS, ORIGIN_SYSTEM, RESULT_DEFERRED, RESULT_REJECTED, STATE_FAILED,
                         STATE_SUBMITTED, STATE_SUBMITTING, STATE_UNCERTAIN, STATE_UNDELIVERED, STATE_WAITING, TYPE_BROADCAST,
-                        TYPE_CHAT, TYPE_DIRECT, TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError,
-                        managed_menu_command)
+                        TYPE_CHAT, TYPE_DIRECT, TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError)
 from .probe import (ProbeResult, REASON_CAPTURE_DISABLED, REASON_LIVE, REASON_NO_MARKER, REASON_PROCESS_GONE, REASON_SESSION_END,
                     REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME, SessionProbe)
 from .projection import marker_text
@@ -52,7 +50,6 @@ from .sessions import SessionRegistry
 
 LOG = logging.getLogger(__name__)
 NOT_TYPED = "not_typed"
-TERMINAL_COMMAND = "terminal_command"
 MANAGED_COMMAND = "managed_command"
 SESSION_CLOSED = "session_closed"
 SESSION_STARTING = "session_starting"
@@ -74,7 +71,7 @@ class _WakeNeeded:
 
 class AgentLocks:
     """One re-entrant lock per agent, shared by the arbiter and the backend so an agent's session state, its waiting inputs and
-    its terminal are never driven by two threads at once."""
+    its session are never driven by two threads at once."""
 
     def __init__(self):
         self._guard = threading.Lock()
@@ -90,9 +87,8 @@ class StaleSession(Exception):
 
 
 class InputArbiter:
-    def __init__(self, runtime, probe: SessionProbe, registry: SessionRegistry, adapters: Mapping[str, object], *,
-                 locks: AgentLocks | None = None):
-        self.runtime, self.probe, self.registry, self.adapters = runtime, probe, registry, dict(adapters)
+    def __init__(self, runtime, probe: SessionProbe, registry: SessionRegistry, adapter, *, locks: AgentLocks | None = None):
+        self.runtime, self.probe, self.registry, self.adapter = runtime, probe, registry, adapter
         self.locks = locks or AgentLocks()
         self.wake: Callable[[], None] = lambda: None
         # The session opener (``opener.py``), attached by the native Chat that owns this arbiter; None wakes nothing.
@@ -143,7 +139,7 @@ class InputArbiter:
             return refused
         again = self._submit(request, on_checkpoint, False)
         if isinstance(again, _WakeNeeded):
-            return self._unavailable(request, again.observed, managed=True)
+            return self._unavailable(request, again.observed)
         return again
 
     def _wake(self, profile: dict, request: InputRequest) -> InputResult | None:
@@ -181,25 +177,20 @@ class InputArbiter:
             observed = self.probe.observe(profile)
             reconciled = self.registry.reconcile(profile, observed)
             if reconciled.session is None or not reconciled.live:
-                managed = profile.get("execution") == "managed"
-                if (wake and managed and self.opener is not None and request.origin != ORIGIN_SYSTEM
+                if (wake and self.opener is not None and request.origin != ORIGIN_SYSTEM
                         and request.input_type in WAKING_TYPES and observed.reason in NO_SESSION):
                     return _WakeNeeded(profile, observed)
-                return self._unavailable(request, observed, managed=managed)
+                return self._unavailable(request, observed)
             session = reconciled.session
             if request.expected_binding and request.expected_binding != session["id"]:
                 return self._refused(request, RESULT_REJECTED, "stale_session", session)
-            if (request.input_type == TYPE_CHAT and session["transport"] == "codex_queue"
-                    and codex_builtin(request.text) is not None):
+            if request.input_type == TYPE_CHAT and unrunnable(session["provider"], request.text) is not None:
                 # Decided for a new input only (an exact repeat was answered above) and before a row or a checkpoint exists.
-                return self._refused(request, RESULT_REJECTED, TERMINAL_COMMAND, session)
-            if (request.input_type == TYPE_CHAT and session["transport"] == "managed"
-                    and managed_menu_command(request.text) is not None):
                 return self._refused(request, RESULT_REJECTED, MANAGED_COMMAND, session)
             marker = secrets.token_hex(16) if request.origin == ORIGIN_SYSTEM else None
             if request.wait and not session["transcript_path"]:
                 # Chat shows the archived conversation; a session with no transcript has none to show, so Chat does not
-                # accept input for it. Producers that only reach the terminal are not affected. Capture turned off by the
+                # accept input for it. Capture turned off by the
                 # registration is final; capture that is on but has not published its transcript yet may be retried.
                 enabled = observed.observation is not None and observed.observation.capture_enabled
                 return self._refused(request, RESULT_REJECTED, "capture_not_ready" if enabled else "capture_disabled", session)
@@ -237,10 +228,10 @@ class InputArbiter:
             return store.active_profile(uow.connection, agent_id, self.runtime.paths)
 
     @staticmethod
-    def _unavailable(request: InputRequest, observed: ProbeResult, *, managed: bool = False) -> InputResult:
-        # A managed agent with no verified session has its session closed, not a terminal that is offline.
+    def _unavailable(request: InputRequest, observed: ProbeResult) -> InputResult:
+        # An agent with no verified session has its session closed.
         code = {REASON_CAPTURE_DISABLED: "capture_disabled", REASON_UNSUPPORTED: "unsupported_target",
-                REASON_UNSUPPORTED_RUNTIME: "unsupported_runtime"}.get(observed.reason, SESSION_CLOSED if managed else "terminal_offline")
+                REASON_UNSUPPORTED_RUNTIME: "unsupported_runtime"}.get(observed.reason, SESSION_CLOSED)
         # A refusal that no later retry changes is rejected; an offline session may come back, so an attempt is deferred.
         definitive = code in {"capture_disabled", "unsupported_target", "unsupported_runtime"} or request.wait
         return InputResult(state=RESULT_REJECTED if definitive else RESULT_DEFERRED, reason=code, origin=request.origin,
@@ -298,15 +289,12 @@ class InputArbiter:
         return self._result(row)
 
     def _run(self, profile, session, text, steer, input_type, checkpoint, claimed):
-        from qorqut.transport.agent_terminal_control import OwnerInputOutcome
-        adapter = self.adapters.get(session["transport"])
-        if adapter is None:
-            return OwnerInputOutcome("deferred", "unsupported_transport"), "none"
+        from qorqut.native_chat.contracts import OwnerInputOutcome
+        adapter = self.adapter
+        if session["transport"] != "managed":
+            # A binding of an older transport (a terminal pane, a shared Codex server) that no process can serve any more.
+            return OwnerInputOutcome("deferred", "unsupported_transport"), adapter.name
         try:
-            # Chat, Telegram and inbox/inactivity nudges can contain text the client clips or collapses.
-            # Nudges use Telegram's submission option and still require an empty composer.
-            # The terminal adapter forces exact-paste verification when Chat replaces a draft.
-            # Other producers retain whole-text echo verification.
             return adapter.submit(profile, session, text, steer=steer,
                                   echo=input_type not in {TYPE_CHAT, TYPE_TELEGRAM, TYPE_NUDGE}, checkpoint=checkpoint,
                                   **({"replace_composer": True} if input_type == TYPE_CHAT else {})), adapter.name
@@ -394,12 +382,9 @@ class InputArbiter:
         the input, so the transcript entry that starts with it can be attributed to this input; nothing else makes a native
         user turn a system turn.
 
-        A nudge is submitted at once even while a turn is running, through the same adapter path and checks as every other
-        input: a verified empty composer, a successful paste without requiring whole-text echo, and normal submit.
-        Processing is never confirmed unless the transport evidences it. When that is not safe (an owner's text in the
-        composer, a modal, an unreadable or changing
-        screen, no verified session) nothing is typed: ``wait=False`` returns ``deferred`` and the caller asks again, ``wait=True``
-        keeps it ``waiting`` for this very session.
+        A nudge is sent at once even while a turn is running (the host queues it into the turn), through the same adapter path and
+        checks as every other input. Processing is never confirmed unless the host evidences it. When the session is not ready nothing
+        is sent: ``wait=False`` returns ``deferred`` and the caller asks again, ``wait=True`` keeps it ``waiting`` for this very session.
 
         ``expected_binding`` pins the exact session the producer reserved the notice for: any other live session rejects it."""
         return self.submit(InputRequest(agent_id, TYPE_NUDGE, source_key, text, wait=wait, steer=True, expected_binding=expected_binding,
@@ -408,11 +393,11 @@ class InputArbiter:
     def admit_recovery(self, agent_id: str, source_key: str, text: str, *, expected_binding: str,
                        metadata: Mapping | None = None) -> InputResult:
         """The system-origin ``bootstrap_recovery`` wake of a session that lost its context. It is its own input type, unrelated
-        to inbox events, and goes through the same adapter path and checks as every input: a verified empty composer, the whole text
-        echoed, one normal submit, no processing confirmed. ``expected_binding`` is required: the wake is for one exact session and
+        to inbox events, and goes through the same adapter path and checks as every input, with no
+        processing confirmed. ``expected_binding`` is required: the wake is for one exact session and
         any other live session rejects it. Nothing here starts or resumes a session."""
         return self.submit(InputRequest(agent_id, TYPE_RECOVERY, source_key, text, steer=True, expected_binding=expected_binding,
                                         metadata=dict(metadata or {})))
 
 
-__all__ = ["AgentLocks", "InputArbiter", "MANAGED_COMMAND", "NOT_TYPED", "SESSION_CLOSED", "SESSION_STARTING", "StaleSession", "TERMINAL_COMMAND"]
+__all__ = ["AgentLocks", "InputArbiter", "MANAGED_COMMAND", "NOT_TYPED", "SESSION_CLOSED", "SESSION_STARTING", "StaleSession"]

@@ -48,11 +48,6 @@ class Selection:
         return value if isinstance(value, str) else None
 
     @property
-    def shared_server(self) -> bool:
-        """A shared Codex app-server thread: its owner is ``pid:ticks:fd:dev:inode`` (the held writer lock)."""
-        return self.provider == "codex" and self.owner is not None and len(self.owner.split(":")) == 5
-
-    @property
     def managed(self) -> bool:
         """A conversation adopted from a managed runtime session: the verified binding names the host it was made under.
         The host is evidence for the probe and liveness, never authority; nothing here trusts it."""
@@ -78,22 +73,16 @@ class Selection:
         return observation is not None and self.matches(observation.provider, observation.conversation_id)
 
     def holds(self, observation) -> bool:
-        """Whether ``observation`` is the selected conversation held by exactly the process (and, for a shared Codex thread,
-        the exact writer-lock tuple) the owner row was adopted for. Provider and conversation alone are not enough: a
-        same-conversation observation of a new process is only ``PENDING`` until bootstrap adopts it."""
+        """Whether ``observation`` is the selected conversation held by exactly the process the owner row was adopted for.
+        Provider and conversation alone are not enough: a same-conversation observation of a new process is only ``PENDING``
+        until bootstrap adopts it. A session's observation owner is its host (``host:<pid>:<ticks>``), which the owner row never
+        holds: the hook that adopted the conversation recorded the client process, ``pid:ticks``. Either agrees; any other owner
+        tuple is a different process arrangement."""
         if not self.matches_observation(observation):
             return False
         if observation.pid != self.pid or observation.started != self.started:
             return False
-        if self.shared_server:
-            return observation.owner == self.owner
-        if observation.transport == "managed":
-            # A managed session's observation owner is its host (``host:<pid>:<ticks>``), which the owner row never holds:
-            # the hook that adopted the conversation recorded the client process, ``pid:ticks``. Either agrees; any other
-            # owner tuple is a different process arrangement.
-            return self.owner in (None, f"{observation.pid}:{observation.started}", observation.owner)
-        # A terminal-owned conversation's owner tuple is its process, ``pid:ticks``; the row has to agree with the observation.
-        return observation.owner is None and self.owner in (None, f"{observation.pid}:{observation.started}")
+        return self.owner in (None, f"{observation.pid}:{observation.started}", observation.owner)
 
     def relation(self, observation) -> str | None:
         """``HELD`` / ``PENDING`` / ``CANDIDATE`` for a live observation, ``None`` for no observation."""
@@ -105,7 +94,7 @@ class Selection:
 
     def public(self) -> dict:
         return {"provider": self.provider, "conversation_id": self.conversation_id, "generation": self.generation,
-                "revision": self.revision, "transport": "codex_queue" if self.shared_server else ("managed" if self.managed else "terminal"),
+                "revision": self.revision, "transport": "managed",
                 "desired_state": self.desired_state}
 
 

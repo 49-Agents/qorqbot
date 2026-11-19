@@ -86,7 +86,7 @@ REQUIRED_RUNTIME_ASSETS = {
                               "qorqut-code/app/package-sources.json", "qorqut-code/app/service-constraints.txt"),
     "native-helpers": ("qorqut-code/app/qorqut/bootstrap/browser_init.cjs", "qorqut-code/app/tools/browser/desktop_session.py",
                        "qorqut-code/app/tools/browser/run-agent-browser", "qorqut-code/app/tools/browser/package.json",
-                       "qorqut-code/biz-dashboard/index.html", "qorqut-code/biz-dashboard/pty_broker.py"),
+                       "qorqut-code/biz-dashboard/index.html"),
     "core-instructions": ("qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/imported-roles",
                           "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml", "qorqut-code/app/qorqut/release_worker/lifetime.py"),
     "google-calendar": ("qorqut-code/extensions/google-calendar/pyproject.toml",),

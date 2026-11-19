@@ -5,25 +5,23 @@ UUID, global or business. An agent bearer credential is refused outright, an age
 not found, and a read never starts or resumes anything. The conversation is derived from the transcript archive; the response
 shapes are described in ``docs/v1.2/NATIVE_CHAT_DTO.md``.
 
-A managed agent (one the owner switched to a headless session, see ``managed_runtime``) adds, all owner-only like the rest:
+Every agent runs as a headless session (see ``managed_runtime``). All routes are owner-only:
 
 * ``POST   .../messages``   ``{text, idempotency_key, expected_binding?, new_conversation?}``: the pin may be left out only when the
-  agent is managed and has no session open; the message then opens one. That open is refused ``resume_unavailable`` when the
-  agent's earlier conversation can no longer be continued; ``new_conversation: true`` (a managed agent with no session open, no
+  agent has no session open; the message then opens one. That open is refused ``resume_unavailable`` when the
+  agent's earlier conversation can no longer be continued; ``new_conversation: true`` (no session open, no
   pin) is the owner's explicit choice to start a fresh one instead. Retryable refusals: ``open_timeout``, ``open_busy``; a retry
   with the same ``idempotency_key`` neither sends the message twice nor opens a second session.
 * ``POST   .../interrupt``  ``{expected_binding}`` -> ``{stopped}``: stop the running turn.
 * ``POST   .../answer``     ``{expected_binding, request_id, decision}`` -> ``{answered}``: ``decision`` is ``"allow"``/``"deny"``
   for a permission request, ``{"answers": {<question text>: <answer>}}`` for a question.
-* ``POST   .../close``      ``{expected_binding?}`` -> ``{closing}``: end the open session.
-* ``POST   .../runtime``    ``{mode}`` (``terminal``|``managed``) -> ``{execution, changed}``: refusals ``unsupported_role`` (only Ordubashy and worker agents),
-  ``unsupported_runtime``, ``session_open``, ``waiting_inputs``, ``terminal_present``.
+* ``POST   .../close``      ``{expected_binding?}`` -> ``{closing}``: end the open session and turn the agent off.
 
 * ``GET/POST .../options``  ``{client?, model?, effort?}`` -> ``{client, model, effort, effective_client, clients, session_open}``: the
   agent's launch options (``launch_options.py``); a change of ``client`` while a session is open is refused ``session_open``.
 
-The first three act on a managed agent only (``not_managed`` otherwise). ``GET .../commands`` marks the commands a terminal
-alone can show ``unavailable`` for a managed agent, and the ``changed`` stream event carries ``managed`` (the session summary).
+``GET .../commands`` marks the commands a terminal alone can show ``unavailable``, and the ``changed`` stream event carries
+``managed`` (the session summary).
 """
 
 from __future__ import annotations
@@ -106,18 +104,15 @@ async def route(runtime, request, principal_id, parts, request_id):
                 raise DomainError("validation_error", "before is required")
             return ok(await run(partial(chat.history, principal_id, agent_id, before=before,
                                         limit=_integer(request, "limit", 50, minimum=1), **_conversation(request))))
-        if tail == ["attachment"]:
-            return ok(await run(partial(chat.attachment_state, principal_id, agent_id)))
         if tail == ["commands"]:
             # Owner-only like every Chat read; the catalog reads the agent's folder and the owner's own commands.
-            execution = await run(partial(chat.execution_of, principal_id, agent_id))
+            await run(partial(chat.check_events, principal_id, agent_id))
             from qorqut.composition.locations import agent_workspace
             from qorqut.connectors import _probe_environment
             from .commands import catalog
             client = request.query_params.get("client") or ""
             workspace = agent_workspace(runtime.paths, agent_id, None)
-            return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace,
-                                        managed=execution == "managed")))
+            return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace)))
         if tail == ["events"]:
             return await _events(chat, request, principal_id, agent_id)
         if tail == ["options"]:
@@ -150,7 +145,7 @@ async def route(runtime, request, principal_id, parts, request_id):
                                     request.headers.get("x-chat-binding"), name, b"".join(body))))
     body = await read_json(request, limit=64 * 1024)
     if tail == ["messages"]:
-        # The pin is required for every agent but a managed one with no session open, which the facade decides.
+        # The pin is required unless the agent has no session open, which the facade decides.
         checked_fields(body, {"text", "idempotency_key", "expected_binding", "new_conversation"}, {"text", "idempotency_key"})
         return ok(await run(partial(chat.send, principal_id, agent_id, body["text"], body["idempotency_key"],
                                     body.get("expected_binding"), new_conversation=body.get("new_conversation", False))))
@@ -169,9 +164,6 @@ async def route(runtime, request, principal_id, parts, request_id):
         # Owner-only like every Chat route (the Authorization header was refused above). The fields are checked by the handler.
         from . import launch_options
         return ok(await run(partial(launch_options.change, chat, runtime, principal_id, agent_id, body)))
-    if tail == ["runtime"]:
-        checked_fields(body, {"mode"}, {"mode"})
-        return ok(await run(partial(chat.set_runtime, principal_id, agent_id, body["mode"])))
     if tail == ["select"]:
         # The owner's explicit selection of the running native conversation: the one way to replace a selection.
         fields = {"provider", "conversation_id", "expected_generation"}

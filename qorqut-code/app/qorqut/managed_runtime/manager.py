@@ -3,7 +3,6 @@
 A managed agent runs its Claude Code session under one small detached host process (``host.py``); this module never drives
 ``claude`` itself. ``ManagedRuntime`` is what the rest of the service holds:
 
-``mode(agent_id)``                      ``managed`` or ``terminal`` (``mode.py``; no file means terminal)
 ``verify(profile, marker)``             what the session probe needs to bind a managed ``claude``: ``{"transport", "owner"}`` or None
 ``identity(agent_id)``                  the verified session's identity (conversation, claude pid and ticks, owner) or None
 ``snapshot(agent_id)``                  the last known state for Chat's ``managed`` summary, without waiting on the host
@@ -12,7 +11,7 @@ A managed agent runs its Claude Code session under one small detached host proce
 ``ensure_open(profile, timeout)``       prepare the workspace and make sure a host is ready (spawns one when none is running)
 ``interrupt`` / ``answer`` / ``close``  control operations on the verified host
 ``close_all(reason)``                   ask every verified host to close
-``running_hosts()``                     every verified host, for recovery quiescence and the switch back to terminal
+``running_hosts()``                     every verified host, for recovery quiescence
 ``start()`` / ``stop()``                ``start`` spawns nothing; ``stop`` closes nothing and kills nothing: hosts outlive the service
 
 Also exposed because the input adapter needs the connection: ``handle(agent_id)`` (a verified ``Host`` with a ``client``).
@@ -48,7 +47,6 @@ from qorqut import agent_cli_launch
 from qorqut_operations.contracts import DomainError
 
 from . import clients as table
-from . import mode as modes
 from . import options as launch_options
 from . import state as layout
 from .client import HostUnavailable
@@ -74,11 +72,14 @@ LIVE_STATES = ("starting", "ready", "closing")
 WORKING = ("working", "blocked")
 
 
+CLIENT_HOME_VARIABLES = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
+
+
 class ManagedError(DomainError):
-    """A managed operation that did not happen. ``code`` is stable: ``managed_unavailable``, ``not_managed``, ``session_closed``,
+    """A managed operation that did not happen. ``code`` is stable: ``managed_unavailable``, ``session_closed``,
     ``host_unverified``, ``cli_unavailable``, ``resume_unavailable`` (the selected conversation's transcript is gone: the owner
     must choose a new conversation), ``resume_failed``, ``host_failed``, ``host_start_failed``, ``open_timeout`` and ``open_busy``
-    (retryable), ``terminal_present``, ``session_opening`` (retryable), ``host_busy`` (retryable), ``host_rejected``, ``driver_unavailable`` (the
+    (retryable), ``session_opening`` (retryable), ``host_busy`` (retryable), ``host_rejected``, ``driver_unavailable`` (the
     agent's client has no managed driver yet)."""
 
 
@@ -266,11 +267,6 @@ class ManagedRuntime:
             self._activity_at.clear()
             self._staged.clear()
 
-    # ----- mode -----------------------------------------------------------------------------------------------------
-
-    def mode(self, agent_id) -> str:
-        return modes.mode_of(self.paths, agent_id)
-
     # ----- finding hosts --------------------------------------------------------------------------------------------
 
     def _launcher_for(self):
@@ -283,7 +279,7 @@ class ManagedRuntime:
         return self._launcher
 
     def _state_dir(self, agent_id) -> Path:
-        return modes.agent_state(self.paths, agent_id)
+        return layout.agent_state(self.paths, agent_id)
 
     @staticmethod
     def _record(found) -> dict:
@@ -324,11 +320,10 @@ class ManagedRuntime:
         return None if host is None else host.identity
 
     def verify(self, profile, marker):
-        """For the session probe: ``{"transport": "managed", "owner": "host:<pid>:<ticks>"}`` when this agent is managed, a
-        verified host runs, the hook marker is the host's session, and the marker's process descends from the host. Else None,
-        so the probe falls through to its terminal checks."""
+        """For the session probe: ``{"transport": "managed", "owner": "host:<pid>:<ticks>"}`` when a verified host runs for this
+        agent, the hook marker is the host's session, and the marker's process descends from the host. Else None."""
         agent_id = profile.get("agent_id") if isinstance(profile, dict) else None
-        if not agent_id or self.mode(agent_id) != modes.MANAGED:
+        if not agent_id:
             return None
         try:
             host = self.handle(agent_id)
@@ -365,7 +360,7 @@ class ManagedRuntime:
         activity-only changes count at most once a second. A host that cannot be read this time leaves the last state."""
         proven_absent = True
         try:
-            # An agent that never had a managed state folder has no host: terminal agents cost one ``stat``.
+            # An agent that never had a state folder has no host: it costs one ``stat``.
             host = self._find(agent_id) if self._has_state(agent_id) else None
         except Exception:  # noqa: BLE001 - not verifiable now: it is not shown as open, and nothing is claimed about why
             host, proven_absent = None, False
@@ -409,7 +404,7 @@ class ManagedRuntime:
 
     def _has_state(self, agent_id) -> bool:
         try:
-            return modes.agent_state(self.paths, agent_id).is_dir()
+            return layout.agent_state(self.paths, agent_id).is_dir()
         except (ValueError, AttributeError, TypeError, OSError):
             return False
 
@@ -489,8 +484,6 @@ class ManagedRuntime:
         resumed because its transcript is gone, ``resume_unavailable`` is raised and nothing starts: it is never silently replaced
         by a fresh conversation. ``new_conversation=True`` is the owner's explicit choice to start a fresh one instead."""
         agent_id = profile["agent_id"]
-        if self.mode(agent_id) != modes.MANAGED:
-            raise ManagedError("not_managed", "This agent runs in its terminal")
         deadline = self._clock() + timeout
         with self._one_open(agent_id, deadline):
             return self._open(profile, deadline, new_conversation)
@@ -514,7 +507,7 @@ class ManagedRuntime:
 
     @contextmanager
     def hold(self, agent_id, timeout=5.0):
-        """Keep every open of this agent out while the caller changes how it runs (the runtime switch). Waits up to ``timeout``;
+        """Keep every open of this agent out while the caller changes its client (launch options). Waits up to ``timeout``;
         ``session_opening`` (retryable) when a session is being opened and does not finish in time."""
         deadline = self._clock() + timeout
         with self._one_open(agent_id, deadline, error="session_opening", message="A session is being opened for this agent; try again in a moment"):
@@ -565,10 +558,6 @@ class ManagedRuntime:
         """Under the lifecycle lock, with no host present: check that this agent may be started, then start it.
         ``(record, resume, client)``."""
         agent_id = profile["agent_id"]
-        if self.mode(agent_id) != modes.MANAGED:
-            raise ManagedError("not_managed", "This agent runs in its terminal")
-        if self.terminal_present(profile):
-            raise ManagedError("terminal_present", "This agent's Terminal is still running. Close it first, then send the message again")
         client = self.client_for(profile)
         if not table.available(client):
             raise ManagedError("driver_unavailable", "Running this agent with " + client.capitalize() + " is not available yet")
@@ -579,19 +568,6 @@ class ManagedRuntime:
             return self._start(profile, resume, max(1.0, deadline - self._clock()), client), resume, client
         finally:
             self._slots.release()
-
-    def terminal_present(self, profile) -> bool:
-        """Whether the agent's tmux terminal session exists, or cannot be proved absent (fail closed). A managed session and a
-        terminal one never run side by side. Nothing is composed (no terminal control): nothing is present."""
-        backend = getattr(getattr(self._runtime, "terminal_control", None), "backend", None)
-        if backend is None:
-            return False
-        try:
-            # ``terminal_selected``: ``selected`` refuses a managed agent, which is always the case when a session is opened.
-            broker, _, session, _, _ = (getattr(backend, "terminal_selected", None) or backend.selected)(profile)
-            return bool(broker.session_alive(session))
-        except Exception:  # noqa: BLE001
-            return True
 
     def _opened(self, agent_id, record, started, resume):
         if resume and record.get("session_id") != resume:
@@ -631,15 +607,12 @@ class ManagedRuntime:
     def _resume_id(self, agent_id, new_conversation=False, client=table.CLAUDE):
         """The conversation to resume, or None for a fresh start. A fresh start is only ever ``new_conversation`` (the owner chose
         it), no selection, a selection that is not this client's, or a selected conversation that has nothing recorded to lose. A
-        selected conversation whose transcript is gone, while Qorqbot's archive holds what it said, is ``resume_unavailable``:
-        a terminal agent would not silently start another conversation in its place either."""
+        selected conversation whose transcript is gone, while Qorqbot's archive holds what it said, is ``resume_unavailable``.
+        The id is the selected conversation's own: Claude's session id, or a Codex thread id (its rollout file is the transcript)."""
         if new_conversation:
             return None
         if self._resume_override is not None:
             return self._resume_override(agent_id)
-        if client != table.CLAUDE:
-            # TODO(codex): a Codex thread is resumed by its thread id from the rollout on disk; the lookup is written with its driver.
-            raise ManagedError("driver_unavailable", "Resuming a " + str(client).capitalize() + " conversation is not available yet")
         database = getattr(self._runtime, "database", None)
         if database is None:
             return None
@@ -716,6 +689,11 @@ class ManagedRuntime:
         item, name = table.entry(client), table.NAMES[client]
         prepared = self._prepared(agent_id)
         workspace, env = str(prepared["workspace"]), dict(prepared["env"])
+        # The client's own configuration folder must be the one its conversations were created in: a resume only finds its
+        # conversation there, and the host passes the client nothing but this environment (``launch.json``).
+        for variable in CLIENT_HOME_VARIABLES:
+            if variable not in env and os.environ.get(variable):
+                env[variable] = os.environ[variable]
         found, searched = self._locate(client, env)
         if not found:
             where = "Qorqbot's own copy and these folders: " + ", ".join(searched[:8]) if searched else "Qorqbot's own copy"
@@ -723,17 +701,17 @@ class ManagedRuntime:
                                + (" and others" if len(searched) > 8 else "") + ". Install " + name + " from Settings, then send again.")
         extra = agent_cli_launch.for_executable(item["provider"], found)
         args = list(extra["args"])
-        if item["settings"]:
-            settings = Path(workspace) / item["settings"]
-            if settings.is_file():
-                args += ["--settings", str(settings)]
+        args += table.settings_arguments(client, workspace)
         chosen = launch_options.read(self.paths, agent_id)
         args += table.allowed_tool_arguments(client, workspace)
-        args += table.launch_arguments(client, chosen.model, chosen.effort)
+        args += table.launch_arguments(client, chosen.model, chosen.effort, workspace)
         spec = {"agent_id": agent_id, "folder": workspace, "executable": found, "args": args, "env": {**env, **extra["env"]},
                 "resume_session_id": resume, "send_role": table.role_command(client) if resume is None else False,
                 "idle_seconds": self._idle, "client": client, "driver": table.driver(client),
                 "permission_mode": table.permission_mode(client, workspace), "model": chosen.model, "effort": chosen.effort}
+        ready = table.ready_seconds(client)
+        if ready is not None:
+            spec["ready_seconds"] = ready
         launcher = self._launcher_for()
         try:
             verified = launcher.start_host(self._state_dir(agent_id), spec, timeout=timeout)
@@ -805,7 +783,7 @@ class ManagedRuntime:
         if self.paths is None:
             return []
         try:
-            found = self._launcher_for().running_hosts(modes.state_root(self.paths))
+            found = self._launcher_for().running_hosts(layout.state_root(self.paths))
         except ManagedError:
             return []
         except Exception:  # noqa: BLE001 - nothing that cannot be verified counts

@@ -68,6 +68,11 @@ class HostClient:
         raises ``HostUnavailable("protocol")`` and the request stays pending."""
         return self._call("answer", timeout=timeout, request_id=request_id, decision=decision)
 
+    def command(self, name: str, *, model=None, effort=None, timeout=None) -> dict:
+        """``{"status":"ok","accepted":bool}`` or a rejection. ``name`` is ``compact`` or ``model`` (with ``model`` and/or ``effort``).
+        ``accepted`` false: the client could not take it now (a turn is running, the thread is not ready)."""
+        return self._call("command", timeout=timeout, name=name, model=model, effort=effort)
+
     def close(self, mode: str = "graceful", timeout=None) -> dict:
         return self._call("close", timeout=timeout, mode=mode)
 

@@ -30,7 +30,7 @@ const onboarding = (() => {
       body: 'Projects keep the work, records and context for one client or business apart. You create them by asking.',
       instructions: ['In Chat, ask Ordubashy: “Create a project for …” with a name and what it is for.', 'He prepares it and asks for your signoff before anything is created.'],
       hint: 'Opening a project from a link or record switches the whole workspace to it.',
-      target: () => document.querySelector('#global-agent-terminal .gchat-composer')},
+      target: () => document.querySelector('#global-agent-chat .gchat-composer')},
     {id: 'signoffs', chapter: 'projects', view: 'focus', title: 'signoffs',
       body: 'When an agent needs your approval, such as for creating a project, it waits as a Signoff at the top of Focus. Nothing happens until you approve it. Due reminders show up there too.',
       example: {agent: 'Ordubashy', title: 'Create the project “Acme Bakery”', detail: 'A project for the bakery’s orders, suppliers and weekly menu.'},
@@ -62,7 +62,7 @@ const onboarding = (() => {
         chosen: name => `Ordubashy is set to use ${name}, which isn’t connected. Connect it in Settings, or choose the other one under Agents, then say hello.`},
       // A first walkthrough types the hello for the owner, and done sends it.
       typed: '“hi, help me get set up” is typed in below. Press done to send it. Ordubashy asks a few quick questions about you, then connects the tools you want him to use.',
-      target: () => document.querySelector('#global-agent-terminal .gchat-composer')},
+      target: () => document.querySelector('#global-agent-chat .gchat-composer')},
   ];
   const steps = allSteps;
   let root = null, card = null, target = null, index = 0, generation = 0, busy = false;
@@ -163,7 +163,7 @@ const onboarding = (() => {
   }
   // Sends the typed hello when the owner left it as it is; otherwise only focuses the composer for their own first message.
   async function sendHello(send) {
-    const input = await waitFor(() => document.querySelector('#global-agent-terminal .gchat-composer textarea:not(:disabled)'), 10000);
+    const input = await waitFor(() => document.querySelector('#global-agent-chat .gchat-composer textarea:not(:disabled)'), 10000);
     if (!send || ![HELLO, ''].includes(input.value.trim())) { input.focus({preventScroll: true}); return; }
     input.value = HELLO; input.dispatchEvent(new Event('input', {bubbles: true}));
     const button = await waitFor(() => { const b = input.form?.querySelector('.gchat-send'); return b && !b.disabled && b; }, 4000);

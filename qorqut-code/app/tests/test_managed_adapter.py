@@ -1,30 +1,20 @@
-"""``ManagedAdapter`` (native_chat/adapters.py) against a stand-in host client, and the guards that keep every tmux operation away
-from a managed agent (``TerminalService``, ``AgentTerminalBackend``, terminal control).
+"""``ManagedAdapter`` (native_chat/adapters.py) against a stand-in host client.
 
 Nothing here starts a host, a socket or ``claude``: the client records each call in one shared log, so "the checkpoint ran once
 and before the send" is an assertion about that log. The outcome codes are the managed side of the table in
 docs/MANAGED-RUNTIME-STEP3-DESIGN.md, section 2.
 """
 import json
-from pathlib import Path
-import shutil
-import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest import mock
+
 import uuid
 
-from qorqut_operations.contracts import DomainError
-
-from qorqut.agents import terminal_control
 from qorqut.managed_runtime import manager as hosts
-from qorqut.managed_runtime import mode as modes
 from qorqut.managed_runtime.client import HostUnavailable
-from qorqut.native_chat.adapters import ManagedAdapter, TerminalAdapter
+from qorqut.native_chat.adapters import ManagedAdapter
 from qorqut.native_chat.arbiter import InputArbiter
-from qorqut.native_chat.contracts import TYPE_CHAT, TYPE_NUDGE, TYPE_TELEGRAM
-from qorqut.transport.agent_terminal_control import AgentTerminalBackend, OwnerInputOutcome
-from qorqut.transport.terminals import TerminalService
+from qorqut.native_chat.contracts import TYPE_CHAT, TYPE_NUDGE, TYPE_TELEGRAM, OwnerInputOutcome
 
 AGENT = "11111111-1111-4111-8111-111111111111"
 SESSION = "33333333-3333-4333-8333-333333333333"
@@ -176,18 +166,14 @@ class Deferrals(Fixture):
                 outcome = self.submit(Managed(host(self.client())), profile=profile)
                 self.assertEqual((outcome.status, outcome.receipt["client"]), ("submitted", "claude"))
 
-    def test_a_client_without_a_driver_fails_and_an_unknown_one_is_unsupported(self):
-        codex = {**SESSION_ROW, "provider": "codex"}
-        self.assertOutcome(self.submit(Managed(host(self.client())), session=codex), "failed", "driver_unavailable")
+    def test_an_unknown_client_is_unsupported(self):
         self.assertOutcome(self.submit(Managed(host(self.client())), session={**SESSION_ROW, "provider": "gemini"}),
                            "failed", "unsupported_runtime")
         self.assertUntouched()
 
     def test_a_client_with_a_driver_is_delivered_with_its_own_receipt(self):
-        from qorqut.managed_runtime import clients
-        with mock.patch.dict(clients.DRIVER_READY, {"codex": True}):
-            outcome = self.submit(Managed(host(self.client())), session={**SESSION_ROW, "provider": "codex"},
-                                  profile={**PROFILE, "profile_json": json.dumps({"runtime": "codex"})})
+        outcome = self.submit(Managed(host(self.client())), session={**SESSION_ROW, "provider": "codex"},
+                              profile={**PROFILE, "profile_json": json.dumps({"runtime": "codex"})})
         self.assertEqual((outcome.status, outcome.receipt["client"], outcome.receipt["transport"]), ("submitted", "codex", "managed"))
 
 
@@ -462,11 +448,11 @@ class Exit(Fixture):
 
 
 class ThroughTheArbiter(Fixture):
-    """The adapter is chosen by the binding's transport, and Chat, Telegram and a nudge reach it as before."""
+    """Chat, Telegram and a nudge reach the one adapter."""
 
     def run_input(self, input_type, steer, client, **session):
         runtime = SimpleNamespace()
-        arbiter = InputArbiter(runtime, None, None, {"managed": ManagedAdapter(Managed(host(client)), new_uuid=lambda: self.uuid)})
+        arbiter = InputArbiter(runtime, None, None, ManagedAdapter(Managed(host(client)), new_uuid=lambda: self.uuid))
         claimed = {}
 
         def checkpoint():
@@ -490,217 +476,61 @@ class ThroughTheArbiter(Fixture):
         outcome, name, _ = self.run_input(TYPE_NUDGE, True, self.client())
         self.assertEqual((name, outcome.status), ("managed", "submitted"))
 
-    def test_a_terminal_binding_still_uses_the_terminal_adapter(self):
-        arbiter = InputArbiter(SimpleNamespace(), None, None, {"terminal": TerminalAdapter(lambda: None),
-                                                              "managed": ManagedAdapter(Managed(None))})
+
+class RowThatIsNotManaged(Fixture):
+    def test_a_row_that_is_not_a_managed_binding_is_deferred_unsupported(self):
+        arbiter = InputArbiter(SimpleNamespace(), None, None, ManagedAdapter(Managed(None)))
         outcome, name = arbiter._run(PROFILE, {"transport": "terminal", "provider": "claude"}, "x", True, TYPE_CHAT, lambda: None, {})
-        self.assertEqual((name, outcome.status, outcome.reason), ("terminal", "deferred", "terminal_unavailable"))
+        self.assertEqual((outcome.status, outcome.reason), ("deferred", "unsupported_transport"))
 
 
-# ----- tmux operations never reach a managed agent ----------------------------------------------------------------------------
+class CodexCommands(Fixture):
+    """Codex's slash commands are real driver operations (``compact``, ``model``), never text typed into the thread."""
 
-class Guards(unittest.TestCase):
-    def setUp(self):
-        self.base = Path(tempfile.mkdtemp(prefix="managed guards ")).resolve()
-        self.addCleanup(shutil.rmtree, self.base, True)
-        self.paths = SimpleNamespace(runtime=self.base / "runtime")
-        self.paths.runtime.mkdir()
-        self.identity = None
-        self.closed = []
-        self.managed = SimpleNamespace(identity=lambda agent: self.identity, close=lambda agent, mode="graceful": self.closed.append((agent, mode)))
-        self.runtime = SimpleNamespace(paths=self.paths, managed_runtime=self.managed, native_chat=None)
-        self.row = {"agent_id": AGENT, "profile_json": json.dumps({"runtime": "claude-code"}), "home_business_id": None}
+    CODEX = {**SESSION_ROW, "provider": "codex"}
 
-    def switch(self):
-        modes.set_mode(self.paths, AGENT, "managed")
+    class CommandClient(Client):
+        def __init__(self, log, reply=None):
+            super().__init__(log)
+            self.commands = []
+            self.command_reply = {"status": "ok", "name": "compact", "accepted": True} if reply is None else reply
 
-    def backend(self):
-        terminals = SimpleNamespace(runtime=self.runtime)
-        backend = AgentTerminalBackend(terminals, sleep=lambda seconds: None)
-        backend.tmux_touched = []
-        for name in ("execution", "binding"):
-            setattr(terminals, name, lambda *a, **k: backend.tmux_touched.append(name))
-        return backend
+        def command(self, name, **arguments):
+            self.log.append("command")
+            self.commands.append((name, arguments))
+            return self._result(self.command_reply)
 
-    def present(self):
-        self.identity = {"conversation_id": SESSION, "pid": 4343, "started": "777", "owner": "host:4242:555"}
+    def run_text(self, text, client):
+        return self.submit(Managed(host(client)), text=text, session=self.CODEX)
 
-    # the synthetic observation
-    def test_a_terminal_agent_is_not_affected(self):
-        backend = self.backend()
-        self.assertFalse(backend.is_managed(self.row))
-        self.assertFalse(backend.is_managed({}))
+    def test_compact_is_the_drivers_compact_and_is_not_sent_as_text(self):
+        client = self.CommandClient(self.log)
+        outcome = self.run_text("/compact", client)
+        self.assertOutcome(outcome, "submitted", "command_accepted")
+        self.assertEqual((client.commands, client.sent), ([("compact", {})], []))
 
-    def test_a_managed_agent_observes_as_absent_until_a_verified_session_exists(self):
-        self.switch()
-        backend = self.backend()
-        self.assertEqual(backend.snapshot(self.row), {"state": "absent", "managed": True, "client": "claude", "selection_revision": None})
-        self.present()
-        snapshot = backend.snapshot(self.row)
-        self.assertEqual((snapshot["state"], snapshot["command"], snapshot["client"], snapshot["managed"]), ("present", "claude", "claude", True))
-        self.assertEqual((snapshot["session_id"], snapshot["owner"]), (SESSION, "host:4242:555"))
-        self.assertEqual(backend.snapshot(self.row, client="claude"), snapshot, "stable, so a prepared command stays valid")
-        self.assertEqual(backend.tmux_touched, [], "no terminal was looked at")
+    def test_model_carries_model_and_effort_together(self):
+        client = self.CommandClient(self.log, {"status": "ok", "name": "model", "accepted": True})
+        self.assertOutcome(self.run_text("/model gpt-x high", client), "submitted", "command_accepted")
+        self.assertEqual(client.commands, [("model", {"model": "gpt-x", "effort": "high"})])
 
-    def test_without_a_managed_runtime_the_agent_is_absent(self):
-        self.switch()
-        self.runtime.managed_runtime = None
-        self.assertEqual(self.backend().snapshot(self.row)["state"], "absent")
+    def test_a_running_turn_defers_a_command(self):
+        client = self.CommandClient(self.log, {"status": "ok", "name": "compact", "accepted": False})
+        self.assertOutcome(self.run_text("/compact", client), "deferred", "turn_running")
 
-    def test_a_direct_message_passes_validation_only_for_an_open_session(self):
-        self.switch()
-        backend = self.backend()
-        with self.assertRaises(DomainError):
-            backend.validate("ping", backend.snapshot(self.row))
-        self.present()
-        backend.validate("ping", backend.snapshot(self.row))
+    def test_a_refused_command_fails_and_a_lost_connection_is_uncertain(self):
+        refused = self.CommandClient(self.log, {"status": "error", "code": "unsupported_command"})
+        self.assertOutcome(self.run_text("/compact", refused), "failed", "command_refused")
+        lost = self.CommandClient(self.log, HostUnavailable("lost", sent=True))
+        self.assertEqual(self.run_text("/compact", lost).status, "uncertain")
 
-    # start and restart are refused, kill closes
-    def test_start_and_restart_are_refused_whatever_the_session_state(self):
-        self.switch()
-        backend = self.backend()
-        for present in (False, True):
-            if present:
-                self.present()
-            for action in ("start", "restart"):
-                with self.subTest(action=action, present=present):
-                    with self.assertRaises(DomainError) as raised:
-                        backend.validate(action, backend.snapshot(self.row))
-                    self.assertEqual(raised.exception.code, "managed_agent")
-
-    def test_a_terminal_snapshot_validates_exactly_as_before(self):
-        AgentTerminalBackend.validate("start", {"state": "absent"})
-        AgentTerminalBackend.validate("restart", {"state": "present", "command": "claude", "client": "claude"})
-        with self.assertRaises(DomainError) as raised:
-            AgentTerminalBackend.validate("start", {"state": "present", "command": "claude"})
-        self.assertEqual(raised.exception.code, "invalid_transition")
-
-    def test_a_start_that_reaches_the_executor_never_opens_a_terminal(self):
-        self.switch()
-        self.present()
-        backend = self.backend()
-        expected = backend.snapshot(self.row)
-        opened = []
-        backend.terminals.open = lambda *a, **k: opened.append(a)
-        for action in ("start", "restart"):
-            with self.assertRaises(DomainError) as raised:
-                backend._execute(self.row, action, None, expected, None, None)
-            self.assertEqual(raised.exception.code, "managed_agent")
-        self.assertEqual((opened, backend.tmux_touched), ([], []))
-
-    def test_a_command_prepared_for_a_terminal_agent_is_stale_once_it_is_switched(self):
-        backend = self.backend()
-        terminal_snapshot = {"state": "absent", "client": "claude", "selection_revision": None}
-        self.switch()
-        with self.assertRaises(DomainError) as raised:
-            backend._execute(self.row, "start", None, terminal_snapshot, None, None)
-        self.assertEqual(raised.exception.code, "revision_conflict")
-        self.assertEqual(backend.tmux_touched, [])
-
-    def test_kill_closes_the_managed_session_without_touching_tmux(self):
-        self.switch()
-        self.present()
-        backend = self.backend()
-        detail = backend._execute(self.row, "kill", None, backend.snapshot(self.row), None, None)
-        self.assertIn("close requested", detail)
-        self.assertEqual(self.closed, [(AGENT, "now")])
-        self.assertEqual(backend.tmux_touched, [])
-
-    def test_kill_without_a_managed_runtime_fails_cleanly(self):
-        self.switch()
-        self.present()
-        backend = self.backend()
-        expected = backend.snapshot(self.row)
-        self.runtime.managed_runtime = None
-        self.identity = None
-        with self.assertRaises(DomainError):
-            backend._execute(self.row, "kill", None, {**expected, "state": "absent"}, None, None)
-
-    def test_ping_goes_through_the_shared_arbiter(self):
-        self.switch()
-        self.present()
-        backend = self.backend()
-        sent = []
-        backend._ping = lambda row, message, key, client: sent.append((message, key, client)) or "sent"
-        self.assertEqual(backend._execute(self.row, "ping", "hi", backend.snapshot(self.row), "key-1", None), "sent")
-        self.assertEqual(sent, [("hi", "key-1", "claude")])
-
-    def test_no_tmux_pane_is_selected_observed_or_typed_into_for_a_managed_agent(self):
-        self.switch()
-        backend = self.backend()
-        with self.assertRaises(DomainError) as raised:
-            backend.selected(self.row)
-        self.assertEqual(raised.exception.code, "managed_agent")
-        self.assertEqual(backend.pane_observation(self.row, "claude"), {"state": "absent", "managed": True})
-        backend.selected_client = lambda row: "claude"
-        outcome = backend.owner_input(self.row, "text", workdir=self.base, checkpoint=lambda: self.fail("claimed"))
-        self.assertIsInstance(outcome, OwnerInputOutcome)
-        self.assertEqual(outcome.status, "deferred")
-
-    def test_a_failed_start_is_recorded_as_failed_not_uncertain(self):
-        self.assertEqual(terminal_control.execution_outcome(DomainError("managed_agent", "No"))[0], "failed")
-        self.assertEqual(terminal_control.execution_outcome(DomainError("not_delivered", "No"))[0], "failed")
-        self.assertEqual(terminal_control.execution_outcome(DomainError("operation_failed", "No"))[0], "uncertain")
-        self.assertEqual(terminal_control.execution_outcome(RuntimeError())[0], "uncertain")
-
-    # opening a terminal
-    def service(self):
-        service = TerminalService.__new__(TerminalService)
-        service.runtime = self.runtime
-        service.agent = lambda context, selector: (SimpleNamespace(agent_id=AGENT), {"agent_id": AGENT})
-        service.execution = lambda business: self.fail("a managed agent's terminal was looked up")
-        service.binding = lambda *a: self.fail("a managed agent's terminal was bound")
-        service._prepare = lambda *a: self.fail("a managed agent was prepared for a terminal")
-        return service
-
-    def test_no_terminal_is_opened_for_a_managed_agent(self):
-        self.switch()
-        service = self.service()
-        for reconnect in (False, True):
-            with self.assertRaises(DomainError) as raised:
-                service._open_admitted(None, None, "agent", cols=80, rows=24, execution=None, reconnect=reconnect)
-            self.assertEqual(raised.exception.code, "managed_agent")
-
-    def test_a_reconnect_is_refused_before_any_attachment_is_inspected(self):
-        self.switch()
-        service = self.service()
-        service.attachment = lambda: SimpleNamespace(state=lambda agent: self.fail("inspected"))
-        with self.assertRaises(DomainError) as raised:
-            service.reconnect_selected(None, None, "agent", None, "1")
-        self.assertEqual(raised.exception.code, "managed_agent")
-
-    def test_a_broadcast_reaches_a_managed_agent_only_through_the_arbiter(self):
-        self.switch()
-        service = self.service()
-        row = {"agent_id": AGENT, "home_business_id": None, "status": "active"}
-        uow = SimpleNamespace(repository=lambda name: SimpleNamespace(get=lambda key: None),
-                              connection=SimpleNamespace(execute=lambda *a: SimpleNamespace(fetchone=lambda: row)))
-        service.runtime = SimpleNamespace(paths=self.paths, database=SimpleNamespace(read=lambda: _Context(uow)))
-        from qorqut.transport import terminals
-        original = terminals.active_global
-        terminals.active_global = lambda connection, agent: {"role": {"id": "x"}}
-        self.addCleanup(setattr, terminals, "active_global", original)
-        service._native_input = lambda agent, data, key: {"state": "delivered", "via": "arbiter"}
-        self.assertEqual(service.input_existing(None, AGENT, "hi", "key-1"), {"state": "delivered", "via": "arbiter"})
-        result = service.input_existing(None, AGENT, "hi")
-        self.assertEqual(result["state"], "unavailable", "no keyless tmux fallback")
-
-    def test_a_terminal_agent_is_opened_as_before(self):
-        service = self.service()
-        self.assertIsNone(service.refuse_managed({"agent_id": AGENT}))
-        self.assertIsNone(service.refuse_managed({}))
-        self.assertFalse(service.is_managed(AGENT))
-
-
-class _Context:
-    def __init__(self, value):
-        self.value = value
-
-    def __enter__(self):
-        return self.value
-
-    def __exit__(self, *exc):
-        return False
+    def test_ordinary_text_and_claude_commands_are_not_commands(self):
+        client = self.CommandClient(self.log)
+        self.assertEqual(self.run_text("compact the notes please", client).status, "submitted")
+        self.assertEqual(client.commands, [])
+        claude = self.CommandClient(self.log)
+        self.submit(Managed(host(claude)), text="/compact")
+        self.assertEqual(claude.commands, [], "Claude takes its slash commands as the text it understands")
 
 
 if __name__ == "__main__":

@@ -45,25 +45,12 @@ def operating_global(row) -> bool:
                                 "profile_json": row["profile_json"]}) is not None
 
 
-def execution_of(paths, agent_id: str) -> str:
-    """How the agent runs: ``managed`` (a headless session under a runtime host) or ``terminal`` (the tmux pane). It is a
-    host-local setting kept beside the runtime state, never part of the portable profile. A missing setting, a missing module
-    or an unreadable file is ``terminal``, which is what every agent was before the setting existed."""
-    try:
-        from qorqut.managed_runtime.mode import mode_of
-        return "managed" if mode_of(paths, agent_id) == "managed" else "terminal"
-    except (ImportError, OSError, ValueError):
-        return "terminal"
-
-
 def _profile(row, paths) -> dict:
     result = {key: value for key, value in dict(row).items() if key not in ELIGIBILITY}
     if paths is not None:
         from qorqut.composition.locations import agent_workspace_of
         # The registered identity and home scope select the workspace; the stored column never does.
         result["workspace"] = str(agent_workspace_of(paths, result["agent_id"], result["home_business_id"], result["business_slug"]))
-        # Callers that pass no ``paths`` only read archives and see no ``execution``; consumers read it with a ``terminal`` default.
-        result["execution"] = execution_of(paths, result["agent_id"])
     return result
 
 

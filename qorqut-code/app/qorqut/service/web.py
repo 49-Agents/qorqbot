@@ -164,22 +164,11 @@ class ServiceBoundary:
 
 
 class SelectiveGZip:
-    """Gzip owner-visible dashboard traffic; never agent tooling, MCP, or an
-    SSE stream (terminals, the change feed at /api/root/events).
+    """Gzip owner-visible dashboard traffic; never agent tooling, MCP, or an SSE stream (the change feed at /api/root/events).
 
-    `GZipMiddleware` has no path filter of its own, so this selects between a
-    shared `GZipMiddleware` instance and the plain app by `scope["path"]`
-    before either one ever calls `send`. The terminal family
-    (`transport/terminals.py`) is matched with the same path segments
-    `HTTPAPI._dispatch` uses to route to it (`qorqut/transport/http.py`,
-    `parts[:1] == ["agent"]`, `parts[:1] == ["root"] and parts[1:2] in
-    (...)`, `tail[:1] in (["terminal"], ["terminals"])`), so the exclusion
-    holds by construction for every current terminal action (including the
-    GET .../stream route that returns `StreamingResponse`), not only the
-    literal string "stream". This is deliberately independent of Starlette's
-    own `text/event-stream` content-type exclusion (present in the pinned
-    version's `GZipMiddleware` but not something this codebase controls):
-    the terminal stream must never even reach `GZipMiddleware`.
+    `GZipMiddleware` has no path filter of its own, so this selects between a shared `GZipMiddleware` instance and the plain app
+    by `scope["path"]` before either one ever calls `send`. This is deliberately independent of Starlette's own
+    `text/event-stream` content-type exclusion: an event stream must never even reach `GZipMiddleware`.
     """
 
     def __init__(self, app):
@@ -200,12 +189,10 @@ class SelectiveGZip:
         parts = path[len("/api/"):].strip("/").split("/")
         if parts[:1] == ["agent"]:
             return False
-        if parts[:1] == ["root"] and parts[1:2] in (["terminal"], ["terminals"], ["workspace-terminal"], ["events"]):
+        if parts[:1] == ["root"] and parts[1:2] == ["events"]:
             return False
         if parts[:3] == ["root", "files", "download"]:
             return False  # Exact bytes with their own Content-Length, streamed from the opened file.
-        if parts[:1] == ["biz"] and parts[2:3] in (["terminal"], ["terminals"]):
-            return False
         return True
 
 
@@ -222,7 +209,7 @@ async def stop_agent_client_sign_ins():
 
 
 def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
-               authentication=None, compatibility=None, terminals=None, manage_lifecycle=True,
+               authentication=None, compatibility=None, manage_lifecycle=True,
                agent_only=False):
     origins = OriginPolicy(origins)
     viewbox = getattr(getattr(runtime, "domains", None), "viewbox", None)
@@ -230,7 +217,7 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
         viewbox.configure_origins(origins.origins)
     authentication = authentication or Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token,
                                                       integration_adapter=runtime.selection.integration_adapter)
-    api = HTTPAPI(runtime, authentication, origins, compatibility=compatibility, terminals=terminals)
+    api = HTTPAPI(runtime, authentication, origins, compatibility=compatibility)
     mcp = MCPTransport(runtime, authentication, origins)
     owner_mcp = None
     if not agent_only:

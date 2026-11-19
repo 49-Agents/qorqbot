@@ -7,7 +7,7 @@ being gone, or the selected conversation being re-held by a new process after th
 failure to verify (a tmux hiccup, a screen read) never ends a binding; waiting inputs then simply keep waiting for the same
 session.
 
-The owner row records the conversation followed from the registered terminal. The native observer updates it before
+The owner row records the conversation adopted from the agent's verified session. The native observer updates it before
 reconciliation. A new observation cannot receive messages until that verified adoption completes.
 """
 

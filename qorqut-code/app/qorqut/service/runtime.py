@@ -88,7 +88,8 @@ class Runtime:
     broadcasts: object = None
     broadcast_dispatcher: object = None
     terminal_control: object = None
-    terminals: object = None  # The assembled TerminalService; installed once by service composition.
+    managed_launch: object = None  # Prepares and launches managed sessions; installed once by service composition.
+    terminals: object = None  # The same object under the name the managed runtime still reads.
     background_operations: object = None
     checkpoints: object = None
     management: object = None
@@ -523,7 +524,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.native_chat.chat import NativeChat
     from qorqut.overseer.retention import Retention
     runtime.overseer_retention = Retention(runtime)
-    # The managed runtime reads ``runtime.paths`` and, when it opens a session, ``runtime.terminals`` (installed later by service
+    # The managed runtime reads ``runtime.paths`` and, when it opens a session, ``runtime.managed_launch`` (installed later by service
     # composition, read at that moment); the session probe, input arbiter and backend share it through ``NativeChat``.
     from qorqut.managed_runtime.manager import ManagedRuntime
     runtime.managed_runtime = ManagedRuntime(runtime)

@@ -1,5 +1,4 @@
-"""The per-agent runtime switch (``managed_runtime/mode.py``) and the ``ManagedRuntime`` that reads it
-(``managed_runtime/manager.py``).
+"""The ``ManagedRuntime`` (``managed_runtime/manager.py``): finding hosts, the session view, opening, control.
 
 Hosts, the launcher and the host client are stand-ins that record what they are asked; nothing starts a process, a socket or a
 real ``claude``. The only real processes are the test's own parent chain and one short ``sleep`` (for the ancestry check).
@@ -19,7 +18,6 @@ import unittest
 from unittest import mock
 
 from qorqut.managed_runtime import manager as hosts
-from qorqut.managed_runtime import mode as modes
 from qorqut.managed_runtime import state as layout
 from qorqut.managed_runtime.client import HostUnavailable
 
@@ -36,80 +34,6 @@ class Fixture(unittest.TestCase):
         self.paths = SimpleNamespace(runtime=self.base / "runtime")
         self.paths.runtime.mkdir()
 
-
-class ModeFile(Fixture):
-    def test_an_agent_nobody_switched_is_a_terminal_agent(self):
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-        self.assertEqual(modes.mode_of(None, AGENT), "terminal")
-        self.assertEqual(modes.mode_of(SimpleNamespace(), AGENT), "terminal")
-        self.assertEqual(modes.mode_of(self.paths, "../escape"), "terminal")
-        self.assertEqual(modes.mode_of(self.paths, None), "terminal")
-        self.assertFalse((self.paths.runtime / "managed-agents").exists(), "reading never creates anything")
-
-    def test_the_switch_is_written_privately_and_read_back(self):
-        self.assertEqual(modes.set_mode(self.paths, AGENT, "managed"), "managed")
-        path = self.paths.runtime / "managed-agents" / AGENT / "mode.json"
-        value = json.loads(path.read_text())
-        self.assertEqual((value["schema_version"], value["mode"]), (1, "managed"))
-        self.assertTrue(value["changed_at"].endswith("Z"))
-        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "managed")
-        self.assertTrue(modes.is_managed(self.paths, AGENT))
-        self.assertEqual(modes.mode_of(self.paths, OTHER), "terminal", "the switch is per agent")
-        self.assertEqual(modes.set_mode(self.paths, AGENT, "terminal"), "terminal")
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_a_missing_bad_or_foreign_file_reads_as_terminal(self):
-        path = modes.mode_file(self.paths, AGENT)
-        path.parent.mkdir(parents=True)
-        for content in ("", "{", "[]", "null", '{"mode": "managed"}', '{"schema_version": 2, "mode": "managed"}',
-                        '{"schema_version": 1, "mode": "hosted"}', '{"schema_version": 1, "mode": 5}',
-                        '{"schema_version": 1, "mode": "managed", "pad": "' + "x" * 5000 + '"}'):
-            with self.subTest(content=content[:40]):
-                path.write_text(content)
-                self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_only_known_modes_and_plain_identities_are_written(self):
-        for bad in ("hosted", "", None, "Managed"):
-            with self.assertRaises(ValueError):
-                modes.set_mode(self.paths, AGENT, bad)
-        for bad in ("../x", "a/b", "", None, ".", "x" * 200):
-            with self.assertRaises(ValueError):
-                modes.set_mode(self.paths, bad, "managed")
-        elsewhere = self.base / "elsewhere"
-        elsewhere.mkdir()
-        (self.paths.runtime / "managed-agents").mkdir()
-        (self.paths.runtime / "managed-agents" / AGENT).symlink_to(elsewhere)
-        with self.assertRaises(ValueError):
-            modes.set_mode(self.paths, AGENT, "managed")
-        self.assertEqual(list(elsewhere.iterdir()), [])
-
-    def test_reads_are_cached_until_the_file_changes(self):
-        modes.set_mode(self.paths, AGENT, "managed")
-        with mock.patch.object(modes.json, "loads", wraps=modes.json.loads) as parse:
-            for _ in range(5):
-                self.assertEqual(modes.mode_of(self.paths, AGENT), "managed")
-            self.assertEqual(parse.call_count, 0, "served from memory")
-        path = modes.mode_file(self.paths, AGENT)
-        # Another writer (a second service process, an operator) replaces the file: the next read sees it.
-        path.write_text(json.dumps({"schema_version": 1, "mode": "terminal"}))
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-        with mock.patch.object(modes.json, "loads", wraps=modes.json.loads) as parse:
-            modes.mode_of(self.paths, AGENT)
-            modes.mode_of(self.paths, AGENT)
-            self.assertEqual(parse.call_count, 0)
-        path.unlink()
-        self.assertEqual(modes.mode_of(self.paths, AGENT), "terminal")
-
-    def test_the_cache_is_per_file_not_per_agent_name_only(self):
-        other = SimpleNamespace(runtime=self.base / "second")
-        other.runtime.mkdir()
-        modes.set_mode(self.paths, AGENT, "managed")
-        self.assertEqual(modes.mode_of(other, AGENT), "terminal")
-
-
-# ----- stand-ins for the launcher and the host ---------------------------------------------------------------------------------
 
 class FakeClient:
     def __init__(self, status=None, events=None):
@@ -190,6 +114,8 @@ class ManagerFixture(Fixture):
     def setUp(self):
         super().setUp()
         self.launcher = FakeLauncher()
+        for agent in (AGENT,):      # an agent that was ever opened has a state folder; one that never was costs a ``stat``
+            layout.agent_state(self.paths, agent).mkdir(parents=True)
         self.now = [0.0]
         self.prepared = []
         self.workspace = self.base / "workspace"
@@ -211,19 +137,8 @@ class ManagerFixture(Fixture):
     def advance(self, seconds):
         self.now[0] += seconds
 
-    def switch(self, agent=AGENT, mode="managed"):
-        modes.set_mode(self.paths, agent, mode)
-
-
-class ManagerMode(ManagerFixture):
-    def test_the_manager_reports_the_switch(self):
-        self.assertEqual(self.manager.mode(AGENT), "terminal")
-        self.switch()
-        self.assertEqual(self.manager.mode(AGENT), "managed")
-        self.assertEqual(self.manager.mode(OTHER), "terminal")
-
+class ManagerStartStop(ManagerFixture):
     def test_start_spawns_nothing_and_stop_closes_nothing(self):
-        self.switch()
         client = FakeClient()
         self.launcher.inspections[AGENT] = running(verified(client=client))
         self.manager.start()
@@ -237,7 +152,6 @@ class ManagerMode(ManagerFixture):
 
 class Verify(ManagerFixture):
     def host(self, **fields):
-        self.switch()
         self.launcher.inspections[AGENT] = running(verified(host_pid=os.getppid(), **fields))
 
     def marker(self, **fields):
@@ -247,12 +161,7 @@ class Verify(ManagerFixture):
         self.host()
         self.assertEqual(self.manager.verify(PROFILE, self.marker()), {"transport": "managed", "owner": f"host:{os.getppid()}:555"})
 
-    def test_a_terminal_agent_falls_through_to_the_terminal_checks(self):
-        self.launcher.inspections[AGENT] = running(verified(host_pid=os.getppid()))
-        self.assertIsNone(self.manager.verify(PROFILE, self.marker()))
-
     def test_nothing_is_verified_without_a_running_matching_host(self):
-        self.switch()
         self.assertIsNone(self.manager.verify(PROFILE, self.marker()), "no host")
         self.launcher.inspections[AGENT] = SimpleNamespace(status="unverified", reason="host_command", host=None)
         self.assertIsNone(self.manager.verify(PROFILE, self.marker()), "a host that cannot be proven ours")
@@ -267,7 +176,6 @@ class Verify(ManagerFixture):
         process = subprocess.Popen(["sleep", "30"])
         self.addCleanup(process.wait)
         self.addCleanup(process.kill)
-        self.switch()
         self.launcher.inspections[AGENT] = running(verified(host_pid=process.pid))
         self.assertIsNone(self.manager.verify(PROFILE, self.marker()))
         self.assertIsNone(self.manager.verify(PROFILE, self.marker(pid=process.pid)), "the host itself is not its own claude")
@@ -292,14 +200,12 @@ class Snapshot(ManagerFixture):
                           {"kind": "permission"}], "last_turn_status": "completed", "session_id": SESSION}
 
     def open(self, **status):
-        self.switch()
         self.client = FakeClient({**self.STATUS, **status})
         self.launcher.inspections[AGENT] = running(verified(client=self.client))
 
     def test_a_closed_agent_snapshots_as_closed_and_costs_one_stat(self):
         self.assertEqual(self.manager.snapshot(OTHER), hosts.CLOSED_VIEW)
         self.assertFalse(self.manager.refresh(OTHER))
-        self.switch()
         view = self.manager.snapshot(AGENT)
         self.assertEqual((view["open"], view["phase"], view["can_stop"], view["pending"]), (False, None, False, []))
 
@@ -344,7 +250,6 @@ class Snapshot(ManagerFixture):
         self.assertTrue(self.manager.snapshot(AGENT)["open"])
 
     def test_a_host_that_is_still_starting_is_open_and_starting(self):
-        self.switch()
         self.launcher.inspections[AGENT] = SimpleNamespace(status="starting", reason="starting", host=None)
         view = self.manager.snapshot(AGENT)
         self.assertEqual((view["open"], view["phase"], view["can_stop"]), (True, "starting", False))
@@ -383,7 +288,6 @@ class Snapshot(ManagerFixture):
 
 class Control(ManagerFixture):
     def test_interrupt_answer_and_close_reach_the_verified_host(self):
-        self.switch()
         client = FakeClient()
         self.launcher.inspections[AGENT] = running(verified(client=client))
         self.manager.interrupt(AGENT)
@@ -413,13 +317,11 @@ class Control(ManagerFixture):
 
     def test_close_all_asks_every_verified_host_and_nothing_else(self):
         first, second = FakeClient(), FakeClient()
-        self.switch()
-        self.switch(OTHER)
         self.launcher.inspections[AGENT] = running(verified(client=first))
         self.launcher.inspections[OTHER] = running(verified(OTHER, host_pid=5000, client=second))
         self.launcher.inspections["33333333-3333-4333-8333-000000000000"] = SimpleNamespace(status="unverified", reason="x", host=None)
         self.assertEqual(sorted(host["agent_id"] for host in self.manager.running_hosts()), sorted([AGENT, OTHER]))
-        self.assertEqual(sorted(self.manager.close_all("switch back")), sorted([AGENT, OTHER]))
+        self.assertEqual(sorted(self.manager.close_all("update")), sorted([AGENT, OTHER]))
         self.assertEqual((first.calls, second.calls), ([("close", "graceful")], [("close", "graceful")]))
 
     def test_running_hosts_lists_state_and_identity(self):
@@ -430,21 +332,13 @@ class Control(ManagerFixture):
 
 
 class EnsureOpen(ManagerFixture):
-    def test_only_a_managed_agent_is_opened(self):
-        with self.assertRaises(hosts.ManagedError) as raised:
-            self.manager.ensure_open(PROFILE, 5)
-        self.assertEqual(raised.exception.code, "not_managed")
-        self.assertEqual((self.launcher.started, self.prepared), ([], []))
-
     def test_a_ready_host_is_used_as_it_is(self):
-        self.switch()
         self.launcher.inspections[AGENT] = running(verified())
         opened = self.manager.ensure_open(PROFILE, 5)
         self.assertEqual((opened["state"], opened["session_id"], opened["started"], opened["host_pid"]), ("ready", SESSION, False, 4242))
         self.assertEqual((self.launcher.started, self.prepared), ([], []), "nothing is prepared or spawned for a running host")
 
     def test_a_missing_host_is_started_from_a_prepared_workspace(self):
-        self.switch()
         opened = self.manager.ensure_open(PROFILE, 30)
         self.assertTrue(opened["started"])
         self.assertEqual(self.prepared, [AGENT])
@@ -458,7 +352,6 @@ class EnsureOpen(ManagerFixture):
         self.assertLessEqual(timeout, 30)
 
     def test_the_resumed_conversation_is_not_sent_the_role_again(self):
-        self.switch()
         self.resume = SESSION
         opened = self.manager.ensure_open(PROFILE, 30)
         spec = self.launcher.started[0][1]
@@ -466,7 +359,6 @@ class EnsureOpen(ManagerFixture):
         self.assertEqual(opened["session_id"], SESSION)
 
     def test_a_conversation_that_did_not_resume_is_never_replaced_by_a_fresh_one(self):
-        self.switch()
         self.resume = "44444444-4444-4444-8444-444444444444"
         client = FakeClient()
         self.launcher.start_result = verified(client=client)
@@ -482,7 +374,6 @@ class EnsureOpen(ManagerFixture):
         self.assertEqual(client.calls, [("close", "now")], "the session that is not the selected one is closed")
 
     def test_a_host_still_starting_is_waited_for(self):
-        self.switch()
         starting = SimpleNamespace(status="starting", reason="starting", host=None)
         self.launcher.inspections[AGENT] = starting
         sleeps = []
@@ -498,14 +389,12 @@ class EnsureOpen(ManagerFixture):
         self.assertEqual(self.launcher.started, [])
 
     def test_a_host_that_never_becomes_ready_times_out_retryably(self):
-        self.switch()
         self.launcher.inspections[AGENT] = SimpleNamespace(status="starting", reason="starting", host=None)
         with self.assertRaises(hosts.ManagedError) as raised:
             self.manager.ensure_open(PROFILE, 2)
         self.assertEqual((raised.exception.code, raised.exception.retryable), ("open_timeout", True))
 
     def test_a_host_that_cannot_be_verified_is_not_replaced(self):
-        self.switch()
         self.launcher.inspections[AGENT] = SimpleNamespace(status="unverified", reason="host_command", host=None)
         with self.assertRaises(hosts.ManagedError) as raised:
             self.manager.ensure_open(PROFILE, 5)
@@ -513,7 +402,6 @@ class EnsureOpen(ManagerFixture):
         self.assertEqual(self.launcher.started, [])
 
     def test_launch_failures_have_stable_codes(self):
-        self.switch()
         for reason, code in (("resume_failed", "resume_failed"), ("host_unverified", "host_unverified"), ("not_ready", "open_timeout"),
                              ("invalid_launch", "host_start_failed"), ("driver_unavailable", "host_failed"), ("", "host_failed")):
             with self.subTest(reason=reason):
@@ -524,7 +412,6 @@ class EnsureOpen(ManagerFixture):
                 self.assertNotIn("/secret/place", raised.exception.message)
 
     def test_a_missing_claude_is_reported_before_anything_starts(self):
-        self.switch()
         self.manager._executable = str(self.base / "no such claude")
         with self.assertRaises(hosts.ManagedError) as raised:
             self.manager.ensure_open(PROFILE, 5)
@@ -533,11 +420,9 @@ class EnsureOpen(ManagerFixture):
 
     def test_the_launcher_is_looked_up_lazily(self):
         manager = hosts.ManagedRuntime(self.runtime)
-        self.assertEqual(manager.mode(AGENT), "terminal")
         self.assertEqual(manager.snapshot(AGENT), hosts.CLOSED_VIEW)
 
     def test_one_start_at_a_time_per_agent(self):
-        self.switch()
         with self.manager._lifecycle(AGENT) as first:
             with self.manager._lifecycle(AGENT) as second:
                 self.assertEqual((first, second), (True, False))
@@ -571,7 +456,6 @@ class Resume(ManagerFixture):
         return SimpleNamespace(provider=provider, conversation_id=SESSION)
 
     def open(self, manager, **options):
-        self.switch()
         return manager.ensure_open(PROFILE, 30, **options)
 
     def test_a_conversation_whose_transcript_exists_is_resumed(self):
@@ -622,8 +506,6 @@ class OpenRaces(ManagerFixture):
         # Real time: these tests run threads against each other.
         self.manager = hosts.ManagedRuntime(self.runtime, launcher=self.launcher, prepare=self.manager._prepare_override, resume=lambda agent: None,
                                             executable=str(self.cli), max_opens=1, ready=lambda client: True)
-        self.switch()
-        self.switch(OTHER)
         self.release = threading.Event()
         self.entered = threading.Event()
 
@@ -725,33 +607,6 @@ class OpenRaces(ManagerFixture):
             self.assertEqual(late.exception.code, "open_timeout")
         self.assertEqual(self.manager.ensure_open(PROFILE, 2)["started"], False)
 
-    def test_an_agent_with_a_terminal_session_is_not_opened(self):
-        broker = SimpleNamespace(session_alive=lambda session: True)
-        self.runtime.terminal_control = SimpleNamespace(backend=SimpleNamespace(selected=lambda profile: (broker, None, "tmux-name", None, None)))
-        with self.assertRaises(hosts.ManagedError) as refused:
-            self.manager.ensure_open(PROFILE, 5)
-        self.assertEqual((refused.exception.code, refused.exception.retryable), ("terminal_present", False))
-        self.assertEqual((self.launcher.started, self.prepared), ([], []))
-        broker.session_alive = lambda session: False
-        self.assertTrue(self.manager.ensure_open(PROFILE, 5)["started"])
-
-    def test_the_terminal_check_does_not_use_the_guarded_selection_of_a_managed_agent(self):
-        # The real backend's ``selected`` refuses a managed agent (``managed_agent``), and a session is only ever opened for one:
-        # asking it would make every open fail closed as ``terminal_present``. The check asks ``terminal_selected`` instead.
-        def guarded(profile):
-            raise ValueError("managed_agent: no terminal")
-        broker = SimpleNamespace(session_alive=lambda session: False)
-        self.runtime.terminal_control = SimpleNamespace(backend=SimpleNamespace(
-            selected=guarded, terminal_selected=lambda profile: (broker, None, "tmux-name", None, None)))
-        self.assertTrue(self.manager.ensure_open(PROFILE, 5)["started"])
-
-    def test_a_terminal_that_cannot_be_checked_counts_as_present(self):
-        def broken(profile):
-            raise OSError("tmux is gone")
-        self.runtime.terminal_control = SimpleNamespace(backend=SimpleNamespace(selected=broken))
-        with self.assertRaises(hosts.ManagedError) as refused:
-            self.manager.ensure_open(PROFILE, 5)
-        self.assertEqual(refused.exception.code, "terminal_present")
 
 
 # ----- finding: Claude Code is found where the owner's terminals find it --------------------------------------------------------
@@ -760,7 +615,6 @@ class ClaudeLookup(ManagerFixture):
     def setUp(self):
         super().setUp()
         self.manager._executable = None
-        self.switch()
         self.bin = self.base / "owner-bin"
         self.bin.mkdir()
         self.owner_claude = self.bin / "claude"
@@ -810,7 +664,6 @@ class ClaudeLookup(ManagerFixture):
 
 class CardsAndEnds(ManagerFixture):
     def host(self, **status):
-        self.switch()
         self.client = FakeClient({"status": "ok", "state": "ready", "phase": "blocked", "session_id": SESSION, **status})
         self.launcher.inspections[AGENT] = running(verified(client=self.client))
 
@@ -848,7 +701,6 @@ class CardsAndEnds(ManagerFixture):
         self.assertEqual(self.manager.status(AGENT)["pending"], [])
 
     def test_status_of_a_closed_or_unreachable_session_is_a_refusal(self):
-        self.switch()
         with self.assertRaises(hosts.ManagedError) as closed:
             self.manager.status(AGENT)
         self.assertEqual(closed.exception.code, "session_closed")
@@ -863,7 +715,6 @@ class CardsAndEnds(ManagerFixture):
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "host.json").write_text(json.dumps({"schema_version": layout.SCHEMA_VERSION, "agent_id": AGENT, **fields}))
         os.chmod(folder / "host.json", 0o600)
-        self.switch()
 
     def test_a_host_that_crashed_says_why_in_plain_words_and_one_that_was_closed_says_nothing(self):
         for state, reason, shown in (("failed", "claude_exited", "Claude Code stopped unexpectedly"),
@@ -890,7 +741,6 @@ class CardsAndEnds(ManagerFixture):
 
 class FirstMessage(ManagerFixture):
     def host(self, client=None):
-        self.switch()
         self.client = client or FakeClient()
         self.launcher.inspections[AGENT] = running(verified(client=self.client))
 
@@ -951,8 +801,7 @@ class FirstMessage(ManagerFixture):
 
     def test_after_the_host_exited_its_ledger_says_whether_the_message_left(self):
         folder = self.paths.runtime / "managed-agents" / AGENT
-        folder.mkdir(parents=True)
-        self.switch()
+        folder.mkdir(parents=True, exist_ok=True)
         self.assertEqual(self.manager.sent_before_exit(AGENT, "u-1"), "absent" if (folder / "sent.jsonl").exists() else None)
         ledger = folder / "sent.jsonl"
         ledger.write_text(json.dumps({"uuid": "u-1", "state": "sent"}) + "\n" + json.dumps({"uuid": "u-2", "state": "fenced"}) + "\n")

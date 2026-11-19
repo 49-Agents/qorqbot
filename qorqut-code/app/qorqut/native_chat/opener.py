@@ -49,8 +49,8 @@ REPEATING = frozenset({"cli_unavailable", "resume_failed", "resume_unavailable",
 # A host that is merely busy, starting or slow: asked again soon, never an alarm.
 TRANSIENT = frozenset({"open_busy", "session_opening", "open_timeout", "host_unverified", "session_starting", "session_closed",
                        "host_rejected", "host_busy"})
-# What a terminal-mode agent (stage 1 only) answers: nothing to open here.
-NOT_OPENABLE = frozenset({"not_managed", "terminal_present", "managed_unavailable"})
+# What an agent answers when nothing can open it here (no managed runtime composed): not an alarm.
+NOT_OPENABLE = frozenset({"managed_unavailable"})
 SPACING_SECONDS = 10.0
 TRANSIENT_SECONDS = 5.0
 BACKOFF_SECONDS = (30.0, 60.0, 120.0, 300.0)

@@ -28,7 +28,6 @@ from qorqut.bootstrap import native_binding
 from qorqut.bootstrap.bridge_binding import BridgeBinding
 from qorqut.bootstrap.native_binding import MANAGED_PROBE, NativeBindingAdapter, ProcessTable, managed_host, runs_host_module
 from qorqut.bootstrap.terminal_chat import process_fields
-from qorqut.managed_runtime import mode as modes
 from qorqut.native_chat import arbiter as arbiter_module, liveness, schema, selection, store
 from qorqut.native_chat.arbiter import AgentLocks, InputArbiter, MANAGED_COMMAND, SESSION_CLOSED
 from qorqut.native_chat.contracts import (InputRequest, RESULT_DEFERRED, RESULT_REJECTED, STATE_SUBMITTED, STATE_WAITING,
@@ -36,7 +35,7 @@ from qorqut.native_chat.contracts import (InputRequest, RESULT_DEFERRED, RESULT_
 from qorqut.native_chat.probe import (Observation, ProbeResult, REASON_LIVE, REASON_NO_MARKER, REASON_PROCESS_GONE, SessionProbe)
 from qorqut.native_chat.service import NativeBackend
 from qorqut.native_chat.sessions import SessionRegistry
-from qorqut.transport.agent_terminal_control import OwnerInputOutcome
+from qorqut.native_chat.contracts import OwnerInputOutcome
 
 AGENT, OWNER = "agent-1", "owner-1"
 CONVERSATION = "11111111-1111-4111-8111-111111111111"
@@ -183,43 +182,18 @@ class VocabularyTests(unittest.TestCase):
                 self.assertIsNone(managed_menu_command(text))
 
 
-# ----- the execution switch is carried by the profile -------------------------------------------------------------------------
+# ----- the profile carries no execution mode ----------------------------------------------------------------------------------
 
-class ProfileExecutionTests(unittest.TestCase):
+class ProfileTests(unittest.TestCase):
     ROW = {"agent_id": AGENT, "name": "n", "workspace": "/stored", "profile_json": "{}", "revision": 1, "home_business_id": None,
            "business_slug": None, "profile_status": "active", "principal_kind": "agent", "principal_active": 1}
 
-    def profile(self, paths=object()):
+    def test_a_profile_has_no_execution_and_nothing_reads_a_mode(self):
         with mock.patch("qorqut.composition.locations.agent_workspace_of", return_value=Path("/ws")):
-            return store._profile(self.ROW, paths)
-
-    @staticmethod
-    def mode_module(mode_of):
-        return mock.patch.dict(sys.modules, {"qorqut.managed_runtime.mode": SimpleNamespace(mode_of=mode_of)})
-
-    def test_the_mode_of_the_host_setting_becomes_execution(self):
-        seen = []
-        with self.mode_module(lambda paths, agent: seen.append((paths, agent)) or "managed"):
-            self.assertEqual(self.profile("paths")["execution"], "managed")
-        self.assertEqual(seen, [("paths", AGENT)])
-        with self.mode_module(lambda paths, agent: "terminal"):
-            self.assertEqual(self.profile()["execution"], "terminal")
-
-    def test_a_missing_module_a_failing_read_or_an_odd_value_is_terminal(self):
-        with mock.patch.dict(sys.modules, {"qorqut.managed_runtime.mode": None}):  # an import of it raises ImportError
-            self.assertEqual(self.profile()["execution"], "terminal")
-
-        def unreadable(paths, agent):
-            raise OSError("unreadable")
-        for mode_of in (unreadable, lambda paths, agent: "bogus", lambda paths, agent: None):
-            with self.mode_module(mode_of):
-                self.assertEqual(self.profile()["execution"], "terminal")
-
-    def test_a_caller_without_paths_gets_no_execution_and_nothing_is_read(self):
-        with self.mode_module(lambda paths, agent: self.fail("the mode must not be read without paths")):
-            result = store._profile(self.ROW, None)
+            result = store._profile(self.ROW, object())
         self.assertNotIn("execution", result)
-        self.assertEqual(result["workspace"], "/stored")
+        self.assertEqual(result["workspace"], "/ws")
+        self.assertEqual(store._profile(self.ROW, None)["workspace"], "/stored")
 
 
 # ----- annotate_input ------------------------------------------------------------------------------------------------------
@@ -373,16 +347,7 @@ class ProbeTests(unittest.TestCase):
         managed.client = (self.sleeper.pid, self.sleeper.started)
         self.assertEqual(self.probe(managed).observe(profile()).reason, REASON_LIVE)
 
-    def test_a_terminal_agent_never_reaches_the_managed_runtime(self):
-        for execution in ("terminal", None):
-            with self.subTest(execution=execution):
-                value = profile()
-                value.pop("execution")
-                if execution:
-                    value["execution"] = execution
-                result = self.probe(Untouchable()).observe(value)
-                # No pane backend either: exactly what a terminal agent without tmux reported before.
-                self.assertEqual(result.reason, REASON_PROCESS_GONE)
+    def test_without_a_managed_runtime_there_is_no_session(self):
         self.assertEqual(SessionProbe(marker_reader=lambda p: marker(self.sleeper.pid, self.sleeper.started)).observe(profile()).reason,
                          REASON_PROCESS_GONE)
 
@@ -427,13 +392,13 @@ class LivenessTests(unittest.TestCase):
         client.kill()
         self.assertEqual(liveness.of_session({**self.row(client, host), "owner": None}), liveness.DEAD)
 
-    def test_the_other_transports_are_judged_as_before(self):
+    def test_a_row_of_an_older_transport_is_judged_by_its_process_alone(self):
         client = Sleeper(self)
-        for transport in ("terminal",):
+        for transport in ("terminal", "codex_queue"):
             row = {"transport": transport, "process_pid": client.pid, "process_started": client.started, "owner": None}
             self.assertEqual(liveness.of_session(row), liveness.ALIVE)
         self.assertEqual(liveness.of_session({"transport": "codex_queue", "process_pid": 1, "process_started": "1", "owner": None}),
-                         liveness.UNKNOWN)
+                         liveness.DEAD)
         client.kill()
         self.assertEqual(liveness.of_session({"transport": "terminal", "process_pid": client.pid, "process_started": client.started,
                                               "owner": None}), liveness.DEAD)
@@ -467,15 +432,14 @@ class SelectionTests(unittest.TestCase):
         self.assertFalse(self.chosen(owner="9:9").holds(self.observation("managed", host)))
         self.assertEqual(self.chosen().relation(self.observation("managed", host, pid=43)), selection.PENDING)
 
-    def test_terminal_rules_are_unchanged(self):
+    def test_an_observation_of_another_process_is_never_held(self):
         chosen = self.chosen()
         self.assertTrue(chosen.holds(self.observation("terminal", None)))
-        self.assertFalse(chosen.holds(self.observation("terminal", "host:7:5")))  # a terminal never has a host owner
         self.assertFalse(chosen.holds(self.observation("terminal", None, pid=43)))
         self.assertTrue(self.chosen(owner=None).holds(self.observation("terminal", None)))
 
-    def test_public_names_a_managed_selection_only_when_the_binding_says_so(self):
-        self.assertEqual(self.chosen().public()["transport"], "terminal")
+    def test_public_always_names_the_managed_transport(self):
+        self.assertEqual(self.chosen().public()["transport"], "managed")
         self.assertEqual(self.chosen(managed_host={"host_pid": 7}).public()["transport"], "managed")
         self.assertTrue(self.chosen(managed_host={"host_pid": 7}).managed)
         self.assertFalse(self.chosen(managed_host="x").managed)
@@ -506,8 +470,8 @@ class ManagedBindingTests(unittest.TestCase):
         self.managed = FakeManaged(self.host)
         self.probe = SessionProbe(marker_reader=lambda p: marker(self.client.pid, self.client.started), managed=self.managed)
         self.registry = SessionRegistry(self.runtime)
-        self.adapters = {"managed": Adapter("managed"), "terminal": Adapter("terminal"), "codex_queue": Adapter("codex_queue")}
-        self.arbiter = InputArbiter(self.runtime, self.probe, self.registry, self.adapters)
+        self.adapter = Adapter("managed")
+        self.arbiter = InputArbiter(self.runtime, self.probe, self.registry, self.adapter)
         self.profile = profile()
         for patcher in (mock.patch.object(InputArbiter, "_profile", lambda arbiter, agent_id: self.profile),
                         mock.patch.object(arbiter_module, "forward_owner_message", mock.Mock()),
@@ -573,15 +537,14 @@ class ManagedBindingTests(unittest.TestCase):
         self.reconcile()
         result = self.arbiter.submit(self.request("hello", TYPE_TELEGRAM, key="tg-1", wait=False))
         self.assertEqual((result.state, result.reason), (STATE_SUBMITTED, "processing_confirmed"))
-        self.assertEqual((self.adapters["managed"].typed, self.adapters["terminal"].typed), (["hello"], []))
+        self.assertEqual(self.adapter.typed, ["hello"])
         self.assertEqual(result.evidence, {"adapter": "managed", "message_uuid": "u-1"})
         self.assertEqual(result.binding.transport, "managed")
         # A Chat input waits and is dispatched to the same adapter, steering as Chat does.
         waiting = self.arbiter.submit(self.request("later", TYPE_CHAT, key="chat-1"))
         self.assertEqual(waiting.state, STATE_WAITING)
         self.assertTrue(self.arbiter.dispatch(AGENT))
-        self.assertEqual((self.adapters["managed"].typed, self.adapters["managed"].steer), (["hello", "later"], [False, True]))
-        self.assertEqual(self.adapters["terminal"].typed, [])
+        self.assertEqual((self.adapter.typed, self.adapter.steer), (["hello", "later"], [False, True]))
 
     @staticmethod
     def request(text, input_type, *, key, wait=True):
@@ -603,19 +566,10 @@ class ManagedBindingTests(unittest.TestCase):
                 self.assertEqual((chat.state, chat.reason), (RESULT_REJECTED, SESSION_CLOSED))
         self.assertEqual(self.db.count("native_inputs"), 0)
 
-    def test_a_terminal_agent_without_a_session_is_still_offline(self):
-        for build in (lambda: profile("terminal"), lambda: {k: v for k, v in profile().items() if k != "execution"}):
-            self.profile = build()
-            self.arbiter.probe = SimpleNamespace(observe=lambda p: ProbeResult(REASON_NO_MARKER))
-            attempt = self.arbiter.submit(self.request("hi", TYPE_TELEGRAM, key="tg-%s" % len(self.profile), wait=False))
-            self.assertEqual((attempt.state, attempt.reason), (RESULT_DEFERRED, "terminal_offline"))
-            chat = self.arbiter.submit(self.request("hi", TYPE_CHAT, key="chat-%s" % len(self.profile)))
-            self.assertEqual((chat.state, chat.reason), (RESULT_REJECTED, "terminal_offline"))
-
     def test_the_other_unavailable_reasons_are_not_remapped(self):
         for reason, code in (("capture_disabled", "capture_disabled"), ("native_only", "unsupported_target"),
                              ("unsupported_runtime", "unsupported_runtime")):
-            result = InputArbiter._unavailable(self.request("x", TYPE_TELEGRAM, key="k", wait=False), ProbeResult(reason), managed=True)
+            result = InputArbiter._unavailable(self.request("x", TYPE_TELEGRAM, key="k", wait=False), ProbeResult(reason))
             self.assertEqual((result.state, result.reason), (RESULT_REJECTED, code))
 
     # ----- menu-only commands --------------------------------------------------------------------------------------------
@@ -628,7 +582,7 @@ class ManagedBindingTests(unittest.TestCase):
                 result = self.arbiter.submit(self.request(text, TYPE_CHAT, key=f"cmd-{index:04d}"))
                 self.assertEqual((result.state, result.reason, result.input_id), (RESULT_REJECTED, MANAGED_COMMAND, None))
         self.assertEqual((self.db.count("native_inputs"), self.db.count("native_input_events")), (0, 0))
-        self.assertEqual(self.adapters["managed"].typed, [])
+        self.assertEqual(self.adapter.typed, [])
         self.assertEqual(result.binding.transport, "managed")
 
     def test_everything_else_is_admitted_and_only_owner_chat_is_refused(self):
@@ -640,16 +594,6 @@ class ManagedBindingTests(unittest.TestCase):
         for input_type in (TYPE_TELEGRAM, TYPE_BROADCAST):
             result = self.arbiter.submit(self.request("/clear", input_type, key=f"other-{input_type}", wait=False))
             self.assertEqual((result.state, result.reason), (STATE_SUBMITTED, "processing_confirmed"))
-
-    def test_a_terminal_session_still_takes_every_command(self):
-        VocabularyTests.insert(self.db, "terminal-session", 1, "terminal")
-        self.db.connection.execute("UPDATE native_sessions SET transcript_path='/x'")
-        row = store.get_session(self.db.connection, "terminal-session")
-        self.registry.reconcile = lambda profile, observed: SimpleNamespace(session=row, live=True)
-        self.arbiter.probe = SimpleNamespace(observe=lambda p: ProbeResult(REASON_LIVE, SimpleNamespace(capture_enabled=True)))
-        for index, text in enumerate(("/clear", "/model", "/resume")):
-            result = self.arbiter.submit(self.request(text, TYPE_CHAT, key=f"term-{index:04d}"))
-            self.assertEqual((result.state, result.created), (STATE_WAITING, True), text)
 
 
 # ----- the backend pass --------------------------------------------------------------------------------------------------
@@ -761,18 +705,6 @@ class BackendTests(unittest.TestCase):
         self.managed.drain_events = mock.Mock(side_effect=RuntimeError("socket"))
         self.backend.observe(profile())
         self.arbiter.dispatch.assert_not_called()
-
-    def test_a_terminal_agent_is_observed_exactly_as_before(self):
-        backend = NativeBackend(self.runtime, self.probe, self.registry, SimpleNamespace(step=mock.Mock()), self.arbiter, AgentLocks(),
-                                managed=Untouchable())
-        self.current = Observation(AGENT, "claude-code", "claude", CONVERSATION, None, 42, "99", "terminal", None, working=True)
-        base = self.revision()
-        for value in (profile("terminal"), {k: v for k, v in profile().items() if k != "execution"}):
-            backend.observe(value)
-        self.assertEqual(self.revision(), base + 1)  # the working flag, once, as always
-        self.assertEqual(backend._working[AGENT], (self.session["id"], True))
-        self.assertEqual(NativeBackend(self.runtime, self.probe, self.registry, None, self.arbiter, AgentLocks()).managed, None)
-
 
 # ----- the hook-side ``-p`` allowance --------------------------------------------------------------------------------------
 
@@ -1083,15 +1015,12 @@ class RealProcessCase(unittest.TestCase):
         self.addCleanup(patcher.stop)
         return NativeBindingAdapter(runtime), SimpleNamespace(target_identity=target_identity), {"workspace": str(self.workspace)}
 
-    def verify_managed(self, runtime, mode="managed"):
-        if mode is not None:
-            modes.set_mode(self.paths, AGENT, mode)
+    def verify_managed(self, runtime, mode=None):
         adapter, execution, profile_ = self.adapter(runtime)
         return adapter.verify_managed(execution, profile_, AGENT, "reg-1", CONVERSATION)
 
-    def verify(self, runtime, mode="managed"):
+    def verify(self, runtime, mode=None):
         """``NativeBindingAdapter.verify`` end to end with a terminal that has no pane: what a binding request does."""
-        modes.set_mode(self.paths, AGENT, mode)
         adapter, execution, profile_ = self.adapter(runtime)
         execution.broker = SimpleNamespace(tmux=lambda *arguments: (1, ""))
         with mock.patch.object(NativeBindingAdapter, "selected", return_value=(profile_, execution, "terminal")):
@@ -1249,7 +1178,6 @@ class ServiceAuthorityTests(RealProcessCase):
                 self.assertEqual(self.verify_managed(runtime)["managed_host"]["host_id"], f"host:{self.host.pid}:{ticks(self.host.pid)}")
 
     def test_a_managed_runtime_that_is_not_there_or_cannot_answer_is_a_refusal(self):
-        modes.set_mode(self.paths, AGENT, "managed")
         for name, runtime in {"none at all": SimpleNamespace(), "no paths": SimpleNamespace(managed_runtime=RuntimeWithIdentity(None)),
                               "raises": RuntimeWithIdentity(self.paths, error=RuntimeError("socket")),
                               "no host": RuntimeWithIdentity(self.paths, None)}.items():
@@ -1332,27 +1260,7 @@ class ServiceAuthorityTests(RealProcessCase):
         self.observation(client)
         self.assertEqual(self.verify_managed(runtime)["pid"], client)
 
-    def test_a_terminal_agent_ignores_a_managed_host_record_and_never_asks_the_managed_runtime(self):
-        fake_host, fake_client = self.forge()
-        for mode in ("terminal", None):
-            with self.subTest(mode=mode):
-                if mode is None:
-                    (self.paths.runtime / "managed-agents" / AGENT / "mode.json").unlink()
-                else:
-                    modes.set_mode(self.paths, AGENT, mode)
-                # Even a runtime that agrees with the forgery is never consulted.
-                runtime = SimpleNamespace(managed_runtime=Untouchable())
-                adapter, execution, profile_ = self.adapter(runtime)
-                self.assertIsNone(adapter.verify_managed(execution, profile_, AGENT, "reg-1", CONVERSATION))
-                adapter, execution, profile_ = self.adapter(SimpleNamespace(managed_runtime=RuntimeWithIdentity(
-                    self.paths, identity_of(fake_host.pid, fake_client))))
-                self.assertIsNone(adapter.verify_managed(execution, profile_, AGENT, "reg-1", CONVERSATION))
-                with self.assertRaises(DomainError):
-                    self.verify(SimpleNamespace(managed_runtime=RuntimeWithIdentity(self.paths, identity_of(fake_host.pid, fake_client))),
-                                mode="terminal")
-
     def test_a_remote_target_never_takes_the_managed_path(self):
-        modes.set_mode(self.paths, AGENT, "managed")
         adapter, execution, profile_ = self.adapter(self.runtime, target_identity=("ssh", "x"))
         self.assertIsNone(adapter.verify_managed(execution, profile_, AGENT, "reg-1", CONVERSATION))
         self.assertEqual(self.runtime.asked, [])
