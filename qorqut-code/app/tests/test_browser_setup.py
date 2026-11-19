@@ -207,6 +207,13 @@ class BrowserSetupTest(unittest.TestCase):
             self.assertTrue(self.read_view(status)['chrome_installed'], 'the installed Chrome is used instead')
             self.assertFalse(self.read_view(status, chrome=None)['chrome_installed'])
 
+    def test_the_owner_is_not_asked_to_install_chrome_when_the_installed_one_is_used_in_place_of_qorqbots_own(self):
+        status = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
+        text = "This computer's security settings don't let Qorqbot's own browser start safely. Install Google Chrome."
+        with mock.patch.object(setup.managed_chrome, 'view', return_value={'state': 'unusable', 'explanation': text}):
+            self.assertEqual(self.read_view(status)['managed_chrome']['explanation'], setup.INSTALLED_CHROME_USED)
+            self.assertEqual(self.read_view(status, chrome=None)['managed_chrome']['explanation'], text)
+
     def test_ready_requires_every_browser_healthy_and_the_tool(self):
         healthy = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
         self.assertTrue(self.read_view(healthy)['ready'])

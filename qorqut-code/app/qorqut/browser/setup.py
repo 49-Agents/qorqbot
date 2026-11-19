@@ -72,12 +72,19 @@ def targets(runtime):
     return owner, sorted(result, key=lambda item: (item["role"] != ORDUBASHY_ROLE, item["name"]))
 
 
+INSTALLED_CHROME_USED = ("Qorqbot's own browser can't be used on this computer, so agents use the installed Google Chrome. "
+                         "Nothing to do.")
+
+
 def view(runtime):
     from qorqut.native_paths import installed_chrome
     from qorqut.bootstrap import browser
     owner, agents = targets(runtime)
     own_chrome = managed_chrome.view(runtime.paths.runtime)
     chrome = installed_chrome() is not None or own_chrome["state"] == "ready"
+    if installed_chrome() is not None and own_chrome["state"] in {"unusable", "unsupported"}:
+        # Its own text asks the owner to install Google Chrome, which this computer already has and agents already use.
+        own_chrome = {**own_chrome, "explanation": INSTALLED_CHROME_USED}
     try:
         browser.runtime_executable(runtime.browser_access.runtime_directory())
         tool = True
