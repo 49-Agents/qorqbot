@@ -18,9 +18,9 @@ const submitSource = between('  async function submit(text) {', '  // A definite
 const refusalSource = between('const GLOBAL_CHAT_REFUSALS = new Set', 'const GLOBAL_CHAT_INPUT_LABEL');
 const { GLOBAL_CHAT_REFUSALS, GLOBAL_CHAT_REFUSAL_TEXT } = new Function(`${refusalSource}; return {GLOBAL_CHAT_REFUSALS, GLOBAL_CHAT_REFUSAL_TEXT};`)();
 
-const CODEX = [{name: '/compact', where: 'chat'}, {name: '/new', where: 'chat'}, {name: '/review', where: 'terminal'},
-  {name: '/model', where: 'terminal'}, {name: '/status', where: 'terminal'}];
-const CLAUDE = [{name: '/compact', where: 'chat'}, {name: '/model', where: 'terminal'}, {name: '/cost', where: 'terminal'},
+const CODEX = [{name: '/compact', where: 'chat'}, {name: '/new', where: 'chat'}, {name: '/review', where: 'chat'},
+  {name: '/model', where: 'chat'}, {name: '/status', where: 'chat'}];
+const CLAUDE = [{name: '/compact', where: 'chat'}, {name: '/model', where: 'chat'}, {name: '/cost', where: 'chat'},
   {name: '/git:sync', where: 'chat', source: 'yours'}];
 const SCOPE = 'agent-1\ncodex\nconversation-1';
 
@@ -51,29 +51,12 @@ function composer({session, catalog, draft, refuse = null}) {
   return {submit, calls, sends, inflight, drafts, files, view, file};
 }
 
-const codexQueue = {provider: 'codex', transport: 'codex_queue', can_send: true};
 const codexManaged = {provider: 'codex', transport: 'managed', can_send: true};
 const claudeManaged = {provider: 'claude', transport: 'managed', can_send: true};
 
-test('a known Codex command is refused for the shared server before any upload or send, leaving draft and attachments alone', async () => {
-  for (const draft of ['/compact', '/compact keep decisions', '  /new', '/COMPACT']) {
-    const chat = composer({session: codexQueue, catalog: CODEX, draft});
-    await chat.submit(draft);
-    assert.deepEqual(chat.calls.uploads, [], draft);
-    assert.deepEqual(chat.calls.admitted, [], draft);
-    assert.equal(chat.calls.banners.length, 1, draft);
-    assert.equal(chat.calls.banners[0], `${draft.trim().split(/\s/)[0].toLowerCase()} isn’t available when Qorqbot runs Ada.`);
-    assert.equal(chat.sends.size + chat.inflight.size, 0);
-    assert.equal(chat.drafts.get(SCOPE), draft);
-    assert.equal(chat.view.getDraft(), draft);
-    assert.deepEqual(chat.files.get(SCOPE), [chat.file]);
-    assert.equal(chat.file.saved, undefined);
-  }
-});
-
-test('other text, and a command on a session Qorqbot runs, are sent as before', async () => {
-  for (const [session, catalog, draft] of [[codexQueue, CODEX, '/tmp/foo'], [codexQueue, CODEX, 'hello /compact'],
-    [codexQueue, CODEX, '/unknown'], [codexQueue, CODEX, 'plain words'], [codexManaged, CODEX, '/compact'],
+test('other text, and a command on a session Qorqbot runs, are sent', async () => {
+  for (const [session, catalog, draft] of [[codexManaged, CODEX, '/tmp/foo'], [codexManaged, CODEX, 'hello /compact'],
+    [codexManaged, CODEX, '/unknown'], [codexManaged, CODEX, 'plain words'], [codexManaged, CODEX, '/compact'],
     [codexManaged, CODEX, '/new keep this'], [claudeManaged, CLAUDE, '/compact']]) {
     const chat = composer({session, catalog, draft});
     await chat.submit(draft);
@@ -86,20 +69,20 @@ test('other text, and a command on a session Qorqbot runs, are sent as before', 
 });
 
 test('before the catalog has loaded the command is sent and the backend refusal is shown with the draft kept', async () => {
-  const chat = composer({session: codexQueue, catalog: null, draft: '/compact', refuse: 'terminal_required'});
+  const chat = composer({session: codexManaged, catalog: null, draft: '/compact', refuse: 'managed_command'});
   await chat.submit('/compact');
   assert.equal(chat.calls.admitted.length, 1);
-  assert.deepEqual(chat.calls.banners, [GLOBAL_CHAT_REFUSAL_TEXT.terminal_required]);
-  assert.equal(GLOBAL_CHAT_REFUSAL_TEXT.terminal_required, 'This command isn’t available when Qorqbot runs the agent.');
-  assert.doesNotMatch(GLOBAL_CHAT_REFUSAL_TEXT.terminal_required, /terminal/i);
-  assert.ok(GLOBAL_CHAT_REFUSALS.has('terminal_required'));
+  assert.deepEqual(chat.calls.banners, [GLOBAL_CHAT_REFUSAL_TEXT.managed_command]);
+  assert.equal(GLOBAL_CHAT_REFUSAL_TEXT.managed_command, 'This command isn’t available when Qorqbot runs the agent.');
+  assert.doesNotMatch(GLOBAL_CHAT_REFUSAL_TEXT.managed_command, /terminal/i);
+  assert.ok(GLOBAL_CHAT_REFUSALS.has('managed_command'));
   assert.equal(chat.view.getDraft(), '/compact');
   assert.equal(chat.drafts.get(SCOPE), '/compact');
   assert.deepEqual(chat.files.get(SCOPE), [chat.file]);
   assert.equal(chat.sends.size, 0);
 });
 
-test('a menu command is sent like any message: the composer opens nothing, whatever the catalog says it needs', async () => {
+test('a menu command is sent like any message: the composer opens nothing, whatever the catalog lists', async () => {
   for (const [draft, session, catalog] of [['/model sonnet', claudeManaged, CLAUDE], ['/model', claudeManaged, CLAUDE], ['/cost', claudeManaged, CLAUDE],
     ['/compact', claudeManaged, CLAUDE], ['/model gpt-6', codexManaged, CODEX]]) {
     const chat = composer({session, catalog, draft});

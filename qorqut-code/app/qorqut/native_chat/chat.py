@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-import time
 import uuid
 
 from qorqut_operations.contracts import DomainError, Principal
@@ -123,13 +122,8 @@ class NativeChat:
               interval: float = 1.0, managed=None) -> "NativeChat":
         """The default object graph of one host runtime. ``managed`` is the managed runtime: the probe verifies an agent's session
         through it, the adapter delivers to it, and the backend pass reads its host state."""
-        def selected_reader(profile):
-            with runtime.database.read() as uow:
-                agent_id = profile["agent_id"]
-                return selection.selected(uow.connection, agent_id), store.live_session(uow.connection, agent_id)
-
         locks = AgentLocks()
-        probe = probe or SessionProbe(selected_reader=selected_reader, managed=managed)
+        probe = probe or SessionProbe(managed=managed)
         registry = SessionRegistry(runtime)
         indexer = Indexer(runtime, archive_factory=archive_factory)
         arbiter = InputArbiter(runtime, probe, registry, adapter or ManagedAdapter(managed), locks=locks)
@@ -186,7 +180,7 @@ class NativeChat:
         observation = observed.observation
         live = observed.reason == REASON_LIVE
         relation = selection.relation(chosen, observation) if live else None
-        other = observed.candidate or (observation if relation == selection.CANDIDATE else None)
+        other = observation if relation == selection.CANDIDATE else None
         candidate = ({"provider": other.provider, "conversation_id": other.conversation_id, "transport": other.transport}
                      if other is not None else None)
         pending = relation == selection.PENDING

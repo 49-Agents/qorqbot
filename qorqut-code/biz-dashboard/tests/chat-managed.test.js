@@ -177,7 +177,7 @@ test('an asleep agent that was never started invites a message; with history it 
   assert.equal(runtime.placeholder(session, 'Ada', true), 'Message Ada…');
   assert.equal(runtime.canOpen(session), true);
   for (const text of [runtime.summary(session, 'Ada', true, {history: true}).line, runtime.startHint(session, 'Ada'), runtime.emptyText(session, 'Ada'),
-    runtime.placeholder(session, 'Ada', false), runtime.refusalText('terminal_offline')]) {
+    runtime.placeholder(session, 'Ada', false), runtime.refusalText('session_closed')]) {
     assert.doesNotMatch(text, /terminal|tmux|\bCLI\b|session id|claude|>_|!|—|–/i);
   }
   // Closed by the server's word or by the managed summary alone.
@@ -457,17 +457,13 @@ test('after End session the view shows the off state at once: closed, off, no bi
 
 // ---- slash commands
 test('an unavailable slash command is refused with plain words, and nothing else is', () => {
-  const cost = {name: '/cost', where: 'unavailable'}, compact = {name: '/compact', where: 'chat'}, model = {name: '/model', where: 'terminal'};
+  const cost = {name: '/cost', where: 'unavailable'}, compact = {name: '/compact', where: 'chat'}, model = {name: '/model', where: 'chat'};
   assert.equal(slashCommands.unavailableRefusal(cost, 'Ada'), '/cost isn’t available when Qorqbot runs Ada.');
   assert.equal(slashCommands.refusal(managed(), cost, 'Ada'), slashCommands.unavailableRefusal(cost, 'Ada'));
   assert.equal(slashCommands.refusal({...managed(), execution: 'terminal'}, cost, 'Ada'), slashCommands.unavailableRefusal(cost, 'Ada'), '`execution` is not read');
   assert.equal(slashCommands.refusal(managed(), compact, 'Ada'), null);
   assert.equal(slashCommands.refusal(managed(), null, 'Ada'), null);
   assert.equal(slashCommands.refusal(managed(), model, 'Ada'), null);
-  // The Codex shared-server refusal has no terminal in its words either.
-  const codex = {provider: 'codex', transport: 'codex_queue'};
-  assert.equal(slashCommands.refusal(codex, model, 'Ada'), slashCommands.sharedServerRefusal(codex, model, 'Ada'));
-  assert.equal(slashCommands.refusal(codex, model, 'Ada'), '/model isn’t available when Qorqbot runs Ada.');
   assert.equal(slashCommands.opensTerminal, undefined);
   assert.equal(slashCommands.managedRefusal, undefined);
 });
@@ -600,7 +596,7 @@ test('"not yet" refusals keep the request (same key on the retry); other refusal
     await assert.rejects(chat.admit('hello', 'key-1', null), problem => problem.keepAttempt === true && !problem.offered, code);
     assert.deepEqual(chat.offers, [], code);
   }
-  for (const code of ['session_closed', 'cli_unavailable', 'terminal_present', 'validation_error', 'driver_unavailable']) {
+  for (const code of ['session_closed', 'cli_unavailable', 'validation_error', 'driver_unavailable']) {
     const chat = admission({session: closedSession(), responses: [refusal(code)]});
     await assert.rejects(chat.admit('hello', 'key-1', null), problem => !problem.keepAttempt && !problem.offered, code);
   }
@@ -615,13 +611,12 @@ test('the refusal wording: the offer replaces the banner, and every cannot-start
   const text = new Function('agentRuntime', 'GLOBAL_CHAT_REFUSAL_TEXT', `${source}; return refusalText;`)(runtime, GLOBAL_CHAT_REFUSAL_TEXT);
   assert.equal(text({code: 'resume_unavailable', offered: true}), '');
   assert.match(text({code: 'open_busy'}), /Several sessions are starting/);
-  assert.equal(text({code: 'terminal_present'}), 'Couldn’t start. Try again in a moment.');
   assert.match(text({code: 'session_opening'}), /being opened/);
   assert.equal(text({code: 'capture_disabled'}), 'Chat unavailable.');
   assert.equal(text({code: 'something_new'}), "Couldn't send. Try again");
   const refusals = between('const GLOBAL_CHAT_REFUSALS = new Set', 'const GLOBAL_CHAT_REFUSAL_TEXT');
   const known = new Function(`${refusals}; return GLOBAL_CHAT_REFUSALS;`)();
-  for (const code of ['resume_unavailable', 'open_busy', 'session_opening', 'terminal_present']) assert.equal(known.has(code), true, code);
+  for (const code of ['resume_unavailable', 'open_busy', 'session_opening']) assert.equal(known.has(code), true, code);
 });
 
 test('cannot start: the owner is pointed to Settings (where Claude Code and Codex are connected), never to a terminal', () => {
@@ -638,8 +633,8 @@ test('cannot start: the owner is pointed to Settings (where Claude Code and Code
   assert.deepEqual(runtime.newConversationOffer('resume_failed'), {text: 'Couldn’t continue the earlier conversation, so nothing was started. Nothing was sent.', label: 'Start a new conversation'});
   assert.equal(runtime.newConversationOffer('cli_unavailable'), null);
   // every text the owner can read here, whatever the code
-  for (const code of ['terminal_offline', 'session_closed', 'terminal_changed', 'terminal_required', 'managed_command', 'driver_unavailable', 'cli_unavailable', 'resume_failed',
-    'resume_unavailable', 'open_timeout', 'open_busy', 'session_opening', 'terminal_present', 'host_unverified', 'binding_not_ready']) {
+  for (const code of ['session_closed', 'terminal_changed', 'managed_command', 'driver_unavailable', 'cli_unavailable', 'resume_failed',
+    'resume_unavailable', 'open_timeout', 'open_busy', 'session_opening', 'host_unverified', 'binding_not_ready']) {
     assert.doesNotMatch(runtime.refusalText(code), /terminal|tmux|\bCLI\b|session id|>_|!|—|–/i, code);
   }
   const chat = between('const GLOBAL_CHAT_REFUSAL_TEXT = {', 'const GLOBAL_CHAT_INPUT_LABEL');
@@ -707,7 +702,7 @@ test('the refusal words and which refusals are only "not yet"', () => {
   assert.match(runtime.refusalText('open_busy'), /Several sessions are starting/);
   assert.equal(runtime.refusalText('something_new'), null);
   for (const code of ['open_timeout', 'open_busy', 'session_opening', 'host_unverified', 'binding_not_ready']) assert.equal(runtime.isRetryable(code), true, code);
-  for (const code of ['resume_unavailable', 'resume_failed', 'session_closed', 'cli_unavailable', 'terminal_present', 'validation_error']) assert.equal(runtime.isRetryable(code), false, code);
+  for (const code of ['resume_unavailable', 'resume_failed', 'session_closed', 'cli_unavailable', 'validation_error']) assert.equal(runtime.isRetryable(code), false, code);
 });
 
 test('the real submit sends a closed agent’s message with no pin, and a live agent’s with its pin; an unavailable command is refused first', async () => {

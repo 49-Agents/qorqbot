@@ -7,7 +7,6 @@ from email import policy as email_policy
 from email.parser import BytesParser
 import json
 from pathlib import Path, PurePosixPath
-import re
 
 import anyio
 from markdown_it import MarkdownIt

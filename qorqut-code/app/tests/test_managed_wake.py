@@ -14,12 +14,12 @@ from unittest import mock
 from qorqut_operations.contracts import DomainError
 
 from qorqut.agents import activity as activity_module
-from qorqut.native_chat import liveness, nudges, opener as opener_module, store
+from qorqut.native_chat import liveness, nudges, store
 from qorqut.native_chat.arbiter import SESSION_STARTING
 from qorqut.native_chat.contracts import (InputRequest, RESULT_DEFERRED, TYPE_BROADCAST, TYPE_DIRECT, TYPE_NUDGE, TYPE_TELEGRAM)
-from qorqut.native_chat.opener import FAILURES, OpenFailures, SessionOpener, WAKE_TEXT
+from qorqut.native_chat.opener import FAILURES, OpenFailures, WAKE_TEXT
 
-from test_managed_chat_send import AGENT, OPEN_VIEW, OWNER, ChatCase, FakeManaged
+from test_managed_chat_send import AGENT, OPEN_VIEW, OWNER, ChatCase
 
 
 class WakeCase(ChatCase):

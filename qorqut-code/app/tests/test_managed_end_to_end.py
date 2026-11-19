@@ -47,7 +47,7 @@ from qorqut.native_chat import arbiter as arbiter_module, chat as chat_module, n
 from qorqut.native_chat.adapters import ManagedAdapter
 from qorqut.native_chat.arbiter import AgentLocks, InputArbiter
 from qorqut.native_chat.chat import NativeChat
-from qorqut.native_chat.contracts import (InputRequest, RESULT_DEFERRED, STATE_SUBMITTED, STATE_WAITING, TYPE_NUDGE, TYPE_TELEGRAM)
+from qorqut.native_chat.contracts import InputRequest, RESULT_DEFERRED, STATE_SUBMITTED, TYPE_NUDGE, TYPE_TELEGRAM
 from qorqut.native_chat.probe import SessionProbe
 from qorqut.native_chat.service import NativeBackend
 from qorqut.native_chat.sessions import SessionRegistry
@@ -203,7 +203,7 @@ class Stack:
         self.log = self.root / "fake.log"
         self.db = Database()
         self.runtime = SimpleNamespace(
-            database=self.db, paths=self.paths, authority=None, root=self.root, terminals=None,
+            database=self.db, paths=self.paths, authority=None, root=self.root, managed_launch=None,
             application=SimpleNamespace(ensure_writes_open=lambda uow: None, ordubashy_attention=None,
                                         writer_admission=SimpleNamespace(writer=lambda: mock.MagicMock())))
         self.launcher = DriverLauncher(self.log)

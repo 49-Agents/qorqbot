@@ -5,8 +5,8 @@ const { test } = require('node:test');
 const slash = require('../js/slash-commands.js');
 
 const catalog = [
-  {name: '/compact', where: 'chat'}, {name: '/clear', where: 'chat'}, {name: '/model', where: 'terminal'},
-  {name: '/cost', where: 'terminal'}, {name: '/context', where: 'terminal'}, {name: '/git:sync', where: 'chat', source: 'yours'},
+  {name: '/compact', where: 'chat'}, {name: '/clear', where: 'chat'}, {name: '/model', where: 'unavailable'},
+  {name: '/cost', where: 'unavailable'}, {name: '/context', where: 'unavailable'}, {name: '/git:sync', where: 'chat', source: 'yours'},
 ];
 
 test('the menu opens only while a command is being typed at the start', () => {
@@ -23,7 +23,7 @@ test('names starting with the text come before names containing it', () => {
 });
 
 test('a sent text is matched to the command it runs', () => {
-  assert.equal(slash.command(catalog, '/model').where, 'terminal');
+  assert.equal(slash.command(catalog, '/model').where, 'unavailable');
   assert.equal(slash.command(catalog, ' /compact keep decisions').name, '/compact');
   assert.equal(slash.command(catalog, '/unknown'), null);
   assert.equal(slash.command(catalog, 'please /compact'), null);
@@ -35,7 +35,7 @@ test('no command opens or hands anything over to a terminal', () => {
 });
 
 test('a command the catalog marks unavailable is refused with plain words, and nothing else is', () => {
-  const list = [{name: '/cost', where: 'unavailable'}, {name: '/compact', where: 'chat'}, {name: '/model', where: 'terminal'}];
+  const list = [{name: '/cost', where: 'unavailable'}, {name: '/compact', where: 'chat'}, {name: '/model', where: 'chat'}];
   const refuse = text => slash.unavailableRefusal(slash.command(list, text), 'Ada');
   assert.equal(refuse('/cost'), '/cost isn’t available when Qorqbot runs Ada.');
   assert.equal(refuse('/compact'), null);
@@ -44,17 +44,4 @@ test('a command the catalog marks unavailable is refused with plain words, and n
   assert.equal(refuse('hello'), null);
   assert.equal(slash.refusal({}, list[0], 'Ada'), '/cost isn’t available when Qorqbot runs Ada.');
   assert.doesNotMatch(refuse('/cost'), /terminal|tmux|CLI/i);
-});
-
-test('a known command is not sent to a shared Codex server', () => {
-  const codex = [{name: '/compact', where: 'chat'}, {name: '/model', where: 'terminal'}];
-  const shared = {provider: 'codex', transport: 'codex_queue'};
-  const refusal = (session, text) => slash.sharedServerRefusal(session, slash.command(codex, text), 'Ada');
-  assert.equal(refusal(shared, '/compact now'), '/compact isn’t available when Qorqbot runs Ada.');
-  assert.match(refusal(shared, '/model'), /^\/model isn’t available when Qorqbot runs Ada\.$/);
-  assert.equal(refusal(shared, '/tmp/foo'), null);
-  assert.equal(refusal(shared, 'run /compact'), null);
-  assert.equal(refusal({provider: 'codex', transport: 'terminal'}, '/compact'), null);
-  assert.equal(refusal({provider: 'claude', transport: 'terminal'}, '/compact'), null);
-  assert.equal(refusal(null, '/compact'), null);
 });

@@ -78,17 +78,15 @@ function globalChatReadable(agentId) {
 const GLOBAL_CHAT_PAGE = 50;
 const GLOBAL_CHAT_MAX = 17000;
 // Refusals store no input; any other failure leaves the outcome unknown and keeps the send identity.
-const GLOBAL_CHAT_REFUSALS = new Set(['terminal_offline', 'capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
-  'unsupported_runtime', 'terminal_changed', 'terminal_required', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict',
+const GLOBAL_CHAT_REFUSALS = new Set(['capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
+  'unsupported_runtime', 'terminal_changed', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict',
   'managed_command', 'session_closed', 'driver_unavailable', 'cli_unavailable', 'resume_failed', 'resume_unavailable', 'open_timeout', 'open_busy',
-  'session_opening', 'terminal_present', 'host_unverified']);
+  'session_opening', 'host_unverified']);
 const GLOBAL_CHAT_REFUSAL_TEXT = {
-  terminal_offline: 'Not running. Send the message again to start it.',
   capture_disabled: 'Chat unavailable.',
   capture_not_ready: 'Connecting. Try again in a moment.',
   binding_not_ready: 'Connecting. Try again in a moment.',
   terminal_changed: 'Not delivered. Check the agent and try again.',
-  terminal_required: 'This command isn’t available when Qorqbot runs the agent.',
   managed_command: 'This command isn’t available when Qorqbot runs the agent.',
   session_closed: 'Not running. Send the message again to start it.',
   driver_unavailable: 'Couldn’t start. Check in Settings that Claude Code or Codex is connected, then send again.',
@@ -550,7 +548,7 @@ function mountGlobalChat(pane, agent, options = {}) {
         if (live() && composerScope === mine) showBanner(problem.code === 'message_too_long' ? 'Shorten your message and try again.'
           : problem.attachment ? "Couldn't attach the file. Try again."
           : GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem) : "Couldn't confirm. Try again");
-        if (problem.code === 'capture_not_ready' || problem.code === 'terminal_offline' || problem.code === 'terminal_changed') void load();
+        if (problem.code === 'capture_not_ready' || problem.code === 'terminal_changed') void load();
       } finally {
         GLOBAL_CHAT_INFLIGHT.delete(mine);
         if (live()) paintSession();

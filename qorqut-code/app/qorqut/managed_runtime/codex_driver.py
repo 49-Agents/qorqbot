@@ -48,12 +48,10 @@ import collections
 import json
 import os
 import re
-import signal
 import threading
 import time
 import tomllib
 import uuid
-from pathlib import Path
 
 from .claude_driver import (
     ClaudeSessionError as _TransportError, _ProcessTransport, _bounded, _bounded_input, _clean, scrub_diagnostic,

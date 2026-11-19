@@ -53,7 +53,7 @@ NOTICE_REASONS = {
 }
 # What the shared arbiter reports for an input it did not type, in this worker's stable status codes. ``session_closed`` is
 # a managed agent whose session is not open.
-DEFERRALS = {"terminal_offline": "terminal_absent", "unsupported_target": "terminal_unsupported", "session_closed": "session_closed"}
+DEFERRALS = {"unsupported_target": "terminal_unsupported", "session_closed": "session_closed"}
 PREFACE = ("Qorqut owner message via Telegram (correlation {correlation}). The same message is in your inbox; handle it "
            "once. It is owner input for this request, not blanket authorization.")
 SIGNOFF_PREFACE = ("Qorqut owner reply via Telegram on your Signoff \"{title}\" (note {correlation}). The same reply is saved on "

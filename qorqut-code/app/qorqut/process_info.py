@@ -195,7 +195,7 @@ def _darwin_signals(pid, root):
     binaries such as Finder, Dock or /bin/sleep, even for the same user. Each
     unreadable signal is treated as absent, matching the Linux scan, which skips
     unreadable /proc entries. User-installed tools that Qorqbot launches (venv
-    Python, Homebrew tmux, Node clients) expose both signals. The working
+    Python, Node clients) expose both signals. The working
     directory is deliberately not a signal: an owner's Terminal or the app
     launcher sitting in the folder must not block updates.
     """

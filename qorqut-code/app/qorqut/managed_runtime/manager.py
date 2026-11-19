@@ -224,7 +224,7 @@ def _events_of(reply):
 # ----- the runtime ----------------------------------------------------------------------------------------------------
 
 class ManagedRuntime:
-    """See the module text. ``runtime`` supplies ``paths`` (the runtime folder), ``database`` and ``terminals`` (workspace
+    """See the module text. ``runtime`` supplies ``paths`` (the runtime folder), ``database`` and ``managed_launch`` (workspace
     preparation); ``launcher`` is the host launcher (default: the ``launcher`` module of this package)."""
 
     def __init__(self, runtime, *, launcher=None, prepare=None, resume=None, executable=None, clock=time.monotonic, sleep=time.sleep,
@@ -636,10 +636,10 @@ class ManagedRuntime:
     def _prepared(self, agent_id):
         if self._prepare_override is not None:
             return self._prepare_override(agent_id)
-        terminals = getattr(self._runtime, "terminals", None)
-        if terminals is None or not hasattr(terminals, "prepare_managed"):
+        launch = getattr(self._runtime, "managed_launch", None)
+        if launch is None or not hasattr(launch, "prepare_managed"):
             raise ManagedError("managed_unavailable", "Workspace preparation is not available")
-        return terminals.prepare_managed(agent_id)
+        return launch.prepare_managed(agent_id)
 
     def _locate(self, client, env):
         """The executable of this client to run and where it looked: ``(path or None, searched)``. An explicit executable (tests,

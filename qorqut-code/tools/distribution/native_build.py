@@ -14,7 +14,6 @@ import argparse
 import base64
 import csv
 import hashlib
-import importlib.util
 import io
 from email.parser import BytesParser
 import re

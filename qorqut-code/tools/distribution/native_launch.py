@@ -78,7 +78,7 @@ def environment(root, home):
     env['QORQUT_NATIVE_USER_ENV'] = json.dumps(native_env)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'QORQUT_INSTALLATION_CONFIG',
                 'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'BIZ_DASH_TOKEN',
-                'QORQUT_MCP_URL', 'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE', 'PIP_TARGET',
+                'QORQUT_MCP_URL', 'BAZARLYK_MCP_URL', 'PIP_TARGET',
                 'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE',
                 'QORQUT_NATIVE_ROOT'):
         env.pop(key, None)

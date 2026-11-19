@@ -3,19 +3,14 @@ readiness, bounds, the lock probe and the stale-client checks. Split off so each
 and the base fixtures are the first module's; the fake is still named in ``launch.json`` as ``test_managed_host:FakeSession``."""
 import isolated_cli_environment
 
-import collections
 import json
 import os
-import queue
 import signal
-import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unittest
-import uuid
 from pathlib import Path
 from unittest import mock
 

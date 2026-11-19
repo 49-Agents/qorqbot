@@ -28,14 +28,8 @@ const slashCommands = (() => {
     if (!item || item.where !== 'unavailable') return null;
     return `${item.name} isn’t available when Qorqbot runs ${label}.`;
   }
-  // The shared Codex server takes plain text, so it cannot run a Codex command either (null when the session does not use it or the
-  // text is not a known command). The backend refuses it too.
-  function sharedServerRefusal(session, item, label) {
-    if (!item || session?.provider !== 'codex' || session?.transport !== 'codex_queue') return null;
-    return `${item.name} isn’t available when Qorqbot runs ${label}.`;
-  }
   // The refusal for a command the agent cannot run; the one call the composer makes.
-  const refusal = (session, item, label) => unavailableRefusal(item, label) || sharedServerRefusal(session, item, label);
+  const refusal = (session, item, label) => unavailableRefusal(item, label);
 
   // `options.commands()` returns the current catalog (or null while unknown).
   function attach({input, form, commands}) {
@@ -92,6 +86,6 @@ const slashCommands = (() => {
       },
     };
   }
-  return {match, command, sharedServerRefusal, unavailableRefusal, refusal, attach, MAX_SHOWN};
+  return {match, command, unavailableRefusal, refusal, attach, MAX_SHOWN};
 })();
 if (typeof module !== 'undefined') module.exports = slashCommands;

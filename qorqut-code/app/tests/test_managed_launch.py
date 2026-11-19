@@ -98,6 +98,29 @@ class PreparationTests(Case):
             self.launch.prepare_managed(AGENT)
         self.assertEqual(refused.exception.code, "not_found")
 
+    def test_a_project_home_agent_is_not_prepared_whatever_its_status(self):
+        """Agents with a home project are retired identities (none is created any more): the preparation's own query leaves them
+        out, so no managed session can be opened for one even if every other check said yes."""
+        import sqlite3
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.execute("CREATE TABLE agent_profiles(agent_id TEXT, home_business_id TEXT, status TEXT)")
+        connection.execute("INSERT INTO agent_profiles VALUES(?,?,?)", (AGENT, "business-1", "active"))
+
+        @contextmanager
+        def read():
+            yield SimpleNamespace(connection=connection)
+        self.runtime.database = SimpleNamespace(read=read)
+        self.launch.preparation = lambda *a, **k: self.fail("prepared")
+        with self.assertRaises(DomainError) as refused:
+            self.launch.prepare_managed(AGENT)
+        self.assertEqual(refused.exception.code, "not_found")
+        connection.execute("UPDATE agent_profiles SET home_business_id=NULL")
+        self.launch.preparation = lambda *a, **k: {"ok": True}
+        with mock.patch.object(managed_launch, "agent_workspace", lambda paths, agent_id, business: "/w"), \
+                mock.patch.object(managed_launch.agent_cli_launch, "session_environment", lambda env: env):
+            self.assertEqual(self.launch.prepare_managed(AGENT)["workspace"], "/w")
+
     def test_the_capture_selection_must_be_a_boolean(self):
         with self.assertRaises(ValueError):
             ManagedLaunch(self.runtime, service_url="u", capture_transcripts="yes")

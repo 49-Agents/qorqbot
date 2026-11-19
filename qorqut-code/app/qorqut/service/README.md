@@ -36,23 +36,10 @@ The remaining material records older integration details. Old paths, retired Con
 ## Authentication And Routes
 
 Global → Agents reads the canonical `agents_list` operation with explicit
-`scope: global` through `GET /api/root/agents`. Root terminal routes mirror only
-registered active root profiles and require the current installation owner:
-`GET /api/root/terminals`, `GET /api/root/terminal/<agent-id>/stream`, and POST
-`start`, `input`, `resize`, `stop` actions under the same terminal path. They bind
-the registered `<root>/agents/<name>` folder and a separate tmux identity, use no
-business-only environment, inherit Global defaults, and never launch Claude. Business terminal routes retain
-their existing scope and session names. All owner writes retain same-origin
-checks; streams periodically recheck access. A `replay` SSE marker precedes the
-ordinary initial data frame so current clients avoid answering historical device
-queries into the live shell. Older mirrors still receive the data frame.
+`scope: global` through `GET /api/root/agents`. Every agent runs as a managed session and is reached through Chat; there are no terminal routes. All owner
+writes retain same-origin checks.
 
-Global → Agents also exposes an installation-owner utility shell through
-`/api/root/workspace-terminal/<action>`. It is rooted at the configured Qorqut
-workspace, uses a dedicated tmux session, and deliberately has no agent profile,
-preparation, credential, inbox, or transcript-capture hook.
-
-- Configure `BIZ_ROOT`, `QORQUT_TERMINAL_WORKSPACE`, `HOST`, `PORT` and explicit `BIZ_SERVICE_ORIGINS` in the
+- Configure `BIZ_ROOT`, `HOST`, `PORT` and explicit `BIZ_SERVICE_ORIGINS` in the
   existing `.env.dashboard`. The live port remains 1049; test fixtures forbid it.
 - `QORQUT_MCP_URL` selects the advertised shared endpoint for generated folders.
 - The private, single-owner dashboard has no browser authentication. Owner API
@@ -120,9 +107,8 @@ selection. Seeding and business restore apply the same defaults;
 no separate `plugins_enable` approval is needed. An email grant sends only from its
 own mailbox list (Ordubashy: every registered mailbox).
 The model provider resolves explicit service configuration, Global defaults, then
-the selected business's overrides for each job. Business terminals use the same
-merged environment; Global terminals receive only Global defaults. Existing
-tmux sessions retain their environment until a new shell session starts.
+the selected business's overrides for each job. Managed sessions receive Global defaults only, and an
+open session keeps its environment until it is closed and started again.
 
 Historical transcript reads accept supported saved Claude/Codex records in
 registered agent `sessions/*.jsonl` inside the selected owning workspace. Old
@@ -167,7 +153,7 @@ testing; consent is recorded and fixture tests use synthetic transcripts only.
 ```
 
 The second command is run from `biz-dashboard`. Tests use temporary databases,
-files, credentials, isolated localhost ports and a dedicated test tmux socket.
+files, credentials and isolated localhost ports.
 The actual installed SDK and generated Python hooks are exercised; no test
 launches Claude. `tests/service_browser_fixture.py` provides the real isolated
 backend for browser tests, including a submitted Marketing request and pending
@@ -175,7 +161,7 @@ signoff. Its deterministic model port is test-only.
 
 After the reviewed cutover, the owner should:
 
-1. Open an active agent's mirrored terminal, type plain `claude`, and confirm
+1. Message an active agent in its Chat, and confirm
    current identity, role, assignment and selected business facts arrive.
 2. Compare an ordinary worker with an agent granted a plugin: only the latter has
    that plugin's skill and aliases. Confirm plugin-native procedure use.

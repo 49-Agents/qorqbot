@@ -315,7 +315,7 @@ class InboxService(OperationsInboxService):
                     rebound = True
                 if not same and row and not owner_selection:
                     raise DomainError('inbox_selection_required',
-                        'The agent's conversation is awaiting host verification')
+                        "The agent's conversation is awaiting host verification")
             if rebound and row:
                 delegation = getattr(self.app, 'operational_delegation', None)
                 if delegation is not None:

@@ -6,8 +6,7 @@
 Each Python module runs in its own process with ``-I -B -m unittest discover -s <tests> -p <module>.py -v`` and its own log
 (``<output>/tests/<module>.log``); the dashboard files run with ``node --test``. ``summary.json`` and ``summary.md`` in the output
 folder list, per module: tests run, failures, errors, skips with their reasons. The exit status is 1 when a module failed,
-could not be run, ran nothing (every test skipped), or when a zsh case of ``test_agent_cli_launch`` was skipped (zsh is the Mac
-shell, so those must run there). A skip with an explicit reason that is not about zsh is reported and does not fail the run.
+could not be run, or ran nothing (every test skipped). A skip with an explicit reason is reported and does not fail the run.
 
 The managed host tests start real host processes that load ``test_managed_host:FakeSession``; the host takes its import path from
 the PYTHONPATH of this process (``-I`` makes the test process itself ignore it), so the tests folder is put there.
@@ -102,9 +101,6 @@ def run_python_module(module, tests_folder, args, env, output):
         summary["reason"] = "no tests ran (the module could not be imported?)"
     elif summary["tests"] == summary["skipped"]:
         summary["reason"] = "every test was skipped"
-    zsh_skips = {name: reason for name, reason in summary["skips"].items() if "zsh" in (name + reason).lower()}
-    if module == "test_agent_cli_launch" and zsh_skips:
-        summary.update(status="fail", reason=f"{len(zsh_skips)} zsh cases were skipped on a Mac: " + "; ".join(sorted(set(zsh_skips.values()))))
     return summary
 
 

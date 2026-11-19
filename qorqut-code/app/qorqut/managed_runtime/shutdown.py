@@ -21,7 +21,7 @@ The report is one JSON object on standard output::
     {"state_root": ..., "ok": bool, "agents": [{"agent_id", "result", ...}], "remaining": [agent ids]}
 
 ``result`` is ``absent`` (nothing was running), ``closed`` (it closed when asked), ``ended`` (it had to be ended by pid),
-``cleaned`` (only stale files were found, or it was gone before it could be asked) or ``remaining`` (``reason`` says why). The exit status is 0 only when no host remains.
+``cleaned`` (only stale files were found, or it was gone before it could be asked; for a host killed outright, its client was already gone) or ``remaining`` (``reason`` says why). The exit status is 0 only when no host remains.
 """
 
 from __future__ import annotations
@@ -62,6 +62,14 @@ def lock_free(directory) -> bool:
 
 def client_alive(raw) -> bool:
     pid, identity = raw.get("claude_pid"), raw.get("claude_identity")
+    return isinstance(pid, int) and not isinstance(pid, bool) and bool(identity) and layout.process_alive(pid, identity)
+
+
+def host_alive(directory) -> bool:
+    """The host process ``host.json`` names still runs (same pid and start time). A held lock without it belongs to something the
+    host left behind (its client), never to a host that could answer."""
+    raw = layout.read_json(Path(directory) / layout.HOST_FILE) or {}
+    pid, identity = raw.get("host_pid"), raw.get("host_identity")
     return isinstance(pid, int) and not isinstance(pid, bool) and bool(identity) and layout.process_alive(pid, identity)
 
 
@@ -124,26 +132,34 @@ def shutdown(instance_root, timeout: float = DEFAULT_TIMEOUT, *, close_timeout: 
             live.append(directory)
 
     if live:
-        with ThreadPoolExecutor(max_workers=min(8, len(live))) as pool:
-            asked = dict(zip((d.name for d in live), pool.map(lambda directory: ask_to_close(directory, close_timeout), live)))
+        # A lock that is held while the recorded host is gone is its client's (a host killed outright): nobody can answer a close
+        # request, so it is not asked and not waited for, and what remains of it is ended below. This keeps the outcome of that
+        # case independent of how soon the client notices that its host died.
+        orphaned = [d for d in live if not host_alive(d)]
+        asking = [d for d in live if d not in orphaned]
+        asked = {d.name: {"asked": False, "error": "host_gone"} for d in orphaned}
+        if asking:
+            with ThreadPoolExecutor(max_workers=min(8, len(asking))) as pool:
+                asked.update(zip((d.name for d in asking), pool.map(lambda directory: ask_to_close(directory, close_timeout), asking)))
         deadline = clock() + max(0.0, float(timeout))
-        waiting = list(live)
+        waiting = list(asking)
         while waiting and clock() < deadline:
             waiting = [d for d in waiting if not lock_free(d)]
             if waiting:
                 sleep(POLL_SECONDS)
         waiting = [d for d in waiting if not lock_free(d)]
         waiting_names = {d.name for d in waiting}
-        for directory in live:
+        for directory in asking:
             if directory.name not in waiting_names:
                 # A host that never received the request and was gone by the time we looked left only files to clean.
                 result = "closed" if asked[directory.name]["asked"] else "cleaned"
                 agents[directory.name] = {"agent_id": directory.name, "result": result, "asked": asked[directory.name],
                                           **finish(directory)}
-        if waiting:
-            with ThreadPoolExecutor(max_workers=min(8, len(waiting))) as pool:
-                forced = dict(zip((d.name for d in waiting), pool.map(end_by_pid, waiting)))
-            for directory in waiting:
+        forcing = [*waiting, *orphaned]
+        if forcing:
+            with ThreadPoolExecutor(max_workers=min(8, len(forcing))) as pool:
+                forced = dict(zip((d.name for d in forcing), pool.map(end_by_pid, forcing)))
+            for directory in forcing:
                 name = directory.name
                 outcome = forced[name]
                 # A lock that stays held by a process that cannot be shown to be this agent's host is never forced.
@@ -152,7 +168,8 @@ def shutdown(instance_root, timeout: float = DEFAULT_TIMEOUT, *, close_timeout: 
                     sleep(POLL_SECONDS)
                 entry = {"agent_id": name, "asked": asked[name], **outcome}
                 if lock_free(directory):
-                    entry.update(result="ended", **finish(directory))
+                    gone_before = name in {d.name for d in orphaned} and not outcome["client"]
+                    entry.update(result="cleaned" if gone_before else "ended", **finish(directory))
                 else:
                     entry.update(result="remaining", reason="host_not_ended" if outcome["verified_host"] else "host_unverified")
                 agents[name] = entry

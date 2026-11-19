@@ -15,7 +15,6 @@ from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -27,7 +26,7 @@ from qorqut_operations.contracts import DomainError
 from qorqut_operations.inbox_nudges.contracts import Binding as NudgeBinding, TRANSPORTS as NUDGE_TRANSPORTS
 
 from qorqut.bootstrap.terminal_chat import process_fields
-from qorqut.managed_runtime.manager import CLOSED_VIEW, HostUnverified, ManagedError, ManagedRuntime
+from qorqut.managed_runtime.manager import CLOSED_VIEW, ManagedError, ManagedRuntime
 from qorqut.native_chat import arbiter as arbiter_module, chat as chat_module, commands, nudges, schema, store
 from qorqut.native_chat.arbiter import AgentLocks, InputArbiter
 from qorqut.native_chat.chat import MANAGED_FIELDS, NativeChat

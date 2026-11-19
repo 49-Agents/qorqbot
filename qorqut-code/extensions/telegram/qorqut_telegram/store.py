@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
-import sqlite3
 
 from qorqut_operations.contracts import DomainError, canonical_hash, new_id, plain
 

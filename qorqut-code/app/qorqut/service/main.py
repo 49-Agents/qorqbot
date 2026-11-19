@@ -71,13 +71,13 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="",
     runtime.recovery_quiescer.browser_writers = KnownZeroWriters("browser")
     # A live managed agent host (a headless client session that outlives the service) refuses the window; it never closes or
     # kills one.
-    from qorqut.managed_runtime.mode import state_root
+    from qorqut.managed_runtime.state import state_root
     runtime.recovery_quiescer.host_writers = ManagedHostWriters(lambda: state_root(runtime.paths))
     launch = ManagedLaunch(runtime, service_url=endpoint,
         environment=local.environment, global_environment=local.environment,
         agent_environment=local.agent_environment, capture_transcripts=capture_transcripts)
-    # The managed runtime prepares every session it opens through this service (``runtime.terminals`` is the name it still reads).
-    runtime.managed_launch = runtime.terminals = launch
+    # The managed runtime prepares every session it opens through this service.
+    runtime.managed_launch = launch
     from qorqut.inbox.broadcasts import BroadcastDispatcher
     runtime.broadcast_dispatcher = BroadcastDispatcher(runtime, runtime.broadcasts, launch)
     if model_client_factory is None:
@@ -95,7 +95,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="",
         selected = RecoveryAdminConfig.load(recovery_config, paths=paths)
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
             lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)
-    # Project agents have no resident sessions (only global agents run), so the approved archive has none to reset.
+    # Agent sessions are not tied to a project, so an approved archive has nothing to reset.
     runtime.domains.archive.reset_terminals = lambda business, agents: None
     compatibility = DashboardCompatibility(runtime, background=runtime.background, local_files=local)
     authentication = Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token, signing_key=signing_key,
@@ -111,8 +111,6 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=instruction_text('main-shared-qorqut-dashboard-and-http-mcp-service'))
     parser.add_argument("--workspace", type=Path, default=None)
     add_instance_arguments(parser)
-    # Accepted so an existing service unit that still passes it starts; it has no effect (the owner's workspace shell is gone).
-    parser.add_argument("--terminal-workspace", type=Path, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--biz", action="append", default=[])
     parser.add_argument("--host", default=os.environ.get("BIZ_DASH_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("BIZ_DASH_PORT", "1049")))

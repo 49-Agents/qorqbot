@@ -18,7 +18,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -214,27 +213,17 @@ class AttestCodexTests(unittest.TestCase):
 
     def test_the_hosts_app_server_is_bound_by_its_process_alone_and_the_host_is_recorded(self):
         host = {"host_id": "host:5:6", "host_pid": 5, "host_ticks": "6"}
-        with mock.patch.object(codex_session, "hosted_session_process", return_value=("42:777", host)), \
-                mock.patch.object(codex_session, "session_process") as shared:
+        with mock.patch.object(codex_session, "hosted_session_process", return_value=("42:777", host)):
             value = self.attest()
-        shared.assert_not_called()
         self.assertEqual((value["owner"], value["pid"], value["started"], value["runtime"], value["managed_host"]),
                          ("42:777", 42, "777", "codex", host))
         self.assertEqual(self.written.call_args.args[1]["managed_host"], host)
 
-    def test_an_app_server_that_is_not_the_hosts_keeps_the_shared_server_rule_and_records_no_host(self):
-        owner = "42:777:9:2049:77"
-        with mock.patch.object(codex_session, "hosted_session_process", return_value=None), \
-                mock.patch.object(codex_session, "session_process", return_value=owner):
-            value = self.attest()
-        self.assertEqual((value["owner"], value["pid"]), (owner, 42))
-        self.assertNotIn("managed_host", value)
-
     def test_nothing_the_hook_can_identify_is_a_refusal(self):
-        with mock.patch.object(codex_session, "hosted_session_process", return_value=None), \
-                mock.patch.object(codex_session, "session_process", side_effect=DomainError("inbox_delivery_unavailable", "no")):
-            with self.assertRaises(DomainError):
+        with mock.patch.object(codex_session, "hosted_session_process", return_value=None):
+            with self.assertRaises(DomainError) as refused:
                 self.attest()
+        self.assertEqual(refused.exception.code, "inbox_delivery_unavailable")
         self.written.assert_not_called()
 
     def test_a_subagent_hook_is_refused_even_under_the_hosts_app_server(self):
@@ -276,8 +265,6 @@ HOOK = ("import json,sys\n"
         "session=sys.argv[3]\n"
         "if what=='hosted':\n"
         "    print(json.dumps(codex_session.hosted_session_process(session,registration['workspace'],registration['agent_id'])))\n"
-        "elif what=='shared':\n"
-        "    print(json.dumps(codex_session.session_process(session)))\n"
         "else:\n"
         "    try:\n"
         "        print(json.dumps(native_binding.attest({'session_id':session,'cwd':registration['workspace'],'hook_event_name':'SessionStart'},'r.json','codex')))\n"
@@ -420,16 +407,12 @@ class HostedHookTests(CodexRealCase):
         self.assertIsNone(self.hook(environment, "hosted", thread=OTHER_THREAD))
         self.assertEqual(self.hook(environment, "attest", thread=OTHER_THREAD), {"refused": "inbox_delivery_unavailable"})
 
-    def test_an_app_server_without_the_agents_host_above_it_keeps_the_shared_server_rule(self):
+    def test_an_app_server_without_the_agents_host_above_it_is_never_bound(self):
         server, pid, environment = self.shared_app_server()
         self.record(pid)   # a record that names the server itself as the "host" proves nothing: it does not run the host module
         self.assertIsNone(self.hook(environment, "hosted"))
-        owner = self.hook(environment, "shared")
-        self.assertEqual(len(owner.split(":")), 5)
-        self.assertEqual(codex_session.owner_process(owner), f"{pid}:{ticks(pid)}")
-        value = self.hook(environment, "attest")
-        self.assertEqual(value["owner"], owner)
-        self.assertNotIn("managed_host", value)
+        self.assertEqual(self.hook(environment, "attest"), {"refused": "inbox_delivery_unavailable"})
+        self.assertFalse((self.workspace / ".qorqut/native-binding.json").exists())
 
     def test_a_codex_the_agent_starts_from_its_shell_is_not_the_hosts_client(self):
         host, pid, environment = self.host_with_app_server()
@@ -526,12 +509,12 @@ class ManagedCodexProbeScriptTests(CodexRealCase):
                                      ticks(pid), str(host.pid), ticks(host.pid)], text=True, timeout=20, stderr=subprocess.DEVNULL)
 
     def adapter(self, runtime):
-        run = staticmethod(lambda execution, script, arguments: subprocess.check_output(
+        run = staticmethod(lambda script, arguments: subprocess.check_output(
             [sys.executable, "-I", "-c", script, *map(str, arguments)], text=True, timeout=20, stderr=subprocess.DEVNULL))
         patcher = mock.patch.object(NativeBindingAdapter, "run", run)
         patcher.start()
         self.addCleanup(patcher.stop)
-        return NativeBindingAdapter(runtime), SimpleNamespace(target_identity=None), {"workspace": str(self.workspace)}
+        return NativeBindingAdapter(runtime), {"workspace": str(self.workspace)}
 
     @staticmethod
     def identity(host_pid, client_pid, provider="codex", **extra):
@@ -540,8 +523,8 @@ class ManagedCodexProbeScriptTests(CodexRealCase):
                 "state": "ready", "transcript_path": None, **extra}
 
     def verify_managed(self, identity):
-        adapter, execution, profile = self.adapter(RuntimeWithIdentity(identity))
-        return adapter.verify_managed(execution, profile, AGENT, "reg-1", THREAD)
+        adapter, profile = self.adapter(RuntimeWithIdentity(identity))
+        return adapter.verify_managed(profile, AGENT, "reg-1", THREAD)
 
     def test_the_service_binds_the_process_its_identity_names_with_a_two_part_owner(self):
         host, pid, _ = self.host_with_app_server()
@@ -631,8 +614,8 @@ class FakeManagedCodex:
 
 @unittest.skipUnless(LINUX, "the writer lock is a Linux file lock; the process table is /proc")
 class ManagedCodexProbeTests(CodexRealCase):
-    def probe(self, managed, *, backend=None):
-        return SessionProbe(backend=lambda: backend, managed=managed)
+    def probe(self, managed):
+        return SessionProbe(managed=managed)
 
     def profile(self):
         return {"agent_id": AGENT, "workspace": str(self.workspace), "profile_json": json.dumps({"runtime": "codex"})}
@@ -644,11 +627,10 @@ class ManagedCodexProbeTests(CodexRealCase):
     def test_the_hosts_app_server_is_managed_before_the_shared_server_rule_is_asked(self):
         host, pid, _ = self.host_with_app_server()
         managed = FakeManagedCodex(host.pid, ticks(host.pid), (pid, ticks(pid)))
-        # No terminal backend at all: the old order would have ended in the codex_queue branch and found no pane.
         self.assertEqual(self.probe(managed)._verify_process(self.profile(), self.marker(pid)),
                          {"transport": "managed", "owner": managed.owner})
 
-    def test_every_disagreement_is_a_refusal_and_never_a_codex_queue_binding(self):
+    def test_every_disagreement_is_a_refusal(self):
         host, pid, _ = self.host_with_app_server()
         other, other_pid, _ = self.host_with_app_server(OTHER_THREAD)
         managed = FakeManagedCodex(host.pid, ticks(host.pid), (pid, ticks(pid)))
@@ -674,7 +656,7 @@ class ManagedCodexProbeTests(CodexRealCase):
         # a recycled process: the marker's start ticks are not the process's
         self.assertIsNone(probe._verify_process(self.profile(), dict(marker, started=str(int(marker["started"]) + 1))))
 
-    def test_a_shared_app_server_is_judged_as_before(self):
+    def test_a_shared_app_server_is_never_bound(self):
         server, pid, _ = self.shared_app_server()
         managed = FakeManagedCodex(1, "1", (pid, ticks(pid)))
         managed.verify_result = None
@@ -685,18 +667,12 @@ class ManagedCodexProbeTests(CodexRealCase):
         marker = {"agent_id": AGENT, "session_id": THREAD, "runtime": "codex", "pid": pid, "started": started}
         activity = self.workspace / ".qorqut/activity"
         activity.mkdir(parents=True)
-        verified = {"transport": "managed", "owner": "host:1:2"}
         for owner, expected in ((f"{pid}:{started}", True), (f"{pid}:{started}:9:2049:77", True), (f"{pid}:100:9:2049:77", False),
                                 (f"{pid + 1}:{started}", False), ("host:1:2", False), (None, False)):
             (activity / f"{THREAD}.json").write_text(json.dumps({"agent_id": AGENT, "session_id": THREAD, "runtime": "codex", "owner": owner,
                                                                  "state": "running"}))
             with self.subTest(owner=owner):
-                self.assertIs(SessionProbe._working(self.profile(), marker, verified), expected)
-        # a terminal or shared-server observation compares its owner exactly, as it always did
-        (activity / f"{THREAD}.json").write_text(json.dumps({"agent_id": AGENT, "session_id": THREAD, "runtime": "codex",
-                                                             "owner": f"{pid}:{started}:9:2049:77", "state": "running"}))
-        self.assertTrue(SessionProbe._working(self.profile(), marker, {"transport": "codex_queue", "owner": f"{pid}:{started}:9:2049:77"}))
-        self.assertFalse(SessionProbe._working(self.profile(), marker, {"transport": "codex_queue", "owner": f"{pid}:{started}:9:2049:78"}))
+                self.assertIs(SessionProbe._working(self.profile(), marker), expected)
 
 
 if __name__ == "__main__":

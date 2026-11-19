@@ -114,47 +114,6 @@ def thread_owner(pid, session_id, home=None):
     return None
 
 
-def session_process(session_id):
-    pid = os.getppid()
-    for _ in range(12):
-        try:
-            process = PROC_ROOT / str(pid)
-            # An npm update can unlink the executable while its server is still running.
-            if sys.platform == 'darwin':
-                from qorqut import process_info
-                observed_start = process_info.start_token(pid)
-                executable = process_info.exe(pid)
-                argv = [arg.encode() for arg in process_info.cmdline(pid)]
-                if process_info.start_token(pid) != observed_start:
-                    raise ProcessLookupError(pid)
-            else:
-                executable = Path(str((process / "exe").readlink()).removesuffix(" (deleted)"))
-                argv = (process / "cmdline").read_bytes().split(b"\0")
-            if executable.name == "codex":
-                if b"app-server" in argv:
-                    owner = thread_owner(pid, session_id)
-                    if owner:
-                        return owner
-                    break
-                if b"exec" in argv or b"queue" in argv:
-                    break
-                identity = process_identity(pid)
-                if sys.platform == 'darwin' and identity != f'{pid}:{observed_start}':
-                    raise ProcessLookupError(pid)
-                if identity:
-                    return identity
-            if sys.platform == 'darwin':
-                pid = process_info.parent_pid(pid)
-            else:
-                fields = (process / "stat").read_text().rsplit(")", 1)[1].split()
-                pid = int(fields[1])
-            if pid <= 1:
-                break
-        except (OSError, ValueError, IndexError):
-            break
-    raise DomainError("inbox_delivery_unavailable", "Cannot identify a running local Codex session for inbox delivery")
-
-
 def hosted_session_process(session_id, workspace, agent_id):
     """``(identity, host)`` when this hook runs under the app-server a managed host of THIS agent started, else ``None``.
 

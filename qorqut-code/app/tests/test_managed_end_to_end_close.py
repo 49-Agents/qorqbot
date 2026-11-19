@@ -2,8 +2,6 @@
 that fails. Split off so each module runs well under a minute; the stack, the fake host and every helper are the first module's."""
 import isolated_cli_environment  # before any Qorqbot import: tests never touch the real user's CLI files
 
-import json
-import time
 import unittest
 from unittest import mock
 import uuid
@@ -11,10 +9,9 @@ import uuid
 from qorqut_operations.contracts import DomainError
 
 from qorqut.managed_runtime import launcher, state as layout
-from qorqut.managed_runtime.client import HostClient, HostUnavailable
-from qorqut.native_chat import chat as chat_module, store
-from qorqut.native_chat.contracts import InputRequest, TYPE_NUDGE, TYPE_TELEGRAM
-from qorqut.native_chat.contracts import RESULT_DEFERRED, STATE_SUBMITTED, STATE_WAITING
+from qorqut.native_chat import chat as chat_module
+from qorqut.native_chat.contracts import InputRequest, TYPE_NUDGE
+from qorqut.native_chat.contracts import RESULT_DEFERRED
 
 import test_managed_end_to_end as base
 from test_managed_end_to_end import DriverLauncher, LINUX, OWNER, WAIT, wait_for

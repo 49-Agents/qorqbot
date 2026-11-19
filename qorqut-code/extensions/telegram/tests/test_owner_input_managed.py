@@ -4,9 +4,9 @@ Every agent runs as a managed session, so a message that cannot be delivered now
 """
 from types import SimpleNamespace as NS
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from qorqut.native_chat.contracts import InputResult, RESULT_DEFERRED, RESULT_REJECTED, STATE_FAILED, STATE_SUBMITTED, STATE_UNCERTAIN
+from qorqut.native_chat.contracts import InputResult, RESULT_DEFERRED, RESULT_REJECTED, STATE_SUBMITTED, STATE_UNCERTAIN
 from qorqut_telegram import owner_input
 from qorqut_telegram.owner_input import DEFERRALS, NOTICE_REASONS, OwnerInputs
 
@@ -52,7 +52,7 @@ class ManagedOwnerInputTests(unittest.TestCase):
         self.assertEqual(DEFERRALS["session_closed"], "session_closed")
 
     def test_the_legacy_arbiter_codes_still_map(self):
-        for arbiter, worker in (("terminal_offline", "terminal_absent"), ("unsupported_target", "terminal_unsupported")):
+        for arbiter, worker in (("unsupported_target", "terminal_unsupported"),):
             outcome = OwnerInputs._outcome(InputResult(state=RESULT_DEFERRED, reason=arbiter))
             self.assertEqual((outcome.status, outcome.reason), ("deferred", worker))
         self.assertEqual(OwnerInputs._outcome(InputResult(state=RESULT_REJECTED, reason="unsupported_runtime")).status, "failed")

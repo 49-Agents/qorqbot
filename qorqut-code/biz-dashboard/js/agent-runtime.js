@@ -67,10 +67,8 @@ const agentRuntime = (() => {
   // Wording for a refusal, by the server's code. Where something must be set up, the text points to Settings, where Claude Code
   // and Codex are connected.
   const MANAGED_REFUSALS = {
-    terminal_offline: 'Not running. Send the message again to start it.',
     session_closed: 'Not running. Send the message again to start it.',
     terminal_changed: 'Not delivered. The session changed. Try again.',
-    terminal_required: 'This command isn’t available when Qorqbot runs the agent.',
     managed_command: 'This command isn’t available when Qorqbot runs the agent.',
     driver_unavailable: 'Couldn’t start. Check in Settings that Claude Code or Codex is connected, then send again.',
     // The server's other refusals when a message opens a closed session (native_chat/chat.py `_OPEN_REFUSALS`).
@@ -80,7 +78,6 @@ const agentRuntime = (() => {
     open_timeout: 'Still starting. Try again in a moment.',
     open_busy: 'Several sessions are starting right now. Try again in a moment.',
     session_opening: 'A session is being opened. Try again in a moment.',
-    terminal_present: 'Couldn’t start. Try again in a moment.',
     host_unverified: 'Couldn’t check the session. Try again in a moment.',
     binding_not_ready: 'Connecting. Try again in a moment.',
   };

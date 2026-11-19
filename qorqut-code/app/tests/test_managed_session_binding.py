@@ -124,15 +124,8 @@ class FakeManaged:
         return events
 
 
-class Untouchable:
-    """A managed runtime a terminal agent must never reach."""
-
-    def __getattr__(self, name):
-        raise AssertionError(f"a terminal agent touched the managed runtime ({name})")
-
-
-def profile(execution="managed", workspace="/nonexistent/agent"):
-    return {"agent_id": AGENT, "workspace": workspace, "profile_json": json.dumps({"runtime": "claude-code"}), "execution": execution}
+def profile(workspace="/nonexistent/agent"):
+    return {"agent_id": AGENT, "workspace": workspace, "profile_json": json.dumps({"runtime": "claude-code"})}
 
 
 def marker(pid, started):
@@ -870,19 +863,21 @@ class AttestTests(unittest.TestCase):
                                                                                    self.sleeper.pid, record))
         self.assertEqual(self.written.call_args.args[1]["managed_host"], record)
 
-    def test_an_interactive_client_never_consults_the_host_and_records_none(self):
+    def test_an_interactive_client_is_refused_without_consulting_the_host(self):
         self.args = [b"claude", b"--settings", b"x"]
         with mock.patch.object(native_binding, "managed_host") as host:
-            value = self.attest()
+            with self.assertRaises(DomainError) as refused:
+                self.attest()
         host.assert_not_called()
-        self.assertNotIn("managed_host", value)
+        self.assertEqual(refused.exception.code, "inbox_binding_required")
+        self.written.assert_not_called()
 
 
 # ----- real processes: the strictness the filter exists for -----------------------------------------------------------------
 
 class RuntimeWithIdentity:
     """A managed runtime as the binding adapter reaches it: the mode file's ``paths`` and ``identity``, the service-held, token-verified
-    view of the agent's host. ``Untouchable`` is what a terminal agent must never reach."""
+    view of the agent's host."""
 
     def __init__(self, paths, identity=None, error=None):
         self.paths, self._identity, self._error, self.asked = paths, identity, error, []
@@ -1006,24 +1001,23 @@ class RealProcessCase(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             self.probe_script(client, host, **expected)
 
-    def adapter(self, runtime, target_identity=None):
+    def adapter(self, runtime):
         # The real ``run`` gives a probe one second; a loaded test machine should not turn that into a failure.
-        run = staticmethod(lambda execution, script, arguments: subprocess.check_output(
+        run = staticmethod(lambda script, arguments: subprocess.check_output(
             [sys.executable, "-I", "-c", script, *map(str, arguments)], text=True, timeout=20, stderr=subprocess.DEVNULL))
         patcher = mock.patch.object(NativeBindingAdapter, "run", run)
         patcher.start()
         self.addCleanup(patcher.stop)
-        return NativeBindingAdapter(runtime), SimpleNamespace(target_identity=target_identity), {"workspace": str(self.workspace)}
+        return NativeBindingAdapter(runtime), {"workspace": str(self.workspace)}
 
-    def verify_managed(self, runtime, mode=None):
-        adapter, execution, profile_ = self.adapter(runtime)
-        return adapter.verify_managed(execution, profile_, AGENT, "reg-1", CONVERSATION)
+    def verify_managed(self, runtime):
+        adapter, profile_ = self.adapter(runtime)
+        return adapter.verify_managed(profile_, AGENT, "reg-1", CONVERSATION)
 
-    def verify(self, runtime, mode=None):
-        """``NativeBindingAdapter.verify`` end to end with a terminal that has no pane: what a binding request does."""
-        adapter, execution, profile_ = self.adapter(runtime)
-        execution.broker = SimpleNamespace(tmux=lambda *arguments: (1, ""))
-        with mock.patch.object(NativeBindingAdapter, "selected", return_value=(profile_, execution, "terminal")):
+    def verify(self, runtime):
+        """``NativeBindingAdapter.verify`` end to end: what a binding request does."""
+        adapter, profile_ = self.adapter(runtime)
+        with mock.patch.object(NativeBindingAdapter, "selected", return_value=profile_):
             return adapter.verify(AGENT, "reg-1", CONVERSATION)
 
 
@@ -1116,19 +1110,6 @@ class RealProcessTests(RealProcessCase):
         self.refuses(client, host.pid)
         self.assertIsNone(managed_host(self.workspace, client, AGENT))
 
-    def test_the_terminal_probe_still_refuses_claude_dash_p_even_for_the_host_child(self):
-        host, client = self.host_with_client()
-        self.wait_for_name(client)
-        self.record(host.pid)
-        self.observation(client)
-        from qorqut.bootstrap.native_binding import PROBE
-        # The terminal probe was not loosened: its ``-p`` assertion is still in the script, and it names no managed host.
-        self.assertIn("assert not any(a in argv for a in (b'exec',b'queue',b'--print',b'-p',b'--agent-id'))", PROBE)
-        self.assertNotIn("managed", PROBE)
-        with self.assertRaises(subprocess.CalledProcessError):
-            subprocess.check_output([sys.executable, "-I", "-c", PROBE, str(self.workspace), CONVERSATION, str(host.pid), AGENT, "reg-1"],
-                                    text=True, timeout=20, stderr=subprocess.DEVNULL)
-
     def test_the_bridge_binds_the_host_child_and_leaves_a_plain_worker_unbound(self):
         host, client = self.host_with_client()
         self.wait_for_name(client)
@@ -1183,10 +1164,10 @@ class ServiceAuthorityTests(RealProcessCase):
                               "no host": RuntimeWithIdentity(self.paths, None)}.items():
             with self.subTest(name):
                 self.assertIsNone(self.verify_managed(SimpleNamespace(managed_runtime=runtime) if isinstance(runtime, RuntimeWithIdentity)
-                                                      else runtime, mode=None))
+                                                      else runtime))
         # Through the native chat attribute as well: the lookup is the one every consumer uses.
         nested = SimpleNamespace(native_chat=SimpleNamespace(managed=self.runtime))
-        self.assertEqual(self.verify_managed(nested, mode=None)["pid"], self.client)
+        self.assertEqual(self.verify_managed(nested)["pid"], self.client)
         with self.assertRaises(DomainError) as refused:
             self.verify(SimpleNamespace())
         self.assertEqual(refused.exception.code, "inbox_binding_ambiguous")
@@ -1259,11 +1240,6 @@ class ServiceAuthorityTests(RealProcessCase):
         self.assertIsNone(self.verify_managed(runtime))
         self.observation(client)
         self.assertEqual(self.verify_managed(runtime)["pid"], client)
-
-    def test_a_remote_target_never_takes_the_managed_path(self):
-        adapter, execution, profile_ = self.adapter(self.runtime, target_identity=("ssh", "x"))
-        self.assertIsNone(adapter.verify_managed(execution, profile_, AGENT, "reg-1", CONVERSATION))
-        self.assertEqual(self.runtime.asked, [])
 
     def test_a_missing_record_or_marker_is_a_refusal_even_for_the_service_named_client(self):
         (self.workspace / ".qorqut/managed-host.json").unlink()

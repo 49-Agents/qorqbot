@@ -14,8 +14,7 @@ import anyio
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from qorqut_operations.contracts import (DomainError, InvocationContext, InvocationOptions, OperationResult,
-                                         canonical_bytes, canonical_hash, new_id, plain)
+from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, OperationResult, canonical_bytes, canonical_hash, new_id
 from qorqut_operations import local_time
 from qorqut_operations.storage.database import REQUEST_TIMING, RequestTiming
 from qorqut_operations.storage.repositories import decode_row

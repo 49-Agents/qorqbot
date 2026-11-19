@@ -20,7 +20,6 @@ import argparse
 import ast
 import configparser
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath

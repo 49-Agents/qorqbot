@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from qorqut.inbox.defaults import legacy_inbox_skill
 from qorqut.agents import role_workflow
 from qorqut.agents import cleanup_workflow
 from qorqut.agents.operational_delegation import supports_durable_delegation_version

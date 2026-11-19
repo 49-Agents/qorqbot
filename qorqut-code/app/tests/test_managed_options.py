@@ -28,7 +28,6 @@ except ImportError:  # the service extras are not installed
 
 from qorqut.managed_runtime import clients, options
 from qorqut.managed_runtime import manager as hosts
-from qorqut.managed_runtime import state as layout
 
 import test_managed_manager as base
 

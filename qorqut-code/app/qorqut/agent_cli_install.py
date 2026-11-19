@@ -15,13 +15,13 @@ Contract for the rest of the application (all stdlib, nothing here raises for of
     cancel_download(provider) -> status
     launch_environment(provider) / launch_arguments(provider) -> what to add when starting our copy
     managed_launch(provider)  -> {"path", "bin_dir", "env", "args", "source", "version"} for the copy ``resolve`` picks, or
-                                 None; cheap (never starts the CLI), for terminal sessions. For our own copy ``path`` is the
+                                 None; cheap (never starts the CLI), for agent sessions. For our own copy ``path`` is the
                                  stable one (below), which keeps working in a long-lived session after the pin moves.
 
-A terminal session outlives the Qorqbot version that created it (tmux keeps it across restarts), but a release that moves the pin
+An agent session's host outlives the service that started it (it closes only when idle or asked), but a release that moves the pin
 installs a new folder and removes the old one. So each provider also has ``tools/<provider>-current``, a relative symlink to
 the folder of the installed version, replaced atomically once the new copy is in place and before the old folder is removed.
-Sessions and wrappers hold ``tools/<provider>-current/<program>``, never a versioned path. The link is to the folder, not the
+Sessions hold ``tools/<provider>-current/<program>``, never a versioned path. The link is to the folder, not the
 program: Codex finds its sibling folders beside ``bin/codex`` (Linux resolves the running program's real path; macOS may
 report the path it was started by), and both ways land on the same files through a folder link.
 

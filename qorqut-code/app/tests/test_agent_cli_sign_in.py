@@ -1,7 +1,6 @@
 """Sign-in and status of the agent CLIs, with a fake subprocess, Keychain and browser opener. Nothing here starts
 a real ``claude``/``codex`` or touches the network."""
 import hashlib
-import io
 import json
 import os
 from pathlib import Path

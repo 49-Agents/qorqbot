@@ -1,13 +1,13 @@
 """The agent's selected native conversation.
 
-One durable fact says which native conversation an agent's Chat and Terminal show and control: the agent's
+One durable fact says which native conversation an agent's Chat shows and controls: the agent's
 ``native_session_owners`` row (consumer = the native conversation id, ``binding_json`` = the verified runtime and process
-identity, ``generation`` = the owner generation that fences helpers). It persists across any terminal viewer disconnect.
+identity, ``generation`` = the owner generation that fences helpers). It persists across any session close.
 ``native_sessions`` stays the history of process bindings and captures; it is never a second authority for "current".
 
-This module only reads that row. The native observer follows the verified foreground terminal conversation through the
+This module only reads that row. The native observer follows the verified session's conversation through the
 existing binding transaction (``NativeChat.select`` / ``InboxService.start_session``). Hooks supply evidence, while the
-observer verifies the registered terminal before adoption. Native session history and queued-input identities remain intact.
+observer verifies the registered session before adoption. Native session history and queued-input identities remain intact.
 """
 
 from __future__ import annotations

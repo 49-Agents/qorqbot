@@ -1,6 +1,5 @@
 """Process-scoped MCP provenance; shared app-server pipes deliberately stay unbound (a managed host's own app-server is bound)."""
 import json
-import os
 import sys
 from pathlib import Path
 

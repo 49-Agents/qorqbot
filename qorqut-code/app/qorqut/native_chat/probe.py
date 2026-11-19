@@ -72,14 +72,11 @@ class Observation:
 
 @dataclass(frozen=True)
 class ProbeResult:
-    """``observation`` is set only for ``reason == 'live'``; every other reason says why the agent has no usable session.
-
-    ``candidate`` is kept for callers that name a second conversation; the probe no longer sets it."""
+    """``observation`` is set only for ``reason == 'live'``; every other reason says why the agent has no usable session."""
 
     reason: str
     observation: Observation | None = None
     marker: dict | None = None
-    candidate: Observation | None = None
 
 
 def _read_json(path: Path) -> dict | None:
@@ -102,9 +99,9 @@ class SessionProbe:
     """Read and verify an agent's native session. ``marker_reader`` and ``process_probe`` are injection points for synthetic
     checks; the defaults read the workspace marker and the real ``/proc`` state. ``managed`` is the managed runtime, used duck-typed:
     ``verify(profile, marker) -> {"transport", "owner"} | None``, ``identity(agent_id)`` and ``snapshot(agent_id) -> dict | None``.
-    ``backend`` and ``selected_reader`` are accepted for old callers and unused: there is no terminal to look at."""
+    """
 
-    def __init__(self, backend=None, *, marker_reader=None, process_probe=None, selected_reader=None, managed=None):
+    def __init__(self, *, marker_reader=None, process_probe=None, managed=None):
         self._managed = managed
         self._marker_reader = marker_reader or self._read_marker
         self._process_probe = process_probe or self._verify_process
@@ -127,15 +124,15 @@ class SessionProbe:
             return ProbeResult(REASON_SESSION_END, marker=marker)
         try:
             verified = self._process_probe(profile, dict(marker))
-        except DomainError as error:
+        except DomainError:
             return ProbeResult(REASON_PROCESS_GONE, marker=marker)
         except (OSError, ValueError, KeyError, IndexError, AttributeError):
             verified = None
         if not verified:
             return ProbeResult(REASON_PROCESS_GONE, marker=marker)
         provider = RUNTIME_PROVIDERS[marker["runtime"]]
-        extra = self._managed_state(profile, verified)
-        working = self._working(profile, marker, verified) or extra.get("phase") in MANAGED_WORKING
+        extra = self._managed_state(profile)
+        working = self._working(profile, marker) or extra.get("phase") in MANAGED_WORKING
         observation = Observation(
             agent_id=profile["agent_id"], runtime=marker["runtime"], provider=provider, conversation_id=marker["session_id"],
             transcript_path=marker.get("transcript_path"), pid=int(marker["pid"]), started=str(marker["started"]),
@@ -144,9 +141,9 @@ class SessionProbe:
             **extra)
         return ProbeResult(REASON_LIVE, observation, marker)
 
-    def _managed_state(self, profile: dict, verified: dict) -> dict:
-        """The host's own account of its session, for a verified managed observation only; empty for every other."""
-        if verified.get("transport") != "managed" or self._managed is None:
+    def _managed_state(self, profile: dict) -> dict:
+        """The host's own account of its session; empty when the runtime cannot give it."""
+        if self._managed is None:
             return {}
         try:
             snapshot = self._managed.snapshot(profile["agent_id"])
@@ -241,19 +238,19 @@ class SessionProbe:
         return None
 
     @staticmethod
-    def _working(profile: dict, marker: dict, verified: dict) -> bool:
+    def _working(profile: dict, marker: dict) -> bool:
         """Whether a turn is running, from the small hook observation of this exact native process and session."""
         try:
             path = Path(profile["workspace"]) / ACTIVITY / (marker["session_id"] + ".json")
             if path_has_symlink(path) or not path.is_file() or path.stat().st_size > 8192:
                 return False
             activity = json.loads(path.read_text())
-            # The hook records its client process, ``pid:ticks``. A managed observation's owner is its host, so for it the
-            # client process is what the activity file has to name.
-            owner = (None if verified.get("transport") == "managed" else verified.get("owner")) or f"{marker['pid']}:{marker['started']}"
+            # The hook records its client process, ``pid:ticks``. A managed observation's owner is its host, so the client
+            # process is what the activity file has to name.
+            owner = f"{marker['pid']}:{marker['started']}"
             # A managed Codex app-server's hook writes its held-lock owner (``pid:ticks:fd:dev:inode``): the same process.
             written = activity.get("owner")
-            if verified.get("transport") == "managed" and marker["runtime"] == "codex":
+            if marker["runtime"] == "codex":
                 written = codex_session.owner_process(written)
             return (all(activity.get(key) == marker[key] for key in ("agent_id", "session_id", "runtime"))
                     and written == owner

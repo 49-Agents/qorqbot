@@ -19,7 +19,7 @@ import re
 import threading
 import time
 
-from qorqut_operations.contracts import DomainError, canonical_hash
+from qorqut_operations.contracts import DomainError
 from qorqut.agents.global_scope import active_global
 from qorqut.private_files import require_private_directory
 from . import store

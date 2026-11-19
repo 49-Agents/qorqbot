@@ -14,7 +14,7 @@ from qorqut.managed_runtime import manager as hosts
 from qorqut.managed_runtime.client import HostUnavailable
 from qorqut.native_chat.adapters import ManagedAdapter
 from qorqut.native_chat.arbiter import InputArbiter
-from qorqut.native_chat.contracts import TYPE_CHAT, TYPE_NUDGE, TYPE_TELEGRAM, OwnerInputOutcome
+from qorqut.native_chat.contracts import TYPE_CHAT, TYPE_NUDGE, TYPE_TELEGRAM
 
 AGENT = "11111111-1111-4111-8111-111111111111"
 SESSION = "33333333-3333-4333-8333-333333333333"

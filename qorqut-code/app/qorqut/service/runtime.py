@@ -89,7 +89,6 @@ class Runtime:
     broadcast_dispatcher: object = None
     terminal_control: object = None
     managed_launch: object = None  # Prepares and launches managed sessions; installed once by service composition.
-    terminals: object = None  # The same object under the name the managed runtime still reads.
     background_operations: object = None
     checkpoints: object = None
     management: object = None

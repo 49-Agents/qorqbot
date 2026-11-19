@@ -1,4 +1,4 @@
-"""Trusted native hook observations plus bounded target-local process verification."""
+"""Trusted native hook observations plus bounded local process verification of a managed agent's headless client."""
 from __future__ import annotations
 import json
 import os
@@ -144,41 +144,39 @@ def managed_host(workspace, pid, agent_id=None, *, processes=None, runtime='clau
 
 
 def attest(hook, registration_path, runtime):
-    """Only a hook descending from a native interactive client creates this observation."""
+    """Only a hook descending from the headless client of a managed host creates this observation."""
     registration = load_registration(registration_path)
-    host = None
     changed_cwd = Path(hook.get('cwd', '')).resolve() != Path(registration['workspace']).resolve()
     if hook.get('agent_id') or hook.get('parent_session_id'):
         raise DomainError('inbox_binding_required','A diagnostic or subagent hook cannot select the parent inbox')
     session = hook['session_id']
     if runtime == 'codex':
-        from .codex_session import hosted_session_process, session_process
+        from .codex_session import hosted_session_process
         # The app-server a managed host of this agent started, serving this very thread (writer lock held), is bound by its process
-        # alone (a two-part owner, like the managed claude); the service then checks it against its own host identity. Any other
-        # app-server keeps what it always had: its held-lock owner, which only a terminal that displays the thread can make current.
+        # alone; the service then checks it against its own host identity. Any other app-server is refused.
         hosted = hosted_session_process(session, registration['workspace'], registration['agent_id'])
-        if hosted is not None:
-            owner, host = hosted
-        else:
-            owner = session_process(session)
+        if hosted is None:
+            raise DomainError('inbox_delivery_unavailable', 'Cannot identify a running managed Codex session for inbox delivery')
+        owner, host = hosted
         pid, started = owner.split(':')[:2]
     else:
         from .terminal_chat import native_process
         process = native_process(runtime)
         if process is None:
-            raise DomainError('inbox_binding_required', 'No interactive native ancestor is verified')
+            raise DomainError('inbox_binding_required', 'No managed client ancestor is verified')
         pid, started = process['pid'], process['started']
         if sys.platform == 'darwin':
             from qorqut import process_info
             argv = [arg.encode() for arg in process_info.cmdline(pid)]
         else:
             argv = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
-        if any(arg in argv for arg in (b'-p', b'--print', b'--agent-id')):
-            # Only a headless client under a plausible managed host is let through (a claim: the service verifies it against
-            # its own host identity before anything binds); a subagent never is.
-            host = None if b'--agent-id' in argv else managed_host(registration['workspace'], int(pid), registration['agent_id'])
-            if host is None:
-                raise DomainError('inbox_binding_required', 'Diagnostic and subagent clients cannot own inbox delivery')
+        # Only a headless client under a plausible managed host is let through (a claim: the service verifies it against its own
+        # host identity before anything binds); a subagent, a diagnostic run or a client started from the agent's shell never is.
+        host = None
+        if any(arg in argv for arg in (b'-p', b'--print')) and b'--agent-id' not in argv:
+            host = managed_host(registration['workspace'], int(pid), registration['agent_id'])
+        if host is None:
+            raise DomainError('inbox_binding_required', 'Diagnostic and subagent clients cannot own inbox delivery')
         if sys.platform == 'darwin' and process_info.start_token(pid) != started:
             raise DomainError('inbox_binding_required', 'Native process changed during attestation')
         owner = f'{pid}:{started}'
@@ -194,56 +192,12 @@ def attest(hook, registration_path, runtime):
         'pid': int(pid), 'started': str(started), 'owner': owner,
         'event': hook.get('source', 'startup') if hook['hook_event_name'] == 'SessionStart' else 'prompt',
         **local_instance()}
-    if host is not None:
-        value['managed_host'] = host
+    value['managed_host'] = host
     write_json_private(Path(registration['workspace'])/'.qorqut/native-binding.json', value)
     return value
 
 
-# This exact standard-library probe is also executed on the configured target.
-# It never inspects a target PID through the dashboard host's /proc.
-PROBE = '''import json,sys
-from pathlib import Path
-workspace,session,pane,agent,registration=sys.argv[1:]
-def fields(pid):
- if sys.platform=='darwin':
-  from qorqut import process_info
-  return process_info.fields(pid)
- return Path('/proc/'+str(pid)+'/stat').read_text().rsplit(')',1)[1].split()
-marker=Path(workspace)/'.qorqut/native-binding.json'
-if marker.is_symlink() or any(p.is_symlink() for p in marker.parents): raise ValueError('unsafe observation')
-v=json.loads(marker.read_text())
-assert v['session_id']==session and v['agent_id']==agent and v['registration_id']==registration and v['workspace']==workspace
-pid=int(v['pid']);native=fields(pid)
-assert native[0]!='Z' and native[19]==v['started']
-if sys.platform=='darwin':
- from qorqut import process_info
- name=process_info.name(pid)
-else: name=Path('/proc/'+str(pid)+'/comm').read_text().strip()
-assert name in ({'claude','claude.exe'} if v['runtime']=='claude-code' else {'codex'})
-argv=([arg.encode() for arg in process_info.cmdline(pid)] if sys.platform=='darwin'
- else Path('/proc/'+str(pid)+'/cmdline').read_bytes().split(b'\\0'))
-assert not any(a in argv for a in (b'exec',b'queue',b'--print',b'-p',b'--agent-id'))
-if b'app-server' in argv:
- assert sys.platform!='darwin', 'Shared app-server writer-lock ownership is unavailable on macOS'
- assert v['runtime']=='codex'
- parts=v['owner'].split(':'); assert len(parts)==5
- fd=Path('/proc/'+str(pid)+'/fd/'+parts[2]); info=fd.stat()
- assert (info.st_dev,info.st_ino)==(int(parts[3]),int(parts[4]))
- assert fd.readlink().name==session+'.lock'
- assert any(line.split()[2:6]==['FLOCK','ADVISORY','WRITE',str(pid)] for line in Path('/proc/'+str(pid)+'/fdinfo/'+parts[2]).read_text().splitlines() if line.startswith('lock:'))
-else:
- assert pane and native[2]==fields(pane)[5]
- ancestor=pid
- for _ in range(24):
-  if str(ancestor)==pane: break
-  ancestor=int(fields(ancestor)[1])
- else: raise ValueError('not registered pane ancestry')
-if sys.platform=='darwin': assert process_info.start_token(pid)==v['started']
-print(json.dumps(v))
-'''
-
-# The consistency probe for a managed agent's headless client, run on the local target only (a managed host is always local). It
+# The consistency probe for a managed agent's headless client (a managed host is always local). It
 # does not decide who the client is: the SERVICE passes in the pid and start ticks of the claude and of the host that the
 # token-verified host identity reports, and this script only refuses when the machine disagrees (a different process, the
 # workspace record or the hook's marker naming another one, a host that does not look like the launcher's, a ``claude`` between
@@ -346,8 +300,7 @@ class NativeBindingAdapter:
     def publish_local(self, profile, selected):
         """Publish the committed owner generation to its still-current local hook.
 
-        Remote targets retain their own supervisor publication. This never
-        invents a session or generation, or writes through a replaced process.
+        This never invents a session or generation, or writes through a replaced process.
         """
         from . import handoff, supervisor
         from .codex_session import owner_alive
@@ -367,22 +320,11 @@ class NativeBindingAdapter:
 
     def selected(self, agent_id):
         with self.runtime.database.read() as uow:
-            profile = dict(uow.connection.execute('SELECT * FROM agent_profiles WHERE agent_id=?',(agent_id,)).fetchone())
-            business = uow.repository('businesses').get(profile['home_business_id']) if profile['home_business_id'] else None
-        terminals = self.runtime.terminals
-        execution = terminals.execution(business)
-        _, session, _ = terminals.binding(business, profile, execution.broker)
-        return profile, execution, session
+            return dict(uow.connection.execute('SELECT * FROM agent_profiles WHERE agent_id=?',(agent_id,)).fetchone())
 
     @staticmethod
-    def run(execution, script, arguments):
-        if execution.target_identity is not None:
-            broker = execution.broker
-            if not hasattr(broker, 'binding_probe'):
-                raise DomainError('inbox_binding_ambiguous', 'Execution target has no trusted process probe')
-            return broker.binding_probe(script, arguments)
-        return subprocess.check_output([sys.executable,'-I','-c',script,*map(str,arguments)],
-                                       text=True, timeout=1)
+    def run(script, arguments):
+        return subprocess.check_output([sys.executable,'-I','-c',script,*map(str,arguments)], text=True, timeout=1)
 
     def managed_identity(self, agent_id, session_id):
         """The service-held, token-verified identity of this agent's running managed host, or ``None``.
@@ -390,7 +332,7 @@ class NativeBindingAdapter:
         This is the anchor of the managed path. It needs: the managed runtime is reachable from this service runtime, and it reports a live host
         with the claude process it spawned (pid and start ticks) and the host's own pid and start ticks. A conversation the host
         already knows must be the one being bound. Anything else, including a runtime that cannot be reached, is ``None``: the
-        managed path then refuses and the terminal probe judges the session as it always did."""
+        binding then refuses."""
         try:
             from qorqut.managed_runtime.manager import managed_of
             managed = managed_of(self.runtime)
@@ -412,17 +354,14 @@ class NativeBindingAdapter:
                 'runtime': 'codex' if identity.get('provider') == 'codex' else 'claude-code',
                 'host_id': host_id_of(identity.get('instance'), host_pid, host_started)}
 
-    def verify_managed(self, execution, profile, agent_id, registration_id, session_id):
-        """The observation of a managed agent's headless client, or ``None`` to judge the session as a terminal one.
+    def verify_managed(self, profile, agent_id, registration_id, session_id):
+        """The observation of a managed agent's headless client, or ``None`` when nothing can be proven.
 
-        Only for a managed-mode agent on this machine whose service-held host identity (``managed_identity``) names exactly
-        the claimed claude process and host. The machine is then asked once more (``MANAGED_PROBE``) whether the hook's marker,
-        the workspace record and the process tree agree with that identity; they are consistency checks, not the anchor. The
-        returned observation takes its process and host facts from the identity, not from the workspace: no value an agent can
-        write reaches the binding except the short marker fields in ``MARKER_KEYS``. A terminal agent, a remote target, a
-        missing runtime, or any disagreement is ``None``."""
-        if execution.target_identity is not None:
-            return None
+        The service-held host identity (``managed_identity``) must name exactly the claimed client process and host. The machine
+        is then asked once more (``MANAGED_PROBE``) whether the hook's marker, the workspace record and the process tree agree
+        with that identity; they are consistency checks, not the anchor. The returned observation takes its process and host
+        facts from the identity, not from the workspace: no value an agent can write reaches the binding except the short
+        marker fields in ``MARKER_KEYS``. A missing runtime or any disagreement is ``None``."""
         try:
             known = self.managed_identity(agent_id, session_id)
             if known is None:
@@ -430,7 +369,7 @@ class NativeBindingAdapter:
             record = Path(profile['workspace']) / MANAGED_HOST_RECORD
             if path_has_symlink(record) or not record.is_file():
                 return None
-            marker = json.loads(self.run(execution, MANAGED_PROBE, [
+            marker = json.loads(self.run(MANAGED_PROBE, [
                 profile['workspace'], session_id, agent_id, registration_id,
                 known['pid'], known['started'], known['host_pid'], known['host_started'], known['runtime']]))
         except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
@@ -442,22 +381,15 @@ class NativeBindingAdapter:
 
     def verify(self, agent_id, registration_id, session_id, *, previous=None):
         try:
-            profile, execution, terminal = self.selected(agent_id)
-            target = str(execution.target_identity or 'local')
-            value = self.verify_managed(execution, profile, agent_id, registration_id, session_id)
+            profile = self.selected(agent_id)
+            value = self.verify_managed(profile, agent_id, registration_id, session_id)
             if value is None:
-                code, pane = execution.broker.tmux('list-panes','-t','='+terminal,'-F','#{pane_pid}')
-                if code or len(pane.strip().splitlines()) != 1:
-                    pane = ''
-                value = json.loads(self.run(execution, PROBE, [profile['workspace'],session_id,pane.strip(),agent_id,registration_id]))
-            value['execution_target'] = target
-            value['target'] = target
-            if execution.target_identity is not None:
-                # A replacement control host/daemon is not the original target.
-                value['target_instance'] = local_instance()['target_instance']+':'+execution.target_identity[-1]
+                raise DomainError('inbox_binding_ambiguous', 'The agent has no verified managed session to bind', retryable=True)
+            value['execution_target'] = 'local'
+            value['target'] = 'local'
             old_state = 'unknown'
-            if previous and previous.get('execution_target') == target:
-                old_state = self.run(execution, DEAD_PROBE, [previous['pid'],previous['started'],previous['owner']]).strip()
+            if previous and previous.get('execution_target') == 'local':
+                old_state = self.run(DEAD_PROBE, [previous['pid'],previous['started'],previous['owner']]).strip()
             return value, old_state
         except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError, DomainError) as exc:
-            raise DomainError('inbox_binding_ambiguous', 'Native process/terminal binding cannot be verified on its execution target', retryable=True) from exc
+            raise DomainError('inbox_binding_ambiguous', 'Native process binding cannot be verified', retryable=True) from exc

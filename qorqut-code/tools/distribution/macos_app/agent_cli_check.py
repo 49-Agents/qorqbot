@@ -10,7 +10,7 @@ host check (``managed_host_check.py``) reuses it, so the second download is not 
 For each provider: ``agent_cli_install.start_download`` and its status transitions with timing; the installed files and the
 ``<provider>-current`` link; ``--version`` of the real binary by both paths; ``managed_launch()``; what the system says about the
 binary (``codesign``, ``xattr``, ``spctl``, and a copy that carries the quarantine attribute a browser download would have); the
-generated zsh wrapper run in a real zsh (``claude --version`` / ``codex --version`` with and without the managed marker); and the
+environment a session is given (our folders on PATH, the markers); and the
 process name of a running copy started through the link, as the app's own check (``process_info.name``) reads it. Then the
 signed-out status calls (``agent_cli_sign_in.claude_status`` / ``codex_status``), with every command they ran, how long each took
 and what it returned. Nothing signs in, nothing calls a model, nothing reads a secret: the Keychain read prints its value only
@@ -26,7 +26,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import shlex
 import shutil
 import subprocess
 import sys
@@ -226,52 +225,13 @@ def quarantined_copy(report, install, provider, root, work):
     return out
 
 
-def wrappers(report, install, launch, root, work):
-    """The generated zsh agent shell, in a real interactive zsh, against the real downloaded binaries and a fake owner CLI on PATH."""
-    from qorqut.bootstrap.preparation import ZSH_ENV, agent_zshrc
-    zsh = shutil.which("zsh")
-    if not zsh:
-        report.check("zsh is available", False, "no zsh on PATH")
-        return {}
-    base = work / "wrappers"
-    workspace, elsewhere, zdot, home, owner = (base / name for name in ("agent root", "elsewhere", "zdotdir", "home", "owner bin"))
-    for folder in (workspace / ".qorqut", elsewhere, zdot, home, owner):
-        folder.mkdir(parents=True, exist_ok=True)
-    for name in ("claude", "codex"):
-        program = owner / name
-        program.write_text(f'#!/bin/sh\necho "OWNER-{name.upper()} $*"\n')
-        program.chmod(0o755)
-    settings = workspace / ".qorqut/claude-launch-settings.json"
-    settings.write_text("{}\n")
-    (zdot / ".zshenv").write_text(ZSH_ENV)
-    (zdot / ".zshrc").write_text(agent_zshrc(shlex.quote(str(settings)), shlex.quote(str(base / "no consent")), shlex.quote(str(workspace))))
+def session_environment(report, install, launch, root):
+    """What an agent session is given: our folders first on PATH and the markers naming our copies."""
     markers = {"QORQBOT_MANAGED_CLAUDE": str(install.stable_path("claude", root)), "QORQBOT_MANAGED_CODEX": str(install.stable_path("codex", root))}
-    result = {"zsh": zsh, "version": sh([zsh, "--version"])}
-    report.say("zsh: " + (result["version"].get("stdout") or "").strip())
-    for label, cwd, extra in (("in the agent root, marker set", workspace, markers), ("outside the agent root, marker set", elsewhere, markers),
-                              ("in the agent root, no marker", workspace, {})):
-        env = {"HOME": str(home), "ZDOTDIR": str(zdot), "PATH": f"{owner}:/usr/bin:/bin:/usr/sbin:/sbin", "TERM": "dumb", "PWD": str(cwd), **extra}
-        entry = sh([zsh, "-i", "-c", "type claude; claude --version; echo rc=$?; codex --version; echo rc=$?"], timeout=120, env=env, cwd=cwd)
-        output = entry.get("stdout") or ""
-        result[label] = entry
-        report.say(f"zsh wrapper {label}: rc={entry.get('returncode')} {entry.get('seconds')}s\n" + "\n".join("    " + line for line in output.strip().splitlines()[:12]))
-        if extra:
-            report.check(f"zsh wrapper {label}: claude and codex run the managed copy, not the owner's on PATH",
-                         f"{install.VERSIONS['claude']} (Claude Code)" in output and f"codex-cli {install.VERSIONS['codex']}" in output and "OWNER-" not in output,
-                         output.strip()[:300])
-        else:
-            report.check(f"zsh wrapper {label}: the owner's own CLI on PATH runs unchanged", "OWNER-CLAUDE" in output and "OWNER-CODEX" in output,
-                         output.strip()[:300])
-    # What a new terminal session is given: our folders first on PATH and the markers.
+    result = {}
     sample = launch.session_environment({"PATH": "/usr/bin:/bin"}, dict(os.environ))
     result["session_environment"] = {"PATH": sample.get("PATH"), **{k: sample.get(k) for k in markers}}
     report.check("session_environment puts the stable paths in the markers", all(sample.get(k) == v for k, v in markers.items()), json.dumps(result["session_environment"]))
-    plain = launch.session_environment({"PATH": "/usr/bin:/bin"}, dict(os.environ), plain=True)
-    folder = plain["PATH"].split(os.pathsep)[0]
-    run_plain = sh([str(Path(folder) / "claude"), "--version"], timeout=60)
-    result["plain_launcher"] = {"folder": folder, "claude_version": run_plain}
-    report.check("the owner's-shell launcher starts our copy", run_plain.get("returncode") == 0 and install.VERSIONS["claude"] in (run_plain.get("stdout") or ""),
-                 f"{folder}: {(run_plain.get('stdout') or '').strip()!r}")
     return result
 
 
@@ -280,10 +240,10 @@ def process_names(report, install, root, work):
     from qorqut import process_info
     result = {}
     try:
-        from qorqut.transport import agent_terminal_control as terminal_control
-        accepted = {provider: sorted(names) for provider, names in terminal_control.CLIENT_PROCESSES.items()}
+        from qorqut.bootstrap import native_binding
+        accepted = {"claude": sorted(native_binding.HEADLESS["claude-code"]), "codex": sorted(native_binding.HEADLESS["codex"])}
     except Exception as error:  # the check below still reports the name
-        terminal_control, accepted = None, {"error": f"{type(error).__name__}: {error}"}
+        accepted = {"error": f"{type(error).__name__}: {error}"}
     result["accepted_names"] = accepted
     home = work / "name-home"
     home.mkdir(exist_ok=True)
@@ -329,7 +289,7 @@ def process_names(report, install, root, work):
                 except Exception:
                     pass
             entry["names_seen"] = seen
-            entry["accepted_by_terminal_control"] = bool(terminal_control) and bool(seen) and seen[-1] in terminal_control.CLIENT_PROCESSES[provider]
+            entry["accepted_by_binding"] = bool(seen) and seen[-1] in accepted.get(provider, ())
             result[f"{provider} via {label}"] = entry
             report.say(f"process name, {provider} via {label} path: names over time {seen}; exe={entry.get('exe')} psutil={entry.get('psutil_name')} ps={entry.get('ps_comm')!r}")
             report.check(f"{provider} started through the {label} path reports process name {EXPECTED_NAME[provider]!r}",
@@ -413,8 +373,7 @@ def main():
     for name in ("QORQUT_CLAUDE_EXECUTABLE", "QORQUT_CODEX_EXECUTABLE"):
         os.environ.pop(name, None)
     machine = {"platform": sys.platform, "machine": platform.machine(), "python": sys.version.split()[0], "mac_version": platform.mac_ver()[0],
-               "root": str(root), "user": os.environ.get("USER"), "claude_on_path": shutil.which("claude"), "codex_on_path": shutil.which("codex"),
-               "zsh": shutil.which("zsh")}
+               "root": str(root), "user": os.environ.get("USER"), "claude_on_path": shutil.which("claude"), "codex_on_path": shutil.which("codex")}
     report.section("machine", machine)
     report.say("machine: " + json.dumps(machine))
     try:
@@ -444,7 +403,7 @@ def main():
             except Exception:
                 report.check(f"{provider}: {label}", False, traceback.format_exc()[-600:])
     if all(install.installed(provider, root) for provider in ("claude", "codex")):
-        for label, step in (("wrappers", lambda: wrappers(report, install, launch, root, work)),
+        for label, step in (("session_environment", lambda: session_environment(report, install, launch, root)),
                             ("process_names", lambda: process_names(report, install, root, work))):
             try:
                 report.section(label, step())
