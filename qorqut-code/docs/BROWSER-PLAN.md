@@ -31,7 +31,7 @@ built and what was verified; an item without a "Verified" line is not done.
 15. **No root step for the downloaded Chrome (2026-11-19).** On Ubuntu 23.10 and later Qorqbot keeps using the installed
     Google Chrome; its own downloaded Chrome is used only where it starts with its sandbox by itself.
 16. **Idle limit stays 30 minutes (2026-11-19).**
-17. **Captcha tool starts now (2026-11-19).** The Mac check comes later.
+17. **Captcha tool starts now (2026-11-19).** The Mac check was run the same day; see "Checked on a Mac".
 
 ## What exists today
 
@@ -344,6 +344,39 @@ tabs and streams a picture, a cross-site request is refused, Qorqbot's own Chrom
 unusable on this Ubuntu (the installed Chrome keeps being used). A release switch does not restart agent browsers by
 itself; they keep their old supervisor code until each unit is stopped once. Not yet observed there: an idle tab
 unloaded after 30 minutes, a cookie banner refused on a real site, the captcha command on a real captcha.
+
+## Checked on a Mac (2026-11-19)
+
+Run on a rented Mac mini (Apple chip, macOS 27.2, no Chrome and no developer tools installed) with the Mac app built from this
+branch (`1.4.1-browser.2`), started with the account check off, in its own folder beside another test installation.
+
+- **Qorqbot's own Chrome.** Chrome for Testing 158.0.8127.36 (`mac-arm64`) downloaded, passed its hash check and start check, and
+  ran every agent browser. Settings showed it as ready with nothing for the owner to do.
+- **Stop and start.** A stopped browser left no process behind after 1 second, Qorqbot started it again within its two-minute
+  round, and a cookie and local storage set before the stop were still there.
+- **Cookie banners.** A banner with a refusal button was refused, a banner with only an accept button was left alone, and a banner
+  inside a frame from another site was refused.
+- **Idle tabs.** Two tabs left unused were unloaded 30.5 minutes after their last use. The next command on one loaded its page
+  again; the other stayed unloaded.
+- **Shared browser.** Two workers moved to the Shared browser: their own browsers stopped, one Shared browser started, each had
+  its own tab and both saw one cookie. It kept running when the first worker left and stopped when the second did.
+- **Live view.** Shown in the Mac app's window; clicks, typing and paste reached the page, with a real mouse and keyboard over
+  screen sharing as well.
+- **Captcha command.** Run by a real agent (Claude Code as Ordubashy) on Google's reCAPTCHA demo page with no solver key saved:
+  it found the captcha, clicked it, and reported that the click did not pass and no key is saved.
+
+**Fixed.** Command-key shortcuts did nothing in the live view on a Mac (select all, undo, redo, cut, copy, jump to the start or
+end of a line or document, delete to the start of the line). Chrome on macOS runs them only when the key event names the
+editing command, so the live view now names it when the browser runs on a Mac (`live.MAC_COMMANDS`). Plain keys and Option
+shortcuts needed nothing. As on other systems, copy and cut inside the page do not reach the owner's clipboard.
+
+**Tests.** The browser tests failed on a Mac because macOS reaches its temporary folder through a symbolic link, which the
+browser code refuses; the tests now build their folders from resolved paths. The whole Mac test run passes.
+
+**Seen and left as it is.**
+
+- Agent browsers keep running after the Mac app quits, as agent terminals do, and the reopened app takes them over.
+- macOS shows a "Google Chrome for Testing Notifications" notice the first time the downloaded Chrome starts.
 
 ## Not in this plan
 

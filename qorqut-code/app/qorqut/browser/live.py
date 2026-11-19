@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import threading
 import time
 import uuid
@@ -28,6 +29,18 @@ MAX_EVENTS, MAX_TEXT, MAX_KEY = 64, 10000, 64
 MAX_VIEWS_PER_AGENT, MAX_VIEWS = 4, 16    # Each view holds a DevTools connection, a server thread and a screencast.
 MOUSE = {"move": "mouseMoved", "down": "mousePressed", "up": "mouseReleased"}
 BUTTONS = {"none", "left", "middle", "right"}
+
+# Chrome on macOS runs a Command-key shortcut in a text field only when the key event names the editing command; the key
+# and its modifier alone do nothing there (plain keys and Option shortcuts work as they are). By (Shift held, key).
+MAC_COMMANDS = {
+    (False, "a"): "selectAll", (False, "z"): "undo", (True, "z"): "redo", (False, "c"): "copy", (False, "x"): "cut",
+    (False, "Backspace"): "deleteToBeginningOfLine",
+    (False, "ArrowLeft"): "moveToBeginningOfLine", (True, "ArrowLeft"): "moveToBeginningOfLineAndModifySelection",
+    (False, "ArrowRight"): "moveToEndOfLine", (True, "ArrowRight"): "moveToEndOfLineAndModifySelection",
+    (False, "ArrowUp"): "moveToBeginningOfDocument", (True, "ArrowUp"): "moveToBeginningOfDocumentAndModifySelection",
+    (False, "ArrowDown"): "moveToEndOfDocument", (True, "ArrowDown"): "moveToEndOfDocumentAndModifySelection",
+}
+ALT, CTRL, META, SHIFT = 1, 2, 4, 8
 
 _views, _slots, _lock = {}, {}, threading.Lock()    # _slots: every view being opened or open, by id, to its agent
 
@@ -105,13 +118,24 @@ def command(event):
         if action == "up":
             return "Input.dispatchKeyEvent", {**params, "type": "keyUp"}
         # A key that types a character carries it; any other key (arrows, Enter with a modifier, shortcuts) is a raw key.
-        return "Input.dispatchKeyEvent", ({**params, "type": "keyDown", "text": text} if text else {**params, "type": "rawKeyDown"})
+        if text:
+            return "Input.dispatchKeyEvent", {**params, "type": "keyDown", "text": text}
+        return "Input.dispatchKeyEvent", {**params, "type": "rawKeyDown", **_mac_command(params["key"], modifiers)}
     if kind == "text":
         text = _text(event, "text", MAX_TEXT)
         if not text:
             raise DomainError("validation_error", "Browser input is invalid")
         return "Input.insertText", {"text": text}
     raise DomainError("validation_error", "Browser input is invalid")
+
+
+def _mac_command(key, modifiers, platform=None):
+    """The editing command a Command-key shortcut needs spelled out, as extra key event parameters. The browser runs on
+    this computer, so this computer's system decides."""
+    if (platform or sys.platform) != "darwin" or modifiers & (ALT | CTRL | META) != META:
+        return {}
+    name = MAC_COMMANDS.get((bool(modifiers & SHIFT), key.lower() if len(key) == 1 else key))
+    return {"commands": [name]} if name else {}
 
 
 def _connect(port_, tab_id):
