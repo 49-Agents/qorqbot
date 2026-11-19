@@ -25,6 +25,8 @@
 .gchat-user { align-self: flex-end; align-items: flex-end; }
 .gchat-agent { align-self: flex-start; }
 .gchat-msg.gchat-agent { max-width: min(760px, 100%); }
+/* A message that carries a sign-off card takes the full chat column, so the card does too. */
+.gchat-msg.gchat-agent:has(.gchat-signoff-reference) { align-self:stretch; }
 .gchat-notice { align-self: center; align-items: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
 .gchat-body { font-size: calc(13.25px * .935 * 1.1); padding: 12px 18px; border: 1px solid var(--line-2); border-radius: 24px; overflow-wrap: anywhere; line-height: 1.5; }
 .gchat-user .gchat-body { background: color-mix(in srgb, var(--fg) 10%, var(--bg)); color: var(--fg); white-space: pre-wrap; line-height: 1.65; }
@@ -202,7 +204,7 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-reference-title { min-width:0; overflow-wrap:anywhere; white-space:normal; }
 .gchat-reference-count { color:var(--fg-2); font-size:11px; white-space:nowrap; }
 .gchat-reference-detail { grid-column:1 / -1; min-width:0; overflow:visible; color:var(--fg-2); font-size:11px; line-height:1.35; overflow-wrap:anywhere; white-space:normal; }
-.gchat-signoff-reference { width:100%; max-width:520px; min-width:0; }
+.gchat-signoff-reference { width:100%; max-width:none; min-width:0; }
 .gchat-browser-slot { width:360px; max-width:100%; }
 .gchat-browser { display:flex; flex-direction:column; width:100%; border:1px solid var(--line-2); border-radius:9px; overflow:hidden; background:var(--bg); }
 .gchat-browser>header { display:flex; align-items:center; gap:7px; padding:5px 8px; border-bottom:1px solid var(--line); flex:none; }
@@ -214,7 +216,6 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-browser-frame { display:block; width:100%; height:100%; border:0; }
 .gchat-browser.is-expanded { position:fixed; z-index:30; top:12px; left:12px; right:12px; bottom:12px; width:auto; max-width:1100px; margin:0 auto; box-shadow:0 12px 40px rgba(0,0,0,.55); }
 .gchat-browser.is-expanded .gchat-browser-page { flex:1; height:auto; min-height:0; }
-@media(max-width:700px) { .gchat-signoff-reference { max-width:100%; } }
 
 .gchat-ref-group, .gchat-attachment { display:flex; flex-direction:column; min-width:0; max-width:100%; padding-left:9px; border-left:2px solid var(--line-2); }
 /* Record threads and native agent chat draw Task/Action references as flat attachment lists, not cards: a subtle

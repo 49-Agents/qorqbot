@@ -82,6 +82,8 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [startup-repair](messages/startup-repair.md) | claude session | conditional |
 | [startup-session](messages/startup-session.md) | claude session | conditional |
 | [startup-unavailable](messages/startup-unavailable.md) | claude session | conditional |
+| [task-action-missing](messages/task-action-missing.md) | transport/mcp.py | conditional |
+| [task-action-recorded](messages/task-action-recorded.md) | transport/mcp.py | conditional |
 | [tool-validation-recovery](messages/tool-validation-recovery.md) | transport/mcp.py | conditional |
 | [workspace-claude](messages/workspace-claude.md) | trusted workspace preparation | conditional |
 | [workspace-code-roots](messages/workspace-code-roots.md) | trusted workspace preparation | conditional |

@@ -772,6 +772,28 @@
       "previous_source": "bootstrap/claude_session.py"
     },
     {
+      "id": "task-action-missing",
+      "path": "messages/task-action-missing.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "transport/mcp.py",
+      "audience": "configured Ordubashy",
+      "previous_source": "owner-approved Action recording change"
+    },
+    {
+      "id": "task-action-recorded",
+      "path": "messages/task-action-recorded.md",
+      "parameters": [
+        "ACTION_ID",
+        "PERFORMER",
+        "TEXT"
+      ],
+      "status": "conditional",
+      "trigger": "transport/mcp.py",
+      "audience": "configured Ordubashy",
+      "previous_source": "owner-approved Action recording change"
+    },
+    {
       "id": "tool-validation-recovery",
       "path": "messages/tool-validation-recovery.md",
       "parameters": [

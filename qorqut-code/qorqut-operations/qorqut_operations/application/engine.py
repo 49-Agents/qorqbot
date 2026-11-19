@@ -57,21 +57,24 @@ class Application:
 
     def invoke(self, context: InvocationContext, operation_name: str, arguments=None, options=None):
         """Return the same typed envelope on success, denial, validation, or conflict."""
-        # Where ``_locate`` found the named record, the outcome is observed in that scope, as the call ran.
+        # Where ``_locate`` found the named record, the outcome is observed in that scope, as the call ran: the located
+        # options select a project, and the located arguments state a scope the operation reads from them.
         located = {}
         try:
             with self.database.observe(operation_name, getattr(context, 'request_id', None), job_id=getattr(context, 'job_id', None)):
                 result = self.invoke_or_raise(context, operation_name, arguments, options, located=located)
-                self.observe_result(context,operation_name,result,arguments,located.get('options', options))
+                self.observe_result(context,operation_name,result,located.get('arguments', arguments),
+                                    located.get('options', options))
                 return result
         except DomainError as exc:
             result = OperationResult.failure(exc)
-            self.observe_result(context,operation_name,result,arguments,located.get('options', options))
+            self.observe_result(context,operation_name,result,located.get('arguments', arguments),
+                                located.get('options', options))
             return (self.result(context, result) if isinstance(context, InvocationContext) else result)
         except Exception as exc:
             observed = self.observe_result(context,operation_name,OperationResult.failure(
-                DomainError('internal_error','Operation failed at the application boundary')),arguments,
-                located.get('options', options))
+                DomainError('internal_error','Operation failed at the application boundary')),
+                located.get('arguments', arguments), located.get('options', options))
             # A transport boundary may catch this same exception. The
             # application observer already recorded it when configured.
             try:
@@ -167,7 +170,12 @@ class Application:
         hash, and plan preparation, so the call is the explicit one in every respect: a staged plan carries that
         namespace and its approval rebuilds the proposer from it, never from this lookup. A mutation replayed with an
         idempotency key whose receipt binds this exact input in another reachable namespace (the record moved since) is
-        sent back to that receipt rather than run again. A hook never replaces a project the caller selected."""
+        sent back to that receipt rather than run again. A hook never replaces a project the caller selected.
+
+        An operation that takes its Global selection from an argument (the Signoff tools' ``scope``) has no project to
+        select for a record found in Global, so its hook states that scope in the arguments it returns, with namespace
+        ``global``. Those arguments are then the call's own for namespace resolution, the input hash and the plan, so it
+        is the explicit ``scope=global`` call in every respect too."""
         if descriptor.locate_scope is None or context.source != "mcp":
             return context, arguments, options
         arguments, namespace = descriptor.locate_scope(context, arguments, uow)
@@ -516,7 +524,7 @@ class Application:
 
     def invoke_or_raise(self, context, operation_name, arguments=None, options=None, *, located=None):
         """Run mutations under the installed recovery admission gate. ``located`` receives the options a found record
-        selected (``_locate``), when it selected any."""
+        selected (``_locate``), when it selected any, and the arguments its lookup returned."""
         descriptor = self.registry.get(operation_name)
         admission = (self.writer_admission.writer()
                      if descriptor.effect_kind != "read" and self.writer_admission is not None
@@ -544,6 +552,8 @@ class Application:
             found = self._locate(context, descriptor, arguments, options, uow)
             if found[2] is not options and located is not None:
                 located["options"] = found[2]
+            if found[1] is not arguments and located is not None:
+                located["arguments"] = found[1]
             context, arguments, options = found
             namespace = self.namespace(context, descriptor, arguments)
             if namespace == "global":

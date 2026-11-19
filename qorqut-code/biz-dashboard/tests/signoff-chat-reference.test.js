@@ -51,6 +51,8 @@ test('chat Signoffs: full editors, saved-change age, compact actions and preserv
   assert.equal(out.expandedSubject, 'Quarterly plan');
   assert.match(out.attachments, /plan\.pdf/);
   assert.match(out.recipients, /ada@example\.com/);
+  // Seeing a card in the chat is not viewing its Signoff: only the view the owner opened reports it to the attention queue.
+  assert.deepEqual(out.viewed, ['focus:action']);
   // A chat card has no comment line: the field stays in the DOM for Focus, hidden here.
   assert.equal(out.actionVisible, false);
   assert.match(out.actionAria, /Message to send with decision \(required to reject\)/);

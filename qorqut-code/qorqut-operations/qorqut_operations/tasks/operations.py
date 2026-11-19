@@ -103,7 +103,8 @@ class TaskOperations:
         self.note_ref_types = list(ports.references.types)
         # ``on_change(ctx, uow, before, after)``: the host's one hook on every committed Task write, called inside the
         # writing transaction with the stored state before (``None`` for a new Task) and after. The host uses it to keep the
-        # records that point at a Task (board entries, Focus cards, reminders) in step with it.
+        # records that point at a Task (board entries, Focus cards, reminders) in step with it. A Task closed along with
+        # its parent (``children: close``) is passed with ``carried=True``: it was not the write the caller made.
         self.on_change = None
         # ``plan_steps(ctx, task, uow)``: the host's reading of where a Task's plan stands, one entry per step with its
         # state, for ``tasks_get``. Without it a Task shows only the plan it was handed over with.
@@ -792,7 +793,7 @@ class TaskOperations:
             later = events.state(uow, ctx.business_id, child_id)
             events.record_change(uow, ctx.business_id, earlier, later, ctx.principal_id)
             if self.on_change is not None:
-                self.on_change(ctx, uow, earlier, later)
+                self.on_change(ctx, uow, earlier, later, carried=True)
         for item in plan.arguments.get("note_refs", ()):
             if item["type"] == "dev_ticket":
                 self.ports.incidents.link_task(uow, item["id"], ctx.business_id, identity, ctx.principal_id, timestamp(self.clock))

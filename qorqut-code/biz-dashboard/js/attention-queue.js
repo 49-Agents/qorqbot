@@ -142,7 +142,6 @@ const attentionQueue=(()=>{
     email:'M3 5h18v14H3zM3 5l9 7 9-7',
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
     read:'M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7',
-    question:'M4.8 8.7C4.8 5.6 8 3.5 12 3.5s7.2 2.1 7.2 5c0 2.5-1.9 3.6-3.9 4.4-2 .8-3.3 1.7-3.3 3.6M12 20.3v.1',
     request:'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z',
   };
   // Something to read and acknowledge: a queue row says so itself, a listed Signoff by its form.
@@ -151,11 +150,16 @@ const attentionQueue=(()=>{
   // ``asks`` names the kind on a queue row ('question' or 'request'; true from an older server means a question).
   const askKind=s=>s.asks===true ? 'question' : ['question','request'].includes(s.asks) ? s.asks : ['question','request'].includes(s.input?.kind) ? s.input.kind : null;
   const asks=s=>!!askKind(s);
+  // A timeline filing wears the Timeline view's own icon from the agent pane, the one the pane's navigation shows.
+  const timelineIcon=()=>typeof T_VIEW_ICON==='object' ? (T_VIEW_ICON.timeline || '').replace('<svg ','<svg width="15" height="15" ') : '';
   const signoffIcon=s=>{
+    if(s.operation_name==='timeline_file' && timelineIcon())return `<span class="attention-signoff" data-signoff-kind="filing" aria-hidden="true">${timelineIcon()}</span>`;
     const kind=toRead(s) ? 'read' : asks(s) ? askKind(s) : (window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
       || ['email.send','email.batch'].includes(s.platform?.submission?.tool) ? 'email'
       : (messageOperations.has(s.operation_name) || window.signoffMessageRenderer?.(s.operation_name)?.message) ? 'message' : 'approval';
-    return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"><path d="${signoffPaths[kind]}"/></svg></span>`;
+    // A question is the font's own bold "?"; every other kind is a drawn icon.
+    const mark=kind==='question' ? '<text x="12" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="600" fill="currentColor" stroke="none">?</text>' : `<path d="${signoffPaths[kind]}"/>`;
+    return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">${mark}</svg></span>`;
   };
   const icon=item=>item.kind==='signoff'
     ? signoffIcon(item)
