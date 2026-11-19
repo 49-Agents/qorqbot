@@ -97,6 +97,11 @@ class OperationDescriptor:
     # state; an operation that only reads such a row while deciding must not.
     rederived_basis: frozenset[str] = field(default_factory=frozenset)
     resolve_namespace: Callable | None = None
+    # Optional, agent MCP calls only: ``(context, arguments, uow) -> (arguments, namespace | None)``. Finds the owning
+    # namespace of the record an argument names when the caller selected no project, before namespace resolution,
+    # authorization and idempotency hashing (see ``Application._locate``). ``None`` keeps the caller's own selection; it
+    # may refuse, and it may only canonicalize the identifier it looked up. Never consulted for a prepared plan.
+    locate_scope: Callable | None = None
     # Optional current-authority check run before a saved idempotency receipt is returned: (context, arguments, result, uow).
     # It may only refuse; a replay never reapplies the mutation. Absent for operations whose receipts carry no private data.
     replay_validator: Callable | None = None

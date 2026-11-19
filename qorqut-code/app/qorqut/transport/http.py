@@ -258,10 +258,12 @@ class HTTPAPI:
             return "business.operation" if "operations" in parts[2:] else "business"
         return parts[0] if parts and parts[0] in {"session", "me", "root"} else "request"
 
-    # Every generated record id (tasks, learnings, jobs, signoffs, documents,
-    # routines, ...) is a uuid4 from contracts.new_id(), so `_UUID_RE`
-    # already collapses those regardless of nesting depth. What it cannot
-    # collapse is authored, non-uuid, free-form text embedded in a path: an
+    # Generated record ids (learnings, jobs, signoffs, documents, routines,
+    # ...) are uuid4s from contracts.new_id(), so `_UUID_RE` already
+    # collapses those regardless of nesting depth. A Task id has no fixed
+    # form (a short generated code, or a UUID or slug on older Tasks), so
+    # it is templated by its position instead (`_record_position`). What
+    # neither collapses is authored, non-uuid, free-form text embedded in a path: an
     # asset's real file path (compatibility.py's `["asset", *path_parts]`
     # branch, unbounded in both length and content) and a context/person
     # slug (`context/person/{slug}`, derived from a person's real name).
@@ -281,6 +283,12 @@ class HTTPAPI:
     _ROUTE_SEGMENT_CAP = 4
 
     @staticmethod
+    def _record_position(parts, index):
+        """Whether ``parts[index]`` holds a record id because of where it stands, whatever its form: the Task of
+        /api/biz/{slug}/task/{id}[/done] (see ``qorqut_operations.tasks.identity``)."""
+        return index == 3 and parts[:1] == ["biz"] and parts[2] == "task"
+
+    @staticmethod
     def _route_pattern(parts):
         # Route pattern means the template ("/api/biz/{slug}/notes"), not the
         # concrete slug: template the one known dynamic segment (a business
@@ -289,7 +297,8 @@ class HTTPAPI:
         # so an authored/free-form tail of any length is one bounded row
         # instead of a permanent counter per distinct value ever seen.
         capped = parts[:HTTPAPI._ROUTE_SEGMENT_CAP]
-        templated = ["{slug}" if index == 1 and parts[:1] == ["biz"] else ("{id}" if _UUID_RE.fullmatch(part) else part)
+        templated = ["{slug}" if index == 1 and parts[:1] == ["biz"] else
+                     ("{id}" if _UUID_RE.fullmatch(part) or HTTPAPI._record_position(parts, index) else part)
             for index, part in enumerate(capped)]
         if len(parts) > HTTPAPI._ROUTE_SEGMENT_CAP:
             templated.append("…")

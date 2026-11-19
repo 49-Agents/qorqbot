@@ -37,7 +37,7 @@ test('cancel clean and keep or discard dirty without writes',async()=>{
 });
 test('create preserves payload and retry key; pending blocks close and unknown warns on discard',async()=>{
  const h=await opened();h.fields.title.value='  Example  ';h.fields.due.value='2027-01-01';h.form.onsubmit({preventDefault(){}});await tick();
- assert.deepEqual(JSON.parse(JSON.stringify(h.writes[0])),{title:'Example',due:'2027-01-01',assignee_ids:['owner'],tags:[],task_type:'task',overview:'',status:'open',id:'id-1',idempotency_key:'id-2'});
+ assert.deepEqual(JSON.parse(JSON.stringify(h.writes[0])),{title:'Example',due:'2027-01-01',assignee_ids:['owner'],tags:[],task_type:'task',overview:'',status:'open',idempotency_key:'id-1'});
  assert.equal(await h.session.close(),false);h.pending[0].reject(Error('lost'));await tick();
  let closing=h.session.close();let prompt=h.host.children.at(-1);assert.match(prompt.children[0].textContent,/may have succeeded/);prompt.children[1].onclick();assert.equal(await closing,false);
  h.retry.onclick();await tick();assert.deepEqual(JSON.parse(JSON.stringify(h.writes[1])),JSON.parse(JSON.stringify(h.writes[0])));
@@ -48,10 +48,10 @@ test('Global list New opens the parent entry point',async()=>{
  const h=harness();let invoked=0;h.ctx.window.taskOpenGlobalCreate=()=>{invoked++;};
  h.ctx.globalTasksMount(h.host);await tick();await tick();h.newButton.onclick();assert.equal(invoked,1);assert.equal(h.writes.length,0);
 });
-for (const outcome of ['malformed', 'wrong-id', 'timeout', 'rate-limit', 'coded-timeout']) test(`${outcome} create retains the exact request for retry`,async()=>{
+for (const outcome of ['malformed', 'blank-id', 'timeout', 'rate-limit', 'coded-timeout']) test(`${outcome} create retains the exact request for retry`,async()=>{
  const h=await opened();h.fields.title.value='Draft';h.form.onsubmit({preventDefault(){}});await tick();
  if(outcome==='malformed')h.pending[0].resolve({task:null});
- else if(outcome==='wrong-id')h.pending[0].resolve({task:{id:'different'}});
+ else if(outcome==='blank-id')h.pending[0].resolve({task:{id:'  '}});
  else h.pending[0].reject(Object.assign(Error(outcome),outcome==='coded-timeout'?{code:'request_timeout',httpStatus:400}:{httpStatus:outcome==='timeout'?408:429}));
  await tick();assert.equal(h.session.closed,0);assert.equal(h.calls.includes('refresh'),false);assert.equal(h.retry.hidden,false);
  h.retry.onclick();await tick();assert.deepEqual(JSON.parse(JSON.stringify(h.writes[1])),JSON.parse(JSON.stringify(h.writes[0])));

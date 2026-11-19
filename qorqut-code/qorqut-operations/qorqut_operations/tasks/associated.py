@@ -55,6 +55,7 @@ from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.items import UNAVAILABLE
 from qorqut_operations.storage.repositories import decode_row
+from qorqut_operations.tasks.lookup import LOCATED
 from qorqut_operations.tasks.relocation import proven_journey, scope_of
 from qorqut_operations.tasks.scope import task_namespace
 
@@ -96,8 +97,8 @@ class TaskAssociatedRecords:
             OPERATION, schema({**SCOPE, **PAGE, "task_id": IDENTITY, "record_type": {"enum": list(RECORD_TYPES)},
                                "include_descendants": {"type": "boolean", "default": True}}, ("task_id", "record_type")),
             scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
-            resolve_namespace=task_namespace, effect_kind="read", supports_signoff=False,
-            description=instruction_text('associated-read-the-actions-or-signoffs-associated-with-a'),
+            resolve_namespace=task_namespace, effect_kind="read", supports_signoff=False, locate_scope=self.tasks.lookup,
+            description=instruction_text('associated-read-the-actions-or-signoffs-associated-with-a') + LOCATED,
             # The Task domain's own Global guard is applied by ``TaskOperations.read``, not merely by the generic policy.
             read=lambda ctx, args, options, uow: self.tasks.read(OPERATION, ctx, args, uow))
 
@@ -113,7 +114,13 @@ class TaskAssociatedRecords:
         story = self.story_tasks(uow, ctx.business_id, root["id"], arguments.get("include_descendants", True))
         sources = self.sources(ctx, uow, ctx.business_id, story, record_type)
         items = self.records(ctx, uow, sources, record_type)
-        selected, cursor = page(items, arguments, ctx.business_id, OPERATION,
+        # The cursor binds what the page is (this Task, the record type, with or without descendants, and the scope,
+        # which ``page`` adds), never how the call spelled it: the follow-up ``tasks_get(include=...)`` advertises, the
+        # same call with its scope arguments and ``task_id`` alone, located by project, all continue the same pages.
+        position = {"task_id": root["id"], "record_type": record_type,
+                    "include_descendants": arguments.get("include_descendants", True),
+                    **{key: arguments[key] for key in ("cursor", "limit") if key in arguments}}
+        selected, cursor = page(items, position, ctx.business_id, OPERATION,
                                 key=lambda item: (item["type"], item["id"]), reverse=False)
         return {"items": selected, "next_cursor": cursor}
 

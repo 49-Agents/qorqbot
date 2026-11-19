@@ -32,7 +32,10 @@ Results are inside the canonical `OperationResult.data` envelope:
 | Context reviews | `items`, `next_cursor`, `item_revision` | `item`, `review_ids`; history: `reviews`, `next_cursor` |
 
 Domain `operations.py` input schemas are the executable adapter contract. Request
-IDs retain historical string identities; new IDs are UUIDs. Document/asset IDs
+IDs retain historical string identities; new IDs are UUIDs, except a new Task's id,
+which is a short generated code (`qorqut_operations.tasks.identity`, five characters
+of `23456789abcdefghjkmnpqrstuvwxyz`) unique across every project and Global, archived
+Tasks included. Document/asset IDs
 are registered UUIDs, not request-supplied paths. Document views include
 `metadata`, `source_refs`, `agent_id`, `body`, `content_hash`, and `file_resource`.
 

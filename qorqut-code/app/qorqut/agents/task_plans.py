@@ -49,6 +49,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import IDENTITY, TEXT, PlanBuilder, ref, schema, timestamp
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.tasks.events import announce_step, settle_submissions, step_announced
+from qorqut_operations.tasks.lookup import LOCATED
 from qorqut_operations.tasks.schema import CLOSED_STATES
 from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.tasks.types import (CHECK_SCHEMA, CHECK_TARGETS, NOTIFY_SCHEMA, PLAN_STEP_LIMIT, PLAN_TEXT_LIMIT,
@@ -299,7 +300,7 @@ class TaskPlans:
     def register(self):
         common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
                       global_capability='read_global_context', resolve_namespace=task_namespace,
-                      external=self.external, apply=self.apply)
+                      locate_scope=self.tasks.lookup, external=self.external, apply=self.apply)
         shared = {**SCOPE, 'task_id': IDENTITY, 'rationale': TEXT}
         inputs = {
             'tasks_step_done': ({'step_id': STEP, 'note': {'type': 'string', 'maxLength': 1000,
@@ -322,7 +323,7 @@ class TaskPlans:
         }
         for name, (properties, required) in inputs.items():
             self.app.registry.register(OperationDescriptor(
-                name, schema({**shared, **properties}, required), description=DESCRIPTIONS[name],
+                name, schema({**shared, **properties}, required), description=DESCRIPTIONS[name] + LOCATED,
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, uow), **common))
         # ``tasks_get`` shows where the plan stands through this reading.
         self.tasks.plan_steps = self.steps

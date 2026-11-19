@@ -57,18 +57,21 @@ class Application:
 
     def invoke(self, context: InvocationContext, operation_name: str, arguments=None, options=None):
         """Return the same typed envelope on success, denial, validation, or conflict."""
+        # Where ``_locate`` found the named record, the outcome is observed in that scope, as the call ran.
+        located = {}
         try:
             with self.database.observe(operation_name, getattr(context, 'request_id', None), job_id=getattr(context, 'job_id', None)):
-                result = self.invoke_or_raise(context, operation_name, arguments, options)
-                self.observe_result(context,operation_name,result,arguments,options)
+                result = self.invoke_or_raise(context, operation_name, arguments, options, located=located)
+                self.observe_result(context,operation_name,result,arguments,located.get('options', options))
                 return result
         except DomainError as exc:
             result = OperationResult.failure(exc)
-            self.observe_result(context,operation_name,result,arguments,options)
+            self.observe_result(context,operation_name,result,arguments,located.get('options', options))
             return (self.result(context, result) if isinstance(context, InvocationContext) else result)
         except Exception as exc:
             observed = self.observe_result(context,operation_name,OperationResult.failure(
-                DomainError('internal_error','Operation failed at the application boundary')),arguments,options)
+                DomainError('internal_error','Operation failed at the application boundary')),arguments,
+                located.get('options', options))
             # A transport boundary may catch this same exception. The
             # application observer already recorded it when configured.
             try:
@@ -147,6 +150,54 @@ class Application:
         if review is not None and review not in current.allowed_business_ids:
             raise DomainError("forbidden", "Review project is outside the principal's scope")
         return replace(current, review_business_id=review)
+
+    @staticmethod
+    def _input_hash(descriptor, arguments, options, business_id, review_business_id):
+        return canonical_hash({"operation": descriptor.name, "version": descriptor.version,
+            "arguments": arguments, "options": {**plain(options), "business_id": business_id,
+            "review_business_id": review_business_id, "idempotency_key": None}})
+
+    def _locate(self, context, descriptor, arguments, options, uow):
+        """An agent's call that selects no project runs where the record it names is, exactly as if it had selected it.
+
+        Only for agent MCP calls of a descriptor with ``locate_scope``: the dashboard and workers always select their
+        scope. The hook looks the record up within the caller's current reach (this transaction's refreshed context) and
+        returns the owning namespace it found, or ``None`` to keep the caller's selection. A found project becomes
+        ``options.business_id`` here, before namespace resolution, authorization, policy, the idempotency key and input
+        hash, and plan preparation, so the call is the explicit one in every respect: a staged plan carries that
+        namespace and its approval rebuilds the proposer from it, never from this lookup. A mutation replayed with an
+        idempotency key whose receipt binds this exact input in another reachable namespace (the record moved since) is
+        sent back to that receipt rather than run again. A hook never replaces a project the caller selected."""
+        if descriptor.locate_scope is None or context.source != "mcp":
+            return context, arguments, options
+        arguments, namespace = descriptor.locate_scope(context, arguments, uow)
+        arguments = plain(arguments)
+        if namespace is None:
+            return context, arguments, options
+        if context.business_id is not None:
+            raise DomainError("invalid_plan", "A located record cannot replace the selected project")
+        if descriptor.effect_kind != "read" and options.idempotency_key is not None:
+            namespace = self._receipt_namespace(context, descriptor, arguments, options, uow) or namespace
+        if namespace.startswith("business:"):
+            options = replace(options, business_id=namespace.removeprefix("business:"))
+            context = self._options_context(context, options)
+        elif namespace != "global":
+            raise DomainError("invalid_plan", "Unknown located namespace")
+        return context, arguments, options
+
+    def _receipt_namespace(self, context, descriptor, arguments, options, uow):
+        """The reachable namespace whose saved receipt for this key and operation was made from exactly this input."""
+        candidates = ["global", *("business:" + business for business in sorted(context.allowed_business_ids))]
+        rows = uow.connection.execute(
+            "SELECT target_namespace, input_hash FROM idempotency_receipts WHERE principal_id=? AND operation_name=? "
+            f"AND idempotency_key=? AND target_namespace IN ({','.join('?' * len(candidates))}) ORDER BY target_namespace",
+            (context.principal_id, descriptor.name, options.idempotency_key, *candidates)).fetchall()
+        for row in rows:
+            business = row["target_namespace"].removeprefix("business:") if row["target_namespace"] != "global" else None
+            if self._input_hash(descriptor, arguments, replace(options, business_id=business),
+                                business, business) == row["input_hash"]:
+                return row["target_namespace"]
+        return None
 
     def namespace(self, context, descriptor, arguments):
         if descriptor.resolve_namespace:
@@ -463,17 +514,18 @@ class Application:
             raise DomainError("invalid_result", "An apply handler must complete or enqueue its exact prepared effects")
         return descriptor.validate_output(result)
 
-    def invoke_or_raise(self, context, operation_name, arguments=None, options=None):
-        """Run mutations under the installed recovery admission gate."""
+    def invoke_or_raise(self, context, operation_name, arguments=None, options=None, *, located=None):
+        """Run mutations under the installed recovery admission gate. ``located`` receives the options a found record
+        selected (``_locate``), when it selected any."""
         descriptor = self.registry.get(operation_name)
         admission = (self.writer_admission.writer()
                      if descriptor.effect_kind != "read" and self.writer_admission is not None
                      else nullcontext())
         with admission:
-            result = self._invoke_or_raise(context, operation_name, arguments, options)
+            result = self._invoke_or_raise(context, operation_name, arguments, options, located=located)
             return descriptor.project_result(result) if descriptor.project_result else result
 
-    def _invoke_or_raise(self, context, operation_name, arguments=None, options=None):
+    def _invoke_or_raise(self, context, operation_name, arguments=None, options=None, *, located=None):
         if not isinstance(context, InvocationContext):
             raise DomainError("invalid_principal", "An authenticated invocation context is required")
         options = options if isinstance(options, InvocationOptions) else InvocationOptions.from_mapping(options)
@@ -489,6 +541,10 @@ class Application:
             if (required_plugin and context.principal_kind == "agent"
                     and required_plugin not in {ref.id for ref in context.enabled_plugin_refs}):
                 raise DomainError("forbidden", "Requested tool alias requires an enabled plugin")
+            found = self._locate(context, descriptor, arguments, options, uow)
+            if found[2] is not options and located is not None:
+                located["options"] = found[2]
+            context, arguments, options = found
             namespace = self.namespace(context, descriptor, arguments)
             if namespace == "global":
                 context = replace(context, business_id=None, review_business_id=None)
@@ -501,9 +557,7 @@ class Application:
                            arguments=arguments if context.delegation_assignment_id is not None else None)
             if descriptor.effect_kind == "read":
                 return descriptor.validate_output(self.result(context, descriptor.read(context, arguments, options, uow)))
-            input_hash = canonical_hash({"operation": descriptor.name, "version": descriptor.version,
-                "arguments": arguments, "options": {**plain(options), "business_id": context.business_id,
-                "review_business_id": context.review_business_id, "idempotency_key": None}})
+            input_hash = self._input_hash(descriptor, arguments, options, context.business_id, context.review_business_id)
             replay = IdempotencyReceipts(uow).lookup(context.principal_id, namespace, descriptor.name,
                                                      options.idempotency_key, input_hash)
             if replay:

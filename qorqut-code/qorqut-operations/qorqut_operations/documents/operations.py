@@ -610,7 +610,7 @@ class DocumentSources:
         drop = self.store.get(builder.ctx, args["merge_id"], uow, kinds={"context_person"})
         if keep["id"] == drop["id"]: raise DomainError("validation_error", "Cannot merge a person with itself")
         require_revision(keep, options.expected_revision)
-        require_revision(drop, args["merge_revision"])
+        require_revision(drop, args["merge_revision"], argument="merge_revision")
         keep_body, drop_body = split_document(self.store.read_bytes(keep, uow))[1], split_document(self.store.read_bytes(drop, uow))[1]
         aliases = list(dict.fromkeys([*keep["metadata_json"].get("aka", []), drop["metadata_json"].get("name", ""), *drop["metadata_json"].get("aka", [])]))
         metadata = {**keep["metadata_json"], "aka": [alias for alias in aliases if alias and alias != keep["metadata_json"].get("name")],

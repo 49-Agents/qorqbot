@@ -1,7 +1,9 @@
 """The SDK's one stateful HTTP endpoint, with a fresh principal on every request."""
 
+from collections.abc import Mapping
 import hashlib
 import logging
+import re
 import threading
 import time
 from contextlib import contextmanager
@@ -27,6 +29,7 @@ from qorqut.agents.diagnostics import DIAGNOSTIC_OPERATIONS
 from qorqut.agents.resolver import INTERNAL_ONLY_OPERATIONS
 from qorqut.browser.operations import AGENT_BROWSER_MANAGE, BROWSER_OPERATION, WEBSITE_SIGN_IN
 from qorqut.errors import domain_error_from_agentic
+from qorqut_agentic.behavior.tool_help import text as instruction_text
 from .results import failure
 from . import batches, mcp_presentation, mcp_reads
 
@@ -104,7 +107,8 @@ def conversation_id(headers, meta):
 
 
 OPTION_SCHEMAS = {
-    "expected_revision": {"type": "integer", "minimum": 1},
+    "expected_revision": {"type": "integer", "minimum": 1,
+                          "description": instruction_text('mcp-optional-for-task-writes-checked-when-given-required-when')},
     "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 200},
     "business_id": {"type": "string", "format": "uuid"},
     "review_business_id": {"type": "string", "format": "uuid"},
@@ -120,8 +124,114 @@ def split_options(arguments, *, domain_fields=()):
     return {key: value for key, value in arguments.items() if key not in options}, InvocationOptions.from_mapping(options)
 
 
+# Argument names agents commonly guess, per canonical operation: {given name: the operation's real name}. Only exact
+# synonyms belong here (the value means the same thing and is passed through unchanged); a guessed name with no
+# equivalent stays rejected, and the validation error lists what the operation accepts. Each entry is justified by
+# rejected calls in agent transcripts; keep the list short.
+ARGUMENT_ALIASES = {
+    "tasks_list": {"query": "search"},
+    "tasks_comment": {"body": "text", "note": "text"},
+    "owner_conversation_send": {"message": "text", "body": "text"},
+    "fastmail_messages_search": {"query": "q", "text": "q"},
+    "fastmail_reply": {"message_id": "reply_message_id"},
+    "tables_rows_list": {"search": "query", "q": "query"},
+}
+# Transport fields that are never an operation's own argument, so never a name to rename.
+TRANSPORT_ARGUMENTS = frozenset({"response_detail", "tool_names", "sections", "if_read_token"})
+
+
+def rename_arguments(descriptor, arguments):
+    """Replace a guessed argument name by the operation's real one, before anything validates, hashes or plans.
+
+    Returns ``(arguments, [{"given", "used"}, ...])``. A name the operation or the transport defines is never renamed,
+    and neither is one whose real name was also given (or was given under two guesses): that call is rejected as is."""
+    aliases = ARGUMENT_ALIASES.get(descriptor.name)
+    if not aliases or not isinstance(arguments, dict):
+        return arguments, []
+    defined = descriptor.input_schema.get("properties", {})
+    renamed, applied = dict(arguments), []
+    for given, used in aliases.items():
+        if (given not in arguments or used not in defined or given in defined or given in OPTION_SCHEMAS
+                or given in TRANSPORT_ARGUMENTS or used in arguments
+                or any(other != given and target == used and other in arguments for other, target in aliases.items())):
+            continue
+        renamed[used] = renamed.pop(given)
+        applied.append({"given": given, "used": used})
+    return renamed, applied
+
+
+FIELD_LIMITS = ("type", "enum", "const", "format", "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems")
+ENUM_LIMIT = 50
+
+
+def _field_limits(schema, path, properties):
+    """The limits the schema states for one failing path, or for the deepest part of it the schema describes."""
+    node, found = {"properties": properties}, {}
+    for part in path.split("."):
+        if not isinstance(node, dict):
+            break
+        node = node.get("items") if part.isdigit() else (node.get("properties") or {}).get(part)
+        if isinstance(node, dict):
+            found = node
+    limits = {key: plain(found[key]) for key in FIELD_LIMITS if key in found}
+    if isinstance(limits.get("enum"), list) and len(limits["enum"]) > ENUM_LIMIT:
+        limits["enum"], limits["enum_truncated"] = limits["enum"][:ENUM_LIMIT], True
+    return limits
+
+
+def accepted_arguments(schema, field_errors):
+    """What a tool accepts, small enough to ride on its validation error: every top-level argument name, the required
+    ones, and the stated limits of only the fields that failed (or were required and missing)."""
+    properties = dict(schema.get("properties") or {})
+    branches = [branch for keyword in ("oneOf", "anyOf") for branch in schema.get(keyword, []) if isinstance(branch, dict)]
+    for branch in branches:
+        properties = {**(branch.get("properties") or {}), **properties}
+    summary = {"accepted": sorted(properties), "required": sorted(schema.get("required", []))}
+    alternatives = [sorted(branch["required"]) for branch in branches if branch.get("required")]
+    if alternatives:
+        summary["required_one_of"] = alternatives
+    fields = {}
+    for path, message in field_errors.items():
+        # Missing required names are reported on the object itself ("$"), inside the message.
+        names = re.findall(r"'([^']+)' is a required property", str(message)) if path == "$" else [path]
+        for name in names:
+            limits = _field_limits(schema, name, properties) if name.split(".")[0] in properties else {}
+            if limits:
+                fields[name] = limits
+    if fields:
+        summary["fields"] = fields
+    return summary
+
+
+def argument_guidance(value, read_schema):
+    """Add what the tool accepts to a rejected call's error (``error.details.arguments``), so the caller can correct
+    the call from the error alone. Only schema-level rejections (those with ``field_errors``) are described."""
+    error = value.get("error")
+    if (value.get("status") != "error" or not isinstance(error, dict) or error.get("code") != "validation_error"
+            or not isinstance(error.get("field_errors"), dict)):
+        return value
+    try:
+        summary = accepted_arguments(read_schema(), error["field_errors"])
+    except Exception:
+        # Guidance is optional; the original validation error is the result.
+        return value
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    return {**value, "error": {**error, "details": {**details, "arguments": summary}}}
+
+
+def written_task(context, arguments, result):
+    """The context and arguments that name the Task a write changed, as stored: a ``task_id`` given alone runs where the
+    engine found it (``locate_scope``), in the id's stored case, which the transport's own context does not know."""
+    task = result.data.get("task") if isinstance(result.data, Mapping) else None
+    if not isinstance(task, Mapping) or not isinstance(task.get("id"), str) or "business_id" not in task:
+        return context, arguments
+    business_id = task["business_id"]
+    return (replace(context, business_id=business_id, review_business_id=business_id),
+            {**arguments, "task_id": task["id"]})
+
+
 async def validation_hint(value, operation, *, read_instructions):
-    """Point a rejected call of a known operation to its current schema; never replaces an existing hint."""
+    """Tell the caller of a rejected known operation how to recover; never replaces an existing hint."""
     error = value.get("error")
     if (operation is None or "agent_hint" in value or value.get("status") != "error"
             or not isinstance(error, dict) or error.get("code") != "validation_error"):
@@ -480,6 +590,7 @@ class MCPTransport:
         canonical_name = name
         known_operation = None
         context = None
+        renamed = []
         try:
             # A batch entry arrives with the actor its batch authorization already admitted; a single call binds
             # the request's actor here and passes the per-use authority gate on its worker thread below.
@@ -496,6 +607,9 @@ class MCPTransport:
             canonical_name = descriptor.name
             self.caller.check_operation(canonical_name)
             known_operation = canonical_name
+            # Guessed argument names become the real ones here, before any validation: request hashing, idempotency
+            # receipts and prepared plans below only ever see the operation's own names.
+            arguments, renamed = rename_arguments(descriptor, arguments)
             arguments, detail = mcp_presentation.split_detail(canonical_name, arguments)
             arguments, tool_names = mcp_presentation.split_tool_names(canonical_name, arguments, detail)
             arguments, sections = mcp_presentation.split_sections(canonical_name, arguments, detail)
@@ -581,9 +695,13 @@ class MCPTransport:
                 # database writer. A failed read cannot undo a saved operation.
                 try:
                     attention = self.runtime.application.ordubashy_attention
-                    advisory = (attention.task_update_hint if canonical_name in {"tasks_update", "tasks_complete"}
-                                else attention.mutation_hint)
-                    hint = await anyio.to_thread.run_sync(advisory, context, args, canonical_name)
+                    hint_context, hint_args = context, args
+                    if canonical_name in {"tasks_update", "tasks_complete"}:
+                        advisory = attention.task_update_hint
+                        hint_context, hint_args = written_task(context, args, result)
+                    else:
+                        advisory = attention.mutation_hint
+                    hint = await anyio.to_thread.run_sync(advisory, hint_context, hint_args, canonical_name)
                 except Exception:
                     hint = None
                 if hint:
@@ -624,8 +742,7 @@ class MCPTransport:
             if presented.get("status") == "ok":
                 self._report_transport_success(operation=canonical_name, request_id=request_id,
                     actor=actor, context=context)
-            return await validation_hint(presented, known_operation,
-                read_instructions=lambda: self.runtime.resolver.require_agentic_view().runtime_instructions())
+            return await self._recoverable(presented, known_operation, name, renamed)
         except DomainError as exc:
             result = OperationResult.failure(exc, request_id=request_id)
         except Exception as exc:
@@ -638,7 +755,17 @@ class MCPTransport:
                     actor=actor, context=context)
             logger.exception("MCP operation failed: %s", request_id)
             result = OperationResult.failure(DomainError("internal_error", "The operation failed; use its correlation ID for diagnosis"), request_id=request_id)
-        return await validation_hint(result.to_dict(), known_operation,
+        return await self._recoverable(result.to_dict(), known_operation, name, renamed)
+
+    async def _recoverable(self, value, operation, name, renamed):
+        """The result as the caller needs it to correct or learn from this call: which guessed argument names were
+        accepted as which real ones, and, for rejected arguments, what the called tool accepts plus the recovery hint."""
+        if renamed:
+            value = {**value, "renamed_arguments": renamed}
+        if operation is not None:
+            # ``name`` is the tool as it was called, so an alias is described with its own fixed bindings.
+            value = argument_guidance(value, lambda: tool_schema(self.runtime.registry, name))
+        return await validation_hint(value, operation,
             read_instructions=lambda: self.runtime.resolver.require_agentic_view().runtime_instructions())
 
     async def _authorize_batch(self):

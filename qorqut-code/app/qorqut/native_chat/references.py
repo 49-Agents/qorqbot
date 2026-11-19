@@ -15,6 +15,9 @@ VERSION = 1
 MAX_MESSAGE_CHARS = 4000
 MAX_REFERENCES = 8
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+# A Task id has no fixed form: a short generated code (``qorqut_operations.tasks.identity``), or a UUID or slug on an older
+# Task. It is held to what any stored id is: at most 200 characters, no blanks or control characters.
+TASK_ID = re.compile(r"^[^\s\x00-\x1f\x7f-\x9f]{1,200}$")
 # The configured browser surface IDs of ``browser-surfaces.json`` (``qorqut.service.browser_surfaces.SURFACE_ID``).
 SURFACE_ID = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 
@@ -32,10 +35,10 @@ def _reference(raw: Any) -> dict:
     kind, identity, business = raw["type"], raw["id"], raw.get("business_id")
     if kind not in TYPES:
         raise InputError("Reference type must be task, signoff, browser, agent, project or delta")
-    pattern = SURFACE_ID if kind == TYPE_BROWSER else UUID
+    pattern = SURFACE_ID if kind == TYPE_BROWSER else TASK_ID if kind == TYPE_TASK else UUID
     if not isinstance(identity, str) or not pattern.fullmatch(identity):
-        raise InputError("A task, signoff, agent, project or delta reference id is its UUID; a browser reference id is a configured "
-                         "browser id from browser_turn list")
+        raise InputError("A task reference id is its Task id; a signoff, agent, project or delta reference id is its UUID; a "
+                         "browser reference id is a configured browser id from browser_turn list")
     if kind in (TYPE_AGENT, TYPE_DELTA) and business is not None:
         raise InputError("An agent or delta reference is {type, id} only; its business_id is absent or null")
     if business is not None and (not isinstance(business, str) or not UUID.fullmatch(business)):
