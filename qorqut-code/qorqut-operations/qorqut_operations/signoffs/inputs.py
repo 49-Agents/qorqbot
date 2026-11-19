@@ -14,6 +14,7 @@ from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.conversations import SUMMARY
 from qorqut_operations.storage.repositories import decode_row
+from .lookup import LOCATED
 from .ports import ABSENT
 from .sources import SOURCE
 from .reports import MISSING, REPORT_TASK
@@ -95,8 +96,9 @@ def validate_response(form, notes, selected):
         raise DomainError('validation_error', 'Notes must contain at most 8000 characters')
     if not isinstance(selected, list) or any(not isinstance(x, str) for x in selected) or len(selected) != len(set(selected)):
         raise DomainError('validation_error', 'Selected choices must be unique IDs')
-    if acknowledges(form) and (selected or notes.strip()):
-        raise DomainError('validation_error', 'Acknowledging takes no answer; write comments in the Signoff conversation')
+    # Acknowledging picks nothing; an optional comment is kept as the decision message, like any other answer's note.
+    if acknowledges(form) and selected:
+        raise DomainError('validation_error', 'Acknowledging takes no choices; write a comment in the notes instead')
     choices = {c['id'] for c in form['choices']}
     if set(selected) - choices or (form['selection_mode'] == 'single' and len(selected) > 1):
         raise DomainError('validation_error', 'Select only choices belonging to this question')
@@ -128,8 +130,11 @@ class InputRequests:
                 ('signoff_id', 'attention'), instruction_text('inputs-set-notification-urgency-blocking-for-your-pending-signoff')),
             ('signoffs_input_cancel', {'signoff_id': {"type": "string", "format": "uuid"}}, ('signoff_id',),
                 instruction_text('inputs-withdraw-your-pending-input-request-while-retaining-its'))):
-            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), **common,
-                description=description, prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply))
+            # An operation that names one Signoff finds its review scope from the id when the caller selects none.
+            located = (dict(locate_scope=self.service.lookup, description=description + ' ' + LOCATED)
+                       if 'signoff_id' in properties else dict(description=description))
+            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), **common, **located,
+                prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply))
         # Delegated management answers need the management domain; without it the operation is not installed.
         if self.service.ports.management is ABSENT:
             return tuple(descriptors)

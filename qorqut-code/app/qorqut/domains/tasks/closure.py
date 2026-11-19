@@ -11,7 +11,10 @@ hook, run inside every Task write:
 * when the stored state moves into done or cancelled, the Task's Focus card is archived and the reminders agents set
   for agents about it are cancelled;
 * when the Task is closed or its plan is replaced or removed, the pending deliveries that say a step of that plan waits
-  for confirmation are acknowledged for whoever holds them: nothing of that plan waits any more.
+  for confirmation are acknowledged for whoever holds them: nothing of that plan waits any more;
+* when a worker closes the Task as done, the result is recorded as an Action (``closure_actions.ClosureActions``), so the
+  owner's timeline of completed work does not wait for somebody to record it. A Task closed along with its parent
+  (``carried``) records none: the parent's closure is the result.
 
 Nothing here decides anything about the Task. A reopened Task returns to its workers' boards.
 """
@@ -58,10 +61,13 @@ def stored_plan(state):
 
 
 class TaskClosure:
-    def __init__(self, attention, focus_board, reminders):
-        self.attention, self.focus_board, self.reminders = attention, focus_board, reminders
+    """``actions`` is the recorder of a worker's closure (``ClosureActions``); without one no Action is recorded."""
 
-    def __call__(self, ctx, uow, before, after):
+    def __init__(self, attention, focus_board, reminders, actions=None):
+        self.attention, self.focus_board, self.reminders, self.actions = attention, focus_board, reminders, actions
+
+    def __call__(self, ctx, uow, before, after, *, carried=False):
+        """``carried`` marks a Task closed along with its parent (``children: close``) rather than by its own write."""
         row = after["row"]
         result = {"todo": self.attention.follow_task(uow, before, after, ctx.principal_id),
                   "acknowledged": acknowledge_seen(uow, before, ctx.principal_id, self.attention.clock)
@@ -74,6 +80,9 @@ class TaskClosure:
             business_id, task_id = row["business_id"], row["id"]
             result.update(focus_card=self.focus_board.release_task(business_id, task_id, uow),
                           reminders=self.reminders.release_task(uow, business_id, task_id))
+            if self.actions is not None and not carried:
+                # Last, and isolated: whatever happens to the Action, everything above stays part of the Task write.
+                result["action"] = self.actions.record(ctx, uow, before, after)
         return result
 
 

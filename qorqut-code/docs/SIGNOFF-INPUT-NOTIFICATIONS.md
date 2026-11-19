@@ -183,7 +183,9 @@ never create apply receipts or run a prepared action; approve/reject reject an
 input request. Existing approval and execution semantics remain unchanged.
 
 Agents retrieve answers with `signoffs_get` and `signoffs_list`; `responded: true`
-filters saved decisions. The dashboard offers Waiting and Responded. Reading is
+filters saved decisions. A tool that names one Signoff takes `signoff_id` alone:
+its review scope is found from the id
+([details](GLOBAL-TASKS.md#finding-a-signoffs-review-scope-from-its-id)). The dashboard offers Waiting and Responded. Reading is
 not acknowledgment, and drafts are not submitted. The proposer receives one
 `response_submitted` inbox event for a completed response, including a grouped
 form. Its per-question conversation notes do not create separate answer events.

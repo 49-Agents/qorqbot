@@ -5,6 +5,10 @@ Context pointers); an owner or the original recorder corrects or withdraws it as
 accepted revision is queued for Context in the same transaction (see ``writer``). Reads follow business links, never
 the storage namespace, exactly as in v1, and a withdrawn Action stays readable with its history.
 
+``actions_record`` may link one Task by ``task_id``. The owner and global agents record in Global whatever project the
+work was for, so their Task is found by its id anywhere in their reach (``linked_task``) and a category and projects they
+leave out are taken from it (``classified``); a caller recording in its own project links a Task of that project.
+
 An Action's discussion is the canonical item discussion (``qorqut_operations.discussion``). ``actions_thread_get`` is
 authorized exactly like ``actions_get``, retained business read links included. ``actions_comment`` is a separate
 mutation that needs its own policy and participation in the Action's owning namespace (an active human member, or the
@@ -24,8 +28,8 @@ from qorqut_operations import local_time
 from qorqut_operations.actions import models
 from qorqut_operations.actions.ports import require_on_revision
 from qorqut_operations.actions.schema import CATEGORIES
-from qorqut_operations.actions.scope import (action_namespace, change_namespace, classify, evidence_visible, is_owner, links, may_change,
-                                              reader_scope, scope_clause, visible)
+from qorqut_operations.actions.scope import (action_namespace, change_namespace, classification_from_task, classify, evidence_visible,
+                                              is_owner, links, may_change, reader_scope, scope_clause, visible)
 from qorqut_operations.actions.writer import SOURCE_TYPE, change_action, new_action, settle
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UNSET, UUID, PlanBuilder, apply_records,
@@ -69,15 +73,21 @@ COMMENT_DESCRIPTION = (
     instruction_text('operations-add-a-comment-to-an-action-s-discussion'))
 FOLLOW = schema({"action_id": ACTION_ID, "following": {"type": "boolean"}}, ("action_id", "following"))
 COMMENT_EVENT = "note_added"
+# The most scopes named when a linked Task's id is held in several (an id reused before ids were unique).
+CANDIDATES = 20
 
 
 class ActionOperations:
-    def __init__(self, application, references: DiscussionReferences, *, on_revision, clock=utc_clock):
+    def __init__(self, application, references: DiscussionReferences, *, tasks, on_revision, clock=utc_clock):
         if not isinstance(references, DiscussionReferences):
             raise AssemblyError("Action discussions need the note references of the Task service (note_references())")
+        # Duck-typed: the Task service imports this package's scope rules, so its class is not imported here.
+        if not callable(getattr(getattr(tasks, "lookup", None), "find", None)):
+            raise AssemblyError("Actions need the Task service, whose lookup finds the Task an Action links")
         if not callable(clock):
             raise AssemblyError("The action clock is a callable returning an aware timestamp")
         self.application, self.references, self.clock = application, references, clock
+        self.tasks = tasks
         self.on_revision = require_on_revision(on_revision)
 
     # -- registration ----------------------------------------------------------------------------------------------
@@ -166,6 +176,52 @@ class ActionOperations:
     def find(uow, action_id):
         return decode_row(uow.connection.execute("SELECT * FROM action_logs WHERE action_key=?", (action_id,)).fetchone())
 
+    def linked_task(self, ctx, uow, args):
+        """The stored Task that ``task_id`` names, or ``None`` when the record links none.
+
+        A caller that records in its own project links a Task of that project, and a delegated worker one of the Action's
+        own scope, as before. The owner and a global agent record in Global whatever project the work was for, so their
+        Task is looked for in their whole reach (``TaskLookup.find``: Global, and every allowed project where they may read
+        Tasks). An id held in several of those scopes means the one the call names, a project in ``business_ids`` or
+        Global by ``category`` global-operational, when it names exactly one; nothing outside the reach is disclosed."""
+        task_id = args.get("task_id")
+        if not task_id:
+            return None
+        if action_namespace(ctx, {}) != "global" or ctx.delegation_assignment_id is not None:
+            task = uow.repository("tasks", business_id=ctx.business_id).get(task_id)
+            if task is None:
+                raise DomainError("validation_error", "Linked task does not exist in this action's workspace",
+                                  field_errors={"task_id": "not found"})
+            return task
+        task_id, places = self.tasks.lookup.find(ctx, uow, task_id)
+        if len(places) > 1:
+            named = set(args.get("business_ids") or ())
+            if args.get("category") == "global-operational":
+                named.add(None)
+            chosen = [place for place in places if place["business_id"] in named]
+            if len(chosen) != 1:
+                raise DomainError(
+                    "validation_error", "This task id is in more than one project; name the project of the one you mean in "
+                    "business_ids (category global-operational for the Global one)",
+                    field_errors={"business_ids": "required: the task id is in more than one project"},
+                    details={"task_id": task_id, "candidates": places[:CANDIDATES]})
+            places = chosen
+        if not places:
+            raise DomainError("validation_error", "Linked task does not exist, or is in a project outside your reach",
+                              field_errors={"task_id": "not found"})
+        return uow.repository("tasks", business_id=places[0]["business_id"]).get(task_id, required=True)
+
+    def classified(self, ctx, uow, args):
+        """``(category, businesses, task)`` of a record, when it is prepared and again when its prepared plan is validated.
+
+        The linked Task is found first, because what a Global recorder left out of the classification is taken from it
+        (``classification_from_task``). ``classify`` then authorizes the result exactly as if the caller had passed it."""
+        task = self.linked_task(ctx, uow, args)
+        category, business_ids = args.get("category"), args.get("business_ids")
+        if task is not None and action_namespace(ctx, {}) == "global":
+            category, business_ids = classification_from_task(category, business_ids, task["business_id"])
+        return (*classify(ctx, uow, category, business_ids), task)
+
     # -- writes ----------------------------------------------------------------------------------------------------
 
     def prepare_record(self, ctx, args, options, uow):
@@ -174,15 +230,11 @@ class ActionOperations:
         if origin not in ("agent", "manual"):
             raise DomainError("forbidden", "Only the owner and registered agents record actions directly")
         text = models.validate_text(args["text"], origin)
-        category, businesses = classify(ctx, uow, args.get("category"), args.get("business_ids"))
+        category, businesses, task = self.classified(ctx, uow, args)
         builder = PlanBuilder(ctx, "actions_record", args, "Record action", clock=self.clock)
         refs = dict(args.get("evidence", {}))
-        if args.get("task_id"):
-            task = uow.repository("tasks", business_id=ctx.business_id).get(args["task_id"])
-            if task is None:
-                raise DomainError("validation_error", "Linked task does not exist in this action's workspace",
-                                  field_errors={"task_id": "not found"})
-            builder.expect(ref("tasks", task["id"], ctx.business_id), task)
+        if task is not None:
+            builder.expect(ref("tasks", task["id"], task["business_id"]), task)
             refs["task"] = task["id"]
         assignment = self.delegation(ctx, uow, args, category, businesses)
         performer, identity, provenance = UNSET, None, {"via": "actions_record"}
@@ -206,9 +258,9 @@ class ActionOperations:
         return builder.build()
 
     def validate_record(self, ctx, plan, uow):
-        # Grants, business authorization and delegated provenance are rechecked at apply.
+        # Grants, business authorization, the linked Task's place and delegated provenance are rechecked at apply.
         reader_scope(ctx, uow)
-        category, businesses = classify(ctx, uow, plan.arguments.get("category"), plan.arguments.get("business_ids"))
+        category, businesses, _ = self.classified(ctx, uow, plan.arguments)
         self.delegation(ctx, uow, plan.arguments, category, businesses)
         if plan.arguments.get("relay") is not None or plan.arguments.get("performed_by") not in (None, ctx.principal_id):
             self.reported_performer(ctx, plan.arguments, uow)

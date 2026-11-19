@@ -48,9 +48,9 @@
 .agfocus-review-open .agfocus-surface-body{border:0;border-radius:0;background:none;overflow:hidden}
 .agfocus-review-open .agfocus-expansion-content{padding:0;overflow:hidden}
 .agfocus-review-open .sg-focus.sg-single .sg-rowhead{display:none}
-.agfocus-review-open .sg-focus.sg-single .sg-row{padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+.agfocus-review-open .sg-focus.sg-single .sg-row,.agfocus-review-open .sg-focus.sg-single .sg-rows .sg-row.sg-row-blocking,.agfocus-review-open .sg-focus.sg-single .sg-rows .sg-row.sg-row-blocking:focus-within{padding:0;border:0;border-radius:0;background:none;box-shadow:none}
 .agfocus-review-open .sg-focus.sg-single .sg-detail-body{padding:0 4px 16px 0}
-.agfocus-review-open .sg-focus.sg-single .sg-detail-footer{padding:12px 0 0}
+.agfocus-review-open .sg-focus.sg-single .sg-detail-footer{padding:12px 0 10px}
 .agfocus-review-open .sg .sg-choice-marker{display:none}
 .agfocus-review-open .sg .sg-choice-explanation{display:block;flex:1 1 0;min-width:0;max-height:none;color:var(--fg-2);font-size:12px;font-weight:400}
 /* A long description wraps beside its label; the button and its circle line up with the first line. */
@@ -100,10 +100,8 @@
 .agfocus-review-open .sg .sg-asks .sg-question-explanation{margin:0 0 12px;color:var(--fg-2);font-size:13px}
 .agfocus-review-open .sg .sg-asks .sg-question-choices + .sg-question-notes,
 .agfocus-review-open .sg .sg-asks .sg-question-notes{margin-top:8px}
-.agfocus-review-open .sg .sg-asks .sg-question-notes,
-.agfocus-review-open .sg .sg-asks .sg-feedback{max-width:560px;min-height:46px;padding:12px 16px;border:1px solid var(--line-2);border-radius:12px;background:var(--wash);font-size:14px;line-height:1.45;resize:none}
-.agfocus-review-open .sg .sg-asks .sg-question-notes:hover,.agfocus-review-open .sg .sg-asks .sg-feedback:hover{border-color:var(--fg-3)}
-.agfocus-review-open .sg .sg-asks .sg-question-notes:focus,.agfocus-review-open .sg .sg-asks .sg-feedback:focus{border-color:var(--fg)}
+/* Every Signoff's comment line looks like the approve/reject one: one line, a left bar, growing as the owner types. */
+.agfocus-review-open .sg .sg-detail-footer .sg-feedback,.agfocus-review-open .sg .sg-question .sg-question-notes{min-height:36px;padding:7px 10px;line-height:20px;resize:none}
 .agfocus-review-open .sg .sg-asks .sg-actions .sg-approve{min-height:44px;height:44px;padding:0 22px;background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-size:14px;font-weight:600}
 .agfocus-review-open .sg-focus.sg-single .sg-urgent:has(.sg-asks) > h2{display:none}
 .agfocus-review-open .sg .sg-asks .sg-attention-meta .sg-notice{margin:0 0 6px;color:var(--warn);font-size:12px}

@@ -413,6 +413,18 @@ class AttentionRuntime:
             advice = clock_advice(uow, agent_id, self.attention, now)
             state = self.attention.state(uow, agent_id)
             previous = None
+        if previous and previous['state'] == 'uncertain':
+            # A reminder that was handed over and never confirmed is counted as not sent, so it is still owed. Its
+            # record stays uncertain under its own key and a new occurrence takes its place with the same due time:
+            # left in place, it kept every later reminder from being recorded until the focus changed. A confirmation
+            # that still arrives is recorded on the old occurrence and moves nothing.
+            self.attention.update_clock(uow, agent_id, {'reminder_sequence': advice['reminder_sequence'] + 1})
+            advice = clock_advice(uow, agent_id, self.attention, now)
+            kind, due = advice.get('kind'), advice.get('due_at')
+            if not kind or not due:
+                return
+            state = self.attention.state(uow, agent_id)
+            previous = None
         if previous and previous['state'] == 'cancelled':
             if previous['route'] == 'chat':
                 from qorqut.native_chat import store

@@ -1,9 +1,15 @@
 // Ordubashy's completed-result journal, using the canonical action read model.
-// The server filters by principal and occurrence date; recorded-only attribution
-// stays explicit, and day/hour precision never becomes an invented timestamp.
+// The server filters by occurrence date, and by principal on any pane but the
+// coordinator's; recorded-only attribution stays explicit, and day/hour precision
+// never becomes an invented timestamp.
 T_VIEW_LABEL.timeline = 'Timeline';
 T_VIEW_ICON.timeline = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M6 3v18M11 5h9M11 12h6M11 19h9"/><circle cx="6" cy="5" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="6" cy="19" r="2"/></svg>';
 const AGENT_TIMELINE_CHEVRON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 4 4 4-4 4"/></svg>';
+
+// The coordinator keeps the books for every agent: his pane lists all Actions and each
+// row names who performed it. Any other agent's pane lists only that agent's Actions.
+function agentTimelineEveryone(p) { return p.workspaceRole === 'ordubashy'; }
+function agentTimelineScope(p) { return agentTimelineEveryone(p) ? {} : {performer: p.agentId}; }
 
 function agentTimelineEvidence(key, value) {
   const href = safeLinkUrl(value);
@@ -77,9 +83,9 @@ async function agentTimelineOpenEvidence(p, button) {
   } finally { button.disabled = false; }
 }
 
-function agentTimelineRow(action) {
+function agentTimelineRow(action, everyone = false) {
   const refs = Object.entries(action.refs || {});
-  const meta = action.attribution === 'recorded' ? [acPerson(action)] : [];
+  const meta = everyone || action.attribution === 'recorded' ? [acPerson(action)] : [];
   const zone = action.occurred?.time_zone;
   if (zone && zone !== SJ_ZONE) meta.push(zone);
   const content = `<div class="agent-timeline-copy">
@@ -143,7 +149,7 @@ function agentTimelineMount(p) {
     const seq = ++timeline.seq;
     timeline.loading = true; timeline.error = ''; agentTimelinePaint(p);
     try {
-      const data = await acOp('actions_list', {performer: p.agentId, limit: 1});
+      const data = await acOp('actions_list', {...agentTimelineScope(p), limit: 1});
       if (!agentTimelineCurrent(p, timeline) || seq !== timeline.seq) return;
       timeline.loading = false;
       if (data.actions[0]?.occurred?.date) choose(data.actions[0].occurred.date);
@@ -212,9 +218,10 @@ function agentTimelinePaint(p) {
       // Your grouped messages keep their own open state the same way.
       const key = detail => { const row = detail.closest('[data-action-id],[data-owner-message]'); return row ? row.dataset.actionId || 'message:' + row.dataset.ownerMessage : ''; };
       const expanded = new Set([...t.root.querySelectorAll('details[open]')].map(key).filter(Boolean));
+      const everyone = agentTimelineEveryone(p);
       t.root.querySelector('ol').innerHTML = messages.length
-        ? ownerTimelineMerge(t.rows, messages).map(entry => entry.kind === 'action' ? agentTimelineRow(entry.action) : ownerTimelineRow(entry)).join('')
-        : t.rows.map(agentTimelineRow).join('');
+        ? ownerTimelineMerge(t.rows, messages).map(entry => entry.kind === 'action' ? agentTimelineRow(entry.action, everyone) : ownerTimelineRow(entry)).join('')
+        : t.rows.map(action => agentTimelineRow(action, everyone)).join('');
       t.root.querySelectorAll('details').forEach(detail => { detail.open = expanded.has(key(detail)); });
       t.signature = signature;
     }
@@ -230,7 +237,7 @@ async function agentTimelineRefresh(p, more=false) {
   if(!more && t.rows===null && cached){t.rows=cached.actions;t.cursor=cached.next_cursor;}
   t.loading=true;t.error='';t.moreFailed=more;agentTimelinePaint(p);
   try {
-    const read=()=>acOp('actions_list',{performer:p.agentId,since:date,until:date,limit:50,...(cursor?{cursor}:{})});
+    const read=()=>acOp('actions_list',{...agentTimelineScope(p),since:date,until:date,limit:50,...(cursor?{cursor}:{})});
     const first=more?await read():await uiReads.read(key,read);
     const data={...first,actions:[...first.actions]}, visited=new Set(cursor?[cursor]:[]);
     const depth=more?1:Math.max(1,t.cursors.size+1);
@@ -239,7 +246,7 @@ async function agentTimelineRefresh(p, more=false) {
       if(!agentTimelineCurrent(p,t)||seq!==t.seq)return;
       if(visited.has(data.next_cursor))throw Error('Action pagination did not advance.');
       visited.add(data.next_cursor);
-      const page=await acOp('actions_list',{performer:p.agentId,since:date,until:date,limit:50,cursor:data.next_cursor});
+      const page=await acOp('actions_list',{...agentTimelineScope(p),since:date,until:date,limit:50,cursor:data.next_cursor});
       data.actions.push(...page.actions);data.next_cursor=page.next_cursor;loaded++;
     }
     if(!agentTimelineCurrent(p,t)||seq!==t.seq)return;
