@@ -738,13 +738,17 @@ class SignoffService:
                 form = row['preview_json']['input']
                 grouped = questions.is_questionnaire(form)
                 if grouped:
-                    if any(value is not _UNSET for value in (notes, selected_choices, draft_values)):
+                    if any(value is not _UNSET for value in (selected_choices, draft_values)):
                         raise DomainError('validation_error', 'Question answers cannot be mixed with single-question or draft-review fields')
+                    # One optional comment on the whole form, besides each question's own answer.
+                    comment = '' if notes is _UNSET else notes
+                    if not isinstance(comment, str) or len(comment) > 8000:
+                        raise DomainError('validation_error', 'Notes must contain at most 8000 characters')
                     answers = questions.validate_answers(form, answers)
                     messages = questions.answer_messages(form, answers)
                     for message in messages:
                         self.notes.validate(message)
-                    response_input = {'answers': answers}
+                    response_input = {'answers': answers, **({'notes': comment} if comment.strip() else {})}
                 else:
                     if answers is not _UNSET:
                         raise DomainError('validation_error', 'Answers require a version-2 question form')
@@ -774,6 +778,8 @@ class SignoffService:
                     submitted = [{**answer, 'message_id': self.notes.decision_message(context, row, message, uow)}
                                  for answer, message in zip(answers, messages)]
                     decision = {'schema_version': 2, 'answers': submitted}
+                    if comment.strip():
+                        decision['message_id'] = self.notes.decision_message(context, row, comment, uow)
                 else:
                     decision = {'message_id': self.notes.decision_message(context, row, notes, uow), 'selected_choices': selected}
                     if is_draft(row):

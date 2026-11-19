@@ -95,8 +95,9 @@ def validate_response(form, notes, selected):
         raise DomainError('validation_error', 'Notes must contain at most 8000 characters')
     if not isinstance(selected, list) or any(not isinstance(x, str) for x in selected) or len(selected) != len(set(selected)):
         raise DomainError('validation_error', 'Selected choices must be unique IDs')
-    if acknowledges(form) and (selected or notes.strip()):
-        raise DomainError('validation_error', 'Acknowledging takes no answer; write comments in the Signoff conversation')
+    # Acknowledging picks nothing; an optional comment is kept as the decision message, like any other answer's note.
+    if acknowledges(form) and selected:
+        raise DomainError('validation_error', 'Acknowledging takes no choices; write a comment in the notes instead')
     choices = {c['id'] for c in form['choices']}
     if set(selected) - choices or (form['selection_mode'] == 'single' and len(selected) > 1):
         raise DomainError('validation_error', 'Select only choices belonging to this question')

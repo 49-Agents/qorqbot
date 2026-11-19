@@ -866,27 +866,27 @@ function sgCreateView(options) {
     const feedback = detail.querySelector(".sg-feedbackwrap");
     feedback.classList.toggle('sg-draft-feedback', sgIsDraftReview(s));
     const retainedFeedback = sgIsDraftReview(s) && reviewEdits.has(s.id) && s.state !== 'pending';
-    if (!sgIsQuestionnaire(s) && !sgIsAcknowledge(s) && (s.state === "pending" || retainedFeedback) && completePreview(s) && owner() && !s.superseded_by_id && (!options.inline || s.input || rejectionNeedsMessage(s))) {
+    if ((s.state === "pending" || retainedFeedback) && completePreview(s) && owner() && !s.superseded_by_id && (!options.inline || s.input || rejectionNeedsMessage(s))) {
       const requirement = s.input ? (s.input.notes_required ? "(required)" : "(optional)") : rejectionNeedsMessage(s) ? "(required to reject)" : "(optional)";
       if (!feedback.querySelector("textarea")) {
         const fieldId = `sg-feedback-${prefix}${esc(s.id)}`;
         // Inline action cards drop the visible label: the one-line field is named by aria-label and placeholder. Questions keep "Answer".
-        const unlabeled = !s.input || sgIsDraftReview(s) || sgIsAsk(s);
+        const unlabeled = !s.input || sgIsDraftReview(s) || sgIsAsk(s) || sgIsAcknowledge(s) || sgIsQuestionnaire(s);
         const offered = Array.isArray(s.input?.choices) && s.input.choices.length && s.input.selection_mode !== "none";
-        const placeholder = sgIsAsk(s) ? (offered ? "Something else…" : "Your answer") : sgIsDraftReview(s) ? "Add feedback…" : rejectionNeedsMessage(s) ? "Add a reason to reject…" : "Add a note…";
-        feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${sgIsDraftReview(s) ? "Feedback" : s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback${!s.input ? " sg-decision-feedback" : ""}" rows="${!s.input || options.inline || sgIsDraftReview(s) || sgIsAsk(s) ? 1 : 3}"${!s.input ? ' wrap="off"' : ""} spellcheck="true"${unlabeled ? ` aria-label="${sgIsDraftReview(s) ? "Feedback" : sgIsAsk(s) ? "Answer" : "Message to send with decision"} ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
+        const placeholder = sgIsAsk(s) && !sgIsQuestionnaire(s) ? (offered ? "Something else…" : "Your answer") : sgIsDraftReview(s) ? "Add feedback…" : sgIsAcknowledge(s) || sgIsQuestionnaire(s) ? "Add a comment…" : rejectionNeedsMessage(s) ? "Add a reason to reject…" : "Add a note…";
+        feedback.innerHTML = `${unlabeled ? "" : `<label class="sg-label" for="${fieldId}">${sgIsDraftReview(s) ? "Feedback" : s.input ? "Answer" : "Message to send with decision"} ${requirement}</label>`}<textarea id="${fieldId}" class="sg-feedback${!s.input ? " sg-decision-feedback" : ""}" rows="${!s.input || options.inline || sgIsDraftReview(s) || sgIsAsk(s) || sgIsAcknowledge(s) || sgIsQuestionnaire(s) ? 1 : 3}"${!s.input ? ' wrap="off"' : ""} spellcheck="true"${unlabeled ? ` aria-label="${sgIsDraftReview(s) ? "Feedback" : sgIsAcknowledge(s) || sgIsQuestionnaire(s) ? "Comment" : sgIsAsk(s) ? "Answer" : "Message to send with decision"} ${requirement}" placeholder="${placeholder}"` : ""}></textarea>`;
         feedback.querySelector("textarea").value = draft(s);
       }
       feedback.querySelector("textarea").disabled = !retainedFeedback && (!!busy || !canReview);
       feedback.querySelector("textarea").readOnly = retainedFeedback;
-      if (s.input && (options.inline || sgIsDraftReview(s) || sgIsAsk(s))) fitFeedback(feedback.querySelector("textarea"));
+      if (s.input && (options.inline || sgIsDraftReview(s) || sgIsAsk(s) || sgIsAcknowledge(s) || sgIsQuestionnaire(s))) fitFeedback(feedback.querySelector("textarea"));
     } else feedback.innerHTML = "";
     const disabled = !canReview || !!busy ? " disabled" : "";
     let controls = "";
     const withFeedback = !s.input && !!draft(s).trim();
     const plainDecisionControls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id
       ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}${withFeedback ? "Send and approve" : "Approve"}</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}${withFeedback ? "Send and reject" : "Reject"}</button></div>` : "";
-    if (s.input) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-approve" data-sg="respond"${disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '')}>${sgIsAsk(s) ? 'Send' : sgIsDraftReview(s) ? 'Return draft' : sgIsAcknowledge(s) ? `${SVG_CHECK}Acknowledge` : 'Submit'}</button></div>` : "";
+    if (s.input) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-approve${sgIsAcknowledge(s) ? ' sg-primary-action' : ''}" data-sg="respond"${disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '')}>${sgIsAsk(s) ? 'Send' : sgIsDraftReview(s) ? 'Return draft' : sgIsAcknowledge(s) ? `${SVG_CHECK}Acknowledge` : 'Submit'}</button></div>` : "";
     else controls = plainDecisionControls;
     if (busy) controls += `<p class="sg-notice" role="status">${busy.unknown ? "The response was lost. Checking the saved decision..." : "Saving decision..."}</p>${busy.unknown ? `<button type="button" class="sg-command" data-sg="reconcile"${busy.checking ? " disabled" : ""}>Check decision</button>` : ""}`;
     if (verified && !owner()) controls += `<p class="sg-notice">Signoff review requires an owner session.</p>`;
@@ -914,7 +914,7 @@ function sgCreateView(options) {
       for (const cancel of area.querySelectorAll('[data-sg="cancel-message"],[data-sg="discard-draft"]')) cancel.textContent = 'Cancel';
       let status = area.querySelector('.sg-chat-status');
       if (!status) { status = document.createElement('span'); status.className = 'sg-chat-status'; (actions || area).prepend(status); }
-      status.textContent = editing ? 'Editing draft' : s.state !== 'pending' ? sgItemStatus(s, labels) : sgIsAcknowledge(s) ? 'To read' : '';
+      status.textContent = editing ? 'Editing draft' : s.state !== 'pending' ? sgItemStatus(s, labels) : '';
       // No Edit button: an email, message or draft shown in full is edited by clicking its text.
       actions?.querySelector('[data-sg="edit-message"]')?.remove();
     }
@@ -1264,13 +1264,16 @@ function sgCreateView(options) {
     if (sg.busy.has(key)) return;
     const body = { proposal_revision: s.proposal_revision, payload_hash: s.payload_hash, expected_status_revision: s.status_revision, idempotency_key: newRequestId() };
     if (action === "respond") {
-      // Acknowledging says nothing: the body is the binding alone.
-      if (sgIsAcknowledge(s)) {}
+      // Acknowledging picks nothing; a comment, when written, goes as the notes.
+      if (sgIsAcknowledge(s)) { if (draft(s).trim()) body.notes = draft(s); }
       else if (sgIsQuestionnaire(s)) {
-        const draft = questionDraft(s);
-        body.answers = sgQuestionAnswers(s, draft.answers);
-        draft.errors = sgQuestionErrors(s, body.answers);
-        if (Object.keys(draft.errors).length) {
+        const comment = draft(s);
+        const answersDraft = questionDraft(s);
+        body.answers = sgQuestionAnswers(s, answersDraft.answers);
+        // One optional comment on the whole form, from the footer line.
+        if (comment.trim()) body.notes = comment;
+        answersDraft.errors = sgQuestionErrors(s, body.answers);
+        if (Object.keys(answersDraft.errors).length) {
           render();
           sg.mount.querySelector('.sg-question [aria-invalid="true"]')?.focus();
           return;
@@ -1477,7 +1480,7 @@ function sgCreateView(options) {
         if(edit && !edit.saving && !edit.receipt){edit.values[event.target.dataset.sgEditField]=event.target.value;edit.error='';fitMessage(event.target);}
         return;
       }
-      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); if (s.input && (options.inline || sgIsDraftReview(s) || sgIsAsk(s))) fitFeedback(event.target); render(); } } };
+      if (event.target.matches(".sg-feedback")) { const s = sg.items.get(sg.selected); if (s) { saveDraft(draftKey(s), event.target.value); if (s.input && (options.inline || sgIsDraftReview(s) || sgIsAsk(s) || sgIsAcknowledge(s) || sgIsQuestionnaire(s))) fitFeedback(event.target); render(); } } };
     render(); refresh();
   }
   function businessChanged() {
