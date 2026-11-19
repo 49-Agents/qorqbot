@@ -21,10 +21,13 @@ input request: it records the answer and executes nothing, so read the decision 
 then perform exactly that work yourself. Use the existing prepared approval for a
 service-managed protected action. Never replace a required decision with a chat reply.
 
-Only the coordinator writes timelines. For a point the owner has yet to decide, which is not a prepared action,
-the coordinator also files an open question on the item's timeline (`timeline_file` `ask`, `blocking` true or
-false) in addition to the Signoff, and files the owner's answer with `answer`. A worker reports such a point
-to the coordinator and does not call `timeline_file`.
+A question Signoff is the item's open question: the owner sees it in the item's "what holds now" and answers it in
+the sign-off queue, so never file it on the timeline as well. Link it to the item with `source`, and offer the likely
+answers as choices; the owner can always write something else. Only the coordinator writes timelines: once the owner
+answers, the coordinator is told as for any Signoff, reads the answer with `signoffs_get` and decides what it means: the
+owner may answer, or say the question is not needed or was settled already. When it settles a decision or a fact, the
+coordinator files it in its own words with `timeline_file_answer` (filed at once without review); otherwise it files
+nothing. If unclear, please ask the user. A worker reports such a point to the coordinator and does not call `timeline_file`.
 
 Collect every explicit request for owner input through a Signoff, including clarifications,
 access, missing information and review. Chat and progress notes can explain the request, but

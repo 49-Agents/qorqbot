@@ -43,15 +43,23 @@ FILE_DESCRIPTION = (
     "(text 1 to 400 characters, one or two sentences; a goal and a progress note replace the previous one, a decision and a fact "
     "hold until removed; an add that repeats what already stands is skipped and listed under filed.skipped); {action: remove, "
     "entry_id, reason?} (takes out an entry that no longer holds, and removing the current goal or progress note leaves none; read the ids with "
-    "timeline_get); {action: ask, text, blocking, raised_by?} (an open question for the owner: a point the owner has yet to "
-    "decide; blocking says whether work waits on it; raised_by owner or coordinator, default coordinator); {action: answer, "
-    "question_id, kind: decision|fact, text} (files the answer and closes the question); {action: drop, question_id} (closes a "
-    "question nobody needs answered). sources is up to ten {quote, ref}: the owner's own words behind the change (at most 1000 "
+    "timeline_get). An open question filed earlier is closed with {action: answer, question_id, kind: decision|fact, text} (files "
+    "the answer) or {action: drop, question_id} (no answer needed). Ask the owner a new question with a Signoff "
+    "(signoffs_input_create, its source the item), never on the timeline, and file the owner's answer with timeline_file_answer. "
+    "sources is up to ten {quote, ref}: the owner's own words behind the change (at most 1000 "
     "characters each) and a link to the message. The entries are never edited or deleted, so file at the most general level that "
     "fits and keep what you file true. The result is the item's new state; when it passes about 3,000 characters it asks you to "
     "remove what no longer holds. During the trial every filing is first held for the owner's review: the call returns "
     "signoff_required, which means the filing was submitted for the owner's review and is filed by itself when the owner "
     "approves it, with no further call from you. Do not file it again; timeline_get lists the filings still waiting.")
+ANSWER_DESCRIPTION = (
+    "Coordinator write. Files the owner's answer to one of your question Signoffs on a timeline, at once and without review, "
+    "since the words are the owner's: signoff_id is the answered question (signoffs_input_create, now answered), kind is "
+    "decision or fact, text is the answer as it should hold (1 to 400 characters, one or two sentences). item names where it "
+    "holds as in timeline_get; without it, the Task or Project the question was asked about, else Global or the Signoff's "
+    "Project. The owner's own answer is quoted on the entry and linked to the Signoff. Each answer is filed once. File only "
+    "an answer that settles a decision or fact; when the owner says the question is not needed or was settled already, file "
+    "nothing. If unclear, please ask the user.")
 REVIEW_NOTICE = ("Submitted for the owner's review. It is filed by itself when the owner approves it; do not file it again. "
                  "timeline_get lists the filings still waiting.")
 
@@ -68,8 +76,6 @@ CHANGE = {"oneOf": [
     schema({"action": {"const": "add"}, "kind": {"enum": list(KINDS)}, "text": TEXT, "refs": REFS}, ("action", "kind", "text")),
     schema({"action": {"const": "remove"}, "entry_id": IDENTITY, "reason": {"type": "string", "maxLength": filing.MAX_TEXT}},
            ("action", "entry_id")),
-    schema({"action": {"const": "ask"}, "text": TEXT, "blocking": {"type": "boolean"},
-            "raised_by": {"enum": ["owner", "coordinator"]}}, ("action", "text", "blocking")),
     schema({"action": {"const": "answer"}, "question_id": IDENTITY, "kind": {"enum": ["decision", "fact"]}, "text": TEXT},
            ("action", "question_id", "kind", "text")),
     schema({"action": {"const": "drop"}, "question_id": IDENTITY}, ("action", "question_id"))]}
@@ -82,6 +88,9 @@ GET_SCHEMA = schema({**SCOPE, "item": ITEM, "history": {"type": "boolean"}, "lim
 FILE_SCHEMA = schema({"scope": {"const": "global"}, "item": ITEM,
                       "changes": {"type": "array", "minItems": 1, "maxItems": filing.MAX_CHANGES, "items": CHANGE},
                       "sources": SOURCES, "rationale": {"type": "string", "maxLength": 2000}}, ("item", "changes"))
+ANSWER_SCHEMA = schema({"scope": {"const": "global"}, "signoff_id": {"type": "string", "format": "uuid"},
+                       "kind": {"enum": ["decision", "fact"]}, "text": TEXT, "item": ITEM}, ("signoff_id", "kind", "text"))
+ANSWER_REF = "signoff:"
 LINKS_LIMIT = 50
 NOT_READABLE = "This item does not exist or you may not read it"
 CLOSED = {"forbidden", "policy_denied", "not_found", "invalid_principal", "record_moved"}
@@ -102,6 +111,11 @@ class Timeline:
             "timeline_file", FILE_SCHEMA, description=FILE_DESCRIPTION, effect_kind="records", prepare=self.prepare,
             apply=self.apply, scope_kinds=frozenset({"global"}), resolve_namespace=lambda ctx, args: "global",
             supports_signoff=True, default_mode="signoff", project_result=self.project, **common))
+        # The owner's answer to a question Signoff is the owner's own words, so filing it needs no second review.
+        self.runtime.registry.register(OperationDescriptor(
+            "timeline_file_answer", ANSWER_SCHEMA, description=ANSWER_DESCRIPTION, effect_kind="records", prepare=self.prepare_answer,
+            apply=self.apply_answer, scope_kinds=frozenset({"global"}), resolve_namespace=lambda ctx, args: "global",
+            supports_signoff=False, default_mode="allow", **common))
         # A removal pins its entry, which has no revision: it is gone for a filing once another filing has removed it.
         self.app.register_target_resolver(ENTRIES, self.entry_snapshot)
         self.runtime.timeline = self
@@ -366,3 +380,73 @@ class Timeline:
             result["warning"] = (f"This item's standing state is now {size} characters; about {timeline_state.WARNING_CHARACTERS} "
                                  "is the most worth carrying. Remove the entries that no longer hold.")
         return result
+
+    # -- the owner's answer to a question Signoff --------------------------------------------------------------------
+
+    @staticmethod
+    def owner_words(row, uow):
+        """The owner's submitted answer as one quote: each question's chosen labels and written words. A single question keeps
+        its written words in the Signoff note its decision names."""
+        form, decision = json.loads(row["preview_json"]).get("input") or {}, json.loads(row["decision_json"] or "{}")
+        def written(answer):
+            if "notes" in answer:
+                return answer.get("notes") or ""
+            note = uow.connection.execute("SELECT body FROM signoff_notes WHERE id=? AND signoff_id=?",
+                                          (answer.get("message_id"), row["id"])).fetchone() if answer.get("message_id") else None
+            return note["body"] if note else ""
+        def said(question, answer):
+            labels = {choice["id"]: choice["label"] for choice in question.get("choices", [])}
+            chosen = ", ".join(labels.get(choice, choice) for choice in answer.get("selected_choices") or [])
+            return "; ".join(part for part in (chosen, written(answer).strip()) if part)
+        if isinstance(decision.get("answers"), list):
+            questions = {question["id"]: question for question in form.get("questions", [])}
+            parts = [f"{questions.get(answer.get('question_id'), {}).get('prompt', '')}: {said(questions.get(answer.get('question_id'), {}), answer)}"
+                     for answer in decision["answers"] if said(questions.get(answer.get("question_id"), {}), answer)]
+        else:
+            parts = [said(form, decision)]
+        words = "\n".join(part for part in parts if part.strip(": ").strip())
+        if not words:
+            raise DomainError("validation_error", "This answer has no words or choices to file")
+        return words[:filing.MAX_QUOTE]
+
+    @staticmethod
+    def asked_about(row, uow):
+        """The item a question Signoff was asked about: its Task or Project source, else its Project, else Global."""
+        for link in uow.connection.execute(
+                "SELECT source_type, source_id, source_business_id FROM signoff_source_links WHERE signoff_id=? "
+                "AND source_type IN ('task','project') ORDER BY source_type DESC, created_at, id", (row["id"],)).fetchall():
+            return {"type": link["source_type"], "id": link["source_id"], "business_id": link["source_business_id"]}
+        business = row["review_business_id"]
+        return {"type": "project", "id": business, "business_id": business} if business else {"type": "global", "id": "global", "business_id": None}
+
+    def answered(self, ctx, args, uow):
+        """``(row, item, title, quote)`` for a filing of the owner's answer: the caller is the coordinator in person, the Signoff
+        is the coordinator's own question, answered by the owner and not filed yet, and the item is readable and current."""
+        current = self.filer(ctx, uow)
+        row = uow.connection.execute("SELECT * FROM signoffs WHERE id=?", (args["signoff_id"],)).fetchone()
+        if row is None or row["proposer_principal_id"] != current.principal_id or row["category"] != "input_request":
+            raise DomainError("not_found", "No question of yours has this id")
+        if row["state"] != "answered":
+            raise DomainError("validation_error", "The owner has not answered this question")
+        # Only the owner's own answer skips review; an answer given on the owner's behalf is filed with timeline_file.
+        if json.loads(row["decision_json"] or "{}").get("by") != installation_owner(uow):
+            raise DomainError("validation_error", "This answer was not given by the owner; file it with timeline_file")
+        reference = ANSWER_REF + row["id"]
+        if uow.connection.execute(f"SELECT 1 FROM {ENTRIES} WHERE sources_json LIKE ? LIMIT 1", (f'%"{reference}"%',)).fetchone():
+            raise DomainError("validation_error", "This answer is already on a timeline")
+        item = args.get("item") or self.asked_about(row, uow)
+        title = self.readable(ctx, item, uow)
+        self.current(item, uow)
+        return row, item, title, self.owner_words(row, uow)
+
+    def prepare_answer(self, ctx, args, options, uow):
+        row, item, title, _ = self.answered(ctx, args, uow)
+        builder = PlanBuilder(ctx, "timeline_file_answer", args,
+                              f"File the owner's answer on the timeline of {item['type']} \"{title}\"" if title else "File the owner's answer on the Global timeline")
+        return builder.build()
+
+    def apply_answer(self, ctx, plan, uow):
+        args = plain(plan.arguments)
+        row, item, title, quote = self.answered(ctx, args, uow)
+        return self.file(plan.principal_id, {"item": item, "changes": [{"action": "add", "kind": args["kind"], "text": args["text"]}],
+                                             "sources": [{"quote": quote, "ref": ANSWER_REF + row["id"]}]}, uow)
