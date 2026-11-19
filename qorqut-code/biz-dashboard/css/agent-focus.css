@@ -251,6 +251,8 @@
 .agfocus .agfocus-notes .agfocus-notes-input:focus-within{background:rgba(255,255,255,.03)}
 .agfocus .agfocus-notes .agfocus-notes-input.loading{opacity:.6;cursor:default}
 .agfocus .agfocus-notes .ntdoc{min-height:0}
+/* Focus styles every button as a bordered box (app.css); the status ball stays the Journal's bare ball. */
+.agfocus .agfocus-notes .ntball,.agfocus .agfocus-notes .ntball:hover,.agfocus .agfocus-notes .ntball:active{width:100%;height:100%;min-height:0;padding:0;border:0;border-radius:0;background:none;color:inherit;font:inherit;transform:none}
 .agfocus-text-status{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 0;padding:0 12px;font-size:11px;color:var(--fg-2)}
 .agfocus-text-status[hidden]{display:none}
 .agfocus-text-status[data-state=failed],.agfocus-text-status[data-state=conflict],.agfocus-text-status[data-state=load]{color:var(--warn)}
