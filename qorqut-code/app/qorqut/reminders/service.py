@@ -23,6 +23,7 @@ import time
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page_position, schema, timestamp, utc_clock
+from qorqut_operations.business_lifecycle import is_archived_business
 from qorqut_operations.contracts import DomainError, canonical_bytes, new_id, plain
 from qorqut.agents.global_scope import active_global
 from qorqut.management.identity import configured_ordubashy, is_active_installation_owner
@@ -240,9 +241,14 @@ class ReminderService:
                 and self.link_ok(uow, row))
 
     def reachable(self, access, row, uow, memo=None):
-        """Managers reach every reminder; any other agent only its own, while it can still act in that scope."""
-        return access.manager or (row["recipient_id"] == access.ctx.principal_id
-                                  and self.recipient_ok(uow, row["recipient_id"], row["business_id"], memo))
+        """The owner reaches every reminder. The coordinator reaches every reminder outside archived projects, which are not
+        current work; any other agent only its own, while it can still act in that scope."""
+        if access.kind == "owner":
+            return True
+        if access.manager:
+            return not is_archived_business(uow.connection, row["business_id"])
+        return (row["recipient_id"] == access.ctx.principal_id
+                and self.recipient_ok(uow, row["recipient_id"], row["business_id"], memo))
 
     # ----- linked items and views ------------------------------------------------------------------------------------
 
