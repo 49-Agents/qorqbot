@@ -36,7 +36,7 @@ from qorqut_operations.tasks.kinds import KIND_INPUT, normalize_arguments, proje
 from qorqut_operations.tasks.associated import TaskAssociatedRecords
 from qorqut_operations.tasks.detail import task_views
 from qorqut_operations.tasks.history import HistoricalReferences
-from qorqut_operations.tasks.identity import in_use, mentioned, new_task_id, taken
+from qorqut_operations.tasks.identity import in_use, new_task_id, taken
 from qorqut_operations.tasks.lookup import LOCATED, TaskLookup
 from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_config, normalize_snooze, stored_fields,
                                             validate_config, validate_dependencies, validate_parent, validate_task)
@@ -391,28 +391,41 @@ class TaskOperations:
             if detail.get("plan") and self.plan_steps is not None:
                 detail["plan_steps"] = self.plan_steps(ctx, task, uow)
             if arguments.get("include"):
-                detail["associated"] = self.included(ctx, task, arguments["include"], uow)
+                detail["associated"] = self.included(ctx, task, arguments, uow)
             return {"task": detail}
         return self.list_tasks(ctx, arguments, uow, configuration, now)
 
-    def included(self, ctx, task, include, uow):
+    # What keeps ``tasks_get(include=...)`` from reading a type: every refusal ``authorize`` gives, and the read's own
+    # ``operation_unavailable`` for a record domain this host does not install.
+    INCLUDE_REFUSALS = frozenset({"forbidden", "policy_denied", "invalid_policy", "operation_unavailable"})
+
+    def included(self, ctx, task, arguments, uow):
         """The first page of each requested associated record type, under the same grant ``tasks_associated_records`` needs.
-        A type the caller may not read, or that this host does not install, is reported rather than failing the read."""
+        A type the caller may not read, or that this host does not install, is reported rather than failing the read.
+
+        An owner session's catalog leaves ``tasks_associated_records`` out, so it is never reached this way either. The
+        advertised follow-up is the exact call that continues the page, with the scope this read ran in."""
         descriptor = self.application.registry.get("tasks_associated_records")
+        scope = {**({"business_id": ctx.business_id} if ctx.business_id else {}),
+                 **({"scope": arguments["scope"]} if "scope" in arguments else {})}
         found = {}
-        for name in include:
+        for name in arguments["include"]:
             record_type = name[:-1]
             try:
+                if ctx.owner_session_business_id is not None:
+                    raise DomainError("forbidden", "This operation is not in the owner-session catalog")
                 self.application.authorize(ctx, descriptor, (), uow, namespace=task_namespace(ctx, {}))
                 page_ = self.associated.read(ctx, {"task_id": task["id"], "record_type": record_type, "limit": 20}, uow)
             except DomainError as error:
-                if error.code not in {"forbidden", "operation_unavailable"}:
+                if error.code not in self.INCLUDE_REFUSALS:
                     raise
                 found[name] = {"unavailable": error.code}
                 continue
-            found[name] = {"items": page_["items"], "next_cursor": page_["next_cursor"],
-                           **({"more": f'tasks_associated_records(task_id="{task["id"]}", record_type="{record_type}", '
-                                       'limit=20, cursor=next_cursor)'} if page_["next_cursor"] else {})}
+            found[name] = {"items": page_["items"], "next_cursor": page_["next_cursor"]}
+            if page_["next_cursor"]:
+                follow_up = {"task_id": task["id"], "record_type": record_type, **scope}
+                found[name]["more"] = ("tasks_associated_records(" + ", ".join(f'{key}="{value}"' for key, value in follow_up.items())
+                                       + ", limit=20, cursor=next_cursor)")
         return found
 
     def assignees_list(self, ctx, uow, *, workers=False):
@@ -586,7 +599,7 @@ class TaskOperations:
                 if requested is not None:
                     current["snooze_generation"] += 1
         states, states_row = customers.read(uow, ctx.business_id) if "customer_state" in edits else ([], None)
-        apply_attributes(current, edits, states, mentions=lambda text: mentioned(uow.connection, text))
+        apply_attributes(current, edits, states)
         if before and self.plan_guard is not None and attributes(current)["plan"] != attributes(before)["plan"]:
             self.plan_guard(ctx, before, uow)
         if link_edit is not None:

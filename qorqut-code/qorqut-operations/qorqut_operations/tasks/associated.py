@@ -114,7 +114,13 @@ class TaskAssociatedRecords:
         story = self.story_tasks(uow, ctx.business_id, root["id"], arguments.get("include_descendants", True))
         sources = self.sources(ctx, uow, ctx.business_id, story, record_type)
         items = self.records(ctx, uow, sources, record_type)
-        selected, cursor = page(items, arguments, ctx.business_id, OPERATION,
+        # The cursor binds what the page is (this Task, the record type, with or without descendants, and the scope,
+        # which ``page`` adds), never how the call spelled it: the follow-up ``tasks_get(include=...)`` advertises, the
+        # same call with its scope arguments and ``task_id`` alone, located by project, all continue the same pages.
+        position = {"task_id": root["id"], "record_type": record_type,
+                    "include_descendants": arguments.get("include_descendants", True),
+                    **{key: arguments[key] for key in ("cursor", "limit") if key in arguments}}
+        selected, cursor = page(items, position, ctx.business_id, OPERATION,
                                 key=lambda item: (item["type"], item["id"]), reverse=False)
         return {"items": selected, "next_cursor": cursor}
 

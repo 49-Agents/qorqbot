@@ -22,8 +22,10 @@ project): a task found in exactly one other reachable scope is refused with
 letters is retried in lower case, and at least six `[0-9a-f-]` characters that
 begin exactly one reachable task id are refused with `not_found` and
 `details.did_you_mean`; the operation never runs on a guess. A replay of an
-idempotent write returns its saved receipt even if the task moved since. HTTP
-(the dashboard), workers and delegated assignments are unchanged.
+idempotent write returns its saved receipt even if the task moved since. A
+delegated worker that selects no scope is looked up only in its assignment's own
+project (a Global assignment already runs in Global); nothing else is searched.
+HTTP (the dashboard) and workers are unchanged.
 
 Only the installation owner or an active ecosystem agent with
 `read_global_context` and the relevant task operation grant can access them.

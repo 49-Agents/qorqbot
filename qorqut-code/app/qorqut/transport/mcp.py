@@ -1,5 +1,6 @@
 """The SDK's one stateful HTTP endpoint, with a fresh principal on every request."""
 
+from collections.abc import Mapping
 import hashlib
 import logging
 import re
@@ -216,6 +217,17 @@ def argument_guidance(value, read_schema):
         return value
     details = error.get("details") if isinstance(error.get("details"), dict) else {}
     return {**value, "error": {**error, "details": {**details, "arguments": summary}}}
+
+
+def written_task(context, arguments, result):
+    """The context and arguments that name the Task a write changed, as stored: a ``task_id`` given alone runs where the
+    engine found it (``locate_scope``), in the id's stored case, which the transport's own context does not know."""
+    task = result.data.get("task") if isinstance(result.data, Mapping) else None
+    if not isinstance(task, Mapping) or not isinstance(task.get("id"), str) or "business_id" not in task:
+        return context, arguments
+    business_id = task["business_id"]
+    return (replace(context, business_id=business_id, review_business_id=business_id),
+            {**arguments, "task_id": task["id"]})
 
 
 async def validation_hint(value, operation, *, read_instructions):
@@ -683,9 +695,13 @@ class MCPTransport:
                 # database writer. A failed read cannot undo a saved operation.
                 try:
                     attention = self.runtime.application.ordubashy_attention
-                    advisory = (attention.task_update_hint if canonical_name in {"tasks_update", "tasks_complete"}
-                                else attention.mutation_hint)
-                    hint = await anyio.to_thread.run_sync(advisory, context, args, canonical_name)
+                    hint_context, hint_args = context, args
+                    if canonical_name in {"tasks_update", "tasks_complete"}:
+                        advisory = attention.task_update_hint
+                        hint_context, hint_args = written_task(context, args, result)
+                    else:
+                        advisory = attention.mutation_hint
+                    hint = await anyio.to_thread.run_sync(advisory, hint_context, hint_args, canonical_name)
                 except Exception:
                     hint = None
                 if hint:

@@ -17,7 +17,7 @@ from qorqut.transport.http import HTTPAPI
 from qorqut_operations.application.engine import Application
 from qorqut_operations.application.registry import OperationRegistry
 from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, PolicyDecision, Principal
-from qorqut_operations.discussion.threads import owner_post, reads_as_owner_post, task_mentions
+from qorqut_operations.discussion.threads import owner_post, reads_as_owner_post
 from qorqut_operations.items import ItemContribution, ItemResolver
 from qorqut_operations.records.associations import TASK_IDS
 from qorqut_operations.storage.database import Database
@@ -194,28 +194,18 @@ class ShortTaskIdTests(unittest.TestCase):
         self.assertEqual(len(child['id']), identity.TASK_ID_LENGTH)
         self.assertEqual((child['parent']['id'], list(child['blocked_by'])), ('seo-autopilot', [LEGACY_UUID]))
 
-    def test_owner_text_names_no_short_task_id(self):
+    def test_owner_text_may_quote_a_short_task_id(self):
+        # A short id reads like a word, so owner-facing text is not searched for one: the UUID and short-hash rules
+        # are the whole check, and nothing is looked up (that would tell whether a hidden Task has the id).
         task = self.create(self.first)
-
-        def line(text):
-            current = self.invoke('tasks_get', {'task_id': task['id']}, self.first).data['task']['revision']
-            return self.invoke('tasks_update', {'task_id': task['id'], 'changes': {'status_line': text}}, self.first,
-                               revision=current)
-        # An existing Task's id is refused whatever project holds it and in either case; words, numbers, codes that
-        # are no Task's id and ids inside a longer token are not.
-        for quoted in ('Waiting on k7m2p.', 'Waiting on K7M2P'):
-            refused = line(quoted)
-            self.assertEqual(refused.error['code'], 'validation_error', quoted)
-            self.assertIn('identifier', refused.error['message'])
-        for fine in ('Check the stage and order a 256gb drive', 'Shipped 23456 units', 'Waiting on seo-k7m2p'):
-            self.assertEqual(line(fine).status, 'ok', fine)
-        with self.db.read() as uow:
-            mentions = task_mentions(uow)
-            with self.assertRaises(DomainError):
-                owner_post('Done: see k7m2p for the follow-up.', mentions)
-            owner_post('Done: the follow-up is linked.', mentions)
-            self.assertFalse(reads_as_owner_post('Moved to k7m2p', mentions))
-            self.assertTrue(reads_as_owner_post('Moved to k7m2p'))  # without a database only the form is checked
+        current = self.invoke('tasks_get', {'task_id': task['id']}, self.first).data['task']['revision']
+        quoted = self.invoke('tasks_update', {'task_id': task['id'], 'changes': {'status_line': 'Waiting on k7m2p.'}},
+                             self.first, revision=current)
+        self.assertEqual(quoted.status, 'ok', quoted.to_dict())
+        owner_post('Done: see k7m2p for the follow-up.')
+        self.assertTrue(reads_as_owner_post('Moved to k7m2p'))
+        with self.assertRaises(DomainError):
+            owner_post('Done: see ' + LEGACY_UUID)
 
     def move(self, source, destination, task_id):
         ctx = replace(self.ctx, business_id=source)

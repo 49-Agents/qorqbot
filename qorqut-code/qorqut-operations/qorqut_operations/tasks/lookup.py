@@ -15,7 +15,8 @@ in each, only where its ``tasks_get`` authority lets it read Tasks:
   ``details.did_you_mean``. The operation never runs on such a guess.
 
 Nothing outside the caller's reach is searched or disclosed. With nothing found the operation runs as it always did and
-gives its ordinary answer. A delegated worker keeps the scope its assignment binds; it is never looked up here.
+gives its ordinary answer. A delegated worker's call is looked up only in the one scope its assignment binds: a
+project assignment's Task is found in that project and nowhere else, and a Global assignment already runs in Global.
 """
 
 from __future__ import annotations
@@ -92,8 +93,10 @@ class TaskLookup:
         """``(arguments, namespace or None)``: the arguments with ``task_id`` in the case it was found in, and the namespace
         to run in when the caller selected none and the Task was found in exactly one reachable scope."""
         task_id = arguments.get("task_id")
-        if not isinstance(task_id, str) or ctx.delegation_assignment_id is not None:
+        if not isinstance(task_id, str):
             return arguments, None
+        if ctx.delegation_assignment_id is not None:
+            return self.delegated(ctx, arguments, task_id, uow)
         reach = Reach(self.tasks, ctx, uow)
         if ctx.business_id is not None or "scope" in arguments:
             return self.selected(ctx, arguments, task_id, reach, uow), None
@@ -107,6 +110,21 @@ class TaskLookup:
                 "you mean (scope=global for Global)", field_errors={"business_id": "required: the task id is in more than one project"},
                 details={"task_id": task_id, "candidates": [reach.view(row) for row in found[:CANDIDATES]]})
         self.suggest(reach, task_id)
+        return arguments, None
+
+    def delegated(self, ctx, arguments, task_id, uow):
+        """A delegated worker that selects no scope works in its assignment's project when the Task is there; nothing else
+        is searched, so the worker learns nothing about other scopes and the assignment's own scope check still decides."""
+        provider = self.tasks.application.delegation
+        if ctx.business_id is not None or "scope" in arguments or provider is None:
+            return arguments, None
+        assignment = provider.assignment(uow, ctx.delegation_assignment_id)
+        business_id = assignment["business_id"] if assignment else None
+        if business_id is None:
+            return arguments, None
+        for candidate in dict.fromkeys((task_id, task_id.lower())):
+            if uow.connection.execute("SELECT 1 FROM tasks WHERE business_id=? AND id=?", (business_id, candidate)).fetchone():
+                return {**arguments, "task_id": candidate}, namespace(business_id)
         return arguments, None
 
     def selected(self, ctx, arguments, task_id, reach, uow):

@@ -57,18 +57,21 @@ class Application:
 
     def invoke(self, context: InvocationContext, operation_name: str, arguments=None, options=None):
         """Return the same typed envelope on success, denial, validation, or conflict."""
+        # Where ``_locate`` found the named record, the outcome is observed in that scope, as the call ran.
+        located = {}
         try:
             with self.database.observe(operation_name, getattr(context, 'request_id', None), job_id=getattr(context, 'job_id', None)):
-                result = self.invoke_or_raise(context, operation_name, arguments, options)
-                self.observe_result(context,operation_name,result,arguments,options)
+                result = self.invoke_or_raise(context, operation_name, arguments, options, located=located)
+                self.observe_result(context,operation_name,result,arguments,located.get('options', options))
                 return result
         except DomainError as exc:
             result = OperationResult.failure(exc)
-            self.observe_result(context,operation_name,result,arguments,options)
+            self.observe_result(context,operation_name,result,arguments,located.get('options', options))
             return (self.result(context, result) if isinstance(context, InvocationContext) else result)
         except Exception as exc:
             observed = self.observe_result(context,operation_name,OperationResult.failure(
-                DomainError('internal_error','Operation failed at the application boundary')),arguments,options)
+                DomainError('internal_error','Operation failed at the application boundary')),arguments,
+                located.get('options', options))
             # A transport boundary may catch this same exception. The
             # application observer already recorded it when configured.
             try:
@@ -511,17 +514,18 @@ class Application:
             raise DomainError("invalid_result", "An apply handler must complete or enqueue its exact prepared effects")
         return descriptor.validate_output(result)
 
-    def invoke_or_raise(self, context, operation_name, arguments=None, options=None):
-        """Run mutations under the installed recovery admission gate."""
+    def invoke_or_raise(self, context, operation_name, arguments=None, options=None, *, located=None):
+        """Run mutations under the installed recovery admission gate. ``located`` receives the options a found record
+        selected (``_locate``), when it selected any."""
         descriptor = self.registry.get(operation_name)
         admission = (self.writer_admission.writer()
                      if descriptor.effect_kind != "read" and self.writer_admission is not None
                      else nullcontext())
         with admission:
-            result = self._invoke_or_raise(context, operation_name, arguments, options)
+            result = self._invoke_or_raise(context, operation_name, arguments, options, located=located)
             return descriptor.project_result(result) if descriptor.project_result else result
 
-    def _invoke_or_raise(self, context, operation_name, arguments=None, options=None):
+    def _invoke_or_raise(self, context, operation_name, arguments=None, options=None, *, located=None):
         if not isinstance(context, InvocationContext):
             raise DomainError("invalid_principal", "An authenticated invocation context is required")
         options = options if isinstance(options, InvocationOptions) else InvocationOptions.from_mapping(options)
@@ -537,7 +541,10 @@ class Application:
             if (required_plugin and context.principal_kind == "agent"
                     and required_plugin not in {ref.id for ref in context.enabled_plugin_refs}):
                 raise DomainError("forbidden", "Requested tool alias requires an enabled plugin")
-            context, arguments, options = self._locate(context, descriptor, arguments, options, uow)
+            found = self._locate(context, descriptor, arguments, options, uow)
+            if found[2] is not options and located is not None:
+                located["options"] = found[2]
+            context, arguments, options = found
             namespace = self.namespace(context, descriptor, arguments)
             if namespace == "global":
                 context = replace(context, business_id=None, review_business_id=None)

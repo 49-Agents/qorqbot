@@ -629,7 +629,7 @@
     {
       "id": "mcp-optional-for-task-writes-checked-when-given-required-when",
       "source": "qorqut-code/app/qorqut/transport/mcp.py",
-      "line": 110
+      "line": 111
     },
     {
       "id": "mcp-presentation-compact-receipt-index-by-default-platform-defaults",
@@ -1124,7 +1124,7 @@
     {
       "id": "operations-pass-task-id-alone-its-project-is-found",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/lookup.py",
-      "line": 33
+      "line": 34
     },
     {
       "id": "associated-read-the-actions-or-signoffs-associated-with-a",
