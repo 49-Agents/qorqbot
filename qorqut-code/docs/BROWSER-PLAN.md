@@ -267,7 +267,13 @@ see a captcha, run `captcha` and do what its answer says; if it fails, ask the o
 Verified: 79 unit tests (`tests/test_browser_captcha.py`, `test_browser_captcha_solver.py`) and 34 checks on a real
 headless Chrome 153 with local stand-in widget pages and a local mock solver (`scripts/check_browser_captcha.py`).
 
-Not verified: no real widget and not the real solver. Unknown: whether a real checkbox passes on a click, whether sites
+Real demo run (2026-11-19, owner approved, headless installed Chrome 153, the real Anti-Captcha account): Google's
+reCAPTCHA v2 demo was solved by the solver in 22 s for $0.002 and the page answered "Verification Success"; the hCaptcha
+demo failed: the click did not pass and Anti-Captcha refused the task (`ERROR_INCORRECT_SESSION_DATA`), so hCaptcha needs a
+second provider; on a Cloudflare Turnstile demo with a real site key the click passed in 0.6 s with no solver call (the
+page's own server check was not confirmed); Cloudflare's always-pass test key needs nothing.
+
+Not verified before that run: no real widget and not the real solver. Unknown: whether a real checkbox passes on a click, whether sites
 accept the inserted token, Anti-Captcha's task names (hCaptcha may no longer be offered there), a real Cloudflare
 full-page challenge, headless detection. Needs one supervised run on public demo pages with the real key (three solves,
 under two cents). The skill line reaches existing agents only with an instruction update.
