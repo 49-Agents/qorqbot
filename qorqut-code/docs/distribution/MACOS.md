@@ -192,11 +192,10 @@ platform differs from its name, builds the app for that chip (electron-builder
 `Qorqbot-VERSION-macos14-x86_64.dmg`; build the DMG on a Mac of the archive's
 chip. The Apple silicon names and steps are unchanged.
 
-The prepared Mac workflow has an optional `intel` input (off by default; the
-workflow only runs on request). With it, the same sequence runs on
-`macos-15-intel`, GitHub's current Intel macOS runner (`macos-13` is retired),
-and, with a version, the first-open check runs there too. Intel acceptance is
-pending, like the Apple silicon one: the Intel jobs have not been run yet.
+An Intel archive cannot be built at present: the pinned `cryptography` release
+publishes no Intel Mac wheel (the 2026-11-19 trial on `macos-15-intel` stopped
+there, before the DMG step). The workflow therefore has no Intel job; add one
+once the pin has an `x86_64` macOS wheel again.
 
 Tests (macOS):
 
