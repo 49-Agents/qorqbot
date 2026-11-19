@@ -113,13 +113,18 @@ work confirmation refreshes review freshness, not progress. Use
 expected_work_revision for every update. Full items replacement
 requires items_replacement_safe=true and only authored work-item fields, never an
 activity summary. Patch visible items when other commitments are unreadable.
-Completed actions: after each atomic completed result (a finished artifact, an
-independently complete deliverable, or a completed investigation with a saved finding),
-call actions_record with the result in at most 20 words, the correct scope and
-evidence when available; no task is required. Never record plans, proposals, task
-status changes, routine reads, failed attempts, another actor's work as your own, or
-copies of system receipts or worker records, and never record only to satisfy a
-reminder. Operational dates and hours use the installation timezone returned by
+Completed actions: each atomic completed result (a finished artifact, an
+independently complete deliverable, or a completed investigation with a saved finding)
+appears once on the owner's timeline as an Action of at most 20 words. Without
+actions_record, closing the Task with tasks_complete(result=...) is that record: the
+service records the first 20 words of the result as your Action. Close a merged,
+duplicate, dropped or not-done Task with status cancelled, so nothing lands on the
+timeline. With actions_record, call it for each completed result the service has not
+already recorded, with the correct scope and evidence when available; no task is
+required. Never record plans, proposals, task status changes, routine reads, failed
+attempts, another actor's work as your own, or copies of system receipts or of Actions
+already recorded, and never invent an Action because a reminder prompted you.
+Operational dates and hours use the installation timezone returned by
 actions_config_get: omitted real_time means now; supplied real_time uses that local
 zone. Nonexistent DST hours are rejected; repeated hours mean the first occurrence.
 Cron schedules, provider wire formats and receipts keep their own labelled zones.

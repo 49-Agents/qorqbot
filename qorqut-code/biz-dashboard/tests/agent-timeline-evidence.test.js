@@ -35,6 +35,22 @@ test('evidence has no summary tooltip and links prose without allowing unsafe UR
   assert.ok(html.includes('aria-label="Copy url reference"'));
 });
 
+test('the coordinator\'s pane names who performed each action; another pane names only a recorder', () => {
+  const t = timeline();
+  const ord = {id:'ord',name:'Ordubashy'}, worker = {id:'w1',name:'Atlas'};
+  const row = (action, everyone) => t.agentTimelineRow({text:'Result', occurred:{date:'2026-11-10',precision:'day'}, ...action}, everyone);
+  const closed = {origin:'automatic', attribution:'performed', performed_by:worker, recorded_by:worker};
+  assert.ok(row(closed, true).includes('<p class="agent-timeline-meta">Atlas</p>'));
+  assert.ok(row({origin:'agent', attribution:'performed', performed_by:worker, recorded_by:ord}, true).includes('Atlas · recorded by Ordubashy'));
+  assert.ok(row({origin:'agent', attribution:'performed', performed_by:ord, recorded_by:ord}, true).includes('<p class="agent-timeline-meta">Ordubashy</p>'));
+  assert.ok(row(closed, true).includes('<p class="agent-timeline-text">Result</p>'));
+  assert.ok(!row(closed).includes('agent-timeline-meta'));
+  assert.ok(row({attribution:'recorded', recorded_by:ord}).includes('Recorded by Ordubashy'));
+  assert.equal(t.agentTimelineEveryone({workspaceRole:'ordubashy', agentId:'ord'}), true);
+  assert.deepEqual({...t.agentTimelineScope({workspaceRole:'ordubashy', agentId:'ord'})}, {});
+  assert.deepEqual({...t.agentTimelineScope({workspaceRole:'global-worker', agentId:'w1'})}, {performer:'w1'});
+});
+
 test('a globally recorded action opens a project task in its actual scope', async () => {
   const calls = [];
   const t = timeline({workCall:async (slug,operation,args) => {
