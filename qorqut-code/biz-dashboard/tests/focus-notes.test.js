@@ -14,7 +14,8 @@ async function fixture(saved) {
   const page = await browser.newPage({viewport: {width: 900, height: 700}});
   await page.setContent('<div class="agpad"><div class="tbody"><section class="agfocus"><div class="agfocus-layout"><div class="agfocus-notes"></div></div></section></div></div>');
   await page.addStyleTag({content: ':root{--fg:#eee;--line:#333;--sans:Arial}'});
-  for (const file of ['status-ball.css', 'notes.css', 'agent-focus.css']) await page.addStyleTag({path: path.join(__dirname, '../css', file)});
+  // app.css comes first, as in the dashboard: it styles every Focus button, which the status ball must not inherit.
+  for (const file of ['app.css', 'css/status-ball.css', 'css/notes.css', 'css/agent-focus.css']) await page.addStyleTag({path: path.join(__dirname, '..', file)});
   await page.evaluate(initial => {
     window.saved = initial; window.posts = [];
     let n = 0;
@@ -99,6 +100,9 @@ browserTest('earlier separate text blocks read as one text and save back as one 
     assert.deepEqual(await page.locator(NOTES + ' .ntline').evaluateAll(lines => lines.map(l => [l.className, l.textContent])),
       [['ntline', 'Today'], ['ntline', ''], ['ntline nttask', 'ship notes']]);
     assert.equal(await page.locator('.agfocus-notes .ntball').count(), 1);
+    // The ball is the Journal's bare ball, not a boxed Focus button.
+    assert.deepEqual(await page.locator('.agfocus-notes .ntball').evaluate(b => { const c = getComputedStyle(b), r = b.getBoundingClientRect(); return [r.width, r.height, c.borderTopWidth, c.backgroundColor, c.paddingLeft]; }),
+      [30, 30, '0px', 'rgba(0, 0, 0, 0)', '0px']);
     await page.locator(NOTES).press('Control+End');
     await page.keyboard.type('!');
     await settle(page);
