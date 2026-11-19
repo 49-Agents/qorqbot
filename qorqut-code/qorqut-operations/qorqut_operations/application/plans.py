@@ -44,12 +44,20 @@ def timestamp(clock=utc_clock):
     return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-def require_revision(row, expected):
+def require_revision(row, expected, *, argument="expected_revision"):
+    """Hold a write to the revision its caller read. ``argument`` names the caller's field in the refusal.
+
+    The code is ``revision_conflict`` in every case (clients branch on it); the message tells an omitted revision
+    apart from a stale one, and both carry ``current_revision`` so the caller can retry without another read."""
     if row is None:
         if expected is not None:
             raise DomainError("revision_conflict", "Resource no longer exists")
+    elif expected is None:
+        raise DomainError("revision_conflict", f"{argument} is required: pass the record's current revision "
+                          f"({row['revision']})", current_revision=row["revision"])
     elif row["revision"] != expected:
-        raise DomainError("revision_conflict", "Current resource revision is required", current_revision=row["revision"])
+        raise DomainError("revision_conflict", f"The record changed: its revision is now {row['revision']}, not {expected}",
+                          current_revision=row["revision"])
 
 
 def rows(uow, table, business_id, *, where="", parameters=(), maximum=20000):

@@ -1,1 +1,1 @@
-Read operations_describe(names={{VALUE0}}) for the current schema, correct this call, and preserve its idempotency key if present.
+Correct this call from the error and send it again, preserving its idempotency key if present: field_errors names what failed and, when present, details.arguments lists the argument names this tool accepts, the required ones and the limits of the fields that failed. Read operations_describe(names={{VALUE0}}) only if you still need the full schema.

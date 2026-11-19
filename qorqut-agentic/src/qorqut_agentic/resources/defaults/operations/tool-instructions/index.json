@@ -627,6 +627,11 @@
       "line": 419
     },
     {
+      "id": "mcp-optional-for-task-writes-checked-when-given-required-when",
+      "source": "qorqut-code/app/qorqut/transport/mcp.py",
+      "line": 110
+    },
+    {
       "id": "mcp-presentation-compact-receipt-index-by-default-platform-defaults",
       "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 35

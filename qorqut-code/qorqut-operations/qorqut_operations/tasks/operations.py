@@ -511,9 +511,10 @@ class TaskOperations:
         if not creating:
             if before is None:
                 raise self.missing(ctx, uow, identity)
-            # A comment adds to the thread and edits no field, so it needs no prior read of the Task. A caller that
-            # does name a revision is still held to it, and the plan pins the row it was prepared against.
-            if operation != "tasks_comment" or options.expected_revision is not None:
+            # A Task write needs no prior read of the Task: without a revision it applies to the Task as it is now. A
+            # caller that does name a revision is still held to it, and the plan pins the row it was prepared against
+            # (``builder.record``/``builder.expect`` below), so a change staged for a Signoff still refuses a moved Task.
+            if options.expected_revision is not None:
                 require_revision(before, options.expected_revision)
         edits = {key: value for key, value in arguments.items() if key in TASK_FIELDS} if creating else plain(arguments.get("changes", {}))
         if edits.get('status') == 'needs_input':
