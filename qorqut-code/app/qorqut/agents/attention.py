@@ -788,7 +788,7 @@ class Attention:
         if op in ('attention_focus_set', 'attention_focus_clear', 'attention_workflow_update') and not (
                 ctx.principal_kind == 'agent' and ctx.principal_id == agent):
             # A manager reads and curates membership; the native focus stays the board agent's own declaration.
-            raise DomainError('forbidden', "A board's focus is declared by its own agent")
+            raise DomainError('forbidden', "A board's todo_focus is set by its own agent")
         if op in ('attention_add','attention_focus_set'):
             task = self.board_task(ctx, agent, args['task'], uow, notes=False)
             if task.get('archived'):
@@ -797,7 +797,7 @@ class Attention:
                 raise DomainError('validation_error', 'A done or cancelled Task is not work to do; reopen it before adding it to Todo')
             if op == 'attention_focus_set':
                 if agent != configured_ordubashy(uow) and args['focus'] != args['task']:
-                    raise DomainError('validation_error', 'A worker focuses on its exact Todo Task; use the same Task reference for focus and task')
+                    raise DomainError('validation_error', 'A worker sets its todo_focus on its exact Todo Task; use the same Task reference for focus and task')
                 membership = self.task_membership(uow, agent, args['task'])
                 if not membership or membership['task_created_at'] != task['created_at']: raise DomainError('not_found', 'Work item is not on Todo')
                 # Focus says the agent is working on the Task, so a paused Task cannot take a plain Task focus; writing
@@ -805,7 +805,7 @@ class Attention:
                 if args['focus']['type'] == 'task' and task.get('status') in PAUSED:
                     label = {'waiting': 'waiting', 'blocked': 'blocked', 'needs_input': 'needs input'}[task['status']]
                     raise DomainError('validation_error', f'This Task is {label}. If you are resuming it, set its status '
-                                      'to working first, then focus on it.')
+                                      'to working first, then set your todo_focus on it.')
                 if not isinstance(args.get('intent', ''), str) or len(args.get('intent', '')) > 1000: raise DomainError('validation_error', 'Intent must contain at most 1000 characters')
                 self.resolve(self.board_context(ctx, agent, uow), agent, args['focus'], uow)
                 if args['focus']['type'] == 'workflow':

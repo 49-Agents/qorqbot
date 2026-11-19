@@ -58,7 +58,7 @@ def render(kind, snapshot, *, instructions):
         return lead + instructions.render('attention-unavailable')
     lines = [lead, '', instructions.render('attention-data')]
     if snapshot['focus']:
-        lines.append('Focus: ' + quote(snapshot['focus']) + '; focused for: ' + (snapshot['focused_for'] or 'unavailable'))
+        lines.append('todo_focus: ' + quote(snapshot['focus']) + '; focused for: ' + (snapshot['focused_for'] or 'unavailable'))
         lines.append('Work task: ' + (quote(snapshot['work']) if snapshot['work'] else
                                       'unavailable (not readable, archived, or no longer on the board)'))
         # The Task's next step says what is being done; an Intent recorded with an older focus is shown beside it.
@@ -75,7 +75,7 @@ def render(kind, snapshot, *, instructions):
             lines.append('Workflow data: ' + quote({'name': clip(snapshot['workflow']['name'], TITLE),
                                                     'run_id': snapshot['workflow']['run_id']}))
     else:
-        lines.append('Focus: none')
+        lines.append('todo_focus: none')
     if team is not None:
         lines.append(instructions.render('attention-team-available')
                      + (quote([clip(name, WORKER_NAME) for name in team['available'][:AVAILABLE]]) if team['available'] else 'none')

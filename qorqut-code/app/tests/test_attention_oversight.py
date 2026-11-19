@@ -36,7 +36,7 @@ class OversightTextTests(unittest.TestCase):
             text = attention.render(kind, self.snapshot(team, focus), instructions=self.instructions)
             self.assertTrue(text.startswith('Oversight pass.'), kind)
             self.assertIn('create more agents', text)
-            self.assertNotIn('Continue the focused task', text)
+            self.assertNotIn('Continue the Task your todo_focus points at', text)
             self.assertNotIn('signoff', text.lower())
             self.assertIn('Available agents (active workers with no open or working Task): ["Harbor","Cedar"]', text)
             self.assertIn('no update for 10 minutes or more', text)
@@ -57,7 +57,7 @@ class OversightTextTests(unittest.TestCase):
 
     def test_a_worker_and_a_blocked_workflow_keep_their_own_text(self):
         worker = attention.render('focus', self.snapshot(None), instructions=self.instructions)
-        self.assertIn('Continue the focused task', worker)
+        self.assertIn('Continue the Task your todo_focus points at', worker)
         self.assertNotIn('Oversight pass.', worker)
         self.assertIn('Other board candidates', worker)
         detach = attention.render('workflow_detach', self.snapshot({'available': [], 'stalled': [], 'stalled_count': 0}),

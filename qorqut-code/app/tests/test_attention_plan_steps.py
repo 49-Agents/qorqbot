@@ -39,7 +39,7 @@ class PlanStepTextTests(unittest.TestCase):
         self.assertIn('Plan step: {"position":"step 2 of 3","id":"s2","text":"Agree the price"}', text)
         self.assertIn('Next step: "Next"', text)
         self.assertLess(text.index('Next step:'), text.index('Plan step:'))
-        self.assertIn('Continue the focused task', text)
+        self.assertIn('Continue the Task your todo_focus points at', text)
         self.assertNotIn('confirmation', text)
         self.assertNotIn('sent back', text)
 
@@ -50,7 +50,7 @@ class PlanStepTextTests(unittest.TestCase):
         self.assertIn('Do not redo the step and do not wait for his answer: take your next Task meanwhile.', text)
         # The instruction is part of the lead, above the quoted read-only snapshot.
         self.assertLess(text.index('take your next Task meanwhile'), text.index('Todo snapshot'))
-        self.assertIn('Continue the focused task', text)
+        self.assertIn('Continue the Task your todo_focus points at', text)
 
     def test_a_step_that_was_sent_back_shows_the_feedback_to_act_on(self):
         text = self.text({'position': 'step 2 of 3', 'id': 's2', 'text': 'Agree the price', 'feedback': 'Get it in writing. ' * 40})
@@ -71,7 +71,7 @@ class PlanStepTextTests(unittest.TestCase):
         self.assertNotIn('Plan step', plain)
         self.assertEqual(plain, '\n'.join([
             self.instructions.render('attention-focus') + self.instructions.render('attention-continue'), '',
-            self.instructions.render('attention-data'), 'Focus: ' + attention.quote(FOCUS) + '; focused for: 10m',
+            self.instructions.render('attention-data'), 'todo_focus: ' + attention.quote(FOCUS) + '; focused for: 10m',
             'Work task: ' + attention.quote(TASK), 'Next step: "Next"',
             self.instructions.render('attention-candidates', COUNT='5') + self.instructions.render('attention-empty'),
             self.instructions.render('attention-more')]))
