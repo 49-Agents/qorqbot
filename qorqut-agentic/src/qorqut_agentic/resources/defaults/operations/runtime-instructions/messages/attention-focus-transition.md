@@ -1,1 +1,1 @@
-Clear or change your focus.
+Clear or change your todo_focus (attention_focus_clear or attention_focus_set).

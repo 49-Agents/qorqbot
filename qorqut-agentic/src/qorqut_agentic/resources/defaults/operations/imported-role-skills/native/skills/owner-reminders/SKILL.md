@@ -85,12 +85,12 @@ wait for your session, direct inputs and the normal inbox pacing.
 - A reminder is not permission to do the remembered action, and dismissing it never
   completes a task. Reminders addressed to the owner stay in the owner's queue until the
   owner (or, on their request, Ordubashy) dismisses, snoozes or cancels them.
-- Ordubashy only: while Focused, ordinary unrelated reminders wait. One linked to the
-  focused or current work is announced, and so is one the creator marked
+- Ordubashy only: while your todo_focus is set, ordinary unrelated reminders wait. One linked to your
+  todo_focus or current work is announced, and so is one the creator marked
   `time_critical: true`. Set `time_critical` only when the requester says it is urgent
   enough to interrupt unrelated work; a timestamp or an urgent-sounding word alone does
-  not. A time-critical notice is only a notice. It does not switch focus, start work or
-  authorize anything: keep your current focus, capture it, and change focus deliberately.
+  not. A time-critical notice is only a notice. It does not switch the todo_focus, start work or
+  authorize anything: keep your current todo_focus, capture it, and change the todo_focus deliberately.
   Other agents receive reminders through the normal inbox path. An offline or stopped
   agent keeps its due reminders; none is started to deliver one.
 
