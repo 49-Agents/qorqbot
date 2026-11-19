@@ -195,7 +195,7 @@ function createMainWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
     if (url && !url.startsWith('file:') && code !== -3) {
-      publish({ phase: 'error', title: 'The dashboard did not load', error: { message: `${description} (${url})`, detail: engine.logTail() } });
+      publish({ phase: 'error', title: 'The dashboard did not load', steps: [], error: { message: `${description} (${url})`, detail: engine.logTail() } });
       showStatusPage();
     }
   });
@@ -391,10 +391,12 @@ function syncMenuBar() {
 /** Reads the same attention queue the dashboard reads and shows its count on the Dock icon. A read that fails leaves
  * the badge as it was unless the server is gone; the server stopping clears it (syncMenuBar). Never throws. */
 async function readAttention() {
-  const url = state.phase === 'running' && engine && engine.url ? attentionUrl(serverOrigin()) : null;
-  if (!url || attentionReading) return;
+  if (state.phase !== 'running' || !engine || attentionReading) return;
   attentionReading = true;
   try {
+    // The engine forgets the address the moment a server it started exits, for example after `qorqbot stop`.
+    if (!engine.url) return await noticeStoppedServer();
+    const url = attentionUrl(serverOrigin());
     const response = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(5000) });
     const count = response.ok ? attentionCount(await response.json()) : null;
     if (count !== null && count !== attention && state.phase === 'running') {
