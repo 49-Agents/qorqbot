@@ -42,7 +42,7 @@ class SharedProfileTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()  # the temporary folder is behind a symbolic link on macOS
         self.paths = SimpleNamespace(runtime=self.root / "runtime", instance_root=self.root)
         self.workspaces = {}
         for agent in (ATLAS, SCOUT):

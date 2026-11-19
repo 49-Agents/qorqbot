@@ -53,7 +53,7 @@ class ManagedChromeTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.runtime = Path(folder.name) / "runtime"
+        self.runtime = Path(folder.name).resolve() / "runtime"  # the temporary folder is behind a symbolic link on macOS
         self.runtime.mkdir(mode=0o700)
         self.root = mc.chrome_root(self.runtime)
         self.download = Download()
@@ -364,9 +364,11 @@ class StartCheckTest(unittest.TestCase):
     """The real check against stand-in programs that behave like a Chrome that starts, lacks a library, or has no sandbox."""
 
     def setUp(self):
-        folder = tempfile.TemporaryDirectory()
+        # Chrome's singleton socket path must fit a Unix socket address (104 bytes on macOS), and macOS's own temporary
+        # directory is too long for that, so the stand-in programs run from a short real path.
+        folder = tempfile.TemporaryDirectory(dir=os.path.realpath("/tmp"))
         self.addCleanup(folder.cleanup)
-        self.folder = Path(folder.name)
+        self.folder = Path(os.path.realpath(folder.name))
 
     def run_check(self, script):
         program = self.folder / "chrome"
@@ -418,7 +420,7 @@ class ExtractTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.folder = Path(folder.name)
+        self.folder = Path(folder.name).resolve()
 
     def extract(self, members):
         (self.folder / "chrome.zip").write_bytes(archive(members))

@@ -45,7 +45,8 @@ class SessionFiles(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.first, self.second = Path(folder.name, "runtime"), Path(folder.name, "home")
+        base = Path(folder.name).resolve()  # the temporary folder is behind a symbolic link on macOS
+        self.first, self.second = base / "runtime", base / "home"
         self.first.mkdir()
         self.second.mkdir()
 
@@ -93,6 +94,7 @@ class SupervisorSessions(unittest.TestCase):
 
     def test_a_use_recorded_by_the_application_is_seen_from_the_supervisor(self):
         with tempfile.TemporaryDirectory() as folder:
+            folder = os.path.realpath(folder)  # the temporary folder is behind a symbolic link on macOS
             home = Path(folder, "application-home/.agent-browser")
             home.mkdir(parents=True)
             (home / "qorqut-a.target").write_text(json.dumps({"targetId": TAB}))
@@ -119,6 +121,7 @@ class SupervisorSessions(unittest.TestCase):
         from qorqut.browser import native_launcher
         from qorqut.browser.agent_browsers import unit_name
         with tempfile.TemporaryDirectory() as folder:
+            folder = os.path.realpath(folder)
             directory = Path(folder, "8fdca155-2f3b-4735-800f-41624c6d26cc")
             directory.mkdir()
             with mock.patch.object(idle_tabs, "session_directories", return_value=self.APPLICATION), \
@@ -214,7 +217,7 @@ class WatchedTabs(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.marks = Path(folder.name, "watched")
+        self.marks = Path(folder.name).resolve() / "watched"
         self.now, self.unloaded = 10_000.0, []
         self.sweeper = idle_tabs.Sweeper(20400, self.marks, clock=lambda: self.now, uses=lambda now: {},
                                          list_pages=lambda port: [page(), page(OTHER, "https://other.example/")],
@@ -444,7 +447,7 @@ class CommandPath(unittest.TestCase):
         with mock.patch.object(idle_tabs, "before_command", side_effect=lambda *args: order.append(args)) , \
                 mock.patch.object(browser.subprocess, "run", side_effect=lambda command, **_: order.append("runtime") or completed):
             for pinned, args in ((True, ["click", "e3"]), (False, ["observe", "overview"])):
-                browser.run(Path(folder.name), args, target=("http://127.0.0.1:20999", Path("/runtime/agent-browser")),
+                browser.run(Path(folder.name).resolve(), args, target=("http://127.0.0.1:20999", Path("/runtime/agent-browser")),
                             capture=True, pinned=pinned)
         (endpoint, session, pinned), runtime = order[0], order[1]
         self.assertEqual((endpoint, pinned, runtime), ("http://127.0.0.1:20999", True, "runtime"))

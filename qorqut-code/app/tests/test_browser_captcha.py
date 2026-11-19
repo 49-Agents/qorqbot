@@ -499,7 +499,7 @@ class CommandTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
-        self.root = Path(self.folder.name)
+        self.root = Path(self.folder.name).resolve()  # the temporary folder is behind a symbolic link on macOS
         (self.root / "runtime").mkdir()
         self.runtime = SimpleNamespace(root=self.root, paths=SimpleNamespace(runtime=self.root / "runtime"))
         self.workspace = self.root / "workspace"
@@ -583,7 +583,7 @@ class SettingsTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()
         self.runtime = SimpleNamespace(root=self.root)
 
     def test_the_key_and_the_service_are_read_from_global_settings(self):
@@ -660,7 +660,7 @@ class AccessTest(unittest.TestCase):
     def test_a_native_captcha_command_is_answered_in_the_shape_of_any_browser_command(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.access.runtime = SimpleNamespace(paths=SimpleNamespace(runtime=Path(folder.name)))
+        self.access.runtime = SimpleNamespace(paths=SimpleNamespace(runtime=Path(folder.name).resolve()))
         target = {"cdp_endpoint": "http://127.0.0.1:20450", "runtime_dir": "/runtime", "instance": "configured:agent-1", "shared": True}
         outcome = {"captcha": "solved", "type": "turnstile", "method": "click", "host": "shop.example"}
         with mock.patch.object(BrowserAccess, "_worker_target", return_value=target), mock.patch.object(BrowserAccess, "_managed_use") as use, \

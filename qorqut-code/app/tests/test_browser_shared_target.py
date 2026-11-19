@@ -33,7 +33,7 @@ class SharedTargetTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.workspace = Path(folder.name)
+        self.workspace = Path(folder.name).resolve()  # the temporary folder is behind a symbolic link on macOS
         (self.workspace / ".qorqut").mkdir()
 
     def save(self, content):
@@ -72,7 +72,7 @@ class PinnedCommandTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.workspace = Path(folder.name)
+        self.workspace = Path(folder.name).resolve()  # the temporary folder is behind a symbolic link on macOS
         (self.workspace / ".qorqut").mkdir()
         keep_off_real_browsers(self)
 
@@ -173,7 +173,7 @@ class FailedCommandTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.workspace = Path(folder.name)
+        self.workspace = Path(folder.name).resolve()  # the temporary folder is behind a symbolic link on macOS
         self.target = ("http://127.0.0.1:20999", Path("/runtime/agent-browser"))
         keep_off_real_browsers(self)
 
