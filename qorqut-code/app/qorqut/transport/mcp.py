@@ -36,6 +36,8 @@ from . import batches, mcp_presentation, mcp_reads
 logger = logging.getLogger(__name__)
 
 SLOW_TOOL_MS = 250
+# The Task operations whose result tells the coordinator whether the done Task they name has its Action.
+CLOSURE_ACTION_HINTS = frozenset({"tasks_get", "tasks_update", "tasks_complete"})
 
 
 @contextmanager
@@ -739,6 +741,8 @@ class MCPTransport:
                             presented = {**presented, "data": {**presented["data"], "timeline": chain}}
                 except Exception:
                     logger.exception("Timeline delivery failed for %s", request_id)
+            if canonical_name in CLOSURE_ACTION_HINTS and result.status == "ok":
+                presented = await self._closure_action_hint(presented, context, result, request_id)
             if presented.get("status") == "ok":
                 self._report_transport_success(operation=canonical_name, request_id=request_id,
                     actor=actor, context=context)
@@ -756,6 +760,26 @@ class MCPTransport:
             logger.exception("MCP operation failed: %s", request_id)
             result = OperationResult.failure(DomainError("internal_error", "The operation failed; use its correlation ID for diagnosis"), request_id=request_id)
         return await self._recoverable(result.to_dict(), known_operation, name, renamed)
+
+    async def _closure_action_hint(self, presented, context, result, request_id):
+        """Tell the coordinator whether a done Task he read or wrote has its Action, after any hint already given.
+
+        Optional presentation after the call's own work, like the hints above: only a done Task is looked at, the
+        lookup is a few small reads off the event loop, and a failure leaves the result as it was."""
+        try:
+            task = result.data.get("task") if isinstance(result.data, Mapping) else None
+            if (not isinstance(task, Mapping) or task.get("status") != "done" or not isinstance(task.get("id"), str)
+                    or "business_id" not in task or context.principal_kind != "agent"):
+                return presented
+            from qorqut.domains.tasks.closure_actions import coordinator_hint
+            hint = await anyio.to_thread.run_sync(coordinator_hint, self.runtime, context, task)
+        except Exception:
+            logger.exception("Closure Action hint failed for %s", request_id)
+            return presented
+        if not hint:
+            return presented
+        earlier = presented.get("agent_hint")
+        return {**presented, "agent_hint": earlier + " " + hint if earlier else hint}
 
     async def _recoverable(self, value, operation, name, renamed):
         """The result as the caller needs it to correct or learn from this call: which guessed argument names were

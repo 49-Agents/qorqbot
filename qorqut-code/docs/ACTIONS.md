@@ -100,8 +100,16 @@ Provider-confirmed email sends record one automatic
 action with the confirmed receipt, from a deterministic source identity
 (`signoff:<id>:email`); a retried application finds the existing
 action instead of adding another. Their text is a bounded summary of the
-receipt. Task transitions, approvals, filing suggestions and internal messages
-are never logged automatically.
+receipt.
+
+A worker's `done` Task closure records one automatic action credited to that
+worker, from a deterministic source identity (`task-closure:<project or
+global>:<task id>`), so a Task reopened and closed again keeps the action of its
+first closure. Its text is the closing result cut to 20 words, or the Task title
+when the closure carried no result. Cancelled Tasks, children closed along with
+their parent, and closures by the coordinator, the learning applier or a person
+record none. Other Task transitions, approvals, filing suggestions and internal
+messages are never logged automatically.
 
 Background programs keep their frozen definitions: an `action_logs` declaration
 covers the membership rows its action creates.

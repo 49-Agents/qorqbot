@@ -572,6 +572,20 @@
       "when_to_use": "claude session; conditional; selected by the registered runtime policy."
     },
     {
+      "id": "task-action-missing",
+      "kind": "instruction",
+      "path": "messages/task-action-missing.md",
+      "description": "task action missing",
+      "when_to_use": "transport/mcp.py; the configured coordinator reads or closes a done Task that has no Action"
+    },
+    {
+      "id": "task-action-recorded",
+      "kind": "instruction",
+      "path": "messages/task-action-recorded.md",
+      "description": "task action recorded",
+      "when_to_use": "transport/mcp.py; the configured coordinator reads or closes a done Task that has its Action"
+    },
+    {
       "id": "tool-validation-recovery",
       "kind": "instruction",
       "path": "messages/tool-validation-recovery.md",
