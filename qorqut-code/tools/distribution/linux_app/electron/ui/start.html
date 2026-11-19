@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+<title>Getting Started</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <div class="brand">
+    <img src="mark.svg" alt="">
+    <div>
+      <h1>Getting started</h1>
+      <p class="sub">From the first launch to your first conversation with Ordubashy</p>
+    </div>
+  </div>
+
+  <h2>How it fits together</h2>
+  <div class="card">
+    <p>Qorqbot does not run an AI model itself. Each agent is a coding CLI that you have installed and signed in to,
+      running inside that agent's own terminal on this computer. Qorqbot gives the agent its instructions and tools, and
+      the dashboard's chat sends your messages to that running session.</p>
+    <p>No session running means no chat. When an agent is offline, its chat says how to start it.</p>
+  </div>
+
+  <h2>1. Install an agent CLI once</h2>
+  <div class="card">
+    <p>Every agent, Ordubashy included, runs on either CLI. Install one or both, then run it once in a terminal
+      and sign in:</p>
+    <table>
+      <tr><td>Claude Code</td><td><code>claude</code></td></tr>
+      <tr><td>OpenAI Codex</td><td><code>codex</code></td></tr>
+    </table>
+    <p class="hint spaced">You can mix them: start one agent with Claude Code and another with Codex.</p>
+  </div>
+
+  <h2>2. Sign in to Qorqbot</h2>
+  <div class="card">
+    <p>The first time the dashboard opens, enter your email. Qorqbot sends you a code; type it in and say whether you
+      use Qorqbot personally or for work. You do this once on this computer.</p>
+    <p class="hint spaced">Qorqbot's servers learn only your email and that Qorqbot is in use, never your
+      conversations, files or what your agents do.</p>
+  </div>
+
+  <h2>3. Follow the walkthrough</h2>
+  <div class="card">
+    <p>It starts by itself after you sign in. It first asks once to trust Qorqbot's own agent folders. Allow it, and
+      Claude Code and Codex open straight into the session without asking. Your other projects are not changed, and you
+      can turn this off in <b>Settings</b>. If you don't allow it, Claude asks whether to trust the folder (press the
+      down arrow, then Return on "Yes, I trust this folder") and Codex asks you to review its hooks.</p>
+    <p>Then you start Ordubashy in his own terminal: type <code>claude</code> or <code>codex</code> and press Return,
+      whichever you are signed in to. He connects to the chat by himself. The tour then shows you around the workspace,
+      projects, signoffs and Settings.</p>
+  </div>
+
+  <h2>4. Say hello</h2>
+  <div class="card">
+    <p>The walkthrough ends in Ordubashy's chat. Type <b>hi, help me get set up</b> and send it. He asks a few quick
+      questions about you, keeps the answers on this computer, then connects the tools you want him to use, such as the
+      websites you sign in to through his browser.</p>
+  </div>
+
+  <h2>Starting him again</h2>
+  <div class="card">
+    <p>Point at the mark at the top left of the dashboard. Its menu lists your agents, then <b>Walkthrough</b>,
+      <b>Terminal</b> and <b>Settings</b>. Choose <b>Ordubashy</b>, click <b>&gt;_</b> above the chat to open his own
+      terminal, and type <code>claude</code> or <code>codex</code>. Do this after every restart.</p>
+    <p class="hint spaced">A session started in another terminal window is not his session and the chat will not connect to it.</p>
+  </div>
+
+  <h2>The walkthrough again</h2>
+  <div class="card">
+    <p>Skipped or finished, you can take it again, whole or one chapter: choose <b>Walkthrough</b> in that menu or in
+      <b>Settings</b>, or <b>Help &rsaquo; Show Walkthrough</b>.</p>
+  </div>
+
+  <h2>Use it in your browser</h2>
+  <div class="card">
+    <p>Choose <b>Help &rsaquo; Install Terminal Command</b> once. Then <code>qorqbot</code> in any terminal window opens the
+      same dashboard in your browser, starting Qorqbot first if it is not running. <code>qorqbot stop</code> and
+      <code>qorqbot status</code> work from any folder.</p>
+    <p class="hint">The app and the browser share one server. Quitting the app leaves a server started from a terminal
+      running.</p>
+  </div>
+
+  <p class="actions spaced"><button data-action="help">How Qorqbot Works</button></p>
+</main>
+<script src="start.js"></script>
+</body>
+</html>

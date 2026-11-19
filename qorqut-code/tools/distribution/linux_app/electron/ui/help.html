@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+<title>How Qorqbot Works</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <div class="brand">
+    <img src="mark.svg" alt="">
+    <div>
+      <h1>How Qorqbot works</h1>
+      <p class="sub">Version <span id="version"></span></p>
+    </div>
+  </div>
+
+  <h2>Opening and quitting</h2>
+  <div class="card">
+    <table>
+      <tr><td>Open the app</td><td>Starts Qorqbot's local server on this computer and shows the dashboard in this window. Opening it again shows the window that is already running.</td></tr>
+      <tr><td>Close the window</td><td>Hides it to the system tray and Qorqbot keeps running; click the tray icon and choose <b>Show Qorqbot</b> to bring it back. If your desktop shows no tray icons, closing the window quits Qorqbot instead.</td></tr>
+      <tr><td>Quit (Ctrl+Q)</td><td>Stops the local server, then quits. Also in the tray menu. Open the app again to continue where you left off.</td></tr>
+      <tr><td>Server menu</td><td>Shows whether the server is running, and can stop, start or restart it, open logs, or show the install folder. The tray menu has the same start, stop and restart.</td></tr>
+      <tr><td>View &rsaquo; Open in Browser (Ctrl+Shift+B)</td><td>Opens the same dashboard in your web browser while the app is running.</td></tr>
+    </table>
+  </div>
+
+  <h2>Where things live</h2>
+  <div class="card">
+    <table>
+      <tr><td>Qorqbot and your data</td><td><code id="root"></code><br>Records and work are in its <code>instance</code> folder. Keep this folder where it is.</td></tr>
+      <tr><td>App log</td><td><code id="log"></code></td></tr>
+      <tr><td>Server log</td><td><code id="applog"></code></td></tr>
+      <tr><td>The app itself</td><td>The AppImage file, or the installed <code>qorqbot</code> package, only carries the installer package. Replacing or deleting it does not touch your data.</td></tr>
+    </table>
+    <p class="actions spaced"><button data-action="reveal-folder">Show Install Folder</button><button data-action="show-log">Show App Log</button></p>
+  </div>
+
+  <h2>First launch</h2>
+  <div class="card">
+    <p>The first launch unpacks Qorqbot into the folder above. Everything it needs to run is inside the app, so
+      nothing is downloaded or installed. It takes a few seconds, and so do later launches.</p>
+    <p>Agent terminals use your own Codex or Claude Code installation.</p>
+  </div>
+
+  <h2>Applications menu</h2>
+  <div class="card">
+    <p>The <b>.deb</b> package puts Qorqbot in your applications menu when you install it. An <b>AppImage</b> is a
+      single file, so the first launch asks once whether to add it. You can change your mind later with
+      <b>File &rsaquo; Add to Applications Menu</b> or <b>Remove from Applications Menu</b>. If you move the AppImage
+      file, open it once from its new place and the menu entry follows it.</p>
+  </div>
+
+  <h2>Updates</h2>
+  <div class="card">
+    <p>When you open a newer Qorqbot app, it offers to update the installed copy. Your records stay in place.
+      Close agent terminals first; the update refuses while they run and leaves the installed version unchanged.</p>
+  </div>
+
+  <h2>The AppImage does not start</h2>
+  <div class="card">
+    <p>An AppImage must be allowed to run: open the file's <b>Properties</b> and tick <b>Allow executing file as
+      program</b>, or run <code>chmod +x</code> on it. Most systems also need FUSE 2 for AppImages
+      (<code>sudo apt install libfuse2t64</code> on Ubuntu 24.04, <code>libfuse2</code> on older releases). The
+      .deb package needs neither.</p>
+    <p>On Ubuntu 23.10 and newer the AppImage runs without Chromium's extra browser sandbox, because the system
+      blocks the namespaces it needs. The .deb package keeps the sandbox on. <b>Help &rsaquo; About Qorqbot</b> shows
+      which applies to you.</p>
+  </div>
+
+  <h2>Removing Qorqbot</h2>
+  <div class="card">
+    <p>Quit Qorqbot, then remove the app: for an AppImage, choose <b>File &rsaquo; Remove from Applications Menu</b>
+      first if you added it, then delete the AppImage file; for the package, run
+      <code>sudo apt remove qorqbot</code>. Then delete the install folder <code>~/Qorqbot</code>, which holds
+      the folder above and the app's log. Deleting it deletes your Qorqbot records; back it up first if you want
+      to keep them.</p>
+  </div>
+</main>
+<script src="help.js"></script>
+</body>
+</html>

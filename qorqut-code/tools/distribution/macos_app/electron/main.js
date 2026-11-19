@@ -2,16 +2,22 @@
 // Qorqbot for Mac: one window that shows set-up/status, then the dashboard.
 //
 // Lifecycle: the app being open means Qorqbot is running. Closing the window
-// hides it (Dock icon reopens it); Quit (Cmd+Q) stops the local server first.
+// hides it (the Dock icon and the menu bar item reopen it); Quit (Cmd+Q) stops
+// the local server first. The menu bar item shows the server status and can
+// start, stop and restart it; the Dock badge counts what is waiting for you.
 
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, shell } = require('electron');
+const fs = require('node:fs');
 const path = require('node:path');
+const { attentionCount, attentionUrl, badgeText } = require('./badge');
 const { Engine } = require('./engine');
 const { runsFromTemporaryPlace } = require('./placement');
+const { quitLabel, statusLabel, trayMenuTemplate } = require('./tray-menu');
 
 const STATUS_PAGE = path.join(__dirname, 'ui', 'status.html');
 const HELP_PAGE = path.join(__dirname, 'ui', 'help.html');
 const START_PAGE = path.join(__dirname, 'ui', 'start.html');
+const ATTENTION_POLL_MS = 30_000;
 
 let engine;
 let mainWindow = null;
@@ -20,6 +26,11 @@ let guideWindow = null;
 let quitting = false;
 let busy = false;           // an engine operation is in progress
 let pendingChoice = null;   // resolves when the status page answers a question
+let tray = null;            // the menu bar item; null when its icon was not built in (a development run)
+let trayKey = '';           // what the menu bar item shows now, so it is rebuilt only when that changes
+let attention = 0;          // new items waiting for the owner, from the dashboard's attention queue
+let attentionTimer = null;
+let attentionReading = false;
 let state = { phase: 'starting', title: 'Starting Qorqbot', steps: [], log: [], error: null, choice: null };
 
 // ---------------------------------------------------------------- status page state
@@ -96,6 +107,7 @@ async function boot() {
     const url = (await engine.status()) || (await engine.start({ onLine: logLine }));
     finishSteps();
     publish({ phase: 'running', title: 'Qorqbot is running', error: null });
+    readAttention();
     await openDashboard(url);
   } catch (error) {
     finishSteps('failed');
@@ -235,11 +247,18 @@ async function installTerminalCommand() {
   }
 }
 
-function rebuildMenu() {
+/** What the Server menu and the menu bar item both show. */
+function menuModel() {
   const running = state.phase === 'running' && Boolean(engine && engine.url);
-  const statusLabel = busy ? 'Status: working…'
-    : running ? `Status: running at ${engine.url}`
-      : state.phase === 'error' ? 'Status: needs attention' : 'Status: stopped';
+  return {
+    busy, running, phase: state.phase, url: engine ? engine.url : null,
+    ownsServer: !engine || engine.ownsServer(), attention,
+  };
+}
+
+function rebuildMenu() {
+  const model = menuModel();
+  const { running } = model;
   const template = [
     {
       label: 'Qorqbot',
@@ -250,7 +269,7 @@ function rebuildMenu() {
         { type: 'separator' },
         { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
         { type: 'separator' },
-        { label: engine && !engine.ownsServer() && running ? 'Quit Qorqbot (server keeps running in Terminal)' : 'Quit Qorqbot (stops the server)', accelerator: 'Cmd+Q', click: () => app.quit() },
+        { label: quitLabel(model), accelerator: 'Cmd+Q', click: () => app.quit() },
       ],
     },
     { role: 'editMenu' },
@@ -269,7 +288,7 @@ function rebuildMenu() {
     {
       label: 'Server',
       submenu: [
-        { label: statusLabel, enabled: false },
+        { label: statusLabel(model), enabled: false },
         { type: 'separator' },
         running
           ? { label: 'Stop Server', enabled: !busy, click: stopServer }
@@ -294,6 +313,100 @@ function rebuildMenu() {
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  syncMenuBar();
+}
+
+// ---------------------------------------------------------------- menu bar item and Dock badge
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (process.platform === 'darwin') app.focus({ steal: true });
+}
+
+const trayActions = {
+  show: showMainWindow,
+  openInBrowser: () => { if (engine && engine.url) openExternal(engine.url); },
+  start: boot,
+  stop: stopServer,
+  restart: restartServer,
+  quit: () => app.quit(),
+};
+
+/** The menu bar picture: a monochrome template image that macOS tints for light, dark and the selected state.
+ * build_dmg.py renders it from the brand mark into ui/; a development run has none and the item is left out. */
+function trayImage() {
+  const read = (name) => {
+    try { return fs.readFileSync(path.join(__dirname, 'ui', name)); } catch { return null; }
+  };
+  const normal = read('trayTemplate.png');
+  if (!normal) return null;
+  const image = nativeImage.createEmpty();
+  image.addRepresentation({ scaleFactor: 1, buffer: normal });
+  const retina = read('trayTemplate@2x.png');
+  if (retina) image.addRepresentation({ scaleFactor: 2, buffer: retina });
+  if (image.isEmpty()) return null;
+  image.setTemplateImage(true);
+  return image;
+}
+
+function createTray() {
+  if (tray) return;
+  try {
+    const image = trayImage();
+    if (!image) return;
+    tray = new Tray(image);
+    syncMenuBar();
+  } catch (error) {
+    tray = null;
+    engine.log('The menu bar item is not available: ' + error.message);
+  }
+}
+
+function destroyTray() {
+  if (attentionTimer) clearInterval(attentionTimer);
+  attentionTimer = null;
+  if (tray && !tray.isDestroyed()) tray.destroy();
+  tray = null;
+}
+
+/** Keeps the Dock badge and the menu bar item in step with rebuildMenu(); only a change is applied. */
+function syncMenuBar() {
+  const model = menuModel();
+  if (!model.running && attention) {
+    attention = 0;
+    model.attention = 0;
+    if (app.dock) app.dock.setBadge('');
+  }
+  if (!tray || tray.isDestroyed()) return;
+  const key = JSON.stringify(model);
+  if (key === trayKey) return;
+  trayKey = key;
+  tray.setToolTip('Qorqbot: ' + statusLabel(model).replace(/^Status: /, ''));
+  tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate(model, trayActions)));
+}
+
+/** Reads the same attention queue the dashboard reads and shows its count on the Dock icon. A read that fails leaves
+ * the badge as it was; the server stopping clears it (syncMenuBar). Never throws. */
+async function readAttention() {
+  const url = state.phase === 'running' && engine && engine.url ? attentionUrl(serverOrigin()) : null;
+  if (!url || attentionReading) return;
+  attentionReading = true;
+  try {
+    const response = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(5000) });
+    const count = response.ok ? attentionCount(await response.json()) : null;
+    if (count !== null && count !== attention && state.phase === 'running') {
+      attention = count;
+      if (app.dock) app.dock.setBadge(badgeText(count));
+      syncMenuBar();
+    }
+  } catch {
+    // The server is busy or going away; the next read tries again.
+  } finally {
+    attentionReading = false;
+  }
 }
 
 // ---------------------------------------------------------------- IPC (status and help pages only)
@@ -386,6 +499,8 @@ if (!app.requestSingleInstanceLock()) {
     app.on('web-contents-created', (_event, contents) => guardNavigation(contents));
     createMainWindow();
     rebuildMenu();
+    createTray();
+    attentionTimer = setInterval(readAttention, ATTENTION_POLL_MS);
     boot();
   });
 
@@ -397,7 +512,7 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     event.preventDefault();
     quitting = true;
-    const finish = () => app.exit(0);
+    const finish = () => { destroyTray(); app.exit(0); };
     // A server started from Terminal belongs to that Terminal; quitting the app leaves it running.
     if (!engine || !engine.isInstalled() || !engine.ownsServer()) return finish();
     if (mainWindow && !mainWindow.isDestroyed()) {
