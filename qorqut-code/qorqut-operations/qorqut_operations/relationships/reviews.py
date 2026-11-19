@@ -158,7 +158,7 @@ class ContextReviews:
             raise DomainError("validation_error", "Review each relationship once per batch")
         for decision in decisions:
             edge = uow.repository("relationships", business_id=ctx.business_id).get(decision["relationship_id"], required=True)
-            require_revision(edge, decision["relationship_revision"])
+            require_revision(edge, decision["relationship_revision"], argument="relationship_revision")
             source = self.other(args["item"], edge)
             token = self.items.fingerprint(ctx, source, uow, builder)
             if token != decision["source_token"]:

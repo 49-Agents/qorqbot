@@ -15,7 +15,7 @@ request_user_input(message="Please sign in to the bank in the browser below, the
                    references=[{"type": "browser", "id": "<id from action=list>"}])
 request_user_input(message="Two decisions are ready for you.",
                    references=[{"type": "signoff", "id": "<signoff uuid>", "business_id": "<project uuid>"},
-                               {"type": "task", "id": "<task uuid>"}])
+                               {"type": "task", "id": "<task id>"}])
 request_user_input(message="Here is the cold outreach project.",
                    references=[{"type": "project", "id": "<project uuid>", "business_id": "<same project uuid>"}])
 request_user_input(message="The new worker takes this on next.",
@@ -25,8 +25,9 @@ request_user_input(message="The new worker takes this on next.",
 - `message`: plain text, at most 4000 characters. Say what you need; the cards are not a substitute.
 - `references`: at most 8, shown in order, exact duplicates once. Each is only
   `{type, id, business_id}`: no URL, label or other field.
-  - `task` and `signoff`: the record's UUID, read first so the id is exact. `business_id`
-    is the owning project, omitted (or null) for a Global record.
+  - `task` and `signoff`: the Task's id (a short code for new Tasks, a UUID or other text for
+    older ones) or the Signoff's UUID, read first so the id is exact. `business_id` is the
+    owning project, omitted (or null) for a Global record.
   - `project`: the Project's UUID as both `id` and `business_id`. The card opens the
     project in the dashboard.
   - `browser`: the exact configured browser `id` from `browser_turn` `action=list`, only

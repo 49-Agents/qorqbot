@@ -627,6 +627,11 @@
       "line": 419
     },
     {
+      "id": "mcp-optional-for-task-writes-checked-when-given-required-when",
+      "source": "qorqut-code/app/qorqut/transport/mcp.py",
+      "line": 111
+    },
+    {
       "id": "mcp-presentation-compact-receipt-index-by-default-platform-defaults",
       "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 35
@@ -1117,6 +1122,11 @@
       "line": 48
     },
     {
+      "id": "operations-pass-task-id-alone-its-project-is-found",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/lookup.py",
+      "line": 34
+    },
+    {
       "id": "associated-read-the-actions-or-signoffs-associated-with-a",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/associated.py",
       "line": 98
@@ -1167,6 +1177,11 @@
       "line": 140
     },
     {
+      "id": "operations-also-return-the-first-page-of-the-associated",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
+      "line": 170
+    },
+    {
       "id": "operations-tags-are-ordinary-labels-that-group-work-they",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
       "line": 162
@@ -1175,6 +1190,11 @@
       "id": "operations-follow-or-unfollow-a-task-s-discussion-for",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
       "line": 171
+    },
+    {
+      "id": "operations-leave-out-a-short-task-id-is-generated",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/operations.py",
+      "line": 185
     },
     {
       "id": "overview-ordubashy-only-brief-owner-self-task-overview-across",

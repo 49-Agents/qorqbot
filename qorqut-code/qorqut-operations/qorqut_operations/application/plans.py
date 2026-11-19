@@ -44,12 +44,20 @@ def timestamp(clock=utc_clock):
     return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-def require_revision(row, expected):
+def require_revision(row, expected, *, argument="expected_revision"):
+    """Hold a write to the revision its caller read. ``argument`` names the caller's field in the refusal.
+
+    The code is ``revision_conflict`` in every case (clients branch on it); the message tells an omitted revision
+    apart from a stale one, and both carry ``current_revision`` so the caller can retry without another read."""
     if row is None:
         if expected is not None:
             raise DomainError("revision_conflict", "Resource no longer exists")
+    elif expected is None:
+        raise DomainError("revision_conflict", f"{argument} is required: pass the record's current revision "
+                          f"({row['revision']})", current_revision=row["revision"])
     elif row["revision"] != expected:
-        raise DomainError("revision_conflict", "Current resource revision is required", current_revision=row["revision"])
+        raise DomainError("revision_conflict", f"The record changed: its revision is now {row['revision']}, not {expected}",
+                          current_revision=row["revision"])
 
 
 def rows(uow, table, business_id, *, where="", parameters=(), maximum=20000):
@@ -95,8 +103,37 @@ def page(items, arguments, business_id, operation, *, key=lambda row: (row.get("
     selected = items[:limit]
     next_cursor = None
     if len(items) > limit:
-        next_cursor = base64.urlsafe_b64encode(canonical_bytes({"binding": binding, "after": key(selected[-1])})).decode("ascii")
+        next_cursor = page_cursor(binding, key(selected[-1]))
     return selected, next_cursor
+
+
+def page_cursor(binding, after):
+    return base64.urlsafe_b64encode(canonical_bytes({"binding": binding, "after": after})).decode("ascii")
+
+
+def newest_page(uow, table, business_id, arguments, operation, *, where="", parameters=()):
+    """One page of ``table`` newest first by ``(created_at, id)``, read and limited in SQL.
+
+    The same order and cursors as ``page`` with its default key, for a list whose filters are all SQL: only the page's
+    rows (and one more, to know whether another page follows) are read."""
+    binding, after = page_position(arguments, business_id, operation)
+    clauses, values = ([where], list(parameters)) if where else ([], [])
+    if after is not None:
+        if len(after) != 2 or not all(isinstance(value, str) for value in after):
+            raise DomainError("validation_error", "Invalid or differently scoped list cursor")
+        clauses.append("(created_at, id) < (?, ?)")
+        values += list(after)
+    spec = uow.database.assembly.tables[table]
+    if not spec.scope_column:
+        raise ValueError("Domain collection reads must be project scoped")
+    clause = f'"{spec.scope_column}" = ?' if business_id is not None else f'"{spec.scope_column}" IS NULL'
+    scope = [business_id] if business_id is not None else []
+    limit = arguments.get("limit", 50)
+    condition = clause + "".join(" AND (" + part + ")" for part in clauses)
+    found = [decode_row(row) for row in uow.connection.execute(
+        f'SELECT * FROM "{table}" WHERE {condition} ORDER BY created_at DESC, id DESC LIMIT ?', [*scope, *values, limit + 1])]
+    selected = found[:limit]
+    return selected, (page_cursor(binding, [selected[-1]["created_at"], selected[-1]["id"]]) if len(found) > limit else None)
 
 
 def ref(table, key, business_id, namespace=None, *, tables=None):

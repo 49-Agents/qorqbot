@@ -36,6 +36,9 @@ function logTaskId(entry) {
 function logHeadline(entry){
   let text=String(entry.summary || '').replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,'').replace(/\b[0-9A-HJKMNP-TV-Z]{26}\b/g,'');
   for(const id of [entry.id,...Object.values(entry.refs || {})])if(typeof id==='string' && id.length>8)text=text.split(id).join('');
+  // A Task id may be a five-character code, too short to cut out of any text: it goes only where it stands as a word.
+  const task=logTaskId(entry), quoted=task.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  if(task && task.length<=8)text=text.replace(new RegExp('(^|[^0-9A-Za-z_-])'+quoted+'(?![0-9A-Za-z_-])','g'),'$1');
   text=text.replace(/^\s*[:—-]+\s*/,'').replace(/\s+/g,' ').trim();
   return Array.from(text).length>100?Array.from(text).slice(0,97).join('')+'...':text;
 }

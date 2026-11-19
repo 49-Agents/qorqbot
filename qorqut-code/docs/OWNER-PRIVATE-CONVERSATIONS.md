@@ -115,7 +115,7 @@ otherwise (for example, a Global Focus card bound to a business object).
 
 ```json
 POST /api/biz/<slug>/operations/owner_conversation_get
-{"scope": "business", "source": {"type": "task", "id": "<task-uuid>"}}
+{"scope": "business", "source": {"type": "task", "id": "<task-id>"}}
 → {"conversation": {"id": "...", "source": {...}, "audience": "owner_ordubashy",
      "revision": 3, "latest_sequence": 3, "message_count": 3},
    "messages": [{"id": "...", "sequence": 1, "body": "...", "summary": null,
@@ -125,13 +125,13 @@ POST /api/biz/<slug>/operations/owner_conversation_get
    "read_state": {"last_read_sequence": 2, "unread": true}}
 
 POST /api/root/operations/owner_conversation_send
-{"scope": "global", "source": {"type": "task", "id": "<task-uuid>", "business_id": "<business-uuid>"},
+{"scope": "global", "source": {"type": "task", "id": "<task-id>", "business_id": "<business-uuid>"},
  "text": "Hold the price change until Friday."}
 → {"message": {"id": "...", "sequence": 4, "body": "...", "author_role": "owner", ...},
    "conversation": {"id": "...", "revision": 4, "latest_sequence": 4, "message_count": 4}}
 
 POST /api/biz/<slug>/operations/owner_conversation_mark_read
-{"scope": "business", "source": {"type": "task", "id": "<task-uuid>"}, "sequence": 4}
+{"scope": "business", "source": {"type": "task", "id": "<task-id>"}, "sequence": 4}
 → {"read_state": {"last_read_sequence": 4, "unread": false}}
 ```
 

@@ -18,7 +18,9 @@ function safeFileReference(raw) {
 // The one-time record link the standalone CRM viewer uses: /?open_task=<task id>&scope=global#/global/agents or
 // /?open_task=<task id>&business_id=<uuid>#/global/agents. Returns {taskId, businessId} (businessId null = Global), {invalid: true}
 // when the route is present but malformed, or null when `open_task` is absent. It validates only; nothing is read here.
-const OPEN_TASK_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Projects and Tables have UUIDs. A Task id has no fixed shape (new ones are five characters, older ones UUIDs or slugs),
+// so it is held only to the length and character rules of a stored id.
+const SAFE_LINK_RECORD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // The read-only table route: /tables/view?table_id=<id>[&business_id=<id>].
 // An omitted business_id explicitly means Global; repeated, unknown, or malformed parameters are invalid.
 function tableViewRoute(search) {
@@ -26,7 +28,7 @@ function tableViewRoute(search) {
   const count = name => keys.filter(key => key === name).length;
   const tableId = params.get('table_id'), businessId = params.get('business_id');
   if (count('table_id') !== 1 || count('business_id') > 1 || keys.some(key => !['table_id', 'business_id'].includes(key))
-    || !OPEN_TASK_UUID.test(tableId || '') || (count('business_id') === 1 && !OPEN_TASK_UUID.test(businessId || ''))) return null;
+    || !SAFE_LINK_RECORD_UUID.test(tableId || '') || (count('business_id') === 1 && !SAFE_LINK_RECORD_UUID.test(businessId || ''))) return null;
   return {tableId, businessId: count('business_id') ? businessId : null};
 }
 function openTaskRoute(search) {
@@ -38,7 +40,7 @@ function openTaskRoute(search) {
     || !taskId || !taskId.trim() || taskId.length > 200 || /[\u0000-\u001f\u007f-\u009f]/u.test(taskId)) return {invalid: true};
   if (count('scope')) return params.get('scope') === 'global' ? {taskId, businessId: null} : {invalid: true};
   const businessId = params.get('business_id');
-  return OPEN_TASK_UUID.test(businessId) ? {taskId, businessId} : {invalid: true};
+  return SAFE_LINK_RECORD_UUID.test(businessId) ? {taskId, businessId} : {invalid: true};
 }
 // The same-origin href for a scoped Task, or null: Global is explicit, a Project needs its UUID; never inferred.
 function openTaskHref(taskId, businessId) {
