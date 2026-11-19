@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from qorqut_operations.business_lifecycle import is_archived_business
 from qorqut_operations.contracts import (ChangeSet, DomainError, ExpectedTarget, PreparedChange, ResourceRef,
                                          canonical_bytes, new_id, plain, utc_now)
 
@@ -1535,8 +1536,11 @@ class OperationalDelegationOperations:
         if context.delegation_assignment_id is not None:
             raise DomainError("forbidden", "A delegated worker cannot list its parent's assignments")
         self._require_parent(context)
-        rows = self.store.list_for_parent(uow, context.principal_id, limit=arguments.get("limit", 50))
-        return {"assignments": [self._compact(row, uow) for row in rows]}
+        # Assignments in archived projects are not current work, so they are not listed. The widest page is read and
+        # filtered, so a page still fills while recent assignments outside archived projects remain.
+        rows = [row for row in self.store.list_for_parent(uow, context.principal_id, limit=200)
+                if not is_archived_business(uow.connection, row["business_id"])]
+        return {"assignments": [self._compact(row, uow) for row in rows[:arguments.get("limit", 50)]]}
 
     @staticmethod
     def _compact(record, uow=None):

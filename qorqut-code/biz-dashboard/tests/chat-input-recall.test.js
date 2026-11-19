@@ -24,7 +24,7 @@ test('history keeps only what the owner typed, oldest first', () => {
     notice('Session recovery', {notice: {inputType: 'bootstrap_recovery'}}),
     user('[telegram] from the phone', {collapsedSource: 'telegram'}),
     user('interpreted for the owner', {recorder: 'agent'}),
-    user('', {referenceOnly: true}), user('   '), user('👍'), user('👍 to: “Shall I send it?”'),
+    user('', {referenceOnly: true}), user('   '),
     user('second'), user('second'), agent('second'), user('third\nline'),
   ];
   const pending = [notice('', {inputType: 'inbox_nudge', state: 'queued'}), user('private', {collapsedSource: 'telegram'}), user('unsent', {state: 'failed'})];

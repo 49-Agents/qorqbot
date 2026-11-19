@@ -13,7 +13,7 @@
 .gchat-log > .gchat-msg + .gchat-msg.gchat-continuation { margin-top:8px; }
 .gchat-msg { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: min(760px, 88%); }
 .gchat-bubble-row { position: relative; min-width: 0; max-width: 100%; }
-/* An invisible strip over the copy and reaction column, so moving the pointer left to them keeps the message hovered. */
+/* An invisible strip over the copy column, so moving the pointer left to them keeps the message hovered. */
 .chat-view .gchat-bubble-row::before { content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: 40px; }
 .chat-view .gchat-copy { position: absolute; right: calc(100% + 4px); top: 8px; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 6px; border: 0; border-radius: 7px; background: none; color: var(--fg-2); opacity: 0; visibility: hidden; transition: opacity 140ms ease 300ms, visibility 0s linear 440ms; transform: none; }
 .gchat-copy svg { width: 16px; height: 16px; }
@@ -21,12 +21,7 @@
 .chat-view .gchat-copy:hover { background: var(--hover); color: var(--fg); }
 .chat-view .gchat-copy.copied { color: var(--ok); }
 @media (hover: none) { .chat-view .gchat-copy { opacity: .65; visibility: visible; } }
-@media (prefers-reduced-motion: reduce) { .chat-view .gchat-copy, .chat-view .gchat-react { transition: none; } }
-.chat-view .gchat-react { position: absolute; right: calc(100% + 4px); top: 38px; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: 7px; background: none; font-size: 14px; line-height: 1; opacity: 0; visibility: hidden; transition: opacity 140ms ease 300ms, visibility 0s linear 440ms; transform: none; }
-.chat-view .gchat-msg:hover .gchat-react, .chat-view .gchat-react:focus-visible { opacity: 1; visibility: visible; transition-delay: 0s; }
-.chat-view .gchat-react:hover { background: var(--hover); }
-@media (hover: none) { .chat-view .gchat-react { opacity: .65; visibility: visible; } }
-.gchat-reaction { align-self: flex-start; padding: 1px 8px; border: 1px solid var(--line-2); border-radius: 999px; font-size: 13px; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) { .chat-view .gchat-copy { transition: none; } }
 .gchat-user { align-self: flex-end; align-items: flex-end; }
 .gchat-agent { align-self: flex-start; }
 .gchat-msg.gchat-agent { max-width: min(760px, 100%); }

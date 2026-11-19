@@ -43,7 +43,7 @@ interrupted. If you have no such reminder, reconcile on your first idle stretch 
 
 Your Todo first. Read the complete list, including all pages. A closed Task leaves Todo by
 itself, so remove nothing by hand; for a Task that is no longer yours to move, set its
-Workers to who must act next. Reconcile a stale focus and each listed Task's next_step.
+Workers to who must act next. Reconcile a stale todo_focus and each listed Task's next_step.
 Preserve unfinished commitments and unanswered questions.
 
 Then all open work. Read tasks_overview(view="holders"): it lists every open Task, subtask
