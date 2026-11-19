@@ -121,6 +121,11 @@ PAGES = {
     "app-shell": ('<!doctype html><meta charset=utf-8><title>app shell</title>' + RECORD + '<div style="position:fixed;inset:0;overflow:auto">'
                   + f"<p>{SENTENCE} This guide explains how cookies work in browsers.</p>" * 30
                   + '<p>Offer from the supplier: ' + two("Accept", "Decline") + '</p></div>', []),
+    # A consent-sounding name alone is not a banner; a refusal that is a link away from the page is not followed.
+    "admin-cookie-settings": (page('<section id="cookie-settings"><h2>Cookie settings</h2><p>Requests from your team to change cookie '
+                                   'settings.</p>' + two("Approve", "Reject") + '</section>'), []),
+    "reject-link-leaves": (page(banner(SENTENCE, '<button onclick="c(\'accept\')">Accept</button> '
+                                                 '<a href="/plain" onclick="c(\'reject\')">Reject all</a>')), []),
     "footer-settings": (page('<footer class="footer-cookie-links"><a href="/plain" onclick="c(\'settings\')">Cookie settings</a> '
                              '<a href="/plain" onclick="c(\'settings\')">Manage preferences</a></footer>'), []),
     "save-only": (page(banner(SENTENCE, '<button onclick="c(\'accept\')">Accept all</button> <button onclick="c(\'manage\');'

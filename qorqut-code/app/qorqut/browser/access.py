@@ -133,8 +133,10 @@ class BrowserAccess:
         owner = self._browser_owner(actor, browser_key)
         try:
             with self._selected_worker(actor, owner):
-                target = self._worker_target(browser_key, owner)
                 with self._managed_use(browser_key):
+                    # Read with the use lock held: a switch between own and Shared waits for it, so this command cannot be
+                    # run against the browser the agent has just left.
+                    target = self._worker_target(browser_key, owner)
                     code, stdout, errors = run(workspace, command, target=(target["cdp_endpoint"],
                         browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True,
                         pinned=bool(target.get("shared")))

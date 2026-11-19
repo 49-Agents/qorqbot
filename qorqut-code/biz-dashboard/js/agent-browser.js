@@ -156,8 +156,8 @@ async function agbrowserMount(p, reconnect = false, ctx = null) {
   let surfaces = null, failed = false;
   try { surfaces = await agbrowserSurfaces(p, reconnect); } catch (error) { failed = true; }
   if (!current()) return;
-  // Without a configured viewer, the agent's built-in browser is shown live.
-  if (!surfaces?.browsers.length && typeof agliveMount === 'function') {
+  // Without a configured viewer, the agent's built-in browser is shown live; when finding out failed, the error is shown, not this.
+  if (!failed && !surfaces?.browsers.length && typeof agliveMount === 'function') {
     agliveMount(p.agentId, body, {current, onDispose: fn => { liveDispose = fn; },
       bar: ctx ? '' : agbrowserModeToggle(p, 'browser'), wire: host => agbrowserWireMode(p, host)});
     return;

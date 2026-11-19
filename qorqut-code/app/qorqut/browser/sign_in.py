@@ -88,20 +88,20 @@ def _paused(runtime, agent_id):
     return [agent_id, *others]
 
 
-def _sites_path(runtime, agent_id):
-    return _state(runtime, agent_id) / SITES_FILE
+def _sites_path(runtime, agent_id, directory=None):
+    return (directory or _state(runtime, agent_id)) / SITES_FILE
 
 
-def _read_sites(runtime, agent_id):
+def _read_sites(runtime, agent_id, directory=None):
     try:
-        data = json.loads(_sites_path(runtime, agent_id).read_text())
+        data = json.loads(_sites_path(runtime, agent_id, directory).read_text())
     except (OSError, ValueError):
         return []
     return [item for item in data if isinstance(item, dict) and isinstance(item.get("site"), str)] if isinstance(data, list) else []
 
 
-def _write_sites(runtime, agent_id, sites):
-    _atomic_write(_sites_path(runtime, agent_id), json.dumps(sites).encode(), mode=0o600)
+def _write_sites(runtime, agent_id, sites, directory=None):
+    _atomic_write(_sites_path(runtime, agent_id, directory), json.dumps(sites).encode(), mode=0o600)
 
 
 def _meta(runtime, agent_id):
@@ -233,7 +233,7 @@ def watch_window(process, port, *, limit=WINDOW_LIMIT, sleep=time.sleep, clock=t
 
 def _quit_cleanly(process, port):
     """Chrome writes cookies to disk in batches; only its own shutdown is sure to save a sign-in that just happened."""
-    if not request_close(port, timeout=5):
+    if not request_close(port, timeout=5, pid=process.pid):
         logger.debug("Chrome closed before it could be asked to quit")
     try:
         process.wait(timeout=10)
@@ -241,7 +241,10 @@ def _quit_cleanly(process, port):
         logger.debug("Chrome did not quit by itself", exc_info=True)
 
 
-def _finish(runtime, owner, agent_id, site, process, port, paused=None):
+def _finish(runtime, owner, agent_id, site, process, port, paused=None, home=None):
+    """``home`` is the state directory of the browser the window was opened on, which is where the owner signed in. The agent may
+    have been switched between its own and the Shared browser since: the site then still goes into that browser's list (its
+    cookies are there), and the cookies are not copied into the browser the agent uses now."""
     try:
         latest = []
         def remember_cookies():
@@ -253,11 +256,16 @@ def _finish(runtime, owner, agent_id, site, process, port, paused=None):
         remember_cookies()
         _quit_cleanly(process, port)
         stop_child(process)
-        sites = [item for item in _read_sites(runtime, agent_id) if item["site"] != site]
-        _write_sites(runtime, agent_id, [*sites, {"site": site, "added_at": utc_now()}])
+        home = home or _state(runtime, agent_id)
+        moved = _state(runtime, agent_id) != home
+        sites = [item for item in _read_sites(runtime, agent_id, home) if item["site"] != site]
+        _write_sites(runtime, agent_id, [*sites, {"site": site, "added_at": utc_now()}], home)
         _manage(runtime, owner, agent_id, "ensure")
         lasting = lasting_copies(latest, time.time())
-        if lasting:
+        if moved:
+            logger.warning("Agent %s was switched to another browser during its sign-in to %s; the sign-in stays with the browser "
+                           "it was made on and its session cookies were not copied", agent_id, site)
+        elif lasting:
             _cdp(_meta(runtime, agent_id)["managed"]["port"], [("Network.setCookies", {"cookies": lasting})])
     except Exception:
         # Automatic setup retries the browser; the Settings card reports anything that stays broken.
@@ -276,7 +284,7 @@ def start(runtime, agent_id, value):
                                                "own browser instead, ask the owner for the password or code and type it yourself. For a worker's "
                                                "own browser, acquire it with browser_turn (browser_id from action list) and "
                                                "sign in there the same way.")
-    paused = _paused(runtime, agent_id)
+    paused, home = _paused(runtime, agent_id), _state(runtime, agent_id)
     with _lock:
         busy = next((agent for agent in paused if agent in _active), None)
         if busy is not None:
@@ -294,7 +302,7 @@ def start(runtime, agent_id, value):
         except Exception:
             logger.exception("Could not restore agent browser %s after a failed sign-in", agent_id)
         raise
-    threading.Thread(target=_finish, args=(runtime, owner, agent_id, site, process, port, paused), daemon=True,
+    threading.Thread(target=_finish, args=(runtime, owner, agent_id, site, process, port, paused, home), daemon=True,
                      name="browser-sign-in").start()
     return accounts(runtime)
 

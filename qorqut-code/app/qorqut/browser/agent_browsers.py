@@ -77,6 +77,14 @@ def shared_workspace(paths):
     return agent_state(paths, SHARED_ID) / "workspace"
 
 
+def membership_damaged(paths, agent_id):
+    """The agent's choice record is there but is not exactly what ``use_shared`` writes. (A symbolic link is not this: it is
+    refused by ``uses_shared``, and no action may write through it.)"""
+    record = agent_state(paths, agent_id) / MEMBERSHIP_FILE
+    return (not path_has_symlink(record) and record.exists()
+            and _read_json(record) != {"schema_version": 1, "agent_id": agent_id, "browser": "shared"})
+
+
 def uses_shared(paths, agent_id):
     """Whether the agent is set to the Shared browser. A record that is there but is not exactly what ``use_shared`` wrote is
     an error, never read as "own": the agent must not be moved to another browser because a file was damaged."""
@@ -85,9 +93,9 @@ def uses_shared(paths, agent_id):
         raise DomainError("browser_metadata_invalid", "The agent's browser choice crosses a symbolic link; nothing was changed")
     if not record.exists():
         return False
-    if _read_json(record) != {"schema_version": 1, "agent_id": agent_id, "browser": "shared"}:
+    if membership_damaged(paths, agent_id):
         raise DomainError("browser_metadata_invalid", "The agent's saved browser choice is invalid; nothing was changed. "
-                          "Ordubashy can set it again with agent_browser_manage (use_shared or use_own).")
+                          "Ordubashy can set it again with agent_browser_manage (use_shared or use_own); both replace it.")
     return True
 
 
@@ -1117,8 +1125,11 @@ class AgentBrowserManager:
         on disk), record the choice, then point the agent's target file at the Shared browser."""
         if s.meta_error:
             raise DomainError("browser_metadata_invalid", s.meta_error + " Nothing was changed; the operator must inspect it.")
-        member = uses_shared(self.paths, s.agent_id)
-        if not member:
+        # A damaged choice record is replaced, not trusted: this action is the repair the error message offers. If the target file
+        # already names the Shared browser, the agent was on it, and what the file says is not a conflict.
+        damaged = membership_damaged(self.paths, s.agent_id)
+        member = False if damaged else uses_shared(self.paths, s.agent_id)
+        if not member and not (damaged and browser.target_shared(s.workspace)):
             if s.ownership in {"external", "legacy-bound"}:
                 raise DomainError("browser_target_conflict", "This agent's browser was installed by the operator, so it is not "
                                   "replaced by the Shared browser. Nothing was changed.")
@@ -1141,20 +1152,28 @@ class AgentBrowserManager:
 
     def _use_own(self, ctx, s):
         """Set the agent back to its own browser: remove the Shared target and the choice, then set up the agent's own browser
-        as ``ensure`` does (its kept profile is started again, or a new browser is created)."""
-        member = uses_shared(self.paths, s.agent_id)
+        as ``ensure`` does (its kept profile is started again, or a new browser is created). Whatever step an earlier move
+        stopped at, this ends in the same state; a damaged choice record is removed like a good one."""
+        if s.meta_error:      # before anything is removed: the agent must not lose the Shared browser and then fail to get its own
+            raise DomainError("browser_metadata_invalid", s.meta_error + " Nothing was changed; the operator must inspect it.")
+        member = membership_damaged(self.paths, s.agent_id) or uses_shared(self.paths, s.agent_id)
         if member:
             target, error = self._member_target(s.workspace)
-            if target == "invalid" or (target == "conflict" and not browser.target_shared(s.workspace)):
+            own = s.meta["target"]["content"] if s.meta is not None and s.meta["mode"] == "managed" else None
+            # A target file that still names the agent's own browser is where an interrupted move to Shared left it: keep it.
+            kept = target == "conflict" and own is not None and s.target == own
+            if target == "invalid" or (target == "conflict" and not browser.target_shared(s.workspace) and not kept):
                 raise DomainError("browser_target_conflict", (error or "Invalid browser target.") + " Nothing was changed.")
             ctx.effect = True
-            (s.workspace / ".qorqut/browser.json").unlink(missing_ok=True)
-            (s.directory / MEMBERSHIP_FILE).unlink()
-            if not any(True for _ in state_root(self.paths).glob("*/" + MEMBERSHIP_FILE)):
-                try:
-                    self._converge_shared(ctx, "stop")         # nobody uses it now; its profile and sign-ins stay
-                except DomainError:
-                    pass
+            if not kept:
+                (s.workspace / ".qorqut/browser.json").unlink(missing_ok=True)
+            (s.directory / MEMBERSHIP_FILE).unlink(missing_ok=True)
+        # Also when nobody was a member here: an earlier move may have stopped after removing the choice and before this.
+        if (agent_state(self.paths, SHARED_ID) / "meta.json").exists() and not any(True for _ in state_root(self.paths).glob("*/" + MEMBERSHIP_FILE)):
+            try:
+                self._converge_shared(ctx, "stop")         # nobody uses it now; its profile and sign-ins stay
+            except DomainError:
+                pass
         result = self._apply(ctx, "ensure", self._snapshot(s.agent_id, s.workspace, mutating=True))
         return {**result, "action": "use_own", "changed": member or result["changed"]}
 

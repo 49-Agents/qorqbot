@@ -5,18 +5,36 @@ function aglivePath(agentId, tail = '') { return `/root/agents/${encodeURICompon
 
 const AGLIVE_BUTTONS = ['left', 'middle', 'right'];
 const AGLIVE_SEND_MS = 40;
+const AGLIVE_LEAVE_MS = 600;
 
 function agliveModifiers(event) {
   return (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
 }
 
 // A browser key event as the server's key input. Enter types a carriage return, as Chrome expects; other
-// named keys (arrows, Tab, Backspace, shortcuts) carry no text.
+// named keys (arrows, Tab, Backspace, shortcuts) carry no text. Windows reports AltGr as Ctrl+Alt: while AltGraph is
+// down, the key types its character (@, €, {) and is neither "no text" nor a Ctrl+Alt shortcut.
 function agliveKey(event, action) {
-  const plain = !event.ctrlKey && !event.metaKey;
+  const altGraph = !!event.getModifierState?.('AltGraph');
+  const plain = (!event.ctrlKey && !event.metaKey) || altGraph;
   const text = action !== 'down' ? '' : event.key === 'Enter' ? '\r' : plain && event.key.length === 1 ? event.key : '';
+  const modifiers = altGraph ? agliveModifiers(event) & ~3 : agliveModifiers(event);
   return {type: 'key', action, key: event.key.slice(0, 64), code: (event.code || '').slice(0, 64), text,
-    keyCode: event.keyCode > 0 && event.keyCode < 256 ? event.keyCode : 0, modifiers: agliveModifiers(event)};
+    keyCode: event.keyCode > 0 && event.keyCode < 256 ? event.keyCode : 0, modifiers};
+}
+
+// Pointer events report no click count (`event.detail` is 0), so the view counts: the same button again, soon and close
+// by, is the next click of a double or triple click; a fourth starts over. Returns the count for a press.
+const AGLIVE_CLICK_MS = 500, AGLIVE_CLICK_PX = 5;
+function agliveClickCounter() {
+  let last = null;
+  return event => {
+    const again = last && last.button === event.button && event.timeStamp - last.time <= AGLIVE_CLICK_MS &&
+      Math.abs(event.clientX - last.x) <= AGLIVE_CLICK_PX && Math.abs(event.clientY - last.y) <= AGLIVE_CLICK_PX;
+    const count = again ? (last.count % 3) + 1 : 1;
+    last = {button: event.button, time: event.timeStamp, x: event.clientX, y: event.clientY, count};
+    return count;
+  };
 }
 
 // Where on the page (in the page's own CSS pixels) a pointer event on the scaled picture landed.
@@ -82,7 +100,7 @@ async function agliveMount(agentId, body, options) {
   const watched = tabs.find(item => item.id === tab) || tabs[0];
   body.innerHTML = `<section class="agfocus-desktop-view agbrowser aglive"><div class="agbrowser-bar">${bar}` +
     `<select class="aglive-tabs" data-live-tabs aria-label="Browser tab"></select>` +
-    `<span class="aglive-note muted">Click the page to use it. Your agent keeps working in it too.</span>` +
+    `<span class="aglive-note muted">Click the page to use it; press Esc twice to leave it. Your agent keeps working in it too.</span>` +
     `<span class="agbrowser-actions"><button type="button" class="quiet agbrowser-reconnect" data-live-reconnect aria-label="Reconnect">${typeof AGBROWSER_ICON_RECONNECT === 'string' ? AGBROWSER_ICON_RECONNECT : 'Reconnect'}</button></span></div>` +
     `<div class="agbrowser-stage aglive-stage"><img class="aglive-screen" data-live-screen tabindex="0" alt="${esc(agliveTabLabel(watched))}" draggable="false"></div></section>`;
   const screen = body.querySelector('[data-live-screen]'), picker = body.querySelector('[data-live-tabs]');
@@ -109,6 +127,8 @@ async function agliveMount(agentId, body, options) {
     size.width = picture.width; size.height = picture.height;
     screen.src = 'data:image/jpeg;base64,' + picture.data;
   });
+  // The server could not open the view (too many open, the browser stopped); it says why in plain words.
+  source.addEventListener('refused', event => { if (alive()) { const message = data(event)?.message; dispose(); status(message || 'The live view could not be opened.', 'alert'); } });
   source.addEventListener('tabs', event => { const list = data(event); if (Array.isArray(list) && alive()) paintTabs(list); });
   source.addEventListener('closed', () => { if (alive()) { dispose(); status('This tab was closed. Reconnect to see the browser’s other pages.'); } });
   // EventSource would retry by itself and open a second view; one failure ends this view and offers Reconnect.
@@ -117,19 +137,23 @@ async function agliveMount(agentId, body, options) {
   const mouse = (event, action, extra = {}) => push({type: 'mouse', action, ...aglivePoint(event, screen.getBoundingClientRect(), size),
     buttons: event.buttons & 31, modifiers: agliveModifiers(event), ...extra});
   screen.addEventListener('pointermove', event => mouse(event, 'move'));
+  const countClick = agliveClickCounter();
+  let clicks = 1;
   screen.addEventListener('pointerdown', event => {
     if (event.button > 2) return;
     event.preventDefault(); screen.focus({preventScroll: true});
+    clicks = countClick(event);
     try { screen.setPointerCapture(event.pointerId); } catch (_) { /* a synthetic pointer has nothing to capture */ }
-    mouse(event, 'down', {button: AGLIVE_BUTTONS[event.button], clicks: Math.min(Math.max(event.detail, 1), 3)});
+    mouse(event, 'down', {button: AGLIVE_BUTTONS[event.button], clicks});
   });
   screen.addEventListener('pointerup', event => {
     if (event.button > 2) return;
     event.preventDefault();
-    mouse(event, 'up', {button: AGLIVE_BUTTONS[event.button], clicks: Math.min(Math.max(event.detail, 1), 3)});
+    mouse(event, 'up', {button: AGLIVE_BUTTONS[event.button], clicks});
   });
   screen.addEventListener('contextmenu', event => event.preventDefault());
   screen.addEventListener('wheel', event => {
+    if (!view || !size.width) return;      // nothing to forward yet: the dashboard scrolls as usual
     event.preventDefault();
     const scale = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 800 : 1;
     const bound = value => Math.min(Math.max(Math.round(value * scale), -10000), 10000);
@@ -138,8 +162,16 @@ async function agliveMount(agentId, body, options) {
   // Paste keeps its default so the paste event below delivers the owner's clipboard text; a composing key is the
   // input method's, and its result arrives as text at compositionend.
   const pasteKey = event => (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v';
+  // Every key goes to the page, Tab included, so the keyboard would never get out of the picture: Escape pressed twice within
+  // AGLIVE_LEAVE_MS leaves it (the first still reaches the page; the second is the owner's).
+  let escapedAt = -Infinity;
   screen.addEventListener('keydown', event => {
     if (event.isComposing || pasteKey(event)) return;
+    if (event.key === 'Escape' && !event.repeat) {
+      const leave = event.timeStamp - escapedAt <= AGLIVE_LEAVE_MS;
+      escapedAt = leave ? -Infinity : event.timeStamp;
+      if (leave) { event.preventDefault(); screen.blur(); return; }
+    }
     event.preventDefault();
     push(agliveKey(event, 'down'));
   });

@@ -266,6 +266,47 @@ class SessionCookieTest(unittest.TestCase):
         runtime.browser_manager.manage.assert_called_once()
 
 
+class SwitchedDuringSignInTest(unittest.TestCase):
+    """The agent is switched between its own and the Shared browser while the owner's window is open."""
+
+    def finish(self, *, switch):
+        from qorqut.browser.agent_browsers import SHARED_ID
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        for name in (AGENT, SHARED_ID):
+            (self.root / name).mkdir()
+        self.own, self.shared = self.root / AGENT, self.root / SHARED_ID
+        runtime = SimpleNamespace(browser_manager=SimpleNamespace(paths=None, manage=mock.Mock(return_value={})))
+        chosen = [False]
+        cookie = {"name": "s", "value": "1", "domain": "a.b", "path": "/", "session": True}
+        def window_closes(*_args, **_options):
+            chosen[0] = switch              # the owner chose Shared in Settings while the window was open
+        self.cdp = mock.Mock()
+        with mock.patch.object(sign_in, "agent_state", lambda _paths, name: self.root / name), \
+                mock.patch.object(sign_in, "uses_shared", lambda *_args: chosen[0]), mock.patch.object(sign_in, "_meta", return_value=META), \
+                mock.patch.object(sign_in, "watch_window", window_closes), mock.patch.object(sign_in, "_quit_cleanly"), \
+                mock.patch.object(sign_in, "stop_child"), mock.patch.object(sign_in, "_window_cookies", return_value=[cookie]), \
+                mock.patch.object(sign_in, "_cdp", self.cdp):
+            sign_in._finish(runtime, "owner", AGENT, "a.b", SimpleNamespace(), 1, home=self.own)
+        return runtime
+
+    def sites(self, directory):
+        path = directory / sign_in.SITES_FILE
+        return [item["site"] for item in json.loads(path.read_text())] if path.exists() else []
+
+    def test_without_a_switch_the_site_and_the_session_go_where_they_always_did(self):
+        self.finish(switch=False)
+        self.assertEqual((self.sites(self.own), self.sites(self.shared)), (["a.b"], []))
+        self.cdp.assert_called_once()
+
+    def test_a_sign_in_that_finishes_after_a_switch_stays_with_the_browser_it_was_made_on(self):
+        runtime = self.finish(switch=True)
+        self.assertEqual((self.sites(self.own), self.sites(self.shared)), (["a.b"], []), "not in the Shared browser's list")
+        self.cdp.assert_not_called()                                  # its session cookies are not put into the other browser
+        runtime.browser_manager.manage.assert_called_once()           # the agent's browser is still started, as for any sign-in
+
+
 class CommandTest(unittest.TestCase):
     def test_window_and_headless_read_the_same_profile(self):
         headless = supervisor.chrome_command(META)

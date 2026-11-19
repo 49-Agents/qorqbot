@@ -8,7 +8,7 @@ import unittest
 from unittest import mock
 
 from qorqut_operations.contracts import DomainError
-from qorqut.browser import idle_tabs, live, setup, sign_in
+from qorqut.browser import agent_browsers, idle_tabs, live, setup, sign_in
 
 AGENT = "11111111-1111-4111-8111-111111111111"
 TAB = "C3016B049B49B2E2FBC864793BBCF652"
@@ -31,6 +31,8 @@ class Socket:
         message = self.incoming.pop(0)
         if isinstance(message, Exception):
             raise message
+        if callable(message):          # something happens while the page is being waited on, and may deliver a message
+            message = message()
         return json.dumps(message)
 
     def close(self):
@@ -49,6 +51,7 @@ class ViewTest(unittest.TestCase):
     def setUp(self):
         self.now = 0.0
         self.addCleanup(live._views.clear)
+        self.addCleanup(live._slots.clear)
 
     def open(self, incoming=(), marks=None):
         self.socket = Socket(incoming)
@@ -74,14 +77,51 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(view.next(1), {"data": "jpeg-7", "width": 1000, "height": 600})
         self.assertEqual(self.socket.sent[-1], {"id": 3, "method": "Page.screencastFrameAck", "params": {"sessionId": 7}})
 
-    def test_pictures_faster_than_the_dashboard_rate_are_acknowledged_and_dropped(self):
+    def test_pictures_faster_than_the_dashboard_rate_are_acknowledged_and_only_the_newest_is_kept(self):
         view = self.open([frame(1), frame(2), frame(3)])
         self.assertEqual(view.next(1)["data"], "jpeg-1")
-        self.assertIsNone(view.next(1))                                             # 2 and 3 came at the same instant
+        self.assertEqual(view.next(1)["data"], "jpeg-3")                            # 2 and 3 came at the same instant: 2 is dropped
         self.assertEqual(self.socket.methods().count("Page.screencastFrameAck"), 3)
+        self.assertIsNone(view.next(1))                                             # nothing is shown twice
         self.now += live.FRAME_INTERVAL
         self.socket.incoming.append(frame(4))
         self.assertEqual(view.next(1)["data"], "jpeg-4")
+
+    def test_the_last_picture_of_a_burst_is_shown_when_the_page_then_stands_still(self):
+        # The owner must not keep a stale picture: the held one is shown once the interval has passed, before the wait ends.
+        def later():
+            self.now += live.FRAME_INTERVAL
+            return {"id": 9, "result": {}}
+        view = self.open([frame(1), frame(2), later])
+        self.assertEqual(view.next(1)["data"], "jpeg-1")
+        self.assertEqual(view.next(1)["data"], "jpeg-2")
+        self.assertIsNone(view.next(1))
+
+    def test_a_held_picture_is_shown_when_the_wait_ends_even_if_the_interval_has_not_passed(self):
+        view = self.open([frame(1), frame(2)])
+        view.next(1)
+        self.assertEqual(view.next(0.01)["data"], "jpeg-2")
+
+    def test_views_are_capped_per_agent_and_in_all_and_a_refusal_says_so_and_closes_nothing(self):
+        views = [self.open() for _ in range(live.MAX_VIEWS_PER_AGENT)]
+        with self.assertRaises(DomainError) as refused:
+            self.open()
+        self.assertEqual(refused.exception.code, "busy")
+        self.assertIn("Too many browser views", refused.exception.message)
+        self.assertTrue(all(live.view(AGENT, item.id) is item for item in views))    # nothing was closed to make room
+        other = live.View("another-agent", 20401, TAB, connect=lambda *_: Socket(), clock=lambda: 0)
+        self.addCleanup(other.close)
+        views[0].close()
+        self.open()                                                                  # a closed view frees its slot
+        with mock.patch.object(live, "MAX_VIEWS", len(live._slots)), self.assertRaises(DomainError):
+            live.View("third-agent", 20402, TAB, connect=lambda *_: Socket(), clock=lambda: 0)
+
+    def test_a_view_that_fails_to_open_gives_its_slot_back(self):
+        for _ in range(live.MAX_VIEWS_PER_AGENT + 1):
+            with self.assertRaises(DomainError) as refused:
+                live.View(AGENT, 20400, TAB, connect=mock.Mock(side_effect=OSError("closed")))
+            self.assertEqual(refused.exception.code, "browser_not_ready")
+        self.assertEqual(live._slots, {})
 
     def test_no_picture_in_time_is_not_an_error(self):
         self.assertIsNone(self.open().next(0.5))
@@ -195,6 +235,10 @@ class CommandTest(unittest.TestCase):
                {"type": "key", "action": "down", "key": "a" * 65}, {"type": "key", "action": "down", "key": "a", "keyCode": 999},
                {"type": "key", "action": "down", "key": "a", "modifiers": 16}, {"type": "text", "text": ""},
                {"type": "text", "text": "x" * (live.MAX_TEXT + 1)}, {"type": "text", "text": 5}]
+        # JSON lists and objects are unhashable: they must be refused, not raise TypeError (a 500).
+        bad += [{"type": []}, {"type": {}}, {"type": "mouse", "action": [], "x": 1, "y": 1}, {"type": "mouse", "action": {}, "x": 1, "y": 1},
+                {"type": "mouse", "action": "down", "button": [], "x": 1, "y": 1}, {"type": "mouse", "action": "down", "button": {}, "x": 1, "y": 1},
+                {"type": "key", "action": [], "key": "a"}, {"type": "key", "action": {}, "key": "a"}]
         for event in bad:
             with self.subTest(event=event), self.assertRaises(DomainError) as refused:
                 live.command(event)
@@ -219,12 +263,28 @@ class BrowserTest(unittest.TestCase):
     def test_the_port_is_the_one_of_the_browser_the_agent_uses_and_only_for_an_agent_with_a_browser(self):
         runtime = SimpleNamespace()
         with mock.patch.object(setup, "targets", return_value=("owner", [{"agent_id": AGENT}])), \
-                mock.patch.object(sign_in, "_meta", return_value={"managed": {"port": 20417}}) as meta:
+                mock.patch.object(sign_in, "_meta", return_value={"managed": {"port": 20417}}) as meta, \
+                mock.patch.object(sign_in, "_state", return_value=Path("/state", AGENT)), \
+                mock.patch.object(agent_browsers, "meta_valid", return_value=True), \
+                mock.patch.object(agent_browsers, "supervisor_state", return_value={"state": "ready"}):
             self.assertEqual(live.port(runtime, AGENT), 20417)
             meta.assert_called_once_with(runtime, AGENT)
             with self.assertRaises(DomainError) as refused:
                 live.port(runtime, "22222222-2222-4222-8222-222222222222")
             self.assertEqual(refused.exception.code, "not_found")
+
+    def test_the_port_is_given_out_only_while_the_supervisor_says_that_chrome_owns_it(self):
+        # The recorded port is a claim: after a crash another program may hold it, and the owner's input would go there.
+        runtime = SimpleNamespace()
+        for state, valid in (("stopped", True), ("starting", True), ("unverified", True), ("failed", True), ("ready", False)):
+            with self.subTest(state=state, valid=valid), mock.patch.object(setup, "targets", return_value=("owner", [{"agent_id": AGENT}])), \
+                    mock.patch.object(sign_in, "_meta", return_value={"managed": {"port": 20417}}), \
+                    mock.patch.object(sign_in, "_state", return_value=Path("/state", AGENT)), \
+                    mock.patch.object(agent_browsers, "meta_valid", return_value=valid), \
+                    mock.patch.object(agent_browsers, "supervisor_state", return_value={"state": state}), \
+                    self.assertRaises(DomainError) as refused:
+                live.port(runtime, AGENT)
+            self.assertEqual(refused.exception.code, "browser_not_ready")
 
     def opened(self, url, wake=None):
         """Open a view on a tab at ``url``; returns what the view was created with and which tabs were loaded again."""
@@ -378,6 +438,57 @@ class RouteTest(unittest.TestCase):
                 group.cancel_scope.cancel()
         anyio.run(run)
         self.assertEqual(self.closed, [True])
+
+    def test_a_request_from_another_site_is_refused_on_every_path_and_one_from_the_dashboard_is_not(self):
+        for tail in ([], ["stream"], ["input"]):
+            for site in ("cross-site", "same-site", "none"):
+                with self.subTest(tail=tail, site=site), self.assertRaises(DomainError) as refused:
+                    self.call(Request("POST" if tail == ["input"] else "GET", query={"tab": TAB}, headers={"sec-fetch-site": site}), tail)
+                self.assertEqual(refused.exception.code, "csrf_required")
+        self.assertEqual(self.call(Request(headers={"sec-fetch-site": "same-origin"}), [])["data"]["agent_id"], AGENT)
+
+    def test_nothing_is_opened_until_the_stream_starts_so_a_request_cancelled_before_that_leaks_nothing(self):
+        import anyio
+        opened = []
+        def opening(*_args):
+            opened.append(True)
+            return self.view, 20400
+        async def run():
+            with mock.patch.object(live, "open_view", opening):
+                await self.route(self.api, Request(query={"tab": TAB}), self.owner, AGENT, ["stream"], "request-1")
+        anyio.run(run)
+        self.assertEqual(opened, [])
+
+    def test_a_stream_cancelled_while_its_view_is_being_opened_still_closes_that_view(self):
+        import anyio, threading
+        release, entered = threading.Event(), threading.Event()
+        def slow_open(*_args):
+            entered.set()
+            release.wait(5)
+            return self.view, 20400
+        async def run():
+            response = await self.route(self.api, Request(query={"tab": TAB}), self.owner, AGENT, ["stream"], "request-1")
+            async def read():
+                async for _chunk in response.body_iterator:
+                    pass
+            async with anyio.create_task_group() as group:
+                group.start_soon(read)
+                while not entered.is_set():
+                    await anyio.sleep(0.01)
+                group.cancel_scope.cancel()
+                threading.Timer(0.2, release.set).start()
+        with mock.patch.object(live, "open_view", slow_open):
+            anyio.run(run)
+        self.assertEqual(self.closed, [True])
+
+    def test_a_view_that_cannot_be_opened_is_refused_in_the_streams_own_words(self):
+        def full(*_args):
+            raise DomainError("busy", "Too many browser views are open.")
+        with mock.patch.object(live, "open_view", full):
+            chunks = self.call(Request(query={"tab": TAB}), ["stream"])
+        self.assertEqual(self.names(chunks), ["event: refused"])
+        self.assertEqual(json.loads(chunks[0].split("data: ", 1)[1]), {"code": "busy", "message": "Too many browser views are open."})
+        self.assertEqual(self.closed, [])
 
     def test_input_goes_to_the_named_view_of_this_agent(self):
         sent = []

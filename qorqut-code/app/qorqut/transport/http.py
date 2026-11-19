@@ -972,6 +972,8 @@ class HTTPAPI:
             owner = uow.repository("installation").get("service")
         if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
             raise DomainError("forbidden", "Only the installation owner can watch an agent's browser")
+        if request.headers.get("sec-fetch-site") not in (None, "same-origin"):      # as the change feed: only this dashboard
+            raise DomainError("csrf_required", "The live browser view must originate in this dashboard")
         if not tail and request.method == "GET":
             def listing():
                 return {"agent_id": agent_id, "tabs": live.tabs(live.port(self.runtime, agent_id))}
@@ -986,7 +988,6 @@ class HTTPAPI:
         if tail != ["stream"] or request.method != "GET":
             raise DomainError("not_found", "Live browser endpoint is not registered")
         tab = request.query_params.get("tab")
-        view, port = await anyio.to_thread.run_sync(live.open_view, self.runtime, agent_id, tab)
 
         def event(name, data):
             return f"event: {name}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
@@ -995,6 +996,17 @@ class HTTPAPI:
             # Its own limiter: this holds one thread for the stream's whole life (see the change feed above).
             limiter = anyio.CapacityLimiter(1)
             listed, checked_at, sent_at = None, 0.0, time.monotonic()
+            # Opened here, not before the response: a generator that never starts never runs its ``finally``, so a request
+            # cancelled between the two leaked the view. Shielded, so the view that was opened is always the one closed below.
+            view, refusal = None, None
+            with anyio.CancelScope(shield=True):
+                try:
+                    view, port = await anyio.to_thread.run_sync(live.open_view, self.runtime, agent_id, tab)
+                except DomainError as error:
+                    refusal = error
+            if refusal is not None:
+                yield event("refused", {"code": refusal.code, "message": refusal.message})
+                return
             try:
                 yield event("open", {"view": view.id, "tab": tab})
                 while not await request.is_disconnected():

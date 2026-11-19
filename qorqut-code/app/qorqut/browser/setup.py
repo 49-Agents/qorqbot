@@ -84,7 +84,13 @@ def view(runtime):
     except (browser.BrowserError, OSError, ValueError):
         tool = False
     from . import sign_in
+    from .agent_browsers import membership_damaged
     for agent in agents:
+        if membership_damaged(runtime.paths, agent["agent_id"]):
+            # Not a dead end: choosing a browser in Settings replaces the damaged record (``use_own`` and ``use_shared`` both do).
+            agent.update({"state": "unavailable", "browser": "damaged", "diagnostic": "The saved browser choice is damaged.",
+                          "explanation": "This agent's saved browser choice is damaged. Choose its browser below to set it again."})
+            continue
         if sign_in.active(agent["agent_id"]):
             agent.update({"state": "signing_in", "diagnostic": "", "explanation": "Paused while you sign in. It comes back when you close the Chrome window."})
             continue
@@ -139,7 +145,7 @@ def prepare_chrome(runtime, backoff=None, clock=time.monotonic):
         else:
             _wait_longer(backoff, CHROME_BACKOFF, clock)
 
-    managed_chrome.start(runtime.paths.runtime, finished)
+    managed_chrome.start(runtime.paths.runtime, finished, automatic=backoff is not None)
 
 
 def ensure_all(runtime, backoff=None, clock=time.monotonic):

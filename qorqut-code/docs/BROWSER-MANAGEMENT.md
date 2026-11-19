@@ -74,7 +74,7 @@ refused; a worker with an `allow` override is still refused, and an explicit `de
 
 Ownership (`meta.json`) is written before launch, so a timeout can never lead to a second browser. A random listener on the
 reserved port is never adopted; processes are signalled only by their recorded identity, never by port, name or unverified PID.
-Chrome's profile lock files are never removed. A worker's own browser commands re-check the managed identity under the use lock,
+The supervisor (and the owner's sign-in window) asks Chrome to close itself over DevTools before terminating it, but only when the Chrome it launched owns the port's listener; anything else answering there is left alone. Chrome's profile lock files are never removed. A worker's own browser commands re-check the managed identity under the use lock,
 so a worker never talks to a foreign process that took over a dead browser's port; it gets `browser_not_ready` pointing to
 Ordubashy. After a host reboot (or any other loss) `status` reports `stopped` and `repair`/`ensure` starts the same profile
 again. `stop` ends exactly that supervisor (and, only if it ignored the stop, exactly its derived unit).
@@ -95,6 +95,16 @@ An agent uses its own browser (the default) or the installation's one **Shared b
 * `use_shared` starts the Shared browser when needed, stops the agent's own browser and leaves its profile and sign-ins on
   disk. `use_own` removes the choice, starts the agent's own browser again (creating one if it never had one) and stops the
   Shared browser when no agent uses it any more. Its profile stays.
+* **Either action repairs.** Each ends in the same state from whatever step an interrupted move stopped at (choice recorded but
+  target file not yet written, target removed but choice kept, choice removed but the Shared browser still running). A damaged
+  `shared.json` is replaced by both, not trusted: until then `status` and the other actions answer
+  `browser_metadata_invalid`, and Settings shows the agent's menu empty ("Choose…") with an explanation. `use_own` checks the
+  agent's own ownership record first, so an unreadable record stops it before anything is removed. A `shared.json` that is a
+  symbolic link is still refused and never written through.
+* A browser command reads its target file with the browser's use lock held, so a switch between own and Shared cannot run it
+  against the browser the agent has just left.
+* A website sign-in belongs to the browser it was started on. If the agent is switched while the window is open, the site is
+  recorded in that browser's list and its session cookies are not copied into the browser the agent uses now.
 * For an agent on the Shared browser, `status`, `ensure`, `repair`, `restart` and `stop` act on the Shared browser, so they
   affect every agent on it. Results carry `"browser": "shared"` (otherwise `"own"`).
 * **No fallback.** When the Shared browser is stopped or broken, the agent's commands fail with `browser_not_ready`. Nothing
@@ -113,7 +123,7 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
 | Route under `/api/root/agents/<agent UUID>/browser-live` | Does |
 | --- | --- |
 | `GET` | Lists the browser's open pages (`id`, `title`, `url`). |
-| `GET /stream?tab=<id>` | Server-sent events: `open` (the view's id), `tabs`, `frame` (a JPEG and the page's size in CSS pixels, at most 20 a second), `closed`. |
+| `GET /stream?tab=<id>` | Server-sent events: `open` (the view's id), `tabs`, `frame` (a JPEG and the page's size in CSS pixels, at most 20 a second), `closed`, or `refused` (`code`, `message`) when the view could not be opened. |
 | `POST /input` | `{"view": ..., "events": [...]}`: pointer, wheel, key and inserted-text events for that view's tab. |
 
 * It uses Chrome's DevTools port directly, never `agent-browser`: it opens no tab, holds no lock and does not pause the
@@ -123,6 +133,18 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
 * For an agent on the Shared browser the list shows every tab of the Shared browser. The view does not know which tab
   belongs to which agent.
 * A stream ends when its tab closes or the connection drops; the dashboard does not reconnect by itself.
+* The port is handed out only while the browser's supervisor reports `ready` (the exact supervised Chrome owns it); otherwise the
+  route answers `browser_not_ready`. All three routes refuse a request that is not from this dashboard (`Sec-Fetch-Site` other
+  than `same-origin`), as the change feed does.
+* At most 4 views of one agent and 16 in all are open at once; another is refused with `busy` ("Too many browser views are
+  open…") and nothing already open is closed. The view is opened when the stream starts, and opening and closing are one unit, so
+  a request cancelled early leaves nothing behind.
+* Pictures arriving faster than 20 a second are acknowledged and only the newest is kept; it is shown when the interval has
+  passed, so a page that stands still never leaves a stale picture.
+* In the dashboard: a double or triple click is counted by the dashboard (browsers report no count on pointer events); AltGr
+  characters are typed rather than sent as Ctrl+Alt; the wheel is forwarded only over the picture once it is live; Escape pressed
+  twice within 0.6 s leaves the picture so Tab moves on (the first Escape still reaches the page; the hint is in the note above
+  the picture). If finding the agent's configured viewer fails, the error is shown, not the live view.
 * Watching is use: a tab with an open view is not [unloaded as idle](#idle-tabs-and-cookie-banners), and opening a view
   on an unloaded tab loads its page again without waiting for it, so the owner sees it load.
 * The visible sign-in window stays for what a picture cannot do: file pickers, passkeys, downloads.
@@ -153,6 +175,13 @@ installed Google Chrome is not required (`qorqut/browser/managed_chrome.py`).
   system libraries, and Ubuntu 23.10 or later, where AppArmor denies user namespaces to programs outside the system
   folders, so the downloaded build reports `No usable sandbox!` while `/usr/bin/google-chrome-stable` works.
   `--no-sandbox` is never added.
+* **A build is never removed while a record points into it.** Replacing a damaged build of the pinned version and removing a
+  superseded one both leave any build that a browser's ownership record points into (`current` counts as the build it links to);
+  an unreadable record leaves everything. A damaged build in that situation is replaced once no record points into it.
+* **A computer that cannot start it is not asked every hour.** When the start check fails because of a denied sandbox or missing
+  system libraries, `chrome/start-failed.json` records it for this pin and the automatic loop repeats the explanation without
+  starting Chrome. Retry setup and a new pin check again; a failure that may pass by itself (not starting for another reason) is
+  not recorded.
 * **No automatic update.** Chrome for Testing does not update itself. The version changes only with the pin; a browser
   moves to a new pin the next time it starts, and a superseded build is deleted once no process runs from it.
 * **Differences from Google Chrome.** In a visible window (owner sign-in) it shows a banner that it is for automated
@@ -194,7 +223,10 @@ need no instruction for either.
 * **Many unloaded tabs.** A command of a session that has no tab yet (own browser only) loads every unloaded tab again,
   and waits 15 seconds at most for all of them together.
 * **Cookie banners.** A banner is refused when it offers a refusal; it is never accepted, and a page without a refusal
-  control is left alone.
+  control is left alone. The refusal must sit in a box named after a known consent tool (small), or in a box that floats
+  (fixed, sticky, dialog), is small and talks about cookies or consent; a name such as `cookie-settings` or `gdpr` is not
+  evidence on its own, so an admin page's "Reject" button is not clicked. A refusal drawn as a link to another address is
+  not followed.
 * A browser gets both when it next starts. The supervisor's log (the unit's journal; `supervisor.log` in a folder
   installation) says once that both run, or once why they do not (its Python cannot import `websockets`), and the first
   failure of each afterwards.

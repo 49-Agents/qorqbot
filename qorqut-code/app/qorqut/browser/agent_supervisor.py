@@ -152,9 +152,14 @@ def _responds(port: int) -> bool:
         return False
 
 
-def request_close(port: int, timeout: float = 2) -> bool:
-    """Ask the Chrome on this loopback DevTools port to close itself; True when the request was delivered."""
+def request_close(port: int, timeout: float = 2, pid: int | None = None) -> bool:
+    """Ask the Chrome on this loopback DevTools port to close itself; True when the request was delivered.
+
+    With ``pid``, the process that launched it, only a listener that process owns is asked: after a crash another program
+    may hold the port, and ``Browser.close`` would end that one."""
     try:
+        if pid is not None and not owns_listener(pid, port, "127.0.0.1"):
+            return False
         with build_opener(ProxyHandler({})).open(f"http://127.0.0.1:{port}/json/version", timeout=timeout) as response:
             identity = json.load(response)["webSocketDebuggerUrl"].rsplit("/", 1)[1]
         from websockets.sync.client import connect
@@ -173,7 +178,7 @@ def stop_child(child: subprocess.Popen, port: int | None = None) -> None:
     With its DevTools ``port`` Chrome is first asked to close itself. A terminated headless Chrome exits at once and drops
     what it has not written yet: a cookie set in its last half minute, so a sign-in made just before a stop or restart was
     lost. Closing writes the profile first (measured with Chrome 153)."""
-    if child.poll() is None and port is not None and request_close(port):
+    if child.poll() is None and port is not None and request_close(port, pid=child.pid):
         try:
             child.wait(timeout=5)
         except subprocess.TimeoutExpired:

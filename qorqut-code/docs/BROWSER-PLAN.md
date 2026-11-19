@@ -307,6 +307,29 @@ sign-in in Chrome for Testing, a real supervisor on the managed build, a pin cha
 Decided: no AppArmor step (decision 15). Still open: how often the pin is bumped (there is no automatic update); whether
 browsers restart at a pin change.
 
+## Review fixes (2026-11-19)
+
+An independent review of the live view, idle tabs, cookie banners, Shared browser and managed Chrome found defects; all
+are fixed with unit tests that fail without the fix.
+
+- The live view hands out a browser's port only while its supervisor reports ready, refuses requests that are not from
+  this dashboard, caps open views at 4 per agent and 16 in all with a plain refusal, opens each view inside its own
+  stream so a cancelled request leaks nothing, and refuses malformed input with a validation error.
+- The live view keeps the newest frame of a burst and shows it once the 20-a-second interval has passed; the dashboard
+  counts double and triple clicks itself, types AltGr characters, forwards the wheel only once live, and lets Escape
+  pressed twice leave the picture.
+- The supervisor and the sign-in window ask Chrome to close over DevTools only when the Chrome they launched owns the
+  listener.
+- Cookie banners are refused only inside a small box named after a known consent tool, or a small floating box that
+  talks about consent; a generic name such as cookie-settings is not evidence, and a refusal link that leaves the page
+  is not followed.
+- `use_own` and `use_shared` reach the same consistent state from any interrupted move and replace a damaged
+  `shared.json`; a website sign-in stays with the browser it started on; a browser command reads its target under the
+  use lock; Settings ignores a status read that returns while a choice is saved.
+- Qorqbot's own Chrome is never replaced or removed while a browser's ownership record points into it, and a build that
+  cannot start here because of a denied sandbox or missing libraries is not retried by the automatic loop until the pin
+  changes or the owner presses Retry setup.
+
 ## Not in this plan
 
 Tab lock, named profiles, proxies, an embedded (in-app) browser, the standalone app, managed CLI install and the headless

@@ -20,9 +20,9 @@ class Chrome:
     def poll(self):
         return None if self.running else 0
 
-    def close(self, port, timeout=2):
+    def close(self, port, timeout=2, pid=None):
         """What ``request_close`` does to a Chrome that answers."""
-        self.asked.append(port)
+        self.asked.append((port, pid))
         self.running = not self.closes
         return True
 
@@ -45,18 +45,18 @@ class StopChildTest(unittest.TestCase):
     def test_chrome_is_asked_to_close_itself_and_is_not_terminated_when_it_does(self):
         chrome = Chrome()
         self.stop(chrome, 20400)
-        self.assertEqual(chrome.asked, [20400])
+        self.assertEqual(chrome.asked, [(20400, chrome.pid)])      # asked on behalf of its own process
         self.assertFalse(chrome.terminated)
 
     def test_a_chrome_that_does_not_answer_is_terminated(self):
         chrome = Chrome()
-        self.stop(chrome, 20400, request=lambda _port: False)
+        self.stop(chrome, 20400, request=lambda _port, pid=None: False)
         self.assertTrue(chrome.terminated)
 
     def test_a_chrome_that_keeps_running_after_the_request_is_terminated(self):
         chrome = Chrome(closes=False)
         self.stop(chrome, 20400)
-        self.assertEqual(chrome.asked, [20400])
+        self.assertEqual(chrome.asked, [(20400, chrome.pid)])      # asked on behalf of its own process
         self.assertTrue(chrome.terminated)
 
     def test_without_a_port_chrome_is_terminated_as_before(self):
@@ -97,6 +97,22 @@ class RequestCloseTest(unittest.TestCase):
         port, received = self.serve(lambda _port: {"webSocketDebuggerUrl": "ws://203.0.113.9:1/devtools/browser/abc-123"})
         self.assertTrue(supervisor.request_close(port))
         self.assertEqual(received[0][0], "/devtools/browser/abc-123")
+
+    def test_a_listener_the_launched_chrome_does_not_own_is_never_asked_to_close(self):
+        port, received = self.serve(lambda port: {"webSocketDebuggerUrl": f"ws://127.0.0.1:{port}/devtools/browser/abc-123"})
+        with mock.patch.object(supervisor, "owns_listener", return_value=False) as owner:
+            self.assertFalse(supervisor.request_close(port, pid=4242))
+        owner.assert_called_once_with(4242, port, "127.0.0.1")
+        self.assertEqual(received, [])                                    # another program held the port: it got nothing
+        with mock.patch.object(supervisor, "owns_listener", return_value=True):
+            self.assertTrue(supervisor.request_close(port, pid=4242))
+        self.assertEqual(len(received), 1)
+
+    def test_a_process_that_cannot_be_inspected_is_not_taken_for_the_owner(self):
+        port, received = self.serve(lambda port: {"webSocketDebuggerUrl": f"ws://127.0.0.1:{port}/devtools/browser/abc-123"})
+        with mock.patch.object(supervisor, "owns_listener", side_effect=FileNotFoundError("gone")):
+            self.assertFalse(supervisor.request_close(port, pid=4242))
+        self.assertEqual(received, [])
 
     def test_nothing_listening_is_reported_not_raised(self):
         with supervisor.socket.socket() as free:

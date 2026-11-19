@@ -98,6 +98,116 @@ test('keys, shortcuts, paste and the wheel reach the page', skip, async () => {
   } finally { await browser.close(); }
 });
 
+async function live(browser) {
+  const page = await mounted(browser);
+  await page.locator('[data-live-screen]').waitFor();
+  await page.evaluate(jpeg => { window.sources[0].emit('open', {view: 'view-1'}); window.sources[0].emit('frame', {data: jpeg, width: 640, height: 400}); }, JPEG);
+  return page;
+}
+
+test('a double and a triple click reach the page as clicks two and three, and a slow or distant click starts over', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await live(browser);
+    const box = await page.locator('[data-live-screen]').boundingBox();
+    for (let i = 0; i < 4; i++) await page.mouse.click(box.x + 40, box.y + 40);       // down, up x4 within the interval
+    await page.mouse.click(box.x + 200, box.y + 200);                                 // far from the last: a first click again
+    await settle(page);
+    const presses = (await events(page)).filter(item => item.action === 'down' || item.action === 'up');
+    assert.deepEqual(presses.filter(item => item.action === 'down').map(item => item.clicks), [1, 2, 3, 1, 1]);
+    assert.deepEqual(presses.filter(item => item.action === 'up').map(item => item.clicks), [1, 2, 3, 1, 1], 'a release repeats its press count');
+    const counter = await page.evaluate(() => { const count = agliveClickCounter(); const at = (button, timeStamp) => count({button, timeStamp, clientX: 5, clientY: 5});
+      return [at(0, 1000), at(2, 1100), at(2, 1200), at(2, 1900)]; });
+    assert.deepEqual(counter, [1, 1, 2, 1], 'another button or a pause starts over');
+  } finally { await browser.close(); }
+});
+
+test('AltGr characters are typed, not sent as Ctrl+Alt shortcuts', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await live(browser);
+    const sent = await page.evaluate(() => {
+      const event = (key, extra) => ({key, code: 'KeyQ', keyCode: 81, ctrlKey: true, altKey: true, metaKey: false, shiftKey: false, getModifierState: name => name === 'AltGraph', ...extra});
+      return [agliveKey(event('@'), 'down'), agliveKey(event('q', {getModifierState: () => false}), 'down'), agliveKey(event('q', {altKey: false, getModifierState: () => false}), 'down')];
+    });
+    assert.deepEqual(sent.map(item => [item.text, item.modifiers]), [['@', 0], ['', 3], ['', 2]]);
+  } finally { await browser.close(); }
+});
+
+test('Escape pressed twice quickly leaves the picture, so Tab is the dashboard’s again', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await live(browser);
+    const screen = page.locator('[data-live-screen]');
+    assert.match(await page.locator('.aglive-note').innerText(), /Esc twice/);
+    await screen.focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('[data-live-screen]')), true, 'Tab goes to the page');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('[data-live-screen]')), true, 'one Escape stays');
+    await page.waitForTimeout(700);                                                  // longer than the double-press window
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('[data-live-screen]')), true, 'a slow second Escape is a first one');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('[data-live-screen]')), false);
+    await settle(page);
+    const escapes = (await events(page)).filter(item => item.key === 'Escape' && item.action === 'down');
+    assert.equal(escapes.length, 2, 'the Escape that leaves is not sent to the page');
+  } finally { await browser.close(); }
+});
+
+test('the wheel is the dashboard’s until the picture is live, and then only over the picture', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await mounted(browser);
+    await page.locator('[data-live-screen]').waitFor();
+    const prevented = () => page.evaluate(() => {
+      const event = new WheelEvent('wheel', {deltaY: 100, bubbles: true, cancelable: true});
+      document.querySelector('[data-live-screen]').dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    assert.equal(await prevented(), false, 'before the stream is open');
+    await page.evaluate(jpeg => { window.sources[0].emit('open', {view: 'view-1'}); window.sources[0].emit('frame', {data: jpeg, width: 640, height: 400}); }, JPEG);
+    assert.equal(await prevented(), true);
+    const outside = await page.evaluate(() => { const event = new WheelEvent('wheel', {deltaY: 100, bubbles: true, cancelable: true}); document.querySelector('.agbrowser-bar').dispatchEvent(event); return event.defaultPrevented; });
+    assert.equal(outside, false);
+  } finally { await browser.close(); }
+});
+
+test('a view the server refuses says why instead of staying blank', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await mounted(browser);
+    await page.locator('[data-live-screen]').waitFor();
+    await page.evaluate(() => window.sources[0].emit('refused', {code: 'busy', message: 'Too many browser views are open.'}));
+    await page.getByRole('alert').getByText('Too many browser views are open.').waitFor();
+    assert.equal(await page.evaluate(() => window.sources[0].closed), true);
+  } finally { await browser.close(); }
+});
+
+test('when finding the agent’s viewer fails, the error is shown and the live view does not replace it', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    for (const failing of [true, false]) {
+      const page = await browser.newPage();
+      await page.setContent('<div id="agpad-body"></div>');
+      await page.evaluate(failing => {
+        window.$ = (selector, root = document) => root.querySelector(selector);
+        window.esc = value => String(value ?? '');
+        window.agpadActive = () => true;
+        window.live = [];
+        window.agliveMount = (...args) => window.live.push(args[0]);
+        window.api = async () => { if (failing) throw new Error('The service is restarting'); return {agent_id: 'agent-1', configured: false, browsers: [], desktop: null}; };
+      }, failing);
+      await page.addScriptTag({path: path.join(__dirname, '../js/agent-browser.js')});
+      await page.evaluate(() => agbrowserMount({agentId: 'agent-1', workspaceScope: 'global', workspaceRole: 'global-worker', view: 'browser', el: document.body}));
+      await page.waitForFunction(() => window.live.length > 0 || document.querySelector('[role="alert"]'), null, {timeout: 3000});
+      assert.deepEqual(await page.evaluate(() => window.live), failing ? [] : ['agent-1']);
+      if (failing) assert.match(await page.locator('[role="alert"]').innerText(), /Couldn't load/);
+    }
+  } finally { await browser.close(); }
+});
+
 test('many pointer moves become few, and the click after them still arrives in order', skip, async () => {
   const browser = await chromium.launch({headless: true});
   try {

@@ -6,9 +6,11 @@
 // What it clicks, and why it is safe to click:
 //   * only a visible button or link whose WHOLE label is a refusal ("Reject all", "Nur notwendige", ...). Labels are
 //     matched from start to end, so "Accept all", "Accept or reject" and "Reject changes to the draft" never match;
-//   * only inside a cookie banner: a box named like one (id or class), or a box that floats over the page (fixed, sticky,
-//     dialog) and explains cookies in a sentence, and is small. A "Decline" button anywhere else is left alone, as is a
-//     page that merely links to its cookie policy;
+//   * only inside a cookie banner: a box named after a known consent tool (OneTrust, Didomi, Usercentrics, ...) and small,
+//     or a box that floats over the page (fixed, sticky, dialog), is small and talks about cookies or consent. A name
+//     like "cookie-settings" is not evidence on its own: an admin page's "cookie-settings" section with a "Reject"
+//     button is a form, not a banner. A "Decline" button anywhere else is left alone, as is a page that merely links to
+//     its cookie policy. A refusal that is a link leaving the page is never followed;
 //   * when the banner has no refusal but offers settings, it opens them once and refuses there if a refusal shows up.
 //     Only a floating banner's own settings button counts, never a link that leaves the page. It never saves or
 //     confirms a selection: that could keep switches that are on.
@@ -31,7 +33,11 @@
   const LABEL_LIMIT = 60;
 
   const COOKIE = /cookie|çerez|куки|ciastecz|informasjonskaps|evästei|kakor\b|kolačić|sušenk|süti/i;
-  const NAMED = /cookie|gdpr|onetrust|ot-sdk|didomi|usercentrics|cybot|truste|trustarc|sp_message|qc-cmp|fc-consent|iubenda|klaro|osano|cmplz|complianz|borlabs|cky-|consent-(banner|bar|modal|popup|dialog|manager|layer)|privacy-(banner|bar|popup)|cc-(window|banner)/i;
+  // Names of consent tools: specific enough to count on their own. Names a site may give any section ("cookie-settings",
+  // "gdpr") only say where to look, and a box with one must also float and talk about consent.
+  const VENDOR = /onetrust|ot-sdk|didomi|usercentrics|cybot|truste(?![a-z])|trustarc|sp_message|qc-cmp|fc-consent|iubenda|klaro|osano|cmplz|complianz|borlabs|cky-/i;
+  const NAMED = /cookie|gdpr|consent-(banner|bar|modal|popup|dialog|manager|layer)|privacy-(banner|bar|popup)|cc-(window|banner)/i;
+  const CONSENT_WORDING = /cookie|consent|privacy|gdpr|tracking|çerez|куки|ciastecz|einwilligung|datenschutz/i;
   const CONTROLS = 'button, a, [role="button"], input[type="button"], input[type="submit"]';
 
   // Whole-label patterns. Labels arrive lower-cased with punctuation turned into single spaces.
@@ -118,18 +124,21 @@
     return position === 'fixed' || position === 'sticky';
   };
 
-  // Is this control part of a cookie banner? A box named like one counts only when ``named`` allows it. ``opened`` says we
-  // opened the banner's settings ourselves, so the box may be a long list of purposes and partners.
+  // Is this control part of a cookie banner? A named box counts only when ``named`` allows it. ``opened`` says we opened the
+  // banner's settings ourselves, so the box may be a long list of purposes and partners.
   const inBanner = (control, named, opened) => {
     for (let box = above(control); box && box !== document.body && box !== document.documentElement; box = above(box)) {
-      if (named && NAMED.test(box.id + ' ' + (box.getAttribute('class') || ''))) return true;
+      const name = box.id + ' ' + (box.getAttribute('class') || '');
+      if (named && VENDOR.test(name) && (opened || small(box))) return true;
+      if (named && NAMED.test(name) && floats(box) && (opened || small(box)) && CONSENT_WORDING.test(within(box).textContent)) return true;
       if (floats(box) && explainsCookies(box) && (opened || small(box))) return true;
     }
     // Some consent tools put the banner in a frame of its own: there the whole document is the banner.
     return window !== window.top && explainsCookies(document.body) && (opened || small(document.body));
   };
 
-  // A link that leaves the page. A footer's "Cookie settings" is one, and following it would take the agent's page away.
+  // A link that leaves the page. A footer's "Cookie settings" is one, and following it would take the agent's page away;
+  // so would a refusal drawn as a link to another address.
   const leaves = (control) => control.tagName === 'A' && control.hasAttribute('href')
     && !/^(#|javascript:)/i.test(control.getAttribute('href').trim());
 
@@ -138,7 +147,7 @@
   const look = () => {
     if (finished || !document.body) return;
     const candidates = controls(document).filter(shown).map((control) => [control, label(control)]);
-    const reject = candidates.find(([control, text]) => matches(REJECT, text) && inBanner(control, true, opened));
+    const reject = candidates.find(([control, text]) => matches(REJECT, text) && !leaves(control) && inBanner(control, true, opened));
     if (reject) {
       finished = true;
       reject[0].click();

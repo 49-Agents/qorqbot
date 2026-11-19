@@ -165,6 +165,9 @@ const connectorsPanel = (() => {
       </section>`;
     container.appendChild(root);
     let view = null, browserView = null, browserTimer = 0, browserChecks = 0, choiceHtml = '';
+    // A status read that was already on its way, or returns while a choice is being saved, still shows the browser from before the
+    // choice; it must not replace the answer to the choice or redraw the old value in the menu.
+    let choosing = false, browserEpoch = 0;
     let accountsView = null, accountsTimer = 0;
     const BROWSER_CHOICES = {own: 'Own browser', shared: 'Shared browser'};
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
@@ -229,7 +232,7 @@ const connectorsPanel = (() => {
         !browserView.chrome_installed ? ownChrome.explanation || 'Agents need Google Chrome to browse, and it isn’t installed on this computer. Install it from google.com/chrome, then press Retry setup.' :
         problems.join(' ') || 'Preparing agent browsers…';
       retry.hidden = ready || !browserView.tool_installed;
-      paintChoice(agents.filter(agent => agent.agent_id && BROWSER_CHOICES[agent.browser]));
+      paintChoice(agents.filter(agent => agent.agent_id && (BROWSER_CHOICES[agent.browser] || agent.browser === 'damaged')));
       retry.disabled = downloading || (!browserView.chrome_installed && !ownChrome.state);
       root.dispatchEvent(new CustomEvent('browser-setup-painted', {bubbles: true}));
     }
@@ -239,6 +242,7 @@ const connectorsPanel = (() => {
       section.hidden = !agents.length;
       const html = agents.map(agent => `<div class="cx-row cx-account-row" data-cx-choice-row="${esc(agent.agent_id)}"><div class="cx-row-main"><div class="cx-row-title"><h3>${esc(agent.name)}</h3></div></div>
         <div class="cx-row-action"><select data-cx-choice-agent="${esc(agent.agent_id)}" aria-label="Browser for ${esc(agent.name)}">${
+          agent.browser === 'damaged' ? '<option value="" selected disabled>Choose…</option>' : ''}${
           Object.entries(BROWSER_CHOICES).map(([value, label]) => `<option value="${value}"${value === agent.browser ? ' selected' : ''}>${label}</option>`).join('')}</select></div></div>`).join('');
       if (html !== choiceHtml) list.innerHTML = choiceHtml = html;
     }
@@ -247,11 +251,13 @@ const connectorsPanel = (() => {
       const menus = root.querySelectorAll('[data-cx-choice-agent]');
       problem.hidden = true;
       menus.forEach(menu => { menu.disabled = true; });
+      choosing = true; browserEpoch++;
       try {
         browserView = coreData(await post('/root/browser-setup', {action: 'choose', agent_id: select.dataset.cxChoiceAgent, browser: select.value}));
       } catch (failure) {
         if (live()) { problem.textContent = failure.message || 'The browser could not be switched.'; problem.hidden = false; }
       } finally {
+        choosing = false; browserEpoch++;
         choiceHtml = '';   // rebuild: the menus are enabled again and show the browser each agent really uses
         if (live()) paintBrowser();
       }
@@ -259,9 +265,10 @@ const connectorsPanel = (() => {
     async function loadBrowser(retry = false) {
       const button = root.querySelector('[data-cx-browser-retry]');
       button.disabled = true;
+      const epoch = browserEpoch;
       try {
-        browserView = coreData(retry ? await post('/root/browser-setup', {action: 'retry'}) : await api('/root/browser-setup'));
-        if (live()) paintBrowser();
+        const next = coreData(retry ? await post('/root/browser-setup', {action: 'retry'}) : await api('/root/browser-setup'));
+        if (live() && !choosing && epoch === browserEpoch) { browserView = next; paintBrowser(); }
       } catch (failure) {
         if (live()) root.querySelector('[data-cx-browser-detail]').textContent = failure.message || 'Could not check browser setup.';
       } finally {

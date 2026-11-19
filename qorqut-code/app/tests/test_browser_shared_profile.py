@@ -251,6 +251,109 @@ class RoutingTest(SharedProfileTest):
         self.assertNotIn(str(self.state(ATLAS)), self.launcher.running)
 
 
+class ConvergenceTest(SharedProfileTest):
+    """``use_own`` and ``use_shared`` end in a consistent state from any step an earlier move may have stopped at."""
+
+    def setUp(self):
+        super().setUp()
+        self.manage(ATLAS, "ensure")
+        self.own = self.target(ATLAS)
+        self.manage(ATLAS, "use_shared")
+
+    def damage(self, text="{}"):
+        (self.state(ATLAS) / MEMBERSHIP_FILE).write_text(text)
+
+    def test_a_damaged_choice_is_repaired_by_going_back_to_the_agents_own_browser(self):
+        self.damage()
+        result = self.manage(ATLAS, "use_own")
+        self.assertEqual((result["state"], result["browser"]), ("healthy", "own"))
+        self.assertFalse((self.state(ATLAS) / MEMBERSHIP_FILE).exists())
+        self.assertEqual(self.target(ATLAS), self.own)
+        self.assertIn(str(self.state(ATLAS)), self.launcher.running)
+        self.assertNotIn(str(self.state(SHARED_ID)), self.launcher.running)          # nobody else uses it
+
+    def test_a_damaged_choice_is_repaired_by_choosing_the_shared_browser_again(self):
+        for damaged in ("{}", "not json at all", json.dumps({"schema_version": 1, "agent_id": SCOUT, "browser": "shared"})):
+            with self.subTest(damaged=damaged):
+                self.damage(damaged)
+                result = self.manage(ATLAS, "use_shared")
+                self.assertEqual((result["state"], result["browser"]), ("healthy", "shared"))
+                self.assertTrue(uses_shared(self.paths, ATLAS))
+                self.assertEqual(self.target(ATLAS), shared_target(self.paths))
+
+    def test_a_damaged_choice_of_an_agent_whose_target_is_not_the_shared_one_is_repaired_too(self):
+        self.damage()
+        (self.workspaces[ATLAS] / ".qorqut/browser.json").write_text(json.dumps(self.own))     # the agent's own, stopped browser
+        result = self.manage(ATLAS, "use_shared")
+        self.assertEqual((result["state"], result["browser"]), ("healthy", "shared"))
+        self.assertEqual(self.target(ATLAS), shared_target(self.paths))
+
+    def test_a_choice_record_that_is_a_symbolic_link_is_still_refused_and_nothing_is_written_through_it(self):
+        record = self.state(ATLAS) / MEMBERSHIP_FILE
+        record.unlink()
+        elsewhere = self.root / "elsewhere"
+        elsewhere.write_text("keep")
+        record.symlink_to(elsewhere)
+        for action in ("use_own", "use_shared"):
+            with self.subTest(action=action), self.assertRaises(DomainError) as refused:
+                self.manage(ATLAS, action)
+            self.assertEqual(refused.exception.code, "browser_metadata_invalid")
+        self.assertEqual(elsewhere.read_text(), "keep")
+
+    def test_going_back_after_a_move_that_stopped_before_the_target_was_written_keeps_the_own_target(self):
+        # use_shared recorded the choice and stopped the own browser; the target file still names the own one.
+        (self.workspaces[ATLAS] / ".qorqut/browser.json").write_text(json.dumps(self.own))
+        result = self.manage(ATLAS, "use_own")
+        self.assertEqual((result["state"], result["browser"]), ("healthy", "own"))
+        self.assertEqual(self.target(ATLAS), self.own)
+        self.assertFalse(uses_shared(self.paths, ATLAS))
+        self.assertIn(str(self.state(ATLAS)), self.launcher.running)
+
+    def test_going_back_after_a_move_that_stopped_after_the_target_was_removed(self):
+        (self.workspaces[ATLAS] / ".qorqut/browser.json").unlink()
+        result = self.manage(ATLAS, "use_own")
+        self.assertEqual((result["state"], result["browser"]), ("healthy", "own"))
+        self.assertEqual(self.target(ATLAS), self.own)
+
+    def test_going_back_after_a_move_that_stopped_after_the_choice_was_removed(self):
+        (self.state(ATLAS) / MEMBERSHIP_FILE).unlink()
+        (self.workspaces[ATLAS] / ".qorqut/browser.json").unlink()
+        result = self.manage(ATLAS, "use_own")                       # not a member any more: the rest still happens
+        self.assertEqual((result["state"], result["browser"]), ("healthy", "own"))
+        self.assertNotIn(str(self.state(SHARED_ID)), self.launcher.running)          # and the Shared browser has no one left
+
+    def test_an_unreadable_ownership_record_stops_the_move_back_before_anything_is_removed(self):
+        meta = json.loads((self.state(ATLAS) / "meta.json").read_text())
+        (self.state(ATLAS) / "meta.json").write_text(json.dumps({**meta, "schema_version": 2}))
+        with self.assertRaises(DomainError) as refused:
+            self.manage(ATLAS, "use_own")
+        self.assertEqual(refused.exception.code, "browser_metadata_invalid")
+        self.assertTrue(uses_shared(self.paths, ATLAS))                              # still on the Shared browser, as before
+        self.assertEqual(self.target(ATLAS), shared_target(self.paths))
+        self.assertIn(str(self.state(SHARED_ID)), self.launcher.running)
+
+    def test_the_shared_browser_is_not_created_by_an_agent_that_never_used_it_going_to_its_own(self):
+        self.manage(ATLAS, "use_own")
+        shutil_target = self.state(SHARED_ID)
+        for path in sorted(shutil_target.rglob("*"), reverse=True):
+            path.unlink() if not path.is_dir() else path.rmdir()
+        shutil_target.rmdir()
+        self.manage(SCOUT, "use_own")
+        self.assertFalse(shutil_target.exists())
+
+    def test_settings_shows_a_damaged_choice_as_one_the_owner_can_set_again(self):
+        self.damage()
+        owner = SimpleNamespace(paths=self.paths, browser_manager=self.manager, browser_access=SimpleNamespace(runtime_directory=lambda: RUNTIME_DIR))
+        with mock.patch.object(setup, "targets", return_value=("owner", [{"agent_id": ATLAS, "name": "Atlas", "role": "x"}])), \
+                mock.patch.object(sign_in, "active", return_value=False), \
+                mock.patch.object(setup.managed_chrome, "view", return_value={"state": "ready"}):
+            agent = setup.view(owner)["agents"][0]
+            self.assertEqual((agent["state"], agent["browser"]), ("unavailable", "damaged"))
+            self.assertIn("Choose", agent["explanation"])
+            setup.choose(owner, ATLAS, "shared")
+            self.assertEqual(setup.view(owner)["agents"][0]["browser"], "shared")
+
+
 class CommandTest(SharedProfileTest):
     def setUp(self):
         super().setUp()

@@ -59,9 +59,13 @@ ARCHIVE_URL = "https://storage.googleapis.com/chrome-for-testing-public/{version
 MAC_PROGRAM = "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
 LIMITS = {"archive": 512 << 20, "unpacked": 2 << 30, "members": 10_000, "link": 1024}
 MARKER, CURRENT, CHECK, STAGING, LOCK = "installed.json", "current", ".check", ".staging-", "install.lock"
+START_FAILED = "start-failed.json"
 CHECK_TIMEOUT = 60
 DETAIL = 300
 NOT_STARTING = frozenset({"chrome_libraries_missing", "chrome_sandbox_unavailable", "chrome_not_starting"})
+# Failures that only the owner's own change to this computer fixes. The automatic loop does not look again for them (every
+# attempt starts a Chrome); a new pin, or the owner's Retry setup, does.
+PERMANENT = frozenset({"chrome_libraries_missing", "chrome_sandbox_unavailable"})
 GET_CHROME = "Install Google Chrome from google.com/chrome, then press Retry setup."
 DOWNLOADING = "Qorqbot is downloading its own browser (about 200 MB). This card updates by itself."
 AGAIN = "Qorqbot tries again by itself, or press Retry setup."
@@ -332,6 +336,10 @@ def install(root, platform, download=fetch):
             "program_size": binary.stat().st_size}, indent=2) + "\n")
         os.sync()                                # a published build must not be a folder of files still in memory
         if os.path.lexists(final):               # an incomplete or altered build of this version: set aside, then removed
+            used = _recorded_builds(root)
+            if used is None or final.name in used:
+                raise DomainError("chrome_install_failed", "A browser's ownership record points into the build that would be "
+                                  "replaced, so it was left as it is; it is replaced once no browser uses it")
             os.rename(final, work / "replaced")
         os.rename(build, final)
         return final
@@ -424,12 +432,41 @@ def _running_programs():
         return None
 
 
+def _recorded_builds(root):
+    """The names of the builds a browser's ownership record points into, or None when a record cannot be read (then nothing may
+    be assumed unused). ``current`` counts as the build it links to now. Those builds are never removed, whatever the process
+    list says: a stopped browser starts from that path again."""
+    from .agent_browsers import outside_private_mounts
+    names, selected = set(), _selected(root)
+    bases = {root, Path(os.path.realpath(root)), outside_private_mounts(root)}
+    for record in (root.parent / "agent-browsers").glob("*/meta.json"):
+        try:
+            meta = json.loads(record.read_bytes()[:16384])
+            if meta.get("mode") != "managed":
+                continue
+            chrome = Path(meta["managed"]["chrome"])
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+        for base in bases:
+            try:
+                name = chrome.relative_to(base).parts[0]
+            except (ValueError, IndexError):
+                continue
+            names.add(selected if name == CURRENT else name)
+    names.discard(None)
+    return names
+
+
 def _prune(root, keep):
     """Remove superseded builds that no process runs from. A browser started before the new pin keeps its files until it
     stops; where the running build cannot be told apart (the path goes through ``current``), every old build stays."""
     from .agent_browsers import outside_private_mounts
     old = [entry for entry in root.iterdir() if entry.name != keep and not entry.name.startswith(".")
            and not entry.is_symlink() and entry.is_dir()]
+    recorded = _recorded_builds(root) if old else set()
+    if recorded is None:
+        return
+    old = [entry for entry in old if entry.name not in recorded]
     programs = _running_programs() if old else []
     if programs is None:
         return
@@ -442,11 +479,38 @@ def _prune(root, keep):
             shutil.rmtree(entry, ignore_errors=True)
 
 
-def converge(runtime_directory, *, download=fetch, check=start_check):
+def _known_failure(root):
+    """The permanent start failure recorded for this pin, as a ``DomainError``, or None."""
+    try:
+        record = json.loads((root / START_FAILED).read_bytes()[:4096])
+        if record["version"] == VERSION and record["archive_sha256"] == ARCHIVES.get(platform_key()) and record["code"] in PERMANENT:
+            return DomainError(record["code"], _bound(str(record["detail"])))
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def _record_start(root, failure):
+    """Remember that this pin does not start here (``failure``), or forget it (None) after it did."""
+    try:
+        if failure is not None and failure.code in PERMANENT:
+            (root / START_FAILED).write_text(json.dumps({"version": VERSION, "archive_sha256": ARCHIVES.get(platform_key()),
+                                                         "code": failure.code, "detail": _bound(str(failure))}) + "\n")
+        else:
+            (root / START_FAILED).unlink(missing_ok=True)
+    except OSError:
+        logger.debug("Could not record the Chrome start check", exc_info=True)
+
+
+def converge(runtime_directory, *, download=fetch, check=start_check, automatic=False):
     """Install the pinned build, prove it starts here, and only then make it the one new browsers use.
 
     Raises a ``DomainError`` and leaves whatever was in use before in use: a failed download changes nothing, and a build
-    that does not start stays on disk unselected, so fixing the computer and retrying needs no second download."""
+    that does not start stays on disk unselected, so fixing the computer and retrying needs no second download.
+
+    ``automatic`` is the background loop: where this pin has already failed to start for a reason only the owner can fix (a
+    denied sandbox, missing system libraries), it says so again without starting Chrome each time. The owner's Retry setup, and
+    a new pin, check again."""
     platform = platform_key()
     if platform is None:
         raise DomainError("chrome_unsupported_platform", "No Chrome build is pinned for this type of computer")
@@ -457,8 +521,15 @@ def converge(runtime_directory, *, download=fetch, check=start_check):
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
             raise OSError("the Chrome folder is not a folder of the application user")
         with _install_lock(root):
+            if automatic and (known := _known_failure(root)) is not None:
+                raise known
             build = install(root, platform, download)
-            check(build / program(platform), root / CHECK)
+            try:
+                check(build / program(platform), root / CHECK)
+            except DomainError as failure:
+                _record_start(root, failure)
+                raise
+            _record_start(root, None)
             _select(root, build.name)
             _prune(root, build.name)
     except OSError as error:
@@ -466,11 +537,12 @@ def converge(runtime_directory, *, download=fetch, check=start_check):
     return root / CURRENT / program(platform)
 
 
-def start(runtime_directory, finished=None, *, run=converge):
+def start(runtime_directory, finished=None, *, run=converge, automatic=False):
     """Begin installing the pinned build in the background and return at once. Returns whether a run was started.
 
     Nothing starts when there is nothing to do, when the installation chose its Chrome itself, or while a run is going.
-    ``finished`` is called in the background with the ``DomainError`` of a failed run, or None."""
+    ``finished`` is called in the background with the ``DomainError`` of a failed run, or None. ``automatic`` is the background
+    loop's run (see ``converge``); the owner's explicit retry is not."""
     key = str(chrome_root(runtime_directory))
     if external_choice() or platform_key() is None:
         return False
@@ -485,7 +557,7 @@ def start(runtime_directory, finished=None, *, run=converge):
         def work():
             failure = None
             try:
-                run(runtime_directory)
+                run(runtime_directory, **({"automatic": True} if automatic else {}))
             except DomainError as error:
                 failure = error
             except Exception:

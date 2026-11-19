@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import stat
@@ -198,7 +199,7 @@ class StartsHereTest(ManagedChromeTest):
         with self.assertRaises(DomainError) as raised:
             self.converge(check=self.refuse)
         self.assertEqual(raised.exception.code, "chrome_sandbox_unavailable")
-        self.assertEqual(self.entries(), [f"{mc.VERSION}-linux64", "install.lock"])
+        self.assertEqual(self.entries(), [f"{mc.VERSION}-linux64", "install.lock", mc.START_FAILED])   # and the failure is noted
         self.assertIsNone(mc.current_program(self.runtime))
         self.assertIsNone(mc.preferred(self.runtime))
         self.assertFalse(mc.settled(self.runtime))
@@ -249,6 +250,114 @@ class StartsHereTest(ManagedChromeTest):
         self.assertEqual(os.readlink(self.root / "current"), f"{old}-linux64")
         self.assertEqual(mc.preferred(self.runtime), str(self.root / "current" / TOP / "chrome"))
         self.assertEqual(mc.view(self.runtime)["state"], "ready")
+
+
+class BackOffTest(ManagedChromeTest):
+    """A computer where the build can never start (Ubuntu's denied sandbox) is not asked again every hour."""
+
+    def refuse(self, binary, work):
+        self.checked.append("refused")
+        raise DomainError("chrome_sandbox_unavailable", "Chrome has no usable sandbox here")
+
+    def test_the_automatic_loop_does_not_start_a_build_that_already_failed_for_a_reason_only_the_owner_can_fix(self):
+        with self.assertRaises(DomainError):
+            self.converge(check=self.refuse, automatic=True)                      # the first attempt looks
+        for _ in range(3):
+            with self.assertRaises(DomainError) as again:
+                self.converge(check=self.refuse, automatic=True)
+            self.assertEqual(again.exception.code, "chrome_sandbox_unavailable")
+            self.assertIn("no usable sandbox", str(again.exception))              # the same explanation as the first time
+        self.assertEqual(self.checked, ["refused"])
+        self.assertEqual(len(self.download.urls), 1)
+
+    def test_the_owners_retry_looks_again_and_a_fixed_computer_forgets_the_failure(self):
+        with self.assertRaises(DomainError):
+            self.converge(check=self.refuse, automatic=True)
+        self.converge()                                                           # Retry setup: not automatic, and it starts now
+        self.assertEqual(self.checked[-1], str(self.root / f"{mc.VERSION}-linux64" / TOP / "chrome"))
+        self.assertFalse((self.root / mc.START_FAILED).exists())
+        self.assertIsNotNone(mc.preferred(self.runtime))
+
+    def test_a_new_pin_is_tried_even_where_the_old_one_failed(self):
+        with self.assertRaises(DomainError):
+            self.converge(check=self.refuse, automatic=True)
+        self.pin("200.0.0.1")
+        self.converge(automatic=True)
+        self.assertIn("200.0.0.1", mc.current_program(self.runtime).read_text())
+
+    def test_a_failure_that_may_pass_by_itself_is_not_remembered(self):
+        def hangs(binary, work):
+            self.checked.append("hung")
+            raise DomainError("chrome_not_starting", "Chrome did not start: no page within 60 seconds")
+        for _ in range(2):
+            with self.assertRaises(DomainError):
+                self.converge(check=hangs, automatic=True)
+        self.assertEqual(self.checked, ["hung", "hung"])
+
+    def test_the_background_loop_asks_for_the_automatic_run_and_the_owners_retry_does_not(self):
+        runs = []
+        def run(runtime, **options):
+            runs.append(options)
+        for automatic in (True, False):
+            mc._RUNS.clear()
+            self.assertTrue(mc.start(self.runtime, run=run, automatic=automatic))
+            mc._RUNS[str(self.root)]["thread"].join(10)
+        self.assertEqual(runs, [{"automatic": True}, {}])
+
+    def test_setup_passes_it_on(self):
+        from types import SimpleNamespace
+        from qorqut.browser import setup
+        with mock.patch.object(mc, "start") as start:
+            setup.prepare_chrome(SimpleNamespace(paths=SimpleNamespace(runtime=self.runtime)), backoff={})
+            setup.prepare_chrome(SimpleNamespace(paths=SimpleNamespace(runtime=self.runtime)))
+        self.assertEqual([call.kwargs["automatic"] for call in start.call_args_list], [True, False])
+
+
+class RecordedBuildTest(ManagedChromeTest):
+    """A build that a browser's ownership record points into is never removed."""
+
+    def record(self, name, chrome, mode="managed"):
+        folder = self.runtime / "agent-browsers" / name
+        folder.mkdir(parents=True)
+        meta = {"mode": mode, "managed": {"chrome": str(chrome)}} if mode == "managed" else {"mode": mode, "legacy": {}}
+        (folder / "meta.json").write_text(json.dumps(meta))
+
+    def test_a_build_replaced_because_it_was_altered_is_refused_while_a_browser_is_recorded_on_it(self):
+        self.converge()
+        program = self.root / f"{mc.VERSION}-linux64" / TOP / "chrome"
+        self.record("atlas", self.root / "current" / TOP / "chrome")
+        program.write_text("altered")                                             # not the pinned build any more
+        with self.assertRaises(DomainError) as refused:
+            self.converge()
+        self.assertEqual(refused.exception.code, "chrome_install_failed")
+        self.assertEqual(program.read_text(), "altered", "the files a browser would start from were not touched")
+
+    def test_the_same_build_is_replaced_when_no_browser_is_recorded_on_it(self):
+        self.converge()
+        program = self.root / f"{mc.VERSION}-linux64" / TOP / "chrome"
+        self.record("atlas", "/usr/bin/google-chrome-stable")
+        self.record("operator", "/unused", mode="legacy")
+        program.write_text("altered")
+        self.converge()
+        self.assertEqual(program.read_text(), PAGE)
+
+    def test_an_old_build_a_stopped_browser_is_recorded_on_is_kept(self):
+        self.converge()
+        old = self.root / f"{mc.VERSION}-linux64"
+        self.record("atlas", old / TOP / "chrome")                                # recorded by its versioned path
+        self.pin("200.0.0.1")
+        self.converge()                                                           # nothing runs from the old build
+        self.assertTrue((old / TOP / "chrome").is_file())
+        self.assertEqual(os.readlink(self.root / "current"), "200.0.0.1-linux64")
+
+    def test_nothing_is_removed_when_a_record_cannot_be_read(self):
+        self.converge()
+        old = f"{mc.VERSION}-linux64"
+        self.record("atlas", "/usr/bin/google-chrome-stable")
+        (self.runtime / "agent-browsers/atlas/meta.json").write_text("{damaged")
+        self.pin("200.0.0.1")
+        self.converge()
+        self.assertIn(old, self.entries())
 
 
 class StartCheckTest(unittest.TestCase):

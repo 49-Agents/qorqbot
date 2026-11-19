@@ -123,6 +123,45 @@ class PinnedCommandTest(unittest.TestCase):
         self.assertIn("--pin-tab", self.ran(["click", "e3"], target=supplied, pinned=True))
 
 
+class CommandTargetTest(unittest.TestCase):
+    """A command's target is read with the browser's use lock held, so a switch between own and Shared cannot slip in."""
+
+    def test_the_target_is_read_only_after_the_use_lock_is_taken_and_the_command_runs_inside_it(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        from qorqut.browser.access import BrowserAccess
+        access = BrowserAccess.__new__(BrowserAccess)
+        access.runtime = SimpleNamespace()
+        held, order = [], []
+
+        @contextmanager
+        def use(_self, _key):
+            held.append(True)
+            order.append("lock")
+            try:
+                yield
+            finally:
+                held.pop()
+                order.append("unlock")
+
+        def read(_key, _owner):
+            order.append("read" if held else "read WITHOUT the lock")
+            return {"cdp_endpoint": "http://127.0.0.1:20400", "runtime_dir": "/runtime", "instance": "configured:agent-1", "shared": True}
+
+        def run(*_args, **_options):
+            order.append("run" if held else "run WITHOUT the lock")
+            return 0, "ok", ""
+
+        access._runner = lambda _actor, _command: run
+        access._artifact_root = lambda *_args: Path("/artifacts")
+        access._artifact_handles = lambda *_args: []
+        with mock.patch.object(BrowserAccess, "_worker_target", side_effect=read), mock.patch.object(BrowserAccess, "_managed_use", use), \
+                mock.patch.object(browser, "runtime_executable", return_value=Path("/runtime/agent-browser")):
+            access._native_command(SimpleNamespace(principal=SimpleNamespace(id="agent-1")), {"command": ["click", "e3"]},
+                                   "configured:agent-1", "b0123456789ab")
+        self.assertEqual(order, ["lock", "read", "run", "unlock"])
+
+
 GONE = ("\u2717 tab_gone: bound tab is gone (target 9380C06E0BAAFB3B9EA609B1E1A70588, last url http://shop.example/cart). "
         "Run `agent-browser tab new <url>` to bind a new tab, or `agent-browser tab list` to pick an existing one\n")
 

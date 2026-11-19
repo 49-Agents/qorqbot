@@ -25,10 +25,11 @@ FRAME_INTERVAL = 1 / 20          # At most this many pictures a second reach the
 JPEG_QUALITY = 70
 WATCH_MARK_EVERY = 60            # Seconds between renewals of an open view's "watched" mark; far below the idle limit.
 MAX_EVENTS, MAX_TEXT, MAX_KEY = 64, 10000, 64
+MAX_VIEWS_PER_AGENT, MAX_VIEWS = 4, 16    # Each view holds a DevTools connection, a server thread and a screencast.
 MOUSE = {"move": "mouseMoved", "down": "mousePressed", "up": "mouseReleased"}
 BUTTONS = {"none", "left", "middle", "right"}
 
-_views, _lock = {}, threading.Lock()
+_views, _slots, _lock = {}, {}, threading.Lock()    # _slots: every view being opened or open, by id, to its agent
 
 
 class Closed(Exception):
@@ -38,10 +39,15 @@ class Closed(Exception):
 def port(runtime, agent_id):
     """The DevTools port of the managed browser the agent uses: its own, or the Shared browser."""
     from . import setup, sign_in
+    from .agent_browsers import meta_valid, supervisor_state
     _, agents = setup.targets(runtime)
     if agent_id not in [agent["agent_id"] for agent in agents]:
         raise DomainError("not_found", "This agent has no browser")
-    return sign_in._meta(runtime, agent_id)["managed"]["port"]
+    meta, directory = sign_in._meta(runtime, agent_id), sign_in._state(runtime, agent_id)
+    # The port in the record is only a claim: another program may hold it now, and the owner's clicks and keys would go there.
+    if not meta_valid(meta, directory.name, directory) or supervisor_state(directory, meta)["state"] != "ready":
+        raise DomainError("browser_not_ready", "This agent's browser isn't running. Wait until it shows Ready in Settings, then reconnect.")
+    return meta["managed"]["port"]
 
 
 def tabs(port_):
@@ -53,6 +59,14 @@ def tabs(port_):
         raise DomainError("browser_not_ready", "This agent's browser isn't running") from error
     return [{"id": item["id"], "title": str(item.get("title") or "")[:300], "url": str(item.get("url") or "")[:2000]}
             for item in targets if isinstance(item, dict) and item.get("type") == "page" and TAB_ID.fullmatch(str(item.get("id")))]
+
+
+def _choice(event, name, allowed, default=None):
+    """The event's ``name`` when it is one of ``allowed``. A JSON list or object is refused here, not hashed (TypeError)."""
+    value = event.get(name, default)
+    if not isinstance(value, str) or value not in allowed:
+        raise DomainError("validation_error", "Browser input is invalid")
+    return value
 
 
 def _number(event, name, low, high):
@@ -74,23 +88,21 @@ def command(event):
     if not isinstance(event, dict):
         raise DomainError("validation_error", "Browser input is invalid")
     kind, modifiers = event.get("type"), int(_number(event, "modifiers", 0, 15))
-    if kind in {"mouse", "wheel"}:
+    if isinstance(kind, str) and kind in {"mouse", "wheel"}:
         params = {"x": _number(event, "x", 0, 32768), "y": _number(event, "y", 0, 32768), "modifiers": modifiers}
         if kind == "wheel":
             return "Input.dispatchMouseEvent", {**params, "type": "mouseWheel", "deltaX": _number(event, "dx", -10000, 10000),
                                                 "deltaY": _number(event, "dy", -10000, 10000)}
-        if event.get("action") not in MOUSE or event.get("button", "none") not in BUTTONS:
-            raise DomainError("validation_error", "Browser input is invalid")
-        return "Input.dispatchMouseEvent", {**params, "type": MOUSE[event["action"]], "button": event.get("button", "none"),
+        action, button = _choice(event, "action", MOUSE), _choice(event, "button", BUTTONS, "none")
+        return "Input.dispatchMouseEvent", {**params, "type": MOUSE[action], "button": button,
                                             "buttons": int(_number(event, "buttons", 0, 31)),
                                             "clickCount": int(_number(event, "clicks", 0, 3))}
     if kind == "key":
-        if event.get("action") not in {"down", "up"}:
-            raise DomainError("validation_error", "Browser input is invalid")
+        action = _choice(event, "action", {"down", "up"})
         text, code = _text(event, "text", 8), int(_number(event, "keyCode", 0, 255))
         params = {"key": _text(event, "key", MAX_KEY), "code": _text(event, "code", MAX_KEY), "modifiers": modifiers,
                   "windowsVirtualKeyCode": code, "nativeVirtualKeyCode": code}
-        if event["action"] == "up":
+        if action == "up":
             return "Input.dispatchKeyEvent", {**params, "type": "keyUp"}
         # A key that types a character carries it; any other key (arrows, Enter with a modifier, shortcuts) is a raw key.
         return "Input.dispatchKeyEvent", ({**params, "type": "keyDown", "text": text} if text else {**params, "type": "rawKeyDown"})
@@ -112,11 +124,18 @@ class View:
 
     def __init__(self, agent_id, port_, tab_id, *, marks=None, connect=_connect, clock=time.monotonic):
         self.agent_id, self.tab_id, self.id = agent_id, tab_id, str(uuid.uuid4())
-        self._clock, self._calls, self._sent_at, self._write = clock, 0, None, threading.Lock()
+        with _lock:     # The slot is taken before the connection is made, so concurrent requests cannot all pass the check.
+            if len(_slots) >= MAX_VIEWS or sum(1 for owner in _slots.values() if owner == agent_id) >= MAX_VIEWS_PER_AGENT:
+                raise DomainError("busy", "Too many browser views are open. Close one (another Browser tab or window of the "
+                                          "dashboard) and reconnect.")
+            _slots[self.id] = agent_id
+        self._sent_at, self._held = None, None
+        self._clock, self._calls, self._write = clock, 0, threading.Lock()
         self._marks, self._marked_at = marks, None
         try:
             self._socket = connect(port_, tab_id)
         except Exception as error:
+            self.close()
             raise DomainError("browser_not_ready", "This tab could not be opened. It may have been closed.") from error
         self._watching()
         try:
@@ -149,21 +168,37 @@ class View:
         except OSError:
             pass
 
+    def _picture(self, params):
+        metadata = params.get("metadata") or {}
+        return {"data": params.get("data"), "width": metadata.get("deviceWidth"), "height": metadata.get("deviceHeight")}
+
+    def _release(self):
+        """Show the newest picture that arrived too soon after the last one shown."""
+        picture, self._held, self._sent_at = self._held, None, self._clock()
+        return picture
+
     def next(self, timeout):
         """The next picture to show as ``{"data", "width", "height"}``, or None when none arrived within ``timeout`` seconds.
 
-        Every picture is acknowledged, since Chrome sends the next one only after that; pictures arriving faster than the
-        dashboard's rate are acknowledged and dropped."""
+        Every picture is acknowledged, since Chrome sends the next one only after that. A picture arriving faster than the
+        dashboard's rate is acknowledged and held, the newest one only: when the page then stands still no more come, and
+        dropping it for good would leave the owner a stale picture. It is shown when the interval has passed or this call's
+        wait ends."""
         self._watching()               # here, not on a picture: a page that stands still sends none while it is watched
         deadline = self._clock() + timeout
         while True:
-            remaining = deadline - self._clock()
-            if remaining <= 0:
-                return None
+            now = self._clock()
+            wait = deadline - now
+            if self._held is not None:
+                if now - self._sent_at >= FRAME_INTERVAL:
+                    return self._release()
+                wait = min(wait, self._sent_at + FRAME_INTERVAL - now)
+            if wait <= 0:
+                return None if self._held is None else self._release()
             try:
-                message = json.loads(self._socket.recv(timeout=remaining))
+                message = json.loads(self._socket.recv(timeout=wait))
             except TimeoutError:
-                return None
+                return None if self._held is None else self._release()
             except Exception as error:
                 raise Closed() from error
             if message.get("method") in {"Inspector.detached", "Inspector.targetCrashed"}:
@@ -172,11 +207,9 @@ class View:
                 continue
             params = message.get("params") or {}
             self._call("Page.screencastFrameAck", {"sessionId": params.get("sessionId")})
-            now, metadata = self._clock(), params.get("metadata") or {}
-            if self._sent_at is not None and now - self._sent_at < FRAME_INTERVAL:
-                continue
-            self._sent_at = now
-            return {"data": params.get("data"), "width": metadata.get("deviceWidth"), "height": metadata.get("deviceHeight")}
+            self._held = self._picture(params)
+            if self._sent_at is None or self._clock() - self._sent_at >= FRAME_INTERVAL:
+                return self._release()
 
     def send(self, events):
         if not isinstance(events, list) or not 0 < len(events) <= MAX_EVENTS:
@@ -192,6 +225,7 @@ class View:
     def close(self):
         with _lock:
             _views.pop(self.id, None)
+            _slots.pop(self.id, None)
         try:
             self._socket.close()      # Chrome ends the screencast with the connection
         except Exception:
