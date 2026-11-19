@@ -790,8 +790,10 @@ function sgCreateView(options) {
     detail.hidden = s.id !== sg.selected;
     // A question reads as one: the question as a heading, its choices as buttons, a one-line answer and Send.
     row.classList.toggle('sg-asks', sgIsAsk(s));
-    // In a chat a pending card is compact: its title, its choices and the answer line with Send. The card opens in Focus.
-    row.classList.toggle('sg-compact', !!options.chatLayout && s.state === 'pending' && !messageEdits.has(s.id) && !reviewEdits.has(s.id));
+    // In a chat a pending card is compact (its title, then its choices and Send) and opens in Focus. An email, a message
+    // or a draft keeps its full text, since that text is what the owner approves.
+    const fullText = sgIsEmail(s) || !!SG_MESSAGE_RENDERERS.get(s.operation_name)?.message || /message/.test(s.operation_name || '') || sgIsDraftReview(s);
+    row.classList.toggle('sg-compact', !!options.chatLayout && s.state === 'pending' && !fullText && !messageEdits.has(s.id) && !reviewEdits.has(s.id));
     row.querySelector(".sg-rowhead").setAttribute("aria-expanded", String(!detail.hidden));
     if (detail.hidden) return;
     const error = sg.detailErrors.get(s.id), busy = sg.busy.get(busyKey(sg.slug, s));
@@ -912,10 +914,8 @@ function sgCreateView(options) {
       let status = area.querySelector('.sg-chat-status');
       if (!status) { status = document.createElement('span'); status.className = 'sg-chat-status'; (actions || area).prepend(status); }
       status.textContent = editing ? 'Editing draft' : s.state !== 'pending' ? sgItemStatus(s, labels) : sgIsAcknowledge(s) ? 'To read' : '';
-      if (actions && !editing && canEditMessage(s) && !actions.querySelector('[data-sg="edit-message"]')) {
-        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'sg-edit';
-        edit.dataset.sg = 'edit-message'; edit.textContent = 'Edit'; actions.append(edit);
-      }
+      // No Edit button: an email, message or draft shown in full is edited by clicking its text.
+      actions?.querySelector('[data-sg="edit-message"]')?.remove();
     }
   }
   function render() {
@@ -1592,14 +1592,26 @@ function sgChatMount(ref, host, options = {}) {
     }, {rootMargin: '300px 0px'});
     observer.observe(host);
   });
-  // A click on a compact card, away from its choices, answer line and buttons, opens the whole Signoff in Focus.
+  const focusOpen = () => void Promise.resolve(window.sgAttentionNavigate?.(slug || null, ref.id)).catch(() => {});
+  // A click on a compact card, away from its choices and buttons, opens the whole Signoff in Focus.
   const openInFocus = event => {
     const card = event.target.closest('.sg-row.sg-compact');
     if (!card || !host.contains(card) || event.target.closest('.sg-choices, .sg-detail-footer, textarea, input, select, a, label, button:not(.sg-rowhead)')) return;
     if (String(window.getSelection?.() || '').trim()) return;
-    event.preventDefault();
-    void Promise.resolve(window.sgAttentionNavigate?.(slug || null, ref.id)).catch(() => {});
+    event.preventDefault(); focusOpen();
   };
+  // A chat card has no comment line: a decision that needs written words (a rejection that must say why, an answer that
+  // must be written) is made in Focus instead.
+  const needsWords = event => {
+    const button = event.target.closest('[data-sg="reject"],[data-sg="respond"],[data-sg="approve"]'), card = button?.closest('.sg-row');
+    const words = card?.querySelector('.sg-feedback');
+    if (!button || !words || words.value.trim()) return;
+    const label = words.getAttribute('aria-label') || '';
+    const required = button.dataset.sg === 'reject' ? /required to reject/i.test(label) : /\(required\)/i.test(label);
+    if (!required || (button.dataset.sg !== 'reject' && card.querySelector('.sg-choice[aria-checked="true"]') && !/\(required\)/i.test(label))) return;
+    event.preventDefault(); event.stopPropagation(); focusOpen();
+  };
+  host.addEventListener('click', needsWords, true);
   host.addEventListener('click', openInFocus);
   const dispose = signoff.dispose.bind(signoff);
   signoff.dispose = () => { disposed = true; observer?.disconnect(); dispose(); };

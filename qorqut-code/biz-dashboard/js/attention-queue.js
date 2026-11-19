@@ -142,7 +142,7 @@ const attentionQueue=(()=>{
     email:'M3 5h18v14H3zM3 5l9 7 9-7',
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
     read:'M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7',
-    question:'M6.5 8.8C6.5 5.9 9 4 12 4s5.5 1.9 5.5 4.6c0 2.2-1.5 3.2-3.1 4-1.5.8-2.4 1.6-2.4 3.4M12 20.2v.1',
+    question:'M4.8 8.7C4.8 5.6 8 3.5 12 3.5s7.2 2.1 7.2 5c0 2.5-1.9 3.6-3.9 4.4-2 .8-3.3 1.7-3.3 3.6M12 20.3v.1',
     request:'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z',
   };
   // Something to read and acknowledge: a queue row says so itself, a listed Signoff by its form.

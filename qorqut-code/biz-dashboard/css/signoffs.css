@@ -394,15 +394,16 @@
 .sg-focus.sg-single .sg-toread:not([hidden]){margin-top:0}
 .sg-focus.sg-single .sg > section:not([hidden]) > h2{margin-top:0}
 .sg-focus.sg-single .sg-detail > .sg-detail-footer{margin-top:0}
-/* A pending chat card is compact: title, choices, then the answer line and Send. The rest is one click away in Focus. */
+/* A chat card has no comment line; a decision that needs written words is made in Focus. */
+.sg-chat .sg .sg-feedbackwrap { display:none; }
 .sg-chat .sg-chat-status:empty { display:none; }
+/* A pending chat card is compact: its title, then its choices with Send on the same row. The rest is one click away in Focus. */
 .sg-chat .sg .sg-row.sg-compact { cursor:pointer; }
 .sg-chat .sg .sg-row.sg-compact:hover { border-color:var(--line-3, var(--fg-3)); }
 .sg-chat .sg .sg-row.sg-compact :is(.sg-detailnotice,.sg-attention-meta,.sg-email-context,.sg-preview,.sg-effects,.sg-savedresponse) { display:none; }
-.sg-chat .sg .sg-row.sg-compact .sg-choices { margin:0 0 8px; }
-.sg-chat .sg .sg-row.sg-compact .sg-detail-footer { cursor:auto; }
+.sg-chat .sg .sg-row.sg-compact .sg-detail { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+.sg-chat .sg .sg-row.sg-compact .sg-detail-body { flex:1 1 auto; min-width:0; padding:0; }
+.sg-chat .sg .sg-row.sg-compact .sg-choices { margin:0; }
+.sg-chat .sg .sg-row.sg-compact .sg-detail-footer { flex:none; margin-left:auto; padding:0; cursor:auto; }
 .sg-chat .sg .sg-row.sg-compact .sg-actionarea { border-top:0; padding-top:0; margin-top:0; }
-/* Every line of a chat card starts where its title text starts, after the type icon (17px and an 8px gap). */
-.sg-chat .sg .sg-detail { padding-left:25px; }
-.sg-chat .sg .sg-reference-icon:empty + span { margin-left:-8px; }
-.sg-chat .sg .sg-row:has(.sg-reference-icon:empty) .sg-detail { padding-left:0; }
+.sg-chat .sg .sg-actionarea { border-top:0; padding-top:0; }

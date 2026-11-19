@@ -18,15 +18,16 @@ function run(extra = []) {
 test('chat Signoffs: full editors, saved-change age, compact actions and preserved feedback', {skip: !chrome && 'Chrome not installed'}, () => {
   const dom = run(['--dump-dom']);
   const out = JSON.parse(/<pre id="out"[^>]*>(.*?)<\/pre>/s.exec(dom)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
-  // A pending chat card is compact: the message shows in Focus, or here once the owner edits it.
-  assert.equal(out.fullMessageVisible, false);
-  assert.equal(out.fromVisible, false);
+  // An email keeps its full text in the chat; it is edited by clicking it, with no Edit button.
+  assert.equal(out.fullMessageVisible, true);
+  assert.equal(out.fromVisible, true);
   assert.match(out.fromText, /me@example.com/);
   assert.equal(out.age, '5 min ago');
   assert.equal(out.ageSource, true);
   assert.equal(out.attentionRemoved, true);
   assert.equal(out.headerStatus, false);
   assert.equal(out.footerStatus, '');
+  assert.equal(out.noEditButton, true);
   assert.equal(out.editStatus, 'Editing draft');
   assert.equal(out.cancelLabel, 'Cancel');
   assert.deepEqual(out.editButtonSizes[0], out.editButtonSizes[1]);
@@ -50,19 +51,15 @@ test('chat Signoffs: full editors, saved-change age, compact actions and preserv
   assert.equal(out.expandedSubject, 'Quarterly plan');
   assert.match(out.attachments, /plan\.pdf/);
   assert.match(out.recipients, /ada@example\.com/);
-  assert.equal(out.actionVisibleLabel, false);
+  // A chat card has no comment line: the field stays in the DOM for Focus, hidden here.
+  assert.equal(out.actionVisible, false);
   assert.match(out.actionAria, /Message to send with decision \(required to reject\)/);
-  assert.match(out.actionPlaceholder, /reason to reject/);
-  assert.equal(out.actionRows, 1);
-  assert.equal(out.actionEmptyHeight, 36);
-  assert.equal(out.actionGrownHeight, out.actionEmptyHeight);
-  assert.equal(out.actionInternalScroll, true);
   assert.equal(out.actionMultilineRetained, true);
   assert.equal(out.actionStillSame, true);
-  assert.equal(out.narrowHeight, out.wideHeight);
-  assert.equal(out.narrowInternalScroll, true);
   assert.equal(out.narrowSame, true);
+  // A rejection that must say why is made in Focus.
   assert.equal(out.rejectBlocked, true);
+  assert.equal(out.rejectOpensFocus, true);
   assert.equal(out.questionLabel, 'Answer (required)');
   assert.equal(out.questionRows, 1);
   assert.equal(out.questionSubmitPresent, true);
