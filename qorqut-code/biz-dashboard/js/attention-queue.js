@@ -150,12 +150,15 @@ const attentionQueue=(()=>{
   // ``asks`` names the kind on a queue row ('question' or 'request'; true from an older server means a question).
   const askKind=s=>s.asks===true ? 'question' : ['question','request'].includes(s.asks) ? s.asks : ['question','request'].includes(s.input?.kind) ? s.input.kind : null;
   const asks=s=>!!askKind(s);
+  // A timeline filing wears the Timeline view's own icon from the agent pane, the one the pane's navigation shows.
+  const timelineIcon=()=>typeof T_VIEW_ICON==='object' ? (T_VIEW_ICON.timeline || '').replace('<svg ','<svg width="15" height="15" ') : '';
   const signoffIcon=s=>{
+    if(s.operation_name==='timeline_file' && timelineIcon())return `<span class="attention-signoff" data-signoff-kind="filing" aria-hidden="true">${timelineIcon()}</span>`;
     const kind=toRead(s) ? 'read' : asks(s) ? askKind(s) : (window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
       || ['email.send','email.batch'].includes(s.platform?.submission?.tool) ? 'email'
       : (messageOperations.has(s.operation_name) || window.signoffMessageRenderer?.(s.operation_name)?.message) ? 'message' : 'approval';
     // A question is the font's own bold "?"; every other kind is a drawn icon.
-    const mark=kind==='question' ? '<text x="12" y="17.6" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="600" fill="currentColor" stroke="none">?</text>' : `<path d="${signoffPaths[kind]}"/>`;
+    const mark=kind==='question' ? '<text x="12" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="600" fill="currentColor" stroke="none">?</text>' : `<path d="${signoffPaths[kind]}"/>`;
     return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">${mark}</svg></span>`;
   };
   const icon=item=>item.kind==='signoff'

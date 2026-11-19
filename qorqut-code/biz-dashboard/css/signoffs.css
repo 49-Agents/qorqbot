@@ -407,3 +407,11 @@
 .sg-chat .sg .sg-row.sg-compact .sg-detail-footer { flex:none; margin-left:auto; padding:0; cursor:auto; }
 .sg-chat .sg .sg-row.sg-compact .sg-actionarea { border-top:0; padding-top:0; margin-top:0; }
 .sg-chat .sg .sg-actionarea { border-top:0; padding-top:0; }
+
+/* A chat card stays at most 250px tall: its title and buttons stay in view and the content between them scrolls. */
+.sg-chat .sg .sg-row { max-height:250px; display:flex; flex-direction:column; overflow:hidden; box-sizing:border-box; }
+.sg-chat .sg .sg-row > .sg-rowhead { flex:none; }
+.sg-chat .sg .sg-row > .sg-detail { flex:1 1 auto; min-height:0; }
+.sg-chat .sg .sg-row:not(.sg-compact) > .sg-detail { display:flex; flex-direction:column; }
+.sg-chat .sg .sg-row:not(.sg-compact) .sg-detail-body { flex:1 1 auto; min-height:0; overflow-y:auto; }
+.sg-chat .sg .sg-row:not(.sg-compact) .sg-detail-footer { flex:none; }
