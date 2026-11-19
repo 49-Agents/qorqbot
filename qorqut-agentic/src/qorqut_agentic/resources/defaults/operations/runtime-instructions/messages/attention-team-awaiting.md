@@ -1,0 +1,1 @@
+Delegated Tasks whose current plan step waits for your confirmation (open Tasks, also snoozed or parked ones, up to {{COUNT}} shown; read what was handed in, then confirm the step or send it back with tasks_step_confirm; the worker is on other work meanwhile):

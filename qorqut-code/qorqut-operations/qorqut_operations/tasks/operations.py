@@ -106,6 +106,9 @@ class TaskOperations:
         # ``plan_template(ref)``: the host's reading of a saved plan as its ordered step instructions, for a hand-over
         # that names a template instead of writing the steps.
         self.plan_template = None
+        # ``plan_guard(ctx, task, uow)``: the host's refusal of a caller who may not replace or remove the plan ``task``
+        # holds now. It is asked in every Task write that would change the stored plan, whatever operation carries it.
+        self.plan_guard = None
 
     # -- moved Tasks -----------------------------------------------------------------------------------------------
 
@@ -552,6 +555,8 @@ class TaskOperations:
                     current["snooze_generation"] += 1
         states, states_row = customers.read(uow, ctx.business_id) if "customer_state" in edits else ([], None)
         apply_attributes(current, edits, states)
+        if before and self.plan_guard is not None and attributes(current)["plan"] != attributes(before)["plan"]:
+            self.plan_guard(ctx, before, uow)
         if link_edit is not None:
             links.edit(self, ctx, current, identity, link_edit, uow, builder)
         for key, value in edits.items():

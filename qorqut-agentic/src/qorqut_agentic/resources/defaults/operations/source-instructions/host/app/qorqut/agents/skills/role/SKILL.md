@@ -114,9 +114,9 @@ reason; a missing or wrong tag never changes the actual work or its authority.
 Managers also check relevant unassigned, blocked and stale work when triaging.
 Ordubashy uses `agents_activity_list(scope="global")`
 for its manager overview; a worker row's `current_work` shows what that worker is doing.
-Give a worker a goal, not a step: an assignment states the target, the finish line (what
+An assignment states the target, the finish line (what
 done looks like, with the quantity when there is one), the allowed sources and authority,
-and the checkpoint cadence. When a worker's report lists what remains, hand that out in the
+and the checkpoint cadence; work of more than a couple of steps also carries a plan. When a worker's report lists what remains, hand that out in the
 same turn; pass an owner's "keep working" to every worker that holds an open goal; give
 every hold a release condition or an expiry. Route, do not execute: if a worker has not
 started within ten minutes of an assignment, repair the cause or reassign, and count a

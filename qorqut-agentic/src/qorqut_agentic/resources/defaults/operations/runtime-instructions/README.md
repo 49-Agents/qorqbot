@@ -21,7 +21,10 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [attention-unavailable](messages/attention-unavailable.md) | attention prompt | conditional |
 | [attention-handover](messages/attention-handover.md) | attention prompt | conditional |
 | [attention-oversight](messages/attention-oversight.md) | attention prompt | conditional |
+| [attention-step-returned](messages/attention-step-returned.md) | attention prompt | conditional |
+| [attention-step-waiting](messages/attention-step-waiting.md) | attention prompt | conditional |
 | [attention-team-available](messages/attention-team-available.md) | attention prompt | conditional |
+| [attention-team-awaiting](messages/attention-team-awaiting.md) | attention prompt | conditional |
 | [attention-team-blocked](messages/attention-team-blocked.md) | attention prompt | conditional |
 | [attention-team-stalled](messages/attention-team-stalled.md) | attention prompt | conditional |
 | [background-recovered](messages/background-recovered.md) | activity context | conditional |

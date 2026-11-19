@@ -141,9 +141,38 @@
       "previous_source": "agents/attention_prompt.py"
     },
     {
+      "id": "attention-step-returned",
+      "path": "messages/attention-step-returned.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-step-waiting",
+      "path": "messages/attention-step-waiting.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "registered agents; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
       "id": "attention-team-available",
       "path": "messages/attention-team-available.md",
       "parameters": [],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
+      "id": "attention-team-awaiting",
+      "path": "messages/attention-team-awaiting.md",
+      "parameters": [
+        "COUNT"
+      ],
       "status": "conditional",
       "trigger": "attention prompt",
       "audience": "the configured coordinator; role/runtime conditions retained by the caller",
