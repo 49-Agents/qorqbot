@@ -1,14 +1,16 @@
 """Owner-only personal notes on the Focus tab, kept outside tasks and every agent's context.
 
-The dashboard shows one plain text area per agent pane and saves it as a single block. Older layouts may still hold several
-blocks (they were once placed among Focus cards); the dashboard reads those as one text and saves them back as one block. The
+The dashboard shows one text per agent pane in the Journal's lines editor and saves it as a single block. Older layouts may
+still hold several blocks (they were once placed among Focus cards); the dashboard reads those as one text and saves them back
+as one block. A line that starts with "-" is a task line; ``statuses`` keeps each one's status by its trimmed text, exactly as
+a Journal page does, and a task line without an entry is open. The
 notes are a dashboard preference: they create no card, task, Signoff, message or notification and are read by no agent or
 model. Each owner's layouts live in one private, bounded file under the runtime's dashboard-preferences directory, outside
 versioned releases, the operational database and Git history; each agent has its own independent layout and revision inside it.
 A layout that was never saved reads as revision 0 with no blocks, which the dashboard shows as a first-start sample text.
 
-Every save names the revision it was based on. A save whose blocks equal the stored ones succeeds unchanged whatever revision it
-names, so a retry after a lost response is harmless; any other stale save is a ``revision_conflict`` and writes nothing. A
+Every save names the revision it was based on. A save whose blocks and statuses equal the stored ones succeeds unchanged
+whatever revision it names, so a retry after a lost response is harmless; any other stale save is a ``revision_conflict`` and writes nothing. A
 block's ``before_id`` and ``after_id`` are kept for older layouts and never checked; ``card_ids`` (computed on every read,
 never stored) still lists the stored Focus card IDs for compatibility.
 """
@@ -38,7 +40,10 @@ MAX_AGENTS = 100
 MAX_STORE_BYTES = 32 * 1024 * 1024
 LOCK_SECONDS = 10.0
 STORE_VERSION = 1
+MAX_STATUSES = 2000
 SAVE_FIELDS = ('expected_revision', 'blocks')
+OPTIONAL_SAVE_FIELDS = ('statuses',)
+STATUSES = ('todo', 'white', 'in_progress', 'done', 'blocked', 'cancelled')
 BLOCK_FIELDS = ('id', 'text', 'before_id', 'after_id')
 FLAGS = ('include_archived', 'include_deferred')
 
@@ -95,19 +100,37 @@ def _block_errors(blocks):
     return errors
 
 
+def _status_errors(statuses):
+    """Problems of a task-status map; empty when it is acceptable. The task text is never echoed."""
+    if not isinstance(statuses, dict):
+        return {'statuses': 'must be an object'}
+    if len(statuses) > MAX_STATUSES:
+        return {'statuses': f'must have at most {MAX_STATUSES} entries'}
+    if not all(_text(text) for text in statuses):
+        return {'statuses': f'must be keyed by task text of at most {MAX_TEXT} characters'}
+    if not all(isinstance(status, str) and status in STATUSES for status in statuses.values()):
+        return {'statuses': 'must hold only ' + ', '.join(STATUSES)}
+    return {}
+
+
 def validated_save(change):
-    """The exact save request as ``(expected_revision, canonical blocks)``, or a field-by-field validation error."""
+    """The exact save request as ``(expected_revision, canonical blocks, statuses)``, or a field-by-field validation error.
+
+    ``statuses`` may be left out, which means every task line is open."""
     if not isinstance(change, dict):
         raise DomainError('validation_error', 'Supply a Focus layout request object')
-    errors = {name: 'unknown field' for name in sorted(set(change) - set(SAVE_FIELDS))}
+    errors = {name: 'unknown field' for name in sorted(set(change) - set(SAVE_FIELDS) - set(OPTIONAL_SAVE_FIELDS))}
     errors.update({name: 'required' for name in SAVE_FIELDS if name not in change})
     if 'expected_revision' in change and (type(change['expected_revision']) is not int or change['expected_revision'] < 0):
         errors['expected_revision'] = 'must be an integer of at least 0'
     if 'blocks' in change:
         errors.update(_block_errors(change['blocks']))
+    if 'statuses' in change:
+        errors.update(_status_errors(change['statuses']))
     if errors:
         raise DomainError('validation_error', 'Focus layout request fields are invalid', field_errors=errors)
-    return change['expected_revision'], [{name: block[name] for name in BLOCK_FIELDS} for block in change['blocks']]
+    return (change['expected_revision'], [{name: block[name] for name in BLOCK_FIELDS} for block in change['blocks']],
+            dict(change.get('statuses', {})))
 
 
 def query_flags(pairs):
@@ -149,8 +172,9 @@ def _parse(data):
             or len(document['agents']) > MAX_AGENTS):
         raise _unreadable('have an unrecognized layout')
     for agent_id, entry in document['agents'].items():
-        if (not _uuid(agent_id) or not isinstance(entry, dict) or set(entry) != {'revision', 'blocks'}
-                or type(entry['revision']) is not int or entry['revision'] < 1 or _block_errors(entry['blocks'])):
+        if (not _uuid(agent_id) or not isinstance(entry, dict) or set(entry) - {'statuses'} != {'revision', 'blocks'}
+                or type(entry['revision']) is not int or entry['revision'] < 1 or _block_errors(entry['blocks'])
+                or _status_errors(entry.get('statuses', {}))):
             raise _unreadable('contain an invalid entry')
     return document['agents']
 
@@ -275,11 +299,12 @@ def _locked(directory, name):
 
 def _entry(agents, agent_id):
     entry = agents.get(agent_id)
-    return (entry['revision'], entry['blocks']) if entry else (0, [])
+    return (entry['revision'], entry['blocks'], entry.get('statuses', {})) if entry else (0, [], {})
 
 
-def _public(revision, blocks):
-    return {'revision': revision, 'blocks': [{name: block[name] for name in BLOCK_FIELDS} for block in blocks]}
+def _public(revision, blocks, statuses):
+    return {'revision': revision, 'blocks': [{name: block[name] for name in BLOCK_FIELDS} for block in blocks],
+            'statuses': dict(statuses)}
 
 
 def read_layout(runtime_directory, owner_id, agent_id):
@@ -287,7 +312,7 @@ def read_layout(runtime_directory, owner_id, agent_id):
     prefix = _owner_name(owner_id)
     directory = _open_directory(runtime_directory, create=False)
     if directory is None:
-        return _public(0, [])
+        return _public(0, [], {})
     try:
         return _public(*_entry(_load(directory, prefix + '.focus-layouts.json'), agent_id))
     finally:
@@ -296,7 +321,7 @@ def read_layout(runtime_directory, owner_id, agent_id):
 
 def save_layout(runtime_directory, owner_id, agent_id, change):
     """Replace one agent's layout under the owner's lock, keeping every other agent's, and return the saved layout."""
-    expected, blocks = validated_save(change)
+    expected, blocks, statuses = validated_save(change)
     prefix = _owner_name(owner_id)
     directory = _open_directory(runtime_directory, create=True)
     try:
@@ -307,17 +332,19 @@ def save_layout(runtime_directory, owner_id, agent_id, change):
                 _remove(directory, leftover)
             name = prefix + '.focus-layouts.json'
             agents = _load(directory, name)
-            revision, stored = _entry(agents, agent_id)
-            if blocks == stored:
-                return _public(revision, stored)
+            revision, stored, stored_statuses = _entry(agents, agent_id)
+            if blocks == stored and statuses == stored_statuses:
+                return _public(revision, stored, stored_statuses)
             if expected != revision:
                 raise DomainError('revision_conflict', 'This layout changed elsewhere; reload it and try again',
                                   current_revision=revision)
             if agent_id not in agents and len(agents) >= MAX_AGENTS:
                 raise DomainError('validation_error', f'The limit of {MAX_AGENTS} agents with saved Focus layouts is reached')
             # An emptied layout keeps its entry, so its revision never restarts and a stale save cannot reuse an old one.
-            _replace(directory, name, {**agents, agent_id: {'revision': revision + 1, 'blocks': blocks}}, temporary)
-            return _public(revision + 1, blocks)
+            # The statuses key is written only when a status is set, so a store without any keeps its earlier shape.
+            entry = {'revision': revision + 1, 'blocks': blocks, **({'statuses': statuses} if statuses else {})}
+            _replace(directory, name, {**agents, agent_id: entry}, temporary)
+            return _public(revision + 1, blocks, statuses)
     finally:
         os.close(directory)
 

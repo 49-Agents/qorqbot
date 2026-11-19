@@ -53,6 +53,9 @@ class NativeLauncher:
         import qorqut
         env['PYTHONPATH'] = os.pathsep.join(filter(None, [str(Path(qorqut.__file__).resolve().parent.parent),
                                                           os.environ.get('PYTHONPATH', '')]))
+        # Its home is the browser's folder, so it is told where this application's commands record a tab's use.
+        from . import idle_tabs
+        env[idle_tabs.SESSIONS] = os.pathsep.join(map(str, idle_tabs.session_directories()))
         for key, name in (('TMPDIR', 'tmp'), ('XDG_CACHE_HOME', 'cache'), ('XDG_CONFIG_HOME', 'config'),
                           ('XDG_RUNTIME_DIR', 'run')):
             path = directory / name

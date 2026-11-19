@@ -19,6 +19,14 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [attention-more](messages/attention-more.md) | attention prompt | conditional |
 | [attention-next-actor](messages/attention-next-actor.md) | agents/attention.py | conditional |
 | [attention-unavailable](messages/attention-unavailable.md) | attention prompt | conditional |
+| [attention-handover](messages/attention-handover.md) | attention prompt | conditional |
+| [attention-oversight](messages/attention-oversight.md) | attention prompt | conditional |
+| [attention-step-returned](messages/attention-step-returned.md) | attention prompt | conditional |
+| [attention-step-waiting](messages/attention-step-waiting.md) | attention prompt | conditional |
+| [attention-team-available](messages/attention-team-available.md) | attention prompt | conditional |
+| [attention-team-awaiting](messages/attention-team-awaiting.md) | attention prompt | conditional |
+| [attention-team-blocked](messages/attention-team-blocked.md) | attention prompt | conditional |
+| [attention-team-stalled](messages/attention-team-stalled.md) | attention prompt | conditional |
 | [background-recovered](messages/background-recovered.md) | activity context | conditional |
 | [briefing-assignment-edges](messages/briefing-assignment-edges.md) | agents/briefing.py | conditional |
 | [briefing-evidence](messages/briefing-evidence.md) | briefing | legacy |
@@ -74,6 +82,8 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [startup-repair](messages/startup-repair.md) | claude session | conditional |
 | [startup-session](messages/startup-session.md) | claude session | conditional |
 | [startup-unavailable](messages/startup-unavailable.md) | claude session | conditional |
+| [task-action-missing](messages/task-action-missing.md) | transport/mcp.py | conditional |
+| [task-action-recorded](messages/task-action-recorded.md) | transport/mcp.py | conditional |
 | [tool-validation-recovery](messages/tool-validation-recovery.md) | transport/mcp.py | conditional |
 | [workspace-claude](messages/workspace-claude.md) | trusted workspace preparation | conditional |
 | [workspace-code-roots](messages/workspace-code-roots.md) | trusted workspace preparation | conditional |

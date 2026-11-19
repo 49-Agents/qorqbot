@@ -13,21 +13,20 @@
 .gchat-log > .gchat-msg + .gchat-msg.gchat-continuation { margin-top:8px; }
 .gchat-msg { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: min(760px, 88%); }
 .gchat-bubble-row { position: relative; min-width: 0; max-width: 100%; }
-.chat-view .gchat-copy { position: absolute; right: calc(100% + 4px); top: 8px; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 6px; border: 0; border-radius: 7px; background: none; color: var(--fg-2); opacity: 0; pointer-events: none; transition: opacity 140ms ease; transform: none; }
+/* An invisible strip over the copy column, so moving the pointer left to them keeps the message hovered. */
+.chat-view .gchat-bubble-row::before { content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: 40px; }
+.chat-view .gchat-copy { position: absolute; right: calc(100% + 4px); top: 8px; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 6px; border: 0; border-radius: 7px; background: none; color: var(--fg-2); opacity: 0; visibility: hidden; transition: opacity 140ms ease 300ms, visibility 0s linear 440ms; transform: none; }
 .gchat-copy svg { width: 16px; height: 16px; }
-.chat-view .gchat-msg:hover .gchat-copy, .chat-view .gchat-copy:focus-visible, .chat-view .gchat-copy.copied { opacity: 1; pointer-events: auto; }
+.chat-view .gchat-msg:hover .gchat-copy, .chat-view .gchat-copy:focus-visible, .chat-view .gchat-copy.copied { opacity: 1; visibility: visible; transition-delay: 0s; }
 .chat-view .gchat-copy:hover { background: var(--hover); color: var(--fg); }
 .chat-view .gchat-copy.copied { color: var(--ok); }
-@media (hover: none) { .chat-view .gchat-copy { opacity: .65; pointer-events: auto; } }
-@media (prefers-reduced-motion: reduce) { .chat-view .gchat-copy, .chat-view .gchat-react { transition: none; } }
-.chat-view .gchat-react { position: absolute; right: calc(100% + 4px); top: 38px; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: 7px; background: none; font-size: 14px; line-height: 1; opacity: 0; pointer-events: none; transition: opacity 140ms ease; transform: none; }
-.chat-view .gchat-msg:hover .gchat-react, .chat-view .gchat-react:focus-visible { opacity: 1; pointer-events: auto; }
-.chat-view .gchat-react:hover { background: var(--hover); }
-@media (hover: none) { .chat-view .gchat-react { opacity: .65; pointer-events: auto; } }
-.gchat-reaction { align-self: flex-start; padding: 1px 8px; border: 1px solid var(--line-2); border-radius: 999px; font-size: 13px; line-height: 1.5; }
+@media (hover: none) { .chat-view .gchat-copy { opacity: .65; visibility: visible; } }
+@media (prefers-reduced-motion: reduce) { .chat-view .gchat-copy { transition: none; } }
 .gchat-user { align-self: flex-end; align-items: flex-end; }
 .gchat-agent { align-self: flex-start; }
 .gchat-msg.gchat-agent { max-width: min(760px, 100%); }
+/* A message that carries a sign-off card takes the full chat column, so the card does too. */
+.gchat-msg.gchat-agent:has(.gchat-signoff-reference) { align-self:stretch; }
 .gchat-notice { align-self: center; align-items: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
 .gchat-body { font-size: calc(13.25px * .935 * 1.1); padding: 12px 18px; border: 1px solid var(--line-2); border-radius: 24px; overflow-wrap: anywhere; line-height: 1.5; }
 .gchat-user .gchat-body { background: color-mix(in srgb, var(--fg) 10%, var(--bg)); color: var(--fg); white-space: pre-wrap; line-height: 1.65; }
@@ -138,6 +137,18 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-file-choice button:hover { background:var(--hover); color:var(--fg); transform:none; }
 .gchat-composer .gchat-attach { display:inline-flex; align-items:center; justify-content:center; flex:none; width:36px; height:36px; min-height:36px; padding:8px; border:1px solid var(--line); border-radius:50%; background:var(--hover); }
 .gchat-attach:disabled { opacity:.4; }
+/* Voice input: the microphone sits between Attach and Send, and is absent until the OpenRouter extension is installed. */
+.gchat-composer .gchat-mic[hidden] { display:none; }
+.gchat-composer:has(.gchat-mic:not([hidden])) { grid-template-columns:minmax(0,1fr) auto auto; }
+.gchat-composer:has(.gchat-attach):has(.gchat-mic:not([hidden])) { grid-template-columns:minmax(0,1fr) auto auto auto; }
+.gchat-composer-expanded .gchat-mic { grid-column:-3; }
+.gchat-composer-expanded:has(.gchat-mic:not([hidden])) .gchat-attach { grid-column:-4; }
+.gchat-composer .gchat-mic { display:inline-flex; align-items:center; justify-content:center; flex:none; width:36px; height:36px; min-height:36px; padding:8px; border:1px solid var(--line); border-radius:50%; background:var(--hover); }
+.gchat-composer .gchat-mic:disabled { opacity:.4; }
+.gchat-composer .gchat-mic[data-state="recording"] { border-color:#FF453A; background:rgba(255,69,58,.14); color:#FF453A; animation:gchat-mic-pulse 1.4s ease-in-out infinite; }
+.gchat-composer .gchat-mic[data-state="working"] { opacity:.7; cursor:progress; }
+@keyframes gchat-mic-pulse { 0%, 100% { box-shadow:0 0 0 0 rgba(255,69,58,.35); } 50% { box-shadow:0 0 0 5px rgba(255,69,58,0); } }
+@media (prefers-reduced-motion:reduce) { .gchat-composer .gchat-mic[data-state="recording"] { animation:none; } }
 .chat-view.gchat-file-drop::after { content:'Drop files'; display:flex; align-items:center; justify-content:center; position:absolute; inset:5px; z-index:6; border:1px dashed var(--fg-2); border-radius:8px; background:color-mix(in srgb, var(--bg) 90%, transparent); pointer-events:none; font-size:14px; }
 .gchat-composer textarea:disabled { opacity: .6; cursor: not-allowed; }
 .gchat-composer textarea { min-width:0; width:100%; height:36px; min-height:36px; max-height:200px; box-sizing:border-box; resize:none; overflow-y:auto; padding:6px 8px; font:inherit; font-size:calc(13.25px * .935 * 1.1); line-height:24px; border:0; border-radius:0; background:none; box-shadow:none; }
@@ -193,7 +204,7 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-reference-title { min-width:0; overflow-wrap:anywhere; white-space:normal; }
 .gchat-reference-count { color:var(--fg-2); font-size:11px; white-space:nowrap; }
 .gchat-reference-detail { grid-column:1 / -1; min-width:0; overflow:visible; color:var(--fg-2); font-size:11px; line-height:1.35; overflow-wrap:anywhere; white-space:normal; }
-.gchat-signoff-reference { width:100%; max-width:520px; min-width:0; }
+.gchat-signoff-reference { width:100%; max-width:none; min-width:0; }
 .gchat-browser-slot { width:360px; max-width:100%; }
 .gchat-browser { display:flex; flex-direction:column; width:100%; border:1px solid var(--line-2); border-radius:9px; overflow:hidden; background:var(--bg); }
 .gchat-browser>header { display:flex; align-items:center; gap:7px; padding:5px 8px; border-bottom:1px solid var(--line); flex:none; }
@@ -205,7 +216,6 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-browser-frame { display:block; width:100%; height:100%; border:0; }
 .gchat-browser.is-expanded { position:fixed; z-index:30; top:12px; left:12px; right:12px; bottom:12px; width:auto; max-width:1100px; margin:0 auto; box-shadow:0 12px 40px rgba(0,0,0,.55); }
 .gchat-browser.is-expanded .gchat-browser-page { flex:1; height:auto; min-height:0; }
-@media(max-width:700px) { .gchat-signoff-reference { max-width:100%; } }
 
 .gchat-ref-group, .gchat-attachment { display:flex; flex-direction:column; min-width:0; max-width:100%; padding-left:9px; border-left:2px solid var(--line-2); }
 /* Record threads and native agent chat draw Task/Action references as flat attachment lists, not cards: a subtle

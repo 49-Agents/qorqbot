@@ -12,13 +12,13 @@ resource is named, never what the caller may read or relate."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
-from qorqut_operations.application.plans import UUID, ref
+from qorqut_operations.application.plans import IDENTITY, ref
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.relationships import create_edge, endpoints, related_rows
 
 from .vocabulary import RESOURCE_TYPES, document_type
 
-TASK_IDS = {"type": "array", "maxItems": 200, "items": UUID, "uniqueItems": True,
+TASK_IDS = {"type": "array", "maxItems": 200, "items": IDENTITY, "uniqueItems": True,
             "description": instruction_text('associations-existing-tasks-in-this-project-to-relate-the')}
 OPERATION = "relationships_create"
 

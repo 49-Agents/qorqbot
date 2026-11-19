@@ -2,13 +2,13 @@
 """Prepare owned local source copies, first-party wheels and Python environments from an exported source tree.
 
     prepare-local.py --source-root EXPORTED_DIRECTORY --output NEW_DIRECTORY [--with-content] [--with-paper] [--with-fastmail]
-                     [--with-google-calendar] [--with-treg]
+                     [--with-google-calendar] [--with-treg] [--with-openrouter]
 
 ``--source-root`` is the output of ``export-unified.py`` (it must carry ``SOURCE-MANIFEST.json``) with this layout:
 
     qorqut-code/ (app/, with qorqut-operations/, qorqut-context/, biz-dashboard/ filled by their own components;
                   extensions/google-calendar/ is part of this component and is built only with --with-google-calendar;
-                  extensions/treg/ likewise, only with --with-treg)
+                  extensions/treg/ likewise, only with --with-treg; extensions/openrouter/ only with --with-openrouter)
     qorqut-agentic/src/qorqut_agentic/resources/defaults/   dependencies/{document-history,email-management}/
     extensions/{qorqut-paper,qorqut-content,content-library,qorqut-fastmail}/ and services/{paper-service,email-engine}/
         (only for the selected extensions; a standard preparation needs neither the email engine nor the Fastmail package)
@@ -39,6 +39,11 @@ and an account connected, and nothing here reads a credential or contacts Google
 ``--with-treg`` adds the ``qorqut-treg`` wheel, built from ``qorqut-code/extensions/treg``, to the host environment. Without the
 flag no treg wheel is built, installed or recorded. The wheel is not selected or given a key here: the extension is named in the
 installation configuration (``qorqut_treg.extension:create``) and the owner adds a key in the dashboard; nothing here contacts treg.
+
+``--with-openrouter`` adds the ``qorqut-openrouter`` wheel, built from ``qorqut-code/extensions/openrouter``, to the host environment.
+Without the flag no OpenRouter wheel is built, installed or recorded. The wheel is not selected or given a key here: the extension is
+named in the installation configuration (``qorqut_openrouter.extension:create``) and the owner connects their own OpenRouter account
+in the dashboard; nothing here contacts OpenRouter.
 
 The result is a preparation receipt (``OUTPUT/PREPARATION-RECEIPT.json``), not a configured or running instance: this tool
 creates no owner identity or configuration, provisions no OS service or native CLI, builds no Node or Go component, starts
@@ -85,6 +90,7 @@ EMAIL_ENGINE = ("email-engine", "services/email-engine")
 FASTMAIL_BRIDGE = ("qorqut-fastmail", "extensions/qorqut-fastmail")
 GOOGLE_CALENDAR = ("qorqut-google-calendar", "qorqut-code/extensions/google-calendar")
 TREG = ("qorqut-treg", "qorqut-code/extensions/treg")
+OPENROUTER = ("qorqut-openrouter", "qorqut-code/extensions/openrouter")
 PAPER_SERVICE = ("paper-service", "services/paper-service")
 PAPER_BRIDGE = ("qorqut-paper", "extensions/qorqut-paper")
 CONTENT = [("content-library", "extensions/content-library"), ("qorqut-content", "extensions/qorqut-content")]
@@ -99,6 +105,7 @@ REQUIRED_FASTMAIL = ["extensions/qorqut-fastmail/pyproject.toml", "extensions/qo
 REQUIRED_CONTENT = ["extensions/content-library/pyproject.toml", "extensions/qorqut-content/pyproject.toml"]
 REQUIRED_GOOGLE_CALENDAR = ["qorqut-code/extensions/google-calendar/pyproject.toml"]
 REQUIRED_TREG = ["qorqut-code/extensions/treg/pyproject.toml"]
+REQUIRED_OPENROUTER = ["qorqut-code/extensions/openrouter/pyproject.toml"]
 
 NOT_INCLUDED = ["owner identity and installation configuration", "operating-system services", "native coding CLIs", "browser runtime (npm)",
                 "WhatsApp tool (Go build)", "Paper web UI artifact (npm build)", "any started process or provider contact"]
@@ -132,9 +139,10 @@ def inside(path, parent):
 
 
 class Preparer:
-    def __init__(self, source, output, content, paper, fastmail=False, google_calendar=False, wheel_cache=None, treg=False):
+    def __init__(self, source, output, content, paper, fastmail=False, google_calendar=False, wheel_cache=None, treg=False,
+                 openrouter=False):
         self.source, self.output, self.content, self.paper, self.fastmail = source, output, content, paper, fastmail
-        self.google_calendar, self.treg = google_calendar, treg
+        self.google_calendar, self.treg, self.openrouter = google_calendar, treg, openrouter
         self.wheel_cache = wheel_cache
         self.wheel_inputs, self.reused = {}, set()
         self.src, self.wheels, self.logs = output / "src", output / "wheels", output / "logs"
@@ -163,7 +171,7 @@ class Preparer:
         self.check_links()
         required = (REQUIRED + (REQUIRED_PAPER if self.paper else []) + (REQUIRED_CONTENT if self.content else [])
                     + (REQUIRED_FASTMAIL if self.fastmail else []) + (REQUIRED_GOOGLE_CALENDAR if self.google_calendar else [])
-                    + (REQUIRED_TREG if self.treg else []))
+                    + (REQUIRED_TREG if self.treg else []) + (REQUIRED_OPENROUTER if self.openrouter else []))
         missing = [name for name in required if not (self.source / name).exists()]
         if missing:
             empty = [name for name in ("qorqut-operations", "qorqut-context", "biz-dashboard")
@@ -191,6 +199,8 @@ class Preparer:
             sources.append(GOOGLE_CALENDAR)
         if self.treg:
             sources.append(TREG)
+        if self.openrouter:
+            sources.append(OPENROUTER)
         return sources
 
     # --- subprocess and files ---------------------------------------------------------------------------------------
@@ -349,7 +359,7 @@ class Preparer:
         self.plan_first_party()
         host = ([key for key, _ in ENGINES] + [key for key, _ in CONTENT if self.content] + (["qorqut-paper"] if self.paper else [])
                 + (["qorqut-fastmail"] if self.fastmail else []) + (["qorqut-google-calendar"] if self.google_calendar else [])
-                + (["qorqut-treg"] if self.treg else []))
+                + (["qorqut-treg"] if self.treg else []) + (["qorqut-openrouter"] if self.openrouter else []))
         self.check_first_party("venv", [*host, "host"], {"host": HOST_EXTRAS})
         if self.fastmail:
             self.check_first_party("email-engine-venv", ["email-engine"])
@@ -410,7 +420,7 @@ class Preparer:
                            "component": component["name"], "commit": component["commit"], "tree": component["tree"],
                            "build_inputs_sha256": self.wheel_inputs[key], "reused": key in self.reused})
         selection = {"content": self.content, "paper": self.paper, "fastmail": self.fastmail, "google_calendar": self.google_calendar,
-                     "treg": self.treg}
+                     "treg": self.treg, "openrouter": self.openrouter}
         receipt = {"format": 1, "state": "prepared-not-configured", "prepared_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                    "python": sys.version.split()[0], "selection": selection,
                    "source_components": self.components, "source_manifest_sha256": self.manifest_digest, "wheels": wheels, "environments": environments, "not_included": NOT_INCLUDED}
@@ -429,6 +439,8 @@ def main(argv=None):
                         help="also install the optional Google Calendar provider wheel (nothing is selected, configured or connected)")
     parser.add_argument("--with-treg", action="store_true",
                         help="also install the treg toolkit wheel (nothing is selected, no key is read and treg is not contacted)")
+    parser.add_argument("--with-openrouter", action="store_true",
+                        help="also install the OpenRouter extension wheel (nothing is selected, no key is read and OpenRouter is not contacted)")
     cache = parser.add_mutually_exclusive_group()
     cache.add_argument("--wheel-cache", type=Path,
                        default=Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "qorqbot/wheels",
@@ -454,7 +466,8 @@ def main(argv=None):
         if wheel_cache is not None and any(inside(wheel_cache, p) or inside(p, wheel_cache) for p in (source, output)):
             raise PrepareError("--wheel-cache must be separate from the source export and prepared output")
         preparer = Preparer(source, output, arguments.with_content, arguments.with_paper, arguments.with_fastmail,
-                            arguments.with_google_calendar, wheel_cache, treg=arguments.with_treg)
+                            arguments.with_google_calendar, wheel_cache, treg=arguments.with_treg,
+                            openrouter=arguments.with_openrouter)
         preparer.check_source()
         try:
             preparer.prepare()

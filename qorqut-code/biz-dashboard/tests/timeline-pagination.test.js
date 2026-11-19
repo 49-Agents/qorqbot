@@ -1,10 +1,11 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 const source=fs.readFileSync(require.resolve('../js/agent-timeline.js'),'utf8');
-function setup(){const calls=[],paints=[];const p={agentId:'ord',timeline:{ready:true,loading:false,seq:0,date:'2026-11-10',rows:null,cursor:null,cursors:new Set()}};
+function setup(role){const calls=[],paints=[];const p={agentId:'ord',workspaceRole:role,timeline:{ready:true,loading:false,seq:0,date:'2026-11-10',rows:null,cursor:null,cursors:new Set()}};
  const ctx={p,Map,Set,Date,structuredClone,onChange:()=>{},accessLost:e=>e.code==='forbidden',AGPAD_POLL_MS:12000,agpadActive:()=>true,agentTimelineCurrent:(a,b)=>a.timeline===b,agentTimelinePaint:p=>paints.push(p.timeline.rows),uiFailure:e=>e.message,
  acOp:(_op,args)=>new Promise((resolve,reject)=>calls.push({args,resolve,reject}))};vm.createContext(ctx);
  vm.runInContext(fs.readFileSync(require.resolve('../js/read-cache.js'),'utf8'),ctx);
+ vm.runInContext(source.slice(source.indexOf('function agentTimelineEveryone'),source.indexOf('\nfunction agentTimelineEvidence')),ctx);
  vm.runInContext(source.slice(source.indexOf('async function agentTimelineRefresh'),source.indexOf('\nfunction agentTimelineTick')),ctx);
  return {p,ctx,calls,paints,read:more=>ctx.agentTimelineRefresh(p,more)};}
 const tick=()=>new Promise(r=>setImmediate(r));
@@ -18,4 +19,14 @@ test('a late page cannot replace another date and a failed continuation retains 
  const h=setup(),first=h.read();await tick();h.calls[0].resolve({actions:[{action_id:'a'}],next_cursor:'next'});await first;
  const more=h.read(true);h.calls[1].reject(Error('Offline'));await more;assert.equal(h.p.timeline.rows[0].action_id,'a');assert.equal(h.p.timeline.cursor,'next');
  const retry=h.read(true);h.p.timeline={...h.p.timeline,date:'2026-11-09',rows:null,loading:false};h.calls[2].resolve({actions:[{action_id:'wrong'}]});await retry;assert.equal(h.p.timeline.rows,null);
+});
+test('the coordinator reads every Action on each page; any other agent reads only its own',async()=>{
+ const all=setup('ordubashy'),first=all.read();await tick();assert.deepEqual({...all.calls[0].args},{since:'2026-11-10',until:'2026-11-10',limit:50});
+ all.calls[0].resolve({actions:[{action_id:'a'}],next_cursor:'next'});await first;
+ const more=all.read(true);assert.deepEqual({...all.calls[1].args},{since:'2026-11-10',until:'2026-11-10',limit:50,cursor:'next'});
+ all.calls[1].resolve({actions:[{action_id:'b'}],next_cursor:null});await more;
+ // A refresh repaints the cached first page and reads the already loaded second page again.
+ const again=all.read();await tick();assert.deepEqual({...all.calls[2].args},{since:'2026-11-10',until:'2026-11-10',limit:50,cursor:'next'});
+ all.calls[2].resolve({actions:[{action_id:'b'}],next_cursor:null});await again;assert.deepEqual(Array.from(all.p.timeline.rows,x=>x.action_id),['a','b']);
+ const own=setup('global-worker'),read=own.read();await tick();assert.equal(own.calls[0].args.performer,'ord');own.calls[0].resolve({actions:[],next_cursor:null});await read;
 });

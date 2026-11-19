@@ -175,16 +175,74 @@ instructions and the run is stored like any other, with `workflow_ref` set to
 - `start_plan(steps, actor, origin, operation_id)` starts it. Steps get the IDs
   `s1`, `s2`, ... and each depends on the one before. `origin` names the host
   record the plan belongs to and is only stored. The operation ID is the host's
-  key for the run: the same steps under the same ID return the same run.
+  key for the run: the same steps under the same ID return the same run. A step
+  is its instruction text, or `{"instructions": text, "meta": object}` to carry
+  metadata (see below).
 - `plan_run(operation_id)` returns that run as it stands now, or `None` before
   it was started. It only reads.
-- `add_step(run_id, instructions, actor, operation_id, after=None)` adds one
-  step to a running plan, right after `after` (default: after the last step).
-  The step that followed `after` then follows the new one, so it must still be
-  pending. Step IDs are never reused.
+- `add_step(run_id, instructions, actor, operation_id, after=None, meta=None)`
+  adds one step to a running plan, right after `after` (default: after the last
+  step). The step that followed `after` then follows the new one, so it must
+  still be pending. Step IDs are never reused. `meta` is the new step's metadata.
 - `skip_step(run_id, step_id, actor, operation_id, reason)` closes an unfinished
   step without doing it. The step's state becomes `skipped`, with the reason as
   its completion note and the actor as who closed it.
+- `submit_step(run_id, step_id, actor, operation_id, note="", output=None)`
+  hands a step in for review instead of completing it.
+- `review_step(run_id, step_id, actor, operation_id, passed, feedback="")`
+  decides on a submitted step.
+
+Each of these returns `{run, operation_id}` and is idempotent under its
+operation ID, like the other progress calls.
+
+### Step metadata
+
+A plan step may carry `meta`, a JSON object that belongs to the host: for
+example whom to tell when the step is done, or a check the host runs itself.
+The engine stores it in the run's snapshot and returns it as `meta` on the step
+in the run view. It never reads it. The only rules are that it is an object of
+JSON values and serializes to at most 2000 characters. A step without metadata,
+or with an empty object, has no `meta` key. Metadata is part of the request, so
+the same operation ID with different metadata is a conflict; a plan made only of
+text is stored and fingerprinted exactly as it was before metadata existed.
+
+### Review
+
+A plan step can be completed outright with `complete_step`, or handed in and
+decided by someone else. The engine does not decide who submits or who reviews;
+the host does.
+
+`submit_step` takes a step that is ready: unfinished, its dependencies finished,
+the run running. It records an attempt with status `submitted` that holds the
+actor, note and output. The step becomes `active` with `verification` set to
+`awaiting_review`, and the event `step_submitted` is appended. A step that
+awaits review is not ready and is not listed in `ready_steps`; `complete_step`,
+`start_step` and a second `submit_step` are refused with `state_conflict`.
+
+`review_step` takes a step that awaits review. `passed` must be `true` or
+`false`; `feedback` is text of at most 4000 characters and is required when the
+step is sent back. Both outcomes append the event `step_reviewed` with `passed`
+and store the feedback, the reviewer (`details.reviewed_by`), the time
+(`details.reviewed_at`) and the review's operation ID
+(`details.review_operation_id`) on the attempt.
+
+- Passed: the attempt becomes `approved` and the step is completed with the
+  submitted note and output. `completed_by` is the reviewer; the submitter stays
+  as the attempt's `actor`. The step's `verification` is `reviewed`, and the run
+  is completed when no unfinished step is left.
+- Not passed: the attempt becomes `rejected` and the step's `verification` is
+  `rejected`. The step stays `active`, unfinished and ready, so it can be
+  submitted again or completed outright. Each submission is its own attempt, so
+  the last rejected attempt holds the latest feedback.
+
+`skip_step` still closes a step that awaits review. Its submitted attempt
+becomes `withdrawn`, the step's `verification` returns to `none`, and the
+`step_skipped` event carries `withdrawn: true`. A paused
+run takes neither a submission nor a review. This review is a decision recorded
+by the host's reviewer; it runs no tool, and a plan still has no scripted
+verifier.
+
+### Templates and limits
 
 A saved workflow can serve as a template for a plan. `plan_template(ref, selection=None)`
 returns its step instructions in an order that respects their dependencies, as
@@ -194,10 +252,12 @@ workflow. A workflow that takes arguments or has a step with a verifier is
 refused, because a plan carries neither.
 
 A skipped step counts as finished: steps that depend on it become ready, and a
-run whose steps are all completed or skipped is completed. `add_step` and
-`skip_step` are refused for a run started from a catalog entry, and for a run
-that is not running. A plan has at most 50 steps of at most 4000 characters.
-These five calls are not part of the JSON CLI; the host decides who may use them.
+run whose steps are all completed or skipped is completed. `add_step`,
+`skip_step`, `submit_step` and `review_step` are refused for a run started from
+a catalog entry, and for a run that is not running. A plan has at most 50 steps
+of at most 4000 characters. These seven calls (`start_plan`, `plan_run`,
+`add_step`, `skip_step`, `submit_step`, `review_step`, `plan_template`) are not
+part of the JSON CLI; the host decides who may use them.
 
 In Qorqut a delegated Task carries its plan and the host starts the plan run on
 the first step action: see `qorqut-code/app/qorqut/agents/task_plans.py`.

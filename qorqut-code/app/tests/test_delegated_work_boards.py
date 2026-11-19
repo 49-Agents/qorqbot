@@ -118,7 +118,7 @@ class DelegatedWorkBoardTests(unittest.TestCase):
 
     def test_acts_on_reads_who_must_act_next(self):
         self.assertTrue(acts_on(task(workers=[SCOUT, OWNER]), SCOUT, COORDINATOR))
-        self.assertTrue(acts_on(task(), SCOUT, COORDINATOR))
+        self.assertFalse(acts_on(task(), SCOUT, COORDINATOR))            # nobody named: not assigned work
         self.assertFalse(acts_on(task(workers=[COORDINATOR]), SCOUT, COORDINATOR))
         self.assertFalse(acts_on({'worker_ids_json': json.dumps([OWNER])}, SCOUT, COORDINATOR))
         # Ordubashy answers for everything on his own board, whoever is named.
@@ -134,7 +134,7 @@ class DelegatedWorkBoardTests(unittest.TestCase):
         self.assertEqual(mode(SCOUT, task('open', [COORDINATOR])), 'empty')
         self.assertEqual(mode(SCOUT, task('blocked', [OWNER])), 'empty')
         self.assertEqual(mode(SCOUT, task('open', [SCOUT])), 'normal')
-        self.assertEqual(mode(SCOUT, task('open')), 'normal')
+        self.assertEqual(mode(SCOUT, task('open')), 'empty')               # nobody named: not assigned work
         self.assertEqual(mode(SCOUT, task('working', [COORDINATOR]), task('waiting', [SCOUT], 'task-2')), 'reassess')
         self.assertEqual(mode(SCOUT, task('done', [SCOUT])), 'empty')
         self.assertEqual(mode(COORDINATOR, task('open', [SCOUT])), 'normal')
@@ -148,8 +148,10 @@ class DelegatedWorkBoardTests(unittest.TestCase):
         delivery = AttentionRuntime.__new__(AttentionRuntime)
         delivery.runtime, delivery.attention = self.runtime, self.attention
         listed = lambda agent: sorted(row['id'] for row in delivery._snapshot(self.uow, agent, {}, None)['candidates'])
-        self.assertEqual(listed(SCOUT), ['mine', 'unnamed'])
-        self.assertEqual(listed(COORDINATOR), ['mine', 'theirs', 'unnamed'])
+        self.assertEqual(listed(SCOUT), ['mine'])
+        # Ordubashy is offered what he could hand over: his own and unnamed Tasks, not one a worker already holds.
+        with patch.object(self.attention, 'team', return_value={'available': [], 'stalled': [], 'stalled_count': 0}):
+            self.assertEqual(listed(COORDINATOR), ['theirs', 'unnamed'])
 
     # -- results and blockers on delegated work reach Ordubashy --------------------------------------------------
 

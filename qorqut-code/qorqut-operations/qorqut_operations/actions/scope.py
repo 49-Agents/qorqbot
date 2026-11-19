@@ -128,6 +128,20 @@ def classify(ctx, uow, category, business_ids, *, owner_category_optional=True):
     return category, []
 
 
+def classification_from_task(category, business_ids, task_business_id):
+    """``(category, business_ids)`` with what a Global recorder left out taken from the Task its Action links.
+
+    The owner and global agents record in Global whatever project the work was for, so the Task says which it was: with no
+    category, a project Task makes the Action business-operational and a Global Task global-operational; a
+    business-operational Action that names no project is for the Task's project. What the caller passed is never changed,
+    and ``classify`` authorizes the result exactly as if the caller had passed all of it."""
+    if category is None:
+        category = "global-operational" if task_business_id is None else "business-operational"
+    if category == "business-operational" and not business_ids and task_business_id is not None:
+        business_ids = [task_business_id]
+    return category, business_ids
+
+
 def may_change(ctx, uow, row) -> bool:
     """The original recorder, owner or configured coordinator can maintain an accessible Action in its owning scope."""
     if row is None or row["business_id"] != ctx.business_id:
@@ -137,5 +151,5 @@ def may_change(ctx, uow, row) -> bool:
             and is_coordinator(uow.connection, ctx.principal_id))
 
 
-__all__ = ["CATEGORIES", "action_namespace", "change_namespace", "classify", "evidence_visible", "is_owner", "links", "may_change", "reader_scope",
-           "scope_clause", "visible"]
+__all__ = ["CATEGORIES", "action_namespace", "change_namespace", "classification_from_task", "classify", "evidence_visible", "is_owner", "links",
+           "may_change", "reader_scope", "scope_clause", "visible"]

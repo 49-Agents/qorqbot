@@ -298,9 +298,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       return {...presentEntry(first), text: '', notice: {label: 'Activity', verified: true, markerOnly: true, activity: {nudgeCount, recipients}}};
     });
   }
-  // An owner thumbs-up shows as a mark on the agent message it answers; a finished agent message without one can take it.
-  const orderedEntries = () => chatReactionFold(groupActivity([...entries.values()].sort((a, b) => a.position - b.position)))
-    .map(row => row.speaker === 'agent' && !row.partial && !row.reaction && String(row.text || '').trim() ? {...row, reactable: true} : row);
+  const orderedEntries = () => groupActivity([...entries.values()].sort((a, b) => a.position - b.position));
   const newestPosition = () => { let top = -1; for (const entry of entries.values()) top = Math.max(top, entry.position); return top; };
   const viewedKey = () => globalChatKey(conversation);
   // The live session's exact binding; a conversation is sendable only when it is the one displayed.
@@ -604,15 +602,6 @@ function mountGlobalChat(pane, agent, options = {}) {
       GLOBAL_CHAT_SENDS.delete(composerScope); paintSession();
     },
     onOlder: () => loadOlder(),
-    // A reaction is sent as the owner's next message, never together with a draft's attachments or a send in flight.
-    onReact: key => {
-      const rows = orderedEntries(), entry = rows.find(row => row.key === key);
-      if (!entry?.reactable) return;
-      if (!canSend()) { toast(`${label} can’t take a reaction right now.`); return; }
-      if (GLOBAL_CHAT_INFLIGHT.has(composerScope) || selectedFiles().length) { toast('Send or clear your message first.'); return; }
-      const newest = rows.filter(row => row.speaker === 'agent' && !row.partial).pop();
-      void submit(chatReactionText(entry, newest?.key === key));
-    },
     // A Signoff reference is the existing single-item Signoff view: the owner session, exact proposal and decisions stay its own.
     mountSignoff: (ref, host) => sgChatMount(ref, host, {active: () => !disposed}),
     onViewportChange: scheduleRead,
@@ -635,14 +624,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{agent,visible:contextVisible,onChange:paintSession,workingTag});
     cleanups.push(()=>contextStatus.dispose());
   }
-  // Ordubashy's chat shows what holds now at the Global level above the messages.
-  if (agent.role?.id === 'ordubashy' && typeof globalTimelineBlockMount === 'function' && view.root?.parentNode) {
-    const block = document.createElement('section');
-    view.root.before(block);
-    timelineBlock = globalTimelineBlockMount(block, {visible: () => live() && root.isConnected});
-    cleanups.push(() => { timelineBlock.dispose(); block.remove(); });
-    void timelineBlock.refresh(true);
-  }
+  // The Global timeline is not shown above the main chat (the owner's choice, 18 November 2026): agents still receive what
+  // holds at the Global level, and its standing rules stay readable through the timeline views.
 
   // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
   // Terminal owns conversation selection; Chat always follows the backend's current conversation.

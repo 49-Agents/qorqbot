@@ -142,20 +142,30 @@ const attentionQueue=(()=>{
     email:'M3 5h18v14H3zM3 5l9 7 9-7',
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
     read:'M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7',
+    request:'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z',
   };
   // Something to read and acknowledge: a queue row says so itself, a listed Signoff by its form.
   const toRead=s=>!!s.to_read || s.input?.kind==='acknowledge';
+  // A question for the owner (an input request asking or requesting something): a queue row says so itself, a listed Signoff by its form.
+  // ``asks`` names the kind on a queue row ('question' or 'request'; true from an older server means a question).
+  const askKind=s=>s.asks===true ? 'question' : ['question','request'].includes(s.asks) ? s.asks : ['question','request'].includes(s.input?.kind) ? s.input.kind : null;
+  const asks=s=>!!askKind(s);
+  // A timeline filing wears the Timeline view's own icon from the agent pane, the one the pane's navigation shows.
+  const timelineIcon=()=>typeof T_VIEW_ICON==='object' ? (T_VIEW_ICON.timeline || '').replace('<svg ','<svg width="15" height="15" ') : '';
   const signoffIcon=s=>{
-    const kind=toRead(s) ? 'read' : (window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
+    if(s.operation_name==='timeline_file' && timelineIcon())return `<span class="attention-signoff" data-signoff-kind="filing" aria-hidden="true">${timelineIcon()}</span>`;
+    const kind=toRead(s) ? 'read' : asks(s) ? askKind(s) : (window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
       || ['email.send','email.batch'].includes(s.platform?.submission?.tool) ? 'email'
       : (messageOperations.has(s.operation_name) || window.signoffMessageRenderer?.(s.operation_name)?.message) ? 'message' : 'approval';
-    return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="${signoffPaths[kind]}"/></svg></span>`;
+    // A question is the font's own bold "?"; every other kind is a drawn icon.
+    const mark=kind==='question' ? '<text x="12" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="600" fill="currentColor" stroke="none">?</text>' : `<path d="${signoffPaths[kind]}"/>`;
+    return `<span class="attention-signoff" data-signoff-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">${mark}</svg></span>`;
   };
   const icon=item=>item.kind==='signoff'
     ? signoffIcon(item)
     : item.kind==='viewbox' ? '<span class="attention-viewbox" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H6v18h12V7zM14 3v5h4M9 12h6M9 16h6"/></svg></span>'
     : typeof identityAvatar==='function' ? identityAvatar('agent',item.agent_name,{agent_id:item.agent_id,...(typeof globalAgentProfile==='function'?globalAgentProfile(item.agent_id):null),...item.presentation}) : '<span aria-hidden="true">✉</span>';
-  const label=item=>item.kind==='signoff'?(toRead(item)?'Read · ':'Review · ')+item.title:item.agent_name+' · '+item.text;
+  const label=item=>item.kind==='signoff'?(toRead(item)?'Read · ':askKind(item)==='question'?'Question · ':askKind(item)==='request'?'Request · ':'Review · ')+item.title:item.agent_name+' · '+item.text;
   const button=item=>`<button type="button" class="attention-chip" data-attention-key="${esc(item.id)}" title="${esc(label(item))}\nRight-click to dismiss" aria-label="${esc(label(item))}">${icon(item)}<span class="attention-label">${esc(item.kind==='signoff'?item.title:item.text)}</span></button>`;
   function paint(host){
     if(!host.isConnected){mounts.delete(host);return;}
@@ -172,6 +182,8 @@ const attentionQueue=(()=>{
   const calendarVisible=()=>{const now=Date.now();return calendarRows.filter(row=>row.appear<=now && !(row.retire<=now) && !discardedKeys.has(row.key) && !pendingDiscards.has(row.key));};
   // The coordinator's timeline filings during the review trial: two or more collapse into one chip that opens them together.
   const isFiling=s=>s.operation_name==='timeline_file';
+  // A pending Signoff that work is waiting on: its chip and its row carry a red frame.
+  const signoffBlocking=s=>s?.state==='pending' && !!s.attention?.blocking;
   const filingsChip=()=>{const list=signoffs.filter(isFiling);return `<button type="button" class="focus-signoff-chip focus-filings-chip" data-filings-group aria-label="Filings to review · ${list.length}" title="Filings to review (${list.length})">${signoffIcon(list[0])}<span class="focus-filings-count">${list.length}</span></button>`;};
   // Each filing has its own Approve and Reject with an optional note to the coordinator; Approve all calls the ordinary approve
   // route once per filing still waiting, in order. Each failure is reported against its own card.
@@ -294,7 +306,7 @@ const attentionQueue=(()=>{
         if(divider)divider.hidden=!chats;
       }
       const grouped=signoffs.filter(isFiling).length>1;
-      const markup=(mount.sideChatHost?'':chats)+due+recovery+(grouped?filingsChip():'')+[...signoffs.filter(s=>!toRead(s) && !(grouped && isFiling(s))),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}" aria-label="${toRead(s)?'Read':'Review'} ${esc(title)}${unread?' · Unread':''}" title="${esc(title)}">${signoffIcon(s)}</button>`;}).join('');
+      const markup=(mount.sideChatHost?'':chats)+due+recovery+(grouped?filingsChip():'')+[...signoffs.filter(s=>!toRead(s) && !(grouped && isFiling(s))),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);const blocking=signoffBlocking(s);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}"${blocking?' data-blocking="true"':''} aria-label="${toRead(s)?'Read':askKind(s)==='question'?'Question':askKind(s)==='request'?'Request':'Review'} ${esc(title)}${blocking?' · Blocking':''}${unread?' · Unread':''}" title="${esc(title)}${blocking?' (blocking)':''}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'')+(calendarError?'<button type="button" class="quiet" data-calendar-retry title="'+esc(calendarError)+'">Retry calendar</button>':'');
       if(host._signoffHTML!==html){
         const focused=document.activeElement, key=host.contains?.(focused) && focused?.matches?.('[data-signoff-key],[data-reminder-key]') ? chipKey(focused) : null;

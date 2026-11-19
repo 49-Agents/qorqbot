@@ -21,3 +21,6 @@ def install_sql_functions(connection) -> None:
     legacy_zone = ZoneInfo("America/Puerto_Rico")
     connection.create_function("san_juan_date", 1, lambda value: local_time.local_date(value, legacy_zone), deterministic=True)
     connection.create_function("san_juan_hour", 1, lambda value: local_time.local_hour(value, legacy_zone), deterministic=True)
+    # Unicode case-insensitive matching (SQLite's own lower() folds ASCII only), as Python's str.casefold.
+    connection.create_function("qorqut_casefold", 1, lambda value: value.casefold() if isinstance(value, str) else value,
+                               deterministic=True)

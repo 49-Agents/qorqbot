@@ -48,12 +48,14 @@ Options:
   `onAttachmentRemove(key)` removes one pending choice through the controller.
   `composer.attachments` contains `{key,name}` labels, and `composer.filesDisabled`
   locks their controls during a send. No upload occurs inside the shared view.
+- `voiceInput`: `false` leaves the microphone off this composer. Otherwise, when `js/voice-input.js` is loaded and the
+  OpenRouter extension is part of the installation, a microphone button sits beside Send. It records, sends the recording
+  to the extension's own route and inserts the returned text at the cursor as an ordinary `input` event; nothing is sent
+  as a message. Ctrl+Shift+Space starts and stops it, Escape discards a recording, and `composer.inputDisabled` or a
+  hidden composer locks it.
 - `onDraft(text)`, `onSubmit(text)`, `onOlder()`, `onViewportChange()`,
   `onReference(value, entryKey)`, `onEntryAction(actionKey, entryKey)`,
   `onPendingAction(actionKey, pendingKey)`, `onEmptyAction(actionKey)`.
-  `onReact(entryKey)` optionally enables the thumbs-up: an entry with `reactable: true` shows the button beside Copy on
-  hover and reacts on a double-click of its words; an entry with `reaction` shows that mark under the message. The
-  controller decides what a reaction sends (`chatReactionText`) and which entries carry one (`chatReactionFold`).
   The view does not await or interpret transport results. Controllers catch errors.
   onReference receives references[i].value itself, not the descriptor containing
   value. No callback after dispose. Hidden/disconnected feed reports no visible keys.
@@ -66,6 +68,18 @@ The composer auto-sizes on input, `setDraft`, reveal and width changes: one line
 200px, then vertical scrolling, without a manual resize handle. Multiline text puts
 the existing actions below the input. Unchanged paints retain the caret and input
 scroll. Normal Send uses an accessible arrow button; retry labels stay explicit.
+
+ArrowUp in a focused, empty composer recalls the owner's most recent sent message of that
+view (`chatInputRecallModel`). Further presses walk back through earlier ones, ArrowDown
+walks forward and ends at the empty draft; the caret goes to the end and an `input` event
+fires, so `onDraft` and auto-sizing follow. History is derived on each press from the
+rendered `entries` then `pending`, never stored, so each chat or thread recalls only its
+own loaded messages. Only `speaker: 'user'` rows count: `notice` rows (inbox nudges,
+session recovery, system notes), `collapsedSource` rows (Telegram), `recorder: 'agent'`
+rows, `referenceOnly` rows and empty text are skipped, and immediate repeats are one step.
+Editing the recalled text, or a `setDraft` that changes it, ends the recall and arrows are cursor keys again. Nothing happens for a non-empty draft, a held
+modifier, an IME composition, a key another handler already took (the command menu) or a
+hidden, disabled or `inputDisabled` composer.
 
 ## Native Chat/Terminal lifecycle
 

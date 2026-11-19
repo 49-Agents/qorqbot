@@ -28,6 +28,9 @@ from qorqut.composition.locations import agent_workspace, business_hq
 from qorqut.inbox.defaults import legacy_inbox_skill
 from qorqut.instance_paths import InstancePaths
 from . import role_workflow
+
+# Active workers an agent may create without the owner's approval, counted in total.
+FREE_WORKERS = 3
 from . import cleanup_workflow
 from .context import MAX_CONTEXT_CHARACTERS, ContextSource, compose_context
 from .global_scope import with_effective_scope
@@ -316,8 +319,15 @@ class AgentConfigResolver:
         """The agent's current profile overrides and pinned role defaults, read in the caller's transaction."""
         profile, _ = self.profile(context.principal, connection=uow.connection)
         role = self.catalog.get("role", plain(profile.data["role"]), connection=uow.connection)
-        return AgentPolicyBasis(defaults=role.manifest["default_tool_policy"],
-                                overrides=profile.data["tool_policy"]["overrides"],
+        defaults, overrides = role.manifest["default_tool_policy"], profile.data["tool_policy"]["overrides"]
+        if overrides.get("agents_create", defaults.get("agents_create")) == "allow":
+            # An agent that may create agents does so freely up to FREE_WORKERS active workers in all; past that
+            # each creation is staged for the owner's approval. The count is read in the caller's transaction.
+            from .global_scope import active_role_count
+            from .roles import GLOBAL_WORKER_ROLE
+            if active_role_count(uow.connection, GLOBAL_WORKER_ROLE) >= FREE_WORKERS:
+                overrides = {**overrides, "agents_create": "signoff"}
+        return AgentPolicyBasis(defaults=defaults, overrides=overrides,
                                 role=profile.data["role"], revision=profile.revision)
 
     def plugin_declares(self, context: InvocationContext, basis: AgentPolicyBasis, descriptor, uow) -> bool:

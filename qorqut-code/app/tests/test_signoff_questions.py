@@ -147,6 +147,17 @@ class QuestionSubmissionTests(unittest.TestCase):
             self.assertEqual(compact['data']['signoff']['decision'], final['decision'])
             self.assertEqual(compact['data']['signoff']['input'], final['input'])
 
+    def test_a_general_comment_is_kept_beside_the_answers(self):
+        s = self.create()['signoff']
+        self.assertEqual(self.respond(s, selected_choices=['yes']).error['code'], 'validation_error')
+        result = self.respond(s, notes='Do the garden one first.')
+        self.assertEqual(result.status, 'ok', result.error)
+        final = plain(result.data)['signoff']
+        self.assertEqual(final['note_count'], 4)
+        notes = self.invoke('signoffs_notes_list', {'signoff_id': s['id']})['notes']
+        comment = next(n for n in notes if n['id'] == final['decision']['message_id'])
+        self.assertEqual(comment['body'], 'Do the garden one first.')
+
     def test_receipt_replay_reordering_and_conflicting_second_submission(self):
         s, key = self.create()['signoff'], new_id()
         result = self.respond(s, idempotency_key=key)
@@ -161,7 +172,7 @@ class QuestionSubmissionTests(unittest.TestCase):
     def test_all_bindings_and_legacy_fields_are_checked_before_writing(self):
         s = self.create()['signoff']
         for changes in ({'proposal_revision': 2}, {'payload_hash': 'wrong'}, {'expected_status_revision': 99},
-                        {'notes': ''}, {'selected_choices': []}, {'draft_values': None}):
+                        {'notes': None}, {'notes': 'x' * 8001}, {'selected_choices': []}, {'draft_values': None}):
             with self.subTest(changes=changes):
                 self.assertEqual(self.respond(s, **changes).status, 'error')
                 self.assertEqual(self.saved(s)['note_count'], 0)

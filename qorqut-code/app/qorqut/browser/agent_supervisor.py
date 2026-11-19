@@ -64,7 +64,9 @@ def chrome_command(meta: dict) -> list[str]:
     """The only Chrome argv this supervisor ever runs: normal sandbox, loopback CDP, a profile private to the agent.
 
     No WebGL or other 3D: the host has no GPU, so 3D content (embedded maps, animated widgets) is drawn in software,
-    and a headless browser treats every tab as visible, so a forgotten tab keeps redrawing and holds a CPU core.
+    and a headless browser always has one tab in front (the newest, or the one the owner watches) that it treats as
+    visible, so a forgotten tab keeps redrawing and holds a CPU core. Tabs behind it are throttled like any background
+    tab; ``idle_tabs`` unloads what nobody uses.
     The owner's sign-in window keeps 3D: it is short-lived and shows whatever the sign-in page needs."""
     managed = meta["managed"]
     return [managed["chrome"], "--headless=new", *profile_flags(managed),
@@ -150,8 +152,37 @@ def _responds(port: int) -> bool:
         return False
 
 
-def stop_child(child: subprocess.Popen) -> None:
-    """Close the one Chrome this process launched: its leader first (profile flush), then only its own process group."""
+def request_close(port: int, timeout: float = 2, pid: int | None = None) -> bool:
+    """Ask the Chrome on this loopback DevTools port to close itself; True when the request was delivered.
+
+    With ``pid``, the process that launched it, only a listener that process owns is asked: after a crash another program
+    may hold the port, and ``Browser.close`` would end that one."""
+    try:
+        if pid is not None and not owns_listener(pid, port, "127.0.0.1"):
+            return False
+        with build_opener(ProxyHandler({})).open(f"http://127.0.0.1:{port}/json/version", timeout=timeout) as response:
+            identity = json.load(response)["webSocketDebuggerUrl"].rsplit("/", 1)[1]
+        from websockets.sync.client import connect
+        with connect(f"ws://127.0.0.1:{port}/devtools/browser/{identity}", proxy=None, open_timeout=timeout,
+                     close_timeout=1) as devtools:
+            devtools.send(json.dumps({"id": 1, "method": "Browser.close"}))
+            devtools.recv(timeout=timeout)
+        return True
+    except Exception:      # any failure leaves the ordinary termination below
+        return False
+
+
+def stop_child(child: subprocess.Popen, port: int | None = None) -> None:
+    """Close the one Chrome this process launched, then only its own process group.
+
+    With its DevTools ``port`` Chrome is first asked to close itself. A terminated headless Chrome exits at once and drops
+    what it has not written yet: a cookie set in its last half minute, so a sign-in made just before a stop or restart was
+    lost. Closing writes the profile first (measured with Chrome 153)."""
+    if child.poll() is None and port is not None and request_close(port, pid=child.pid):
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
     if child.poll() is None:
         child.terminate()
     try:
@@ -163,6 +194,25 @@ def stop_child(child: subprocess.Popen) -> None:
     except ProcessLookupError:
         pass
     child.wait(timeout=5)
+
+
+def attend(state: Path, port: int, stop: threading.Event) -> None:
+    """What this browser gets for as long as it runs, from here because the supervisor lives exactly as long as its Chrome
+    and outlives the application: cookie banners refused and idle tabs unloaded. Neither can stop the browser.
+
+    Both import what they talk to Chrome with only when they first need it, inside loops that survive every error. So a
+    supervisor whose Python lacks one of those modules would run a browser with neither, and say nothing. They are
+    imported here first, and the supervisor's log gets one line either way."""
+    try:
+        import websockets.sync.client          # beyond the standard library, the one thing the two need
+        from . import cookie_banners, idle_tabs
+    except ImportError as error:
+        print("Browser supervisor: cookie banners are not refused and idle tabs are not unloaded in this browser, because "
+              f"this Python ({sys.executable}) cannot import what they need: {error}", file=sys.stderr)
+        return
+    for watch, arguments in ((cookie_banners.watch, ()), (idle_tabs.watch, (state / idle_tabs.WATCHED,))):
+        threading.Thread(target=watch, args=(port, stop, *arguments), daemon=True).start()
+    print("Browser supervisor: refusing cookie banners and unloading idle tabs in this browser.", file=sys.stderr)
 
 
 def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> int:
@@ -212,6 +262,7 @@ def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> i
                 raise RuntimeError("start_timeout")
             time.sleep(0.1)
         publish(state="ready", instance=str(uuid.uuid4()))
+        attend(state, managed["port"], stop)
         while not stop.wait(0.5):
             if child.poll() is not None:
                 raise RuntimeError("chrome_exited")
@@ -227,7 +278,7 @@ def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> i
     finally:
         if child is not None:
             try:
-                stop_child(child)
+                stop_child(child, managed["port"])
             except (OSError, subprocess.SubprocessError):
                 pass
         if code == EXIT_STOPPED:

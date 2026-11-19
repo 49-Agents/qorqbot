@@ -70,6 +70,7 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # configured coordinator in person, writes only the owner's file, and pins only a record the caller may read.
 # So does timeline_get, the timelines of Tasks, Projects and Global: the reader needs the ordinary read of the item. timeline_file
 # is not here: it declares its own standing mode (approval during the trial) and the handler admits only the coordinator in person.
+# Nor is timeline_file_answer: it declares allow (the owner's own answer to a question Signoff) and admits only the coordinator.
 CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
                                   "agent_context_get",
                                   "agents_activity_list", "agent_work_update", "business_briefing", "files_link", "agentic_access",
@@ -189,9 +190,9 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
     if name == "tasks_delegate":
         # Handing a Task to its worker is a Task update; an installed role needs no new grant for it.
         return resolve("tasks_update")
-    if name in {"tasks_step_done", "tasks_step_add", "tasks_step_skip"}:
+    if name in {"tasks_step_done", "tasks_step_add", "tasks_step_skip", "tasks_step_confirm"}:
         # Working a Task's plan is progress on that Task: whoever may update Tasks may call these, and the handler
-        # then decides by the Task who may mark, add or skip a step.
+        # then decides by the Task who may mark, add, skip or confirm a step.
         return resolve("tasks_update")
     if name == "tags_list":
         # Listing the shared tag catalog follows the Task read grant; a tag never grants access to anything.

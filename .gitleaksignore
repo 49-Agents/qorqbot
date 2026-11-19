@@ -13,3 +13,10 @@ fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/app/tests/test_telegram_gat
 fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/biz-dashboard/js/xterm.js:generic-api-key:1
 fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/biz-dashboard/tests/fixtures/overseer-ui-v1.json:generic-api-key:2298
 fcf8a256f8c8b171f00dd397204e727367b616b9:qorqut-code/tools/module_split_compat/resumption/resumption_cases.py:generic-api-key:301
+
+# Reviewed false positives: made-up tokens in managed-driver test fixtures.
+d4589b3e58141f3508db097f3ef28880052666ee:qorqut-code/app/tests/test_managed_claude_driver.py:curl-auth-header:186
+d4589b3e58141f3508db097f3ef28880052666ee:qorqut-code/app/tests/test_managed_claude_driver.py:generic-api-key:1363
+# Dummy solver key and token in the captcha tests (rewritten to plain test values later).
+33c51caca81e447b267addbb1464eefdcb5aa9d0:qorqut-code/app/tests/test_browser_captcha_solver.py:generic-api-key:13
+33c51caca81e447b267addbb1464eefdcb5aa9d0:qorqut-code/app/tests/test_browser_captcha.py:generic-api-key:21

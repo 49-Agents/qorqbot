@@ -42,6 +42,7 @@ and the target identity/validation model), the source map and what the host stil
 | `tags` | The shared Task/Action label catalog (`TagOperations`): labels only, no access, no counts |
 | `discussion` | Canonical item threads for Tasks, Actions and Tables, follows (sticky unfollow), relay attribution and the required/optional inbox events (`emit_event`) |
 | `tasks` | Tasks (`TaskOperations`, `TaskPorts`): fixed states, one snooze, assignees, parents, informational dependencies, snooze reconciler |
+| `tasks.identity` | Task ids: `new_task_id` draws a short id (`TASK_ID_LENGTH` characters of `TASK_ID_ALPHABET`) that no Task in any scope has, archived included; `taken` is the same check for a caller-supplied id, which `tasks_create` refuses without naming the other scope. No index enforces it (older installations hold duplicate ids across projects), so the writer re-checks in the applying transaction. Existing ids keep their form |
 | `actions` | Actions with immutable revisions (`ActionOperations(..., on_revision=)`, `new_action`/`change_action`/`settle(..., on_revision=)`; the admission callable is required and supplied by the host) |
 | `tasks.writes` | `TaskWrites`: Tasks written inside another module's plan are announced once (follows, thread entry, inbox event) in the writing transaction; import the submodule |
 | `actions.writeback` | `ActionWriteback`, `linked_action`, `linked_action_items`: the automatic one-per-source Action written inside an applying transaction, and the workspace-visible Action item links; import the submodule (the `actions` initializer does not load it) |
@@ -160,6 +161,18 @@ preserves the built-in attributes, and callers cannot inject the reserved key.
 Old Tasks have type `task`, empty overview and no email binding without rewriting
 records or changing the storage schema. Updates use the usual atomic Task plan,
 events and table history; there is no second writer or new operational authority.
+
+### Reading Tasks
+
+`tasks_list` filters in SQL (type, email binding, tags, blocked state, search) and, when
+no status filter applies, reads only the requested page. Each page's views are built in a
+fixed handful of queries however many rows it holds (`tasks/detail.py`). `search` matches
+title, id, overview, status line, next step and comments, with Unicode case folding.
+Every Task view names what its ids point at: `business_name`, `assignees`
+(`{id, kind, name}`) and `blockers` (`{id, title, status}`), beside the existing id
+lists. `tasks_get` accepts `include: ["actions", "signoffs"]` to return the first page of
+each as `tasks_associated_records` would, under that operation's own grant; a type the
+caller may not read or the host does not install is reported as `unavailable`.
 
 ### Customers
 

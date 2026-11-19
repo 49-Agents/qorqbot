@@ -188,9 +188,12 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
 ## Focus, attention and conversations
 
 Focus is the first tab of Ordubashy's pane. Below the launcher row it is the owner's
-own notes: one plain text area (`js/focus-text.js`), saved per agent pane through
-`/root/agents/<id>/focus-layout` with revision checks. Until the owner saves anything it
-shows "Your notes here"; after that it keeps exactly what they left, even empty. No agent
+own notes (`js/focus-text.js`), saved per agent pane through
+`/root/agents/<id>/focus-layout` with revision checks. The text surface is the Journal's
+lines editor (`js/lines-editor.js`, shared by both): "-" starts a task line with the
+Journal's status ball (`js/status-ball.js`, `css/status-ball.css`), and the statuses are saved
+with the text. Until the owner saves anything it shows "Your notes here"; after that it
+keeps exactly what they left, even empty. No agent
 reads or writes the notes, and agents cannot place anything on Focus. Check:
 `node --test tests/focus-notes.test.js`.
 
@@ -346,7 +349,7 @@ owner table page. Checks: `tests/test_agent_viewbox_browser.js` (stub API) and
 
 ## Timelines
 
-`js/timeline-panel.js` draws the owner's read-only view of an item's timeline: what holds now (goal, decisions, facts, latest progress, open questions) with a History switch that lists every entry, removed ones struck through, the owner's quoted words, closed questions, and links to subtasks, approvals and reports. `js/conversation.js` mounts it above the messages of a Task or Project thread from the first page of `owner_conversation_related`; `globalTimelineBlockMount` (`js/workflow-panel.js`) mounts the Global block in Ordubashy's chat and reads `timeline_view` at most every 20 seconds. Ordubashy's agent pane also has an Open questions view (`js/agent-questions.js`, `timeline_questions_list`): every open question across Global, the Projects and the Tasks the owner can read, blocking first, each opening the thread it belongs to. When the server cut the list off it shows "Showing the first N open questions." All text goes through `timelineEsc`. Tests: `tests/timeline-panel.test.js`.
+`js/timeline-panel.js` draws the owner's read-only view of an item's timeline: what holds now (goal, decisions, facts, latest progress, open questions) with a History switch that lists every entry, removed ones struck through, the owner's quoted words, closed questions, and links to subtasks, approvals and reports. `js/conversation.js` mounts it above the messages of a Task or Project thread from the first page of `owner_conversation_related`; `globalTimelineBlockMount` (`js/workflow-panel.js`) mounts the Global block in Ordubashy's chat and reads `timeline_view` at most every 20 seconds. Open questions for the owner are question Signoffs: the sign-off strip marks them with a question icon (`asks` on the queue row, `signoffIcon` in `js/attention-queue.js`), and `js/signoffs.js` draws them as a heading, one button per choice, a "Something else…" field and Send (`sgIsAsk`). All text goes through `timelineEsc`. Tests: `tests/timeline-panel.test.js`.
 
 ## Calendar
 

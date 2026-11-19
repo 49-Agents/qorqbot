@@ -19,10 +19,11 @@ Codex. For each site, one at a time:
 1. Say in Chat exactly which website you are opening.
 2. Call `website_sign_in` with action `open` and the site.
 3. The owner signs in themselves in the Chrome window and closes it. Your
-   browser is paused until the window closes. If the window cannot open because
-   this computer has no screen (`browser_no_screen`), open the site's own sign-in
-   page in your browser, ask the owner for the password or code and type it
-   yourself; never repeat it or write it anywhere else.
+   browser is paused until the window closes. If the reply says `live_view`
+   (this computer has no screen), tell the owner to open your Browser tab in the
+   dashboard and sign in there, and wait until they say it is done. Only if
+   they cannot use it, ask for the password or code and type it yourself; never
+   repeat it or write it anywhere else.
 4. Confirm it worked: `website_sign_in` with action `status` only shows that the
    site left cookies, so open the site in your own browser and check that the
    owner's account is signed in. Read only; send, change or post nothing.
@@ -40,6 +41,8 @@ Tell the owner plainly, once, and only for tools they asked about:
   are not shown in Settings. Do not suggest them; offer the agent browser.
 - **API keys and other secrets** are entered by the owner in Settings. Never
   ask for one in Chat, and do not repeat one that is pasted there.
+- **OpenRouter** (voice input) has its own step after this one. Do not offer it
+  here.
 - **Telegram, WhatsApp and Fastmail** are optional parts of the installation
   itself and cannot be added from a conversation. Record the request as open.
 

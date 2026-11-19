@@ -41,6 +41,14 @@
 .agfocus-desktop-view .agbrowser-reconnect{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;min-height:30px;margin:0;padding:0;border:0;border-radius:8px;background:transparent;color:var(--fg-2);cursor:pointer}
 .agbrowser-reconnect:hover{background:var(--hover);color:var(--fg)}
 .agbrowser-stage{display:flex;flex:none;justify-content:center}
+/* Live view of an agent's built-in browser (js/agent-browser-live.js): the picture keeps the page's own shape, so a
+   pointer position maps straight back to the page. It has no border or padding for the same reason: its box is the page. */
+.aglive-screen{display:block;max-width:100%;height:auto;align-self:flex-start;box-shadow:0 0 0 1px var(--line-2);border-radius:8px;background:#fff;cursor:default;user-select:none;-webkit-user-drag:none;touch-action:none}
+.aglive-screen:not([src]){min-width:240px;min-height:150px;background:var(--wash)}
+.aglive-screen:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.aglive-tabs{height:30px;max-width:260px;padding:0 8px;font-size:12px;border:1px solid var(--line-2);background:var(--elevated);color:var(--fg);text-overflow:ellipsis}
+.aglive-tabs[hidden]{display:none}
+.aglive-note{font-size:12px}
 
 /* Row: status, scope, title, drag/details/snooze controls. Tasks rhythm comes from .trow
    (css/tasks.css) and the shared column classes; only Focus-specific sizing is here. */
@@ -243,13 +251,16 @@
 .agfocus-surfaces .agfocus-surface-chip[aria-pressed="true"]{border-color:var(--fg-2);background:var(--hover)}
 .agpad .tbody > .agfocus.agfocus-surface-open{overflow:hidden}
 
-/* Notes: one plain text area fills the board below the launcher and attention rows.
+/* Notes: the Journal's lines editor (css/notes.css) fills the board below the launcher and attention rows.
    Only while nothing is open: an opened item (signoff, browser, desktop, side chat) owns the board instead. */
 .agfocus:not([data-attention-board]):not(.agfocus-surface-open) > .agfocus-layout{display:flex;flex-direction:column;align-items:stretch;overflow:hidden}
 .agfocus-notes{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
-.agfocus .agfocus-notes .agfocus-notes-input{display:block;flex:1;width:100%;min-height:120px;box-sizing:border-box;margin:0;padding:10px 12px;border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--fg);font:inherit;font-size:13.9px;line-height:1.6;resize:none;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;outline:0}
-.agfocus .agfocus-notes .agfocus-notes-input:focus{background:rgba(255,255,255,.03);box-shadow:none}
-.agfocus .agfocus-notes .agfocus-notes-input:disabled{opacity:.6;cursor:default}
+.agfocus .agfocus-notes .agfocus-notes-input{display:block;flex:1;width:100%;min-height:120px;box-sizing:border-box;margin:0;padding:10px 12px;border-radius:8px;overflow:auto;cursor:text}
+.agfocus .agfocus-notes .agfocus-notes-input:focus-within{background:rgba(255,255,255,.03)}
+.agfocus .agfocus-notes .agfocus-notes-input.loading{opacity:.6;cursor:default}
+.agfocus .agfocus-notes .ntdoc{min-height:0}
+/* Focus styles every button as a bordered box (app.css); the status ball stays the Journal's bare ball. */
+.agfocus .agfocus-notes .ntball,.agfocus .agfocus-notes .ntball:hover,.agfocus .agfocus-notes .ntball:active{width:100%;height:100%;min-height:0;padding:0;border:0;border-radius:0;background:none;color:inherit;font:inherit;transform:none}
 .agfocus-text-status{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 0;padding:0 12px;font-size:11px;color:var(--fg-2)}
 .agfocus-text-status[hidden]{display:none}
 .agfocus-text-status[data-state=failed],.agfocus-text-status[data-state=conflict],.agfocus-text-status[data-state=load]{color:var(--warn)}

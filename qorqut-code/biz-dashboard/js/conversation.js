@@ -135,11 +135,13 @@ function conversationPlanEntry(steps,open) {
   const finished=steps.filter(step=>step.state==='completed' || step.state==='skipped').length;
   const current=steps.find(step=>step.current);
   const clip=text=>text.length>140?`${text.slice(0,139).trimEnd()}…`:text;
-  const line=current?`Plan: ${finished} of ${steps.length} steps done. Now: ${clip(current.text)}`
+  const line=current?`Plan: ${finished} of ${steps.length} steps done. ${current.awaiting_review?'Waiting for confirmation':'Now'}: ${clip(current.text)}`
     :`Plan: all ${steps.length} steps finished.`;
   const row=(step,index)=>{
     const mark=step.state==='completed'?'✓':step.state==='skipped'?'–':step.current?'→':'○';
-    const outcome=step.state==='skipped'?`skipped${step.note?`: ${step.note}`:''}`:step.note || '';
+    // A step handed in for confirmation is not finished; one sent back shows what was asked for.
+    const outcome=step.state==='skipped'?`skipped${step.note?`: ${step.note}`:''}`
+      :step.awaiting_review?'waiting for confirmation':step.feedback?`sent back: ${step.feedback}`:step.note || '';
     return `${mark} ${index+1}. ${step.text}${outcome?` (${outcome})`:''}`;
   };
   return {key:open?'plan-open':'plan',speaker:'notice',
