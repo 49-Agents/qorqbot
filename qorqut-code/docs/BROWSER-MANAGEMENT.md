@@ -111,7 +111,8 @@ An agent uses its own browser (the default) or the installation's one **Shared b
   points the agent at its own profile or any other browser.
 * A hand-installed `browser.json` and a legacy-bound browser are never replaced: `use_shared` answers
   `browser_target_conflict`.
-* Owner sign-in on the Shared profile stops the Shared Chrome, so every agent on it waits until the window is closed.
+* Owner sign-in in a window on the Shared profile stops the Shared Chrome, so every agent on it waits until the window is
+  closed. A sign-in through the live view (see [Website sign-in](#website-sign-in)) stops nothing.
 * The owner sets the choice per agent in Settings ("Which browser each agent uses"), which posts
   `{"action": "choose", "agent_id": ..., "browser": "own" | "shared"}` to `/api/root/browser-setup`.
 
@@ -147,7 +148,42 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
   the picture). If finding the agent's configured viewer fails, the error is shown, not the live view.
 * Watching is use: a tab with an open view is not [unloaded as idle](#idle-tabs-and-cookie-banners), and opening a view
   on an unloaded tab loads its page again without waiting for it, so the owner sees it load.
-* The visible sign-in window stays for what a picture cannot do: file pickers, passkeys, downloads.
+* The visible sign-in window stays for what a picture cannot do: file pickers, passkeys, downloads. On a computer without a
+  screen it cannot open, and the live view is how the owner signs in.
+
+## Website sign-in
+
+`website_sign_in` (Ordubashy only, MCP) connects the owner's account on a website in an agent's browser. `open` and `sign_out`
+take a `site` (a domain or its https sign-in address); `agent_id` names the worker whose own browser it is, and is left out
+for Ordubashy's own. `status` lists, per agent, the sites recorded for the browser it uses.
+
+* **With a screen**, `open` shows a Chrome window on the browser's profile. The owner signs in and closes it; the browser (and
+  every agent on it, for the Shared browser) is paused until then. Nothing about this changed.
+* **Without a screen** (Linux with neither `DISPLAY` nor `WAYLAND_DISPLAY`, as on a server) `open` used to fail with
+  `browser_no_screen`, and Ordubashy then asked the owner for the password and typed it. It now opens the sign-in address in a
+  new tab of the browser the agent uses (the Shared browser for an agent set to it) and answers
+  `{"opened": "slack.com", "where": "live_view", "agent": "Atlas", "next": "..."}`. `agent` is the agent whose **Browser** tab
+  the owner opens in the dashboard ([the live view](#the-owners-live-view)); the site's page is among that tab's pages, and the
+  panel shows the first listed page when it opens. `next` carries the instruction: wait until the owner says they are done, then
+  open the site in that browser and check; ask for a password or code only if the owner cannot use the live view. For a Shared
+  agent it adds that every agent on the Shared browser shows the same pages.
+* **How the tab is opened.** Over DevTools on the browser itself (`Target.createTarget`), as the live view reaches it, and not
+  with an `agent-browser` command. Nothing is stopped, restarted or paused, no lock is taken, and `setup` keeps looking after
+  the browser. A command would navigate the tab of some session, which for the caller's own browser is the page the agent is
+  working in. A tab made over DevTools is bound to no session (`idle_tabs`: a session is bound to its tab's id), so the tab a
+  pinned agent on the Shared browser works in is not touched. As with any open view, a tab nobody uses is unloaded after 30
+  minutes and loads again when the owner opens it. The port is used only while the browser's supervisor reports the exact
+  Chrome ready; otherwise the answer is `browser_not_ready`, as for the live view.
+* **`status` and what "signed in" means.** Qorqbot cannot see that the owner has signed in. It records the site when its page
+  opens, so the site is listed with `signing_in` empty (there is no window) and `session_saved` as before: only whether the
+  browser holds cookies of that site, which many sites set before login. Settings shows it under "Websites your agents can use
+  as you" as "No session" until such cookies appear. The agent is told to rely on the owner saying they are done and on its own
+  look at the page. `sign_out` works unchanged on a site opened this way.
+* **Session cookies.** The owner signs in in the agent's own running Chrome, so no cookies are copied. The window flow copies
+  cookies that end with the browser session into the restarted browser (`lasting_copies`) because it restarts the browser; this
+  flow never learns when the owner is done and cannot. A login that only has such cookies may therefore not survive a restart of
+  that browser, as when an agent signs in itself on a server; the agent signs in again then. Not tested.
+* A repeated `open` for the same site opens another tab and lists the site once. Only Ordubashy may call the tool, as before.
 
 ## Qorqbot's own Chrome
 
@@ -239,8 +275,8 @@ that differs from the saved record is reported `conflict` and left untouched.
 
 ## Ordubashy using a worker's browser
 
-`agent_browser_manage` only maintains a worker's browser. To use it, for example to sign a website in there on a computer
-without a screen, the configured Ordubashy selects it with `browser_turn`: `list` names each active permanent worker's own
+`agent_browser_manage` only maintains a worker's browser. To use it, for example to check there that the owner has signed in to
+a website (see [Website sign-in](#website-sign-in)), the configured Ordubashy selects it with `browser_turn`: `list` names each active permanent worker's own
 browser under the worker's agent ID, and `acquire` with `protocol: "handles"` and that `browser_id` returns a handle bound to
 it. Every call with that handle proves afresh that the caller is the configured Ordubashy and that the worker is still an
 active permanent worker. Commands hold the worker's use lock like the worker's own, so a restart or stop is refused while one
