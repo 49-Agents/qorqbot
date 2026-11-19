@@ -386,10 +386,12 @@ class ReadTest(VocabularyCase):
 class RunTest(unittest.TestCase):
     """browser.run hands read its input and reply, and every other command neither."""
 
+    # Workspaces are resolved: on macOS the temporary folder is under /var, a symlink to /private/var, and a browser
+    # work directory must not pass through a symlink.
     def run_command(self, args, stdout=""):
         with tempfile.TemporaryDirectory() as workspace, mock.patch.object(subprocess, "run") as run:
             run.return_value = subprocess.CompletedProcess(["tool"], 0, stdout, "")
-            result = browser.run(Path(workspace), args, target=("http://127.0.0.1:1", Path("/bin/agent-browser")),
+            result = browser.run(Path(workspace).resolve(), args, target=("http://127.0.0.1:1", Path("/bin/agent-browser")),
                                  capture=True)
         return result, run.call_args
 
@@ -419,7 +421,7 @@ class RunTest(unittest.TestCase):
         for args in (["read", "https://example.com"], ["cookies"], ["get", "cdp-url"], ["wait", "99999"]):
             with tempfile.TemporaryDirectory() as workspace, mock.patch.object(subprocess, "run") as run:
                 with self.assertRaises(BrowserError):
-                    browser.run(Path(workspace), args, target=("http://127.0.0.1:1", Path("/bin/agent-browser")))
+                    browser.run(Path(workspace).resolve(), args, target=("http://127.0.0.1:1", Path("/bin/agent-browser")))
             run.assert_not_called()
 
     def test_the_owner_launcher_names_the_command_the_focus_record_knows(self):
@@ -430,7 +432,7 @@ class RunTest(unittest.TestCase):
                 mock.patch.object(browser, "load_registration", return_value={"registration_id": "r"}), \
                 mock.patch.object(browser, "BootstrapClient", return_value=client), \
                 mock.patch.object(browser, "run", return_value=0):
-            self.assertEqual(browser.run_owner(Path(workspace), ["--consumer-id", consumer, "open", "http://x/"]), 0)
+            self.assertEqual(browser.run_owner(Path(workspace).resolve(), ["--consumer-id", consumer, "open", "http://x/"]), 0)
         self.assertEqual(client.post.call_args_list[0].args[1]["command"], "goto")
 
 
