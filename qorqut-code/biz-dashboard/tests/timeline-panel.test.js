@@ -157,7 +157,7 @@ test('open questions are question Signoffs in the sign-off strip, with their own
   const queue=read('attention-queue.js'),signoffs=read('signoffs.js'),workspace=read('record-workspace.js');
   assert.doesNotMatch(queue,/timeline_questions_list|agentQuestionOpen|data-question-key/);
   assert.match(queue,/const askKind=s=>s\.asks===true \? 'question'/);assert.match(queue,/const asks=s=>!!askKind\(s\);/);
-  assert.match(queue,/toRead\(s\) \? 'read' : asks\(s\) \? askKind\(s\)/);assert.match(queue,/question:'M4\.8 8\.7C4\.8/);assert.match(queue,/request:'M12 20a8 8/);
+  assert.match(queue,/toRead\(s\) \? 'read' : asks\(s\) \? askKind\(s\)/);assert.match(queue,/kind==='question' \? '<text [^']*font-weight="600"[^']*>\?<\/text>'/);assert.match(queue,/request:'M12 20a8 8/);
   assert.match(signoffs,/function sgIsAsk\(s\) \{ return s\.category === 'input_request' && \['question', 'request'\]\.includes\(s\.input\?\.kind\); \}/);
   assert.match(signoffs,/sgIsAsk\(s\) \? 'Send' :/);assert.doesNotMatch(signoffs,/Clear selection/);
   assert.doesNotMatch(workspace,/record\.question|openThread:/);

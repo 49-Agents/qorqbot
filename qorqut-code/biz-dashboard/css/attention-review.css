@@ -48,7 +48,7 @@
 .agfocus-review-open .agfocus-surface-body{border:0;border-radius:0;background:none;overflow:hidden}
 .agfocus-review-open .agfocus-expansion-content{padding:0;overflow:hidden}
 .agfocus-review-open .sg-focus.sg-single .sg-rowhead{display:none}
-.agfocus-review-open .sg-focus.sg-single .sg-row{padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+.agfocus-review-open .sg-focus.sg-single .sg-row,.agfocus-review-open .sg-focus.sg-single .sg-rows .sg-row.sg-row-blocking,.agfocus-review-open .sg-focus.sg-single .sg-rows .sg-row.sg-row-blocking:focus-within{padding:0;border:0;border-radius:0;background:none;box-shadow:none}
 .agfocus-review-open .sg-focus.sg-single .sg-detail-body{padding:0 4px 16px 0}
 .agfocus-review-open .sg-focus.sg-single .sg-detail-footer{padding:12px 0 0}
 .agfocus-review-open .sg .sg-choice-marker{display:none}
