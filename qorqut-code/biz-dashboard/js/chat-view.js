@@ -504,34 +504,11 @@ function chatViewTypedMount(ref, host, options, entryKey) {
   return unavailable();
 }
 
-// ---- reactions
-// A reaction is an ordinary owner message, so the agent reads it as a go-ahead and no separate record exists. The newest
-// agent message takes a bare thumbs-up; an older one is named by its first words. `chatReactionFold` shows such a message
-// as a mark on the message it answers instead of as a bubble of its own.
-const CHAT_REACTION = '👍';
-const chatReactionSnippet = text => [...String(text || '').replace(/\s+/g, ' ').trim()].slice(0, 60).join('');
-const chatReactionText = (entry, newest) => newest ? CHAT_REACTION : `${CHAT_REACTION} to: “${chatReactionSnippet(entry.text)}”`;
-function chatReactionFold(rows) {
-  const out = [];
-  for (const row of rows) {
-    const match = row.speaker === 'user' && !row.collapsedSource && /^👍(?: to: “([\s\S]*)”)?$/u.exec(String(row.text || '').trim());
-    let target = -1;
-    if (match) for (let i = out.length - 1; i >= 0 && target < 0; i--) {
-      const candidate = out[i];
-      if (candidate.speaker === 'agent' && candidate.partial !== true && (match[1] === undefined || chatReactionSnippet(candidate.text) === match[1])) target = i;
-    }
-    if (target < 0) out.push(row);
-    else out[target] = {...out[target], reaction: CHAT_REACTION};
-  }
-  return out;
-}
-
 // ---- recalling a sent message
 // ArrowUp in an empty composer brings back what the owner last sent in this conversation, the way a shell does. The history is
 // read from the rows the view already shows, so every chat and thread recalls only its own messages and nothing is stored.
 // Only the owner's own typed messages count: nudges, session recoveries and other system notes are `notice` rows, a relayed
-// Telegram message carries `collapsedSource`, a note an agent recorded for the owner carries `recorder: 'agent'`, and a
-// thumbs-up is a reaction rather than something to retype.
+// Telegram message carries `collapsedSource`, and a note an agent recorded for the owner carries `recorder: 'agent'`.
 const chatInputRecallModel = {
   // Oldest first. Immediate repeats are one step.
   history(entries = [], pending = []) {
@@ -539,7 +516,7 @@ const chatInputRecallModel = {
     for (const row of [...(entries || []), ...(pending || [])]) {
       if (!row || row.speaker !== 'user' || row.collapsedSource || row.recorder === 'agent' || row.referenceOnly || row.partial === true) continue;
       const text = String(row.text ?? '');
-      if (!text.trim() || /^👍(?: to: “[\s\S]*”)?$/u.test(text.trim())) continue;
+      if (!text.trim()) continue;
       if (out[out.length - 1] !== text) out.push(text);
     }
     return out;
@@ -761,7 +738,7 @@ function mountChatView(host, options = {}) {
   const entrySignature = entry => JSON.stringify([entry.speaker, entry.recorder, entry.text, entry.partial === true, entry.timestamp, entry.title, entry.showAuthor, entry.showAuthorName,
     entry.author?.name, entry.author?.avatarHtml, entry.notice, entry.activity, entry.collapsedSource, entry.referenceOnly === true, entry.referenceRow,
     (entry.references || []).map(ref => [ref.key, ref.label, !!ref.disabled, ref.value?.type, ref.value?.label, ref.value?.state, ref.value?.unavailable === true]),
-    (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled]), entry.reactable === true, entry.reaction || null]);
+    (entry.typedReferences || []).map(chatViewTypedSignature), (entry.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
   const authorHtml = entry => entry.author && entry.showAuthor !== false
     ? `<div class="gchat-author">${entry.author.avatarHtml ? `<span class="gchat-avatar" aria-hidden="true">${entry.author.avatarHtml}</span>` : ''}<small class="gchat-author-name${entry.showAuthorName === false ? ' gchat-author-name-hidden' : ''}">${esc(entry.author.name || '')}</small></div>` : '';
   const titleHtml = entry => entry.title ? `<strong class="gchat-title">${esc(entry.title)}</strong>` : '';
@@ -791,21 +768,6 @@ function mountChatView(host, options = {}) {
     button.setAttribute('aria-label', 'Copy message');
     button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/></svg>';
     row.append(button);
-  }
-  // The thumbs-up beside Copy (shown on hover) and the mark a given reaction leaves under the message.
-  function addReaction(node, entry) {
-    const row = node.querySelector('.gchat-bubble-row');
-    if (row && entry.reactable === true && options.onReact) {
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'gchat-react'; button.textContent = CHAT_REACTION;
-      button.setAttribute('aria-label', 'React with thumbs up'); button.title = 'Thumbs up (or double-click the message)';
-      row.append(button);
-    }
-    if (entry.reaction) {
-      const mark = document.createElement('span');
-      mark.className = 'gchat-reaction'; mark.textContent = entry.reaction; mark.setAttribute('role', 'img'); mark.setAttribute('aria-label', 'You reacted with thumbs up');
-      (row || node.querySelector('.gchat-body') || node.lastChild)?.after(mark);
-    }
   }
   function paintTimestamps() {
     let previous = NaN, previousEntry = null;
@@ -1078,7 +1040,6 @@ function mountChatView(host, options = {}) {
       node.append(actions);
     }
     addCopyButton(node, entry.text, notice?.markerOnly);
-    addReaction(node, entry);
     return {node, isNew};
   }
   function disposeTyped(node) {
@@ -1318,8 +1279,6 @@ function mountChatView(host, options = {}) {
       }).catch(() => { if (!disposed) toast('Couldn’t copy message.'); });
       return;
     }
-    const react = event.target.closest('.gchat-react');
-    if (react) { emit('onReact', react.closest('.gchat-msg[data-id]')?.dataset.id); return; }
     const chip = event.target.closest('[data-preview-href]');
     if (chip) { openPreview(chip); return; }
     if (event.target.closest('[data-preview-close]')) { closePreview(); return; }
@@ -1336,14 +1295,6 @@ function mountChatView(host, options = {}) {
     if (pendingAction) { emit('onPendingAction', pendingAction.dataset.pendingAction, pendingAction.closest('[data-input-id]')?.dataset.inputId); return; }
     const emptyAction = event.target.closest('[data-empty-action]');
     if (emptyAction) emit('onEmptyAction', emptyAction.dataset.emptyAction);
-  });
-  // Double-clicking the words of a reactable message reacts to it. Controls, code and nested cards keep their own double-click.
-  listen(root, 'dblclick', event => {
-    const node = event.target.closest('.gchat-msg[data-id]');
-    if (!options.onReact || node?._entry?.reactable !== true || !event.target.closest('.gchat-body')) return;
-    if (event.target.closest('button, a, input, textarea, select, summary, pre, code, table, iframe, .gchat-signoff-reference')) return;
-    try { getSelection()?.removeAllRanges(); } catch (_) { /* Selection is cosmetic. */ }
-    emit('onReact', node.dataset.id);
   });
   olderButton.onclick = () => emit('onOlder');
   cleanups.push(() => { olderButton.onclick = null; });
