@@ -222,6 +222,19 @@ def serve(message, started):
         if decision is None:
             return "interrupted"
         assistant({"type": "text", "text": "ANSWERS " + json.dumps(decision.get("updatedInput", {}).get("answers"))})
+    if "USAGE" in text:
+        def reply(block, parent=None, **usage):
+            out({"type": "assistant", "message": {"model": "claude-test-1", "id": "msg_u", "type": "message", "role": "assistant",
+                                                  "content": [block], "stop_reason": None, "usage": usage},
+                 "parent_tool_use_id": parent, "session_id": session, "uuid": str(uuid.uuid4())})
+        reply({"type": "text", "text": "one"}, input_tokens=4, cache_creation_input_tokens=1000, cache_read_input_tokens=20000, output_tokens=96)
+        reply({"type": "text", "text": "two"}, input_tokens=6, cache_creation_input_tokens=200, cache_read_input_tokens=21100, output_tokens=94)
+        reply({"type": "text", "text": "a subagent"}, parent="toolu_9", input_tokens=5, cache_read_input_tokens=900000, output_tokens=5)
+        reply({"type": "text", "text": "three"}, input_tokens=8, cache_creation_input_tokens=9000, cache_read_input_tokens=26300, output_tokens=92)
+        out({"type": "assistant", "message": {"model": "<synthetic>", "role": "assistant", "content": [{"type": "text", "text": "note"}],
+                                              "usage": {"input_tokens": 0, "output_tokens": 0}},
+             "parent_tool_use_id": None, "session_id": session, "uuid": str(uuid.uuid4())})
+        state["model_usage"] = {"claude-test-1": {"inputTokens": 18, "contextWindow": 500000}, "claude-other": {"contextWindow": 900000}}
     if "BIGRESULT" in text:
         out({"subtype": "success", "is_error": False, "result": "r" * 400000, "session_id": session, "user_message_uuids": [message["uuid"]],
              "num_turns": 1, "stop_reason": "end_turn", "type": "result", "duration_ms": 5, "uuid": str(uuid.uuid4())})
@@ -252,6 +265,8 @@ def run():
     elif outcome == "bigresult":
         pass
     else:
+        if state.get("model_usage"):
+            base["modelUsage"] = state["model_usage"]
         out({**base, "subtype": "success", "is_error": False, "result": "OK"})
     for item in started:
         lifecycle(item, "completed")
@@ -642,6 +657,31 @@ class SendTests(DriverCase):
         while session.busy and time.time() < deadline:
             time.sleep(0.02)
         self.assertFalse(session.busy)
+        session.close()
+
+    def test_the_context_size_is_reported_while_a_run_goes_on_and_when_it_ends(self):
+        session, recorder = self.make()
+        session.start()
+        self.send(session, "USAGE please")
+        finished = recorder.wait("turn_finished")
+        # 21,100 after the first request; the second moved it by 300 (not said); the third by 14,000 more. The subagent's own
+        # context and the record the CLI wrote itself are not the session's.
+        self.assertEqual([event["last"]["totalTokens"] for event in recorder.of("usage")], [21100, 35400])
+        self.assertEqual(recorder.of("usage")[1]["last"], {"totalTokens": 35400, "inputTokens": 35308, "cachedInputTokens": 26300,
+                                                           "outputTokens": 92})
+        self.assertNotIn("contextWindow", recorder.of("usage")[0])      # the limit is only known from the first result on
+        self.assertEqual(finished["usage"], {"last": {"totalTokens": 35400, "inputTokens": 35308, "cachedInputTokens": 26300,
+                                                      "outputTokens": 92}, "contextWindow": 500000})
+        self.send(session, "hello again")
+        self.assertEqual(recorder.wait("turn_finished", count=2)["usage"], finished["usage"])   # nothing new measured: the last stands
+        session.close()
+
+    def test_a_run_that_reports_no_usage_says_nothing_about_the_context(self):
+        session, recorder = self.make()
+        session.start()
+        self.send(session, "hello")
+        self.assertNotIn("usage", recorder.wait("turn_finished"))
+        self.assertEqual(recorder.of("usage"), [])
         session.close()
 
     def test_without_command_lifecycle_the_first_init_starts_the_oldest_message(self):

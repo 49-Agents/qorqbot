@@ -60,7 +60,8 @@ Every request carries the token, and the host checks the peer's user id.
 Operations: `hello`, `status`, `send`, `lookup`, `interrupt`, `answer`,
 `command` (`compact`, `model`), `close` (`graceful` or `now`) and `events`.
 `status` is state: phase (`starting`, `idle`, `working`, `blocked`, `closing`),
-activity, pending questions and the last turn. A client that lost an answer to
+activity, pending questions, the last turn and `usage`, what the context holds
+(`{tokens, window, at}`, see [Compaction](COMPACTION.md)). A client that lost an answer to
 `send` asks `lookup` with the message id. If the host never saw it, the id is
 fenced so a late copy is not typed.
 
@@ -119,6 +120,10 @@ open is tried again). There is no limit on how many are open. One open runs per
 agent at a time. Non-owner wakes are paced, and a failing open backs off. When
 opens keep failing with `cli_unavailable`, `resume_failed`, `resume_unavailable`
 or `driver_unavailable`, `agents/unreachable.py` tells Ordubashy.
+
+Qorqbot's own compaction replaces Ordubashy's conversation through the same
+opener (`replace`): close, then a fresh conversation, as one open. It is not an
+input source and is not paced or counted. See [Compaction](COMPACTION.md).
 
 ### Resume
 

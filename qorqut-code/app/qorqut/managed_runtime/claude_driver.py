@@ -30,6 +30,10 @@ What the protocol was observed to do (Claude Code 2.1.269 and 2.1.327, see docs/
 * With ``--permission-prompt-tool stdio`` the CLI sends ``control_request`` / ``can_use_tool`` (``tool_name``, ``input``,
   ``tool_use_id``, ...) and waits for a ``control_response`` carrying ``{"behavior": "allow", "updatedInput": ...}`` or
   ``{"behavior": "deny", "message": ...}``. A question to the user (the AskUserQuestion tool) arrives the same way.
+* Every ``assistant`` record carries the ``usage`` of the model request it came from (``input_tokens``,
+  ``cache_creation_input_tokens``, ``cache_read_input_tokens``, ``output_tokens``); the three input numbers together are the whole
+  context that request sent. A subagent's records have a ``parent_tool_use_id`` and count its own context, not the session's.
+  ``result`` carries ``modelUsage`` ``{<model>: {..., "contextWindow"}}``, the model's limit (Claude Code 2.1.328, captured).
 
 Threads: a reader (stdout), a stderr drain, a writer (stdin), a waiter (process exit) and an event dispatcher. The reader
 never calls user code, so a slow ``on_event`` cannot fill the CLI's output pipe; the writer is the only thread that can block
@@ -541,8 +545,11 @@ class ClaudeSession:
     does not mean a model turn is running, ``prompt_blocked`` follows for a blocked one);
     ``activity`` {text}; ``permission_request`` {request_id, tool, input, tool_use_id, ...}; ``question`` {request_id,
     questions, tool_use_id}; ``request_cancelled`` {request_id, reason} (the CLI withdrew a request, or its turn ended);
-    ``prompt_blocked`` {message_uuid, reason}; ``turn_finished`` {status "completed"|"interrupted"|"error", message_uuids,
-    blocked_message_uuids, ...}; ``error`` {message, kind}; ``exited`` {code, unexpected}, always last.
+    ``prompt_blocked`` {message_uuid, reason}; ``usage`` {last {totalTokens, inputTokens, cachedInputTokens, outputTokens},
+    contextWindow when known} (what the session's context holds after the latest model request, in the Codex driver's names;
+    sent each time it has moved by ``USAGE_STEP_TOKENS``, so a long run reports it while it runs); ``turn_finished`` {status
+    "completed"|"interrupted"|"error", message_uuids, blocked_message_uuids, ``usage`` (the same, when known), ...};
+    ``error`` {message, kind}; ``exited`` {code, unexpected}, always last.
 
     One ``turn_finished`` covers every message the CLI answered in that run: a message sent while a run is busy is answered in
     the same run. A prompt a hook blocked is reported by ``prompt_blocked`` and, as the CLI says "success" for it, by a
@@ -563,6 +570,7 @@ class ClaudeSession:
     MAX_PROBLEM_EVENTS = 20
     RESULT_TEXT_LIMIT = 2000
     COMPLETED_GRACE_SECONDS = 2.0
+    USAGE_STEP_TOKENS = 10_000
 
     def __init__(self, folder, executable, env=None, args=(), resume_session_id=None, on_event=None):
         self._folder = os.fspath(folder)
@@ -602,6 +610,9 @@ class ClaudeSession:
         self._request_counter = 0
         self._announced_session = None
         self._last_activity = None
+        self._usage = None            # what the context holds after the latest model request of the session itself
+        self._usage_told = 0          # its size when a ``usage`` event last said so
+        self._model = self._context_window = None
         self._problem_counts = collections.Counter()
         self._flush_timer = None
 
@@ -1005,6 +1016,8 @@ class ClaudeSession:
     def _on_assistant(self, message):
         body = message.get("message")
         blocks = body.get("content") if isinstance(body, dict) else None
+        if isinstance(body, dict) and message.get("parent_tool_use_id") is None:
+            self._on_usage(body)
         if not isinstance(blocks, list):
             return
         for block in blocks:
@@ -1016,6 +1029,43 @@ class ClaudeSession:
                 self._activity("Thinking")
             elif block.get("type") == "text" and str(block.get("text") or "").strip():
                 self._activity("Writing a reply")
+
+    def _on_usage(self, body):
+        """Keep what the latest model request of the session held: all it sent (cached or not) plus what it wrote is what the
+        context holds now. Said in a ``usage`` event when it has moved by ``USAGE_STEP_TOKENS`` since the last one."""
+        usage = body.get("usage")
+        if not isinstance(usage, dict):
+            return
+
+        def count(key):
+            value = usage.get(key)
+            return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+        cached, written = count("cache_read_input_tokens"), count("output_tokens")
+        sent = count("input_tokens") + count("cache_creation_input_tokens") + cached
+        if not sent:
+            return                      # a record the CLI wrote itself (an error text): no model request, nothing measured
+        self._usage = {"totalTokens": sent + written, "inputTokens": sent, "cachedInputTokens": cached, "outputTokens": written}
+        if isinstance(body.get("model"), str):
+            self._model = body["model"]
+        if abs(self._usage["totalTokens"] - self._usage_told) >= self.USAGE_STEP_TOKENS:
+            self._usage_told = self._usage["totalTokens"]
+            self._emit("usage", **self._usage_record())
+
+    def _usage_record(self):
+        record = {"last": dict(self._usage)}
+        if self._context_window:
+            record["contextWindow"] = self._context_window
+        return record
+
+    def _on_model_usage(self, models):
+        """``result.modelUsage``: the limit of the model the session runs on (the largest one when that model is not named)."""
+        if not isinstance(models, dict):
+            return
+        windows = {name: item["contextWindow"] for name, item in models.items()
+                   if isinstance(item, dict) and isinstance(item.get("contextWindow"), int) and item["contextWindow"] > 0}
+        if windows:
+            self._context_window = windows.get(self._model) or max(windows.values())
 
     def _on_control_request(self, message):
         request_id = message.get("request_id")
@@ -1097,6 +1147,9 @@ class ClaudeSession:
             event["error"] = forced_error or _bounded(text if isinstance(text, str) and text else subtype or "error", 500)
         elif isinstance(text, str) and not (finished and set(finished) <= set(self._blocked)):
             event["result_text"] = text[: self.RESULT_TEXT_LIMIT]
+        self._on_model_usage(result.get("modelUsage"))
+        if self._usage:
+            event["usage"] = self._usage_record()
         if self._dropped:
             event["dropped_message_uuids"] = list(self._dropped)
         if self._still_queued is not None and status == "interrupted":

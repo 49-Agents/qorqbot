@@ -13,6 +13,8 @@ Per client:
 ``role``           the first message a fresh session gets (Claude ``/role``, Codex ``$role``)
 ``environment``    the name of the executable override environment variable (``agent_cli_install.EXECUTABLE_ENVIRONMENT``)
 ``efforts``        the effort levels the client's own command line accepts, and how the others are written (``minimal`` for Claude)
+``own_compaction`` the variables that switch the client's own automatic compaction off (``launch_environment``); absent when
+                   the client has no such switch here
 """
 
 from __future__ import annotations
@@ -30,7 +32,10 @@ TABLE = {
              "receipt": "claude", "role": "/role", "settings": ".qorqut/claude-launch-settings.json",
              # ``claude --effort`` takes low, medium, high, xhigh, max (checked against ``--help`` of 2.1.269 and 2.1.327);
              # Qorqbot's ``minimal`` is the lowest of them.
-             "effort_flags": {"minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}},
+             "effort_flags": {"minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"},
+             # Checked in Claude Code 2.1.328: with it set the client compacts neither at its limit nor while idle, whatever
+             # its ``autoCompactEnabled`` setting says; the manual ``/compact`` stays.
+             "own_compaction": {"DISABLE_AUTO_COMPACT": "1"}},
     # Codex: the first message is the ``$role`` skill text (the engine expands it; ``/role`` would be plain text). Model and effort
     # reach the driver as ``--model`` / ``--effort`` in the arguments (it reads and strips them); the permission mode comes from the
     # prepared ``.codex/config.toml`` (full access = ``bypass``), not from a Claude settings file. The host is ready only when the
@@ -141,6 +146,13 @@ def launch_arguments(client, model, effort, workspace=None) -> list:
     if written:
         arguments += ["--effort", written]
     return arguments
+
+
+def launch_environment(client, *, own_compaction=False) -> dict:
+    """The variables this table adds to the client's environment. ``own_compaction``: Qorqbot compacts this session's
+    conversation itself (``native_chat/compaction.py`` decides that), so the client's automatic compaction is switched off.
+    Nothing by default, and nothing for a client with no such switch (Codex keeps its own)."""
+    return dict(entry(client).get("own_compaction") or {}) if own_compaction else {}
 
 
 def settings_arguments(client, workspace) -> list:

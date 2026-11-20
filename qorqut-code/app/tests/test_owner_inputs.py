@@ -257,6 +257,28 @@ class OwnerInputsTests(unittest.TestCase):
         self.assertEqual(self.refused(self.runtime.coordinator, "owner_input_get", {"id": "chat:" + "0" * 64}), "not_found")
         self.assertEqual(self.refused(self.runtime.coordinator, "owner_input_get", {"id": "other:1"}), "validation_error")
 
+    def test_the_coordinators_own_messages_for_a_handoff_are_its_chat_and_the_private_threads(self):
+        early, _ = self.turn(self.lead, "Send the contract.", at(8))
+        mine, _ = self.turn(self.lead, "Chase the invoice.", at(10), via="chat")
+        self.turn(self.worker, "Worker, clean the list.", at(10, 30), via="chat")
+        hidden, _ = self.turn(self.lead, "secret-code-4417", at(11), redacted=True)
+        unread, _ = self.turn(self.lead, "Call the bank.", at(11, 30))
+        self.archives[self.lead].records.pop()
+        chat = create(self.runtime, "Did the supplier confirm?")
+        self.stamp_thread("Did the supplier confirm?", at(12))
+        with self.runtime.database.read() as uow:
+            found = self.runtime.owner_inputs.addressed(self.runtime.coordinator, uow, since=at(9), until=at(13), ids=(early, "chat:" + "0" * 64))
+            with self.assertRaises(DomainError) as refusal:
+                self.runtime.owner_inputs.addressed(self.runtime.worker, uow, since=at(9), until=at(13))
+        self.assertEqual(refusal.exception.code, "forbidden")
+        # Its own chat only, a message named by id from before the period, and a message without text keeps its place.
+        self.assertEqual([(item["id"], item["channel"], item["text"], item["redacted"]) for item in found[:4]], [
+            (early, "chat", "Send the contract.", False), (mine, "chat", "Chase the invoice.", False),
+            (hidden, "chat", None, True), (unread, "chat", None, False)])
+        self.assertEqual((found[4]["channel"], found[4]["text"], found[4]["place"]),
+                         ("thread", "Did the supplier confirm?", {"type": "signoff", "id": chat["id"], "business_id": None, "title": "A side chat"}))
+        self.assertEqual(len(found), 5)
+
     def test_only_the_owner_and_the_coordinator_in_person_may_read(self):
         self.turn(self.lead, "Send the contract.", at(9))
         for operation, args in (("owner_inputs_list", {}), ("owner_input_get", {"id": "chat:" + "0" * 64})):

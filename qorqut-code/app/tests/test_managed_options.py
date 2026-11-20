@@ -195,6 +195,13 @@ class ClientTable(base.Fixture):
         self.assertEqual(clients.launch_arguments("codex", "gpt", "high"), ["--model", "gpt", "--effort", "high", "--scoped-permissions"],
                          "Codex takes both, always together, plus its permission mode, through its driver")
 
+    def test_the_clients_own_compaction_is_switched_off_only_when_asked_and_only_where_there_is_a_switch(self):
+        self.assertEqual(clients.launch_environment(clients.CLAUDE), {})
+        self.assertEqual(clients.launch_environment(clients.CLAUDE, own_compaction=True), {"DISABLE_AUTO_COMPACT": "1"})
+        self.assertEqual(clients.launch_environment(clients.CODEX, own_compaction=True), {})
+        clients.launch_environment(clients.CLAUDE, own_compaction=True)["DISABLE_AUTO_COMPACT"] = "0"      # a copy each time
+        self.assertEqual(clients.TABLE[clients.CLAUDE]["own_compaction"], {"DISABLE_AUTO_COMPACT": "1"})
+
     def test_permission_mode_fails_closed(self):
         workspace = self.base / "ws"
         (workspace / ".qorqut").mkdir(parents=True)

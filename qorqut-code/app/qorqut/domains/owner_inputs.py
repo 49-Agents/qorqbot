@@ -195,6 +195,26 @@ class OwnerInputs:
         reading.follow([item], stamp(self.clock()))
         return {"item": item}
 
+    def addressed(self, ctx, uow, *, since, until, ids=(), limit=PAGE_LIMIT):
+        """The owner's messages to the coordinator itself, oldest first: its own chat and the private owner threads. The
+        newest ``limit`` of each written in ``[since, until)``, and the ones named by ``ids`` whenever they were written.
+        Each is ``{id, at, channel, place, text, redacted}``; ``text`` is None for a possibly private input and for a
+        message that cannot be read now, so a message never drops out of the list for that. For the owner and the
+        coordinator in person. A compaction handoff answers for exactly these."""
+        reading = self.caller(ctx, uow)
+        window = {"since": since, "until": until, "after": (FIRST, FIRST)}
+        rows = {row["item"]: row for channel, agent in (("chat", reading.coordinator), ("thread", None))
+                for row in reading.rows([channel], window, limit, agent, newest=True)}
+        for identity in ids:
+            channel = identity.split(":", 1)[0]
+            if identity in rows or channel not in ("chat", "thread"):
+                continue
+            found = reading.connection.execute(f"SELECT * FROM ({ROWS[channel]}) WHERE item=:item",
+                                               {"owner": reading.owner, "item": identity}).fetchall()
+            if len(found) == 1:
+                rows[identity] = {**dict(found[0]), "channel": channel}
+        return [reading.message(row) for row in sorted(rows.values(), key=lambda row: (row["at"], row["item"]))]
+
     # ----- the period ------------------------------------------------------------------------------------------------
 
     def window(self, args):
@@ -268,6 +288,14 @@ class _Reading:
         if source is None:
             return None
         return {**base, "source": source, **_text(row["body"], text_limit), "redacted": False, "_row": row}
+
+    def message(self, row):
+        """One row as a compaction handoff lists it: where it was written and its whole text."""
+        item = self.item(row, FULL_TEXT_LIMIT) or {}
+        source = item.get("source")
+        return {"id": row["item"], "at": row["at"], "channel": row["channel"],
+                "place": source and {key: source[key] for key in ("type", "id", "business_id", "title")},
+                "text": item.get("text"), "redacted": bool(item.get("redacted"))}
 
     def agent(self, agent_id):
         if agent_id not in self.agents:

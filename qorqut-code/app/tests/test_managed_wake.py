@@ -19,7 +19,7 @@ from qorqut.native_chat.arbiter import SESSION_STARTING
 from qorqut.native_chat.contracts import (InputRequest, RESULT_DEFERRED, TYPE_BROADCAST, TYPE_DIRECT, TYPE_NUDGE, TYPE_TELEGRAM)
 from qorqut.native_chat.opener import FAILURES, OpenFailures, WAKE_TEXT
 
-from test_managed_chat_send import AGENT, OPEN_VIEW, OWNER, ChatCase
+from test_managed_chat_send import AGENT, CONVERSATION, OPEN_VIEW, OWNER, ChatCase
 
 
 class WakeCase(ChatCase):
@@ -151,6 +151,133 @@ class OpenerUnitTests(WakeCase):
         with self.assertRaises(DomainError):
             self.opener.wake(self.profile(), "inbox")
         self.assertFalse(self.opener.wakeable(AGENT))
+
+
+OLD = "22222222-2222-4222-8222-222222222222"
+HANDOFF = "<qorqut-handoff>\nwhere things stand\n</qorqut-handoff>"
+
+
+class ReplaceTests(WakeCase):
+    """``SessionOpener.replace``: Qorqbot's own compaction closes a conversation and opens a fresh one in its place."""
+
+    def setUp(self):
+        super().setUp()
+        self.owner_row()
+        self.order = []
+        self.managed.host = SimpleNamespace(record={"session_id": OLD})        # the conversation to be replaced is running
+        self.managed.close = self.close
+        self.managed.on_open = self.fresh
+        self.came_up = CONVERSATION
+
+    def close(self, agent_id, mode="graceful"):
+        self.order.append(("close", mode))
+        self.managed.host = None
+        return True
+
+    def fresh(self):
+        self.order.append("open")
+        self.bring_up()
+        self.managed.host = SimpleNamespace(record={"session_id": self.came_up})
+
+    def compose(self):
+        self.order.append("compose")
+        return HANDOFF
+
+    def replace(self, **options):
+        return self.opener.replace(self.profile(), OLD, self.compose, "compaction:row-1", **options)
+
+    def refused(self, **options):
+        with self.assertRaises(DomainError) as refused:
+            self.replace(**options)
+        return refused.exception.code
+
+    def untouched(self):
+        """Neither the pacing of wakes nor the streak of failed opens knows about a replacement."""
+        return (self.opener._cool, self.opener._streak, FAILURES.streak(AGENT)) == ({}, {}, None)
+
+    def test_the_conversation_is_closed_and_a_fresh_one_gets_the_text_all_under_the_agents_flight(self):
+        during = []
+
+        def compose():
+            # Whatever else would open the agent meanwhile finds an open in progress and starts nothing.
+            during.append((self.opener._lock(AGENT).locked(), self.opener.wake(self.profile(), "inbox"), list(self.managed.opened)))
+            return self.compose()
+
+        self.assertEqual(self.opener.replace(self.profile(), OLD, compose, "compaction:row-1"), CONVERSATION)
+        self.assertEqual(during, [(True, "waking", [])])
+        self.assertEqual(self.order, [("close", "graceful"), "compose", "open"])   # the text is written once nothing more can reach
+        self.assertEqual(self.managed.open_options[-1]["new_conversation"], True)
+        expected = self.managed.first_message_uuid(AGENT, "compaction:row-1", HANDOFF)
+        self.assertEqual(self.managed.first, [(AGENT, HANDOFF, expected)])
+        self.assertFalse(self.opener._lock(AGENT).locked())
+        self.assertEqual(self.desired(), "running")
+        self.assertTrue(self.untouched())
+
+    def test_an_agent_that_is_off_is_refused_and_is_neither_closed_nor_turned_on(self):
+        self.owner_row("stopped")
+        self.managed.host = SimpleNamespace(record={"session_id": OLD})
+        self.assertEqual(self.refused(), "agent_off")
+        self.assertEqual((self.order, self.desired(), self.managed.opened), ([], "stopped", []))
+
+    def test_an_agent_the_owner_ended_while_it_was_closing_is_not_opened_again(self):
+        def close(agent_id, mode="graceful"):
+            self.db.connection.execute("UPDATE native_session_owners SET desired_state='stopped' WHERE agent_id=?", (AGENT,))
+            self.db.connection.commit()
+            return self.close(agent_id, mode)
+
+        self.managed.close = close
+        self.assertEqual(self.refused(), "agent_off")
+        self.assertEqual((self.order, self.desired(), self.managed.opened), ([("close", "graceful")], "stopped", []))
+
+    def test_a_fresh_open_that_fails_leaves_the_agent_asleep_and_is_neither_paced_nor_counted(self):
+        from qorqut.managed_runtime.manager import ManagedError
+        self.managed.open_error = ManagedError("cli_unavailable", "Claude Code is not installed")
+        self.assertEqual(self.refused(), "cli_unavailable")
+        self.assertEqual((self.managed.host, self.desired(), self.managed.first), (None, "running", []))
+        self.assertTrue(self.untouched())
+        self.assertFalse(self.opener._lock(AGENT).locked())
+        # The next input is not held back by it: it opens the agent the ordinary way.
+        self.managed.open_error = None
+        self.assertEqual(self.opener.wake(self.profile(), "inbox", wait=True), "live")
+
+    def test_only_the_named_conversation_is_closed_and_another_one_already_running_is_given_the_text(self):
+        self.bring_up()
+        self.managed.host = SimpleNamespace(record={"session_id": CONVERSATION})   # an earlier try got this far
+        self.assertEqual(self.replace(), CONVERSATION)
+        self.assertEqual((self.order, self.managed.opened), (["compose"], []))
+        self.assertEqual([text for _, text, _ in self.managed.first], [HANDOFF])
+
+    def test_a_host_with_no_conversation_yet_is_not_closed(self):
+        self.managed.host = SimpleNamespace(record={})
+        self.assertEqual(self.refused(), "session_opening")
+        self.assertEqual(self.order, [])
+
+    def test_a_conversation_that_does_not_close_in_time_is_refused_and_nothing_is_opened(self):
+        self.managed.close = lambda agent_id, mode="graceful": self.order.append(("close", mode))
+        self.assertEqual(self.refused(close_seconds=0.05), "close_timeout")
+        self.assertEqual((self.order, self.managed.opened), ([("close", "graceful")], []))
+
+    def test_a_host_that_cannot_be_verified_is_not_taken_for_closed(self):
+        self.managed.host_error = RuntimeError("unverified")
+        self.assertEqual(self.refused(), "host_unverified")
+        self.assertEqual(self.order, [])
+
+    def test_what_came_up_as_the_closed_conversation_is_not_a_replacement(self):
+        self.came_up = OLD
+        self.assertEqual(self.refused(), "not_replaced")
+
+    def test_a_replacement_waits_for_an_open_in_progress_and_gives_up_like_any_other_open(self):
+        lock = self.opener._lock(AGENT)
+        lock.acquire()
+        self.addCleanup(lock.release)
+        from qorqut.native_chat import chat as chat_module
+        with mock.patch.object(chat_module, "OPEN_TOTAL_SECONDS", 0.05):
+            self.assertEqual(self.refused(), "session_opening")
+        self.assertEqual(self.order, [])
+
+    def test_without_a_managed_runtime_nothing_is_replaced(self):
+        self.chat.managed = None
+        self.assertEqual(self.refused(), "managed_unavailable")
 
 
 class NotOfferedTests(WakeCase):
