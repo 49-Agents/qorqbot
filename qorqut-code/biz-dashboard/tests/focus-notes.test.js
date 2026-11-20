@@ -174,3 +174,37 @@ browserTest('notes saved with a hidden state token after the dash read as status
     assert.deepEqual(posts.at(-1).statuses, {'buy milk': 'done'});
   } finally { await browser.close(); }
 });
+
+browserTest('dragging a selection that starts or ends beside the text keeps it and does not jump to the end', async () => {
+  const text = Array.from({length: 60}, (_, i) => `${i % 3 ? '' : '- '}Line ${i} of the notes`).join('\n');
+  const {browser, page} = await fixture({revision: 1, card_ids: [], blocks: [{id: 'b', text}], statuses: {}});
+  try {
+    await page.evaluate(() => { document.querySelector('.tbody').style.height = '400px'; });
+    const paper = await page.locator('.agfocus-notes-input').boundingBox();
+    const drag = async (line, fromX, toX) => {
+      const box = await page.locator('.agfocus-notes .ntline').nth(line).boundingBox();
+      await page.mouse.move(paper.x + fromX, box.y + 8);
+      await page.mouse.down();
+      await page.mouse.move(paper.x + toX, box.y + 80, {steps: 5});
+      await page.mouse.up();
+      return page.evaluate(() => [document.querySelector('.agfocus-notes-input').scrollTop, String(getSelection())]);
+    };
+    // From the paper's left padding into the text, and from the text out to a task line's status-ball column.
+    for (const [line, fromX, toX] of [[4, 5, 200], [4, 200, 20]]) {
+      const [scrollTop, selected] = await drag(line, fromX, toX);
+      assert.equal(scrollTop, 0);
+      assert.match(selected, /Line 4 of the notes\nLine 5/);
+    }
+    // Pressing on the ball column and releasing on the text is not a click on blank paper either.
+    assert.equal((await drag(3, 20, 200))[0], 0);
+  } finally { await browser.close(); }
+});
+
+browserTest('a plain click on the blank paper below the text puts the caret at the end', async () => {
+  const {browser, page} = await fixture({revision: 1, card_ids: [], blocks: [{id: 'b', text: 'One\nTwo'}], statuses: {}});
+  try {
+    const blank = await page.locator('.agfocus-notes-input').boundingBox();
+    await page.mouse.click(blank.x + blank.width / 2, blank.y + blank.height - 10);
+    assert.deepEqual(await page.evaluate(() => { const s = getSelection(); return [s.isCollapsed, s.anchorNode.textContent, s.anchorOffset]; }), [true, 'Two', 3]);
+  } finally { await browser.close(); }
+});
