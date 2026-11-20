@@ -16,8 +16,8 @@ installation owner can approve. A changed project or registered agent profile
 invalidates the prepared target and requires a fresh proposal.
 
 After approval, the service records archival. Agent sessions are not tied to a
-project (every agent is a global worker running as a managed session), so
-archival stops no session and launches no replacement agent. Other businesses and
+project (every agent is a global worker running as a managed session or, in Terminals mode,
+in its own terminal), so archival stops no session or terminal and launches no replacement agent. Other businesses and
 Global agents are untouched.
 
 Archived businesses disappear from the active workspace menu, normal agent

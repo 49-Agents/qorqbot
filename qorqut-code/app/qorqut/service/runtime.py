@@ -89,6 +89,8 @@ class Runtime:
     broadcast_dispatcher: object = None
     terminal_control: object = None
     managed_launch: object = None  # Prepares and launches managed sessions; installed once by service composition.
+    terminals: object = None  # The assembled TerminalService (every entry point refuses in managed mode); installed once likewise.
+    runtime_switch: object = None  # The owner's switch between managed sessions and terminals (native_chat/runtime_switch.py).
     background_operations: object = None
     checkpoints: object = None
     management: object = None
@@ -528,6 +530,10 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.managed_runtime.manager import ManagedRuntime
     runtime.managed_runtime = ManagedRuntime(runtime)
     runtime.native_chat = NativeChat.build(runtime, managed=runtime.managed_runtime)
+    # The terminal backend is installed later by service composition and read late (``runtime.terminal_control.backend``), so it
+    # is not needed here. The switch reads everything late too; the service recovers an interrupted one once all of it exists.
+    from qorqut.native_chat.runtime_switch import RuntimeSwitch
+    runtime.runtime_switch = RuntimeSwitch(runtime)
     from qorqut.overseer.operations import OverseerOperations
     runtime.overseer = OverseerOperations(runtime).register()
     from qorqut.native_chat.nudges import NudgeBackend, delivery_view, isolated, paced
@@ -544,7 +550,10 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # attempts and sends Ordubashy one inbox event per worker that has been unreachable for a while; it touches no
     # session and changes no worker.
     from qorqut.agents import unreachable
-    unreachable_workers = paced(UNREACHABLE_PASS_SECONDS, lambda uow: unreachable.reconcile(uow))
+    from qorqut.managed_runtime import mode as runtime_mode
+    # The mode is asked on every pass (the owner can switch while the service runs): in Terminals mode nothing wakes a worker.
+    unreachable_workers = paced(UNREACHABLE_PASS_SECONDS,
+                                lambda uow: unreachable.reconcile(uow, terminal=runtime_mode.is_terminal(runtime.paths)))
 
     def reconcile_inbox(uow):
         # The one bounded inbox reconcile hook: the retained Task snoozes, the shared reminders' due boundaries and pending
@@ -608,6 +617,15 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # Focus cards and unsupported bindings. The adapter is attached here, before the registry freezes.
     from qorqut.domains.tasks.moves import TaskMoves
     runtime.task_moves = TaskMoves(application, domains.tasks).register(registry)
+    # Move tables to project: the preview and the atomic relocation of whole Tables (rows, history, CRM memberships, discussion).
+    # Move notes to project, and the uploaded file a moved table was imported from: files go to the destination's folder.
+    from qorqut.composition.locations import document_root
+    from qorqut.domains.documents.moves import NoteMoves
+    from qorqut.domains.tables.moves import TableMoves
+    from qorqut_operations.documents.relocation import DocumentRelocation
+    document_moves = DocumentRelocation(lambda business, path: document_root(paths, business, path))
+    runtime.table_moves = TableMoves(application, documents=document_moves).register(registry)
+    runtime.note_moves = NoteMoves(application, document_moves).register(registry)
     # The aggregate CRM activity read: the Domain's local activity merged with the directly linked sources, which are read
     # through the composed Task, Signoff, Action and document readers. It owns no storage and writes nothing.
     from qorqut.domains.crm import CRMActivityOperations

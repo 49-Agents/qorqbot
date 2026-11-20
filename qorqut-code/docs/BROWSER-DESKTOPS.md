@@ -32,6 +32,9 @@ verifies a host, a Guacamole server or any login.
 Projects have no browser: `browser-surfaces.json` is schema 2 and records only Global surfaces and the agents' own
 browsers. A `businesses` section an older file carries is ignored, and `GET /api/biz/{slug}/browser-surfaces` is gone.
 
+A Global agent with no viewer in this file is not left without a picture: the dashboard's Browser tab shows its managed
+browser live instead ([the owner's live view](BROWSER-MANAGEMENT.md#the-owners-live-view)).
+
 ## Checks
 
 - Core: `tests/test_browser_surfaces.py`, `tests/test_browser_desktop_session.py`

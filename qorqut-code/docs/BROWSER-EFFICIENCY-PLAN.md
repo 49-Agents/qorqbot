@@ -3,7 +3,16 @@
 Status: **plan and work log.** Approved by the owner on 2026-11-19 (items 1, 3, 4, 6 and 7 of the proposal; items 2 and 5
 are not in this plan). An item without a "Verified" line is not done.
 
-This plan is separate from [the browser plan](BROWSER-PLAN.md) (Shared browser, live view, captcha; PR #110). That work
+Shipped (2026-11-20): items 1, 3, 4 and 6 are merged into `dev` with PR #118, and item 7 with PR #119. Later follow-ups,
+also merged: PR #127 (skill wording for `find`, `type` and the batch limits; a list of command names in the description
+of the `command` field) and PR #129 (fields inside payment frames: skill lines and advice added to a "Frame not found"
+error). Items 2 and 5 of the proposal were never in scope and are not built. Where an item below and the shipped code
+differ (a batch keeps the first 24,576 characters of each command's `stdout`, not the last 16,384; `find <locator>
+<value>` needs an action), the work log and [BROWSER-HANDLES.md](BROWSER-HANDLES.md) and
+[BROWSER-CONTROL.md](BROWSER-CONTROL.md) describe what shipped. Since PRs #127 and #129 the skills are 8,192
+(`managed-browser-control`) and 6,388 (`ordubashy-browser-control`) characters, above the item 6 limits.
+
+This plan is separate from the Shared browser, live view and captcha work (PR #110). That work
 makes the browser more reliable. This one makes each browser task cost fewer characters and fewer calls.
 
 ## Why
@@ -53,7 +62,7 @@ file stays readable through `action: "artifact"` with its handle; the handle for
 exactly that file; a file changed by the command is listed; bookkeeping files are not; an old file is still readable by
 handle; both the own-browser path and the leased path behave so.
 
-Code written 2026-11-19 (both call sites and the two helper methods). Test and document still to do.
+Code written 2026-11-19 (both call sites and the two helper methods). Test and document done by worker A (work log below).
 
 ### 3. Several commands in one call
 
@@ -187,7 +196,8 @@ are recorded here when built.
 **Files.** On `feature/browser-shared-live-panel`: `qorqut-code/app/qorqut/browser/sign_in.py`, its tests, the sign-in
 paragraph of `managed-browser-control/SKILL.md`, `qorqut-code/docs/BROWSER-MANAGEMENT.md`.
 
-**Cannot merge into `dev` before PR #110 does.** It is delivered as a branch stacked on that one.
+**Cannot merge into `dev` before PR #110 does.** It is delivered as a branch stacked on that one. (Both are now merged:
+PR #110, then this item as PR #119.)
 
 ## Order and workers
 

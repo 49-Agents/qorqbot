@@ -45,5 +45,20 @@ class FrameCommandTest(unittest.TestCase):
         self.assertIn("'launch' is closed on purpose", str(raised.exception))
 
 
+
+
+class FrameAdviceTest(unittest.TestCase):
+    def test_a_frame_that_is_not_found_gets_the_way_to_reach_its_fields(self):
+        told = agent_browser.frame_advice(["frame", "iframe[title*=payment]"], "✗ Frame not found\n")
+        self.assertTrue(told.startswith("✗ Frame not found. "))
+        self.assertIn("snapshot", told)
+        self.assertIn(agent_browser.SHOW_FRAMES, told)
+        validate_arguments(["eval", agent_browser.SHOW_FRAMES])
+
+    def test_other_output_is_left_alone(self):
+        self.assertEqual(agent_browser.frame_advice(["click", "e1"], "✗ Frame not found\n"), "✗ Frame not found\n")
+        self.assertEqual(agent_browser.frame_advice(["frame", "main"], ""), "")
+
+
 if __name__ == "__main__":
     unittest.main()

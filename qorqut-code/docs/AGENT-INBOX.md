@@ -4,7 +4,7 @@ The inbox retains durable per-recipient operational events, source permissions a
 
 ## Delivery
 
-The backend schedules one advisory `inbox_nudge` into the recipient's existing verified native conversation through the same input arbiter as Chat. This runs with Chat closed. Claude and Codex use their respective delivery adapters; a nudge for an agent whose session is asleep opens that session first ([managed agent sessions](MANAGED-RUNTIME.md)). An agent the owner ended, or Ordubashy turned off, is not opened: its events remain pending until the owner writes to it or Ordubashy starts it.
+The backend schedules one advisory `inbox_nudge` into the recipient's existing verified native conversation through the same input arbiter as Chat. This runs with Chat closed. Claude and Codex use their respective delivery adapters; a nudge for an agent whose session is asleep opens that session first ([managed agent sessions](MANAGED-RUNTIME.md)). An agent the owner ended, or Ordubashy turned off, is not opened: its events remain pending until the owner writes to it or Ordubashy starts it. In Terminals mode nothing opens a session either: an agent that is not running in its terminal keeps its events pending until it is started.
 
 The notice has system-generated provenance and Chat marker metadata. It is not a message written by the owner, and system provenance does not imply the provider accepted a native system-role message. Submission and processing confirmation are distinct. Uncertain delivery is not blindly resent.
 
@@ -183,7 +183,7 @@ Pending events and subscriptions live in SQLite and survive session restarts.
 To suspend the feature, stop the session's Monitor and deny inbox operations for
 the intended agent; retain its queue. Do not delete the inbox tables or roll a
 live database back to an older backup to disable notifications. Stop/restart
-the dashboard through its normal wrapper. Managed agent sessions keep running through a service restart.
+the dashboard through its normal wrapper. Managed agent sessions, and agent terminals, keep running through a service restart.
 
 ## Owner live Claude acceptance
 

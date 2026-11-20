@@ -7,8 +7,8 @@ phases of ``PolicyRules`` exactly where v1 evaluated them:
 * ``before_override``: rules that decide before an agent's explicit override is consulted, either because they
   refuse it (selected extension roles, the restricted user-input presentation, the CRM and Table-discussion operations that
   may never exceed the existing operation they build on, Global table archive, Project archive, terminal control, owner-action
-  proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools that follow the caller's current
-  ``context_edit`` decision);
+  proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools and the coordinator-only
+  ``personal_set``, which both follow the caller's current ``context_edit`` decision);
 * ``after_override``: standing core defaults that sit between the explicit override and the role default;
 * ``after_default``: core defaults that apply only when neither an override nor a role default names the operation.
 
@@ -19,7 +19,7 @@ human-owner and worker constraints stay in the evaluator's principal-aware resol
 
 from __future__ import annotations
 
-from qorqut_context.integration.registration import question_rule, shared_read_decision
+from qorqut_context.integration.registration import personal_rule, question_rule, shared_read_decision
 from qorqut_operations.contracts import DomainError, PolicyDecision
 from qorqut_operations.inbox.policy import INBOX_OPERATIONS
 from qorqut_operations.policy.rules import PolicyRules, resolve_operation_policy as evaluate
@@ -34,7 +34,9 @@ READS_AS_TASK = frozenset({"tasks_notes_list", "tasks_thread_get", "tasks_associ
 PROJECT_OPERATIONS = frozenset({"project_record_get", "project_items_list", "project_items_candidates",
                                 "project_item_get", "project_items_link", "project_items_unlink",
                                 # Move to project: the handler also rechecks the Task tools it stands on in both scopes.
-                                "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project"})
+                                "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project",
+                                "tables_move_to_project_preview", "tables_move_to_project",
+                                "notes_move_to_project_preview", "notes_move_to_project"})
 # CRM and Table-discussion operations and the existing operation whose decision each may never exceed. This is a
 # prerequisite, not only a fallback: the new name's own override, else role default, else the prerequisite's mode is
 # combined with the prerequisite's effective decision, strongest of deny > signoff > allow. An ``allow`` on the new name never
@@ -143,6 +145,12 @@ def _context_questions(name, defaults, overrides, registry, *, role_id, scope, r
                          learning_applier_role=LEARNING_APPLIER_ROLE)
 
 
+def _personal_record(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    # The rule is Context's; the host supplies the coordinator role.
+    return personal_rule(name, defaults, overrides, registry, role_id=role_id, scope=scope, resolve=resolve,
+                         coordinator_role=ORDUBASHY_ROLE)
+
+
 def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
     if name in INTERNAL_TICKET_READS:
         return PolicyDecision("allow", "core_default")
@@ -211,7 +219,7 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
 HOST_POLICY_RULES = PolicyRules(
     # ``_prerequisites`` precedes the blanket Global-table rule so a new Table operation is never decided by it alone.
     before_override=(_extension_policy, _user_input, _prerequisites, global_tables, archive_approval_rule, _owner_approvals,
-                    _learning_applier, _context_questions),
+                    _learning_applier, _context_questions, _personal_record),
     after_override=(_standing_defaults,),
     after_default=(_fallback_defaults,),
 )

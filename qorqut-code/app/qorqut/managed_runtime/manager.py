@@ -47,6 +47,7 @@ from qorqut import agent_cli_launch
 from qorqut_operations.contracts import DomainError
 
 from . import clients as table
+from . import mode as runtime_mode
 from . import models
 from . import options as launch_options
 from . import state as layout
@@ -78,7 +79,8 @@ CLIENT_HOME_VARIABLES = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
 
 class ManagedError(DomainError):
     """A managed operation that did not happen. ``code`` is stable: ``managed_unavailable``, ``session_closed``,
-    ``host_unverified``, ``cli_unavailable``, ``resume_unavailable`` (the selected conversation's transcript is gone: the owner
+    ``host_unverified``, ``not_managed`` (this installation runs its agents in terminals), ``runtime_switching`` (retryable: the owner
+    is switching how agents run), ``cli_unavailable``, ``resume_unavailable`` (the selected conversation's transcript is gone: the owner
     must choose a new conversation), ``resume_failed``, ``host_failed``, ``host_start_failed``, ``open_timeout`` and ``open_busy``
     (retryable), ``session_opening`` (retryable), ``host_busy`` (retryable), ``host_rejected``, ``driver_unavailable`` (the
     agent's client has no managed driver yet)."""
@@ -482,6 +484,14 @@ class ManagedRuntime:
 
     # ----- opening a session ------------------------------------------------------------------------------------------
 
+    def _require_managed_mode(self):
+        """Opening is gated on the installation's mode, asked now (the owner can switch while the service runs): refused while a
+        switch runs (retryable) and when agents run in terminals. Closing, stopping and reading status are never gated."""
+        if runtime_mode.switching(self.paths):
+            raise ManagedError("runtime_switching", "Agents are being switched. Try again in a minute.", retryable=True)
+        if runtime_mode.is_terminal(self.paths):
+            raise ManagedError("not_managed", "This agent runs in its terminal")
+
     def ensure_open(self, profile, timeout=OPEN_TIMEOUT, *, new_conversation=False) -> dict:
         """Make sure this managed agent has a ready host and return ``{"agent_id", "state", "session_id", "transcript_path",
         "host_pid", "started", "role_pending"}`` (``started``: this call started it; ``role_pending``: it is a fresh session that
@@ -499,6 +509,7 @@ class ManagedRuntime:
         A fresh session is sent ``/role`` by the host itself; a resumed one is not. If the selected conversation cannot be
         resumed because its transcript is gone, ``resume_unavailable`` is raised and nothing starts: it is never silently replaced
         by a fresh conversation. ``new_conversation=True`` is the owner's explicit choice to start a fresh one instead."""
+        self._require_managed_mode()
         agent_id = profile["agent_id"]
         deadline = self._clock() + timeout
         with self._one_open(agent_id, deadline):
@@ -594,6 +605,7 @@ class ManagedRuntime:
     def _launch(self, profile, deadline, new_conversation):
         """Under the lifecycle lock, with no host present: check that this agent may be started, then start it.
         ``(record, resume, client)``."""
+        self._require_managed_mode()
         agent_id = profile["agent_id"]
         states = self._client_states()
         client = self.client_for(profile, states)
@@ -708,11 +720,6 @@ class ManagedRuntime:
         from qorqut.native_chat import client_state
         raise ManagedError("cli_unavailable", client_state.missing_text(label, client))
 
-    @staticmethod
-    def _search_environment(env) -> dict:
-        """The environment ``claude`` is looked up in (``agent_cli_launch.search_environment``)."""
-        return agent_cli_launch.search_environment(env)
-
     def _start(self, profile, resume, timeout, client=table.CLAUDE):
         """Prepare, launch and wait for ``ready``. Returns the verified host's record. ``client`` is the agent's effective client:
         it decides the executable, the driver, the first message of a fresh session, the model and effort flags, and how the host
@@ -747,8 +754,8 @@ class ManagedRuntime:
         args += table.launch_arguments(client, model, chosen.effort, workspace)
         # The client is started with the owner's search PATH as well as the session's: a client that is a script
         # (``#!/usr/bin/env node``, an npm install) finds its interpreter where the owner's terminal does, not only where this
-        # service does. The folders the session names stay first.
-        env["PATH"] = self._search_environment(env).get("PATH") or env.get("PATH") or os.defpath
+        # service does. The programs a self-contained installation ships come first, then the folders the session names.
+        env["PATH"] = agent_cli_launch.session_path(env) or env.get("PATH") or os.defpath
         env.update(table.launch_environment(client, own_compaction=self._own_compaction(agent_id)))
         spec = {"agent_id": agent_id, "folder": workspace, "executable": found, "args": args, "env": {**env, **extra["env"]},
                 "resume_session_id": resume, "send_role": table.role_command(client) if resume is None else False,

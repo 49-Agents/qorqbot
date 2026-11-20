@@ -78,7 +78,7 @@ def environment(root, home):
     env['QORQUT_NATIVE_USER_ENV'] = json.dumps(native_env)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'QORQUT_INSTALLATION_CONFIG',
                 'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'BIZ_DASH_TOKEN',
-                'QORQUT_MCP_URL', 'BAZARLYK_MCP_URL', 'PIP_TARGET',
+                'QORQUT_MCP_URL', 'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE', 'PIP_TARGET',
                 'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE',
                 'QORQUT_NATIVE_ROOT'):
         env.pop(key, None)
@@ -100,6 +100,8 @@ def environment(root, home):
         'QORQUT_FOLDER_ROOT': str(root),
         'QORQUT_CALENDAR_CONFIG': str(root / 'instance/config/calendar.json'),
         'BIZ_DASH_HOST': '127.0.0.1',
+        # One installation's agent terminals (legacy Terminals mode) stay apart from another's on the same computer.
+        'TMUX_TMPDIR': str(root / '.run'),
         'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
         'PYTHONDONTWRITEBYTECODE': '1', 'PIP_DISABLE_PIP_VERSION_CHECK': '1',
         'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
@@ -220,8 +222,8 @@ def require_prerequisites(env, self_contained=False):
 
 
 # The browser tool the agents' own browser control drives (qorqut.browser), pinned to the version and npm integrity
-# in qorqut-code/app/tools/browser/package-lock.json. Qorqbot installs it into the folder itself on first launch; only the
-# native binary for this machine is kept, so no Node is needed to run it.
+# in qorqut-code/app/tools/browser/package-lock.json. A package ships it; a folder without it (an older download) installs it
+# on first launch. Only the native binary for this machine is kept, so no Node is needed to run it.
 AGENT_BROWSER_VERSION = '0.38.1'
 AGENT_BROWSER_URL = 'https://registry.npmjs.org/agent-browser/-/agent-browser-0.38.1.tgz'
 AGENT_BROWSER_SHA512 = 'k58FCz0yUOCANoNkMiqJe+H2y6r6sUZazqXsWF+MYq1iRC42PjtLcBoag6SSTOD/FRQppvPDvE5HDYEhclvnhw=='
@@ -247,9 +249,13 @@ def agent_browser_path(root):
 
 
 def shipped_agent_browser(root):
-    """The browser tool a self-contained package ships, or None."""
-    path = Path(root) / 'runtime/native/bin/agent-browser'
-    return path if path.is_file() and os.access(path, os.X_OK) else None
+    """The browser tool the package ships, or None. A self-contained package has it beside its git; a package that
+    uses the computer's own tools has it in ``runtime/tools``, so that the folder of bundled tools stays absent there."""
+    for place in ('runtime/native/bin/agent-browser', 'runtime/tools/agent-browser'):
+        path = Path(root) / place
+        if path.is_file() and os.access(path, os.X_OK):
+            return path
+    return None
 
 
 def _download(url, destination, limit, timeout=120, opener=urllib.request.urlopen):
@@ -488,9 +494,70 @@ def listening_terminal_sockets(root):
     return live
 
 
-def require_no_terminal_agents(root):
-    """Refuse while an older version's tmux server still runs for this installation: agents may still live in it, and this
-    package cannot move them. The cutover ends them cleanly and writes down what each agent was doing."""
+MODE_FILE = 'instance/operations/.runtime/managed-agents/runtime.json'
+MODE_LIMIT = 4096  # as managed_runtime/mode.py: the file is a few hundred bytes, a larger one is not ours
+
+
+def read_mode(root):
+    """``managed`` or ``terminal``, as the installation's setting says. The launcher runs before the product's own packages can
+    be imported, so this reads the file itself with the rule of ``qorqut.managed_runtime.mode`` (schema version 1, a known mode,
+    a small file) and answers ``managed`` for anything else."""
+    try:
+        path = Path(root) / MODE_FILE
+        if path.stat().st_size > MODE_LIMIT:
+            return 'managed'
+        value = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return 'managed'
+    if isinstance(value, dict) and value.get('schema_version') == 1 and value.get('mode') == 'terminal':
+        return 'terminal'
+    return 'managed'
+
+
+def require_terminal_socket_room(root, run_dir):
+    """A Unix socket path must stay under 104 bytes. Only the Terminals mode makes tmux sockets, so only it is checked."""
+    if read_mode(root) == 'terminal' and len(os.fsencode(run_dir / f'tmux-{os.getuid()}/qorqut')) >= 104:
+        raise RuntimeError('Choose a shorter installation path so local terminal sockets fit (roughly 50 characters or fewer)')
+
+
+def running_terminal_sessions(root, env=None):
+    """Names of this installation's agent terminals that are running, found only by listing sessions on this installation's own
+    socket folder (``.run``). Nothing is ended or signalled. Raises when that cannot be told."""
+    env = dict(os.environ if env is None else env)
+    env['TMUX_TMPDIR'] = str(Path(root) / '.run')
+    env.pop('TMUX', None)
+    executable = shutil.which('tmux', path=env.get('PATH'))
+    if not executable:
+        if listening_terminal_sockets(Path(root)):
+            raise ValueError('tmux is unavailable and terminal sockets remain; restore tmux and close this installation’s terminals.')
+        return []
+    found = []
+    # A pre-rename installation can still have live native clients on the old socket name.
+    for name in ('qorqut', 'bazarlyk'):
+        try:
+            result = subprocess.run([executable, '-L', name, 'list-sessions', '-F', '#{session_name}'],
+                                    env=env, capture_output=True, text=True, timeout=20)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ValueError('Could not prove that this installation’s agent terminals are stopped') from error
+        if result.returncode == 0:
+            found.extend(line for line in result.stdout.splitlines() if line.strip())
+        elif not any(text in result.stderr.lower() for text in ('no server running', 'no such file or directory')):
+            raise ValueError('Could not prove that this installation’s agent terminals are stopped')
+    return found
+
+
+def require_no_terminal_agents(root, env=None):
+    """Refuse an update or extension install while agents may still be running in terminals.
+
+    Managed (also no setting file): an older version's tmux server that still answers means agents may live in it, and this
+    package cannot move them; the cutover ends them cleanly and writes down what each agent was doing.
+    Terminals: the owner chose terminals, so the cutover is the wrong advice; the update waits until this installation's agent
+    terminals are closed or the owner switches back to managed sessions. Terminals are only listed, never ended here."""
+    if read_mode(root) == 'terminal':
+        if running_terminal_sessions(root, env):
+            raise ValueError('Agents of this installation run in terminals, and some are running now. Under Settings > Agents, '
+                             'switch to Managed sessions, or close the agents’ terminals yourself. Then update again.')
+        return
     live = listening_terminal_sockets(root)
     if live:
         raise ValueError('Some agents of this installation still run in the old terminal mode (' + ', '.join(map(str, live)) + '). '
@@ -738,6 +805,7 @@ def main(argv=None):
     run_dir.mkdir(mode=0o700, exist_ok=True)
     if len(os.fsencode(run_dir / 'c/org.chromium.Chromium.XXXXXX/SingletonSocket')) >= 104:
         raise RuntimeError('Choose a shorter installation path so the browser sockets fit (roughly 50 characters or fewer)')
+    require_terminal_socket_room(root, run_dir)
     state = run_dir / 'app.json'
     existing = active(state)
     if args.port is None:

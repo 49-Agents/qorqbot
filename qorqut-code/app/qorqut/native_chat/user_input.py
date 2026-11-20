@@ -4,7 +4,8 @@ The tool is a read that returns at once. It validates the message and each refer
 returns the normalized, identity-only presentation; that successful tool result in the agent's native transcript is the one source Chat
 projects (``projection.py``). It creates no request, queue, answer, lease or Done state, and it changes no Task, Signoff, Focus
 card, chat input or browser: a Signoff is decided through the Signoff API, a browser is used through ``browser_turn``, and a Task
-is only shown.
+or a browser tab is only shown. A tab reference names one open page of an agent's managed Chrome; it grants no control and no
+authorization, and the owner's live view of it stays the owner's alone.
 
 The owner's Chat resolves the references again at read time (``owner_references``) from current records and the trusted browser
 configuration, so a label, state or viewer URL is never taken from the model and a missing target never breaks the transcript."""
@@ -14,6 +15,8 @@ from __future__ import annotations
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from dataclasses import replace
+import re
+from urllib.parse import urlsplit
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import schema
@@ -27,6 +30,7 @@ from . import references as refs
 from . import store
 
 NAME = "request_user_input"
+MAX_TAB_LABEL = 200
 DESCRIPTION = (
     instruction_text('user-input-ordubashy-or-the-current-overseer-show-the'))
 SCHEMA = schema({
@@ -71,9 +75,10 @@ class UserInput:
             shown = refs.normalize(args["message"], args.get("references"))
         except refs.InputError as error:
             raise DomainError("validation_error", str(error)) from None
+        listed = {}      # each agent's open tabs, listed once however many of its tabs are named
         for position, reference in enumerate(shown["references"], 1):
             try:
-                self.resolve(ctx, reference, uow)
+                self.resolve(ctx, reference, uow, tabs=listed)
             except DomainError as error:
                 if error.code not in UNAVAILABLE:
                     raise
@@ -83,13 +88,13 @@ class UserInput:
 
     # ----- resolution ----------------------------------------------------------------------------------------------------
 
-    def resolve(self, ctx, reference, uow, *, viewer=False):
+    def resolve(self, ctx, reference, uow, *, viewer=False, tabs=None):
         """The current record a reference names, through the caller's existing read authorization, or an ``UNAVAILABLE`` error.
         Returns the display facts: ``label`` and, for a Task, ``state``; for a browser also its viewer when ``viewer`` asks for
-        a ready one."""
+        a ready one. ``tabs`` is the caller's memo of the tabs already listed, by agent (see ``tab``)."""
         kind, identity, business = reference["type"], reference["id"], reference["business_id"]
-        if kind == refs.TYPE_AGENT:
-            return self.agent(ctx, identity, uow)
+        if kind == refs.TYPE_TAB:
+            return self.tab(ctx, identity, uow, tabs)
         if kind == refs.TYPE_BROWSER:
             return self.runtime.browser_access.targets.resolve(uow, ctx.principal_id, identity, business, viewer=viewer)
         if kind == refs.TYPE_DELTA:
@@ -112,7 +117,7 @@ class UserInput:
         return found
 
     def agent(self, ctx, identity, uow):
-        """A registered agent as Chat names it, through the existing ``agents_get`` read authorization: the caller must be allowed
+        """A registered agent whose browser tab Chat shows, through the existing ``agents_get`` read authorization: the caller must be allowed
         that read, and a Global agent needs the Global capabilities while a business-home agent is outside Global. An unknown id,
         a human principal or a profile the caller may not read is an ``UNAVAILABLE`` error."""
         authorize_item_read(self.app, ctx, "agents_get", uow)
@@ -122,23 +127,66 @@ class UserInput:
             raise DomainError("not_found", "Agent profile does not exist")
         return found
 
+    def tab(self, ctx, identity, uow, listed=None):
+        """One open tab of a registered agent's managed Chrome: the agent is read as ``agent`` reads it, then the tab must be in
+        the list Chrome gives now. Returns the agent's facts as ``agent`` and the tab's ``title`` and ``url`` as the page
+        reports them, which are untrusted text. A browser that is stopped, not set up, not answering or not the agent's, and a
+        tab that is closed, are all one ``UNAVAILABLE`` error: nothing here may fail a read of Chat or hold it up.
+
+        ``listed`` maps an agent to its tabs as listed in this call (``None`` for a browser that did not answer), so one page of
+        Chat naming several tabs of one agent asks that browser once. Chrome answers within a few seconds at most
+        (``sign_in._get_json``) and refuses at once when it is not running."""
+        agent_id, tab_id = refs.tab_parts(identity)
+        found = self.agent(ctx, agent_id, uow)
+        if listed is None:
+            listed = {}
+        if agent_id not in listed:
+            listed[agent_id] = self._open_tabs(agent_id)
+        tab = (listed[agent_id] or {}).get(tab_id)
+        if tab is None:
+            raise DomainError("not_found", "Tab is not open")
+        return {"agent": found, "title": tab["title"], "url": tab["url"]}
+
+    def _open_tabs(self, agent_id):
+        """``{tab id: tab}`` of the browser the agent uses, or ``None`` when it cannot be listed, whatever the reason."""
+        from qorqut.browser import live
+        try:
+            return {tab["id"]: tab for tab in live.tabs(live.port(self.runtime, agent_id))}
+        except Exception:
+            return None
+
+    @staticmethod
+    def tab_label(title, url):
+        """What the owner's card for a tab says: the page's title, else the address's host, else ``Tab``. Both come from the
+        page, so this is text only, short and on one line; nothing of the address but its host is ever used."""
+        label = " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", title or "").split())
+        if not label:
+            try:
+                label = urlsplit(url or "").hostname or ""
+            except ValueError:
+                label = ""
+        return label[:MAX_TAB_LABEL] or "Tab"
+
     def owner_references(self, principal_id, found, uow):
         """The owner's view of the references a page of Chat names, by ``(type, id, business_id)``: current records resolved with
         the installation owner's own reach, a viewer URL only from the trusted configuration, and an unavailable placeholder
         (identity only, no target detail) for anything missing, deleted or not readable by the owner."""
         ctx = self.app.policy.context_for(principal_id, business_id=None, review_business_id=None, uow=uow)
-        views = {}
+        views, listed = {}, {}       # listed: each agent's open tabs, asked of its browser once for the whole page
         for key in dict.fromkeys(found):
             kind, identity, business = key
+            if kind in refs.RETIRED_TYPES:
+                continue
             try:
-                facts = self.resolve(ctx, {"type": kind, "id": identity, "business_id": business}, uow, viewer=True)
+                facts = self.resolve(ctx, {"type": kind, "id": identity, "business_id": business}, uow, viewer=True, tabs=listed)
             except DomainError as error:
                 if error.code not in UNAVAILABLE and error.code != "invalid_configuration":
                     raise
                 continue
-            if kind == refs.TYPE_AGENT:
-                views[key] = {"type": kind, "id": identity, "business_id": None, "label": facts["display_name"], "available": True,
-                              **{name: facts[name] for name in ("role", "presentation") if name in facts}}
+            if kind == refs.TYPE_TAB:
+                agent_id, tab_id = refs.tab_parts(identity)
+                views[key] = {"type": kind, "id": identity, "business_id": None, "label": self.tab_label(facts["title"], facts["url"]),
+                              "available": True, "agent_id": agent_id, "tab_id": tab_id, "agent_label": facts["agent"]["display_name"]}
                 continue
             view = {"type": kind, "id": identity, "business_id": business, "label": facts["label"], "available": True}
             if kind == refs.TYPE_BROWSER:

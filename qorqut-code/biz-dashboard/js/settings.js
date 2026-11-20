@@ -8,7 +8,7 @@ const envCurrent = p => envView === p && p.pane.isConnected && envScope() === p.
 // have every section; a project has only its environment overrides.
 const SETTINGS_SECTIONS = [
   {id: 'connections', title: 'Connections', hint: 'Tools your agents can use'},
-  {id: 'agents', title: 'Agents', hint: 'Claude Code, Codex, model and effort'},
+  {id: 'agents', title: 'Agents', hint: 'How agents run, Claude Code, Codex, model and effort'},
   {id: 'appearance', title: 'Appearance', hint: 'Theme and text size'},
   {id: 'notifications', title: 'Notifications', hint: 'Desktop alerts'},
   {id: 'environment', title: 'Environment', hint: 'Variables such as API keys'},
@@ -45,7 +45,8 @@ async function renderSettings(c) {
   const look = appearance.get(), alerts = desktopNotify.prefs();
   const body = {
     connections: `<div class="st-block" data-search="connections browser websites extensions openrouter voice input microphone treg whatsapp" data-connectors-slot></div>`,
-    agents: `<div class="st-rows" data-agent-clients></div>
+    agents: `${global ? '<div class="st-rows" data-agent-mode></div>' : ''}<div class="st-rows" data-agent-clients></div>
+      ${global ? '<div class="st-rows" data-agent-extras></div>' : ''}
       <div class="st-block" data-search="agents client model effort claude codex"><h3 class="ao-title">Client, model and effort</h3>
         <p class="st-help ao-intro">What each agent runs on. Leave a field empty to use the default.</p><div data-agent-options></div></div>
       ${global ? `<div class="st-rows">${settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat workspace experimental',
@@ -182,7 +183,7 @@ async function renderSettings(c) {
   });
   if (global) {
     connectorsPanel.mount(pane.querySelector('[data-connectors-slot]'), {compact: true, rows: true});
-    paintAgentClients(pane); void paintAgentOptions(pane); void paintAbout(pane);
+    paintAgentMode(pane); paintAgentClients(pane); void paintAgentOptions(pane); void paintAbout(pane);
   }
   pane.querySelector("#envsave").onclick = () => saveEnv(p);
   pane.querySelector("#envadd").onclick = () => {
@@ -253,6 +254,16 @@ async function saveTestingMode(p) {
     testing.saving = false;
     if (p.pane.isConnected && p.testing === testing) paintTestingMode(p);
   }
+}
+
+// Agents section: how agents run (js/agent-mode.js) comes first because it changes what the rows below mean; the extra rows
+// (the extra-rows script) appear only when agents run the legacy way.
+function paintAgentMode(pane) {
+  const host = pane.querySelector('[data-agent-mode]'); if (!host) return;
+  const panel = agentMode.mount(host, {toast});
+  panel.root.addEventListener('agent-mode-painted', () => pane.dispatchEvent(new Event('settings-painted')));
+  const extras = pane.querySelector('[data-agent-extras]'); if (!extras) return;
+  agentTrustRow.mount(extras, {toast, onChange: () => pane.dispatchEvent(new Event('settings-painted'))});
 }
 
 // Agents section: Claude Code and Codex, downloaded and signed in from here (js/agent-clients.js).

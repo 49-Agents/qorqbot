@@ -67,7 +67,8 @@ replying to every acknowledgement.
 Delivery is immediate and durable, including when the recipient is offline.
 The existing Claude watcher checks immediately and then every ten minutes,
 repeating its advisory nudge while items remain pending. Delivery to an agent whose
-session is asleep opens the session ([managed agent sessions](MANAGED-RUNTIME.md)).
+session is asleep opens the session ([managed agent sessions](MANAGED-RUNTIME.md)). In Terminals mode nothing opens a
+session: an agent that is not running in its terminal receives nothing until it is started.
 An agent that is off receives its pending messages when it is next turned on. No new model runtime adapter is introduced.
 
 The owner pane beside Chat shows direct messages with sender, timestamp,

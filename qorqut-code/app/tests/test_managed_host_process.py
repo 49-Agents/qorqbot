@@ -279,6 +279,25 @@ class LauncherTest(ManagedTestCase):
             with mock.patch.object(sys, "platform", "darwin"):
                 self.assertIsInstance(launcher.default_launcher(), launcher.DetachedLauncher)
 
+    def test_a_service_behind_a_private_bind_mount_starts_its_host_detached(self):
+        # A unit with BindPaths= sees its instance at a path a user service does not have (or has as another directory): the
+        # agent's folder, its prepared files and the folder its conversations are filed under exist only in this namespace.
+        with mock.patch.dict(os.environ, clear=False), mock.patch.object(sys, "platform", "linux"):
+            os.environ.pop("QORQUT_FOLDER_ROOT", None)
+            os.environ.pop("QORQUT_NATIVE_ROOT", None)
+            with mock.patch.object(launcher, "_outside_private_mounts", lambda path: Path("/real/place") / Path(path).name):
+                self.assertTrue(launcher.behind_private_mount(self.state))
+                self.assertIsInstance(launcher.default_launcher(state_dir=self.state), launcher.DetachedLauncher)
+                self.assertIsInstance(launcher.default_launcher(), launcher.UserUnitLauncher, "no directory given: the ordinary rule")
+            with mock.patch.object(launcher, "_outside_private_mounts", lambda path: Path(path)):
+                self.assertFalse(launcher.behind_private_mount(self.state))
+                self.assertIsInstance(launcher.default_launcher(state_dir=self.state), launcher.UserUnitLauncher)
+
+            def broken(path):
+                raise OSError("mount table unreadable")
+            with mock.patch.object(launcher, "_outside_private_mounts", broken):
+                self.assertFalse(launcher.behind_private_mount(self.state))
+
 
 @unittest.skipUnless(sys.platform == "linux", "systemd is Linux only")
 class UserUnitLauncherTest(ManagedTestCase):

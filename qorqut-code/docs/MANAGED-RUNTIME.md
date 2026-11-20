@@ -1,9 +1,11 @@
 # Managed agent sessions
 
-Every agent, Ordubashy and each worker, runs as a managed session. Qorqbot
-starts the session itself. There is no terminal, no tmux, no agent shell and no
-folder-trust step, and nobody types `claude` or `codex` anywhere. The owner talks
-to an agent in Chat.
+By default every agent, Ordubashy and each worker, runs as a managed session.
+Qorqbot starts the session itself. In this mode there is no terminal, no tmux, no
+agent shell and no folder-trust step, and nobody types `claude` or `codex`
+anywhere. The owner talks to an agent in Chat. An installation can instead run
+all its agents in terminals; see [Terminals (legacy)](#terminals-legacy). The
+rest of this document describes managed sessions.
 
 Code: `app/qorqut/managed_runtime/`. Paths below are relative to
 `qorqut-code/app/qorqut/` unless they say otherwise.
@@ -24,6 +26,12 @@ release does not end a running turn.
   uses a transient `systemd-run --user` unit (named `qorqut-managed-...`), so the
   host is outside the service's cgroup. A folder install and macOS use a plain
   detached process (`start_new_session`).
+  A service unit that sees its instance through a private bind mount
+  (`BindPaths=`) is the exception: its host also starts detached, inside the
+  service's mount namespace, because a user unit would not see the agent's
+  folder there. Such a host survives a service restart only when the unit has
+  `KillMode=process`; otherwise it ends with the service and the session opens
+  again at the next input.
 - The host gets a small allow-listed environment. The agent's own environment,
   with its secrets, travels only in a private `launch.json` that the host reads
   and deletes at once. It never appears in a command line.
@@ -36,6 +44,12 @@ release does not end a running turn.
   read one sign-in. This matters on macOS, where Claude Code names its Keychain
   item after an explicit `CLAUDE_CONFIG_DIR`. What the owner set in Settings
   still wins.
+- The client's `PATH` is the programs a self-contained installation ships
+  (`runtime/native/bin`: git and the browser tool), then the folders the
+  session names, then the owner's own search path
+  (`agent_cli_launch.session_path`). On a Mac without Apple's developer tools
+  the computer's own `git` only opens the system's install prompt, so the
+  shipped one has to come first.
 
 ### State folder
 
@@ -188,8 +202,13 @@ question), `close` (end the session and turn the agent off) and `options`.
   checking it is the recorded host) and removes stale files. The updater and the
   extension installer run it through `tools/distribution/native_launch.py`
   (`stop_managed_hosts`). Closed sessions open again at the next input.
-- The updater refuses while an old tmux server of the installation still
-  answers (`require_no_terminal_agents`). Run the cutover first.
+  On an installation whose service sees its instance through a private bind
+  mount, run the tool in the same view (the same `BindPaths=`): from outside it
+  sees an empty folder, finds no agents and reports success without closing
+  anything.
+- In managed mode the updater refuses while an old tmux server of the
+  installation still answers (`require_no_terminal_agents`). Run the cutover
+  first. In Terminals mode it refuses while agent terminals run.
 
 ## Cutover of an older installation
 
@@ -216,7 +235,8 @@ daemon) is shared by every Codex window of the same Codex home, so the tool only
 and never ends it; it can be left running. Run it
 with the same `CLAUDE_CONFIG_DIR`, `HOME` and `CODEX_HOME` the old clients had,
 or the conversations are not found. It only touches the installation's own tmux
-socket. This is the one place tmux is still named.
+socket. It refuses on an installation set to Terminals (legacy); there, the
+setting in Settings > Agents is the way back to managed sessions.
 
 ### Packages and a start command carried over
 
@@ -228,8 +248,8 @@ by package id, but not those pins. Without this step Ordubashy has no agent-cont
 `_restart`, `_kill`, `_ping`, `_execute_command`) and the role version in an agent's identity is the old one. The step publishes what
 the installation lacks, moves each pin forward only, and gives Ordubashy the control plugin; running it again changes nothing.
 
-A start command written for the previous version may still pass `--terminal-workspace`. The service accepts it, ignores it and logs one
-warning; remove it from the command at the next convenient restart. The `QORQUT_TERMINAL_WORKSPACE` environment variable is ignored.
+A start command written for an earlier version may still pass `--terminal-workspace` (or set `QORQUT_TERMINAL_WORKSPACE`). It
+sets the root of the owner's Workspace shell, which exists in Terminals mode only; in managed mode it has no effect.
 
 ## Known limits
 
@@ -243,6 +263,42 @@ warning; remove it from the command at the next convenient restart. The `QORQUT_
   ends a client left behind by a killed host.
 - A recovery or backup window refuses while any host runs; the owner ends the
   sessions in Chat and tries again.
+
+## Terminals (legacy)
+
+An installation can run its agents in tmux terminals instead of managed sessions. It is one setting for the whole
+installation, never per agent. Managed sessions are the default and the recommended choice, for new installations and for
+every upgrade. The owner chooses under Settings > Agents > "How agents run": "Managed sessions (recommended)" or
+"Terminals (legacy)". Only the owner can change it; no agent tool, operation or extension operation does.
+
+- **The setting** is the file `<runtime>/managed-agents/runtime.json` (`qorqut/managed_runtime/mode.py`). A missing,
+  unreadable or unrecognised file means managed. Ask through the module (`mode.is_terminal(paths)`) at call time and never
+  cache the answer: the owner can switch while the service runs.
+- **tmux** is not shipped. Terminals are offered only where a tmux that runs is on the service's `PATH`
+  (`qorqut/terminal_support.py`, `availability()`).
+- **Claude Code only.** Codex agents are not supported in terminals, and there is no per-agent choice.
+- **What changes in Terminals mode.** Each agent runs the interactive client in its own tmux terminal, started with the
+  same prepared settings file the managed client gets and the agent's stored model and effort. The dashboard shows a Terminal
+  view beside Chat and the owner's own Workspace shell. Nothing starts an agent by itself: there is no idle close and no wake,
+  so an agent that is not running in its terminal receives nothing until it is started. The six `agent_terminal_*` tools act
+  on the terminal (see [the session control reference](AGENT-TERMINAL-CONTROL.md)). The routes under `/api/root/terminal*`
+  and `/api/root/workspace-terminal*` answer only in Terminals mode, and the managed opener refuses.
+- **The owner's routes** are `GET /api/root/agents/runtime` (the mode, whether Terminals are available, the agents in a turn
+  and the progress of a switch) and `POST /api/root/agents/runtime` with `{"mode": "managed" | "terminal", "force": bool}`.
+  The switch is `native_chat/runtime_switch.py`. It is not a registered operation.
+- **A switch**, in order: it checks its preconditions before touching anything; it ends every agent's session of the current
+  mode (managed: graceful close of each host; terminals: the cutover tool ends each client and its tmux session); it writes the
+  new mode last; it bumps each agent's Chat revision. After a switch to Terminals it then starts a terminal for every agent that
+  is on and has a selected conversation, resuming that conversation. Conversations carry over in both directions, because both
+  modes read the same selected conversation. After a switch to managed, agents are asleep and open at their next input.
+- **Refusals** (the route's error codes): `terminal_unavailable` (no working tmux), `codex_agents` (an agent's client is
+  Codex), `turns_running` (an agent is in a turn or waits on a question; the owner may confirm with `force` to cut it off),
+  `terminal_unclear` (a terminal the cutover tool cannot read), `session_open` (a session did not end), `switch_running`
+  (a switch is already in progress). While a switch runs, every opener of either kind refuses with `runtime_switching`.
+  A failure half-way keeps the old mode; what was already ended stays ended, and pressing the switch again finishes it.
+- **Updates.** An update or an extension install does not start while agent terminals run.
+- **Managed is unchanged.** With the setting on managed, or without the file, Chat payloads, prepared agent folders and the
+  answers of every existing route are as described in this document, and no tmux process is started.
 
 For the tools Ordubashy uses to control sessions, see
 [the session control reference](AGENT-TERMINAL-CONTROL.md).

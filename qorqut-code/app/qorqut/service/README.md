@@ -25,7 +25,7 @@ curl --fail --silent --show-error --max-time 5 http://qorqut.example:1071/health
 curl --fail --silent --show-error --max-time 5 http://qorqut.example:1071/health/ready
 ```
 
-Inspect the running service command and the release receipt before using either as deployment evidence. Agent preparation uses the service interpreter by default. Every agent runs as a managed session ([managed agent sessions](../../../docs/MANAGED-RUNTIME.md)); Chat and inbox nudges share the exact native-session input arbiter. Opening Chat does not start an agent; sending a message does. See [owner API access](../../../docs/v1.2/CONTROL_VIA_API.md) and [Inbox](../../../docs/AGENT-INBOX.md).
+Inspect the running service command and the release receipt before using either as deployment evidence. Agent preparation uses the service interpreter by default. Every agent runs as a managed session by default ([managed agent sessions](../../../docs/MANAGED-RUNTIME.md)), or in a terminal when the owner chose Terminals (legacy); Chat and inbox nudges share the exact native-session input arbiter. Opening Chat does not start an agent; in managed mode sending a message does. See [owner API access](../../../docs/v1.2/CONTROL_VIA_API.md) and [Inbox](../../../docs/AGENT-INBOX.md).
 
 Nightly maintenance receives `runtime.paths` and the host locks; its receipts and default backups live under `operations/.runtime/maintenance/` and `operations/.runtime/backups/`. Capture requires the actual host recovery barrier. Operational Git snapshots, exact domain histories, private backups and Context Git history have distinct owners and coverage.
 
@@ -36,7 +36,7 @@ The remaining material records older integration details. Old paths, retired Con
 ## Authentication And Routes
 
 Global → Agents reads the canonical `agents_list` operation with explicit
-`scope: global` through `GET /api/root/agents`. Every agent runs as a managed session and is reached through Chat; there are no terminal routes. All owner
+`scope: global` through `GET /api/root/agents`. In managed mode every agent runs as a managed session and is reached through Chat, and the terminal routes (`/api/root/terminals`, `/api/root/terminal/<agent-id>/...`, `/api/root/workspace-terminal/...`) refuse. In Terminals mode they answer. The owner reads and changes the mode through `GET/POST /api/root/agents/runtime`. All owner
 writes retain same-origin checks.
 
 - Configure `BIZ_ROOT`, `HOST`, `PORT` and explicit `BIZ_SERVICE_ORIGINS` in the
@@ -108,7 +108,7 @@ no separate `plugins_enable` approval is needed. An email grant sends only from 
 own mailbox list (Ordubashy: every registered mailbox).
 The model provider resolves explicit service configuration, Global defaults, then
 the selected business's overrides for each job. Managed sessions receive Global defaults only, and an
-open session keeps its environment until it is closed and started again.
+open session (or a running agent terminal) keeps its environment until it is closed and started again.
 
 Historical transcript reads accept supported saved Claude/Codex records in
 registered agent `sessions/*.jsonl` inside the selected owning workspace. Old

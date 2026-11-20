@@ -39,8 +39,9 @@ Needed only for the optional pieces you enable later (the scripts neither check 
   then Chrome (managed Global desktops: [Browser desktops](BROWSER-DESKTOPS.md)).
 - **WhatsApp tool**: Go (the version in `extensions/whatsapp/native/go.mod`) and a C compiler (SQLite uses CGO).
 - **Native coding CLIs** for agent sessions (Claude Code, Codex): the pinned versions are in
-  `app/tools/native_clis/package.json`. Qorqbot runs them itself as managed sessions
+  `app/tools/native_clis/package.json`. Qorqbot runs them itself as managed sessions by default
   ([managed agent sessions](MANAGED-RUNTIME.md)); nobody opens a terminal or types their commands.
+  The optional legacy Terminals mode (Claude Code only) needs `tmux` on the computer.
 - **Paper web UI** (only with Paper): Node/npm to build `web/dist`, see below.
 
 ## Stage 1 — export the source
@@ -332,7 +333,8 @@ original supplier provenance stays readable after the active binding names the n
 
 An installation whose agents still run in tmux terminals moves to managed sessions with the explicit offline
 `python -m qorqut.migration.managed_cutover <inspect|apply> --instance-root <path>`, run with the service stopped after the
-normal upgrade; see [managed agent sessions](MANAGED-RUNTIME.md#cutover-of-an-older-installation).
+normal upgrade; see [managed agent sessions](MANAGED-RUNTIME.md#cutover-of-an-older-installation). It refuses on an
+installation set to Terminals (legacy); there, Settings > Agents is the way back to managed sessions.
 
 **Private files**, all mode 0600 in `<instance>/config/` (mode 0700):
 

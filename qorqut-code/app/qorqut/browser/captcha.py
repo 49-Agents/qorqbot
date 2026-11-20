@@ -13,7 +13,8 @@ What happens, in this order, each step only if the one before did not settle it:
 2. A widget with a checkbox gets a real mouse click on it. Where a person's browser passes on that click, so does this.
 3. Otherwise the paid solver (``captcha_solver``) is asked for an answer token, which is put into the page the way that
    widget's pages take it (``captcha.js``).
-4. What is left is the owner's: the result says so in words.
+4. What is left is the owner's: the result says so in words, and names the tab (``tab_reference``) so that the agent can show
+   it to the owner in Chat instead of describing where to look.
 
 The solver key is read from Global Settings here, on the server, for the one call. It is never part of a result, a log
 line or an exception text, and neither is an answer token.
@@ -39,7 +40,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from qorqut_operations.contracts import DomainError, utc_now
 
-from . import captcha_solver
+from . import captcha_solver, tab_reference
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ WORLD = "qorqutCaptcha"
 LOG, LOG_LIMIT = "browser-captcha.jsonl", 1024 * 1024
 
 ASK_OWNER = "Ask the owner."
+NOT_FOUND = "No captcha was recognised on your tab. If the page still asks for one, ask the owner."
 SOLVED_BY_TOKEN = "Continue now: the answer stops working after about two minutes."
 
 Frame = namedtuple("Frame", "id parent url session")
@@ -372,7 +374,7 @@ def attempt(tab, *, key, provider=None, clock=time.monotonic, sleep=time.sleep, 
     v3 = {sitekey: (frames[frame], bool(enterprise)) for frame, scan in scans.items() for sitekey, enterprise in scan.get("v3") or []}
     found = _pick(tab, frames, v3)
     if found is None:
-        return _outcome("not_found", **site, next="No captcha was recognised on your tab. If the page still asks for one, ask the owner.")
+        return _outcome("not_found", **site, next=NOT_FOUND)
 
     def solve(found, url, sitekey, **details):
         left = deadline - clock()
@@ -438,8 +440,8 @@ def _port(endpoint):
 
 
 def on_tab(endpoint, session, pinned, *, key, provider=None, connect=_connect, **options):
-    """Handle the captcha on the tab an ``agent-browser`` session is bound to. Which tab that is, is read where the
-    idle-tab sweeper reads it: asking the session would open a stray tab when it has none."""
+    """Handle the captcha on the tab an ``agent-browser`` session is bound to, and name that tab (``tab``) in the outcome.
+    Which tab that is, is read where the idle-tab sweeper reads it: asking the session would open a stray tab when it has none."""
     from qorqut.bootstrap.browser import BrowserError
     from . import control, idle_tabs
     port = _port(endpoint)
@@ -458,7 +460,7 @@ def on_tab(endpoint, session, pinned, *, key, provider=None, connect=_connect, *
     except Exception:
         raise BrowserError("The tab could not be reached. Nothing was done.") from None
     try:
-        return attempt(Tab(socket, script()), key=key, provider=provider, **options)
+        return {**attempt(Tab(socket, script()), key=key, provider=provider, **options), "tab": bound}
     except CdpError as error:
         logger.warning("Captcha: the tab stopped answering (%s)", error)
         return _failed("captcha_tab_lost", "The tab stopped answering while its captcha was handled.",
@@ -514,6 +516,18 @@ def is_command(command):
     return True
 
 
+def owner_reply(outcome, instance, reply):
+    """The reply with the tab's ``reference`` added, and ``next`` saying what to do with it, where the outcome leaves the
+    captcha to the owner and the tab is known. Any other reply is returned as it is. The agent named is the one whose browser
+    this is (``tab_reference.browser_agent``), which is not always the caller."""
+    named = None
+    if outcome.get("next") in (ASK_OWNER, NOT_FOUND) and outcome.get("tab"):
+        named = tab_reference.reference(tab_reference.browser_agent(instance), outcome["tab"])
+    if named is None:
+        return reply
+    return {**reply, "next": f"{reply['next']} {tab_reference.SHOW_FIELD}", "reference": named}
+
+
 def runner(runtime, agent_id):
     """What runs the command in place of ``bootstrap.browser.run``: the same arguments in, the same
     ``(exit code, stdout, stderr)`` out, so everything around a browser command (locks, leases, replies) stays as it is."""
@@ -541,5 +555,5 @@ def runner(runtime, agent_id):
         record(runtime.paths.runtime, entry)
         logger.info("Captcha %s", json.dumps(entry, sort_keys=True))
         reply = {name: outcome[name] for name in ("captcha", "type", "method", "reason", "next") if name in outcome}
-        return (0 if outcome["captcha"] == "solved" else 1), json.dumps(reply) + "\n", ""
+        return (0 if outcome["captcha"] == "solved" else 1), json.dumps(owner_reply(outcome, instance, reply)) + "\n", ""
     return run

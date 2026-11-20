@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../app.css">
+<link rel="stylesheet" href="../../css/chat-view.css">
+<link rel="stylesheet" href="../../css/theme-light.css">
+<style>body{margin:0;padding:12px;background:var(--bg);color:var(--fg)}#chat{height:300px;width:min(420px,calc(100vw - 24px))}</style>
+<main id="chat"></main>
+<pre id="out" hidden></pre>
+<script src="../../js/safe-links.js"></script>
+<script>
+// Stubs for the dashboard globals chat-view.js expects; chat-view.js, chat-view.css, app.css and theme-light.css are the real files.
+const esc = value => String(value ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const state = {bizs: []}, coreData = response => response.data, post = () => new Promise(() => {});
+const opened = [];
+window.agentBrowserOpenTab = (agentId, tabId) => { opened.push([agentId, tabId]); };
+if (location.hash.includes('light')) document.documentElement.dataset.theme = 'light';
+</script>
+<script src="../../js/chat-view.js"></script>
+<script>
+const AGENT = '3f6c1b9e-2a47-4d1e-9b0c-5e8a7d2c4f10', TAB = 'A1B2C3D4E5F60718293A4B5C6D7E8F90';
+const view = mountChatView(document.getElementById('chat'), {});
+const tab = (over = {}) => ({type: 'tab', id: `${AGENT}:${TAB}`, business_id: null, label: 'Inbox (3) - Mail', available: true, agent_id: AGENT, tab_id: TAB, agent_label: 'Ordubashy', ...over});
+const gone = {type: 'tab', id: `${AGENT}:${TAB}`, business_id: null, label: 'Unavailable tab', available: false};
+const draw = (...refs) => view.render({entries: [{key: 'm', speaker: 'agent', text: 'Please look at this tab', typedReferences: refs}], composer: {hidden: true}});
+const chips = () => [...document.querySelectorAll('.gchat-typed > *')];
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+(async () => {
+  await wait(100);
+  if (location.hash.startsWith('#shot')) {
+    document.getElementById('chat').style.height = '200px';
+    draw(tab(), tab({id: `${AGENT}:${'B'.repeat(32)}`, tab_id: 'B'.repeat(32), label: 'A very long page title that goes on and on, far past the width of this narrow chat column', agent_label: 'Ordubashy'}),
+      {...gone, id: `${AGENT}:${'C'.repeat(32)}`});
+    return;
+  }
+  const out = {}, errors = [];
+  window.addEventListener('error', event => errors.push(event.message));
+  window.addEventListener('unhandledrejection', event => errors.push(String(event.reason)));
+  draw(tab());
+  let button = chips()[0];
+  const text = (el, sel) => el.querySelector(sel)?.textContent;
+  out.available = {tag: button.tagName, title: text(button, '.gchat-tab-title'), agent: text(button, '.gchat-tab-agent'), aria: button.getAttribute('aria-label'),
+    svg: !!button.querySelector('.gchat-tab-icon[aria-hidden="true"] svg'), height: Math.round(button.getBoundingClientRect().height), group: button.parentElement.className};
+  button.click();
+  out.opened = JSON.parse(JSON.stringify(opened));
+
+  // A page title that looks like HTML stays text, wherever it is shown.
+  draw(tab({label: '<img src=x onerror="window.pwned=1"><b>bold</b>', agent_label: '<i>Ag</i> & "co"'}));
+  out.escaped = {same: chips()[0] === button, elements: document.querySelectorAll('.gchat-typed img, .gchat-typed b, .gchat-typed i').length, pwned: window.pwned === 1,
+    title: text(chips()[0], '.gchat-tab-title') === '<img src=x onerror="window.pwned=1"><b>bold</b>', agent: text(chips()[0], '.gchat-tab-agent') === '<i>Ag</i> & "co"',
+    aria: chips()[0].getAttribute('aria-label') === 'Open tab: <img src=x onerror="window.pwned=1"><b>bold</b> — <i>Ag</i> & "co"'};
+
+  // Title and agent change in the same button; an empty title and a missing agent still make a usable chip.
+  draw(tab({label: 'Renamed page', agent_label: 'Worker'}));
+  out.renamed = {same: chips()[0] === button, count: chips().length, title: text(button, '.gchat-tab-title'), agent: text(button, '.gchat-tab-agent'), aria: button.getAttribute('aria-label')};
+  draw(tab({label: '  ', agent_label: ''}));
+  out.bare = {same: chips()[0] === button, title: text(button, '.gchat-tab-title'), agent: text(button, '.gchat-tab-agent') ?? null, aria: button.getAttribute('aria-label')};
+
+  // Available -> unavailable -> available again.
+  const placeholder = el => ({tag: el.tagName, text: el.textContent.trim(), unavailable: el.classList.contains('gchat-reference-unavailable'), buttons: document.querySelectorAll('.gchat-typed button').length});
+  draw(gone);
+  out.flipped = {count: chips().length, ...placeholder(chips()[0]), oldButtonGone: !button.isConnected};
+  draw(tab({label: 'Back again'}));
+  out.restored = {count: chips().length, tag: chips()[0].tagName, title: text(chips()[0], '.gchat-tab-title')};
+  button = chips()[0];
+
+  // Malformed ids never make a button: the ids are what the click would send.
+  out.malformed = [{tab_id: 'abc'}, {tab_id: TAB.toLowerCase()}, {tab_id: TAB + 'A'}, {tab_id: [TAB]}, {tab_id: undefined}, {agent_id: 'not-a-uuid'}, {agent_id: [AGENT]}, {agent_id: undefined}, {agent_id: ''}]
+    .map(over => { draw(tab(over)); return {count: chips().length, ...placeholder(chips()[0])}; });
+  out.openedAfterMalformed = opened.length;
+
+  // Without the entry point (a page that does not have it) the click is harmless.
+  draw(tab());
+  button = chips()[0];
+  const entry = window.agentBrowserOpenTab; delete window.agentBrowserOpenTab;
+  button.click(); await wait(20);
+  out.noEntryPoint = {errors: errors.length, opened: opened.length};
+  window.agentBrowserOpenTab = () => Promise.reject(new Error('boom'));
+  button.click(); await wait(20);
+  out.rejecting = {errors: errors.length};
+  window.agentBrowserOpenTab = entry;
+
+  // One line, ellipsised, inside a narrow column.
+  document.getElementById('chat').style.width = '150px';
+  draw(tab({label: 'A very long page title that goes on and on, far past the width of this narrow chat column', agent_label: 'A very long agent display name'}));
+  button = chips()[0];
+  const box = button.getBoundingClientRect(), column = document.querySelector('.gchat-typed').getBoundingClientRect(), title = button.querySelector('.gchat-tab-title');
+  out.narrow = {fits: box.right <= column.right + 0.5, oneLine: box.height < 30, clipped: title.scrollWidth > title.clientWidth, ellipsis: getComputedStyle(title).textOverflow === 'ellipsis',
+    agentVisible: button.querySelector('.gchat-tab-agent').getBoundingClientRect().width > 10};
+  const style = getComputedStyle(button);
+  out.look = {cursor: style.cursor, weight: style.fontWeight, radius: style.borderRadius, light: document.documentElement.dataset.theme === 'light'};
+  document.getElementById('out').textContent = JSON.stringify(out);
+})();
+</script>

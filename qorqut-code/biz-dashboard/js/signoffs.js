@@ -508,6 +508,8 @@ function sgCreateView(options) {
       let group = [...fields.children].find(node => node.dataset.questionId === q.id);
       if (!group) {
         group = document.createElement('fieldset'); group.className = 'sg-question'; group.dataset.questionId = q.id;
+        // A single question that only repeats the card's title: Chat shows the title once (css/signoffs.css).
+        if (s.input.questions.length === 1 && q.required && q.prompt.trim() === String(s.input.title || s.title || '').trim()) group.classList.add('sg-question-titled');
         const legend = document.createElement('legend'); legend.id = id; legend.textContent = q.required ? q.prompt : `${q.prompt} (optional)`;
         const explanation = document.createElement('p'); explanation.className = 'sg-question-explanation'; explanation.innerHTML = q.explanation ? renderSafeLinks(q.explanation) : ''; explanation.hidden = !q.explanation;
         const guidance = document.createElement('p'); guidance.className = 'sg-notice';

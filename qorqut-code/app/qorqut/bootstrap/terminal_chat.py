@@ -18,10 +18,11 @@ CODEX_SUFFIX = r"(?:_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}
 NATIVE_IDENTITY = ("agent_id", "workspace", "session_id", "runtime", "pid", "started")
 
 
-def process_fields(pid):
+def process_fields(pid, terminal=False):
+    """Stat fields of ``pid``. ``terminal`` (Terminals mode only) also reads a Mac process's tty and foreground group."""
     if sys.platform == 'darwin':
         from qorqut.process_info import fields
-        return fields(pid)
+        return fields(pid, terminal=terminal)
     return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
 
 

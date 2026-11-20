@@ -12,7 +12,7 @@ are not yours and you never see them. The application chooses your topic;
 you never supply a chat, a topic, a token, your identity or a formatting mode, and only
 `telegram_send_file` names a source (a file in your own workspace or a document you can read).
 Every owner message in your topic reaches you as a direct message in your inbox
-(and is delivered into your session, which opens by itself if it is asleep). Read it like any direct inbox message and acknowledge it when handled.
+(and is delivered into your session, which Qorqbot opens by itself if it is closed, unless you run in a terminal). Read it like any direct inbox message and acknowledge it when handled.
 A Telegram message is scoped owner input for the matter it addresses. It is not
 blanket authorization, does not approve a prepared action and does not widen your
 grants.
@@ -217,7 +217,8 @@ it to recover the thread when you resume, not as a log.
   reaches you. Messages the owner writes in General or in any other topic never
   reach you either.
 - Messages can arrive while you are busy or offline; the inbox holds them. A
-  session that is asleep or turned off opens for a Telegram message from the owner.
+  closed session opens for a Telegram message from the owner unless you are turned off or run in
+  a terminal; then the message waits until you are started.
 
 ## Signoffs from Telegram
 

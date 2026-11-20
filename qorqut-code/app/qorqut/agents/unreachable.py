@@ -16,6 +16,11 @@ works for that reason, and for the reasons only the owner can change it says so.
 A worker in a running turn is reachable: a notice that waits for the turn to end is not a fault. A worker with
 nothing pending is never reported, because nothing is waiting on it.
 
+In Terminals mode (``terminal=True``, asked on every pass) a worker with no running terminal is reported as it was before managed
+sessions: nothing opens a terminal by itself, so waiting work with no terminal is a fault (repair: ``agent_terminal_start``), the
+composer reasons (unsent text, an unrecognized screen, a dialog) and their busy codes apply, and the managed open streaks and the
+turned-off rule do not.
+
 The emitted events are the only memory, so there is no new table and a repeated pass, a restart or two racing passes
 cannot tell him twice within a period. Nothing about the worker changes and its session is never touched here."""
 
@@ -39,10 +44,13 @@ ARRIVED = ("submitted", "uncertain")
 NOT_TYPED = ("deferred", "failed", "unavailable")
 # A notice deferred for these reasons waits for a running turn to end or a session to finish starting or closing; the session itself
 # is fine.
-BUSY = frozenset({"turn_running", "session_starting", "session_closing", "host_busy"})
+BUSY = frozenset({"turn_running", "session_starting", "session_closing", "host_busy", "composer_busy", "submit_interrupts"})
 OFFLINE = "offline"
 OFF = "off"
 REASONS = {
+    "composer_not_empty": "its input box holds unsent text",
+    "composer_unrecognized": "its screen shows something other than the input box",
+    "composer_modal": "a dialog is open in its terminal",
     "host_unverified": "its session could not be verified",
     "host_rejected": "its session keeps refusing input",
     OFFLINE: "it has no running session",
@@ -55,6 +63,8 @@ REASONS = {
 }
 # What Ordubashy is told to do, by reason. A repair he cannot make himself says whose it is.
 REPAIRS = {
+    # Only a Terminals-mode report names it: in managed mode an agent with no session that is on is asleep, and is not reported.
+    OFFLINE: "Start it with agent_terminal_start (it opens in its terminal and takes what is waiting); if it cannot be started, reassign its open work.",
     OFF: "Turn it on with agent_terminal_start (it opens and takes what is waiting); if it cannot be started, reassign its open work.",
     "cli_unavailable": ("Only the owner can fix this: tell the owner to download the client under Settings > Agents, or to switch the "
                         "agent to the other client there. Until then reassign its open work."),
@@ -92,9 +102,9 @@ def _failing(agent_id: str, current: datetime):
     return _stamp(since), code
 
 
-def blocked(connection, agent_id: str, current: datetime) -> dict | None:
+def blocked(connection, agent_id: str, current: datetime, *, terminal: bool = False) -> dict | None:
     """``{"since", "reason"}`` when ``agent_id`` has pending inbox items and has been unable to take a notice for at
-    least ``BLOCKED_AFTER``; otherwise None."""
+    least ``BLOCKED_AFTER``; otherwise None. ``terminal``: the installation runs terminals (see the module text)."""
     need = connection.execute("SELECT active,reason,updated_at FROM inbox_nudge_needs WHERE agent_id=?", (agent_id,)).fetchone()
     if need is None or not need["active"]:
         return None
@@ -102,9 +112,13 @@ def blocked(connection, agent_id: str, current: datetime) -> dict | None:
     latest = connection.execute(
         f"SELECT state,reason FROM inbox_nudge_attempts WHERE agent_id=? AND state IN ({marks}) ORDER BY sequence DESC LIMIT 1",
         (agent_id, *ARRIVED, *NOT_TYPED)).fetchone()
-    desired = connection.execute("SELECT desired_state FROM native_session_owners WHERE agent_id=?", (agent_id,)).fetchone()
-    failing = _failing(agent_id, current)
-    if desired is not None and desired["desired_state"] == "stopped":
+    desired = None if terminal else connection.execute(
+        "SELECT desired_state FROM native_session_owners WHERE agent_id=?", (agent_id,)).fetchone()
+    failing = None if terminal else _failing(agent_id, current)
+    if terminal and need["reason"] == OFFLINE:
+        # Nothing opens a terminal by itself: waiting work with no terminal is a fault from the moment it waits.
+        since, reason = need["updated_at"], OFFLINE
+    elif desired is not None and desired["desired_state"] == "stopped":
         since, reason = need["updated_at"], OFF
     elif failing is not None:
         since, reason = failing
@@ -136,9 +150,9 @@ def summary(name: str, found: dict, waiting: int) -> str:
             + REPAIRS.get(found["reason"], DEFAULT_REPAIR))
 
 
-def reconcile(uow, *, now: datetime | None = None) -> list[dict]:
+def reconcile(uow, *, now: datetime | None = None, terminal: bool = False) -> list[dict]:
     """Tell Ordubashy about each permanent worker that is unreachable and not told within the period; returns what
-    was told. Reads only, until a notice is due."""
+    was told. Reads only, until a notice is due. ``terminal``: the installation runs terminals (the caller asks the mode on every pass)."""
     coordinator = configured_ordubashy(uow)
     if coordinator is None:
         return []
@@ -150,7 +164,7 @@ def reconcile(uow, *, now: datetime | None = None) -> list[dict]:
         agent_id = profile["agent_id"]
         if not is_worker(uow.connection, agent_id):
             continue
-        found = blocked(uow.connection, agent_id, current)
+        found = blocked(uow.connection, agent_id, current, terminal=terminal)
         if found is None:
             continue
         # One notice per stretch, and again only after a full period while the stretch lasts.

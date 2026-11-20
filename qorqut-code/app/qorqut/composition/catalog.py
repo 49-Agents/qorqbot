@@ -123,7 +123,9 @@ BUILTIN_CATALOG = (
     # Move to project: destination listing, the read-only preview and the one atomic relocation of Tasks with their descendants.
     # The handler adds the owner/configured-Ordubashy identity gate and the source and destination Task authority to every call.
     *(CatalogEntry(name, False, kind) for name, kind in (
-        ("tasks_move_targets", "read"), ("tasks_move_to_project_preview", "read"), ("tasks_move_to_project", "records"))),
+        ("tasks_move_targets", "read"), ("tasks_move_to_project_preview", "read"), ("tasks_move_to_project", "records"),
+        ("tables_move_to_project_preview", "read"), ("tables_move_to_project", "records"),
+        ("notes_move_to_project_preview", "read"), ("notes_move_to_project", "records"))),
     # One record's authorized activity: the Domain's local activity merged with its directly linked sources (host-owned).
     CatalogEntry("crm_activity_list", False, "read"),
     # Narrow owner/Ordubashy read of the owner's stored Project reminders; the shared reminders_* operations own writes and delivery.

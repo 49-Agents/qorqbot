@@ -111,8 +111,9 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 // Activity/Inbox overview never add a right-pane tab or restore a stale pane selection; Business keeps its
 // stable key so links work. Project data stays reachable through
 // Project records and status/inbox delivery through the
-// backend the roster reads.
-const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status", "inbox", "activity"]);
+// backend the roster reads. The removed Todo board (attentionBoard) is retired the same way: a remembered or
+// linked selection opens Focus, where task links now open and the owner keeps todos as "-" lines in the notes.
+const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status", "inbox", "activity", "attentionBoard"]);
 // Browser appears for any agent with a configured browser binding; the full
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
@@ -126,9 +127,7 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_RENDERERS.get(type.renderer)?.leading ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
   leading.unshift(...personal.filter(view => !['journal', 'calendar'].includes(view)));
-  // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer. A permanent worker gets
-  // the same shared Todo board for its own commitments; its Focus stays the existing workspace view.
-  if (roleId === "ordubashy" || roleId === "global-worker") leading.push("attentionBoard");
+  // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (roleId === "ordubashy") leading.push("timeline");
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
@@ -203,7 +202,6 @@ if (typeof testingModeSubscribe === 'function') testingModeSubscribe(() => {
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
   if (view === "files") { agentFilesMount(p); return; }
-  if (view === "attentionBoard" && (p.workspaceRole === "ordubashy" || p.workspaceRole === "global-worker")) { attentionBoardMount(p); return; }
   if (view === "timeline" && p.workspaceRole === "ordubashy") { agentTimelineMount(p); return; }
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
@@ -252,7 +250,7 @@ function agTakeLinkedWorkspace(hash) {
 // declaration is still loading, an unrecognized key waits on that read (the default view stays usable) and is
 // honored only if it turns out to be installed and the owner has not moved elsewhere. Anything else is ignored.
 function agpadRequestView(p, view) {
-  // Built-in views keep their camelCase keys (attentionBoard); registered workspace types are lowercase.
+  // Built-in views keep their camelCase keys (attentionBoard was one); registered workspace types are lowercase.
   if (typeof view !== "string" || !(p.views.includes(view) || /^[a-z][a-z0-9_]{0,63}$/.test(view))) return false;
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return false;
   // Tables lives in the shared drawer: the retired key never adds a tab (links translate first).
@@ -448,7 +446,7 @@ function agpadMount(name, el, options = {}) {
   el.onclick = e => {
     const row = e.target.closest(".trow");
     // Focus rows reuse the row look, but they are not tasks: their clicks open their own details.
-    if (row && !row.closest(".agfocus, .attention-board") && agpadActive(p)) tOpenTask(row.dataset.id);
+    if (row && !row.closest(".agfocus") && agpadActive(p)) tOpenTask(row.dataset.id);
   };
   // A linked view is honored only when it is a usable key; anything else leaves
   // the pane on its normal first view instead of an empty pane.
@@ -760,7 +758,6 @@ function agpadPaint(p) {
 function agpadTick() {
   const p = _agpad;
   if (!agpadActive(p)) return;
-  if (p.view === "attentionBoard") attentionBoardTick(p);
   if (p.view === "timeline") agentTimelineTick(p);
   agpadWorkspaceTick(p);
   if (agpadWorkspaceView(p.view)) return;

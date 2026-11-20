@@ -164,7 +164,8 @@ class ServiceBoundary:
 
 
 class SelectiveGZip:
-    """Gzip owner-visible dashboard traffic; never agent tooling, MCP, or an SSE stream (the change feed at /api/root/events).
+    """Gzip owner-visible dashboard traffic; never agent tooling, MCP, or an SSE stream (the terminal mirrors, the change feed at
+    /api/root/events).
 
     `GZipMiddleware` has no path filter of its own, so this selects between a shared `GZipMiddleware` instance and the plain app
     by `scope["path"]` before either one ever calls `send`. This is deliberately independent of Starlette's own
@@ -189,7 +190,7 @@ class SelectiveGZip:
         parts = path[len("/api/"):].strip("/").split("/")
         if parts[:1] == ["agent"]:
             return False
-        if parts[:1] == ["root"] and parts[1:2] == ["events"]:
+        if parts[:1] == ["root"] and parts[1:2] in (["terminal"], ["terminals"], ["workspace-terminal"], ["events"]):
             return False
         if parts[:2] == ["root", "agents"] and parts[3:4] == ["browser-live"]:
             return False  # The live browser view: a stream of JPEG pictures, and its small input posts.
@@ -211,7 +212,7 @@ async def stop_agent_client_sign_ins():
 
 
 def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
-               authentication=None, compatibility=None, manage_lifecycle=True,
+               authentication=None, compatibility=None, terminals=None, manage_lifecycle=True,
                agent_only=False):
     origins = OriginPolicy(origins)
     viewbox = getattr(getattr(runtime, "domains", None), "viewbox", None)
@@ -219,7 +220,7 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
         viewbox.configure_origins(origins.origins)
     authentication = authentication or Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token,
                                                       integration_adapter=runtime.selection.integration_adapter)
-    api = HTTPAPI(runtime, authentication, origins, compatibility=compatibility)
+    api = HTTPAPI(runtime, authentication, origins, compatibility=compatibility, terminals=terminals)
     mcp = MCPTransport(runtime, authentication, origins)
     owner_mcp = None
     if not agent_only:

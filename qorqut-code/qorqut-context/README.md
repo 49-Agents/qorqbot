@@ -29,18 +29,29 @@ and Git history. Existing graphs are not migrated or backfilled.
 owner's whole record, independently of its node page, or `null` for an older
 graph without a profile. Agent startup renders the same record into the Context
 Home text (shortest entries first, within their own bound, with cut or omitted
-entries named), so no agent asks the owner for what the record holds; agents
-read `context_object` for the current record and its history before asking the
-owner anything about themselves.
+entries named), so no agent asks the owner for what the record holds.
+
+The record has its own two tools. `personal_get` returns it as plain facts
+(`facts`, every field name under `fields`, optionally only the named fields) with
+no history or relationships, and every registered agent may read it before asking
+the owner anything about themselves; `context_object` still returns the record
+with its history. `personal_set` changes it by naming facts: each fact gives a
+field, its values and a mode (`add`, `replace`, `remove`), with the statement,
+source and date they come from. It builds the `qorqut-graph-edit-v1` plan from
+the published record (same node, every other attribute and the present support
+kept, the edit cited as `self`) and admits it exactly as `context_edit` does. A
+queued edit is refused as stale once anything ahead of it in the shared queue
+publishes, so `personal_set` refuses at once with `busy` while any input is
+unfinished, and saves nothing.
 The host permits only its currently configured Ordubashy to edit the profile or
-its incident relationships through `context_edit`, rechecking queued edits before
-publication. Other agents relay facts through the existing inbox. The ordinary
+its incident relationships, through `personal_set` or `context_edit`, rechecking
+queued edits before publication. Other agents relay facts through the existing inbox. The ordinary
 propagator can read the node and link notes to it, but hands profile changes to
 Ordubashy. Its per-input operational-intake reminder includes automatic personal
 fact capture, sources and dates, explicit corrections and unresolved contradictions.
 Capture remains an agent responsibility; the hook does not verify factual accuracy
 or prove that a fact was saved. No profile UI is included; the first-conversation interview is the host's
-`agentic-management/get-set-up` workflow, which writes through the same `context_edit` path.
+`agentic-management/get-set-up` workflow, which writes through `personal_set`.
 
 Standalone library callers that need a graph without an installation owner can
 explicitly pass `personal_context=False` to `Context.initialize`. Reads and normal

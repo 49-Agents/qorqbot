@@ -1,4 +1,4 @@
-"""The owner signs in to a website in a visible Chrome window on an agent's own browser profile.
+"""The owner signs in to a website in a visible Chrome window on the profile of the browser the agents use.
 
 The agent's headless browser pauses, because Chrome allows one process per profile. The window uses a private debugging port the
 agent is never told about, so agents cannot watch or drive it while the owner types. Closing the window brings the agent's browser
@@ -270,9 +270,8 @@ def _quit_cleanly(process, port):
 
 
 def _finish(runtime, owner, agent_id, site, process, port, paused=None, home=None):
-    """``home`` is the state directory of the browser the window was opened on, which is where the owner signed in. The agent may
-    have been switched between its own and the Shared browser since: the site then still goes into that browser's list (its
-    cookies are there), and the cookies are not copied into the browser the agent uses now."""
+    """``home`` is the state directory of the browser the window was opened on, which is where the owner signed in: the site goes into
+    that browser's list, where its cookies are."""
     try:
         latest = []
         def remember_cookies():
@@ -360,12 +359,16 @@ def open_in_live_view(runtime, agent_id, site, url):
     except OSError:
         logger.warning("Could not record the sign-in to %s for agent %s", site, agent_id, exc_info=True)
     name = agent["name"]
-    shared = " That browser is the Shared one: every agent set to it shows the same pages." if uses_shared(runtime.browser_manager.paths, agent_id) else ""
+    if uses_shared(runtime.browser_manager.paths, agent_id):
+        where, check = "the Shared browser", "Every agent on the Shared browser shows the same pages, so any of them has the sign-in. "
+    else:
+        where, check = f"{name}'s browser", ""
     return {"opened": site, "where": "live_view", "agent": name,
-            "next": f"No window can open on this computer, so {site}'s sign-in page is open in {name}'s browser. Tell the owner to open "
-                    f"{name}'s Browser tab in the dashboard (the {site} page, if another is shown) and sign in there themselves. Qorqbot "
-                    "cannot see when they are done: wait until they say so, then open the site in your browser and check that the "
-                    f"account is signed in. If they cannot use the live view, ask for the password or code instead.{shared}"}
+            "next": f"No window can open on this computer, so {site}'s sign-in page is open in {where}. Tell the owner to open "
+                    f"{name}'s Browser tab in the dashboard (the {site} page, if another is shown) and sign in there themselves. "
+                    f"{check}Qorqbot cannot see when they are done: wait until they say so, then open the site in your browser "
+                    "and check that the account is signed in. If they cannot use the live view, ask for the password or code "
+                    "instead."}
 
 
 def agent_call(runtime, principal_id, arguments):

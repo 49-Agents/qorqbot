@@ -51,6 +51,15 @@ test('resumeIndex maps the retired activity step to calendar unless activity exi
   assert.equal(plan.resumeIndex(steps, {status: 'completed', step: 'activity'}), 0);
 });
 
+test('resumeIndex maps the retired Todo board step to calendar', () => {
+  assert.equal(plan.resumeIndex(steps, {status: 'in_progress', step: 'attention'}), 5);
+  assert.equal(plan.resumeIndex(steps, {status: 'completed', step: 'attention'}), 0);
+  const tour = fs.readFileSync(path.join(__dirname, '../js/onboarding.js'), 'utf8');
+  assert.doesNotMatch(tour, /\{id: 'attention'|attentionBoard/);
+  // The Focus step points at the feather that returns to the notes.
+  assert.match(tour, /\{id: 'focus'[^\n]*\n\s*body: '[^']*feather beside Browser/);
+});
+
 test('resumeIndex maps the retired connector steps to the browser step', () => {
   const withBrowser = [...steps, {id: 'browser-setup', chapter: 'connect'}];
   for (const step of ['connectors', 'connect-more'])
@@ -169,11 +178,11 @@ const real = [...ctx.allSteps];
 const ids = list => list.map(step => step.id);
 
 test('the tour is one list: no start, consent, terminal or managed-start step', () => {
-  assert.deepEqual(ids(real), ['assistant', 'focus', 'attention', 'calendar', 'journal', 'projects', 'signoffs', 'settings', 'privacy',
+  assert.deepEqual(ids(real), ['assistant', 'focus', 'calendar', 'journal', 'projects', 'signoffs', 'settings', 'privacy',
     'connect-overview', 'browser-setup', 'chat']);
   assert.ok(real.every(step => !step.variant && !step.managed && !step.terminal && !step.launch && !step.consent && !step.managedStart));
   assert.deepEqual(plan.chapters(real).map(c => c.id), ['online', 'workspace', 'projects', 'yours', 'connect']);
-  assert.doesNotMatch(JSON.stringify(real.map(({target, run, setup, ...step}) => step)) + JSON.stringify(real.at(-1).setup.none), /terminal|type <code>|type claude|folder/i);
+  assert.doesNotMatch(JSON.stringify(real.map(({target, run, setup, terminals, ...step}) => step)) + JSON.stringify(real.at(-1).setup.none), /terminal|type <code>|type claude|folder/i);
   for (const gone of ['variantSteps', 'chooseVariant', 'launchPhase', 'managedStartPhase', 'terminalOpenRefusal']) assert.equal(plan[gone], undefined, gone);
 });
 
@@ -242,4 +251,58 @@ test('the last step offers Settings > Agents, steps aside, and comes back to the
   assert.match(aside, /state\.globalTab === 'settings'/, 'when Settings is left');
   assert.match(aside, /helloReadiness\(clients\)\.state !== 'ready'/, 'or when a client becomes ready');
   assert.match(source, /function create\(\) \{\s*stopWatching\(\);/, 'starting the tour any other way stops the watch');
+});
+
+// ---- Terminals mode: the same list with a few honest overrides
+const overridden = ['assistant', 'settings', 'privacy', 'connect-overview', 'chat'];
+const withTerminals = plan.stepsFor(real, true), by = (list, id) => list.find(step => step.id === id);
+const plain = value => JSON.stringify(value, (key, v) => typeof v === 'function' ? undefined : v);
+
+test('managed mode gets the very same list, and Terminals mode the same steps in the same order', () => {
+  assert.equal(plan.stepsFor(real, false), real);
+  assert.deepEqual(ids(withTerminals), ids(real));
+  assert.deepEqual(withTerminals.map(plan.saveId), real.map(plan.saveId));
+  assert.deepEqual(plan.chapters(withTerminals), plan.chapters(real));
+  for (const step of real) if (!overridden.includes(step.id)) assert.equal(by(withTerminals, step.id), step, step.id);
+});
+
+test('every Terminals override exists and says what is true when agents run in terminals', () => {
+  assert.deepEqual(real.filter(step => step.terminals).map(step => step.id), overridden);
+  const assistant = by(withTerminals, 'assistant');
+  assert.match(assistant.body, /You start him in his own Terminal, and you talk to him in Chat\./);
+  assert.doesNotMatch(assistant.body, /Qorqbot runs him/);
+  assert.match(assistant.hint, /Walkthrough, Terminal and Settings/);
+  assert.match(by(withTerminals, 'settings').body, /how agents run/);
+  assert.doesNotMatch(plain(by(withTerminals, 'privacy').instructions) + plain(by(withTerminals, 'connect-overview').instructions), /Codex/);
+  const chat = by(withTerminals, 'chat');
+  assert.doesNotMatch(chat.hint, /starts with your first message/);
+  assert.doesNotMatch(chat.body, /^Type /);
+  assert.match(chat.offline, /Start Ordubashy in his Terminal first, with the terminal icon above Chat/);
+  assert.equal(chat.typed, by(real, 'chat').typed);
+  // Managed texts are untouched by the overrides.
+  assert.match(by(real, 'assistant').body, /Qorqbot runs him for you/);
+  assert.match(by(real, 'chat').hint, /He starts with your first message/);
+});
+
+test('Terminals wording is short, plain, and has no command, path or em dash', () => {
+  for (const id of overridden) {
+    const text = plain(real.find(step => step.id === id).terminals);
+    assert.doesNotMatch(text, /\u2014|type claude|<code>|\/home|~\/|--|tmux/i, id);
+  }
+});
+
+test('the hello is typed and sent only when Ordubashy’s session is live and can receive', () => {
+  const live = {session: {state: 'live', can_send: true}};
+  assert.equal(plan.helloLive(live), true);
+  for (const chat of [null, undefined, {}, {session: {}}, {session: {state: 'live', can_send: false}}, {session: {state: 'offline', can_send: true}},
+    {session: {state: 'live'}}, {session: {state: 'closed', can_send: true, managed: {open: false}}}]) assert.equal(plan.helloLive(chat), false, plain(chat));
+  const hello = source.slice(source.indexOf('async function terminalHello'), source.indexOf('async function prepareStep'));
+  // Not live: only the offline sentence is shown; the typing and `greet` come after that return.
+  assert.ok(hello.indexOf('helloLive(chat)') < hello.indexOf('input.value = HELLO'));
+  assert.match(hello, /if \(!onboardingPlan\.helloLive\(chat\)\) \{ description\.textContent = step\.offline; return; \}/);
+  assert.doesNotMatch(hello, /helloReadiness|agent-clients|options/);
+  // Done sends it only after asking again.
+  assert.match(source, /if \(send && terminalsOn\(\)\) send = onboardingPlan\.helloLive\(await readChat\(/);
+  assert.match(source, /if \(terminalsOn\(\)\) \{ await terminalHello\(step, assistant, token\); return; \}/);
+  assert.match(source, /const terminalsOn = \(\) => typeof agentMode !== 'undefined' && agentMode\.terminals\(\);/);
 });

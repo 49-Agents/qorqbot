@@ -6,7 +6,7 @@ only holds our copy if the copy already existed then. This module answers, for r
 ``agent_cli_install.resolve`` selects our own copy, and what does starting it need?":
 
 * ``executable``: the path of our copy, or the caller's own default (a bare ``claude``/``codex``, resolved on PATH as before).
-* ``session_environment``: PATH and marker variables for a session that is about to be opened. Our folders go first
+* ``session_environment``: PATH and marker variables for a session that is about to be opened (a terminal or a managed one). Our folders go first
   on PATH, the owner's own PATH stays after them. A session that already exists keeps the environment it was created with.
 * ``for_executable``: the arguments and variables a process needs when it starts one given executable, empty unless that
   executable is our copy. Our copy never updates itself, so Claude Code gets its updater variables and Codex gets its
@@ -21,9 +21,11 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import shlex
 
 PROVIDERS = ("claude", "codex")
-# Set in a session for each provider whose selected copy is ours: the path of that copy.
+# Set in a terminal session for each provider whose selected copy is ours: the path of that copy. The agent shell's
+# ``claude`` wrapper (bootstrap/preparation.py) compares it with the file it is about to run.
 MARKERS = {"claude": "QORQBOT_MANAGED_CLAUDE", "codex": "QORQBOT_MANAGED_CODEX"}
 
 
@@ -117,6 +119,21 @@ def search_environment(session_env=None):
     return {**base, "PATH": os.pathsep.join(dict.fromkeys(folders))}
 
 
+def session_path(session_env=None) -> str:
+    """The PATH a managed session's client is started with: the programs a self-contained installation ships
+    (``runtime/native/bin``: git and the browser tool) first, as the launcher puts them before the computer's own on the
+    service's PATH, then the session's and the owner's own search PATH (``search_environment``). Without them the computer's git
+    comes first, and on a Mac without Apple's developer tools that one only opens the system's install prompt."""
+    try:
+        from qorqut import native_paths
+        root = native_paths.folder_root()
+    except Exception:  # noqa: BLE001 - no folder installation
+        root = None
+    shipped = [str(root / "runtime" / "native" / "bin")] if root is not None and (root / "runtime" / "native" / "bin").is_dir() else []
+    rest = [folder for folder in (search_environment(session_env).get("PATH") or "").split(os.pathsep) if folder]
+    return os.pathsep.join(dict.fromkeys([*shipped, *rest]))
+
+
 def locate(provider, session_env=None):
     """The one executable a managed session runs for ``provider``, or None: Qorqbot's own downloaded copy, else the owner's own
     that the installer accepts (``agent_cli_install.resolve``: on the owner's PATH and at least ``MINIMUM_VERSIONS``). The setup
@@ -157,28 +174,39 @@ def _same_file(first, second):
         return False
 
 
-def session_environment(env, environ=None):
+def session_environment(env, environ=None, *, plain=False):
     """The environment for a session about to be opened, from the variables ``env`` already holds for it.
 
     Returns ``env`` unchanged (a copy) when neither CLI is ours, so an owner who uses their own CLIs sees no difference, and
     also when anything fails while looking. Otherwise our folders come before the PATH the session would have had (the one in
-    ``env`` when the owner set it, else the invoking user's own PATH, else this process's) and each selected copy is named in
-    its marker variable."""
+    ``env`` when the owner set it, else the invoking user's own PATH that the terminal broker restores, else this process's)
+    and each selected copy is named in its marker variable; the agent shell's wrapper then keeps it from updating itself.
+
+    ``plain=True`` is for the owner's own shell, which has no wrapper and must not carry updater variables (they would also
+    switch updates off for the owner's own Claude Code). It gets a folder with one small launcher instead, for Claude Code's
+    selected copy, that starts only our copy with its no-update settings; the owner's own CLI is untouched wherever it is on PATH."""
     result = dict(env)
     try:
-        return _session_environment(result, os.environ if environ is None else environ)
+        return _session_environment(result, os.environ if environ is None else environ, plain)
     except Exception:
         return dict(env)
 
 
-def _session_environment(result, source):
+def _session_environment(result, source, plain):
     chosen = {provider: found for provider in PROVIDERS if (found := managed(provider, source)) is not None}
+    if plain:
+        chosen = {provider: found for provider, found in chosen.items() if provider == "claude"}
     if not chosen:
         return result
-    folders = []
-    for found in chosen.values():
-        if found["bin_dir"] not in folders:
-            folders.append(found["bin_dir"])
+    if plain:
+        folders = _launchers(chosen, source)
+        if not folders:
+            return result
+    else:
+        folders = []
+        for found in chosen.values():
+            if found["bin_dir"] not in folders:
+                folders.append(found["bin_dir"])
     base = result.get("PATH")
     if base is None:
         try:
@@ -189,6 +217,40 @@ def _session_environment(result, source):
     if base is None:
         base = source.get("PATH", os.defpath)
     result["PATH"] = os.pathsep.join([*folders, base])
-    for provider, found in chosen.items():
-        result[MARKERS[provider]] = found["path"]
+    if not plain:
+        for provider, found in chosen.items():
+            result[MARKERS[provider]] = found["path"]
     return result
+
+
+def _launchers(chosen, source):
+    """Write (or refresh) ``<folder>/tools/launchers/<provider>``: a program that starts our copy with its no-update settings.
+    Returns the folder as a list, or [] when it cannot be made (the owner's shell then simply has no managed copy)."""
+    root = source.get("QORQUT_FOLDER_ROOT")
+    if not root or not os.path.isabs(root):
+        return []
+    folder = os.path.join(root, "tools", "launchers")
+    try:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        for provider, found in chosen.items():
+            command = ["exec"]
+            if found["env"]:
+                command += ["env", *(f"{name}={shlex.quote(value)}" for name, value in found["env"].items())]
+            command += [shlex.quote(found["path"]), *(shlex.quote(argument) for argument in found["args"]), '"$@"']
+            text = ("#!/bin/sh\n# Qorqbot's own " + provider + ", started so that it does not update itself. Written by Qorqbot.\n"
+                    + " ".join(command) + "\n")
+            path = os.path.join(folder, provider)
+            try:
+                with open(path) as current:
+                    if current.read() == text and os.access(path, os.X_OK):
+                        continue
+            except OSError:
+                pass
+            temporary = f"{path}.{os.getpid()}.tmp"
+            with open(temporary, "w") as output:
+                output.write(text)
+            os.chmod(temporary, 0o755)
+            os.replace(temporary, path)
+    except OSError:
+        return []
+    return [folder]

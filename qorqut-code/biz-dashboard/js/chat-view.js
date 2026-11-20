@@ -373,7 +373,7 @@ function chatViewFit(width, height, displayWidth, displayHeight) {
   return {width: displayWidth * scale, height: displayHeight * scale};
 }
 const chatViewTypedRoute = ref => JSON.stringify([ref.type, ref.business_id || null, ref.business_slug || null, ref.type === 'browser' ? ref.viewer_url : null]);
-const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation, ref.type === 'task' || ref.type === 'table' ? ref : null]);
+const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation, ref.agent_id, ref.tab_id, ref.agent_label, ref.type === 'task' || ref.type === 'table' ? ref : null]);
 function chatViewTypedChip(ref, cls) {
   const chip = document.createElement('span');
   chip.className = `gchat-reference ${cls}`;
@@ -388,12 +388,6 @@ function chatViewTypedChip(ref, cls) {
     dot.setAttribute('aria-hidden', 'true');
     dot.append(Object.assign(document.createElement('span'), {className: 'core'}));
     chip.append(dot);
-  }
-  // Agent: the shared identity glyph (Tiny Spirit) before the current display name; informational, like native Chat's recipients.
-  if (ref.type === 'agent' && ref.available !== false && typeof agentGlyph === 'function') {
-    const icon = document.createElement('span'); icon.className = 'gchat-agent-icon'; icon.setAttribute('aria-hidden', 'true');
-    icon.innerHTML = agentGlyph({...(ref.presentation || {}), agent_id: ref.id, display_name: ref.label, role: ref.role}, 18);
-    chip.append(icon);
   }
   const label = document.createElement('span'); label.textContent = ref.label || '';
   chip.append(label);
@@ -454,6 +448,34 @@ function chatViewBrowserCard(ref, url) {
   }};
 }
 
+// Tab: one tab of an agent's own browser, as a button. Its label is the page's own title, which is untrusted, so it is only ever set as
+// text; nothing in the reference is followed. The click asks the dashboard to show its own live view of this (agent, tab), and does
+// nothing where the dashboard cannot (no entry point, agent not shown here). The entry point reports its own failures.
+const chatViewTabTarget = ref => typeof ref?.agent_id === 'string' && typeof ref.tab_id === 'string'
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.agent_id) && /^[0-9A-F]{32}$/.test(ref.tab_id)
+  ? {agentId: ref.agent_id, tabId: ref.tab_id} : null;
+function chatViewTabButton(ref) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  let target = null;
+  const paint = next => {
+    target = chatViewTabTarget(next);
+    const title = String(next.label ?? '').trim() || 'Untitled page', agent = String(next.agent_label ?? '').trim();
+    button.className = 'gchat-reference gchat-tab-reference';
+    button.title = agent ? `${title} — ${agent}` : title;
+    button.setAttribute('aria-label', `Open tab: ${button.title}`);
+    const icon = document.createElement('span'); icon.className = 'gchat-tab-icon'; icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = CHAT_VIEW_ICONS.browser;
+    const name = document.createElement('span'); name.className = 'gchat-tab-title'; name.textContent = title;
+    button.replaceChildren(icon, name);
+    if (agent) { const owner = document.createElement('span'); owner.className = 'gchat-tab-agent'; owner.textContent = agent; button.append(owner); }
+  };
+  button.onclick = () => { if (target) Promise.resolve(window.agentBrowserOpenTab?.(target.agentId, target.tabId)).catch(() => {}); };
+  paint(ref);
+  // A change of availability or of the ids is not an in-place update: the caller replaces the item (and so shows the placeholder).
+  return {el: button, update(next) { if (next.available === false || !chatViewTabTarget(next)) return false; paint(next); return true; },
+    dispose() { button.onclick = null; button.remove(); }};
+}
+
 function chatViewTypedMount(ref, host, options, entryKey) {
   const unavailable = () => {
     const item = {el: chatViewTypedChip({...ref, label: 'Unavailable reference'}, 'gchat-reference-unavailable'), dispose() { item.el.remove(); }};
@@ -479,11 +501,6 @@ function chatViewTypedMount(ref, host, options, entryKey) {
     update(ref);
     return {el:button,update(next){update(next);return true;},dispose(){button.remove();}};
   }
-  if (ref.type === 'agent') {
-    const item = {el: chatViewTypedChip(ref, 'gchat-agent-reference'), dispose() { item.el.remove(); }};
-    item.update = next => next.available !== false && (item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-agent-reference').childNodes), true);
-    return item;
-  }
   if (ref.type === 'delta') {
     const el = document.createElement('button'); el.type = 'button'; el.className = 'gchat-reference';
     el.textContent = ref.label || 'Change'; el.onclick = () => window.overseerOpenDelta?.(ref.id);
@@ -493,6 +510,7 @@ function chatViewTypedMount(ref, host, options, entryKey) {
     const url = chatViewViewerUrl(ref.viewer_url);
     return url ? chatViewBrowserCard(ref, url) : unavailable();
   }
+  if (ref.type === 'tab') return chatViewTabTarget(ref) ? chatViewTabButton(ref) : unavailable();
   if (ref.type === 'signoff' && options.mountSignoff) {
     const el = document.createElement('div');
     el.className = 'gchat-signoff-reference';
@@ -1050,7 +1068,8 @@ function mountChatView(host, options = {}) {
     node._typedHost?.remove(); node._typedHost = null;
   }
   function paintTyped(node, entry) {
-    const refs = entry.referenceOnly || (entry.speaker === 'agent' && entry.partial !== true) ? (entry.typedReferences || []) : [];
+    // Agent references are retired: one from an older message or server is not drawn.
+    const refs = (entry.referenceOnly || (entry.speaker === 'agent' && entry.partial !== true) ? (entry.typedReferences || []) : []).filter(ref => ref.type !== 'agent');
     if (!refs.length) { if (node._typedHost) disposeTyped(node); return; }
     if (!node._typedHost) {
       node._typedHost = document.createElement('div'); node._typedHost.className = 'gchat-typed';
@@ -1073,11 +1092,11 @@ function mountChatView(host, options = {}) {
       }
       next.set(key, item);
       // Only a resolved Task is a flat attachment row; every other typed reference keeps its own component.
-      sequence.push({key, view: item, kind: ref.type === 'agent' ? 'agent' : (['table', 'task'].includes(ref.type) && available ? 'attachment' : null)});
+      sequence.push({key, view: item, kind: ['table', 'task'].includes(ref.type) && available ? 'attachment' : null});
     }
     for (const [key, item] of node._typed) if (!next.has(key)) item.dispose();
     node._typed = next;
-    // Consecutive agents and attachments each share a group while retaining canonical reference order.
+    // Consecutive attachments share a group while retaining canonical reference order.
     const slots = [];
     let run = null;
     for (const mounted of sequence) {
@@ -1090,8 +1109,8 @@ function mountChatView(host, options = {}) {
       const key = JSON.stringify([slot.kind, slot.items[0].key]);
       let container = node._typedGroups.get(key);
       if (!container) {
-        container = document.createElement('div'); container.className = slot.kind === 'agent' ? 'gchat-agent-references' : 'gchat-attachment';
-        container.setAttribute('role', 'group'); container.setAttribute('aria-label', slot.kind === 'agent' ? 'Agent references' : 'Table and record references');
+        container = document.createElement('div'); container.className = 'gchat-attachment';
+        container.setAttribute('role', 'group'); container.setAttribute('aria-label', 'Table and record references');
       }
       groups.set(key, container);
       let rowCursor = container.firstChild;

@@ -43,8 +43,10 @@
 <link rel="stylesheet" href="/css/global.css">
 <link rel="stylesheet" href="/css/chat-view.css">
 <link rel="stylesheet" href="/css/workflow-panel.css">
+<link rel="stylesheet" href="/css/xterm.css">
 <link rel="stylesheet" href="/css/global-chat.css">
 <link rel="stylesheet" href="/css/managed-chat.css">
+<link rel="stylesheet" href="/css/legacy-terminals.css">
 <link rel="stylesheet" href="/css/global-progress.css">
 <link rel="stylesheet" href="/css/agent-fleet.css">
 <link rel="stylesheet" href="/css/global-calendar.css">
@@ -59,6 +61,7 @@
 <link rel="stylesheet" href="/css/onboarding.css">
 <link rel="stylesheet" href="/css/account-gate.css">
 <link rel="stylesheet" href="/css/agent-clients.css">
+<link rel="stylesheet" href="/css/agent-mode.css">
 <link rel="stylesheet" href="/css/agent-options.css">
 <link rel="stylesheet" href="/css/connectors.css">
 <link rel="stylesheet" href="/css/theme-light.css">
@@ -79,6 +82,8 @@ document.body.classList.add(new URLSearchParams(location.search).has('agent-pane
 
 <script src="/js/relative-time.js"></script>
 <script src="/js/core.js"></script>
+<script src="/js/agent-mode.js"></script>
+<script src="/js/xterm.js"></script>
 <script src="/js/testing-mode.js"></script>
 <script src="/js/safe-links.js"></script>
 <script src="/js/chat-view.js"></script>
@@ -114,6 +119,7 @@ document.body.classList.add(new URLSearchParams(location.search).has('agent-pane
 <script src="/js/tags.js"></script>
 <script src="/js/task-state.js"></script>
 <script src="/js/task-move.js"></script>
+<script src="/js/record-move.js"></script>
 <script src="/js/overview-drawer.js"></script>
 <script src="/js/tasks.js"></script>
 <script src="/js/business-tasks.js"></script>
@@ -131,8 +137,6 @@ document.body.classList.add(new URLSearchParams(location.search).has('agent-pane
 <script src="/js/thread-pins.js"></script>
 <script src="/js/focus-text.js"></script>
 <script src="/js/agent-focus.js"></script>
-<script src="/js/attention-board.js"></script>
-<script src="/js/attention-agents.js"></script>
 <script src="/js/agent-viewbox.js"></script>
 <script src="/js/agent-browser-live.js"></script>
 <script src="/js/agent-browser.js"></script>
@@ -145,8 +149,12 @@ document.body.classList.add(new URLSearchParams(location.search).has('agent-pane
 <script src="/js/workflow-panel.js"></script>
 <script src="/js/connectors.js"></script>
 <script src="/js/agent-runtime.js"></script>
+<script src="/js/agent-start.js"></script>
+<script src="/js/agent-trust-row.js"></script>
 <script src="/js/voice-input.js"></script>
 <script src="/js/slash-commands.js"></script>
+<script src="/js/terminal.js"></script>
+<script src="/js/agent-terminal-view.js"></script>
 <script src="/js/global-chat.js"></script>
 <script src="/js/agent-nav-timeline.js"></script>
 <script src="/js/global-agents.js"></script>

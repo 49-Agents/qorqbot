@@ -1081,6 +1081,9 @@ class RealProcessTests(RealProcessCase):
         other, other_client = self.host_with_client()
         self.wait_for_name(other_client)
         stale = str(int(ticks(host.pid)) + 1)
+        # The client starts a few clock ticks after its host, so "the host's start plus one" can be the client's real start:
+        # a recycled client is a start time that differs from the client's own.
+        stale_client = str(int(ticks(client)) + 1)
         refusals = {
             "plain claude -p that the service names": dict(target=pid, host=host.pid, record={}),
             "marker names another process": dict(target=pid, host=host.pid, record={}, service_client=client),
@@ -1089,7 +1092,7 @@ class RealProcessTests(RealProcessCase):
             "recycled host in the record": dict(target=client, host=host.pid, record={"host_ticks": stale}),
             "record names another host": dict(target=client, host=host.pid, record={"host_pid": other.pid, "host_ticks": ticks(other.pid)}),
             "recycled host in the identity": dict(target=client, host=host.pid, record={}, host_ticks=stale),
-            "recycled client in the identity": dict(target=client, host=host.pid, record={}, client_ticks=stale),
+            "recycled client in the identity": dict(target=client, host=host.pid, record={}, client_ticks=stale_client),
             "another agent": dict(target=client, host=host.pid, record={"agent_id": "someone-else"}),
             "host pid is the client": dict(target=client, host=client, record={"host_pid": client, "host_ticks": ticks(client)}),
         }

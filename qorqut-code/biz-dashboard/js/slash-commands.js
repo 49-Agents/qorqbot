@@ -48,7 +48,7 @@ const slashCommands = (() => {
       active = Math.min(active, shown.length - 1);
       menu.innerHTML = shown.map((item, i) => `<div class="slash-item" role="option" id="${menu.id}-${i}" aria-selected="${i === active}" data-index="${i}">
         <span class="slash-name">${esc(item.name)}</span><span class="slash-desc">${esc(item.description)}</span>
-        ${item.where === 'unavailable' ? '<span class="slash-tag" title="Not available when Qorqbot runs the agent">Not available</span>' : item.source !== 'built-in' ? `<span class="slash-tag">${item.source === 'skill' ? 'Skill' : 'Yours'}</span>` : ''}</div>`).join('');
+        ${item.where === 'unavailable' ? '<span class="slash-tag" title="Not available when Qorqbot runs the agent">Not available</span>' : item.where === 'terminal' ? '<span class="slash-tag" title="Opens a menu you finish in the agent’s Terminal">Terminal</span>' : item.source !== 'built-in' ? `<span class="slash-tag">${item.source === 'skill' ? 'Skill' : 'Yours'}</span>` : ''}</div>`).join('');
       menu.hidden = false;
       input.setAttribute('aria-expanded', 'true'); input.setAttribute('aria-activedescendant', `${menu.id}-${active}`);
       menu.querySelector('[aria-selected="true"]')?.scrollIntoView({block: 'nearest'});

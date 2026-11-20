@@ -1,6 +1,6 @@
 # Tool-call latency investigation and changes — 2026-11-10
 
-> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](../MANAGED-RUNTIME.md).
 
 Tool latency comes from CPU contention, repeated configuration/instruction work,
 long database transactions, and background polling. The underlying domain

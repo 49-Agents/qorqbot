@@ -3,7 +3,11 @@
 The owner dashboard for the Qorqut agent platform. It is a component of the
 Qorqut host, not an independent production server: the host service
 (`qorqut.service`, from `qorqut-code/app`) serves these static assets and the
-authenticated HTTP MCP endpoint from one process.
+authenticated HTTP MCP endpoint from one process. Agents run as managed
+sessions by default. Terminals are a legacy option for the whole installation,
+chosen in Settings, and are offered only where `tmux` is installed; the dashboard
+then shows each agent's Terminal beside its Chat, and the owner's own Workspace
+shell appears in the agents menu.
 `start.sh` launches that service; `server.py` is only a thin entry point that
 forwards its arguments to it. There is no business-chat subprocess, CLI domain
 bridge, per-agent MCP server or arbitrary command runner.
@@ -24,6 +28,7 @@ Nothing in this component installs, deploys or restarts a service.
 | `index.html`, `file-viewer.html`, `tables-view.html` | Entry pages: the shell, the standalone file reader and the read-only table page. |
 | `js/`, `css/`, `app.css` | Static modules and styles. There is no frontend build step. |
 | `server.py` | Thin entry point: imports the installed host's `qorqut.service.main` and forwards its arguments. It never looks for a sibling host checkout and holds no service, configuration or write logic. |
+| `pty_broker.py` | Terminals mode only: the tmux shells behind the agents' Terminal view and the owner's Workspace shell (needs `tmux` on the computer; unused in managed mode). |
 | `start.sh`, `.env.dashboard.example` | Launcher and its machine config (see [Setup and lifecycle](#setup-and-lifecycle)). |
 | `docs/` | Component contracts (see [Documents](#documents)). |
 | `tests/` | Node browser fixtures and Python launcher/broker tests. |
@@ -86,7 +91,8 @@ forwards them as `--workspace`, `--instance-root` and `--component NAME=PATH` to
 ```
 
 Dashboard state lives under `BIZ_DASH_STATE`, else
-`.state` beside `start.sh`. The default private origin is
+`.state` beside `start.sh`. Terminals mode keeps its tmux configuration under
+`BIZ_DASH_STATE`, else `$XDG_STATE_HOME/qorqut/terminals`. The default private origin is
 `http://127.0.0.1:1049`; a host behind another address lists explicit origins in
 `BIZ_SERVICE_ORIGINS` (for example `http://qorqut.example:1071`).
 
@@ -101,14 +107,11 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
 
 ## Shell and navigation
 
-- **Todo.** The pane shows compact focus and intent rows for active Ordubashy and
-  permanent workers with nonempty Todo boards. Completed items still on a board
-  count as membership; a focus alone does not. Selecting an agent loads its full
-  Todo without changing the chat. Other agents use one summary row per refresh,
-  with at most three concurrent reads; the selected list retains pagination,
-  scoped task navigation and the owner filter. Empty boards disappear on refresh,
-  while failed reads are labelled. Check: `node --test tests/attention-agents.test.js`
-  (requires Playwright Chromium).
+- **No Todo tab.** The agent workspace has no Todo board for any agent; the owner keeps
+  todos as "-" lines in the Focus notes (the feather left of Browser in Focus returns to them). A saved
+  or linked `attentionBoard` view opens Focus, and task links open the task record in
+  Focus. The server's todo operations are unchanged for agents.
+  Check: `node --test tests/todo-tab-removed.test.js tests/task-focus-routing.test.js`.
 - **Chat focus.** The top strip of the chat input, above a thin line, shows Ordubashy's
   icon and recorded focus; input and focus are one box. Click the strip to expand or
   collapse; the button also works with Enter and Space. Expanded, it shows his intent

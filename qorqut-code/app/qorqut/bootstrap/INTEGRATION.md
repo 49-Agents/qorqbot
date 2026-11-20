@@ -145,7 +145,7 @@ restricted permission profile; legacy personal `sandbox_mode` settings override
 such profiles and must be reconciled by the owner. Do not disable the sandbox.
 
 Qorqbot never edits the CLIs' own trust files (`~/.claude.json`, `~/.codex/config.toml`) and asks the owner for no
-folder consent: an agent runs headless as a managed session, so no trust prompt can appear. The Claude host passes the
+folder consent in managed mode: an agent runs headless as a managed session, so no trust prompt can appear. In Terminals mode the folder-trust consent in Settings applies. The Claude host passes the
 prepared launch settings with `--settings`; the Codex driver asks `hooks/list` for the current hash of each prepared hook
 and trusts exactly those hashes for that session through launch options.
 
@@ -351,7 +351,7 @@ its private outbox pending for the next connection.
 
 Generated agent-local Codex configuration explicitly sets
 `shell_environment_policy.inherit = "all"` and `ignore_default_excludes = true`
-so shell tools retain the environment the managed session was started with, including
+so shell tools retain the environment the session (or terminal) was started with, including
 credentials. No values are copied into generated files. Explicit user/managed
 filters are not cleared. This changes neither filesystem nor MCP authorization.
 The service's environment must already contain a variable for Codex to inherit it;
@@ -498,7 +498,7 @@ allow 240 seconds; Claude's startup setting is local to the prepared agent folde
 Exhausting the budget returns an error but keeps the bridge alive and repairs its
 connection in the background. Background discovery gets 60 seconds per attempt.
 A background repair cannot complete a request that already returned an error.
-It does not restart the managed session or the model.
+It does not restart the session, the terminal or the model.
 
 Discovery and known read-only calls may be replayed. A call rejected for an
 expired session, or one that failed before connecting, can be sent after recovery.

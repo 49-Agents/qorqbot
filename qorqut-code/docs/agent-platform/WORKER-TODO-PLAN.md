@@ -1,6 +1,6 @@
 # Worker Todo
 
-> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](../MANAGED-RUNTIME.md).
 
 Implemented on `codex/worker-todo`, based on `b91d455`. The existing Todo service,
 state tables, native nudge loop and dashboard renderer now serve permanent workers.

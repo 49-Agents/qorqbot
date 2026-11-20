@@ -640,6 +640,9 @@ function ntCtxMenu(x, y, id) {
     { label: "Rename", icon: ICO_PENCIL, onClick: () => ntRenameFlow(n) },
     { label: n.pinned ? "Unpin" : "Pin", icon: n.pinned ? NT_ICO_PINOFF : ICO_PIN, onClick: () => ntTogglePin(n) },
     { label: "Add to Context", icon: ICO_UPLOAD, onClick: () => ntDoUpload(n.id) },
+    ...(ntBusinessScope() && typeof recordMoveOpen === 'function' ? [{ label: "Move to project…", icon: RECORD_MOVE_ICON,
+      onClick: () => recordMoveOpen({kind: 'note', record: {id: n.id, title: n.title}, sourceSlug: ntScope(), sourceBusinessId: ntProjectId(ntScope()),
+        onMoved: async () => { await ntFetch(); if (ntSel === n.id) ntSetSel(null); ntRender(); }}) }] : []),
     { label: "Archive", icon: aicon('archive','currentColor',16), onClick: () => ntDeleteFlow(n.id) },
   ]);
 }

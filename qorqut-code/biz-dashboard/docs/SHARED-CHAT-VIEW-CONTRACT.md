@@ -84,7 +84,7 @@ hidden, disabled or `inputDisabled` composer.
 ## Native Chat lifecycle
 
 `mountAgentView` lazily mounts Chat for the current agent and retains it and its stream
-until agent/page navigation or disposal. There is no cache across agents and no terminal view:
+until agent/page navigation or disposal. There is no cache across agents and, in managed mode, no terminal view:
 every agent is a managed session, reached through Chat alone. Hidden Chat must not acknowledge
 replies. Refresh still fetches Chat state.
 

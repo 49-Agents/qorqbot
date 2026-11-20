@@ -1,0 +1,55 @@
+/* Legacy Terminals mode: the styles only a terminal needs. Nothing here applies while agents run as managed sessions, because
+   the elements below are only built in Terminals mode. Load this after the other stylesheets; it uses today's shared names
+   (.chat.agentchat, --ag-chat-fr, .global-workspace-links) and the dashboard's existing tokens. */
+
+/* The Terminal view inside an agent's panel (js/global-chat.js, js/terminal.js): its header, the frame and the mirror. */
+.gchat-top { position:absolute; top:4px; left:4px; z-index:2; display:flex; align-items:center; gap:8px; max-width:calc(100% - 8px); padding:5px 9px; border:0; border-radius:6px; background:color-mix(in srgb, var(--bg) 68%, transparent); backdrop-filter:blur(8px); pointer-events:none; font-size:12px; }
+.gchat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; letter-spacing:-.011em; }
+.gchat-status { font-size:11px; color:var(--fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gchat-status[data-state="error"] { color:var(--danger); }
+.gchat-status[data-state="ready"] { color:var(--fg); }
+.gchat-terminal { position:relative; box-sizing:border-box; padding-top:var(--ag-ctl, 30px); display:flex; flex-direction:column; flex:1; min-height:0; height:100%; }
+.gchat-terminal-host { flex:1; min-height:0; display:flex; flex-direction:column; }
+.gchat-terminal > .gchat-top { max-width:calc(100% - 2 * var(--ag-ctl, 30px) - 20px); }
+/* The agent menu's mark sits fixed at the top left, over the terminal's corner; the terminal's name starts after it. */
+.global-agents.agent-nav-overlay-mode .gchat-terminal > .gchat-top { left:48px; max-width:calc(100% - 2 * var(--ag-ctl, 30px) - 64px); }
+
+/* The Chat/Terminal toggle: ordinary .ttab controls; the selected view takes the tab indicator's fill. */
+.gchat-view-toggle { display:inline-flex; flex:none; gap:4px; }
+.gchat-view-toggle[hidden], .gchat-session-switch[hidden] { display:none; }
+.gchat-view-toggle .ttab[aria-pressed="true"] { color:var(--fg); background:var(--nav-selected); opacity:1; cursor:default; }
+/* Session controls stay over their own surface, outside chat scroll and terminal output. */
+.gchat-session-switch { display:flex; align-items:center; gap:4px; position:absolute; top:0; right:0; z-index:3; max-width:calc(100% - 8px); overflow-x:auto; scrollbar-width:thin; }
+/* One control size for the toggle and the agent pane's tabs (agentpane.css, agent-workspace.css size the pane's own). */
+.gchat-session-switch .ttab { position:relative; flex:0 0 var(--ag-ctl); width:var(--ag-ctl); height:var(--ag-ctl); }
+.gchat-session-switch .ttab svg { width:var(--ag-ctl-icon); height:var(--ag-ctl-icon); }
+.agent-workspace-app .gchat-session-switch .ttab { min-width:var(--ag-ctl); padding:var(--ag-ctl-padding); border-radius:var(--ag-ctl-radius); }
+.agent-workspace-app .gchat-view-toggle .ttab[aria-pressed="true"] { border-radius:var(--ag-ctl-radius); background:var(--nav-selected); }
+
+/* The terminal card and its host: a rounded card in the agent's column. The inner padding on the host shrinks its
+   clientWidth/Height, so the measured-cell fit math stays exact (cols/rows follow the reduced area). */
+.termpane { position:relative; flex:1; min-height:0; display:flex; flex-direction:column; background:#0b0e14;
+  min-width:0; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.termhost { flex:1; min-width:0; min-height:0; width:100%; box-sizing:border-box; padding:12px 20px 12px 12px; overflow:hidden; }
+
+/* A registered agent's terminal states, above the mirror: which conversation it shows and the owner's next step. */
+.termattach { display:flex; align-items:center; gap:8px; flex:none; min-width:0; padding:6px 12px; border-bottom:1px solid var(--line); background:var(--wash); color:var(--fg-2); font-size:12px; line-height:1.35; }
+.termattach::before { content:""; flex:none; width:6px; height:6px; border-radius:50%; background:var(--fg-3, var(--fg-2)); }
+.termattach[data-state="attached"]::before { background:var(--ok); }
+.termattach[data-state="mismatch"]::before, .termattach[data-state="diagnostic"]::before { background:var(--warn); }
+.termattach[data-state="reconnecting"]::before { background:transparent; box-shadow:inset 0 0 0 1.5px var(--fg-2); }
+.termattach-text { flex:1; min-width:0; overflow-wrap:anywhere; }
+.termattach-actions { display:flex; flex:none; flex-wrap:wrap; gap:6px; }
+.termattach-actions:empty { display:none; }
+.termattach-actions button { min-height:24px; padding:2px 8px; font-size:12px; border:1px solid var(--line); border-radius:6px; background:transparent; color:var(--fg); }
+.termattach-actions button:disabled { opacity:.55; }
+@media (max-width:600px) { .termattach { flex-wrap:wrap; } }
+
+/* The owner's Workspace shell entry in the agents menu (menu entry "Terminal"), beside Walkthrough and Settings. */
+.global-agents .global-workspace-terminal svg { width:20px; height:20px; flex:none; }
+.global-agents .global-workspace-terminal .nm { gap:6px; }
+.agent-workspace-app .global-agents .global-workspace-terminal svg { width:24px; height:24px; }
+
+/* Light theme: the selected Chat/Terminal fill is hard-coded for dark above. */
+:root[data-theme="light"] .gchat-view-toggle .ttab[aria-pressed="true"],
+:root[data-theme="light"] .agent-workspace-app .gchat-view-toggle .ttab[aria-pressed="true"] { background:var(--nav-selected); }

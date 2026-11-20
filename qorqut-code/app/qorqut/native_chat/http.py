@@ -22,6 +22,12 @@ Every agent runs as a headless session (see ``managed_runtime``). All routes are
 
 ``GET .../commands`` marks the commands a terminal alone can show ``unavailable``, and the ``changed`` stream event carries
 ``managed`` (the session summary).
+
+When the installation runs its agents in terminals (``managed_runtime.mode``, asked per request) the same routes answer for a
+terminal agent: the state has ``execution: "terminal"`` and no ``managed``, a message needs the pin of the live session,
+``interrupt``/``answer``/``close`` are refused ``not_managed``, ``GET .../commands`` marks nothing unavailable, and
+``GET .../attachment`` serves the selected-conversation attachment of the agent's terminal (a managed installation does not
+register it).
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ import anyio
 from starlette.responses import StreamingResponse
 
 from qorqut_operations.contracts import DomainError, OperationResult
+from qorqut.managed_runtime import mode
 from qorqut.transport.http import check_body_length, checked_fields, read_json
 from qorqut.transport.results import response
 
@@ -104,6 +111,10 @@ async def route(runtime, request, principal_id, parts, request_id):
                 raise DomainError("validation_error", "before is required")
             return ok(await run(partial(chat.history, principal_id, agent_id, before=before,
                                         limit=_integer(request, "limit", 50, minimum=1), **_conversation(request))))
+        if tail == ["attachment"]:
+            if not mode.is_terminal(runtime.paths):
+                raise DomainError("not_found", "Chat endpoint is not registered")
+            return ok(await run(partial(chat.attachment_state, principal_id, agent_id)))
         if tail == ["commands"]:
             # Owner-only like every Chat read; the catalog reads the agent's folder and the owner's own commands.
             await run(partial(chat.check_events, principal_id, agent_id))
@@ -112,7 +123,8 @@ async def route(runtime, request, principal_id, parts, request_id):
             from .commands import catalog
             client = request.query_params.get("client") or ""
             workspace = agent_workspace(runtime.paths, agent_id, None)
-            return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace)))
+            return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace,
+                                        managed=not mode.is_terminal(runtime.paths))))
         if tail == ["events"]:
             return await _events(chat, request, principal_id, agent_id)
         if tail == ["options"]:

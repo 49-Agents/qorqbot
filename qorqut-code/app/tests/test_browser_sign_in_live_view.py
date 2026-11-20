@@ -128,6 +128,8 @@ class LiveViewSignInTest(unittest.TestCase):
         self.assertEqual(self.opened, [(PORTS[SHARED_ID], "https://slack.com")])
         self.assertEqual(reply["agent"], "Atlas")
         self.assertEqual((self.sites(SHARED_ID), self.sites(ATLAS)), (["slack.com"], []))
+        self.assertIn("is open in the Shared browser.", reply["next"])
+        self.assertNotIn("Atlas's browser", reply["next"])
 
     def test_someone_other_than_ordubashy_is_refused_and_nothing_opens(self):
         for caller in (ATLAS, "stranger"):

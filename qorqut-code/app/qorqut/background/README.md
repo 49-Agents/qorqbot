@@ -1,6 +1,6 @@
 # Bounded Background Work
 
-Agents run as managed sessions. These programs
+Agents run as managed sessions (or, in Terminals mode, in terminals). These programs
 never launch, wake, schedule, or impersonate a business agent. They run fixed,
 bounded application work through the shared backend.
 

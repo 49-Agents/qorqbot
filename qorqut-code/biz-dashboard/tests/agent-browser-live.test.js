@@ -276,6 +276,7 @@ async function launcher(browser, live) {
     window.esc = value => String(value ?? '');
     window.coreData = value => value;
     window.agfocusDesktopTab = () => {};
+    window.T_VIEW_ICON = {notes: '<svg data-icon="journal-feather"></svg>'};
     window.agpadWorkspaceViewsSync = () => {};
     window.requested = [];
     window.agpadRequestView = (_pane, view) => window.requested.push(view);
@@ -311,5 +312,34 @@ test('the Focus launcher opens Browser for an agent with a built-in browser and 
     await none.waitForFunction(() => document.querySelector('[data-focus-surface="browser"]').title.includes('no configured browser'));
     await none.locator('[data-focus-surface="browser"]').click({force: true});
     assert.deepEqual(await none.evaluate(() => window.requested), []);
+  } finally { await browser.close(); }
+});
+
+test('the feather left of Browser carries the Journal icon and returns to the notes', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await launcher(browser, 'built-in');
+    assert.deepEqual(await page.evaluate(() => {
+      const chips = [...document.querySelectorAll('.agfocus-fixed > button')];
+      const notes = chips[0];
+      return [notes.hasAttribute('data-focus-notes'), chips[1].dataset.focusSurface, notes.getAttribute('aria-label'), notes.querySelector('svg').dataset.icon, notes.hasAttribute('aria-disabled')];
+    }), [true, 'browser', 'Notes', 'journal-feather', false]);
+    await page.evaluate(() => {
+      window.steps = [];
+      pane.surface = {kind: 'browser'};
+      let record = true;
+      pane.focusWorkspace = {isOpen: () => record, close: async () => { steps.push('record'); record = false; }};
+      window.agpadSurfaceClose = async p => { steps.push('surface'); p.surface = null; };
+      window.focusText = {focus: p => steps.push(p === pane ? 'notes' : 'other')};
+    });
+    await page.locator('[data-focus-notes]').click();
+    await page.waitForFunction(() => steps.includes('notes'));
+    assert.deepEqual(await page.evaluate(() => steps), ['surface', 'record', 'notes']);
+    // An open item that refuses to close keeps the board; the notes do not take the caret.
+    await page.evaluate(() => { steps.length = 0; pane.surface = {kind: 'expansion'}; window.agpadSurfaceClose = async () => { steps.push('refused'); return false; }; });
+    await page.locator('[data-focus-notes]').click();
+    await page.waitForFunction(() => steps.includes('refused'));
+    assert.deepEqual(await page.evaluate(() => steps), ['refused']);
+    assert.deepEqual(await page.evaluate(() => window.requested), []);
   } finally { await browser.close(); }
 });

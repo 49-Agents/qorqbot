@@ -1,6 +1,6 @@
 # Terminal paste verification and recovery
 
-> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](../MANAGED-RUNTIME.md).
 
 A strict native input can reach the terminal composer before the CLI redraws it.
 The transport observes the paste after 300 ms, then permits up to nine further
