@@ -30,7 +30,11 @@
 /* Open with nothing to show (no intent, no other agents): no empty band under the focus line. */
 .wfpanel-expanded:not(:has(> :not([hidden]))) { display:none; }
 /* With text below it, the focus line gives up its lower padding: the working dots and the arrow already hang below the text. */
-.wfpanel-context-row:has(+ .wfpanel-expanded:not([hidden]) > :not([hidden])) { padding-bottom:2px; }
+.wfpanel-context-row:has(~ .wfpanel-expanded:not([hidden]) > :not([hidden])), .wfpanel-context-row:has(+ .mchat-activity:not([hidden])) { padding-bottom:2px; }
+/* The chat's activity line (what the agent is doing, Stop) takes the intent's place: its dots sit under the avatar, its text under the focus text. */
+.wfpanel > .mchat-activity { flex:none; gap:8px; padding:0 16px 8px; cursor:default; }
+.wfpanel > .mchat-activity .mchat-dots { flex:none; width:20px; justify-content:center; }
+.wfpanel > .mchat-activity .mchat-stop { height:20px; min-height:0; padding:0 9px; font-weight:400; }
 .wfpanel .gchat-focus-intent { margin:0; padding:0 0 8px 28px; color:var(--fg-2); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
 .wfpanel-agents { padding:0 0 6px; }
 .wfpanel-agent { display:flex; align-items:flex-start; gap:8px; min-width:0; min-height:28px; padding:3px 0; font-size:12px; line-height:1.5; }
@@ -44,7 +48,7 @@
   /* The trimmed text box runs from the capitals' top to the baseline; the padding gives back the trimmed space. */
   .wfpanel .gchat-focus-label, .wfpanel-agent-summary { text-box:trim-both cap alphabetic; }
   .wfpanel-context-row { padding:calc(12px + (21px - 1cap) / 2) 16px calc(10px + (21px - 1cap) / 2); }
-  .wfpanel-context-row:has(+ .wfpanel-expanded:not([hidden]) > :not([hidden])) { padding-bottom:calc(2px + (21px - 1cap) / 2); }
+  .wfpanel-context-row:has(~ .wfpanel-expanded:not([hidden]) > :not([hidden])), .wfpanel-context-row:has(+ .mchat-activity:not([hidden])) { padding-bottom:calc(2px + (21px - 1cap) / 2); }
   .wfpanel .wfpanel-focus-icon { height:1cap; }
   .wfpanel-context-row > .gchat-working-tag, .wfpanel button.wfpanel-head { margin-top:calc((1cap - 24px) / 2); }
   .wfpanel-agent { min-height:calc(28px - (1lh - 1cap)); padding:calc(3px + (1lh - 1cap) / 2) 0; }

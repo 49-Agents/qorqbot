@@ -116,23 +116,21 @@ test('canSend: a terminal agent takes a message only when live and the conversat
 });
 
 // ---- the managed widgets are not built for a terminal agent
-test('no Stop block, no question cards and no End session for a terminal agent', () => {
+test('no Stop block and no question cards for a terminal agent', () => {
   const sync = between('  const runtimeSend =', '  // The session line says what the empty');
   const run = session => {
-    const calls = {bars: 0, ends: []};
+    const calls = {bars: 0};
     const fakeRuntime = {createBar: () => { calls.bars++; return {el: {}, update() {}, dispose() {}}; }};
     const sessionLine = {parentNode: {insertBefore() {}}};
-    new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'endSession', 'agentTerminalView', 'session',
+    new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'contextStatus', 'agentTerminalView', 'session',
       `let managedBar = null; let finished = false; ${sync}; syncManaged();`)(
-      fakeRuntime, 'Ada', sessionLine, () => null, () => {}, () => {}, () => {}, [], r => r, async () => ({}), '/chat', {update: value => calls.ends.push(value)}, terminalView, session);
+      fakeRuntime, 'Ada', sessionLine, () => null, () => {}, () => {}, () => {}, [], r => r, async () => ({}), '/chat', null, terminalView, session);
     return calls;
   };
   const t = run(terminal());
   assert.equal(t.bars, 0);
-  assert.deepEqual(t.ends, [null], 'End session is told there is no session to end');
   const m = run(managed());
   assert.equal(m.bars, 1);
-  assert.equal(m.ends[0].execution, undefined);
 });
 
 // ---- refusals
