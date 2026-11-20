@@ -137,6 +137,7 @@ ARGUMENT_ALIASES = {
     "fastmail_messages_search": {"query": "q", "text": "q"},
     "fastmail_reply": {"message_id": "reply_message_id"},
     "tables_rows_list": {"search": "query", "q": "query"},
+    "conversation_history_search": {"q": "query", "search": "query"},
 }
 # Transport fields that are never an operation's own argument, so never a name to rename.
 TRANSPORT_ARGUMENTS = frozenset({"response_detail", "tool_names", "sections", "if_read_token"})

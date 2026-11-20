@@ -137,8 +137,10 @@ class _Scan:
 class RecordIterator:
     """Iterator over a receipt's records that owns its descriptors; use it as a context manager or close() it."""
 
-    def __init__(self, stack: ExitStack, payload_fd: int, receipt: CaptureReceipt, offset: int):
+    def __init__(self, stack: ExitStack, payload_fd: int, receipt: CaptureReceipt, offset: int, end: int | None = None):
         self._stack, self._fd, self._receipt = stack, payload_fd, receipt
+        # Where reading stops: the receipt's committed boundary, or an earlier ``end`` the caller named.
+        self._end = receipt.length if end is None else min(end, receipt.length)
         self._scanner = _providers.FrameScanner(offset)
         self._position = offset
         self._pending: list[RawRecord] = []
@@ -169,7 +171,7 @@ class RecordIterator:
         while not self._pending:
             if self._finished:
                 raise StopIteration
-            length = self._receipt.length
+            length = self._end
             if self._position >= length:
                 start, size = self._scanner.pending()
                 if size:
@@ -307,14 +309,19 @@ class TranscriptArchive:
         end = offset + len(data)
         return RawRange(committed.receipt_id, data, offset, end if end < committed.length else None, committed.length)
 
-    def iter_records(self, receipt: CaptureReceipt | str, *, offset: int = 0) -> RecordIterator:
+    def iter_records(self, receipt: CaptureReceipt | str, *, offset: int = 0, end: int | None = None) -> RecordIterator:
         """Raw record locators (parsed JSON where valid, malformed/partial evidence otherwise).
 
         ``offset`` must be a record boundary (0 or just after a newline) inside the receipt. The
-        receipt's prefix is verified before the first record is returned.
+        receipt's prefix is verified before the first record is returned. ``end``, when given, is
+        where reading stops: no byte at or after it is read or parsed, so a reader that wants one
+        record names that record's end instead of paying for the chunk that follows it. An ``end``
+        inside a record leaves that record ``partial``.
         """
         if type(offset) is not int or offset < 0:
             raise ValueError("offset must be a nonnegative integer")
+        if end is not None and (type(end) is not int or end < offset):
+            raise ValueError("end must be an integer at or after offset")
         committed = self._resolve(receipt)
         if offset > committed.length:
             raise ValueError("offset is beyond the receipt's committed boundary")
@@ -326,7 +333,7 @@ class TranscriptArchive:
         except BaseException:
             stack.close()
             raise
-        return RecordIterator(stack, payload, committed, offset)
+        return RecordIterator(stack, payload, committed, offset, end)
 
     def index_entries(self, receipt: CaptureReceipt | str, *, start: int = 0, limit: int = 1024) -> tuple[IndexEntry, ...]:
         """Entries ``[start, start+limit)`` of the incremental malformed/oversized-record index, verified.

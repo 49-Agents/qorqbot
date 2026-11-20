@@ -100,6 +100,32 @@ class IncrementalVerificationTests(ArchiveCase):
                 self.assertEqual(remembered.records, sum(1 for _ in records))
         self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(), remembered.prefix_sha256)
 
+    def test_a_read_that_names_its_end_reads_no_byte_at_or_after_it(self):
+        from qorqut.native_archive import _files
+        self.grow(40)
+        receipt = self.archive.capture(self.binding)
+        with self.archive.iter_records(receipt) as records:
+            third = list(records)[2]
+        reads, real = [], _files.pread_full
+
+        def counted(fd, size, offset):
+            reads.append(offset + size)
+            return real(fd, size, offset)
+        # Opening reads the archive's own small files; only the reads made while iterating are payload reads.
+        with self.archive.iter_records(receipt, offset=third.offset, end=third.end) as records:
+            with mock.patch.object(_files, "pread_full", counted):
+                found = [(record.offset, record.length, record.kind) for record in records]
+        self.assertEqual(found, [(third.offset, third.length, "json")])
+        self.assertEqual(reads, [third.end])
+        # An end inside a record leaves that record partial, and an end before the offset is not a range.
+        with self.archive.iter_records(receipt, offset=third.offset, end=third.end - 2) as records:
+            self.assertEqual([record.kind for record in records], ["partial"])
+        with self.assertRaises(ValueError):
+            self.archive.iter_records(receipt, offset=third.offset, end=third.offset - 1)
+        # Without an end the read runs to the receipt's boundary, as before.
+        with self.archive.iter_records(receipt, offset=third.offset) as records:
+            self.assertEqual(sum(1 for _ in records), receipt.records - 2)
+
     def test_a_capture_and_a_read_hash_only_what_is_new(self):
         self.grow(200)
         first = self.archive.capture(self.binding)

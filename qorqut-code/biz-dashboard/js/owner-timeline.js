@@ -1,5 +1,5 @@
 'use strict';
-// The owner's own messages on an action timeline. They are read through owner_inputs_list and drawn as their own rows,
+// The owner's own messages on an action timeline. They are read through conversation_history_search (its list, without a query) and drawn as their own rows,
 // with a speech-bubble mark instead of the action dot. "Then" lines are what the records say followed a message (the
 // reply and record changes before the owner's next message there): matched by time and place, not by meaning.
 const OWNER_TIMELINE_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H8l-3 2.5v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/></svg>';
@@ -36,7 +36,7 @@ async function ownerTimelineLoad({since, until, agentId, signal} = {}) {
   const items = [], cursors = new Set();
   let cursor = null, pages = 0;
   do {
-    const data = coreData(await post('/root/operations/owner_inputs_list', {scope: 'global', since, until, limit: 100, text_limit: 600,
+    const data = coreData(await post('/root/operations/conversation_history_search', {scope: 'global', since, until, limit: 100, text_limit: 600,
       ...(agentId ? {agent_id: agentId} : {}), ...(cursor ? {cursor} : {})}, signal ? {signal} : undefined));
     if (!Array.isArray(data.items)) throw Error('Invalid messages response');
     items.push(...data.items);
