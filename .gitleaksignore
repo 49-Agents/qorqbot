@@ -25,3 +25,5 @@ d4589b3e58141f3508db097f3ef28880052666ee:qorqut-code/app/tests/test_managed_clau
 2fce50b5009b7c67765c975059e62931800e7c98:qorqut-code/app/tests/test_managed_codex_driver.py:curl-auth-header:206
 2fce50b5009b7c67765c975059e62931800e7c98:qorqut-code/app/tests/test_managed_codex_driver.py:generic-api-key:188
 2fce50b5009b7c67765c975059e62931800e7c98:qorqut-code/app/tests/test_managed_codex_driver.py:generic-api-key:1165
+# The same vendored terminal emulator symbol, in the commit that brings the file back for the legacy Terminals mode.
+631ef6b847549b97f9a2b0efba461e60f42ec3ff:qorqut-code/biz-dashboard/js/xterm.js:generic-api-key:1
