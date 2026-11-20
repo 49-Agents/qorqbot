@@ -189,10 +189,12 @@ class BrowserAccess:
             raise DomainError("validation_error", "commands must be a list of 1 to %d commands, each a non-empty list of strings"
                               % _BATCH_LIMIT)
         # Every command is checked before the first one runs: a refused tenth must not leave nine half-done steps.
-        from . import captcha
+        from . import captcha, tab_reference
         for index, command in enumerate(commands):
             if captcha.is_command(command):
                 raise DomainError("validation_error", f"commands[{index}]: captcha goes in a call of its own, as command.")
+            if tab_reference.is_command(command):
+                raise DomainError("validation_error", f"commands[{index}]: tab-reference goes in a call of its own, as command.")
             try:
                 browser.validate_arguments(command)
             except browser.BrowserError as exc:
@@ -274,11 +276,14 @@ class BrowserAccess:
         return result
 
     def _runner(self, actor, command):
-        """What runs a checked command: ``agent-browser`` for a page command, the server itself for ``captcha``."""
+        """What runs a checked command: ``agent-browser`` for a page command, the server itself for ``captcha`` and
+        ``tab-reference``."""
         from qorqut.bootstrap import browser
-        from . import captcha
+        from . import captcha, tab_reference
         if captcha.is_command(command):
             return captcha.runner(self.runtime, actor.principal.id)
+        if tab_reference.is_command(command):
+            return tab_reference.runner()
         try:
             browser.validate_arguments(command)
         except browser.BrowserError as exc:
