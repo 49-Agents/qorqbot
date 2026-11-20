@@ -424,6 +424,21 @@
 .sg-chat .sg .sg-row.sg-compact > .sg-detail { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:minmax(0,1fr); align-items:end; gap:6px 10px; }
 .sg-chat .sg .sg-row.sg-compact .sg-detail-body { min-height:0; max-height:100%; overflow-y:auto; align-self:stretch; }
 .sg-chat .sg .sg-row.sg-compact .sg-detail-footer { margin-left:0; }
+/* A card with questions is a small form, not a one-line choice: it grows to its content (scrolling only when very long),
+   the questions take the full width and Send sits below them on the right. */
+.sg-chat .sg .sg-row:has(.sg-question) { max-height:min(720px,80vh); }
+.sg-chat .sg .sg-row.sg-compact:has(.sg-question) > .sg-detail { display:flex; flex-flow:column nowrap; align-items:stretch; gap:10px; }
+.sg-chat .sg .sg-row.sg-compact:has(.sg-question) .sg-detail-body { flex:0 1 auto; min-height:0; max-height:none; overflow-y:auto; }
+.sg-chat .sg .sg-row.sg-compact:has(.sg-question) .sg-detail-footer { flex:none; align-self:flex-end; }
+.sg-chat .sg-question { margin:12px 0 0; padding:0 0 12px; }
+.sg-chat .sg-question:first-child { margin-top:2px; }
+.sg-chat .sg-question:last-child { padding-bottom:0; border-bottom:0; }
+.sg-chat .sg-question legend { font-size:12.5px; font-weight:500; }
+.sg-chat .sg-question-choices { margin:8px 0 0; }
+.sg-chat .sg .sg-question .sg-choice { min-height:0; padding:7px 10px; border-radius:8px; text-align:left; }
+.sg-chat .sg .sg-question .sg-question-notes { min-height:32px; margin-top:6px; resize:none; }
+.sg-chat .sg-question-titled > legend { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.sg-chat .sg-question-titled .sg-question-choices { margin-top:0; }
 
 /* Chat cards sit at a smaller scale than Focus: tighter padding, smaller type and controls. */
 .sg-chat .sg .sg-row { padding:10px 12px; }
