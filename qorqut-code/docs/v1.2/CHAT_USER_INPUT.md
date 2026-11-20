@@ -146,13 +146,13 @@ references show a small unavailable state. Keep layout usable at narrow widths.
 - Only focused relevant tests. No full suite, product-agent session, real Signoff
   decision, login, native chat message, live DB read fixture or live API mutation.
 
-## Agent references
+## Agent references (retired)
 
-- **Agent references.** `{type: "agent", id: "<registered agent UUID>"}` is a fourth reference type. `business_id` is absent or null;
-  a non-null `business_id` and any model-supplied name, icon, presentation, HTML or URL are refused. The transcript reference stays
-  identity-only. The owner Chat DTO is `{type: "agent", id, business_id: null, label: <current display name>, role: <existing role
-  metadata>, presentation: <existing safe agent presentation>, available: true}`; an unknown or unreadable agent is the usual
-  unavailable placeholder with no role or presentation. The noninteractive chip belongs to the dashboard worker.
+- **Retired.** `{type: "agent", id}` was a fourth reference type that showed a registered agent's name and icon in Chat. It is
+  removed: `request_user_input` refuses it like any unknown type, the skill and the tool text no longer name it, and Chat draws no
+  agent chip. An archived presentation that carries one still shows its message and its other references; the agent reference
+  is left out (`references.presentation`, `RETIRED_TYPES`). Notes below that describe the agent type are history. The
+  automatic "messaged" marker with the recipients' icons on an outgoing agent message is a different thing and stays.
 - **Ordubashy reuse guidance** (`agent-roles` `roles/ordubashy/BRIEF.md`): see the Roles notes below.
 
 ## Implementation notes
@@ -170,8 +170,7 @@ allows it. The handler additionally requires the configured active Ordubashy age
 request_user_input(message="Please sign in below, then reply here.",
                    references=[{"type": "browser", "id": "example-browser"},
                                {"type": "signoff", "id": "<uuid>", "business_id": "<business uuid>"},
-                               {"type": "task", "id": "<task id>"},
-                               {"type": "agent", "id": "<registered agent uuid>"}])
+                               {"type": "task", "id": "<task id>"}])
 -> {"status": "ok", "data": {"user_input": {"version": 1, "message": "...", "references": [
      {"type": "browser", "id": "example-browser", "business_id": null}, ...]}}}
 ```
@@ -180,9 +179,7 @@ The contract lives once in `native_chat/references.py` (message 1-4000 character
 `{type, id, business_id}` keys, a Task's stored id (1-200 characters, no blanks or control characters), lowercase canonical
 UUIDs for Signoffs, configured surface ids for browsers, order kept, exact duplicates coalesced). Every reference is resolved through an existing read before the call returns: Tasks and
 Signoffs through `FocusService.resolve` (exact business and review scope; Signoffs exist only in a business, so a Signoff
-reference needs its `business_id`), browsers through `BrowserTargets.resolve`, agents through the existing `agents_get` read
-authorization (`UserInput.agent`: the caller must be allowed that read, a Global agent needs the Global capabilities, a
-business-home agent is outside Global; an agent reference takes no `business_id`). Any target that is missing, unreadable or in the
+reference needs its `business_id`), browsers through `BrowserTargets.resolve`. Any target that is missing, unreadable or in the
 wrong scope is `not_found` ("Reference N (type) is not available"), with no detail about the target. The result carries no URL,
 label, state, endpoint, credential, approval or answer, and the call writes nothing (every table is unchanged).
 
