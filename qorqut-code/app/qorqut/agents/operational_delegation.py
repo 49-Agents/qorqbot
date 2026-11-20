@@ -1512,8 +1512,14 @@ class OperationalDelegationOperations:
             "INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) "
             "VALUES(?,?,?,?,?,?,?)", (assignment["business_id"], "operational_assignments",
                 assignment["id"], assignment["parent_principal_id"], state, summary[:500], now)).lastrowid
-        uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)",
-            (assignment["parent_principal_id"], event_id))
+        recipients = {assignment["parent_principal_id"]}
+        if state in ("blocked", "recovery"):
+            # The coordinator controls every parent's assignment, so it is also told when one that is not its own stops:
+            # a parent that is gone or idle would otherwise leave it blocked with nobody aware of it.
+            from qorqut.management.identity import configured_ordubashy
+            recipients.add(configured_ordubashy(uow))
+        for recipient in sorted(recipients - {None}):
+            uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)", (recipient, event_id))
 
     def _validate_operations(self, names):
         selected = _operations(names)

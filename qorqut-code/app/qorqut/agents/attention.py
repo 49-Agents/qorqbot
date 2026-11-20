@@ -785,9 +785,10 @@ class Attention:
         state = self.state(uow, agent)
         if 'expected_revision' in args and args['expected_revision'] != state['revision']:
             raise DomainError('revision_conflict', 'Todo changed; reread it', current_revision=state['revision'])
-        if op in ('attention_focus_set', 'attention_focus_clear', 'attention_workflow_update') and not (
+        if op in ('attention_focus_set', 'attention_workflow_update') and not (
                 ctx.principal_kind == 'agent' and ctx.principal_id == agent):
-            # A manager reads and curates membership; the native focus stays the board agent's own declaration.
+            # A manager reads and curates membership; the native focus stays the board agent's own declaration. A manager
+            # may still clear it (attention_focus_clear): a worker that stopped must not keep a stale focus nobody can lift.
             raise DomainError('forbidden', "A board's todo_focus is set by its own agent")
         if op in ('attention_add','attention_focus_set'):
             task = self.board_task(ctx, agent, args['task'], uow, notes=False)

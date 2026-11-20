@@ -133,7 +133,10 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(decide("personal_set", granted, "global-worker"), "deny")
         # Ordubashy needs no new grant: its existing context_edit authority is the grant.
         self.assertEqual(decide("personal_set", {"context_edit": "allow"}, "ordubashy"), "allow")
-        self.assertEqual(decide("personal_set", {}, "ordubashy"), "deny")
+        # It still follows context_edit: a role that denies the edit denies this. A role that does not name the edit holds it
+        # through the coordinator's owner parity, so the write is allowed too.
+        self.assertEqual(decide("personal_set", {"context_edit": "deny"}, "ordubashy"), "deny")
+        self.assertEqual(decide("personal_set", {}, "ordubashy"), "allow")
 
 
 def role(name):

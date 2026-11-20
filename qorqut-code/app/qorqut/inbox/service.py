@@ -13,6 +13,7 @@ from qorqut_operations.application.plans import timestamp, utc_clock
 from qorqut_operations.inbox import InboxService as OperationsInboxService
 from qorqut_operations.inbox.events import source_summary
 from qorqut.agents.worker_access import require_worker_manager
+from qorqut.management.identity import configured_ordubashy
 from qorqut.extensions import NO_SOURCES
 from .events import ITEM_TYPES
 from .messages import Messages
@@ -69,8 +70,9 @@ class HostInbox:
             if ctx.delegation_assignment_id is not None:
                 return False
             assignment = uow.repository('operational_assignments').get(row['source_id'])
-            if (assignment is None or assignment['parent_principal_id'] != ctx.principal_id
-                    or assignment['business_id'] != row['business_id']):
+            # The parent sees its own assignment's notices, and the configured coordinator every parent's.
+            if (assignment is None or assignment['business_id'] != row['business_id']
+                    or ctx.principal_id not in {assignment['parent_principal_id'], configured_ordubashy(uow)}):
                 return False
             try:
                 app.authorize(ctx, app.registry.get('delegated_assignment_get'), (), uow,
@@ -128,7 +130,7 @@ class HostInbox:
     def decorate_after_extensions(self, ctx, row, item, uow):
         if row['source_type'] == 'operational_assignments':
             assignment = uow.repository('operational_assignments').get(row['source_id'])
-            if assignment is not None and assignment['parent_principal_id'] == ctx.principal_id:
+            if assignment is not None and ctx.principal_id in {assignment['parent_principal_id'], configured_ordubashy(uow)}:
                 item['assignment'] = {key: assignment[key] for key in (
                     'id', 'state', 'dispatch_reason', 'next_step', 'wake_at', 'result_json', 'updated_at')}
 

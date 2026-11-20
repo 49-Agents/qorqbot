@@ -393,6 +393,24 @@ class AttentionTests(unittest.TestCase):
             self.assertIn(f'This Task is {label}', str(raised.exception))
             self.assertIn('set its status to working first', str(raised.exception))
 
+    def test_a_manager_clears_a_boards_stale_focus_but_never_sets_it(self):
+        self.agent('first')
+        attention = self.attention
+        manager = NS(principal_kind='agent', principal_id='coordinator')
+        attention.context = lambda *_: (manager, 'first')
+        uow = NS(connection=self.conn)
+        task = {'type': 'task', 'id': 'task', 'business_id': None}
+        # The focus stays the board agent's own declaration; a manager only lifts one a stopped worker left behind.
+        for operation, arguments in (('attention_focus_set', {'focus': task, 'task': task}),
+                                     ('attention_workflow_update', {'run_id': 'run', 'state': 'ready'})):
+            with self.assertRaises(DomainError) as raised:
+                attention.validate(operation, manager, arguments, uow)
+            self.assertEqual(raised.exception.code, 'forbidden')
+        attention.validate('attention_focus_clear', manager, {}, uow)
+        attention.read = Mock(return_value={})                          # the returned board is not what is tested
+        attention.apply(manager, NS(operation_name='attention_focus_clear', arguments={}), uow)
+        self.assertIsNone(self.conn.execute("SELECT focus_json FROM agent_attention WHERE agent_id='first'").fetchone()[0])
+
     def test_a_snoozed_focused_task_holds_its_focus_reminder(self):
         task = {'type': 'task', 'id': 'task', 'business_id': None}
         self.agent('first')
