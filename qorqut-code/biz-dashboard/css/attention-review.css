@@ -105,5 +105,5 @@
 .agfocus-review-open .sg .sg-asks .sg-actions .sg-approve{min-height:44px;height:44px;padding:0 22px;background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-size:14px;font-weight:600}
 .agfocus-review-open .sg-focus.sg-single .sg-urgent:has(.sg-asks) > h2{display:none}
 .agfocus-review-open .sg .sg-asks .sg-attention-meta .sg-notice{margin:0 0 6px;color:var(--warn);font-size:12px}
-/* A request (something for the owner to do) is an open white circle, as an open Task's state. */
-.focus-signoff-chip .attention-signoff[data-signoff-kind="request"]{color:var(--fg)}
+/* Every queue symbol is full white, as bright as a request's open circle (an open Task's state). */
+.focus-signoff-chip .attention-signoff{color:var(--fg)}

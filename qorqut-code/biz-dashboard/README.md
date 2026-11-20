@@ -107,14 +107,11 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
 
 ## Shell and navigation
 
-- **Todo.** The pane shows compact focus and intent rows for active Ordubashy and
-  permanent workers with nonempty Todo boards. Completed items still on a board
-  count as membership; a focus alone does not. Selecting an agent loads its full
-  Todo without changing the chat. Other agents use one summary row per refresh,
-  with at most three concurrent reads; the selected list retains pagination,
-  scoped task navigation and the owner filter. Empty boards disappear on refresh,
-  while failed reads are labelled. Check: `node --test tests/attention-agents.test.js`
-  (requires Playwright Chromium).
+- **No Todo tab.** The agent workspace has no Todo board for any agent; the owner keeps
+  todos as "-" lines in the Focus notes (the feather left of Browser in Focus returns to them). A saved
+  or linked `attentionBoard` view opens Focus, and task links open the task record in
+  Focus. The server's todo operations are unchanged for agents.
+  Check: `node --test tests/todo-tab-removed.test.js tests/task-focus-routing.test.js`.
 - **Chat focus.** The top strip of the chat input, above a thin line, shows Ordubashy's
   icon and recorded focus; input and focus are one box. Click the strip to expand or
   collapse; the button also works with Enter and Space. Expanded, it shows his intent

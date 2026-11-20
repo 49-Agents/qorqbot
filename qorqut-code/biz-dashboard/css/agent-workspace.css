@@ -53,7 +53,6 @@
 .agent-workspace-app .agpad-ping.switch { height:32px; }
 .agent-workspace-app .agpad .tbody { padding:5px 23px 21px; }
 .agent-workspace-app .agpad .tbody:has(> .agfocus) { padding-left:10px; padding-right:11.5px; }
-.agent-workspace-app .agpad .agfocus-heading > .global-eyebrow { display:none; }
 .agent-workspace-app .agpad .agfocus > header { margin-bottom:8px; }
 
 /* Focus follows the approved workspace: quiet controls, square attention tiles,
@@ -162,7 +161,6 @@
 
 .agent-workspace-app .global-agents .global-workspace-projects svg, .agent-workspace-app .global-agents .global-workspace-settings svg, .agent-workspace-app .global-agents .global-workspace-guide svg { width:24px; height:24px; }
 
-.agent-workspace-app .agfocus[data-attention-board]{--agfocus-lead:56px}
 
 /* Hover navigation occupies the browser's top layer, never a workspace column. */
 .agent-workspace-app .split.global-agents.agsplit.agent-nav-overlay-mode { grid-template-columns:minmax(0,var(--ag-chat-fr)) var(--ag-divider-width) minmax(0,var(--ag-pane-fr)); }

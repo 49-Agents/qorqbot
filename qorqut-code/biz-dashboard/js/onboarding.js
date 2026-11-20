@@ -19,12 +19,8 @@ const onboarding = (() => {
       // terminals-end
     },
     {id: 'focus', chapter: 'workspace', view: 'focus', title: 'focus',
-      body: 'The right side is Ordubashy’s workspace. Focus keeps what needs you in one place: signoffs waiting for your answer, side chats and the threads you pin, with your own notes below.',
+      body: 'The right side is Ordubashy’s workspace. Focus keeps what needs you in one place: signoffs waiting for your answer, side chats and the threads you pin, with your own notes below. The feather beside Browser brings you back to them.',
       hint: 'Only you see these notes; agents never read them.',
-      target: pane},
-    {id: 'attention', chapter: 'workspace', view: 'attentionBoard', title: 'todo',
-      body: 'Todo lists the work on Ordubashy’s board, yours and your agents’. The person icon shows only the tasks waiting on you.',
-      hint: 'It fills up once you give him work.',
       target: pane},
     {id: 'calendar', chapter: 'workspace', view: 'calendar', title: 'calendar',
       body: `Your schedule shows here once Google Calendar is connected. For now that is a one-time technical setup, described in the <a href="${CALENDAR_GUIDE_URL}" target="_blank" rel="noopener noreferrer">calendar guide</a>.`,
