@@ -35,7 +35,12 @@ def register_browser_operation(runtime):
             "browser_id": {"type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9-]{0,62}$", "description": instruction_text('operations-ordubashy-only-on-acquire-with-protocol-handles-the')},
             "browser_key": {"type": ["string", "null"], "maxLength": 200, "description": instruction_text('operations-durable-workers-use-the-exact-assignment-target-native')},
             "handle": {"type": ["string", "null"], "pattern": "^b[a-f0-9]{12}$", "description": instruction_text('operations-short-browser-handle-returned-by-acquire-use-it')},
-            "action_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "description": instruction_text('operations-stable-action-identity-reused-exactly-for-reconciliation-defaults')}, "command": {"type": ["array", "null"], "items": {"type": "string", "maxLength": 2000}, "maxItems": 32},
+            "action_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "description": instruction_text('operations-stable-action-identity-reused-exactly-for-reconciliation-defaults')}, "command": {"type": ["array", "null"], "items": {"type": "string", "maxLength": 2000}, "maxItems": 32,
+                        "description": "One command, each word its own item. Commands: read, observe, snapshot, get, click, dblclick, "
+                                       "fill, type, press, hover, focus, check, uncheck, select, upload, drag, find, scroll, wait, "
+                                       "goto, go-back, go-forward, reload, tab-list, tab-new, tab-select, tab-close, frame, eval, "
+                                       "screenshot, pdf, console, resize, dialog-accept, dialog-dismiss, captcha. The browser skill "
+                                       "gives their arguments."},
             "commands": {"type": ["array", "null"], "minItems": 1, "maxItems": 10,
                          "items": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "maxLength": 2000}},
                          # A plain string, not a tool-instructions key: the wording ships with the code that enforces it.
