@@ -1,6 +1,6 @@
 # Release 1.3.1
 
-> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](../MANAGED-RUNTIME.md).
 
 Published on November 13, 2026 as a
 [GitHub release](https://github.com/49-Agents/qorqbot/releases/tag/v1.3.1).

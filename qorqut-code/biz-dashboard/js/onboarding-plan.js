@@ -68,6 +68,12 @@ const onboardingPlan = (() => {
     }
     return '';
   }
+  // The steps as shown: while agents run in terminals, a step's `terminals` fields replace its own. The list, its order and the saved
+  // ids stay the same, and with `terminals` false the very same list comes back.
+  const stepsFor = (steps, terminals) => terminals ? steps.map(step => step.terminals ? {...step, ...step.terminals} : step) : steps;
+  // Whether the hello may be typed and sent when agents run in terminals: Ordubashy's session is live and can receive. `chat` is
+  // GET /root/agents/<id>/chat (null when it could not be read).
+  const helloLive = chat => !!chat && !!chat.session && chat.session.state === 'live' && chat.session.can_send === true;
   // Applies a key press to the tour: Esc closes it and Tab stays within it, wherever the focus is.
   // `tour` is what is on screen: the highlighted `target` element (or null), `active` (the focused element),
   // `focusables()` (the elements Tab cycles through, in order) and `exit()`. Returns 'pass' when the key was left alone.
@@ -79,6 +85,6 @@ const onboardingPlan = (() => {
     event.preventDefault(); list[next].focus();
     return 'tab';
   }
-  return {chapters, chapterAt, nextChapter, resumeIndex, saveId, helloReadiness, helloMissing, clientReady, handleKey};
+  return {chapters, chapterAt, nextChapter, resumeIndex, saveId, helloReadiness, helloMissing, clientReady, stepsFor, helloLive, handleKey};
 })();
 if (typeof module !== 'undefined') module.exports = onboardingPlan;

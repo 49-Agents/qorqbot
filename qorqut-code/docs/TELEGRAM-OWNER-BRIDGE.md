@@ -30,7 +30,7 @@ receiving it.
 | Urgent Notifications | out | Actionable events from trusted programs (`telegram_notify`, gateway) |
 
 Notices and queued-input feedback stay in the topic they belong to. The bridge runs one long-poller (`getUpdates`, `message` and `message_reaction` only) and one control thread. It never
-installs or removes a webhook, never creates chats, and never ends an agent session. An owner message to an agent whose session is asleep opens it through the shared input path.
+installs or removes a webhook, never creates chats, and never ends an agent session. In managed mode, an owner message to an agent whose session is asleep opens it through the shared input path; in Terminals mode an agent that is not running in its terminal receives nothing until it is started.
 
 ## Private configuration
 
@@ -290,7 +290,7 @@ for the session to open. A change to the installation owner, the Telegram owner,
 registration fails that delivery (`binding_changed`, `target_changed`); it is never retargeted or reattributed. The canonical
 inbox message stays.
 
-Direct delivery goes through the shared input path, which verifies the agent's registered session. If the session is asleep,
+Direct delivery goes through the shared input path, which verifies the agent's registered session. If the session is asleep (managed mode),
 the input path opens it in the background and answers that the session is starting; the queue never waits for the open, and
 its next attempt, on its own backoff, delivers the input once the session is bound. If the open fails, the input stays
 queued with the open's own reason. Telegram input is idle-only: a running turn defers it and it queues. (Owner Chat alone

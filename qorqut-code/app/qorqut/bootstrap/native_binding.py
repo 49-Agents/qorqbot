@@ -144,7 +144,9 @@ def managed_host(workspace, pid, agent_id=None, *, processes=None, runtime='clau
 
 
 def attest(hook, registration_path, runtime):
-    """Only a hook descending from the headless client of a managed host creates this observation."""
+    """Only a hook descending from the headless client of a managed host creates this observation. In a folder prepared for
+    Terminals mode (``registration["runtime_mode"] == "terminal"``, written there only) an interactive Claude Code client counts
+    as well: a claim the service then verifies against the agent's tmux pane."""
     registration = load_registration(registration_path)
     changed_cwd = Path(hook.get('cwd', '')).resolve() != Path(registration['workspace']).resolve()
     if hook.get('agent_id') or hook.get('parent_session_id'):
@@ -175,7 +177,9 @@ def attest(hook, registration_path, runtime):
         host = None
         if any(arg in argv for arg in (b'-p', b'--print')) and b'--agent-id' not in argv:
             host = managed_host(registration['workspace'], int(pid), registration['agent_id'])
-        if host is None:
+        interactive = (registration.get('runtime_mode') == 'terminal'
+                       and not any(arg in argv for arg in (b'-p', b'--print', b'--agent-id')))
+        if host is None and not interactive:
             raise DomainError('inbox_binding_required', 'Diagnostic and subagent clients cannot own inbox delivery')
         if sys.platform == 'darwin' and process_info.start_token(pid) != started:
             raise DomainError('inbox_binding_required', 'Native process changed during attestation')
@@ -192,10 +196,47 @@ def attest(hook, registration_path, runtime):
         'pid': int(pid), 'started': str(started), 'owner': owner,
         'event': hook.get('source', 'startup') if hook['hook_event_name'] == 'SessionStart' else 'prompt',
         **local_instance()}
-    value['managed_host'] = host
+    if host is not None:
+        value['managed_host'] = host
     write_json_private(Path(registration['workspace'])/'.qorqut/native-binding.json', value)
     return value
 
+
+# The consistency probe for a terminal agent's interactive Claude Code client (Terminals mode). It runs on this machine and
+# decides nothing alone: the service passes the pane's pid from the agent's one tmux pane, and this script only refuses when the
+# marker, the process, its foreground group or its ancestry disagree with that pane.
+PROBE = '''import json,sys
+from pathlib import Path
+workspace,session,pane,agent,registration=sys.argv[1:]
+def fields(pid):
+ if sys.platform=='darwin':
+  from qorqut import process_info
+  return process_info.fields(pid,terminal=True)
+ return Path('/proc/'+str(pid)+'/stat').read_text().rsplit(')',1)[1].split()
+marker=Path(workspace)/'.qorqut/native-binding.json'
+if marker.is_symlink() or any(p.is_symlink() for p in marker.parents): raise ValueError('unsafe observation')
+v=json.loads(marker.read_text())
+assert v['session_id']==session and v['agent_id']==agent and v['registration_id']==registration and v['workspace']==workspace
+assert v['runtime']=='claude-code'
+pid=int(v['pid']);native=fields(pid)
+assert native[0]!='Z' and native[19]==v['started']
+if sys.platform=='darwin':
+ from qorqut import process_info
+ name=process_info.name(pid)
+else: name=Path('/proc/'+str(pid)+'/comm').read_text().strip()
+assert name in {'claude','claude.exe'}
+argv=([arg.encode() for arg in process_info.cmdline(pid)] if sys.platform=='darwin'
+ else Path('/proc/'+str(pid)+'/cmdline').read_bytes().split(b'\\0'))
+assert not any(a in argv for a in (b'exec',b'queue',b'--print',b'-p',b'--agent-id'))
+assert pane and native[2]==fields(pane)[5]
+ancestor=pid
+for _ in range(24):
+ if str(ancestor)==pane: break
+ ancestor=int(fields(ancestor)[1])
+else: raise ValueError('not registered pane ancestry')
+if sys.platform=='darwin': assert process_info.start_token(pid)==v['started']
+print(json.dumps(v))
+'''
 
 # The consistency probe for a managed agent's headless client (a managed host is always local). It
 # does not decide who the client is: the SERVICE passes in the pid and start ticks of the claude and of the host that the
@@ -318,6 +359,24 @@ class NativeBindingAdapter:
         return supervisor.register(path, native, {'inbox_generation': selected.generation,
             'inbox_desired_state': selected.desired_state})
 
+    def terminal_session(self, agent_id, profile):
+        """The agent's tmux session name, through the terminal service and the broker of its execution (Terminals mode)."""
+        with self.runtime.database.read() as uow:
+            business = uow.repository('businesses').get(profile['home_business_id']) if profile['home_business_id'] else None
+        terminals = self.runtime.terminals
+        execution = terminals.execution(business)
+        _, session, _ = terminals.binding(business, profile, execution.broker)
+        return execution, session
+
+    def verify_terminal(self, profile, agent_id, registration_id, session_id):
+        """The observation of the interactive Claude Code client in the agent's one tmux pane, or an error when it is not
+        provably that client. Codex has no terminal binding."""
+        execution, terminal = self.terminal_session(agent_id, profile)
+        code, pane = execution.broker.tmux('list-panes', '-t', '=' + terminal, '-F', '#{pane_pid}')
+        if code or len(pane.strip().splitlines()) != 1:
+            pane = ''
+        return json.loads(self.run(PROBE, [profile['workspace'], session_id, pane.strip(), agent_id, registration_id]))
+
     def selected(self, agent_id):
         with self.runtime.database.read() as uow:
             return dict(uow.connection.execute('SELECT * FROM agent_profiles WHERE agent_id=?',(agent_id,)).fetchone())
@@ -382,7 +441,13 @@ class NativeBindingAdapter:
     def verify(self, agent_id, registration_id, session_id, *, previous=None):
         try:
             profile = self.selected(agent_id)
-            value = self.verify_managed(profile, agent_id, registration_id, session_id)
+            from qorqut.managed_runtime import mode
+            if mode.is_terminal(getattr(self.runtime, 'paths', None)):
+                # Which client the agent runs is the owner's choice in Settings, not the profile's: the probe itself refuses
+                # anything in the pane that is not the interactive Claude Code client this marker names.
+                value = self.verify_terminal(profile, agent_id, registration_id, session_id)
+            else:
+                value = self.verify_managed(profile, agent_id, registration_id, session_id)
             if value is None:
                 raise DomainError('inbox_binding_ambiguous', 'The agent has no verified managed session to bind', retryable=True)
             value['execution_target'] = 'local'

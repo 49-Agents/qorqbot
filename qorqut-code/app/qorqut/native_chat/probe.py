@@ -4,6 +4,9 @@ Nothing is launched, resumed or written. The marker (``.qorqut/terminal-chat.jso
 hook) names a conversation, a transcript and a process; it is a claim, not proof. It counts only while the process exists with
 the recorded start ticks and the managed runtime verifies the host process that drives it and that the client descends from it
 (for Codex also that the client is the app-server holding that exact conversation's thread-writer lock).
+
+In Terminals mode (``terminal_mode``, asked on every observation) the same marker counts only for a Claude Code client that runs
+inside the agent's one registered tmux pane; the managed runtime is never asked. In managed mode nothing here touches tmux.
 """
 
 from __future__ import annotations
@@ -101,16 +104,24 @@ class SessionProbe:
     ``verify(profile, marker) -> {"transport", "owner"} | None``, ``identity(agent_id)`` and ``snapshot(agent_id) -> dict | None``.
     """
 
-    def __init__(self, *, marker_reader=None, process_probe=None, managed=None):
+    def __init__(self, *, marker_reader=None, process_probe=None, managed=None, terminal_backend=None, terminal_mode=None):
+        """``terminal_backend`` is a zero-argument callable returning the terminal control backend (late-bound: it is attached
+        to the runtime after construction) or None. ``terminal_mode`` is a zero-argument callable answering whether the
+        installation runs in terminals; it is asked on every observation and defaults to never."""
         self._managed = managed
+        self._backend = terminal_backend or (lambda: None)
+        self._terminal_mode = terminal_mode or (lambda: False)
         self._marker_reader = marker_reader or self._read_marker
+        self._injected_probe = process_probe
         self._process_probe = process_probe or self._verify_process
 
     def observe(self, profile: dict) -> ProbeResult:
         """The agent's verified live session, or the reason it has none."""
+        if self._terminal_mode():
+            return self._observe_marker(profile, terminal=True)
         return self._observe_marker(profile)
 
-    def _observe_marker(self, profile: dict) -> ProbeResult:
+    def _observe_marker(self, profile: dict, terminal: bool = False) -> ProbeResult:
         runtime = _runtime(profile)
         if runtime is None:
             return ProbeResult(REASON_UNSUPPORTED_RUNTIME)
@@ -120,18 +131,25 @@ class SessionProbe:
             marker = None
         if not marker:
             return ProbeResult(REASON_NO_MARKER)
+        if terminal and marker.get("runtime") != "claude-code":
+            # Terminals run Claude Code only. The client that registered decides, not the profile: the owner can run an agent
+            # whose profile names Codex on Claude Code (Settings), and that agent has a terminal session like any other.
+            return ProbeResult(REASON_UNSUPPORTED_RUNTIME, marker=marker)
         if marker.get("event") == "SessionEnd":
             return ProbeResult(REASON_SESSION_END, marker=marker)
+        process_probe = (self._injected_probe or self._verify_terminal) if terminal else self._process_probe
         try:
-            verified = self._process_probe(profile, dict(marker))
-        except DomainError:
+            verified = process_probe(profile, dict(marker))
+        except DomainError as error:
+            if terminal and error.message == _native_only():
+                return ProbeResult(REASON_UNSUPPORTED, marker=marker)
             return ProbeResult(REASON_PROCESS_GONE, marker=marker)
         except (OSError, ValueError, KeyError, IndexError, AttributeError):
             verified = None
         if not verified:
             return ProbeResult(REASON_PROCESS_GONE, marker=marker)
         provider = RUNTIME_PROVIDERS[marker["runtime"]]
-        extra = self._managed_state(profile)
+        extra = {} if terminal else self._managed_state(profile)
         working = self._working(profile, marker) or extra.get("phase") in MANAGED_WORKING
         observation = Observation(
             agent_id=profile["agent_id"], runtime=marker["runtime"], provider=provider, conversation_id=marker["session_id"],
@@ -237,6 +255,31 @@ class SessionProbe:
             return self._managed_hit(profile, marker, pid)
         return None
 
+    def _verify_terminal(self, profile: dict, marker: dict) -> dict | None:
+        """Terminals mode: the marker's process is alive with its start ticks, is a descendant of the agent's one registered tmux
+        pane, and shares the pane shell's foreground process group. Nothing else counts (no host is asked)."""
+        pid = int(marker["pid"])
+        native = process_fields(pid)
+        if native[0] == "Z" or native[19] != marker["started"] or marker["runtime"] != "claude-code":
+            return None
+        backend = self._backend()
+        if backend is None:
+            return None
+        broker, _, session, _, _ = backend.selected(profile)
+        code, output = broker.tmux("list-panes", "-t", "=" + session, "-F", "#{pane_pid}")
+        if code or len(output.strip().splitlines()) != 1:
+            return None
+        pane_pid = int(output.strip())
+        if native[2] != process_fields(pane_pid, terminal=True)[5]:
+            return None
+        for _ in range(24):
+            if pid == pane_pid:
+                return {"transport": "terminal", "owner": None}
+            pid = int(process_fields(pid)[1])
+            if pid <= 1:
+                break
+        return None
+
     @staticmethod
     def _working(profile: dict, marker: dict) -> bool:
         """Whether a turn is running, from the small hook observation of this exact native process and session."""
@@ -257,6 +300,11 @@ class SessionProbe:
                     and activity.get("state") == "running")
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return False
+
+
+def _native_only() -> str:
+    from qorqut.transport.agent_terminal_control import NATIVE_ONLY
+    return NATIVE_ONLY
 
 
 def _valid(marker: dict | None, profile: dict, *, transcript: bool) -> dict | None:

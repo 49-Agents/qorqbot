@@ -10,7 +10,7 @@ const available=!!chromium && fs.existsSync(executable);
 const browserTest=(name,run)=>test(name,{skip:!available && 'Local Playwright Chromium is unavailable'},run);
 const root=path.join(__dirname,'..');
 
-async function fixture({mobile=false,many=false}={}) {
+async function fixture({mobile=false,many=false,terminals=false}={}) {
   const browser=await chromium.launch({headless:true,executablePath:executable});
   const page=await browser.newPage({viewport:{width:mobile?390:1200,height:800},hasTouch:mobile,isMobile:mobile});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -45,6 +45,7 @@ async function fixture({mobile=false,many=false}={}) {
     };
     window.goGlobalTab=tab=>{window.destination=tab;};window.onboarding={open(){window.walkthrough=true;}};
   },many);
+  if(terminals)await page.evaluate(()=>{window.agentMode={terminals:()=>true};window.mountTerminal=(_id,pane)=>{pane.textContent='Workspace terminal';};});
   await page.addScriptTag({path:path.join(root,'js/san-juan-time.js')});
   await page.clock.setFixedTime(new Date('2026-11-11T18:00:00Z'));
   await page.addScriptTag({path:path.join(root,'js/agent-nav-timeline.js')});
@@ -99,6 +100,19 @@ browserTest('navigation is hidden by default and hover overlays without resizing
     assert.equal(await nav.isVisible(),false);
     assert.equal(await trigger.getAttribute('aria-expanded'),'false');
     assert.deepEqual(await page.evaluate(()=>mounts),['atlas']);
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
+
+browserTest('Terminals mode: the owner shell is a menu entry; selecting it shows it in the trigger and uses the whole width',async()=>{
+  const {browser,page,errors}=await fixture({terminals:true});
+  try {
+    const trigger=page.locator('[data-agent-nav-trigger]'),nav=page.locator('.agent-nav-overlay');
+    await trigger.focus();await page.keyboard.press('ArrowDown');
+    await nav.locator('.global-workspace-terminal').click();
+    assert.match(await trigger.getAttribute('aria-label'),/Terminal selected/);
+    assert.equal(await trigger.locator('.identity-avatar').count(),0);
+    assert.equal(await page.locator('.global-agent-session').evaluate(el=>el.getBoundingClientRect().width),1200);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });

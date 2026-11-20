@@ -91,9 +91,9 @@ wait for your session, direct inputs and the normal inbox pacing.
   enough to interrupt unrelated work; a timestamp or an urgent-sounding word alone does
   not. A time-critical notice is only a notice. It does not switch the todo_focus, start work or
   authorize anything: keep your current todo_focus, capture it, and change the todo_focus deliberately.
-  Other agents receive reminders through the normal inbox path. A sleeping agent's
-  session opens to receive a due reminder; an agent that is turned off keeps its due reminders
-  until it is turned on.
+  Other agents receive reminders through the normal inbox path. A due reminder opens
+  a closed session unless the agent runs in a terminal; an agent that is turned off, or closed in
+  a terminal, keeps its due reminders until it is started.
 
 Use a self-reminder to resurface work later, not as a substitute for a Task, Todo
 item or Signoff. Never invent recurring follow-ups the requester did not ask for.

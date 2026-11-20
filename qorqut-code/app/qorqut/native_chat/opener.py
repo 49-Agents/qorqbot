@@ -35,6 +35,7 @@ import time
 import uuid
 
 from qorqut_operations.contracts import DomainError
+from qorqut.managed_runtime import mode
 
 LOG = logging.getLogger(__name__)
 
@@ -51,8 +52,10 @@ REPEATING = frozenset({"cli_unavailable", "cli_not_signed_in", "resume_failed", 
 # A host that is merely busy, starting or slow: asked again soon, never an alarm.
 TRANSIENT = frozenset({"open_busy", "session_opening", "open_timeout", "host_unverified", "session_starting", "session_closed",
                        "host_rejected", "host_busy"})
-# What an agent answers when nothing can open it here (no managed runtime composed): not an alarm.
-NOT_OPENABLE = frozenset({"managed_unavailable"})
+# What an agent answers when nothing can open it here (no managed runtime composed, or the installation runs its agents in
+# terminals): not an alarm.
+NOT_OPENABLE = frozenset({"managed_unavailable", "not_managed", "terminal_present"})
+SWITCHING = ("runtime_switching", "Agents are being switched. Try again in a minute.")
 SPACING_SECONDS = 10.0
 TRANSIENT_SECONDS = 5.0
 BACKOFF_SECONDS = (30.0, 60.0, 120.0, 300.0)
@@ -121,6 +124,13 @@ class SessionOpener:
     def database(self):
         return self.runtime.database
 
+    def _paths(self):
+        return getattr(self.runtime, "paths", None)
+
+    def _terminals(self) -> bool:
+        """Whether the installation runs its agents in terminals now (asked every time): nothing is opened or woken then."""
+        return mode.is_terminal(self._paths())
+
     @property
     def managed(self):
         """The managed runtime, read late: it may be composed or replaced after the opener was built."""
@@ -158,7 +168,7 @@ class SessionOpener:
     def wakeable(self, agent_id: str, *, owner: bool = False) -> bool:
         """Whether an input may open this agent's session: managed runtime composed, not off or paused, and, unless the input is the
         owner's own, the agent is one the product offers (``offered``): nothing but the owner opens an agent that is not offered."""
-        return (self.managed is not None and self.desired(agent_id) not in NOT_WAKEABLE
+        return (not self._terminals() and self.managed is not None and self.desired(agent_id) not in NOT_WAKEABLE
                 and (owner or self.offered(agent_id)))
 
     def set_desired(self, agent_id: str, state: str) -> bool:
@@ -195,6 +205,8 @@ class SessionOpener:
         message (the admitted input carries the same uuid, so it is typed once). Returns the binding id the message is admitted for;
         ``DomainError`` with the refusal code when it cannot be opened. Turns the agent on. Waits for an open in progress."""
         agent_id = profile["agent_id"]
+        if mode.switching(self._paths()):
+            raise DomainError(*SWITCHING, retryable=True)
         if self.managed is None:
             raise self._failure(DomainError("driver_unavailable", "The session could not be started"))
         with self._guard:
@@ -224,6 +236,11 @@ class SessionOpener:
         ``force`` is Ordubashy's start and restart of a worker: neither the off state nor the pacing holds it back (it has just
         turned the agent on), and a failure is still recorded."""
         agent_id = profile["agent_id"]
+        if mode.switching(self._paths()):
+            raise DomainError(*SWITCHING, retryable=True)
+        if self._terminals():
+            # A terminal agent that is not running receives nothing until it is started: no wake, quiet and not paced.
+            raise DomainError("session_closed", "This agent's session is not open")
         if self.managed is None:
             raise DomainError("session_closed", "This agent's session is not open")
         if not force:

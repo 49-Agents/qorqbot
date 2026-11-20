@@ -23,6 +23,21 @@ def _psutil():
     return psutil
 
 
+def _terminal(process):
+    """The process's terminal device path. psutil maps devices to paths once and caches that map, while macOS creates
+    a /dev/ttysNNN for each new pseudo-terminal; a terminal opened after the first lookup (a new agent pane) would read
+    as none. A missing terminal therefore rebuilds the map once before it is reported as none."""
+    tty = process.terminal()
+    if tty is None:
+        try:
+            from psutil import _psposix
+            _psposix.get_terminal_map.cache_clear()
+        except (ImportError, AttributeError):
+            return None
+        tty = process.terminal()
+    return tty
+
+
 def _read(pid, operation):
     psutil = _psutil()
     try:
@@ -38,15 +53,41 @@ def _read(pid, operation):
         raise PermissionError('Cannot inspect process ' + str(pid)) from exc
 
 
-def fields(pid):
-    """Existing stat field positions, populated from actual OS observations (the terminal device and foreground group, fields 4 and 5, read 0 and -1 on macOS)."""
+def _tty_group(process, pid):
+    """``(device, foreground group)`` of the process's controlling terminal, read through the tty device itself."""
+    tty = _terminal(process)
+    foreground, device = -1, 0
+    if tty:
+        descriptor = os.open(tty, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
+        try:
+            try:
+                foreground = os.tcgetpgrp(descriptor)
+            except OSError:
+                # A different terminal session can reject tcgetpgrp. Darwin ps
+                # reads the kernel's foreground group without acquiring that tty.
+                try:
+                    output = subprocess.check_output(['/bin/ps', '-o', 'tpgid=', '-p', str(int(pid))], text=True, timeout=2)
+                    foreground = int(output.strip())
+                except (subprocess.SubprocessError, ValueError) as exc:
+                    raise OSError('Cannot inspect terminal foreground process group') from exc
+            device = os.fstat(descriptor).st_rdev
+        finally:
+            os.close(descriptor)
+    return device, foreground
+
+
+def fields(pid, terminal=False):
+    """Existing stat field positions, populated from actual OS observations. On macOS the terminal device and foreground group
+    (fields 4 and 5) read 0 and -1 unless ``terminal`` is true: only the terminal backend asks for them, because reading them
+    opens the process's tty device, which a managed agent (it has no terminal) never needs."""
     if not darwin():
         return Path(f'/proc/{int(pid)}/stat').read_text().rsplit(')', 1)[1].split()
     def observe(process):
+        device, foreground = _tty_group(process, pid) if terminal else (0, -1)
         value = ['0'] * 20
         value[:6] = ['Z' if process.status() in {_psutil().STATUS_ZOMBIE, _psutil().STATUS_DEAD} else 'S',
                      str(process.ppid()), str(os.getpgid(int(pid))), str(os.getsid(int(pid))),
-                     '0', '-1']  # no controlling terminal is ever read: agents have none
+                     str(device), str(foreground)]
         value[19] = str(round(process.create_time() * 1_000_000))
         return value
     return _read(pid, observe)
@@ -195,7 +236,7 @@ def _darwin_signals(pid, root):
     binaries such as Finder, Dock or /bin/sleep, even for the same user. Each
     unreadable signal is treated as absent, matching the Linux scan, which skips
     unreadable /proc entries. User-installed tools that Qorqbot launches (venv
-    Python, Node clients) expose both signals. The working
+    Python, Homebrew tmux, Node clients) expose both signals. The working
     directory is deliberately not a signal: an owner's Terminal or the app
     launcher sitting in the folder must not block updates.
     """

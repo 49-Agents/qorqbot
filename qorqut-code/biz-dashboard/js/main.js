@@ -8,6 +8,9 @@ if (agentWorkspaceEmbedded()) {
   window.agentWorkspaceReady = agentWorkspaceBootEmbedded();
 } else {
 agentWorkspaceShellStart();
+// How agents run (js/agent-mode.js): read at once and given 1.5 s at most. A slow read starts the page as managed sessions and
+// repaints through `agent-mode-changed` when the answer says terminals.
+if (typeof agentMode !== 'undefined') void agentMode.load();
 onChange(['action_logs', 'signoffs', 'jobs_routines'], null, refreshSide);
 setInterval(refreshSide, 60000);
 onChange(['jobs_routines'], null, () => { if (rtGlobal() && rtVisible()) rtRefresh(); });

@@ -367,7 +367,7 @@ def install(root, archive, expected, *, config=None, resume=False):
             for key in ('PIP_TARGET', 'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE'):
                 env.pop(key, None)
             env.update(PIP_CONFIG_FILE=os.devnull, PIP_NO_INDEX='1')
-            launcher.require_no_terminal_agents(root)
+            launcher.require_no_terminal_agents(root, env)
             launcher.stop_managed_hosts(root, env)
             # macOS process inspection uses the verified app environment's
             # psutil library. A fresh download has no such environment yet.

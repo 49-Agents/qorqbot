@@ -182,7 +182,7 @@ still apply to other-agent senders; those roles may set their own self-reminders
 Only the installation owner may select Input to submit text to agent sessions
 through Broadcast; agents use Inbox broadcast delivery. Use
 registered operations rather than shell
-or owner HTTP impersonation. It does not start agents that are turned off. Check
+or owner HTTP impersonation. It does not start agents that are turned off, or closed ones that run in terminals. Check
 individual results: unavailable or uncertain input is not confirmed delivery;
 do not blindly resend uncertain writes. Inbox delivery persists while agents
 are offline, but does not guarantee immediate agent execution.

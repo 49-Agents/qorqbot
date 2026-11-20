@@ -326,6 +326,7 @@ def main(argv=None):
         'optional': {'agent_client': 'Claude Code and Codex, downloaded by Qorqbot from its Settings',
                      'browser': "Chrome: Qorqbot's own downloaded build or an installed Google Chrome",
                      'node': 'as required by the selected external client',
+                     'tmux': 'only for the legacy Terminals mode; not bundled',
                      'desktop': 'Linux only: TigerVNC, Openbox, X11, D-Bus and keyring if a desktop is configured'},
         'python_libraries': 'requirements.lock', 'external_tools_bundled': False,
         'bundled': {'agent-browser': native_launch.AGENT_BROWSER_VERSION, 'details': 'tools/agent-browser, tools/licenses'},
@@ -336,7 +337,8 @@ def main(argv=None):
             'bundled': {'python': shipped_tools['reported_versions']['python'],
                         'git': shipped_tools['reported_versions']['git'], 'agent-browser': native_launch.AGENT_BROWSER_VERSION,
                         'details': 'native/TOOLS.json, native/licenses'},
-            'optional': {'agent_client': 'Claude Code and Codex, downloaded by Qorqbot from its Settings', 'browser': 'user-installed Google Chrome'}})
+            'optional': {'agent_client': 'Claude Code and Codex, downloaded by Qorqbot from its Settings', 'browser': 'user-installed Google Chrome',
+                         'tmux': 'only for the legacy Terminals mode; not bundled'}})
     (runtime / 'DEPENDENCIES.json').write_text(json.dumps(dependencies, indent=2) + '\n')
     if args.bundled_tools:
         bundled = {name: native_launch.tree_digest(runtime / name) for name in native_launch.BUNDLED_TREES}

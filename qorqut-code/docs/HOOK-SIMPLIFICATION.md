@@ -1,6 +1,6 @@
 # Hook simplification: findings, decisions, and implementation plan
 
-> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](MANAGED-RUNTIME.md).
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](MANAGED-RUNTIME.md).
 
 Reviewed November 9, 2026. Implementation branch: `codex/hook-simplification`.
 Baseline: `4d88ab1cf6c688f304fa68a843fb49515073d99f` (current main when work began).

@@ -50,7 +50,7 @@ share one server: whichever starts second uses the running one, and quitting the
 app leaves a Terminal-started server running. Back up the entire stopped folder. The same-schema updater uses a
 matching Mac archive and refuses a Linux or other-CPU archive. Updates with
 separately installed connectors or changed managed instructions are not yet
-supported. The updater closes any open agent sessions first; they start again when you next message the agent. Stop Qorqbot before removal. Removing the folder removes
+supported. The updater closes any open agent sessions first; they start again when you next message the agent. With Terminals (legacy) it refuses while agent terminals run. Stop Qorqbot before removal. Removing the folder removes
 its data; user-installed external programs remain installed.
 
 Google Calendar is bundled inactive. Fastmail is a separate platform-neutral

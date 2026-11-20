@@ -47,6 +47,7 @@ from qorqut import agent_cli_launch
 from qorqut_operations.contracts import DomainError
 
 from . import clients as table
+from . import mode as runtime_mode
 from . import models
 from . import options as launch_options
 from . import state as layout
@@ -78,7 +79,8 @@ CLIENT_HOME_VARIABLES = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
 
 class ManagedError(DomainError):
     """A managed operation that did not happen. ``code`` is stable: ``managed_unavailable``, ``session_closed``,
-    ``host_unverified``, ``cli_unavailable``, ``resume_unavailable`` (the selected conversation's transcript is gone: the owner
+    ``host_unverified``, ``not_managed`` (this installation runs its agents in terminals), ``runtime_switching`` (retryable: the owner
+    is switching how agents run), ``cli_unavailable``, ``resume_unavailable`` (the selected conversation's transcript is gone: the owner
     must choose a new conversation), ``resume_failed``, ``host_failed``, ``host_start_failed``, ``open_timeout`` and ``open_busy``
     (retryable), ``session_opening`` (retryable), ``host_busy`` (retryable), ``host_rejected``, ``driver_unavailable`` (the
     agent's client has no managed driver yet)."""
@@ -482,6 +484,14 @@ class ManagedRuntime:
 
     # ----- opening a session ------------------------------------------------------------------------------------------
 
+    def _require_managed_mode(self):
+        """Opening is gated on the installation's mode, asked now (the owner can switch while the service runs): refused while a
+        switch runs (retryable) and when agents run in terminals. Closing, stopping and reading status are never gated."""
+        if runtime_mode.switching(self.paths):
+            raise ManagedError("runtime_switching", "Agents are being switched. Try again in a minute.", retryable=True)
+        if runtime_mode.is_terminal(self.paths):
+            raise ManagedError("not_managed", "This agent runs in its terminal")
+
     def ensure_open(self, profile, timeout=OPEN_TIMEOUT, *, new_conversation=False) -> dict:
         """Make sure this managed agent has a ready host and return ``{"agent_id", "state", "session_id", "transcript_path",
         "host_pid", "started", "role_pending"}`` (``started``: this call started it; ``role_pending``: it is a fresh session that
@@ -499,6 +509,7 @@ class ManagedRuntime:
         A fresh session is sent ``/role`` by the host itself; a resumed one is not. If the selected conversation cannot be
         resumed because its transcript is gone, ``resume_unavailable`` is raised and nothing starts: it is never silently replaced
         by a fresh conversation. ``new_conversation=True`` is the owner's explicit choice to start a fresh one instead."""
+        self._require_managed_mode()
         agent_id = profile["agent_id"]
         deadline = self._clock() + timeout
         with self._one_open(agent_id, deadline):
@@ -594,6 +605,7 @@ class ManagedRuntime:
     def _launch(self, profile, deadline, new_conversation):
         """Under the lifecycle lock, with no host present: check that this agent may be started, then start it.
         ``(record, resume, client)``."""
+        self._require_managed_mode()
         agent_id = profile["agent_id"]
         states = self._client_states()
         client = self.client_for(profile, states)

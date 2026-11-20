@@ -23,3 +23,15 @@ for (const [name, label] of Object.entries(buttons)) {
     assert.ok(read('css/agent-workspace.css').includes(`.agent-workspace-app .global-agents .global-workspace-${name} svg`));
   });
 }
+
+// The owner's shell entry exists only while agents run in terminals; its styles live with the other terminal styles.
+test('terminal shows its name through the shared tooltip', () => {
+  const markup = button('terminal');
+  assert.ok(markup.includes('data-tip="Terminal"'), markup);
+  assert.ok(markup.includes('aria-label="Terminal"'), markup);
+  assert.ok(!/\stitle=/.test(markup), markup);
+});
+
+test('terminal is covered by the terminal icon size rule', () => {
+  assert.ok(read('css/legacy-terminals.css').includes('.global-agents .global-workspace-terminal svg'));
+});

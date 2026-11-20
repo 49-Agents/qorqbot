@@ -24,6 +24,10 @@ Delivery rules, in order of precedence:
   ``session_starting``, and asks again on its own schedule; a broadcast or direct message waits for the open and is then delivered
   in the same call. The wake carries none of the input: the input is delivered afterwards by its own claim, exactly once. An agent
   that is off is reported ``session_closed``, except that Telegram owner input turns it on first.
+* In Terminals mode (``managed_runtime.mode``, asked on every input) none of the wake rules applies: nothing is woken, nothing is
+  turned on, and an agent with no verified terminal session is ``terminal_offline`` (an owner Chat input is rejected, every other
+  producer is told ``deferred`` and asks again). The input is typed into the verified composer by the terminal adapter. A binding
+  of the other mode's transport is ``unsupported_transport`` in either mode.
 """
 
 from __future__ import annotations
@@ -37,6 +41,8 @@ from typing import Callable, Mapping
 from qorqut_operations.contracts import DomainError
 
 from qorqut.inbox.owner_forwarding import forward_owner_message
+
+from qorqut.managed_runtime import mode
 
 from . import store
 from .commands import unrunnable
@@ -52,6 +58,7 @@ LOG = logging.getLogger(__name__)
 NOT_TYPED = "not_typed"
 MANAGED_COMMAND = "managed_command"
 SESSION_CLOSED = "session_closed"
+TERMINAL_OFFLINE = "terminal_offline"
 SESSION_STARTING = "session_starting"
 # The attempt-once producers that wake an asleep, on agent; the owner's own input also turns an off agent on. A broadcast or a
 # direct message waits for the open (its caller has its own record of the attempt); Telegram's queue never blocks on it.
@@ -87,8 +94,11 @@ class StaleSession(Exception):
 
 
 class InputArbiter:
-    def __init__(self, runtime, probe: SessionProbe, registry: SessionRegistry, adapter, *, locks: AgentLocks | None = None):
-        self.runtime, self.probe, self.registry, self.adapter = runtime, probe, registry, adapter
+    def __init__(self, runtime, probe: SessionProbe, registry: SessionRegistry, adapters, *, locks: AgentLocks | None = None):
+        # ``adapters`` is a mapping by transport (``{"managed": ..., "terminal": ...}``) or one adapter, which is the managed one.
+        self.adapters = dict(adapters) if isinstance(adapters, Mapping) else {"managed": adapters}
+        self.runtime, self.probe, self.registry = runtime, probe, registry
+        self.adapter = self.adapters.get("managed")
         self.locks = locks or AgentLocks()
         self.wake: Callable[[], None] = lambda: None
         # The session opener (``opener.py``), attached by the native Chat that owns this arbiter; None wakes nothing.
@@ -176,15 +186,19 @@ class InputArbiter:
                 attempt = prior["attempt"] + 1
             observed = self.probe.observe(profile)
             reconciled = self.registry.reconcile(profile, observed)
+            terminal = mode.is_terminal(getattr(self.runtime, "paths", None))
             if reconciled.session is None or not reconciled.live:
-                if (wake and self.opener is not None and request.origin != ORIGIN_SYSTEM
+                # Terminals mode never wakes and never turns anything on: an agent that is not running in its terminal
+                # receives nothing until it is started.
+                if (wake and not terminal and self.opener is not None and request.origin != ORIGIN_SYSTEM
                         and request.input_type in WAKING_TYPES and observed.reason in NO_SESSION):
                     return _WakeNeeded(profile, observed)
-                return self._unavailable(request, observed)
+                return self._unavailable(request, observed, terminal=terminal)
             session = reconciled.session
             if request.expected_binding and request.expected_binding != session["id"]:
                 return self._refused(request, RESULT_REJECTED, "stale_session", session)
-            if request.input_type == TYPE_CHAT and unrunnable(session["provider"], request.text) is not None:
+            if (request.input_type == TYPE_CHAT and session["transport"] == "managed"
+                    and unrunnable(session["provider"], request.text) is not None):
                 # Decided for a new input only (an exact repeat was answered above) and before a row or a checkpoint exists.
                 return self._refused(request, RESULT_REJECTED, MANAGED_COMMAND, session)
             marker = secrets.token_hex(16) if request.origin == ORIGIN_SYSTEM else None
@@ -228,10 +242,10 @@ class InputArbiter:
             return store.active_profile(uow.connection, agent_id, self.runtime.paths)
 
     @staticmethod
-    def _unavailable(request: InputRequest, observed: ProbeResult) -> InputResult:
-        # An agent with no verified session has its session closed.
+    def _unavailable(request: InputRequest, observed: ProbeResult, *, terminal: bool = False) -> InputResult:
+        # An agent with no verified session has its session closed; in Terminals mode its terminal is offline.
         code = {REASON_CAPTURE_DISABLED: "capture_disabled", REASON_UNSUPPORTED: "unsupported_target",
-                REASON_UNSUPPORTED_RUNTIME: "unsupported_runtime"}.get(observed.reason, SESSION_CLOSED)
+                REASON_UNSUPPORTED_RUNTIME: "unsupported_runtime"}.get(observed.reason, TERMINAL_OFFLINE if terminal else SESSION_CLOSED)
         # A refusal that no later retry changes is rejected; an offline session may come back, so an attempt is deferred.
         definitive = code in {"capture_disabled", "unsupported_target", "unsupported_runtime"} or request.wait
         return InputResult(state=RESULT_REJECTED if definitive else RESULT_DEFERRED, reason=code, origin=request.origin,
@@ -290,10 +304,11 @@ class InputArbiter:
 
     def _run(self, profile, session, text, steer, input_type, checkpoint, claimed):
         from qorqut.native_chat.contracts import OwnerInputOutcome
-        adapter = self.adapter
-        if session["transport"] != "managed":
-            # A binding of an older transport (a terminal pane, a shared Codex server) that no process can serve any more.
-            return OwnerInputOutcome("deferred", "unsupported_transport"), adapter.name
+        served = "terminal" if mode.is_terminal(getattr(self.runtime, "paths", None)) else "managed"
+        adapter = self.adapters.get(served)
+        if adapter is None or session["transport"] != served:
+            # A binding of the other mode's transport (or an older one) that no process serves in this mode.
+            return OwnerInputOutcome("deferred", "unsupported_transport"), getattr(adapter, "name", "none")
         try:
             return adapter.submit(profile, session, text, steer=steer,
                                   echo=input_type not in {TYPE_CHAT, TYPE_TELEGRAM, TYPE_NUDGE}, checkpoint=checkpoint,
@@ -400,4 +415,4 @@ class InputArbiter:
                                         metadata=dict(metadata or {})))
 
 
-__all__ = ["AgentLocks", "InputArbiter", "MANAGED_COMMAND", "NOT_TYPED", "SESSION_CLOSED", "SESSION_STARTING", "StaleSession"]
+__all__ = ["AgentLocks", "InputArbiter", "MANAGED_COMMAND", "NOT_TYPED", "SESSION_CLOSED", "SESSION_STARTING", "StaleSession", "TERMINAL_OFFLINE"]

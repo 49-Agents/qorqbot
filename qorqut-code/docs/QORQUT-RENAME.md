@@ -1,6 +1,6 @@
 # Qorqut application identifiers
 
-> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](MANAGED-RUNTIME.md).
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](MANAGED-RUNTIME.md).
 
 The host's Python import package is `qorqut`, its distribution is `qorqut-core`,
 and the email engine distribution is `qorqut-engine-email`. All in-tree

@@ -6,7 +6,10 @@ is sent. After the checkpoint every outcome other than an explicit ``deferred`` 
 ``submitted`` or ``uncertain`` and is never replayed. The text never appears in a result: ``receipt`` names only what was observed
 (client, host, message uuid).
 
-``ManagedAdapter`` sends to the one verified host of an agent (``managed_runtime``) over its control socket. The host dedupes by
+* ``TerminalAdapter`` (Terminals mode, Claude Code only) types into the agent's one registered tmux pane through the verified
+  composer path (one bracketed paste, Enter with one verified pending-paste retry, no input into a modal). Owner Chat can
+  replace an existing draft. It never starts or resumes a client.
+* ``ManagedAdapter`` sends to the one verified host of an agent (``managed_runtime``) over its control socket. The host dedupes by
 message uuid, so an unanswered send is resolved by asking the host (``lookup`` with a fence) instead of guessing. It never opens a
 session. A Codex session takes ``/compact`` and ``/model <name>`` through the host's ``command`` operation, because its app-server
 reads them as plain text (``commands.codex_command``); ``$role`` and every other text is a message.
@@ -14,14 +17,49 @@ reads them as plain text (``commands.codex_command``); ``$role`` and every other
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import uuid
 
-from .contracts import OwnerInputOutcome
+from .contracts import PROVIDER_RUNTIMES, OwnerInputOutcome
 
 SUBMITTED = "submitted"
 DEFERRED = "deferred"
 UNCERTAIN = "uncertain"
 FAILED = "failed"
+
+
+class TerminalAdapter:
+    """Claude Code in the registered tmux terminal. ``backend`` is a callable returning the host terminal backend (or None)."""
+
+    name = "terminal"
+
+    def __init__(self, backend):
+        self._backend = backend
+
+    def submit(self, profile: dict, session: dict, text: str, *, steer: bool, echo: bool, checkpoint, replace_composer=False) -> OwnerInputOutcome:
+        backend = self._backend()
+        if backend is None:
+            return OwnerInputOutcome(DEFERRED, "terminal_unavailable")
+        workdir = Path(profile["workspace"]) / ".qorqut/chat-input"
+        try:
+            workdir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        except OSError:
+            return OwnerInputOutcome(DEFERRED, "terminal_unavailable")
+        # The exact native client of the bound session decides the composer rules, including an owner who chose another CLI
+        # in the terminal than the profile names.
+        delivery = {**profile, "profile_json": json.dumps({**json.loads(profile["profile_json"]),
+                                                           "runtime": PROVIDER_RUNTIMES[session["provider"]]})}
+        # ``steer`` lets the text coexist with a running turn (the client queues or steers it as if the owner typed it); the
+        # composer must be verified editable. Only owner Chat replaces drafts with editing keys; ``echo`` demands the whole pasted
+        # text visible in the composer before it is submitted; Chat, Telegram and nudge text may be collapsed by the client
+        # and may do without the whole-text echo unless replacing a draft. Replacement always verifies
+        # the paste. A producer without ``steer`` also keeps the idle-only default.
+        # A bare slash command is typed with one trailing space, which closes the CLI's completion menu (commands.py).
+        from .commands import delivery_text
+        return backend.owner_input(delivery, delivery_text(text), workdir=workdir, checkpoint=checkpoint,
+                                   require_paste_echo=echo or replace_composer, allow_busy=steer,
+                                   replace_composer=replace_composer)
 
 
 # Host rejections that mean nothing reached Claude: the producer may try again later.

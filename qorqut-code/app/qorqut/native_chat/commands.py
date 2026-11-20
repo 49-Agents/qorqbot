@@ -9,6 +9,10 @@ Qorqbot runs every agent itself, as a headless session, so each command says whe
 * ``unavailable``: the CLI opens a menu or panel only a terminal can show (``/model`` without a name, ``/resume``, ``/cost``). Chat
   refuses them (``managed_command``) instead of sending text the client cannot act on.
 
+When the installation runs its agents in terminals (``catalog(managed=False)``) the table is the terminal one and Claude Code's
+only: every command is typed into the agent's own terminal, so nothing is ``unavailable``; a menu-only command is ``terminal``
+(Chat sends it and the owner finishes in the agent's Terminal; Chat never sends keys the owner did not type).
+
 Built-ins are a curated list per client (checked against Claude Code 2.1 and Codex 0.166). The owner's own Claude Code
 commands (``~/.claude/commands``, ``<agent>/.claude/commands``) and skills (``~/.claude/skills``, ``<agent>/.claude/skills``)
 are added by name; Qorqbot's own role skills are left out. Nothing here runs a command.
@@ -59,6 +63,32 @@ BUILT_IN = {
         ("/diff", "Show the changes in this folder.", "unavailable"),
         ("/mcp", "List connected servers.", "unavailable"),
         ("/exit", "End this session. Sending a message starts a new one.", "chat"),
+    ),
+}
+
+
+# The same list for an agent that runs in its own terminal: a menu-only command is typed there and finished there.
+BUILT_IN_TERMINAL = {
+    "claude": (
+        ("/compact", "Summarize the conversation so far to free up context. Add instructions to say what to keep.", "chat"),
+        ("/clear", "Start a new conversation in this session.", "chat"),
+        ("/init", "Write a CLAUDE.md with notes about this folder.", "chat"),
+        ("/review", "Review the changes in this folder.", "chat"),
+        ("/security-review", "Check the pending changes for security problems.", "chat"),
+        ("/model", "Switch model. Add a name (for example /model sonnet), or pick one in Terminal.", "terminal"),
+        ("/cost", "Show what this session has used.", "terminal"),
+        ("/usage", "Show your plan's usage limits.", "terminal"),
+        ("/status", "Show the version, model, account and connections.", "terminal"),
+        ("/context", "Show how full the context is.", "terminal"),
+        ("/resume", "Pick an earlier conversation to continue.", "terminal"),
+        ("/permissions", "Review which tools are allowed.", "terminal"),
+        ("/mcp", "Manage connected servers and connectors.", "terminal"),
+        ("/memory", "Edit Claude's memory files.", "terminal"),
+        ("/agents", "Manage subagents.", "terminal"),
+        ("/config", "Open Claude Code's settings.", "terminal"),
+        ("/doctor", "Check the Claude Code installation.", "terminal"),
+        ("/help", "List every command.", "terminal"),
+        ("/exit", "End this session. Start the agent again to continue.", "chat"),
     ),
 }
 
@@ -129,13 +159,15 @@ def _claude_custom(roots) -> list[dict]:
     return list(found.values())[:MAX_CUSTOM]
 
 
-def catalog(client: str, *, home=None, workspace=None) -> dict:
-    """The commands for ``client`` ("claude" or "codex"), built-ins first, then the owner's own (Claude only). The commands only a
-    terminal can show are ``unavailable``."""
-    if client not in CLIENTS:
+def catalog(client: str, *, home=None, workspace=None, managed: bool = True) -> dict:
+    """The commands for ``client`` ("claude" or "codex"), built-ins first, then the owner's own (Claude only). In managed mode (the
+    default) the commands only a terminal can show are ``unavailable``; with ``managed=False`` (agents run in terminals) the
+    terminal table applies, which has Claude Code only."""
+    table = BUILT_IN if managed else BUILT_IN_TERMINAL
+    if client not in CLIENTS or client not in table:
         return {"client": None, "commands": []}
     commands = [{"name": name, "description": description, "where": where, "source": "built-in"}
-                for name, description, where in BUILT_IN[client]]
+                for name, description, where in table[client]]
     if client == "claude":
         roots = [(Path(workspace), "agent")] if workspace else []
         if home:
@@ -188,3 +220,11 @@ def unrunnable(provider: str | None, text: str) -> str | None:
             return None
         return command
     return managed_menu_command(text)
+
+
+def delivery_text(text: str) -> str:
+    """What Chat types for a slash command into a terminal composer: a bare command gets one trailing space, which closes the
+    CLI's completion menu so the paste can be confirmed and Enter runs exactly that command. Anything else is typed unchanged."""
+    if re.fullmatch(r"/[A-Za-z0-9][A-Za-z0-9:_-]{0,80}", text.strip()) and text == text.strip():
+        return text + " "
+    return text

@@ -41,7 +41,7 @@ steps each need their own approval.
 - Tasks and Actions retain one owning global/project scope. Shared tags are labels, not
   scope or grants. Signoffs and routines keep their policy and lifecycle semantics.
 - Chat targets the exact existing native conversation. Qorqbot opens and resumes
-  conversations itself as managed sessions when input arrives; Chat has no conversation selector. Raw native archives and
+  conversations itself as managed sessions when input arrives (in Terminals mode the owner or Ordubashy starts each agent in its terminal); Chat has no conversation selector. Raw native archives and
   durable read metadata back Chat history and notifications.
 - The backend delivers advisory inbox nudges through the same input arbiter as Chat, with
   Chat closed too. There is no agent-side polling or Monitor setup. See

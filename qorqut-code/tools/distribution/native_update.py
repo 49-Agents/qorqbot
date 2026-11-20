@@ -155,7 +155,7 @@ def main(argv=None):
                 raise ValueError('Unrecorded update files remain; inspect them before another update')
             launcher.require_completed_extension_installs(runtime)
             env = launcher.environment(root, instance / 'home')
-            launcher.require_no_terminal_agents(root)
+            launcher.require_no_terminal_agents(root, env)
             launcher.stop_managed_hosts(root, env)
             launcher.stop_agent_browsers(root)
             if runtime_processes(runtime):

@@ -170,6 +170,71 @@ class UnreachableWorkerTests(unittest.TestCase):
         self.assertEqual(self.told(), [])
 
 
+class TerminalUnreachableWorkerTests(unittest.TestCase):
+    """Terminals mode (``terminal=True``): nothing opens a terminal by itself, so a worker with waiting work and no running terminal
+    is reported again, as before managed sessions, and the composer reasons and busy codes apply."""
+    setUp = UnreachableWorkerTests.setUp
+    need = UnreachableWorkerTests.need
+    attempts = UnreachableWorkerTests.attempts
+
+    def told(self, terminal=True):
+        return [row['agent_id'] for row in unreachable.reconcile(self.uow, now=self.now, terminal=terminal)]
+
+    def test_a_worker_with_waiting_work_and_no_terminal_is_reported_and_told_to_start_it(self):
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        self.need(COMPASS, reason='offline', updated=ago(minutes=5))
+        self.assertEqual(self.told(), [SCOUT])  # COMPASS has waited under the period
+        summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+        self.assertIn('it has no running session', summary)
+        self.assertIn('agent_terminal_start', summary)
+        self.assertNotIn('agent_terminal_restart', summary)
+
+    def test_the_same_worker_is_not_reported_in_managed_mode(self):
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        self.assertEqual(self.told(terminal=False), [])
+        self.assertEqual(unreachable.reconcile(self.uow, now=self.now), [])
+        self.assertIsNone(unreachable.blocked(self.conn, SCOUT, NOW))
+        self.assertEqual(unreachable.blocked(self.conn, SCOUT, NOW, terminal=True),
+                         {'since': ago(hours=5), 'reason': 'offline'})
+
+    def test_a_turned_off_worker_is_reported_by_its_missing_terminal_and_a_managed_open_streak_is_not_counted(self):
+        self.need(SCOUT, reason='offline', updated=ago(hours=1))
+        self.conn.execute("INSERT INTO native_session_owners VALUES(?, 'stopped')", (SCOUT,))
+        clock = [NOW - timedelta(hours=1)]
+        failures = opener.OpenFailures(clock=lambda: clock[0])
+        patch.object(opener, 'FAILURES', failures).start()
+        failures.failed(SCOUT, 'cli_unavailable')
+        failures.failed(SCOUT, 'cli_unavailable')
+        self.assertEqual(self.told(), [SCOUT])
+        summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+        self.assertIn('it has no running session', summary)
+        self.assertNotIn('turned off', summary)
+        self.assertNotIn('not installed', summary)
+
+    def test_the_composer_reasons_are_worded_and_a_busy_composer_is_not_a_fault(self):
+        for reason, words in (('composer_not_empty', 'its input box holds unsent text'),
+                              ('composer_unrecognized', 'its screen shows something other than the input box'),
+                              ('composer_modal', 'a dialog is open in its terminal')):
+            self.conn.execute('DELETE FROM inbox_nudge_attempts')
+            self.conn.execute('DELETE FROM inbox_events')
+            self.need(SCOUT)
+            self.attempts(SCOUT, ('deferred', reason, 60), ('deferred', reason, 1))
+            self.assertEqual(self.told(), [SCOUT], reason)
+            summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+            self.assertIn(words, summary)
+            self.assertIn('agent_terminal_restart', summary)
+        for busy in ('composer_busy', 'submit_interrupts'):
+            self.conn.execute('DELETE FROM inbox_nudge_attempts')
+            self.conn.execute('DELETE FROM inbox_events')
+            self.attempts(SCOUT, ('deferred', busy, 60), ('deferred', busy, 1))
+            self.assertEqual(self.told(), [], busy)
+
+    def test_the_managed_rules_still_hold_with_terminals_for_a_worker_that_has_a_terminal(self):
+        self.need(SCOUT)
+        self.attempts(SCOUT, ('deferred', 'host_unverified', 40))
+        self.assertEqual(self.told(), [SCOUT])
+
+
 class WorkerMessageLimitTests(unittest.TestCase):
     def setUp(self):
         for target, value in (('qorqut.agents.worker_access.is_worker', lambda connection, agent: agent in WORKERS),

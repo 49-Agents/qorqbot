@@ -12,7 +12,8 @@ process, never from the profile), its pid, the conversation it holds (from the d
 whether a turn is running, and what ``apply`` would do. The owner's own shell sessions in the same tmux server are listed and
 never touched.
 
-``apply`` takes the instance lifetime lock (so it refuses while the service runs) and then, agent by agent, stopping at the
+``apply`` refuses on an installation whose setting (``managed_runtime/mode.py``) says ``terminal``: the owner chose terminals in
+Settings, and Settings is the way back. It takes the instance lifetime lock (so it refuses while the service runs) and then, agent by agent, stopping at the
 first failure: records the client, model and effort the client was started with in the agent's ``options.json``; ends the
 client with SIGTERM (waits for a turn in progress up to ``--wait-seconds`` unless ``--force``), verifies by pid and start time
 that it is gone; ends the helpers the client leaves behind (an MCP bridge, a tool: its children, and any process still in the agent's
@@ -53,6 +54,7 @@ import sys
 import time
 
 from qorqut import process_info
+from qorqut.managed_runtime import mode as runtime_mode
 from qorqut.composition.locations import agent_workspace_of
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import InstanceOwnership
@@ -81,6 +83,7 @@ CODEX_INTERACTIVE_SUBCOMMANDS = frozenset({'resume', 'fork'})
 CHILD_GRACE = 3.0         # seconds the helpers of an ended client get to end on their own before they are asked to
 TERM_WAIT = 30.0          # seconds a client gets to end after SIGTERM before ``--force`` may kill it
 KILL_WAIT = 10.0
+TERMINAL_CHOSEN = 'This installation runs agents in terminals by the owner\'s choice. Switch to Managed sessions in Settings instead.'
 
 
 class CutoverError(Exception):
@@ -1031,7 +1034,11 @@ def write_record(path, document):
 
 
 def run_apply(paths, env, *, only=None, force=False, wait_seconds=300.0, poll=2.0, keep_mode_files=False, allow_mismatch=False,
-              machine=None, tmux_factory=None, socket=None, folder=None, term_wait=TERM_WAIT, lock=True, record=True):
+              machine=None, tmux_factory=None, socket=None, folder=None, term_wait=TERM_WAIT, lock=True, record=True, switching=False):
+    """``switching`` is for the owner's switch in Settings (``native_chat/runtime_switch.py``), which runs this inside the service
+    while the installation still says ``terminal``; a run by hand never passes it."""
+    if not switching and runtime_mode.is_terminal(paths):
+        raise CutoverError('terminal_mode_chosen', TERMINAL_CHOSEN)
     machine = machine or Machine()
     owner = InstanceOwnership(paths).acquire() if lock else None
     try:

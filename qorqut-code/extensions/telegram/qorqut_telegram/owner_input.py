@@ -2,7 +2,7 @@
 
 Every accepted owner message is already a durable canonical inbox message; this worker additionally delivers the same text
 into the exact agent's native session through the shared input arbiter, when, and only when, the arbiter verifies the
-registered session. Anything else queues with a stable reason,
+registered session (in Terminals mode: the terminal's idle, empty composer of the right client). Anything else queues with a stable reason,
 is retried with bounded backoff, and produces one owner-visible notice per queue episode. The intent is committed as
 ``submitting`` before the first input, so a crash or a doubtful outcome is ``uncertain`` and is never delivered again.
 
@@ -10,6 +10,10 @@ An agent whose session is asleep is opened by the arbiter for this input (the ow
 was ended back on): the arbiter starts the open in the background and answers ``session_starting``, so this queue never waits for
 it, and the next attempt, on the queue's own backoff, delivers the input once the session is bound. A failed open leaves the input
 queued with the open's own reason. This worker never kills a session.
+
+In Terminals mode an agent with no running terminal is never opened: the input stays queued with ``terminal_absent`` until the
+agent is started, and the owner reads about a terminal, as in earlier versions. The mode is the installation's, asked of the service
+(``bridge.runtime.paths``) at every use; managed wording is unchanged.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import logging
 
 from qorqut_operations.contracts import DomainError
 from qorqut.agents.global_scope import active_global
+from qorqut.managed_runtime import mode
 from qorqut.native_chat.contracts import (InputRequest, NativeChatError, RESULT_DEFERRED, STATE_FAILED, STATE_SUBMITTED,
                                             STATE_UNCERTAIN, TYPE_TELEGRAM)
 from . import store
@@ -51,9 +56,19 @@ NOTICE_REASONS = {
     "host_never_received": "its session did not receive the message",
     "host_rejected": "its session did not accept the message",
 }
+# Terminals mode words these three codes for a terminal (managed mode keeps the session wording above).
+TERMINAL_NOTICE_REASONS = {
+    "terminal_absent": "its terminal is not running (nothing was started)",
+    "terminal_unverified": "its terminal is not running the expected client",
+    "terminal_unsupported": "its terminal cannot be reached from here",
+}
+# The reasons only a session reports; in Terminals mode the queued notice words their delivery for a session, not a composer.
+MANAGED_REASONS = frozenset(NOTICE_REASONS) - set(TERMINAL_NOTICE_REASONS)
+# What a managed agent's input receipt carries instead of a terminal's (adapter ``managed``).
+MANAGED_CODES = frozenset({"host_timeout", "host_connection_lost", "driver_unavailable"})
 # What the shared arbiter reports for an input it did not type, in this worker's stable status codes. ``session_closed`` is
-# a managed agent whose session is not open.
-DEFERRALS = {"unsupported_target": "terminal_unsupported", "session_closed": "session_closed"}
+# a managed agent whose session is not open; ``terminal_offline`` (only the terminal adapter says it) an agent with no running terminal.
+DEFERRALS = {"terminal_offline": "terminal_absent", "unsupported_target": "terminal_unsupported", "session_closed": "session_closed"}
 PREFACE = ("Qorqut owner message via Telegram (correlation {correlation}). The same message is in your inbox; handle it "
            "once. It is owner input for this request, not blanket authorization.")
 SIGNOFF_PREFACE = ("Qorqut owner reply via Telegram on your Signoff \"{title}\" (note {correlation}). The same reply is saved on "
@@ -77,6 +92,10 @@ class OwnerInputs:
     def __init__(self, bridge):
         self.bridge = bridge
         self._unrecorded = {}
+
+    def terminal(self):
+        """Whether the installation runs its agents in terminals; read at every use, the owner can switch while the service runs."""
+        return mode.is_terminal(getattr(getattr(self.bridge, "runtime", None), "paths", None))
 
     def arbiter(self):
         native = getattr(self.bridge.runtime, "native_chat", None)
@@ -123,7 +142,7 @@ class OwnerInputs:
             text, profile, body = self._load(row, now)
             arbiter = self.arbiter()
             if arbiter is None:
-                self._defer(row, "session_unavailable", now)
+                self._defer(row, "terminal_unavailable" if self.terminal() else "session_unavailable", now)
                 return
 
             def checkpoint():
@@ -145,7 +164,7 @@ class OwnerInputs:
             # types it again. A private payload is typed but never stored by the arbiter.
             request = InputRequest(row["agent_id"], TYPE_TELEGRAM, "telegram:" + row["id"], text, sensitive=bool(row["sensitive"]),
                                    metadata={"purpose": row["purpose"]})
-            outcome = self._outcome(arbiter.submit(request, on_checkpoint=checkpoint))
+            outcome = self._outcome(arbiter.submit(request, on_checkpoint=checkpoint), terminal=self.terminal())
         except Final as exc:
             self._settle(row, exc.state, exc.code)
             return
@@ -180,7 +199,7 @@ class OwnerInputs:
             self._defer(row, outcome.reason, now)
 
     @staticmethod
-    def _outcome(result):
+    def _outcome(result, terminal=False):
         """The arbiter's result in this worker's vocabulary: submitted | uncertain | failed | deferred."""
         from qorqut.native_chat.contracts import OwnerInputOutcome
         receipt = dict(result.evidence) or None
@@ -190,7 +209,7 @@ class OwnerInputs:
             return OwnerInputOutcome("uncertain", result.reason, receipt)
         if result.state == STATE_FAILED:
             return OwnerInputOutcome("failed", result.reason, receipt)
-        reason = DEFERRALS.get(result.reason, result.reason or "session_unavailable")
+        reason = DEFERRALS.get(result.reason, result.reason or ("terminal_unavailable" if terminal else "session_unavailable"))
         if result.state == RESULT_DEFERRED or reason == "stale_session":
             return OwnerInputOutcome("deferred", reason)
         return OwnerInputOutcome("failed", reason)
@@ -272,13 +291,18 @@ class OwnerInputs:
                     (row["agent_id"],)).fetchone():
                 message = store.message(uow, current["message_id"])
                 label = LABELS.get(message["chat_name"], "agent")
-                why = NOTICE_REASONS.get(reason, "its session is not ready for input")
+                # Terminals mode words a code no session reports (and one nobody worded) for a terminal; managed mode never does.
+                session = not self.terminal() or reason in MANAGED_REASONS
+                why = (NOTICE_REASONS.get(reason, "its session is not ready for input") if session else
+                       TERMINAL_NOTICE_REASONS.get(reason, "its terminal is busy or not ready for input"))
                 # A secret's canonical inbox note holds only a redacted marker, so it never claims an inbox copy.
                 kept = ("Only a redacted marker is in the agent's inbox; the text is kept briefly" if current["sensitive"]
                         else "It is also in the agent's inbox")
+                delivery = ("will be delivered when its session can take it. " if session
+                            else "will be typed into the terminal when the composer is free. ")
                 notice(bridge, uow, message,
-                       f"Your message is queued for the {label} agent because {why}. {kept} and will be delivered when its "
-                       "session can take it. Nothing was interrupted.",
+                       f"Your message is queued for the {label} agent because {why}. {kept} and {delivery}"
+                       + ("Nothing was interrupted." if session else "Nothing was started or interrupted."),
                        f"input:{row['id']}:queued")
                 changes["notice_sent_at"] = now
             uow.repository("telegram_owner_inputs").update(row["id"], changes, expected_revision=current["revision"])
@@ -336,15 +360,33 @@ class OwnerInputs:
         if row["purpose"] != "owner_message" or row["state"] not in ("uncertain", "failed", "expired"):
             return
         label = LABELS.get(message["chat_name"], "agent")
+        session = not self.terminal() or self._managed(row)
         texts = {
             "uncertain": (f"Your message to the {label} agent may or may not have reached its session, and it will not be sent again. "
-                          "It is in the agent's inbox; check its Chat before resending."),
+                          "It is in the agent's inbox; check its Chat before resending." if session else
+                          f"Your message to the {label} agent may or may not have reached the terminal, and it will not be typed again. "
+                          "It is in the agent's inbox; check the terminal before resending."),
             "failed": (f"Your message to the {label} agent could not be delivered to its session ({row['error_code']}). "
+                       "It is in the agent's inbox." if session else
+                       f"Your message to the {label} agent could not be typed into its terminal ({row['error_code']}). "
                        "It is in the agent's inbox."),
             "expired": f"Your secret input for the {label} agent expired before it could be delivered and was discarded. "
                        "Ask the agent to request it again.",
         }
         notice(bridge, uow, message, texts[row["state"]], f"input:{row['id']}:{row['state']}")
+
+    @staticmethod
+    def _managed(row):
+        """Whether a settled input went to a session: its receipt names the ``managed`` transport, or its code is one only a
+        session reports. Asked only in Terminals mode, where an older managed input may still settle."""
+        receipt = row.get("receipt_json")
+        if isinstance(receipt, str):
+            try:
+                receipt = json.loads(receipt)
+            except ValueError:
+                receipt = None
+        return ((isinstance(receipt, dict) and receipt.get("transport") == "managed")
+                or row.get("error_code") in MANAGED_CODES | MANAGED_REASONS)
 
     # ----- reconciliation -------------------------------------------------------------------------------------
 

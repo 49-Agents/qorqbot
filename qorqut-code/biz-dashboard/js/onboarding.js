@@ -11,7 +11,13 @@ const onboarding = (() => {
     {id: 'assistant', chapter: 'online', title: 'meet ordubashy', menu: true,
       body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. Qorqbot runs him for you, and you talk to him in Chat.',
       hint: 'This menu opens when you point at the mark at the top left. It lists your agents, Walkthrough and Settings.',
-      target: () => agentButton('ordubashy')},
+      target: () => agentButton('ordubashy'),
+      // terminals-begin
+      terminals: {
+        body: 'Ordubashy is your lead agent. Give him a goal. He carries the work forward, hands parts to helpers and brings decisions back to you. You start him in his own Terminal, and you talk to him in Chat.',
+        hint: 'This menu opens when you point at the mark at the top left. It lists your agents, Walkthrough, Terminal and Settings.'},
+      // terminals-end
+    },
     {id: 'focus', chapter: 'workspace', view: 'focus', title: 'focus',
       body: 'The right side is Ordubashy’s workspace. Focus keeps what needs you in one place: signoffs waiting for your answer, side chats and the threads you pin, with your own notes below.',
       hint: 'Only you see these notes; agents never read them.',
@@ -39,17 +45,30 @@ const onboarding = (() => {
     {id: 'settings', chapter: 'yours', title: 'settings', menu: true,
       body: 'Settings holds your connections, the client and model each agent uses, the theme and text size, and values such as API keys.',
       hint: 'Walkthrough, in this same menu, takes this tour again, or one chapter of it.',
-      target: () => document.querySelector('[data-global-settings]')},
+      target: () => document.querySelector('[data-global-settings]'),
+      // terminals-begin
+      terminals: {body: 'Settings holds your connections, how agents run, the client and model each agent uses, the theme and text size, and values such as API keys.'},
+      // terminals-end
+    },
     // No target: the whole screen dims and the promise stands on its own.
     {id: 'privacy', chapter: 'connect', title: 'your data stays yours', wide: true, standalone: true,
       body: '<b class="onboarding-promise">Your work stays on this computer.</b> Qorqbot’s servers know only your sign-in email and that Qorqbot is in use. Never your conversations, files or what your agents do.',
       instructions: ['What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.'],
-      target: () => null},
+      target: () => null,
+      // terminals-begin
+      terminals: {instructions: ['What you ask your agents goes to Claude Code under your own account, the same as when you use it directly.']},
+      // terminals-end
+    },
     {id: 'connect-overview', chapter: 'connect', title: 'two ways to reach your tools', wide: true, standalone: true,
       body: 'Both are optional.',
       instructions: ['<b>Agent browser:</b> built into Qorqbot and the default way agents use websites. Works with both Claude Code and Codex. To connect a site, ask Ordubashy, for example “connect my Slack”. It opens Chrome and you sign in yourself, so your password goes only to that website.',
         '<b>Extensions:</b> extra tools that run inside Qorqbot and work with both Claude Code and Codex. Start with treg: one key gives your agents thousands of live data lookups, such as search results and company details. Add your key in Settings under Extensions.'],
-      target: () => null},
+      target: () => null,
+      // terminals-begin
+      terminals: {instructions: ['<b>Agent browser:</b> built into Qorqbot and the default way agents use websites. Works with Claude Code. To connect a site, ask Ordubashy, for example “connect my Slack”. It opens Chrome and you sign in yourself, so your password goes only to that website.',
+        '<b>Extensions:</b> extra tools that run inside Qorqbot and work with Claude Code. Start with treg: one key gives your agents thousands of live data lookups, such as search results and company details. Add your key in Settings under Extensions.']},
+      // terminals-end
+    },
     {id: 'browser-setup', chapter: 'connect', tab: 'settings', title: 'agent browser',
       body: 'It sets itself up. This card shows when it’s ready, or how to fix it if not. Websites Ordubashy connects for you are listed with it.',
       target: () => document.querySelector('[data-cx-browser-area]')},
@@ -62,9 +81,21 @@ const onboarding = (() => {
         chosen: name => `Ordubashy is set to use ${name}, which isn’t connected. Connect it in Settings, or choose the other one under Agents, then say hello.`},
       // A first walkthrough types the hello for the owner, and done sends it.
       typed: '“hi, help me get set up” is typed in below. Press done to send it. Ordubashy asks a few quick questions about you, then connects the tools you want him to use.',
-      target: () => document.querySelector('#global-agent-chat .gchat-composer')},
+      target: () => document.querySelector('#global-agent-chat .gchat-composer'),
+      // terminals-begin
+      // Nothing starts Ordubashy by itself here, so the hello is typed only once he is running (see terminalHello).
+      terminals: {
+        body: 'Once Ordubashy is running, say “hi, help me get set up” in Chat. He asks a few quick questions about you, then connects the tools you want him to use.',
+        hint: 'His replies appear here in Chat. He answers only while he is running in his Terminal.',
+        offline: 'Start Ordubashy in his Terminal first, with the terminal icon above Chat, then say hello to him in Chat.'},
+      // terminals-end
+    },
   ];
-  const steps = allSteps;
+  let steps = allSteps;
+  // terminals-begin
+  // The Terminals wording replaces fields of a step only while agents run in terminals; otherwise the list is used as written.
+  const terminalsOn = () => typeof agentMode !== 'undefined' && agentMode.terminals();
+  // terminals-end
   let root = null, card = null, target = null, index = 0, generation = 0, busy = false;
   let saved = null, writes = Promise.resolve(), observer = null, resize = null, frame = 0, previousFocus = null;
   let targetDescription = null, welcome = false, booted = false, savedInert = false, stepTargetReady = false;
@@ -123,6 +154,9 @@ const onboarding = (() => {
     if (root) return;
     previousFocus = document.activeElement; savedInert = !!document.querySelector('.app')?.inert;
     replay = saved?.status === 'completed';
+    // terminals-begin
+    steps = onboardingPlan.stepsFor(allSteps, terminalsOn());
+    // terminals-end
     root = document.createElement('div'); root.className = 'onboarding';
     root.innerHTML = `<div class="onboarding-shade" data-shade="top"></div><div class="onboarding-shade" data-shade="bottom"></div><div class="onboarding-shade" data-shade="left"></div><div class="onboarding-shade" data-shade="right"></div><div class="onboarding-outline" aria-hidden="true"></div><section class="onboarding-card" role="dialog" aria-labelledby="onboarding-title" aria-describedby="onboarding-description"></section>`;
     card = root.querySelector('.onboarding-card'); document.body.appendChild(root);
@@ -164,6 +198,9 @@ const onboarding = (() => {
   }
   // Sends the typed hello when the owner left it as it is; otherwise only focuses the composer for their own first message.
   async function sendHello(send) {
+    // terminals-begin
+    if (send && terminalsOn()) send = onboardingPlan.helloLive(await readChat(findAgent('ordubashy')?.agent_id));
+    // terminals-end
     const input = await waitFor(() => document.querySelector('#global-agent-chat .gchat-composer textarea:not(:disabled)'), 10000);
     if (!send || ![HELLO, ''].includes(input.value.trim())) { input.focus({preventScroll: true}); return; }
     input.value = HELLO; input.dispatchEvent(new Event('input', {bubbles: true}));
@@ -276,6 +313,24 @@ const onboarding = (() => {
     card.querySelectorAll('[data-tour-chapter-pick]').forEach(button => button.onclick = () => showStep(Number(button.dataset.tourChapterPick)));
     position(); card.querySelector('[data-tour-start]').focus({preventScroll: true});
   }
+  // terminals-begin
+  const readChat = id => id ? api(`${globalChatBase(id)}?limit=20`, {signal: AbortSignal.timeout(4000)}).then(coreData).catch(() => null) : Promise.resolve(null);
+  // The last step when agents run in terminals: it never depends on the client checks, only on Ordubashy being live and able to
+  // receive. Otherwise it says where to start him and leaves the owner free to finish without sending.
+  async function terminalHello(step, assistant, token) {
+    const chat = await readChat(assistant.agent_id);
+    if (!isCurrent(token)) return;
+    const description = card.querySelector('#onboarding-description');
+    if (!onboardingPlan.helloLive(chat)) { description.textContent = step.offline; return; }
+    const written = (chat.entries || []).some(entry => entry.speaker === 'user') || (chat.inputs || []).some(item => item.origin === 'owner');
+    const input = step.target()?.querySelector('textarea');
+    if (!replay && !written && input && !input.disabled && [HELLO, ''].includes(input.value.trim())) {
+      greet = assistant.agent_id;
+      input.value = HELLO; input.dispatchEvent(new Event('input', {bubbles: true}));
+      description.innerHTML = step.typed;
+    }
+  }
+  // terminals-end
   async function prepareStep(step, token) {
     if (step.tab === 'settings') {
       if (state.scope !== 'global' || state.globalTab !== 'settings' || !document.querySelector('.settingspane')) await selectGlobal('settings');
@@ -311,6 +366,9 @@ const onboarding = (() => {
     // says so and offers Settings instead. On the first walkthrough, while the owner has never written to him, it types the message
     // for them and done sends it; that works whether he is asleep or off, because sending turns him on.
     if (step.hello) {
+      // terminals-begin
+      if (terminalsOn()) { await terminalHello(step, assistant, token); return; }
+      // terminals-end
       const read = path => api(path, {signal: AbortSignal.timeout(4000)}).then(coreData).catch(() => null);
       const [chat, clients, options] = await Promise.all([read(`${globalChatBase(assistant.agent_id)}?limit=20`), read('/root/agent-clients'),
         read(`${globalChatBase(assistant.agent_id)}/options`)]);

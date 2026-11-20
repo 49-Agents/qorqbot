@@ -68,8 +68,9 @@ def business_task_page(tasks, query, business_id):
 
 
 class DashboardCompatibility:
-    def __init__(self, runtime, *, background=None, local_files=None):
-        self.runtime, self.background = runtime, background
+    def __init__(self, runtime, *, terminals=None, background=None, local_files=None):
+        # ``terminals`` is only kept for composition; every terminal route is answered by ``TerminalService.route``.
+        self.runtime, self.terminals, self.background = runtime, terminals, background
         if local_files is None:
             from qorqut.service.local import LocalFiles
             local_files = LocalFiles(runtime)

@@ -3,6 +3,7 @@
 let globalAgentsGeneration = 0;
 let globalTestingModeUnsubscribe = null;
 let globalRosterUnsubscribe = null;
+let globalModeUnsubscribe = null;
 const OVERSEER_ROLE = 'learning-applier';
 const overseerRole = agent => (agent?.role?.id || agent?.role_id) === OVERSEER_ROLE;
 const OVERSEER_UNAVAILABLE_LABEL = 'Overseer, available in testing mode only.';
@@ -54,8 +55,16 @@ async function globalAgentsNavigate(agentId, options = {}) {
   if (!root?.openAgent) return false;
   return await root.openAgent(agentId, options) === true;
 }
-// Older versions saved, and linked to, a workspace shell that no longer exists. That id is not an agent: it is read as "nothing saved".
-const globalRetiredSelection = id => /^__qorqut_workspace_terminal(?:_[23])?__$/.test(id || '');
+const GLOBAL_WORKSPACE_TERMINAL = '__qorqut_workspace_terminal__';
+// One owner shell keeps the original id, route and tmux session. Older saved or
+// linked Terminal 2/3 selections open it instead; their sessions and routes are untouched.
+// `globalWorkspaceTerminalId` only recognizes a saved or linked id, whether or not the page still offers that entry.
+const globalWorkspaceTerminalId = id => /^__qorqut_workspace_terminal(?:_[23])?__$/.test(id || '');
+const globalWorkspaceTerminal = id => globalWorkspaceTerminalId(id)
+  ? {id: GLOBAL_WORKSPACE_TERMINAL, label: 'Terminal', base: '/root/workspace-terminal'} : null;
+// The shell is offered only while agents run in terminals. Where it is not offered, a saved or linked shell id is not an agent:
+// it is read as "nothing saved" and the page opens Ordubashy without a message.
+const globalRetiredSelection = globalWorkspaceTerminalId;
 // Ordubashy and Learning Applier are singletons; any number of permanent workers share `global-worker`.
 const GLOBAL_AGENT_ROLES = ['ordubashy', 'global-worker', 'learning-applier'];
 // Keep the owner's primary agents first, independent of API order.
@@ -158,6 +167,7 @@ const globalRosterAgent = agent => globalActiveProfile(agent) && GLOBAL_AGENT_RO
 const GLOBAL_AGENT_UNAVAILABLE = 'This agent is no longer active. Its history is kept.';
 // Question mark in a circle, matching the stroke weight of the Settings icon.
 const GLOBAL_GUIDE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.3-2.4 3.8"/><path d="M12 17h.01"/></svg>';
+const GLOBAL_TERMINAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>';
 const GLOBAL_MENU_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
 // An agent profile link opens an active global agent; any other agent is history only.
 async function agentProfileOpen(agentId) {
@@ -172,6 +182,8 @@ async function renderGlobalAgents(c) {
   globalTestingModeUnsubscribe = null;
   globalRosterUnsubscribe?.();
   globalRosterUnsubscribe = null;
+  globalModeUnsubscribe?.();
+  globalModeUnsubscribe = null;
   const generation = ++globalAgentsGeneration;
   const current = () => generation === globalAgentsGeneration && c.isConnected
     && state.scope === 'global' && state.globalTab === 'agents';
@@ -194,6 +206,9 @@ async function renderGlobalAgents(c) {
   }
   if (!current()) return;
   let rosterOverseer = agents.find(overseerRole) || null;
+  // Asked each time, never kept: the answer can arrive after the first paint and changes after a switch.
+  const shellMode = () => typeof agentMode !== 'undefined' && agentMode.terminals();
+  const shellButton = () => `<button class="item agent global-workspace-terminal" type="button" data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}" aria-pressed="false" data-tip="Terminal" aria-label="Terminal"><span class="nm">${GLOBAL_TERMINAL_ICON}<span class="agent-nav-label">Terminal</span></span></button>`;
   c.innerHTML = `<div class="split global-agents agsplit agent-nav-overlay-mode">
     <button type="button" class="quiet agent-nav-trigger" data-agent-nav-trigger popovertarget="global-agent-navigation" aria-controls="global-agent-navigation" aria-expanded="false" aria-label="Agent navigation">${GLOBAL_MENU_ICON}</button>
     <div class="listcol agent-nav-overlay" id="global-agent-navigation" popover="auto" role="navigation" aria-label="Agent navigation">
@@ -202,7 +217,7 @@ async function renderGlobalAgents(c) {
           <div class="global-roster" id="global-agent-list"></div>
         </div>
         <div class="crows global-workspace-links">
-          <button class="item agent global-workspace-guide" type="button" data-global-guide data-tip="Walkthrough" aria-label="Walkthrough"><span class="nm">${GLOBAL_GUIDE_ICON}<span class="agent-nav-label">Walkthrough</span></span></button>
+          <button class="item agent global-workspace-guide" type="button" data-global-guide data-tip="Walkthrough" aria-label="Walkthrough"><span class="nm">${GLOBAL_GUIDE_ICON}<span class="agent-nav-label">Walkthrough</span></span></button>${shellMode() ? shellButton() : ''}
           <button class="item agent global-workspace-settings" type="button" data-global-settings data-tip="Settings" aria-label="Settings"><span class="nm">${GLOBAL_ICONS.settings}<span class="agent-nav-label">Settings</span></span></button>
         </div>
       </div></div>
@@ -221,6 +236,10 @@ async function renderGlobalAgents(c) {
   </div>`;
   const navTimeline=wireGlobalAgentNavOverlay($('.global-agents', c));
   const list = $('#global-agent-list', c), pane = $('#global-agent-chat', c), nav = $('.listcol', c);
+  // The owner's workspace shell is an entry of this menu while agents run in terminals. A saved selection or a link that names it
+  // while the menu has no such entry (or any other id that no longer exists) is not an error: it falls back to Ordubashy without a message.
+  const hasWorkspaceShell = () => !!nav.querySelector(`[data-global-agent="${GLOBAL_WORKSPACE_TERMINAL}"]`);
+  const workspaceShell = id => hasWorkspaceShell() && typeof mountTerminal === 'function' ? globalWorkspaceTerminal(id) : null;
   const comingSoon = $('#overseer-coming-soon', c);
   const comingSoonError = $('.overseer-coming-soon-error', comingSoon);
   const comingSoonRetry = $('.overseer-coming-soon-retry', comingSoon);
@@ -250,8 +269,9 @@ async function renderGlobalAgents(c) {
       button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on));
     });
     const agent=agents.find(candidate=>candidate.agent_id===selected), trigger=$('[data-agent-nav-trigger]',c);
-    const name=agent ? agent.display_name || agent.name : 'Agents';
-    trigger.innerHTML=agent ? globalAgentNavAvatar(agent) : GLOBAL_MENU_ICON;
+    const shell=!agent && selected===GLOBAL_WORKSPACE_TERMINAL && hasWorkspaceShell();
+    const name=agent ? agent.display_name || agent.name : shell ? 'Terminal' : 'Agents';
+    trigger.innerHTML=agent ? globalAgentNavAvatar(agent) : shell ? GLOBAL_TERMINAL_ICON : GLOBAL_MENU_ICON;
     trigger.dataset.selectedAgent=selected;
     navTimeline.setAgent(agent);
     trigger.setAttribute('aria-label',`Agent navigation, ${name} selected`);
@@ -260,7 +280,12 @@ async function renderGlobalAgents(c) {
 
   // ---- selection
   // Selecting an agent mounts its Chat and its agent pane; the backend session is never started or stopped by selecting.
-  const disposeChat = () => agentViewDispose();
+  let shellMounted = false;
+  const disposeChat = () => {
+    agentViewDispose();
+    // Leaving the shell closes its viewer; the shell itself keeps running on the server.
+    if (shellMounted) { shellMounted = false; if (typeof teardownTerm === 'function') teardownTerm(); }
+  };
   const root = $('.global-agents', c);
   let gated = false;
   const paintComingSoonError = () => {
@@ -327,9 +352,10 @@ async function renderGlobalAgents(c) {
   const select = (agent, requestedView = null, remember = true, leaveChecked = false) => {
     if (!current()) return;
     const selection = leaveChecked || ++selectionVersion;
-    const id = agent?.agent_id;
+    const workspace = typeof agent === 'string' ? workspaceShell(agent) : null;
+    const id = workspace ? workspace.id : agent?.agent_id;
     if (!id) return;
-    const comingSoonTarget = overseerRole(agent) && !testingModeEnabled();
+    const comingSoonTarget = !workspace && overseerRole(agent) && !testingModeEnabled();
     if (selected === id) {
       if (comingSoonTarget) {
         if (!gated) enterComingSoon();
@@ -356,10 +382,13 @@ async function renderGlobalAgents(c) {
     if (comingSoonTarget) { enterComingSoon(); return; }
     gated = false;
     leaveComingSoon();
-    pane.dataset.agentPane = 'on';
+    pane.dataset.agentPane = workspace ? 'off' : 'on';
     disposeChat();
-    mountAgentView(pane, agent, {isCurrent: () => current() && selected === agent.agent_id});
-    agpadMount(agent.display_name || agent.name, $('#agpad', c), {
+    if (!workspace) mountAgentView(pane, agent, {isCurrent: () => current() && selected === agent.agent_id});
+    else { mountTerminal(selected, pane, () => {}, workspace.base); shellMounted = true; }
+    agpadMount(workspace ? '' : (agent.display_name || agent.name), $('#agpad', c), workspace ? {
+      biz: null, open: false, isCurrent: () => false,
+    } : {
       biz: null, agentId: agent.agent_id, workspaceScope: 'global', workspaceRole: agent.role?.id || null,
       businessGrants: agent.scope?.allowed_business_ids || [],
       initialView: requestedView, open: true,
@@ -390,7 +419,7 @@ async function renderGlobalAgents(c) {
     if (!button) return;
     const id = button.dataset.globalAgent;
     if (event.ctrlKey || event.metaKey) { event.preventDefault(); agentOpenTab(id); return; }
-    select(agents.find(a => a.agent_id === id));
+    select(workspaceShell(id) ? GLOBAL_WORKSPACE_TERMINAL : agents.find(a => a.agent_id === id));
   };
   $('.global-agents', c).openAgent = async (id, {chat = false, view = null, viewboxItem = null} = {}) => {
     ++selectionVersion;
@@ -423,9 +452,11 @@ async function renderGlobalAgents(c) {
   const fresh = !!request;
   if (!request && !linkedAgent && !linkedFocus) request = agentWorkspaceRehydrate();
   const rememberedRaw = request?.agentId || linkedAgent || (linkedFocus ? agents.find(a => a.role?.id === 'ordubashy')?.agent_id : ls('ag:scope:global'));
-  const staleShell = globalRetiredSelection(rememberedRaw), remembered = staleShell ? null : rememberedRaw;
-  if (staleShell) request = null;
-  const target = agents.find(a => a.agent_id === remembered);
+  const savedShell = globalRetiredSelection(rememberedRaw), staleShell = savedShell && !workspaceShell(rememberedRaw);
+  const remembered = staleShell ? null : rememberedRaw;
+  // The shell has no workspace view, so a stored workspace descriptor for it means nothing.
+  if (savedShell) request = null;
+  const target = savedShell ? (staleShell ? undefined : GLOBAL_WORKSPACE_TERMINAL) : agents.find(a => a.agent_id === remembered);
   // A stored Business descriptor for an agent whose pane no longer offers it opens the shared Tables for a table selection,
   // and is otherwise dropped, leaving the agent on its own default view.
   if (request?.view === 'business' && target && !agentWorkspaceDescriptorRole('business', target.role?.id)) {
@@ -447,8 +478,32 @@ async function renderGlobalAgents(c) {
   else if (linkedView === 'tables') { linkedView = null; globalThis.ovOpen?.('tables', {scope: 'global'}); }
   agentWorkspaceRequest = request;
   agentWorkspaceApplied = JSON.stringify(request || null);
-  const first = target || agents.find(a => a.role?.id === 'ordubashy') || agents[0];
+  const first = target || agents.find(a => a.role?.id === 'ordubashy') || agents[0] || (workspaceShell(GLOBAL_WORKSPACE_TERMINAL) ? GLOBAL_WORKSPACE_TERMINAL : null);
   if (first) select(first, request?.view || linkedView);
   else pane.innerHTML = '<p class="muted" role="status">No agents are available.</p>';
+  const firstVersion = selectionVersion;
   agentWorkspaceRequest = null;
+  // The mode can be answered a moment after this first paint, and changes after a switch followed by a reload. The menu follows it:
+  // the shell entry appears or goes, a shell that is open when terminals end gives way to Ordubashy, and a shell id that was saved
+  // or linked (and so fell back above) opens when terminals turn out to be on, if nothing else was chosen meanwhile.
+  const paintShellEntry = () => {
+    const links = nav.querySelector('.global-workspace-links'), existing = nav.querySelector('.global-workspace-terminal');
+    if (!shellMode()) { existing?.remove(); return; }
+    if (!existing) links.querySelector('[data-global-settings]').insertAdjacentHTML('beforebegin', shellButton());
+  };
+  const onModeChanged = () => {
+    if (!current()) return;
+    const had = hasWorkspaceShell();
+    paintShellEntry();
+    if (had === hasWorkspaceShell()) return;
+    if (had && selected === GLOBAL_WORKSPACE_TERMINAL) {
+      const fallback = agents.find(a => a.role?.id === 'ordubashy') || agents[0];
+      selected = null;
+      if (fallback) select(fallback, null, true); else { disposeChat(); pane.innerHTML = '<p class="muted" role="status">No agents are available.</p>'; }
+    } else if (savedShell && selectionVersion === firstVersion) select(GLOBAL_WORKSPACE_TERMINAL);
+    paintSelection();
+    if (typeof agentNavPaint === 'function') agentNavPaint();
+  };
+  document.addEventListener('agent-mode-changed', onModeChanged);
+  globalModeUnsubscribe = () => document.removeEventListener('agent-mode-changed', onModeChanged);
 }

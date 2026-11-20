@@ -3,6 +3,8 @@
 // into an agent; a message from the owner starts or wakes the agent's session, and End session turns the agent off. One mount owns
 // one SSE stream, its timers and listeners, and releases all of them in dispose().
 // Composer state is bound to the exact agent and conversation, and outlives a mount so a switch never leaks or loses it.
+// When agents run in terminals (the legacy option) a payload with `session.execution === 'terminal'` takes the small guarded calls into
+// js/agent-terminal-view.js (Terminal view, live/offline wording); every other payload is a managed session and never reaches them.
 const GLOBAL_CHAT_DRAFTS = new Map();           // scope -> unsent composer text
 const GLOBAL_CHAT_FILES = new Map();            // scope -> selected browser Files; copied only when Send is pressed
 const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: the frozen identity of an unconfirmed send, reused by a retry
@@ -85,7 +87,7 @@ const GLOBAL_CHAT_MAX = 17000;
 const GLOBAL_CHAT_REFUSALS = new Set(['capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
   'unsupported_runtime', 'terminal_changed', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict',
   'managed_command', 'session_closed', 'driver_unavailable', 'cli_unavailable', 'cli_not_signed_in', 'resume_failed', 'resume_unavailable', 'open_timeout', 'open_busy',
-  'session_opening', 'host_unverified']);
+  'session_opening', 'host_unverified', 'terminal_offline', 'terminal_required', 'terminal_present', 'terminal_mode_off', 'runtime_switching']);
 const GLOBAL_CHAT_REFUSAL_TEXT = {
   capture_disabled: 'Chat unavailable.',
   capture_not_ready: 'Connecting. Try again in a moment.',
@@ -121,6 +123,11 @@ const PAIRED_THREAD_BUSY = 'Wait for the message to send, or save the signoff, b
 function agentViewDispose() { globalAgentViewActive?.dispose(); }
 function mountAgentView(pane, agent, opts = {}) {
   agentViewDispose();
+  // Terminals mode: a second host for the Terminal view and the Chat/Terminal switch live in js/agent-terminal-view.js.
+  if (typeof agentTerminalView !== 'undefined' && agentTerminalView.on()) {
+    return agentTerminalView.mountView(pane, agent, opts, {mountChat: mountGlobalChat, openReference: globalChatOpenFocusReference,
+      adopt: view => { globalAgentViewActive = view; }, release: view => { if (globalAgentViewActive === view) globalAgentViewActive = null; }});
+  }
   let chat = null, disposed = false;
   const chatHost = document.createElement('div');
   chatHost.className = 'gchat-view-host';
@@ -190,7 +197,10 @@ function mountGlobalChat(pane, agent, options = {}) {
   const hasContext=globalChatHasContext(agent);
   // Managed runtime (js/agent-runtime.js): the Stop, activity and question block is built with the first session read.
   let managedBar = null;
-  pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}"></div>`;
+  // Terminals mode only: the Chat/Terminal switch (options.openTerminal comes from the Terminal view and from nowhere else).
+  const terminalSync = {};
+  const controls = options.openTerminal && typeof agentTerminalView !== 'undefined' ? `<div class="gchat-session-switch">${agentTerminalView.toggleHtml()}</div>` : '';
+  pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">${controls}</div>`;
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
   const sessionLine = document.createElement('div');
@@ -384,11 +394,14 @@ function mountGlobalChat(pane, agent, options = {}) {
 
   // ---- session status, composer enablement and the empty state
   // A closed managed agent has no binding to pin: sending a message opens its session.
-  const canSend = () => !pairedHost && !!session?.can_send && (viewingLive() || agentRuntime.canOpen(session)) && !finished;
+  // A terminal agent that is not running receives nothing: a message goes only to the live conversation.
+  const canSend = () => !pairedHost && !!session?.can_send
+    && (viewingLive() || (!(typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)) && agentRuntime.canOpen(session))) && !finished;
   const selectedFiles = () => GLOBAL_CHAT_FILES.get(composerScope) || [];
   // What the conversation holds, and whether a message that starts the session is on its way: the wording of the session line.
   const hasHistory = () => entries.size > 0 || shownInputs.length > 0 || hasLocal;
-  const sessionSummary = () => session ? agentRuntime.summary(session, label, viewingLive(), {history: hasHistory(),
+  const sessionSummary = () => session && typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)
+    ? agentTerminalView.summary(session, label, viewingLive()) : session ? agentRuntime.summary(session, label, viewingLive(), {history: hasHistory(),
     opening: agentRuntime.closed(session) && (GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId))}) : {key: 'loading', line: ''};
   // ---- slash commands: the catalog for the CLI this session runs
   const commandCatalogs = new Map();
@@ -399,7 +412,13 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (!commandCatalogs.has(provider)) {
       commandCatalogs.set(provider, null);
       api(`${base}/commands?client=${encodeURIComponent(provider)}`)
-        .then(data => { if (!disposed) { commandCatalogs.set(provider, coreData(data).commands || []); slashMenu?.refresh(); } })
+        .then(data => {
+          if (disposed) return;
+          // A terminal agent's menu commands are finished in its Terminal: they are offered, not refused.
+          const list = coreData(data).commands || [];
+          commandCatalogs.set(provider, typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session) ? agentTerminalView.catalog(list) : list);
+          slashMenu?.refresh();
+        })
         .catch(() => commandCatalogs.delete(provider));
     }
     return commandCatalogs.get(provider);
@@ -407,6 +426,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   function emptyState() {
     if (entries.size || shownInputs.length || hasLocal || !session) return {text: '', action: null};
     const key = sessionSummary().key;
+    if (typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)) return agentTerminalView.emptyState(session, label, key, options.openTerminal);
     if (key === 'live' || key === 'working') return {text: 'Your agent conversation appears here.', action: null};
     if (key === 'closed' || key === 'off' || key === 'offline') return {text: agentRuntime.emptyText(session, label), action: null};
     if (key === 'starting') return {text: `Starting ${label}…`, action: null};
@@ -416,14 +436,16 @@ function mountGlobalChat(pane, agent, options = {}) {
   // ---- managed runtime: Stop, the activity line, the cards and End session follow the session
   const runtimeSend = async (path, body) => coreData(await post(`${base}${path}`, body));
   function syncManaged() {
-    if (session && !managedBar && sessionLine.parentNode) {
+    // A terminal agent has no managed session: no Stop block, no activity line, no question cards, no End session.
+    const terminal = typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session);
+    if (session && !terminal && !managedBar && sessionLine.parentNode) {
       managedBar = agentRuntime.createBar({label, send: runtimeSend, binding: () => liveBinding()?.binding_id || null,
         onChange: () => { paintSession(); void load(); }, onError: showBanner});
       sessionLine.parentNode.insertBefore(managedBar.el, sessionLine);
       cleanups.push(() => managedBar?.dispose());
     }
     managedBar?.update(session);
-    endSession.update(finished ? null : session);
+    endSession.update(finished || terminal ? null : session);
   }
   // The session line says what the empty conversation does not already say in the middle of the pane.
   const sessionLineText = (summary, hint) => hint.text && ['closed', 'off', 'starting'].includes(summary.key) ? '' : summary.line;
@@ -431,11 +453,12 @@ function mountGlobalChat(pane, agent, options = {}) {
   function paint(patch = {}, scroll = 'preserve') {
     if (disposed) return;
     const summary = sessionSummary(), working = summary.key === 'working' && !streamDown && !finished;
+    const terminal = typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session);
     sessionLine.dataset.state = streamDown && summary.key === 'working' ? 'live' : summary.key;
     sessionLine.classList.toggle('gchat-session-working', working);
     // An empty conversation already shows the same direction in the middle of the pane.
     const hint = emptyState();
-    sessionText.textContent = finished ? 'This chat is no longer available.' : sessionLineText(summary, hint);
+    sessionText.textContent = finished ? 'This chat is no longer available.' : terminal ? agentTerminalView.sessionLineText(summary, hint) : sessionLineText(summary, hint);
     // The activity line (Stop, what the agent is doing) already shows the dots while it is there; in the focus panel they stay.
     workingTag.hidden = !working || (workingTag.parentElement === sessionLine && !!agentRuntime.activity(session).text);
     contextStatus?.show();
@@ -443,18 +466,21 @@ function mountGlobalChat(pane, agent, options = {}) {
     // they appear, so the list stays at its end (the last message is never under the card) and a list scrolled up stays where it is.
     const pinned = !!view?.isAtBottom?.();
     syncManaged();
+    if (options.openTerminal && typeof agentTerminalView !== 'undefined') agentTerminalView.syncChat(root, session, options, terminalSync);
     sessionLine.hidden = !sessionText.textContent && endSession.el.hidden && (!working || workingTag.parentElement !== sessionLine);
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId);
     // A message that opens the session is on its way: every control that is off says the one thing, "Starting <agent>…", until the session is open.
-    const opening = GLOBAL_CHAT_OPENING.has(agentId) || (agentRuntime.closed(session) && GLOBAL_CHAT_INFLIGHT.has(composerScope));
+    const opening = !terminal && (GLOBAL_CHAT_OPENING.has(agentId) || (agentRuntime.closed(session) && GLOBAL_CHAT_INFLIGHT.has(composerScope)));
+    const unavailable = () => terminal ? agentTerminalView.unavailableText(session, label, {finished, paired: !!pairedHost})
+      : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost, opening});
     const pending = presentInputs();
     view.render({
       ...patch, pending,
       composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, filesDisabled: !enabled || sending,
-        disabledReason: enabled ? '' : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost, opening}),
+        disabledReason: enabled ? '' : unavailable(),
         sendingReason: GLOBAL_CHAT_OPENING.has(agentId) ? `Starting ${label}…` : 'Sending your message…', filesReason: opening ? `Starting ${label}…` : 'Wait until your message is sent.',
         attachments: selectedFiles().map(file => ({key: file.key, name: file.file.name})),
-        placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost, opening})},
+        placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : unavailable()},
       older: {visible: older != null, disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
@@ -466,6 +492,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   const paintInputs = () => paint();
   const paintSession = () => paint();
   const showBanner = text => { bannerText = text || ''; reconnecting = false; view.render({banner: {text: bannerText}}); };
+  if (options.openTerminal) listen(root, 'click', event => { if (event.target.closest('[data-terminal]')) options.openTerminal(); });
 
   // Drops the displayed page and its session so nothing stale can be read, sent or acknowledged until a fresh successful state
   // arrives. The unsent draft stays in its conversation-specific store.
@@ -495,7 +522,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     });
   }
   const saveDraft = () => { if (!composerScope) return; const text = view.getDraft(); if (text) GLOBAL_CHAT_DRAFTS.set(composerScope, text); else GLOBAL_CHAT_DRAFTS.delete(composerScope); };
-  const refusalText = problem => problem.offered ? '' : agentRuntime.refusalText(problem.code, problem.serverMessage) || GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
+  const refusalText = problem => problem.offered ? '' : (typeof agentTerminalView !== 'undefined' && agentTerminalView.refusalText(session, problem.code))
+    || agentRuntime.refusalText(problem.code, problem.serverMessage) || GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
   // One admission request. The result is recorded in module state so a mount that was left meanwhile loses nothing.
   // A closed managed agent has no session to pin: the message goes without a binding and opens one.
   // The owner's explicit choice to start a fresh conversation instead of the one that can't be continued: the next request (and its
@@ -599,6 +627,7 @@ function mountGlobalChat(pane, agent, options = {}) {
         }
         const result = await admit(payload, attempt.key, attempt.pin);
         globalChatAccept(mine, payload, result.input, attempt.position, !!slash);
+        if (typeof agentTerminalView !== 'undefined') agentTerminalView.finishInTerminal(slash, text, session, label, options.openTerminal, toast);
         // A first message opens the conversation, so the composer may have moved to its scope meanwhile: the bubble follows it.
         if (composerScope && composerScope !== mine) globalChatAccept(composerScope, payload, result.input, attempt.position, !!slash);
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
@@ -618,7 +647,7 @@ function mountGlobalChat(pane, agent, options = {}) {
         if (live() && composerScope === mine) showBanner(problem.code === 'message_too_long' ? 'Shorten your message and try again.'
           : problem.attachment ? "Couldn't attach the file. Try again."
           : GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem) : "Couldn't confirm. Try again");
-        if (problem.code === 'capture_not_ready' || problem.code === 'terminal_changed') void load();
+        if (problem.code === 'capture_not_ready' || problem.code === 'terminal_changed' || problem.code === 'terminal_offline') void load();
       } finally {
         GLOBAL_CHAT_INFLIGHT.delete(mine);
         if (opened) opening.end();
@@ -679,6 +708,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     // A Signoff reference is the existing single-item Signoff view: the owner session, exact proposal and decisions stay its own.
     mountSignoff: (ref, host) => sgChatMount(ref, host, {active: () => !disposed}),
     onViewportChange: scheduleRead,
+    onEmptyAction: action => { if (action === 'terminal') options.openTerminal?.(); },
     onPendingAction: (action, id) => {
       if (action === 'resend') void resendInput(id);
       else if (action === 'dismiss') { GLOBAL_CHAT_HIDDEN.add(id); paintInputs(); }

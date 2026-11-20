@@ -1,8 +1,8 @@
 # Extraction procedure
 
 Use this procedure in the continuing Overseer chat for a due or owner-requested
-extraction. A due request opens the chat when it is asleep and stays pending while the chat is paused or
-turned off; do not launch or resume a session. Read pending due requests with
+extraction. A due request opens the chat when it is closed, unless it runs in a terminal, and stays pending while the chat is paused,
+turned off or not running; do not launch or resume a session. Read pending due requests with
 `overseer_due_list` or their exact reference with `overseer_due_get`, then admit
 one only through `overseer_extract_request` with that exact reference; the inbox
 notice and the reported missed-slot count are not analysis and claim no coverage.

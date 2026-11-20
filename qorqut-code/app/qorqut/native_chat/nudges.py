@@ -45,7 +45,8 @@ PASS_SECONDS = 3.0
 REVALIDATE_SECONDS = 30.0
 MAX_RECEIPT_KEYS = 12
 # Reasons the transport gives when it can never send to this exact session: the nudge is visibly unavailable, never retried at once.
-UNAVAILABLE_REASONS = frozenset({"unsupported_transport", "unsupported_target", "unsupported_runtime", "capture_disabled"})
+UNAVAILABLE_REASONS = frozenset({"unsupported_transport", "unsupported_target", "unsupported_runtime", "capture_disabled",
+                                 "terminal_unavailable"})
 # A session that changed or an agent that is no longer registered: the reservation is stale, not a failed delivery.
 STALE_REASONS = frozenset({"stale_session", "agent_unavailable"})
 # An agent whose session is closed (its host is gone or closed): the steady "offline" state of an agent nobody opened, not

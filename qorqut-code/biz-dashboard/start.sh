@@ -22,7 +22,8 @@
 #   COMPONENT_OPERATIONS_ENGINE, COMPONENT_CONTEXT_ENGINE, COMPONENT_ROLES   optional component locations
 # `start.sh argv` prints the exact launch command, one element per line, without starting anything.
 #
-# `stop` ends the dashboard only. Agent sessions run in their own host processes; they close on their own when idle.
+# `stop` ends the dashboard only. Managed agent sessions run in their own host processes; they close on their own when idle.
+# In the legacy Terminals mode (only where tmux is installed) the agents' terminals keep running and are found again on the next start.
 set -euo pipefail
 umask 077
 
@@ -155,7 +156,7 @@ cmd_stop() {
   for _ in {1..40}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
   if kill -0 "$pid" 2>/dev/null; then die "graceful shutdown timed out (pid $pid); inspect before recovery"; fi
   rm -f "$PIDFILE"
-  echo "stopped (pid $pid). Open agent sessions keep running until they are idle."
+  echo "stopped (pid $pid). Open agent sessions keep running; managed ones close when idle."
 }
 
 cmd_foreground() {

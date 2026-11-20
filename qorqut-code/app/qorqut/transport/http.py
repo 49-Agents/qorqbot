@@ -181,9 +181,11 @@ async def revalidated_async(request, changes, kinds, scope, produce):
 
 
 class HTTPAPI:
-    def __init__(self, runtime, authentication, origins, *, compatibility=None):
+    terminals = None  # The TerminalService; composition passes it, and tests that build the object by hand run without one.
+
+    def __init__(self, runtime, authentication, origins, *, compatibility=None, terminals=None):
         self.runtime, self.authentication, self.origins = runtime, authentication, origins
-        self.compatibility = compatibility
+        self.compatibility, self.terminals = compatibility, terminals
         self.route_counters = RouteCounters()
         # The selected extensions' routes are exact keys on the frozen selection; a route grants no authority, the
         # dispatch below still applies its own owner, bearer and origin checks before any handler is called.
@@ -191,6 +193,15 @@ class HTTPAPI:
         self.statuses = selection.error_statuses
         self.guards = selection.operation_guards()
         self.owner_routes, self.integration_routes, self.agent_routes = selection.routes()
+
+    def require_terminals(self):
+        """A terminal-only route in managed mode (or during a switch) answers the product's normal error before anything else runs."""
+        if self.terminals is not None:
+            return self.terminals.require_terminals()
+        from qorqut.managed_runtime import mode
+        if not mode.is_terminal(getattr(self.runtime, "paths", None)):
+            raise DomainError("terminal_mode_off", "Agents run as managed sessions on this installation.")
+        raise DomainError("operation_unavailable", "Agent terminals are not available on this installation")
 
     def context(self, actor, slug=None, *, owner=False):
         with self.runtime.database.read() as uow:
@@ -279,7 +290,7 @@ class HTTPAPI:
     # compatibility.py). Every other real endpoint either fits within that
     # same 4-segment envelope before an id/slug appears, or extends past it
     # only through a uuid (already templated) or authored content (asset
-    # paths, context/person slugs, and agent name selectors, which
+    # paths, context/person slugs, and terminal/agent name selectors, which
     # accept either the agent's uuid or its plain registered name). Capping
     # at 4 keeps every literal-only route distinct while forcing any
     # authored tail of any length beyond it into one placeholder segment.
@@ -450,6 +461,54 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "agent-trust"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Agent trust consent is for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can change agent trust")
+                self.require_terminals()
+                from qorqut.agent_trust import owner_view
+                body = await read_json(request, limit=1024) if request.method == "POST" else None
+                if request.method == "POST" and not isinstance(body, dict):
+                    raise DomainError("validation_error", "Agent trust consent must be an object")
+                agent_id = request.query_params.get("agent_id")
+                data = await anyio.to_thread.run_sync(partial(owner_view, self.runtime, body, agent_id))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
+            if parts == ["root", "agents", "runtime"] and request.method in {"GET", "POST"}:
+                # How agents run (managed sessions or terminals): the owner's own setting, never an agent's. Dispatched before the
+                # per-agent routes below, which would read ``runtime`` as an agent.
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "How agents run is for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can change how agents run")
+                switch = getattr(self.runtime, "runtime_switch", None)
+                if switch is None:
+                    raise DomainError("operation_unavailable", "Switching how agents run is not available")
+                if request.method == "GET":
+                    data = await anyio.to_thread.run_sync(partial(switch.view, context.principal_id))
+                else:
+                    body = await read_json(request, limit=1024)
+                    if not isinstance(body, dict):
+                        raise DomainError("validation_error", "A change of how agents run must be an object")
+                    checked_fields(body, {"mode", "force", "trust"}, {"mode"})
+                    if body["mode"] not in ("managed", "terminal"):
+                        raise DomainError("validation_error", "Choose managed or terminal")
+                    for flag in ("force", "trust"):
+                        if flag in body and type(body[flag]) is not bool:
+                            raise DomainError("validation_error", f"{flag} must be true or false")
+                    data = await anyio.to_thread.run_sync(partial(switch.start, context.principal_id, body["mode"],
+                                                                  force=bool(body.get("force")), trust=bool(body.get("trust"))))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "agent-clients"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Agent clients are for the owner's dashboard")
@@ -574,7 +633,7 @@ class HTTPAPI:
             from qorqut.native_chat import http as native_chat_http
             if native_chat_http.matches(parts) and self.runtime.native_chat is not None:
                 return await native_chat_http.route(self.runtime, request, actor.principal.id, parts, request_id)
-            if parts[:1] == ["root"] and parts[1:2] == ["agents"]:
+            if parts[:1] == ["root"] and parts[1:2] in (["agents"], ["terminal"], ["terminals"], ["workspace-terminal"]):
                 context, _ = self.context(actor)
                 if parts == ["root", "agents"] and request.method == "GET":
                     result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, "agents_list", {"scope": "global"}))
@@ -590,6 +649,9 @@ class HTTPAPI:
                     return JSONResponse(data, headers={"Cache-Control": "no-store"})
                 if len(parts) >= 4 and parts[1] == "agents" and parts[3] == "browser-live":
                     return await self.browser_live(request, context, parts[2], parts[4:], request_id)
+                if self.terminals and parts[1:2] in (["terminal"], ["terminals"], ["workspace-terminal"]):
+                    # The service itself refuses in managed mode (``require_terminals``), before it touches tmux.
+                    return await self.terminals.route(request, context, None, parts[1:])
                 raise DomainError("not_found", "Global agent endpoint is not registered")
             if parts[:2] == ['root','release'] and len(parts)==3:
                 if request.headers.get('authorization') is not None:
@@ -693,6 +755,18 @@ class HTTPAPI:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
                 if parts[2] in {"routines_runs", "jobs_get"} and args.get("scope") != "global":
                     raise DomainError("forbidden", "Global routines and jobs are read with scope=global")
+                result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
+                return response(result)
+            if parts == ["root", "operations", "agent_terminal_start"] and request.method == "POST":
+                # Chat's Start button in Terminals mode: the owner's own start of one Global agent, through the normal operation,
+                # policy and durable terminal dispatch. Only a single target is accepted here; batches stay with
+                # terminal_command_issue.
+                context, _ = self.context(actor)
+                self.require_terminals()
+                args, options = split_options(await read_json(request, limit=4096))
+                checked_fields(args, {"target_agent_id", "rationale"}, {"target_agent_id", "rationale"})
+                if options.business_id is not None or options.review_business_id is not None:
+                    raise DomainError("forbidden", "This endpoint requires Global scope")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
             if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {

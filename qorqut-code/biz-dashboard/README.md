@@ -3,7 +3,11 @@
 The owner dashboard for the Qorqut agent platform. It is a component of the
 Qorqut host, not an independent production server: the host service
 (`qorqut.service`, from `qorqut-code/app`) serves these static assets and the
-authenticated HTTP MCP endpoint from one process.
+authenticated HTTP MCP endpoint from one process. Agents run as managed
+sessions by default. Terminals are a legacy option for the whole installation,
+chosen in Settings, and are offered only where `tmux` is installed; the dashboard
+then shows each agent's Terminal beside its Chat, and the owner's own Workspace
+shell appears in the agents menu.
 `start.sh` launches that service; `server.py` is only a thin entry point that
 forwards its arguments to it. There is no business-chat subprocess, CLI domain
 bridge, per-agent MCP server or arbitrary command runner.
@@ -24,6 +28,7 @@ Nothing in this component installs, deploys or restarts a service.
 | `index.html`, `file-viewer.html`, `tables-view.html` | Entry pages: the shell, the standalone file reader and the read-only table page. |
 | `js/`, `css/`, `app.css` | Static modules and styles. There is no frontend build step. |
 | `server.py` | Thin entry point: imports the installed host's `qorqut.service.main` and forwards its arguments. It never looks for a sibling host checkout and holds no service, configuration or write logic. |
+| `pty_broker.py` | Terminals mode only: the tmux shells behind the agents' Terminal view and the owner's Workspace shell (needs `tmux` on the computer; unused in managed mode). |
 | `start.sh`, `.env.dashboard.example` | Launcher and its machine config (see [Setup and lifecycle](#setup-and-lifecycle)). |
 | `docs/` | Component contracts (see [Documents](#documents)). |
 | `tests/` | Node browser fixtures and Python launcher/broker tests. |
@@ -86,7 +91,8 @@ forwards them as `--workspace`, `--instance-root` and `--component NAME=PATH` to
 ```
 
 Dashboard state lives under `BIZ_DASH_STATE`, else
-`.state` beside `start.sh`. The default private origin is
+`.state` beside `start.sh`. Terminals mode keeps its tmux configuration under
+`BIZ_DASH_STATE`, else `$XDG_STATE_HOME/qorqut/terminals`. The default private origin is
 `http://127.0.0.1:1049`; a host behind another address lists explicit origins in
 `BIZ_SERVICE_ORIGINS` (for example `http://qorqut.example:1071`).
 
