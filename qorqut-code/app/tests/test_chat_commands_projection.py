@@ -64,5 +64,32 @@ class InterruptRecordTest(unittest.TestCase):
             self.assertEqual((result.entry.speaker, result.entry.text), (projection.SPEAKER_USER, text))
 
 
+class FillerRecordTest(unittest.TestCase):
+    """Resuming a conversation whose last turn was stopped makes Claude Code write a filler reply; the agent did not say it."""
+
+    @staticmethod
+    def said(text, uuid, model="<synthetic>", stop="stop_sequence"):
+        value = {"type": "assistant", "uuid": uuid, "sessionId": "s1", "timestamp": "2026-11-19T10:00:00Z", "parentUuid": "p",
+                 "message": {"id": "m-" + uuid, "role": "assistant", "model": model, "stop_reason": stop,
+                             "content": [{"type": "text", "text": text}]}}
+        return SimpleNamespace(kind="json", value=value, offset=0, length=10)
+
+    def test_the_filler_is_hidden_and_changes_no_turn(self):
+        projector = projection.Projector("claude", "s1")
+        result = projector.feed(self.said("No response requested.", "a1"))
+        self.assertIsNone(result.entry)
+        self.assertTrue(result.hidden)
+        self.assertIsNone(result.completion)
+        projector.feed(record("what was the word?", "u1"))
+        self.assertEqual(projector.state.origin, projection.ORIGIN_USER)
+        projector.feed(self.said("No response requested.", "a2"))
+        self.assertEqual(projector.state.origin, projection.ORIGIN_USER, "a filler never ends the owner's turn")
+
+    def test_the_same_words_from_the_agent_and_other_notices_of_the_client_stay_visible(self):
+        for text, model in (("No response requested.", "claude-opus-4-7"), ("You've hit your usage limit.", "<synthetic>")):
+            result = projection.Projector("claude", "s1").feed(self.said(text, "a3", model))
+            self.assertEqual((result.entry.speaker, result.entry.text), (projection.SPEAKER_AGENT, text), (text, model))
+
+
 if __name__ == "__main__":
     unittest.main()
