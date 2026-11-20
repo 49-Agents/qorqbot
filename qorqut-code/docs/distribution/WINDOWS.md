@@ -33,7 +33,7 @@ cd qorqbot
 ./qorqbot
 ```
 
-The dashboard opens in your Windows browser at `http://localhost:1049` (through
+The dashboard opens in your Windows browser at `http://127.0.0.1:1049` (through
 `wslview` if installed, otherwise `explorer.exe`). If it does not open, open that
 address yourself. `--no-open` skips the browser and `--port` picks another port;
 later starts reuse the last port so running agents keep their address. Your first
@@ -50,8 +50,11 @@ Do not unregister the WSL distro as an application-uninstall method: that would
 delete other Linux data too.
 
 Install tmux and your chosen Linux Codex/Claude Code client **inside Ubuntu** for
-agent terminals. The same applies to Chrome/agent-browser and optional desktop
-tools used by agents. The Windows browser displays the dashboard; it does not
+agent terminals. The same applies to optional desktop tools used by agents.
+Agents' web browsing works as in the Linux guide: the package ships the
+`agent-browser` tool, and inside Ubuntu Qorqbot downloads its own Chrome once
+the app runs. If Settings says that Chrome cannot start here, install Google Chrome
+inside Ubuntu. The Windows browser displays the dashboard; it does not
 replace the agent's Linux automation browser. Accounts are user-managed.
 Fastmail, Telegram and WhatsApp use the same separate Linux connector bundles.
 The normal Linux guide covers provider setup and supported updates.

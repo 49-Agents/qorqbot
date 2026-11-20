@@ -33,6 +33,11 @@ def inside(phase):
         spec.loader.exec_module(launcher)
         env = launcher.environment(root, root / 'instance/home')
         assert not (root / 'runtime/native').exists()
+        browser_tool = launcher.shipped_agent_browser(root)
+        assert browser_tool == root / 'runtime/tools/agent-browser', browser_tool
+        assert launcher.AGENT_BROWSER_VERSION in subprocess.run([browser_tool, '--version'], capture_output=True, text=True,
+                                                                  check=True, timeout=60).stdout
+        assert env.get('QORQUT_AGENT_BROWSER_EXECUTABLE') == str(browser_tool)
         for name, flag in (('git', '--version'), ('tmux', '-V')):
             path = shutil.which(name, path=env['PATH'])
             assert path and not Path(path).is_relative_to(root), name

@@ -241,8 +241,8 @@ def require_prerequisites(env, self_contained=False):
 
 
 # The browser tool the agents' own browser control drives (qorqut.browser), pinned to the version and npm integrity
-# in qorqut-code/app/tools/browser/package-lock.json. Qorqbot installs it into the folder itself on first launch; only the
-# native binary for this machine is kept, so no Node is needed to run it.
+# in qorqut-code/app/tools/browser/package-lock.json. A package ships it; a folder without it (an older download) installs it
+# on first launch. Only the native binary for this machine is kept, so no Node is needed to run it.
 AGENT_BROWSER_VERSION = '0.38.1'
 AGENT_BROWSER_URL = 'https://registry.npmjs.org/agent-browser/-/agent-browser-0.38.1.tgz'
 AGENT_BROWSER_SHA512 = 'k58FCz0yUOCANoNkMiqJe+H2y6r6sUZazqXsWF+MYq1iRC42PjtLcBoag6SSTOD/FRQppvPDvE5HDYEhclvnhw=='
@@ -268,9 +268,13 @@ def agent_browser_path(root):
 
 
 def shipped_agent_browser(root):
-    """The browser tool a self-contained package ships, or None."""
-    path = Path(root) / 'runtime/native/bin/agent-browser'
-    return path if path.is_file() and os.access(path, os.X_OK) else None
+    """The browser tool the package ships, or None. A self-contained package has it beside its tmux and git; a package that
+    uses the computer's own tools has it in ``runtime/tools``, so that the folder of bundled tools stays absent there."""
+    for place in ('runtime/native/bin/agent-browser', 'runtime/tools/agent-browser'):
+        path = Path(root) / place
+        if path.is_file() and os.access(path, os.X_OK):
+            return path
+    return None
 
 
 def _download(url, destination, limit, timeout=120, opener=urllib.request.urlopen):

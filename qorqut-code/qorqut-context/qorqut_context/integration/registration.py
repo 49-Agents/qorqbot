@@ -12,6 +12,7 @@ from __future__ import annotations
 from qorqut_context.integration import filing, graph_edits, queue, usage
 from qorqut_context.integration.filing import operations as filing_operations
 from qorqut_context.integration.filing import source_operations
+from qorqut_context.integration.graph_edits import personal_edit
 from qorqut_context.integration.questions import operations as question_operations
 from qorqut_context.integration.reading import operations as reading_operations
 from qorqut_operations.application import DelegatedCreationGroup
@@ -39,6 +40,7 @@ CONTEXT_CREATION_GROUPS = (
     # An explicit Context graph edit: its queue input and the graph-edit binding that carries it, created together.
     DelegatedCreationGroup("context_edit", frozenset({"context_graph_edits", "context_inputs"})),
 )
+PERSONAL_EDIT = personal_edit.NAME
 
 
 # -- policy ---------------------------------------------------------------------------------------------------------------
@@ -56,6 +58,20 @@ def question_rule(name, defaults, overrides, registry, *, role_id, scope, resolv
         return PolicyDecision("deny", "context_questions_role")
     if "deny" in (overrides.get(name), defaults.get(name)):
         return PolicyDecision("deny", "context_questions_denied")
+    edit = resolve("context_edit", scope=scope)
+    return PolicyDecision("allow" if edit.mode == "allow" else "deny", "context_edit_authority")
+
+
+def personal_rule(name, defaults, overrides, registry, *, role_id, scope, resolve, coordinator_role):
+    """``personal_set`` is the coordinator's and follows its current ``context_edit`` decision: the tool builds a
+    ``context_edit`` plan, so it grants nothing that decision does not. An explicit deny on its own name wins, and the handler
+    still requires the caller to be the configured Ordubashy. ``None`` leaves every other operation to the remaining rules."""
+    if name != PERSONAL_EDIT:
+        return None
+    if role_id != coordinator_role:
+        return PolicyDecision("deny", "personal_record_role")
+    if "deny" in (overrides.get(name), defaults.get(name)):
+        return PolicyDecision("deny", "personal_record_denied")
     edit = resolve("context_edit", scope=scope)
     return PolicyDecision("allow" if edit.mode == "allow" else "deny", "context_edit_authority")
 

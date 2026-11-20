@@ -23,7 +23,7 @@ CONFIG_KEY = "owner_sessions"
 READ_OPERATIONS = frozenset({
     "operations_describe", "owner_session_bootstrap",
     "context_list", "context_search", "context_get",
-    "context_home", "context_object", "context_expand", "context_find",
+    "context_home", "context_object", "context_expand", "context_find", "personal_get",
     "context_people_list", "context_people_get", "context_maps_get",
     "context_items_list", "context_items_get", "context_navigation_get", "context_graph_get",
     "context_reviews_list", "context_reviews_history", "relationship_roles_list",

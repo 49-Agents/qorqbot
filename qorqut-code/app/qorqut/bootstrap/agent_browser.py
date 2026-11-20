@@ -381,6 +381,21 @@ def explain(output, pinned):
     return output.split(" Run `agent-browser", 1)[0].rstrip() + " " + TAB_GONE_ADVICE + "\n"
 
 
+SHOW_FRAMES = "document.querySelectorAll('iframe[role=presentation]').forEach(f => f.removeAttribute('role'))"
+FRAME_ADVICE = ("frame takes a ref, or a CSS selector for a frame of the same site only. Fields inside a frame are in snapshot "
+                "with refs of their own: fill them directly. A payment frame (Stripe) hides itself from snapshot; show it "
+                f'with ["eval", "{SHOW_FRAMES}"] and snapshot again.')
+
+
+def frame_advice(args, output):
+    """What to do when frame finds no frame. The tool cannot enter a frame of another site by selector, and a snapshot leaves
+    out a frame marked as presentation, which is how Stripe marks its card form; with the mark removed the snapshot shows the
+    frame's fields with refs that fill and click reach directly."""
+    if not args or args[0] != "frame" or "Frame not found" not in output:
+        return output
+    return output.rstrip() + ". " + FRAME_ADVICE + "\n"
+
+
 def standard_input(args):
     """What read sends the tool on standard input; every other command sends nothing.
 

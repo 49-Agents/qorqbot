@@ -15,6 +15,7 @@ from __future__ import annotations
 from qorqut_operations.contracts import DomainError
 
 from .reader import SharedContextReader
+from .schemas import PERSONAL_HIDDEN
 
 TYPES = 8
 TYPE_CHARS = 30
@@ -23,7 +24,6 @@ MAX_CHARACTERS = 6000
 PERSONAL_CHARACTERS = 3000
 PERSONAL_MEMBERS = 8
 PERSONAL_MEMBER_CHARS = 220
-PERSONAL_HIDDEN = frozenset({"basic_entity_type"})
 TRUNCATED = "\n[truncated; read the rest with context_home, context_find, context_object and context_expand]"
 HOLDS = ("One published graph shared by every registered agent; drafts are never shown. It records the people, companies, "
          "projects, terms and other things that have been filed, how they relate, and the notes and sources about them.")
@@ -52,9 +52,11 @@ def _personal_lines(ref, record, characters=PERSONAL_CHARACTERS):
     cut or left out is named, so a reader knows the full record holds more."""
     rule = (f"About the owner (personal record {ref}): the one store of what the owner has told us about themselves. "
             "Use it. Never ask the owner for a fact this record holds. Before you ask the owner anything about "
-            f"themselves, or build a form of such questions, read context_object(ref='{ref}') fresh, fill in what it "
-            "holds and ask only for what is missing. Ordubashy maintains it; other agents pass new personal facts to "
-            "Ordubashy through the existing inbox, with the source and date.")
+            "themselves, or build a form of such questions, read personal_get fresh (every field, or only the fields "
+            "you name), fill in what it holds and ask only for what is missing; the personal-record skill explains "
+            "how. Ordubashy maintains it with "
+            "personal_set; other agents pass new personal facts to Ordubashy through the existing inbox, with the "
+            "source and date.")
     entries, more = [], []
     for name, members in (record.get("attributes") or {}).items():
         if name in PERSONAL_HIDDEN or not members:
@@ -77,7 +79,7 @@ def _personal_lines(ref, record, characters=PERSONAL_CHARACTERS):
         if cut:
             more.append(name)
     if more:
-        lines.append(f"The record holds more under: {', '.join(sorted(more))}. Open {ref} for all of it.")
+        lines.append(f"The record holds more under: {', '.join(sorted(more))}. Read personal_get for all of it.")
     return lines
 
 

@@ -29,6 +29,7 @@ from qorqut_operations.contracts import DomainError, canonical_bytes
 from qorqut_operations.storage.relocation import MAXIMUM_TASKS
 from qorqut_operations.tasks.links import KEY as LINKS
 from qorqut_operations.tasks.models import DEFAULT_CONFIG, stored_fields, validate_task
+from qorqut_operations.tasks.schema import CLOSED_STATES
 from qorqut_operations.tasks.types import attributes
 
 MAXIMUM_ROOTS = 100
@@ -36,6 +37,8 @@ MAXIMUM_BLOCKERS = 100
 MAXIMUM_MESSAGES = 100_000
 MAXIMUM_RELATED = 20_000
 MAXIMUM_STEPS = 1_000
+# Relationship roles that only their Task tools write (the host's ``WORKFLOW_ROLES``): they carry live work, never history.
+WORKFLOW_ROLES = frozenset({"assigned_to", "blocked_by"})
 FORMAT = 1
 # Core tables whose rows follow a moved Task. A host table that references a Task is classified by its own adapter; the
 # schema inventory test requires every foreign key to ``tasks`` to be named by one of the two.
@@ -175,6 +178,28 @@ class TaskRelocation:
             level(identity)
         return rows, tuple(sorted(rows, key=lambda item: (depth[item], item))), roots
 
+    @staticmethod
+    def reviewed(connection, source, edges):
+        """The ids among ``edges`` that have Context review decisions in the source scope."""
+        keys, found = [edge["id"] for edge in edges], set()
+        for start in range(0, len(keys), 500):
+            chunk = keys[start:start + 500]
+            found.update(row[0] for row in connection.execute(
+                "SELECT DISTINCT relationship_id FROM context_reviews WHERE business_id IS ? AND relationship_id IN " + marks(chunk), (source, *chunk)))
+        return found
+
+    @staticmethod
+    def outside_states(connection, source, edges, rows):
+        """``{task id: status}`` of the Tasks outside the move that a ``blocked_by`` edge makes wait on a moved Task."""
+        waiting = sorted({edge["from_id"] for edge in edges if edge["role"] == "blocked_by" and edge["from_type"] == "task"
+                          and edge["from_id"] not in rows})
+        found = {}
+        for start in range(0, len(waiting), 500):
+            chunk = waiting[start:start + 500]
+            found.update((row["id"], row["status"]) for row in connection.execute(
+                "SELECT id, status FROM tasks WHERE business_id IS ? AND id IN " + marks(chunk), (source, *chunk)))
+        return found
+
     # -- inspection ------------------------------------------------------------------------------------------------
 
     def inspect(self, ctx, uow, source, destination, task_ids) -> Inspection:
@@ -216,12 +241,14 @@ class TaskRelocation:
                 row["fields_json"][LINKS] = [{**item, "business_id": destination} if item.get("business_id") == source
                                              and item.get("task_id") in rows else item for item in links]
             rewritten[identity] = row
-            shown = attributes(row)
-            if shown["task_type"] == "email" and shown["email_conversation_id"] is not None:
-                blockers.append(blocker("email_binding", "A Task bound to an email conversation cannot move; "
-                                        "this operation does not move mailbox ownership", identity))
+            # An Email Task's conversation binding is a read-only historical reference (mail is no longer read through it),
+            # so it moves with the Task unchanged; the mailbox and its conversation stay where they are.
             try:
-                validate_task(row, fields)
+                # A field the Task already holds, unchanged, is kept even when the destination does not define it (as on any
+                # edit of older data); a value the destination defines differently is still refused.
+                stored = dict(rows[identity])
+                stored["fields_json"] = json.loads(stored["fields_json"]) if isinstance(stored["fields_json"], str) else stored["fields_json"]
+                validate_task(row, fields, stored)
             except DomainError as error:
                 if error.code != "validation_error":
                     raise
@@ -268,51 +295,70 @@ class TaskRelocation:
                               (destination, *ids)).fetchone():
             blockers.append(blocker("tag_exists", "The destination project already has tags for the same Task ids"))
 
-        # Relationships: edges inside the move and assignments travel; any other edge would change meaning, so it blocks.
+        # Relationships: edges inside the move, assignments and other links from a moved Task to an agent travel with it. A live
+        # dependency that would cross the move blocks it. Every other crossing edge is history: it stays in the source scope as
+        # written, where the record at its other end lives, and is read through the audited move resolver (``RelationshipOperations.stay_edges``).
         edges = connection.execute("SELECT * FROM relationships WHERE business_id IS ? AND ((from_type='task' AND from_id IN " + marks(ids)
                                    + ") OR (to_type='task' AND to_id IN " + marks(ids) + ")) ORDER BY id LIMIT ?",
                                    (source, *ids, *ids, MAXIMUM_RELATED + 1)).fetchall()
-        carried_edges, assignees = [], set()
+        carried_edges, assignees, historical = [], set(), 0
         if len(edges) > MAXIMUM_RELATED:
             blockers.append(blocker("relationships_too_large", "The selection has too many relationships to move safely"))
             edges = []
+        outside = self.outside_states(connection, source, edges, rows)
+        reviewed = self.reviewed(connection, source, edges) if "context_reviews" in tables else set()
         for edge in edges:
             inside = lambda kind, item: kind == "task" and item in rows  # noqa: E731
             moving_from, moving_to = inside(edge["from_type"], edge["from_id"]), inside(edge["to_type"], edge["to_id"])
-            if moving_from and moving_to:
+            travels = (moving_from and moving_to) or (moving_from and (edge["role"] == "assigned_to" or edge["to_type"] == "agent"))
+            if travels and edge["id"] in reviewed:
+                # Context review decisions are immutable and keyed by the edge's scope, so a reviewed edge cannot travel. A
+                # workflow edge must (the Task would lose its assignee or dependency); any other stays behind as history.
+                if edge["role"] in WORKFLOW_ROLES:
+                    blockers.append(blocker("reviewed_relationship", "A moved relationship has Context review decisions that cannot be "
+                                            "rewritten", edge["from_id"] if moving_from else edge["to_id"]))
+                else:
+                    historical += 1
+            elif travels:
                 carried_edges.append(edge)
-            elif moving_from and edge["role"] == "assigned_to":
-                carried_edges.append(edge)
-                assignees.add((edge["from_id"], edge["to_id"]))
-            else:
+                if edge["role"] == "assigned_to":
+                    assignees.add((edge["from_id"], edge["to_id"]))
+            elif edge["role"] == "blocked_by" and edge["from_type"] == "task" and edge["to_type"] == "task" and (
+                    rows[edge["from_id"]]["status"] if moving_from else outside.get(edge["from_id"])) not in CLOSED_STATES:
+                # An open Task waiting on another would lose (or silently keep) its dependency across scopes.
                 owner = edge["from_id"] if moving_from else edge["to_id"]
-                other = edge["to_type"] + " " + edge["to_id"] if moving_from else edge["from_type"] + " " + edge["from_id"]
-                blockers.append(blocker("crossing_relationship", f"The '{edge['role']}' relationship with {other} would cross the "
-                                        "move; remove it or include both ends", owner))
+                other = edge["to_id"] if moving_from else edge["from_id"]
+                blockers.append(blocker("crossing_dependency", f"An open Task depends on Task {other} across the move; "
+                                        "move both, finish the waiting Task or remove the dependency", owner))
+            else:
+                historical += 1
+        counts["historical_relationships"] = historical
         material["relationships"] = [[edge["id"], edge["revision"], edge["role"], edge["from_type"], edge["from_id"], edge["to_type"],
                                       edge["to_id"], edge["context"]] for edge in edges]
+        material["outside_dependents"] = sorted(outside.items())
         if carried_edges:
             keys = [edge["id"] for edge in carried_edges]
             if connection.execute("SELECT 1 FROM relationships WHERE business_id IS ? AND id IN " + marks(keys) + " LIMIT 1",
                                   (destination, *keys)).fetchone():
                 blockers.append(blocker("relationship_id_exists", "The destination project already has a relationship with the same id"))
-            reviewed = connection.execute("SELECT relationship_id FROM context_reviews WHERE business_id IS ? AND relationship_id IN "
-                                          + marks(keys) + " LIMIT 1", (source, *keys)).fetchone() if "context_reviews" in tables else None
-            if reviewed:
-                blockers.append(blocker("reviewed_relationship", "A moved relationship has Context review decisions that cannot be rewritten"))
         for task_id, identity in sorted(assignees):
             try:
                 self.operations.assignee(replace(ctx, business_id=destination, review_business_id=destination), identity, uow)
             except DomainError:
                 blockers.append(blocker("assignee_unavailable", "An assignee cannot work in the destination project", task_id))
 
-        # Links stored on a Task outside the move that name a moved Task would silently go stale: they block.
-        for row in connection.execute(
-                "SELECT DISTINCT t.business_id AS scope, t.id AS identity, json_extract(edge.value,'$.task_id') AS target "
-                "FROM tasks t, json_each(t.fields_json, '$.\"$task_links\"') edge WHERE json_extract(edge.value,'$.business_id') IS ? "
-                "AND json_extract(edge.value,'$.task_id') IN " + marks(ids) + " AND NOT (t.business_id IS ? AND t.id IN " + marks(ids)
-                + ") ORDER BY 1, 2, 3 LIMIT 100", (source, *ids, source, *ids)):
-            blockers.append(blocker("external_task_link", "A Task outside this move links to this Task; remove that link first", row["target"]))
+        # Links stored on a Task outside the move that name a moved Task follow it: that Task's link entry is retargeted to the
+        # destination in the same transaction (its revision advances), so no stored link goes stale.
+        linking = connection.execute(
+            "SELECT DISTINCT t.business_id, t.id, t.revision, t.fields_json FROM tasks t, json_each(t.fields_json, '$.\"$task_links\"') edge "
+            "WHERE json_extract(edge.value,'$.business_id') IS ? AND json_extract(edge.value,'$.task_id') IN " + marks(ids)
+            + " AND NOT (t.business_id IS ? AND t.id IN " + marks(ids) + ") ORDER BY 1, 2 LIMIT ?",
+            (source, *ids, source, *ids, MAXIMUM_RELATED + 1)).fetchall()
+        if len(linking) > MAXIMUM_RELATED:
+            blockers.append(blocker("relationships_too_large", "Too many Tasks outside the move link to these Tasks to retarget them safely"))
+            linking = []
+        material["linking_tasks"] = [[row["business_id"], row["id"], row["revision"]] for row in linking]
+        counts["linking_tasks"] = len(linking)
 
         # Memberships and observations of CRM Tables: table ownership stays where it is; only the record scope changes.
         entries = events = []
@@ -360,7 +406,7 @@ class TaskRelocation:
                   "task_type": attributes(rewritten[identity])["task_type"], "archived": bool(rows[identity]["archived"])} for identity in ordered]
         shown_roots = [{"id": identity, "title": rows[identity]["title"], "previous_parent_id": rows[identity]["parent_id"]} for identity in roots]
         return Inspection(relocation, shown_roots, shown, counts, blockers, material,
-                          {"original": rows, "tasks": rewritten, "edges": carried_edges, "project": dict(target), "links": links,
+                          {"original": rows, "tasks": rewritten, "edges": carried_edges, "project": dict(target), "links": links, "linking": linking,
                            "tables": tables})
 
     # -- application -----------------------------------------------------------------------------------------------
@@ -422,6 +468,15 @@ class TaskRelocation:
                     connection.execute("UPDATE project_item_links SET target_business_id=?, target_namespace=?, revision=revision+1, "
                                        "updated_at=? WHERE id=?", (destination, namespace(destination), at, link["id"]))
                 counts["project_links"] += 1
+            moving = set(ids)
+            for row in inspection.rows["linking"]:
+                fields = json.loads(row["fields_json"]) if isinstance(row["fields_json"], str) else row["fields_json"]
+                fields[LINKS] = [{**item, "business_id": destination} if item.get("business_id") == source and item.get("task_id") in moving
+                                 else item for item in fields[LINKS]]
+                if connection.execute("UPDATE tasks SET fields_json=?, revision=revision+1, updated_at=? WHERE business_id IS ? AND id=? AND revision=?",
+                                      (canonical_bytes(fields).decode(), at, row["business_id"], row["id"], row["revision"])).rowcount != 1:
+                    raise DomainError("revision_conflict", "A linked Task changed during the move; preview it again")
+            counts["linking_tasks"] = len(inspection.rows["linking"])
             for adapter in self.adapters:
                 for name, value in adapter.apply(uow, relocation, at).items():
                     counts[name] = counts.get(name, 0) + value

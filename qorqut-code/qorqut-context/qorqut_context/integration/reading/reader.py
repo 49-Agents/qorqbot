@@ -35,7 +35,7 @@ from qorqut_operations.contracts import DomainError, plain
 from . import cursor as cursors
 from .graph import KINDS, OBJECT_RELATIONSHIPS, PublishedGraph, ref as make_ref
 from .schemas import (CHANGES_LIMIT, EXPAND_LIMIT, FIND_LIMIT, HISTORY_LIMIT, HOME_LIMIT, MAX_SEARCH_WINDOW,
-                      TEXT_LIMIT)
+                      PERSONAL_HIDDEN, TEXT_LIMIT)
 
 REF = re.compile(r"(?:(node|edge|note|source):)?([a-z0-9]{5})")
 UNSUPPORTED_FORMAT = "Unsupported context format"
@@ -266,6 +266,33 @@ class SharedContextReader:
                 "totals": totals, "nodes": [graph.home_node(node_id) for node_id in selected],
                 "page": _page(len(selected), limit, more,
                               cursors.encode("context_home", {}, graph.revision, offset + len(selected)) if more else None)}
+
+    def personal(self, *, fields=None, revision=None) -> dict:
+        """The owner's record as plain facts: every field and its current values, or only the named ``fields``.
+
+        This is the read for "what do we know about the owner". It carries no history, relationships or evidence (the
+        record's own ``context_object`` read has those), so it stays small enough to read whole. ``fields`` always lists
+        every field the record holds, and ``missing`` the requested names it does not hold."""
+        pinned, _ = self._pin("personal_get", {}, None, revision)
+        try:
+            graph = self._graph(pinned, "revision")
+        except _NotReady as error:
+            return error.dto()
+        node_id = graph.snapshot.personal_context_node
+        if not node_id:
+            return {"status": "ready", "revision": graph.revision, "ref": None, "summary": "", "facts": {}, "fields": [],
+                    "missing": sorted(set(fields or ()))}
+        record = graph.record("node", node_id)
+        facts = {name: members for name, members in record["attributes"].items() if name not in PERSONAL_HIDDEN}
+        missing = []
+        if fields:
+            held = {name.casefold(): name for name in facts}
+            wanted = [held.get(name.casefold()) for name in fields]
+            missing = sorted({name for name, found in zip(fields, wanted) if found is None})
+            facts = {name: facts[name] for name in facts if name in set(wanted)}
+        return {"status": "ready", "revision": graph.revision, "ref": record["ref"], "summary": record["summary"],
+                "facts": facts, "fields": sorted(name for name in record["attributes"] if name not in PERSONAL_HIDDEN),
+                "missing": missing}
 
     def entity_types(self, *, revision=None) -> dict:
         """How many published nodes carry each ``basic_entity_type`` value, most common first."""
