@@ -5,6 +5,7 @@ import json
 from qorqut_operations.application.plans import PlanBuilder, schema
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
+from qorqut_operations.global_agents import is_coordinator
 from qorqut_operations.storage.assembly import StorageContribution
 from qorqut_operations.storage.specs import TableSpec
 from .lookup import LOCATED
@@ -78,7 +79,8 @@ class SignoffSources:
                 ('signoffs_source_link', {}, (), 'Make an existing pending owner Signoff the explicit reason a task or record thread needs input. Authorizes both ends; never changes the proposal or task revision.'),
                 ('signoffs_source_unlink', {'link_id': {'type': 'string', 'format': 'uuid'},
                     'expected_link_revision': {'type': 'integer', 'minimum': 1}}, ('link_id', 'expected_link_revision'),
-                 'Remove one response dependency using its current link revision. Keeps the Signoff, answers and work status unchanged.')))
+                 'Remove one response dependency using its current link revision. Keeps the Signoff, answers and work status unchanged. '
+                 'The proposer, the owner or the configured Ordubashy may remove it.')))
 
     def check_source(self, ctx, source, uow):
         self.service.ports.require('sources', 'Source-linked Signoffs are not installed').check(self.service.app, ctx, source, uow)
@@ -107,8 +109,11 @@ class SignoffSources:
             self.check_signoff(ctx, row, uow)
         elif ctx.principal_kind == 'human':
             self.service._context(ctx, uow, owner=True)
-        elif row['proposer_principal_id'] != ctx.principal_id:
-            raise DomainError('forbidden', 'Only the proposer or owner can remove this dependency')
+        elif row['proposer_principal_id'] != ctx.principal_id and (
+                ctx.delegation_assignment_id or not is_coordinator(uow.connection, ctx.principal_id)):
+            # The coordinator removes any agent's dependency, as the owner does: a record must not stay waiting on a
+            # request whose proposer no longer acts.
+            raise DomainError('forbidden', 'Only the proposer, the owner or the coordinator can remove this dependency')
         self.check_source(ctx, args['source'], uow)
         existing = self.find(row['id'], args['source'], uow)
         if name.endswith('_unlink') and (not existing or existing['id'] != args['link_id']

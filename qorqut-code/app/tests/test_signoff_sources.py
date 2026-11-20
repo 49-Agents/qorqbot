@@ -324,6 +324,37 @@ class SignoffSourceTests(unittest.TestCase):
                 'WHERE d.agent_id=? AND e.source_type=\'signoffs\' AND e.source_id=?', (worker, result.data['signoff']['id'])).fetchall()
             self.assertTrue(any('response_submitted' in row[0] for row in delivered))
 
+    def test_the_coordinator_unlinks_and_withdraws_another_agents_request_and_a_peer_cannot(self):
+        worker, peer, coordinator = new_id(), new_id(), new_id()
+        with self.db.transaction() as uow:
+            for identity, role in ((worker, 'global-worker'), (peer, 'global-worker'), (coordinator, 'ordubashy')):
+                uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': role})
+                uow.repository('agent_profiles', business_id=None).insert({'agent_id': identity, 'principal_id': identity,
+                    'namespace': 'ecosystem', 'name': identity, 'workspace': identity, 'profile_json': {'status': 'active',
+                        'role': {'id': role}, 'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}})
+            uow.connection.execute("UPDATE installation SET management_coordinator_id=? WHERE id='service'", (coordinator,))
+
+        def agent(identity):
+            return replace(self.ctx, principal=Principal(identity, 'agent'), source='mcp', profile_revision=1)
+
+        def call(identity, name, args):
+            return self.app.invoke(agent(identity), name, {'scope': 'global', **args}, {'idempotency_key': new_id()})
+
+        created = call(worker, 'signoffs_input_create', {'request_key': 'stale', 'form': self.form, 'source': self.source})
+        self.assertEqual(created.status, 'ok', created.error)
+        signoff, link = created.data['signoff'], created.data['link']
+        unlink = {'source': self.source, 'signoff_id': signoff['id'], 'link_id': link['id'], 'expected_link_revision': link['revision']}
+        # Another worker removes neither the dependency nor the request: both stay the proposer's, the owner's or the coordinator's.
+        self.assertEqual(call(peer, 'signoffs_source_unlink', unlink).error['code'], 'forbidden')
+        self.assertEqual(call(peer, 'signoffs_input_cancel', {'signoff_id': signoff['id']}).error['code'], 'forbidden')
+        self.assertTrue(self.task()['input_needed'])
+        unlinked = call(coordinator, 'signoffs_source_unlink', unlink)
+        self.assertEqual(unlinked.status, 'ok', unlinked.error)
+        self.assertFalse(self.task()['input_needed'])
+        withdrawn = call(coordinator, 'signoffs_input_cancel', {'signoff_id': signoff['id']})
+        self.assertEqual(withdrawn.status, 'ok', withdrawn.error)
+        self.assertEqual(withdrawn.data['signoff']['state'], 'cancelled')
+
     def test_source_links_follow_task_relocation_without_changing_proposal(self):
         from qorqut.domains.tasks.relocation import HostRelocation
         from qorqut_operations.tasks.relocation import Relocation

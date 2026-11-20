@@ -146,7 +146,9 @@ class ManagementService:
         coordinator = self._coordinator(uow)
         existing = uow.connection.execute('SELECT * FROM management_routing WHERE source_type=? AND source_id=?', (args['source_type'], args['source_id'])).fetchone()
         requester = source['proposer_principal_id'] if args['source_type'] == 'signoffs' else source['current_sender_id']
-        if ctx.principal_id not in {requester,self._owner(uow)} and (ctx.principal_id != coordinator or not existing or existing['coordinator_id'] != coordinator):
+        # The configured coordinator routes any agent's source, whether or not it is in intake yet and whichever coordinator
+        # an existing row names: intake must not stay with a requester that is idle or a coordinator identity that is gone.
+        if ctx.principal_id not in {requester,self._owner(uow),coordinator}:
             raise DomainError('forbidden', 'Only the requester or configured coordinator can route this source')
         if existing and args.get('expected_routing_revision') != existing['revision']:
             raise DomainError('revision_conflict','Read the current management routing revision before changing attention')
@@ -245,7 +247,7 @@ class ManagementService:
         row = uow.connection.execute('SELECT * FROM management_routing WHERE id=?', (args['routing_id'],)).fetchone()
         if not row or not self._authorized(self.app.current_context(ctx, uow), row, args, uow):
             raise DomainError('not_found', 'Management intake is unavailable')
-        if row['source_type']!='agent_messages' or ctx.principal_id not in {row['coordinator_id'],self._owner(uow)}:
+        if row['source_type']!='agent_messages' or ctx.principal_id not in {row['coordinator_id'],configured_ordubashy(uow),self._owner(uow)}:
             raise DomainError('forbidden','Only management or the owner can resolve a message; Signoffs retain their own lifecycle')
         require_revision(dict(row), options.expected_revision)
         builder = PlanBuilder(ctx, 'management_resolve', args, 'Resolve management intake', namespace=task_namespace(ctx,args), affected_scope={'kind': 'business', 'business_id': row['business_id']})
@@ -258,7 +260,7 @@ class ManagementService:
         expected = next(t.revision for t in plan.expected_targets if t.resource.resource_type=='management_routing')
         if not row or row['revision'] != expected or not self._authorized(ctx, row, args, uow):
             raise DomainError('revision_conflict', 'Management intake changed; read its current state')
-        if row['source_type']!='agent_messages' or ctx.principal_id not in {row['coordinator_id'],self._owner(uow)}:
+        if row['source_type']!='agent_messages' or ctx.principal_id not in {row['coordinator_id'],configured_ordubashy(uow),self._owner(uow)}:
             raise DomainError('forbidden','Only management or the owner can resolve a message')
         now = timestamp(self.clock)
         uow.connection.execute('UPDATE management_routing SET disposition=?,updated_at=?,updated_by=?,revision=revision+1 WHERE id=? AND revision=?', (args['disposition'],now,ctx.principal_id,row['id'],expected))
@@ -318,7 +320,8 @@ class ManagementService:
             descriptor = self.app.registry.get('signoffs_get')
             self.app.authorize(selected,descriptor,(),uow,
                 namespace='business:'+row['business_id'] if row['business_id'] else 'global')
-        if ctx.principal_id == row['coordinator_id']:
+        # The row keeps the coordinator that routed it; the coordinator configured now reads and settles it all the same.
+        if ctx.principal_id in {row['coordinator_id'], configured_ordubashy(uow)}:
             return True
         if ctx.principal_kind == 'human' and (ctx.principal_id == self._owner(uow) or row['business_id'] and uow.connection.execute('SELECT 1 FROM business_memberships WHERE business_id=? AND principal_id=? AND active=1 AND is_owner=1', (row['business_id'], ctx.principal_id)).fetchone()):
             return True
@@ -338,7 +341,7 @@ class ManagementService:
             scopes = list(ctx.allowed_business_ids)
             business_clause = 'r.business_id IN ('+','.join('?' for _ in scopes)+')' if scopes else '0'
             clauses.append('(r.business_id IS NULL OR '+business_clause+')'); params.extend(scopes)
-        if ctx.principal_kind=='agent':
+        if ctx.principal_kind=='agent' and ctx.principal_id != configured_ordubashy(uow):
             clauses.append('(r.coordinator_id=? OR s.proposer_principal_id=? OR m.current_sender_id=?)')
             params.extend([ctx.principal_id]*3)
         destination = args.get('attention_destination')

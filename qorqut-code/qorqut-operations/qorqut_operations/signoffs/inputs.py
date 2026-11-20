@@ -223,10 +223,14 @@ class InputRequests:
             self.service._context(ctx, uow, owner=True)
         elif row['proposer_principal_id'] != ctx.principal_id:
             proposer = uow.repository('principals').get(row['proposer_principal_id'])
-            delegated = (name == 'signoffs_attention_set' and self.is_ordubashy(ctx, uow)
-                and proposer and proposer['kind'] == 'agent')
+            # The coordinator stands in for the owner over every agent's request: it sets the alert and withdraws a
+            # request whose proposer is gone or idle, so a stale one cannot keep a Task waiting or block its move.
+            # Withdrawing is the coordinator's in person, never one of its delegated workers'.
+            delegated = (self.is_ordubashy(ctx, uow) and proposer and proposer['kind'] == 'agent'
+                and (name == 'signoffs_attention_set'
+                     or name == 'signoffs_input_cancel' and not ctx.delegation_assignment_id))
             if not delegated:
-                raise DomainError('forbidden', 'Only the proposer or authorized Ordubashy can update this signoff attention')
+                raise DomainError('forbidden', 'Only the proposer, the owner or the coordinator can update this input request')
         if row['state'] != 'pending' or row['superseded_by_id']:
             raise DomainError('invalid_transition', 'Only pending signoffs can be updated')
 

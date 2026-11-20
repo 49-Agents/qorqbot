@@ -332,7 +332,10 @@ class HostRelocation:
         def report(table, label, hits):
             material[table] = [len(hits), digest([[identity] for identity in hits])]
             if hits:
-                found.append(blocker("unsupported_binding", f"{len(hits)} active {label} name these Tasks; finish or cancel them first"))
+                # Name them: a move is the owner's or the coordinator's, and a count alone leaves them searching for the records.
+                named = ", ".join(str(identity) for identity in hits[:5]) + (" and more" if len(hits) > 5 else "")
+                found.append(blocker("unsupported_binding",
+                                     f"{len(hits)} active {label} name these Tasks ({named}); finish or cancel them first"))
 
         label = "approval proposals"
         hits = []
