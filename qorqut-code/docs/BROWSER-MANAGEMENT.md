@@ -1,10 +1,13 @@
-# Worker browser management
+# Agent browser management
 
-Ordubashy can set up, check, repair, restart and stop any active permanent worker's own browser with one MCP operation,
-**`agent_browser_manage`**, without asking the owner for approval. It is routine maintenance of the worker's own configured
-browser, not a new privilege: it grants no authority to spend, submit forms, act as the owner or touch another service.
+Every agent uses the installation's one **Shared browser**: one Chrome whose website sign-ins all agents share, each agent
+working in its own tabs. There is no browser per agent and nothing to choose.
 
-Workers never run it. A worker whose browser is missing or broken gets a structured error
+Ordubashy can set it up, check, repair, restart and stop it with one MCP operation, **`agent_browser_manage`**, without
+asking the owner for approval. It is routine maintenance, not a new privilege: it grants no authority to spend, submit forms,
+act as the owner or touch another service.
+
+Workers never run it. A worker that is not connected to the browser, or whose connection is broken, gets a structured error
 (`browser_not_configured` or `browser_configuration_invalid`) telling them to ask Ordubashy; they report it once and keep using
 `browser_turn` afterwards.
 
@@ -16,8 +19,6 @@ Workers never run it. A worker whose browser is missing or broken gets a structu
 {"agent_id": "<worker UUID>", "action": "repair",  "idempotency_key": "fix-atlas-1"}
 {"agent_id": "<worker UUID>", "action": "restart", "idempotency_key": "restart-atlas-1"}
 {"agent_id": "<worker UUID>", "action": "stop",    "idempotency_key": "stop-atlas-1"}
-{"agent_id": "<worker UUID>", "action": "use_shared", "idempotency_key": "share-atlas-1"}
-{"agent_id": "<worker UUID>", "action": "use_own",    "idempotency_key": "own-atlas-1"}
 ```
 
 There is no path, executable, endpoint, flag, port, service name or shell argument: the host derives all of them. Mutations
@@ -26,12 +27,12 @@ need an `idempotency_key` (1–200 printable characters); `status` needs none an
 | Action | Effect |
 | --- | --- |
 | `status` | Reports `missing`, `healthy`, `stopped`, `busy`, `target_missing`, `conflict`, `invalid` or `unsupported`, the ownership mode and the next action. |
-| `ensure` | Creates a dedicated managed browser when the worker has none; starts a stopped owned one; leaves a healthy browser untouched. Repeating it never duplicates a browser. |
-| `repair` | Diagnoses; restores a missing generated `browser.json` from saved ownership; starts a stopped owned browser; restarts an owned browser that does not answer. A healthy browser is a no-op. |
-| `restart` | Restarts exactly the owned browser. Refused with `browser_in_use` while a browser command is running. |
-| `stop` | Stops exactly the owned browser. Same refusal while a command runs. |
-| `use_shared` | Moves the worker to the installation's one Shared browser (see [The Shared browser](#the-shared-browser)). |
-| `use_own` | Moves the worker back to its own browser. |
+| `ensure` | Creates the Shared browser when there is none; starts it when it is stopped; connects the worker to it (its record and its generated `browser.json`); leaves a healthy browser untouched. Repeating it never duplicates a browser. |
+| `repair` | As `ensure`; also restores a missing generated `browser.json` and restarts the browser when it does not answer. A healthy browser is a no-op. |
+| `restart` | Restarts the Shared browser, for every agent. Refused with `browser_in_use` while a browser command is running. |
+| `stop` | Stops the Shared browser, for every agent. Same refusal while a command runs. |
+
+`agent_id` names the worker to connect or report on; the browser is the same one under every worker's ID.
 
 A receipt names the target, action, whether anything changed, the resulting state, that the profile was preserved, a bounded
 diagnostic and the verification result. A managed browser is reported `healthy` only when a real, bounded CDP health check
@@ -45,15 +46,16 @@ Only the configured Ordubashy (and the installation owner, outside MCP) may mana
 worker*, including workers created later. Ordubashy himself, the Learning Applier, inactive workers and business agents are
 refused; a worker with an `allow` override is still refused, and an explicit `deny` override on Ordubashy is honored.
 
-## Managed headless browsers
+## The managed headless browser
 
-`ensure` on a worker without a browser creates a **dedicated headless managed browser**:
+The first `ensure` creates the Shared browser, a **headless managed browser**:
 
 * one persistent headless Chrome (normal sandbox — never `--no-sandbox`), loopback CDP only, starting on `about:blank`.
   It is [Qorqbot's own Chrome](#qorqbots-own-chrome) when that is installed and starts on this computer, otherwise the
   installed Google Chrome (`/usr/bin/google-chrome-stable`). The choice is made when the browser is created and saved in
   its ownership record;
-* a separate profile per worker at `operations/.runtime/agent-browsers/<agent UUID>/profile`, kept private (`0700`);
+* one profile at `operations/.runtime/agent-browsers/da69c2a4-cd9c-5aa7-9a94-176338b13618/profile`, kept private (`0700`).
+  That fixed identifier is not an agent and cannot be managed by that identifier;
 * a CDP port from the reserved range **20400–21399** (business browsers use 19400–20399). The port is chosen *and* the
   worker's ownership record written as one step under a global allocation lock (released before Chrome starts), so two workers
   can never pick the same free port; a port saved for another worker, configured in any workspace or deployment file, or with
@@ -61,7 +63,7 @@ refused; a worker with an `allow` override is still refused, and an explicit `de
 * a host-owned supervisor (`python -m qorqut.browser.agent_supervisor --state <dir>`) run as a **transient systemd user
   service** (`systemd-run --user --unit=qorqut-agent-browser-<installation hash>-<worker UUID>.service --collect`, fixed argv and
   environment, no shell). It therefore lives outside the application service's cgroup and **survives application restarts and
-  releases**. A unit that is already running is reused, never duplicated. The supervisor holds a per-worker process lock, records
+  releases**. A unit that is already running is reused, never duplicated. The supervisor holds a per-browser process lock, records
   boot-bound identities for itself and Chrome, and publishes `ready` only after the CDP endpoint answers *and* that exact Chrome
   owns the listener;
 * the user manager does not share the application service's mount namespace. When the service sees its instance through a
@@ -74,48 +76,31 @@ refused; a worker with an `allow` override is still refused, and an explicit `de
 
 Ownership (`meta.json`) is written before launch, so a timeout can never lead to a second browser. A random listener on the
 reserved port is never adopted; processes are signalled only by their recorded identity, never by port, name or unverified PID.
-The supervisor (and the owner's sign-in window) asks Chrome to close itself over DevTools before terminating it, but only when the Chrome it launched owns the port's listener; anything else answering there is left alone. Chrome's profile lock files are never removed. A worker's own browser commands re-check the managed identity under the use lock,
+The supervisor (and the owner's sign-in window) asks Chrome to close itself over DevTools before terminating it, but only when the Chrome it launched owns the port's listener; anything else answering there is left alone. Chrome's profile lock files are never removed. An agent's browser commands re-check the managed identity under the use lock,
 so a worker never talks to a foreign process that took over a dead browser's port; it gets `browser_not_ready` pointing to
 Ordubashy. After a host reboot (or any other loss) `status` reports `stopped` and `repair`/`ensure` starts the same profile
 again. `stop` ends exactly that supervisor (and, only if it ignored the stop, exactly its derived unit).
 
-## The Shared browser
+## How agents use it
 
-An agent uses its own browser (the default) or the installation's one **Shared browser**. There are no named profiles.
-
-* The Shared browser is one more managed headless Chrome with the same supervisor, port range, ownership record and health
-  check. Its state is `operations/.runtime/agent-browsers/da69c2a4-cd9c-5aa7-9a94-176338b13618/`, a fixed identifier that
-  is not an agent and cannot be managed by that identifier.
-* Every agent set to it shares its cookies and website sign-ins. Each agent's commands run pinned to that agent's own tab
+* Every agent shares the browser's cookies and website sign-ins. Each agent's commands run pinned to that agent's own tab
   (`agent-browser --pin-tab`): its first command opens a new tab, and a closed tab is reported as `tab_gone`, never replaced
   by another agent's tab. The reply then tells the agent to open a new tab with `tab-new <url>` and continue there
   (`agent_browser.explain`). The tabs are not hidden: `tab-list` shows them all.
-* The choice is the record `agent-browsers/<agent UUID>/shared.json`. The agent's generated `.qorqut/browser.json` then
-  holds the Shared endpoint and `"shared": true`. A command is refused (`browser_configuration_invalid`) when the record and
-  the target file disagree.
-* `use_shared` starts the Shared browser when needed, stops the agent's own browser and leaves its profile and sign-ins on
-  disk. `use_own` removes the choice, starts the agent's own browser again (creating one if it never had one) and stops the
-  Shared browser when no agent uses it any more. Its profile stays.
-* **Either action repairs.** Each ends in the same state from whatever step an interrupted move stopped at (choice recorded but
-  target file not yet written, target removed but choice kept, choice removed but the Shared browser still running). A damaged
-  `shared.json` is replaced by both, not trusted: until then `status` and the other actions answer
-  `browser_metadata_invalid`, and Settings shows the agent's menu empty ("Choose…") with an explanation. `use_own` checks the
-  agent's own ownership record first, so an unreadable record stops it before anything is removed. A `shared.json` that is a
-  symbolic link is still refused and never written through.
-* A browser command reads its target file with the browser's use lock held, so a switch between own and Shared cannot run it
-  against the browser the agent has just left.
-* A website sign-in belongs to the browser it was started on. If the agent is switched while the window is open, the site is
-  recorded in that browser's list and its session cookies are not copied into the browser the agent uses now.
-* For an agent on the Shared browser, `status`, `ensure`, `repair`, `restart` and `stop` act on the Shared browser, so they
-  affect every agent on it. Results carry `"browser": "shared"` (otherwise `"own"`).
-* **No fallback.** When the Shared browser is stopped or broken, the agent's commands fail with `browser_not_ready`. Nothing
-  points the agent at its own profile or any other browser.
-* A hand-installed `browser.json` and a legacy-bound browser are never replaced: `use_shared` answers
-  `browser_target_conflict`.
-* Owner sign-in in a window on the Shared profile stops the Shared Chrome, so every agent on it waits until the window is
-  closed. A sign-in through the live view (see [Website sign-in](#website-sign-in)) stops nothing.
-* The owner sets the choice per agent in Settings ("Which browser each agent uses"), which posts
-  `{"action": "choose", "agent_id": ..., "browser": "own" | "shared"}` to `/api/root/browser-setup`.
+* An agent is connected by the record `agent-browsers/<agent UUID>/shared.json` and its generated `.qorqut/browser.json`,
+  which holds the Shared endpoint and `"shared": true`. `ensure` writes both. A command is refused
+  (`browser_configuration_invalid`) when the record and the target file disagree.
+* `ensure` and `repair` end in the same state from whatever step an interrupted run stopped at. A damaged `shared.json` is
+  replaced, not trusted. A `shared.json` that is a symbolic link is refused and never written through.
+* Automatic setup (at start and in the background) connects every active permanent agent, so a new agent needs no step.
+* Results carry `"browser": "shared"`.
+* **No fallback.** When the Shared browser is stopped or broken, the agents' commands fail with `browser_not_ready`. Nothing
+  points an agent at any other browser.
+* A browser the operator installed for one agent (a hand-installed `browser.json`, or a legacy-bound service) is never
+  replaced: that agent keeps it, the actions act on it and its results carry `"browser": "operator"`.
+* Owner sign-in in a window stops the Shared Chrome, so every agent waits until the window is closed. A sign-in through
+  the live view (see [Website sign-in](#website-sign-in)) stops nothing.
+* Settings shows whether the browser is ready and offers Retry setup; there is nothing to choose.
 
 ## The owner's live view
 
@@ -132,7 +117,7 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
   agent. The agent and the owner can act on the same page at the same time.
 * Chrome draws only the front tab, so opening a view brings its tab to the front. Other tabs keep working but run as
   background tabs.
-* For an agent on the Shared browser the list shows every tab of the Shared browser. The view does not know which tab
+* The list shows every tab of the Shared browser, under every agent's Browser tab. The view does not know which tab
   belongs to which agent.
 * A stream ends when its tab closes or the connection drops; the dashboard does not reconnect by itself.
 * The port is handed out only while the browser's supervisor reports `ready` (the exact supervised Chrome owns it); otherwise the
@@ -154,25 +139,24 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
 
 ## Website sign-in
 
-`website_sign_in` (Ordubashy only, MCP) connects the owner's account on a website in an agent's browser. `open` and `sign_out`
-take a `site` (a domain or its https sign-in address); `agent_id` names the worker whose own browser it is, and is left out
-for Ordubashy's own. `status` lists, per agent, the sites recorded for the browser it uses.
+`website_sign_in` (Ordubashy only, MCP) connects the owner's account on a website in the Shared browser, so every agent
+has the sign-in. `open` and `sign_out` take a `site` (a domain or its https sign-in address); `agent_id` may name a worker
+and is not needed. `status` lists the sites recorded for the browser.
 
-* **With a screen**, `open` shows a Chrome window on the browser's profile. The owner signs in and closes it; the browser (and
-  every agent on it, for the Shared browser) is paused until then. Nothing about this changed.
-* **Without a screen** (Linux with neither `DISPLAY` nor `WAYLAND_DISPLAY`, as on a server) `open` used to fail with
-  `browser_no_screen`, and Ordubashy then asked the owner for the password and typed it. It now opens the sign-in address in a
-  new tab of the browser the agent uses (the Shared browser for an agent set to it) and answers
+* **With a screen**, `open` shows a Chrome window on the browser's profile. The owner signs in and closes it; the browser, and so
+  every agent, is paused until then.
+* **Without a screen** (Linux with neither `DISPLAY` nor `WAYLAND_DISPLAY`, as on a server) `open` opens the sign-in address in a
+  new tab of the Shared browser and answers
   `{"opened": "slack.com", "where": "live_view", "agent": "Atlas", "next": "..."}`. `agent` is the agent whose **Browser** tab
   the owner opens in the dashboard ([the live view](#the-owners-live-view)); the site's page is among that tab's pages, and the
   panel shows the first listed page when it opens. `next` carries the instruction: wait until the owner says they are done, then
-  open the site in that browser and check; ask for a password or code only if the owner cannot use the live view. For a Shared
-  agent it adds that every agent on the Shared browser shows the same pages.
+  open the site and check; ask for a password or code only if the owner cannot use the live view. It adds that every agent
+  on the Shared browser shows the same pages.
 * **How the tab is opened.** Over DevTools on the browser itself (`Target.createTarget`), as the live view reaches it, and not
   with an `agent-browser` command. Nothing is stopped, restarted or paused, no lock is taken, and `setup` keeps looking after
-  the browser. A command would navigate the tab of some session, which for the caller's own browser is the page the agent is
-  working in. A tab made over DevTools is bound to no session (`idle_tabs`: a session is bound to its tab's id), so the tab a
-  pinned agent on the Shared browser works in is not touched. As with any open view, a tab nobody uses is unloaded after 30
+  the browser. A command would navigate the tab of some session, which may be the page an agent is
+  working in. A tab made over DevTools is bound to no session (`idle_tabs`: a session is bound to its tab's id), so the tab an
+  agent works in is not touched. As with any open view, a tab nobody uses is unloaded after 30
   minutes and loads again when the owner opens it. The port is used only while the browser's supervisor reports the exact
   Chrome ready; otherwise the answer is `browser_not_ready`, as for the live view.
 * **`status` and what "signed in" means.** Qorqbot cannot see that the owner has signed in. It records the site when its page
@@ -257,7 +241,7 @@ need no instruction for either.
   asked; it is looked at again after another 30 minutes. Should the question come up all the same (a frame inside the
   page asks), it is answered "stay" so that it cannot block the page, unless `agent-browser`, which answers every
   dialog of a browser it is connected to with "leave", was first; then the tab is unloaded like any other.
-* **Many unloaded tabs.** A command of a session that has no tab yet (own browser only) loads every unloaded tab again,
+* **Many unloaded tabs.** A command of a session that has no tab yet (an operator-installed browser only) loads every unloaded tab again,
   and waits 15 seconds at most for all of them together.
 * **Cookie banners.** A banner is refused when it offers a refusal; it is never accepted, and a page without a refusal
   control is left alone. The refusal must sit in a box named after a known consent tool (small), or in a box that floats
