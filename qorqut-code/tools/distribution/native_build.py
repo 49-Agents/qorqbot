@@ -158,21 +158,32 @@ def bundle_tools(tools, runtime, target):
     shutil.copytree(tools / 'native', native, symlinks=True)
     shutil.copy2(tools / 'TOOLS.json', native / 'TOOLS.json')
     machine = 'arm64' if target.endswith('arm64') else 'x86_64'
-    name = native_launch.agent_browser_binary_name('Darwin', machine)
+    ship_agent_browser('Darwin', machine, native / 'bin/agent-browser', native / 'licenses/agent-browser.txt')
+    return json.loads((tools / 'TOOLS.json').read_text())
+
+
+def ship_agent_browser(system, machine, target, license_target):
+    """Put the pinned browser tool for ``system``/``machine`` at ``target`` and its license beside it. The download is checked
+    against the pinned checksum, and the tool is run once when it was built for the computer doing the build."""
+    import native_launch
+    name = native_launch.agent_browser_binary_name(system, machine)
+    for path in (target, license_target):
+        path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='qorqbot-agent-browser-') as work:
         archive = Path(work) / 'package.tgz'
         if native_launch._download(native_launch.AGENT_BROWSER_URL, archive, native_launch.AGENT_BROWSER_LIMIT) != native_launch.AGENT_BROWSER_SHA512:
             raise ValueError('The agent-browser download does not match its pinned checksum')
-        native_launch.extract_agent_browser(archive, name, native / 'bin/agent-browser')
+        native_launch.extract_agent_browser(archive, name, target)
         with tarfile.open(archive, 'r:gz') as package:
             for member in ('package/LICENSE', 'package/LICENSE.md', 'package/LICENSE.txt'):
                 if member in package.getnames():
-                    (native / 'licenses/agent-browser.txt').write_bytes(package.extractfile(member).read())
+                    license_target.write_bytes(package.extractfile(member).read())
                     break
-    check = subprocess.run([native / 'bin/agent-browser', '--version'], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+    if native_launch.agent_browser_binary_name() != name:
+        return
+    check = subprocess.run([target, '--version'], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
     if check.returncode != 0 or native_launch.AGENT_BROWSER_VERSION not in check.stdout:
         raise ValueError('The bundled agent-browser does not run on this machine')
-    return json.loads((tools / 'TOOLS.json').read_text())
 
 
 def strip_wheel(source, target):
@@ -302,14 +313,22 @@ def main(argv=None):
         tools = args.bundled_tools.resolve()
         shipped_tools = bundle_tools(tools, runtime, args.target)
         environment_record = ready_made_environment(tools, runtime, platform_tag)
+    else:
+        # A package that uses the computer's own Python and git still ships the agents' browser tool: one program with
+        # nothing to install around it, so agents can browse after a first launch without a network.
+        import native_launch
+        system, machine = (('Linux', 'x86_64') if platform_tag is None
+                           else ('Darwin', 'arm64' if platform_tag.endswith('arm64') else 'x86_64'))
+        ship_agent_browser(system, machine, runtime / 'tools/agent-browser', runtime / 'tools/licenses/agent-browser.txt')
     dependencies = {
         'platform': platform_name,
         'required': {'python': '3.12.x with venv/pip support', 'git': '2.43 or newer'},
         'optional': {'agent_client': 'Claude Code and Codex, downloaded by Qorqbot from its Settings',
-                     'browser': 'user-installed compatible Chrome and agent-browser',
-                     'node': 'as required by the selected external client/browser tool',
+                     'browser': "Chrome: Qorqbot's own downloaded build or an installed Google Chrome",
+                     'node': 'as required by the selected external client',
                      'desktop': 'Linux only: TigerVNC, Openbox, X11, D-Bus and keyring if a desktop is configured'},
         'python_libraries': 'requirements.lock', 'external_tools_bundled': False,
+        'bundled': {'agent-browser': native_launch.AGENT_BROWSER_VERSION, 'details': 'tools/agent-browser, tools/licenses'},
     }
     if args.bundled_tools:
         dependencies.update({
