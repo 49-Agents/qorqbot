@@ -13,13 +13,15 @@ Desktop viewing additionally requires its configured TigerVNC/Openbox/X11/sessio
 tools. These programs are not included or installed by Qorqbot. Git 2.43 and tmux
 3.4 are the Ubuntu baseline; Python must be 3.12 for this wheel set.
 
-Agents' web browsing needs nothing installed first. The package ships the
-`agent-browser` tool (`runtime/tools/agent-browser`). Qorqbot downloads its own
-Chrome (a pinned Chrome for Testing build, about 200 MB) in the background once
-the app runs, and verifies its checksum before use. If the computer is offline,
-Qorqbot tries the Chrome download again by itself while the app runs. If Qorqbot's own Chrome cannot start on this computer
-(missing system libraries, or no usable sandbox), Settings says so; install
-Google Chrome and agents use it instead.
+Agents' web browsing needs Google Chrome installed on Ubuntu 24.04. The package
+ships the `agent-browser` tool (`runtime/tools/agent-browser`). Qorqbot also
+downloads its own Chrome (a pinned Chrome for Testing build, about 200 MB) in the
+background once the app runs, and verifies its checksum before use. Ubuntu 24.04
+as installed does not let a program outside the system folders use Chrome's
+sandbox, so that Chrome does not start there and Settings says so; agents then
+use the installed Google Chrome. Qorqbot never turns the sandbox off. Where its
+own Chrome can start, nothing needs installing. If the computer is offline,
+Qorqbot tries the Chrome download again by itself while the app runs.
 
 ## Install and run
 
