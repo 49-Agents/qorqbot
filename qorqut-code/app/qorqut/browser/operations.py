@@ -39,7 +39,7 @@ def register_browser_operation(runtime):
                         "description": "One command, each word its own item. Commands: read, observe, snapshot, get, click, dblclick, "
                                        "fill, type, press, hover, focus, check, uncheck, select, upload, drag, find, scroll, wait, "
                                        "goto, go-back, go-forward, reload, tab-list, tab-new, tab-select, tab-close, frame, eval, "
-                                       "screenshot, pdf, console, resize, dialog-accept, dialog-dismiss, captcha. The browser skill "
+                                       "screenshot, pdf, console, resize, dialog-accept, dialog-dismiss, captcha, tab-reference. The browser skill "
                                        "gives their arguments."},
             "commands": {"type": ["array", "null"], "minItems": 1, "maxItems": 10,
                          "items": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "maxLength": 2000}},

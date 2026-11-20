@@ -373,7 +373,7 @@ function chatViewFit(width, height, displayWidth, displayHeight) {
   return {width: displayWidth * scale, height: displayHeight * scale};
 }
 const chatViewTypedRoute = ref => JSON.stringify([ref.type, ref.business_id || null, ref.business_slug || null, ref.type === 'browser' ? ref.viewer_url : null]);
-const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation, ref.type === 'task' || ref.type === 'table' ? ref : null]);
+const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation, ref.agent_id, ref.tab_id, ref.agent_label, ref.type === 'task' || ref.type === 'table' ? ref : null]);
 function chatViewTypedChip(ref, cls) {
   const chip = document.createElement('span');
   chip.className = `gchat-reference ${cls}`;
@@ -454,6 +454,34 @@ function chatViewBrowserCard(ref, url) {
   }};
 }
 
+// Tab: one tab of an agent's own browser, as a button. Its label is the page's own title, which is untrusted, so it is only ever set as
+// text; nothing in the reference is followed. The click asks the dashboard to show its own live view of this (agent, tab), and does
+// nothing where the dashboard cannot (no entry point, agent not shown here). The entry point reports its own failures.
+const chatViewTabTarget = ref => typeof ref?.agent_id === 'string' && typeof ref.tab_id === 'string'
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.agent_id) && /^[0-9A-F]{32}$/.test(ref.tab_id)
+  ? {agentId: ref.agent_id, tabId: ref.tab_id} : null;
+function chatViewTabButton(ref) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  let target = null;
+  const paint = next => {
+    target = chatViewTabTarget(next);
+    const title = String(next.label ?? '').trim() || 'Untitled page', agent = String(next.agent_label ?? '').trim();
+    button.className = 'gchat-reference gchat-tab-reference';
+    button.title = agent ? `${title} — ${agent}` : title;
+    button.setAttribute('aria-label', `Open tab: ${button.title}`);
+    const icon = document.createElement('span'); icon.className = 'gchat-tab-icon'; icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = CHAT_VIEW_ICONS.browser;
+    const name = document.createElement('span'); name.className = 'gchat-tab-title'; name.textContent = title;
+    button.replaceChildren(icon, name);
+    if (agent) { const owner = document.createElement('span'); owner.className = 'gchat-tab-agent'; owner.textContent = agent; button.append(owner); }
+  };
+  button.onclick = () => { if (target) Promise.resolve(window.agentBrowserOpenTab?.(target.agentId, target.tabId)).catch(() => {}); };
+  paint(ref);
+  // A change of availability or of the ids is not an in-place update: the caller replaces the item (and so shows the placeholder).
+  return {el: button, update(next) { if (next.available === false || !chatViewTabTarget(next)) return false; paint(next); return true; },
+    dispose() { button.onclick = null; button.remove(); }};
+}
+
 function chatViewTypedMount(ref, host, options, entryKey) {
   const unavailable = () => {
     const item = {el: chatViewTypedChip({...ref, label: 'Unavailable reference'}, 'gchat-reference-unavailable'), dispose() { item.el.remove(); }};
@@ -493,6 +521,7 @@ function chatViewTypedMount(ref, host, options, entryKey) {
     const url = chatViewViewerUrl(ref.viewer_url);
     return url ? chatViewBrowserCard(ref, url) : unavailable();
   }
+  if (ref.type === 'tab') return chatViewTabTarget(ref) ? chatViewTabButton(ref) : unavailable();
   if (ref.type === 'signoff' && options.mountSignoff) {
     const el = document.createElement('div');
     el.className = 'gchat-signoff-reference';

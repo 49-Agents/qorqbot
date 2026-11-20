@@ -1,16 +1,17 @@
 """The identity-only references of ``request_user_input``: one pure contract for the tool, the archive projection and the owner view.
 
-A reference names an existing Task, Signoff, Project, configured browser, registered agent or delta by identity only. It
-carries no label, state, URL or decision; those are resolved from current records at the owner boundary, never taken from
-the model. Nothing here reads a database, a configuration or an archive."""
+A reference names an existing Task, Signoff, Project, configured browser, registered agent, delta or open browser tab by
+identity only. It carries no label, state, URL or decision; those are resolved from current records at the owner boundary,
+never taken from the model. Nothing here reads a database, a configuration or an archive."""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
-TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT, TYPE_PROJECT, TYPE_DELTA = "task", "signoff", "browser", "agent", "project", "delta"
-TYPES = (TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT, TYPE_PROJECT, TYPE_DELTA)
+TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT, TYPE_PROJECT, TYPE_DELTA, TYPE_TAB = (
+    "task", "signoff", "browser", "agent", "project", "delta", "tab")
+TYPES = (TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT, TYPE_PROJECT, TYPE_DELTA, TYPE_TAB)
 VERSION = 1
 MAX_MESSAGE_CHARS = 4000
 MAX_REFERENCES = 8
@@ -20,6 +21,9 @@ UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 TASK_ID = re.compile(r"^[^\s\x00-\x1f\x7f-\x9f]{1,200}$")
 # The configured browser surface IDs of ``browser-surfaces.json`` (``qorqut.service.browser_surfaces.SURFACE_ID``).
 SURFACE_ID = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+# A tab of an agent's managed Chrome: the agent's UUID, a colon and Chrome's own id of the tab (``browser.live.TAB_ID``: 32
+# uppercase hex digits). The ``tab-reference`` browser command prints exactly this.
+TAB = re.compile(UUID.pattern[:-1] + r":[0-9A-F]{32}$")
 
 # A reference as a hashable key: (type, id, business_id).
 Key = tuple[str, str, "str | None"]
@@ -34,18 +38,25 @@ def _reference(raw: Any) -> dict:
         raise InputError("Each reference is {type, id} with an optional business_id")
     kind, identity, business = raw["type"], raw["id"], raw.get("business_id")
     if kind not in TYPES:
-        raise InputError("Reference type must be task, signoff, browser, agent, project or delta")
-    pattern = SURFACE_ID if kind == TYPE_BROWSER else TASK_ID if kind == TYPE_TASK else UUID
+        raise InputError("Reference type must be task, signoff, browser, agent, project, delta or tab")
+    pattern = SURFACE_ID if kind == TYPE_BROWSER else TASK_ID if kind == TYPE_TASK else TAB if kind == TYPE_TAB else UUID
     if not isinstance(identity, str) or not pattern.fullmatch(identity):
         raise InputError("A task reference id is its Task id; a signoff, agent, project or delta reference id is its UUID; a "
-                         "browser reference id is a managed Global browser id from browser_turn list, never an agent ID")
-    if kind in (TYPE_AGENT, TYPE_DELTA) and business is not None:
-        raise InputError("An agent or delta reference is {type, id} only; its business_id is absent or null")
+                         "browser reference id is a managed Global browser id from browser_turn list, never an agent ID; a tab "
+                         "reference id is the reference printed by the browser command tab-reference")
+    if kind in (TYPE_AGENT, TYPE_DELTA, TYPE_TAB) and business is not None:
+        raise InputError("An agent, delta or tab reference is {type, id} only; its business_id is absent or null")
     if business is not None and (not isinstance(business, str) or not UUID.fullmatch(business)):
         raise InputError("business_id is the record's owning business UUID, or null for Global")
     if kind == TYPE_PROJECT and business != identity:
         raise InputError("A project reference is {type: project, id: PROJECT_UUID, business_id: PROJECT_UUID}")
     return {"type": kind, "id": identity, "business_id": business}
+
+
+def tab_parts(identity: str) -> tuple[str, str]:
+    """The agent's UUID and the Chrome tab id of a valid ``tab`` reference id."""
+    agent, _, tab = identity.partition(":")
+    return agent, tab
 
 
 def key(reference: dict) -> Key:
