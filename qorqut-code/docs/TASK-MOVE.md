@@ -69,7 +69,8 @@ Blockers are concrete incompatible data. They are listed in the preview and neve
   stays behind as history), `assignee_unavailable` - a dependency or reference that could not be carried without changing
   its meaning;
 - `unsupported_binding` - an active binding this operation does not rebind: rows of any other table that reference
-  `tasks` by foreign key (for example Paper's `outreach_handoffs`), Overseer development bindings, pending or approved
+  `tasks` by foreign key and are not an extension receipt that follows its Task (`TASK_RECEIPTS`, for example Paper's
+  `outreach_handoffs`, which moves with its Task), Overseer development bindings, pending or approved
   Signoffs, queued or running jobs, active or paused routines and live delegated assignments that name a moved Task;
 - `history_too_large`, `relationships_too_large`, `more_blockers` - bounds.
 
