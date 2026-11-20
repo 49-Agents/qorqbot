@@ -38,7 +38,7 @@ def _reference(raw: Any) -> dict:
     pattern = SURFACE_ID if kind == TYPE_BROWSER else TASK_ID if kind == TYPE_TASK else UUID
     if not isinstance(identity, str) or not pattern.fullmatch(identity):
         raise InputError("A task reference id is its Task id; a signoff, agent, project or delta reference id is its UUID; a "
-                         "browser reference id is a configured browser id from browser_turn list")
+                         "browser reference id is a managed Global browser id from browser_turn list, never an agent ID")
     if kind in (TYPE_AGENT, TYPE_DELTA) and business is not None:
         raise InputError("An agent or delta reference is {type, id} only; its business_id is absent or null")
     if business is not None and (not isinstance(business, str) or not UUID.fullmatch(business)):
