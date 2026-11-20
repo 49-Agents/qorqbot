@@ -11,7 +11,7 @@ async function fixture() {
   const browser = await chromium.launch({headless:true});
   const page = await browser.newPage();
   await page.setViewportSize({width:1024,height:700});
-  await page.setContent('<div id="controls">Focus controls</div><div class="agfocus" data-attention-board><div class="agfocus-layout agfocus-record-open"><aside class="agfocus-dock"><div id="host" class="agfocus-dock-content"></div></aside></div></div><div id="chat">Agent chat</div>');
+  await page.setContent('<div id="controls">Focus controls</div><div class="agfocus"><div class="agfocus-layout agfocus-record-open"><aside class="agfocus-dock"><div id="host" class="agfocus-dock-content"></div></aside></div></div><div id="chat">Agent chat</div>');
   for (const file of ['agent-focus.css','record-workspace.css','task-move.css']) await page.addStyleTag({path:path.join(__dirname,'../css',file)});
   await page.addStyleTag({content:'.agfocus-layout { height: 580px; display:flex; } .agfocus-dock { flex:1; }'});
   await page.evaluate(() => {

@@ -9,7 +9,7 @@ function harness(embedded=false){
  const calls=[],errors=[],business={id:'p1',slug:'project'};
  const ctx={state:{scope:'global',globalTab:'agents',biz:'project',bizs:[business]},embeddedAgentPane:embedded,parent:{agentOpenRecordReference:async ref=>{calls.push(ref);return true;}},
   loadGlobalAgentProfiles:async()=>[{agent_id:'ord',role:{id:'ordubashy'}}],globalRosterAgent:()=>true,selectGlobal:async()=>{},globalAgentsNavigate:async(id,{view})=>{ctx._agpad.view=view;return true;},
-  _agpad:{agentId:'ord',view:'focus'},attentionBoardOpen:async(p,ref)=>{calls.push(ref);return true;},agfocusOpenPairedReference:async(p,ref)=>{calls.push(ref);return true;},toast:m=>errors.push(m)};
+  _agpad:{agentId:'ord',view:'focus'},agfocusOpenRecord:async(p,ref)=>{calls.push(ref);return true;},toast:m=>errors.push(m)};
  vm.createContext(ctx);vm.runInContext(reference+'\n'+helper,ctx);return {ctx,calls,errors};
 }
 function plain(v){return JSON.parse(JSON.stringify(v));}
@@ -59,14 +59,29 @@ test('existing Focus record guard prevents displacement and retains the controls
  assert.equal(pane.controls,controls);assert.equal(controls.isConnected,true);assert.equal(dock.hidden,false);assert.ok(classes.has('agfocus-record-open'));
 });
 
-// A Task reference must use the same opener as a Todo row, rather than Focus pairing.
-test('task links select Todo and non-task links retain Focus pairing',async()=>{
- const {ctx}=harness();const opens=[];
- ctx.attentionBoardOpen=async(p,ref)=>{opens.push(['thread',p.view,ref.id]);return true;};
- ctx.agfocusOpenPairedReference=async(p,ref)=>{opens.push(['paired',p.view,ref.id]);return true;};
+// The Todo board is gone: a Task reference opens its record in Ordubashy's Focus, like every other record type.
+test('task links and other record links open in Focus',async()=>{
+ const {ctx}=harness();const opens=[],views=[];
+ const navigate=ctx.globalAgentsNavigate;ctx.globalAgentsNavigate=async(id,options)=>{views.push(options.view);return navigate(id,options);};
+ ctx.agfocusOpenRecord=async(p,ref)=>{opens.push([p.view,ref.type,ref.id]);return true;};
  assert.equal(await ctx.agentOpenRecordReference({type:'task',id:'task1',business_id:null}),true);
  assert.equal(await ctx.agentOpenRecordReference({type:'table',id:'table1',business_id:null}),true);
- assert.deepEqual(opens,[['thread','attentionBoard','task1'],['paired','focus','table1']]);
+ assert.deepEqual(views,['focus','focus']);
+ assert.deepEqual(opens,[['focus','task','task1'],['focus','table','table1']]);
+ assert.doesNotMatch(reference,/attentionBoard/);
+});
+test('a task reference inside Focus opens in the Focus record workspace, not a board',async()=>{
+ const source=read('agent-focus'),start=source.indexOf('async function agfocusOpenPairedReference('),end=source.indexOf('function agfocusActive(',start);
+ assert.ok(start>=0 && end>start);
+ const ctx={toast:()=>{},_agpad:null,agpadSurfaceClose:async()=>{},agentOpenRecordReference:async()=>false,
+  rwRecordFromItem:({source})=>({source,key:source.type+':'+source.id}),agfocusWorkspaceMode:async()=>true,agfocusShowDock:()=>{}};
+ vm.createContext(ctx);vm.runInContext(source.slice(start,end),ctx);
+ const navigated=[];const pane={focusWorkspace:{alive:()=>true,navigate:async(target,opts)=>{navigated.push([target.source.type,target.source.id,opts.parentTable]);return true;}}};
+ assert.equal(await ctx.agfocusOpenRecord(pane,{type:'task',id:'task1',business_id:null}),true);
+ assert.deepEqual(plain(navigated),[['task','task1',null]]);
+ ctx.rwRecordFromItem=({source})=>({source,scopeMissing:true});
+ assert.equal(await ctx.agfocusOpenRecord(pane,{type:'task',id:'task2',business_id:'gone'}),false);
+ assert.equal(navigated.length,1);
 });
 test('native Chat task references use the shared thread opener and ignore stale mounts',async()=>{
  const {ctx}=harness();const opens=[];
