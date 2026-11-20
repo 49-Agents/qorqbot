@@ -14,6 +14,8 @@ the application's code. Under systemd only variables that cannot carry credentia
   for Linux service installs, because ``start_new_session`` alone does not survive a service restart (the service's cgroup is
   killed). It follows ``agent_browsers.UserUnitLauncher``: fixed argv, derived unit name, paths taken through
   ``outside_private_mounts``.
+  A service that sees its instance through a private bind mount is the exception (``default_launcher``): its host starts
+  detached, inside the service's mount namespace.
 
 ``default_launcher`` chooses between them by the rule ``AgentBrowserManager`` uses. After a service restart
 ``inspect_host``/``running_hosts`` find hosts again by their lock, process identity, command line, socket peer and ``hello``;
@@ -275,11 +277,27 @@ def _add_host_environment(state_dir: Path, private: dict) -> None:
     layout.write_json_private(path, record)
 
 
-def default_launcher(extra_environment=None):
+def behind_private_mount(path) -> bool:
+    """Whether this service sees ``path`` only through a bind mount of its own (a unit with ``BindPaths=``)."""
+    try:
+        return Path(_outside_private_mounts(path)) != Path(path)
+    except Exception:  # noqa: BLE001 - not knowing is "no": the ordinary rule applies
+        return False
+
+
+def default_launcher(extra_environment=None, state_dir=None):
     """The rule ``AgentBrowserManager`` uses: a detached process for folder and native installs and for macOS, a transient user
-    service for a Linux service install."""
+    service for a Linux service install.
+
+    One exception: a service that sees its instance through a private bind mount starts the host detached, inside its own mount
+    namespace. A user service runs outside that namespace, where the agent's folder, its prepared settings and hooks, and the
+    folder name its conversations are filed under either do not exist or are a different directory; only the state directory
+    could be translated. Such a host lives as long as the unit lets a child live: across a restart with ``KillMode=process``
+    (as agent terminals did), otherwise it ends with the service and the session opens again at the next input."""
     from qorqut import native_paths
     if native_paths.root() is not None or native_paths.folder_root() is not None or sys.platform == "darwin":
+        return DetachedLauncher(extra_environment)
+    if state_dir is not None and behind_private_mount(state_dir):
         return DetachedLauncher(extra_environment)
     return UserUnitLauncher(extra_environment=extra_environment)
 
@@ -432,7 +450,7 @@ def start_host(state_dir, spec: dict, *, launcher=None, timeout: float = START_T
         state_dir = layout.private_directory(state_dir)
     except (OSError, ValueError):
         raise LaunchError("invalid_launch", "the state directory is not private to this user") from None
-    launcher = launcher or default_launcher()
+    launcher = launcher or default_launcher(state_dir=state_dir)
     deadline = time.monotonic() + timeout
     inspection = inspect_host(state_dir)
     if inspection.status == "running":

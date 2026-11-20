@@ -24,6 +24,12 @@ release does not end a running turn.
   uses a transient `systemd-run --user` unit (named `qorqut-managed-...`), so the
   host is outside the service's cgroup. A folder install and macOS use a plain
   detached process (`start_new_session`).
+  A service unit that sees its instance through a private bind mount
+  (`BindPaths=`) is the exception: its host also starts detached, inside the
+  service's mount namespace, because a user unit would not see the agent's
+  folder there. Such a host survives a service restart only when the unit has
+  `KillMode=process`; otherwise it ends with the service and the session opens
+  again at the next input.
 - The host gets a small allow-listed environment. The agent's own environment,
   with its secrets, travels only in a private `launch.json` that the host reads
   and deletes at once. It never appears in a command line.
