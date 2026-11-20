@@ -56,20 +56,42 @@ new service deployment is needed.
 
 ## Bootstrap mechanics
 
-Normalize text with Unicode case folding and alphanumeric tokenization. Match
-existing nodes loosely against both source versions using their summaries and
-string attribute values: a shared token of at least three characters or a
-nonempty complete string value appearing in the source is a candidate. This
-is a permissive candidate filter, not ranking. Deduplicate and order by ID only.
-Do not introduce similarity scores, embeddings, relevance, or domain-specific
-name fields. Generic shared words may overmatch; the model filters candidates.
+The bootstrap turn sees a shortlist whose size depends on the input, never on the
+size of the graph. Normalize text with Unicode case folding and alphanumeric
+tokenization (words of at least three characters), over both source versions and
+over each node's summary and string attribute values. The shortlist is built in
+three parts, in this order:
 
-Give the source change and all candidates to an Astra/max bootstrap turn using
+1. Named nodes. A node is pinned when one of its short attribute values (3 to 80
+   characters: a name, a handle, a URL, an address) appears in the source as
+   whole words. A value held by more than 10 nodes names none of them and does
+   not count. This is a length rule, not a list of domain-specific name fields.
+   It is the guard against filing a duplicate of a node the source names outright.
+2. The personal context node and the 20 most-connected nodes. A short input
+   refers to them by words too common to rank ("owner", "project").
+3. Every other node sharing a word with the source, by BM25 over those words, so
+   a rare shared word outweighs a common one and a long record gains nothing
+   from its length. At most the 400 rarest source words score candidates.
+
+At most 100 candidates are shown. Each is a card of about 1 KB: the ID, the
+start of the summary and the shortest attribute values first, with `truncated`
+saying the record holds more. The payload states how many nodes matched and how
+many are shown. The order is a function of the published revision and the
+source alone, so a recorded run can be replayed. No embeddings and no model
+are involved in building the shortlist.
+
+Give the source change and the shortlist to an Astra/max bootstrap turn using
 the bootstrap prompt and an output schema {node_ids: [string]}. Validate that
 every returned ID belongs to the supplied candidates; deduplicate. An empty
-candidate set needs no model call and produces X=[]; an oversized request fails
-explicitly instead of silently omitting candidates. The configured prompt-size
-limit keeps this first implementation bounded without inventing a ranker.
+candidate set needs no model call and produces X=[]. A request over the
+configured prompt-size limit drops its lowest-ranked candidates and reports the
+smaller count; only a source change that does not fit by itself fails. A size
+failure must never block the queue on the size of the graph.
+
+Because the shortlist is partial, the propagation turn is required to search:
+for every named thing in the source change, and before creating any node (see
+the propagator prompt). The shortlist gives a starting point; search is what
+prevents duplicates.
 
 Find all neighbors of X across either edge direction. Exclude X itself and
 uniformly sample without replacement up to 40 distinct additional nodes Y.

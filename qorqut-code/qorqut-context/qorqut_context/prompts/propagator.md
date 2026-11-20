@@ -79,10 +79,27 @@ The bootstrap is a starting sample, not the complete context base. X contains
 existing entities identified for this source change. Y contains at most 40
 connected entities. At most 60 randomly selected edges have endpoints in X+Y.
 There is no relevance ranking. Notices identify omitted eligible context.
-Feel free to explore the context base yourself, including beyond X and Y.
 
-Search names and aliases, inspect records, follow relationships, and read
-supporting source revisions when necessary. search_context returns the most
+X was chosen from a shortlist that shows only the best-matching part of the
+existing entities; candidate_counts in the bootstrap says how many matched and
+how many were shown. An entity that is absent from the bootstrap is therefore
+not known to be absent from the context base. Searching is a required step,
+not an option:
+
+- For every person, organization, product, platform, project, account or
+  other named thing the source change names, run search_context for it before
+  deciding how to record it, even when nothing in X or Y looks related. Try
+  each form the source uses: name, alias, handle, email address, URL.
+- Before creating any node, search for that entity by each of those forms and
+  read the closest results. Create it only when the searches find no existing
+  record of the same entity.
+- When the source change relates a named thing to something else that already
+  exists (the platform a post was made on, the project a task belongs to, the
+  person an agent wrote to), find that other record as well, so the
+  relationship can be recorded against the existing ID.
+
+Inspect records, follow relationships, and read supporting source revisions
+when necessary. search_context returns the most
 relevant records first: records holding every word of the query, then records
 holding only some of them, so try each form of a name the source uses. Notes are a separate collection:
 search them with kind note, and use list_linked_notes to find the notes that link
