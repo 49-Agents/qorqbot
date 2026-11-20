@@ -65,6 +65,30 @@ Needs an Apple silicon Mac (M1 or newer) on macOS 14 or newer.
 
 Details: [Mac guide](qorqut-code/docs/distribution/MACOS.md).
 
+## Run it on Linux
+
+Needs Ubuntu 24.04 on an Intel or AMD 64-bit computer.
+
+1. Download `Qorqbot-VERSION-x86_64.AppImage` or `qorqbot_VERSION_amd64.deb` from the
+   [Releases page](https://github.com/49-Agents/qorqbot/releases). Everything Qorqbot
+   needs to run is inside the app; there is nothing to install first.
+   - AppImage: make it executable (`chmod +x Qorqbot-VERSION-x86_64.AppImage`), then open it. It
+     offers once to add Qorqbot to your applications menu.
+   - .deb: `sudo apt install ./qorqbot_VERSION_amd64.deb`, then open **Qorqbot** from your
+     applications menu.
+2. The first open sets Qorqbot up in `~/Qorqbot/qorqbot` in a few seconds and
+   opens the dashboard. Sign in with your email: Qorqbot sends a code, and you
+   do this once.
+3. Install at least one agent CLI and sign in to it once in a terminal:
+   [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or
+   [Codex](https://github.com/openai/codex) (`codex`). You can use both.
+4. The walkthrough starts by itself. It has you start Ordubashy, your lead
+   agent, in his own terminal and ends in Chat, where you say hello and he sets
+   you up. Skipped or finished, take it again from **Settings > Walkthrough** or
+   **Help > Show Walkthrough**.
+
+Details: [Linux desktop guide](qorqut-code/docs/distribution/LINUX.md).
+
 ## Run it in your browser
 
 The same dashboard runs in any browser, started from a terminal.

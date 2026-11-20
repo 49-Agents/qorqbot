@@ -98,6 +98,18 @@ then refuse rather than infer that the installation's tools are stopped. Native
 CLI startup/status/stop inspect their saved PID identities, not all processes.
 See MACOS.md for the remaining advanced Linux-only facilities.
 
+The Linux desktop app (an AppImage and a `.deb`, see LINUX.md) wraps the exact checked Ubuntu archive with
+`tools/distribution/linux_app/build_linux_app.py`. Build that archive self-contained: `linux_tools.py` builds the
+shipped Python, tmux and git once, and `native_build.py --target ubuntu24-x86_64 --bundled-tools TOOLS` adds them.
+`.github/workflows/linux-app-checks.yml` does this on manual dispatch on `ubuntu-24.04` and runs `check_posix.py`
+on the archive. With its `version` input it also builds the AppImage and `.deb`, checks the packaged launcher with a
+fresh home folder, opens the AppImage under Xvfb with the computer's Python, git and tmux hidden
+(`linux_app/first_open_check.sh`) and installs the `.deb` in an Ubuntu 24.04 container (`linux_app/check_deb.sh`),
+which opens it to the sign-in screen and removes it. The artifact holds the two files, `SHA256SUMS`, the archive
+and the reports. These runs do not prove GNOME or KDE sessions, Wayland, the tray icon, the AppArmor profile while
+AppArmor is enforcing, or interactive agent sign-in; record those on a real Ubuntu 24.04 desktop before promoting
+the candidate.
+
 Build optional Telegram with a Mac Pillow wheel. Fastmail uses platform-neutral
 wheels. The optional WhatsApp helper must be built on an Apple silicon Mac with
 `extensions/whatsapp/tools/build.py --target macos-arm64 --work NEW_DIRECTORY`;

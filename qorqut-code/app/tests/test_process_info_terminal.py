@@ -1,3 +1,4 @@
+import importlib.util
 import unittest
 from unittest import mock
 
@@ -14,6 +15,8 @@ class Process:
         return self.device_map.get("ttys035")
 
 
+# psutil is a Mac-only dependency; the self-contained Linux package does not carry it.
+@unittest.skipUnless(importlib.util.find_spec("psutil"), "psutil is not installed")
 class TerminalTest(unittest.TestCase):
     def test_a_terminal_opened_after_the_map_was_cached_is_found(self):
         devices = {}

@@ -1,0 +1,377 @@
+'use strict';
+// Engine tests against a fake Qorqbot folder whose ./qorqbot has the same CLI
+// surface (setup, status, stop, update, --port) and serves HTTP with Python.
+//   npm test   (Linux, needs python3.12 on PATH)
+const assert = require('node:assert/strict');
+const { execFileSync, spawnSync } = require('node:child_process');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const net = require('node:net');
+const path = require('node:path');
+const { test, beforeEach, afterEach } = require('node:test');
+const { Engine, EngineError, cleanAppImageEnv } = require('../engine');
+
+// String.raw keeps \${ literally; it is unescaped below so bash sees ${.
+const FAKE_QORQBOT = String.raw`#!/bin/bash
+root=$(cd "$(dirname "$0")" && pwd -P)
+mkdir -p "$root/.run"
+case "\${1-}" in
+  setup) echo setup >>"$root/calls"; echo 'Preparing Qorqbot from the bundled files'; echo 'Qorqbot is ready.';;
+  status)
+    if [ -f "$root/.run/pid" ] && kill -0 "$(cat "$root/.run/pid")" 2>/dev/null; then
+      echo "Running at $(cat "$root/.run/url")$([ -f "$root/.run/terminal" ] && echo ' from Terminal')"; exit 0; fi
+    echo Stopped; exit 1;;
+  stop)
+    echo stop >>"$root/calls"
+    if [ -f "$root/.run/pid" ]; then kill "$(cat "$root/.run/pid")" 2>/dev/null; rm -f "$root/.run/pid"; fi
+    echo Stopped;;
+  install-command)
+    [ -n "\${FAKE_COMMAND_FAIL:-}" ] && { echo 'Qorqbot: /x/qorqbot already exists and was not created by Qorqbot'; exit 1; }
+    echo install-command >>"$root/calls"; echo "Installed /x/qorqbot";;
+  update)
+    echo "update $2 $4" >>"$root/calls"
+    [ -n "\${FAKE_UPDATE_FAIL:-}" ] && { echo 'Qorqbot update: refused'; exit 1; }
+    version=$(tar -xzOf "$2" qorqbot/runtime/PAYLOAD.json | "$QORQUT_PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+    printf '{"version": "%s"}' "$version" >"$root/runtime/PAYLOAD.json";;
+  --port)
+    [ -n "\${FAKE_START_FAIL:-}" ] && { echo 'Qorqbot: exited during startup'; exit 1; }
+    echo "start $2" >>"$root/calls"
+    echo "http://127.0.0.1:$2" >"$root/.run/url"; echo $$ >"$root/.run/pid"
+    exec "$QORQUT_PYTHON" -m http.server "$2" --bind 127.0.0.1 --directory "$root/runtime";;
+esac
+`.replaceAll('\\${', '${');
+
+const PYTHON = execFileSync('/bin/sh', ['-c', 'command -v python3.12']).toString().trim();
+let base;
+let engines;
+
+function makePayload(version, { checksum } = {}) {
+  const payload = path.join(base, `payload-${version}`);
+  const stage = path.join(base, `stage-${version}`);
+  fs.rmSync(payload, { recursive: true, force: true });
+  fs.rmSync(stage, { recursive: true, force: true });
+  fs.mkdirSync(path.join(stage, 'qorqbot', 'runtime'), { recursive: true });
+  fs.mkdirSync(payload);
+  fs.writeFileSync(path.join(stage, 'qorqbot', 'qorqbot'), FAKE_QORQBOT, { mode: 0o755 });
+  fs.writeFileSync(path.join(stage, 'qorqbot', 'runtime', 'PAYLOAD.json'), JSON.stringify({ version }));
+  const name = `qorqbot-${version}-ubuntu24-x86_64.tar.gz`;
+  execFileSync('/usr/bin/tar', ['-czf', path.join(payload, name), '-C', stage, 'qorqbot']);
+  const digest = crypto.createHash('sha256').update(fs.readFileSync(path.join(payload, name))).digest('hex');
+  fs.writeFileSync(path.join(payload, 'ARCHIVE_NAME'), name + '\n');
+  fs.writeFileSync(path.join(payload, 'ARCHIVE_SHA256'), (checksum || digest) + '\n');
+  fs.writeFileSync(path.join(payload, 'VERSION'), version + '\n');
+  return { payload, archive: path.join(payload, name), digest };
+}
+
+function freePort() {
+  return new Promise((resolve) => {
+    const server = net.createServer().listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+async function engineFor(payload, extra = {}) {
+  const engine = new Engine({
+    payload, home: path.join(base, 'h'), firstPort: await freePort(),
+    env: { PATH: process.env.PATH, HOME: base, QORQUT_PYTHON: PYTHON, ...extra.env }, loginPath: false, ...extra.options,
+  });
+  engines.push(engine);
+  return engine;
+}
+
+function calls(engine) {
+  const file = path.join(engine.root, 'calls');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n') : [];
+}
+
+beforeEach(() => {
+  // /tmp keeps the install path under the socket-path limit.
+  base = fs.realpathSync(fs.mkdtempSync('/tmp/qbn-'));
+  engines = [];
+});
+
+afterEach(async () => {
+  for (const engine of engines) {
+    if (engine.isInstalled()) spawnSync('./qorqbot', ['stop'], { cwd: engine.root });
+  }
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('first launch installs, sets up, starts and reports the URL', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  const lines = [];
+  assert.equal(engine.isInstalled(), false);
+  await engine.install({ onLine: (line) => lines.push(line) });
+  const url = await engine.start();
+  assert.equal(url, `http://127.0.0.1:${engine.firstPort}`);
+  assert.deepEqual(calls(engine), ['setup', `start ${engine.firstPort}`]);
+  assert.ok(lines.some((line) => line.includes('Preparing Qorqbot')), 'setup output is streamed');
+  assert.equal(fs.statSync(engine.installParent).mode & 0o777, 0o700);
+  assert.deepEqual(fs.readdirSync(engine.installParent).filter((name) => name.startsWith('.installing')), []);
+  assert.equal(await engine.status(), url);
+});
+
+test('stop, status and restart reuse the installation', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  await engine.start();
+  await engine.stop();
+  assert.equal(await engine.status(), null);
+  assert.equal(engine.server, null);
+  await engine.start();
+  assert.deepEqual(calls(engine).filter((call) => call === 'setup'), ['setup']);
+  assert.equal(calls(engine).filter((call) => call.startsWith('start')).length, 2);
+});
+
+test('a running server from an earlier session is adopted by status', async () => {
+  const { payload } = makePayload('1.0.0');
+  const first = await engineFor(payload);
+  await first.install();
+  const url = await first.start();
+  const second = await engineFor(payload);
+  assert.equal(await second.status(), url);
+});
+
+test('busy port moves to the next port', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  const busy = net.createServer();
+  await new Promise((resolve) => busy.listen(engine.firstPort, '127.0.0.1', resolve));
+  try {
+    const url = await engine.start();
+    assert.equal(url, `http://127.0.0.1:${engine.firstPort + 1}`);
+  } finally {
+    busy.close();
+  }
+});
+
+test('a new app session keeps the chosen port after a competing app exits', async () => {
+  const { payload } = makePayload('1.0.0');
+  const engine = await engineFor(payload);
+  await engine.install();
+  const busy = net.createServer();
+  await new Promise(resolve => busy.listen(engine.firstPort, '127.0.0.1', resolve));
+  try {
+    const original = await engine.start();
+    await engine.stop();
+    await new Promise(resolve => busy.close(resolve));
+    const next = await engineFor(payload, { options: { firstPort: engine.firstPort } });
+    assert.equal(await next.start(), original);
+  } finally { if (busy.listening) busy.close(); }
+});
+
+test('a busy saved port is refused without moving existing agents to another address', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  await engine.start();
+  await engine.stop();
+  const busy = net.createServer();
+  await new Promise(resolve => busy.listen(engine.firstPort, '127.0.0.1', resolve));
+  try {
+    await assert.rejects(engine.start(), error => error.code === 'ports');
+    assert.equal(calls(engine).filter(call => call.startsWith('start')).length, 1);
+  } finally { busy.close(); }
+});
+
+test('bad checksum installs nothing', async () => {
+  const engine = await engineFor(makePayload('1.0.0', { checksum: '0'.repeat(64) }).payload);
+  await assert.rejects(engine.install(), (error) => error instanceof EngineError && error.code === 'checksum');
+  assert.equal(fs.existsSync(engine.root), false);
+});
+
+test('an incomplete existing folder is never replaced', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  fs.mkdirSync(engine.root, { recursive: true });
+  fs.writeFileSync(path.join(engine.root, 'keep'), 'owner data');
+  await assert.rejects(engine.install(), (error) => error.code === 'incomplete');
+  assert.equal(fs.readFileSync(path.join(engine.root, 'keep'), 'utf8'), 'owner data');
+});
+
+test('a too-long install path is refused before unpacking', async () => {
+  const { payload } = makePayload('1.0.0');
+  const engine = await engineFor(payload, { options: { home: path.join(base, 'x'.repeat(40)) } });
+  await assert.rejects(engine.install(), (error) => error.code === 'path');
+  assert.equal(fs.existsSync(engine.root), false);
+});
+
+test('start failure carries the log tail', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { FAKE_START_FAIL: '1' } });
+  await engine.install();
+  await assert.rejects(engine.start(), (error) => error.code === 'start' && error.detail.includes('exited during startup'));
+});
+
+test('a newer bundle updates through the folder updater', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  await engine.start();
+  const newer = makePayload('1.1.0');
+  const updater = await engineFor(newer.payload);
+  assert.equal(updater.updateAvailable(), true);
+  await updater.update();
+  assert.ok(calls(updater).includes('stop'), 'running server is stopped first');
+  assert.ok(calls(updater).includes(`update ${newer.archive} ${newer.digest}`));
+  assert.equal(updater.installedVersion(), '1.1.0');
+  assert.equal(updater.updateAvailable(), false);
+});
+
+test('a refused update keeps the installed version and reports why', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  const updater = await engineFor(makePayload('1.1.0').payload, { env: { FAKE_UPDATE_FAIL: '1' } });
+  await assert.rejects(updater.update(), (error) => error.code === 'update' && error.detail.includes('refused'));
+  assert.equal(updater.installedVersion(), '1.0.0');
+});
+
+test('same version is not offered as an update', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  assert.equal(engine.updateAvailable(), false);
+  await engine.install();
+  assert.equal(engine.updateAvailable(), false);
+});
+
+test('older releases, older prereleases and build metadata never trigger an update', async () => {
+  for (const [current, bundled, expected] of [
+    ['1.3.0-preview.1', '1.3.0-local.85a24e2e7724', false],
+    ['1.3.0-preview.1', '1.3.0-preview.2', true],
+    ['1.1.0', '1.0.0', false],
+    ['1.1.0', '1.1.0-rc.1', false],
+    ['1.1.0-rc.10', '1.1.0-rc.2', false],
+    ['1.1.0+build.1', '1.1.0+build.2', false],
+    ['1.1.0-rc.2', '1.1.0-rc.10', true],
+    ['1.1.0-rc.2', '1.1.0', true],
+  ]) {
+    const installed = await engineFor(makePayload(current).payload);
+    fs.rmSync(installed.root, { recursive: true, force: true });
+    await installed.install();
+    const updater = await engineFor(makePayload(bundled).payload);
+    assert.equal(updater.updateAvailable(), expected, `${current} -> ${bundled}`);
+    if (!expected) {
+      await assert.rejects(updater.update(), error => error.code === 'update');
+      assert.equal(calls(updater).some(call => call.startsWith('update ')), false);
+    }
+  }
+});
+
+test('login shell PATH is read between markers, ignoring banners', async () => {
+  const shell = path.join(base, 'fakeshell');
+  fs.writeFileSync(shell, '#!/bin/sh\necho "banner noise"\nprintf "__QBPATH__/login/bin:/usr/bin__QBPATH__"\n', { mode: 0o755 });
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { SHELL: shell, PATH: '/bin' }, options: { loginPath: true } });
+  const env = await engine.environment();
+  assert.equal(env.PATH, `/login/bin:/usr/bin:/bin:${base}/.local/bin:/usr/local/bin:/snap/bin`);
+});
+
+test('PATH puts the login shell first, then the base PATH, ~/.local/bin and the system locations without repeats', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { PATH: '/base/bin', HOME: '/home/someone' } });
+  const env = await engine.environment();
+  assert.equal(env.PATH, '/base/bin:/home/someone/.local/bin:/usr/local/bin:/usr/bin:/bin:/snap/bin');
+  const repeated = await engineFor(makePayload('1.0.0').payload, { env: { PATH: '/usr/bin::/bin:/usr/bin', HOME: '/home/someone' } });
+  assert.equal((await repeated.environment()).PATH, '/usr/bin:/bin:/home/someone/.local/bin:/usr/local/bin:/snap/bin');
+});
+
+test('with no SHELL the login shell is bash and its profile PATH is used', async () => {
+  fs.writeFileSync(path.join(base, '.bash_profile'), 'export PATH="/from/profile:$PATH"\n');
+  const engine = await engineFor(makePayload('1.0.0').payload, {
+    env: { SHELL: undefined, PATH: '/usr/bin:/bin', HOME: base }, options: { loginPath: true },
+  });
+  const env = await engine.environment();
+  assert.ok(env.PATH.startsWith('/from/profile:'), env.PATH);
+  assert.ok(env.PATH.split(':').includes(`${base}/.local/bin`), env.PATH);
+});
+
+test('a hanging login shell times out and falls back', async () => {
+  const shell = path.join(base, 'hangshell');
+  fs.writeFileSync(shell, '#!/bin/sh\nsleep 30\n', { mode: 0o755 });
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { SHELL: shell, PATH: '/bin' }, options: { loginPath: true } });
+  const started = Date.now();
+  const env = await engine.environment();
+  assert.ok(Date.now() - started < 8000);
+  assert.equal(env.PATH, `/bin:${base}/.local/bin:/usr/local/bin:/usr/bin:/snap/bin`);
+  assert.match(fs.readFileSync(engine.logFile, 'utf8'), /timed out/);
+});
+
+test('quitting stops an app-started server but not one started from a terminal', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  assert.equal(engine.ownsServer(), false, 'nothing running');
+  await engine.install();
+  await engine.start();
+  assert.equal(engine.ownsServer(), true);
+  fs.writeFileSync(path.join(engine.root, '.run', 'terminal'), '');
+  const attached = await engineFor(makePayload('1.0.0').payload);
+  assert.ok(await attached.status());
+  assert.equal(attached.ownsServer(), false);
+  fs.rmSync(path.join(engine.root, '.run', 'terminal'));
+  await attached.status();
+  assert.equal(attached.ownsServer(), true, 'an orphaned app server is still stopped on quit');
+});
+
+test('the terminal command is installed through the folder launcher', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await assert.rejects(engine.installCommand(), /not installed yet/);
+  await engine.install();
+  assert.equal(await engine.installCommand(), 'Installed /x/qorqbot');
+  assert.ok(calls(engine).includes('install-command'));
+  const failing = await engineFor(makePayload('1.0.0').payload, { env: { FAKE_COMMAND_FAIL: '1' } });
+  await assert.rejects(failing.installCommand(), (error) => error instanceof EngineError && /already exists/.test(error.detail));
+});
+
+function fakePython(file) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '#!/bin/sh\n', { mode: 0o755 });
+  return file;
+}
+
+test('launcherEnv adds no Python for a folder that ships its own runtime', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: undefined } });
+  fs.mkdirSync(path.join(engine.root, 'runtime', 'native', 'bin'), { recursive: true });
+  fakePython(path.join(engine.root, 'runtime', 'venv', 'bin', 'python3.12'));
+  assert.equal((await engine.launcherEnv()).QORQUT_PYTHON, undefined);
+  const chosen = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: '/user/python' } });
+  assert.equal((await chosen.launcherEnv()).QORQUT_PYTHON, '/user/python', 'a value the user set is kept');
+});
+
+test('launcherEnv points an older folder at its own Python', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: '/user/python' } });
+  assert.equal((await engine.launcherEnv()).QORQUT_PYTHON, '/user/python', 'nothing found yet: left alone');
+  const python = fakePython(path.join(engine.root, 'runtime', 'venv', 'bin', 'python3.12'));
+  fakePython(path.join(engine.root, '.previous-runtime', 'venv', 'bin', 'python3.12'));
+  assert.equal((await engine.launcherEnv()).QORQUT_PYTHON, python, 'computed per call, runtime wins');
+  assert.equal(engine.baseEnv.QORQUT_PYTHON, '/user/python');
+});
+
+test('launcherEnv falls back to the previous runtime of an older folder', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, { env: { QORQUT_PYTHON: undefined } });
+  const python = fakePython(path.join(engine.root, '.previous-runtime', 'venv', 'bin', 'python3.12'));
+  assert.equal((await engine.launcherEnv()).QORQUT_PYTHON, python);
+});
+
+const MOUNT = '/tmp/.mount_QorqbaAbC123';
+
+test('AppImage launcher variables are removed, the person\'s own values stay', () => {
+  const cleaned = cleanAppImageEnv({
+    APPDIR: MOUNT, APPIMAGE: '/home/x/Qorqbot.AppImage', ARGV0: './Qorqbot.AppImage', OWD: '/home/x', HOME: '/home/x',
+    PATH: `${MOUNT}:${MOUNT}/usr/sbin:/usr/local/bin:/usr/bin`,
+    LD_LIBRARY_PATH: `${MOUNT}/usr/lib:/opt/mine/lib`,
+    XDG_DATA_DIRS: `${MOUNT}/usr/share/:/usr/share/gnome:/usr/share/`,
+    GSETTINGS_SCHEMA_DIR: `${MOUNT}/usr/share/glib-2.0/schemas`,
+  });
+  assert.deepEqual(cleaned, {
+    HOME: '/home/x', PATH: '/usr/local/bin:/usr/bin', LD_LIBRARY_PATH: '/opt/mine/lib', XDG_DATA_DIRS: '/usr/share/gnome:/usr/share/',
+  });
+  const plain = { PATH: '/usr/bin', HOME: '/home/x' };
+  assert.equal(cleanAppImageEnv(plain), plain, 'outside an AppImage nothing changes');
+  assert.deepEqual(cleanAppImageEnv({ APPDIR: MOUNT, PATH: `${MOUNT}-other/bin:/usr/bin` }).PATH, `${MOUNT}-other/bin:/usr/bin`,
+    'a different folder with the same prefix is not the image');
+});
+
+test('the engine passes neither AppImage variables nor the image\'s PATH to the launcher', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload, {
+    env: { APPDIR: MOUNT, APPIMAGE: '/x/Q.AppImage', PATH: `${MOUNT}:/usr/bin`, LD_LIBRARY_PATH: `${MOUNT}/usr/lib`, HOME: '/home/someone' },
+  });
+  const env = await engine.launcherEnv();
+  assert.equal(env.APPDIR, undefined);
+  assert.equal(env.APPIMAGE, undefined);
+  assert.equal(env.LD_LIBRARY_PATH, undefined);
+  assert.equal(env.PATH, '/usr/bin:/home/someone/.local/bin:/usr/local/bin:/bin:/snap/bin');
+});
