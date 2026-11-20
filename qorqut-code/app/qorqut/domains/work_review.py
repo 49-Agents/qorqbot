@@ -1,6 +1,6 @@
 """What the records say was done over a period: a read for the owner and the coordinator.
 
-``work_review_get`` is the companion of ``owner_inputs_list``. That read lists what the owner asked; this one lists
+``work_review_get`` is the companion of ``conversation_history_search``. That read lists what the owner asked; this one lists
 what was recorded as done in the same period, so the two can be compared without relying on anyone's memory:
 
 * ``tasks``: Tasks created, closed, reopened and handed to other Workers, from the Task rows and the system line every
@@ -32,7 +32,7 @@ from qorqut.domains.records_health import CHECKS, PARKED_STALE, TOTALS, WORK, WO
 DEFAULT_ITEMS = 30
 TEXT = 200
 DESCRIPTION = (
-    "Owner and coordinator read. What the records say was done in a period, to set beside owner_inputs_list for the same "
+    "Owner and coordinator read. What the records say was done in a period, to set beside conversation_history_search for the same "
     "period. Choose it with hours (default 24) or since/until (ISO-8601 with a UTC offset); agent_id keeps one agent's work. "
     "tasks: created, closed (with the Task's status line), reopened and workers_changed (delegations and hand-backs), each "
     "with count, by (who did how many) and the newest items, oldest first; more says how many older ones were left out. "

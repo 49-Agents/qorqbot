@@ -67,7 +67,9 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # files_link only builds a link: a path is checked lexically and a document ID through the caller's own
 # document read rules. Content is read solely by the owner's viewer, never through this grant.
 # records_health and records_reconcile answer only the owner and the configured coordinator; each refuses everyone else.
-# So do owner_inputs_list and owner_input_get, the read of the owner's own messages, and work_review_get, what was done.
+# So does work_review_get, what was done. conversation_history_search and conversation_history_get, the read of the
+# conversation with the owner, are allowed here for Ordubashy only: ``_ordubashy_reads`` refuses every other role
+# before a role file or an override is looked at, and the handler still proves the exact configured Ordubashy.
 # So do thread_pins_list and thread_pins_set, the owner's pinned-threads row in Focus: the handler admits only the owner or the
 # configured coordinator in person, writes only the owner's file, and pins only a record the caller may read.
 # So does timeline_get, the timelines of Tasks, Projects and Global: the reader needs the ordinary read of the item. timeline_file
@@ -76,9 +78,11 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
                                   "agent_context_get",
                                   "agents_activity_list", "agent_work_update", "business_briefing", "files_link", "agentic_access",
-                                  "records_health", "records_reconcile", "owner_inputs_list", "owner_input_get",
+                                  "records_health", "records_reconcile", "conversation_history_search",
+                                  "conversation_history_get",
                                   "work_review_get", "thread_pins_list", "thread_pins_set", "timeline_get"})
-
+# What the owner and the agents wrote to each other, across every chat and thread.
+ORDUBASHY_READS = frozenset({"conversation_history_search", "conversation_history_get"})
 
 
 def _extension_policy(name, defaults, overrides, registry, **scope):
@@ -113,11 +117,18 @@ def _user_input(name, defaults, overrides, registry, *, role_id, scope, resolve)
         return PolicyDecision("deny", "user_input_ordubashy_only")
 
 
+def _ordubashy_reads(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    # Among agents the conversation with the owner is Ordubashy's alone: no role file and no override gives it to
+    # another role. Ordubashy's own decision follows below, so an explicit deny on it is still respected.
+    if name in ORDUBASHY_READS and role_id != ORDUBASHY_ROLE:
+        return PolicyDecision("deny", "conversation_history_ordubashy_only")
+
+
 def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, resolve):
     if name in {"agent_browser_manage", "website_sign_in"}:
-        # Standing owner authority for the configured Ordubashy over his workers' browsers: no per-action Signoff and no role
-        # file or override can widen it to another role. The handler still proves the exact configured Ordubashy and an
-        # active worker target; an explicit deny override remains respected.
+        # Standing owner authority for the configured Ordubashy over the browser the agents use: no per-action Signoff and no role
+        # file or override can widen it to another role. The handler still proves the exact configured Ordubashy; an
+        # explicit deny override remains respected.
         if role_id != ORDUBASHY_ROLE or overrides.get(name) == "deny":
             return PolicyDecision("deny", "browser_management_role")
         return PolicyDecision("allow", "browser_management_owner_authority")
@@ -218,8 +229,8 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
 
 HOST_POLICY_RULES = PolicyRules(
     # ``_prerequisites`` precedes the blanket Global-table rule so a new Table operation is never decided by it alone.
-    before_override=(_extension_policy, _user_input, _prerequisites, global_tables, archive_approval_rule, _owner_approvals,
-                    _learning_applier, _context_questions, _personal_record),
+    before_override=(_extension_policy, _user_input, _ordubashy_reads, _prerequisites, global_tables, archive_approval_rule,
+                    _owner_approvals, _learning_applier, _context_questions, _personal_record),
     after_override=(_standing_defaults,),
     after_default=(_fallback_defaults,),
 )

@@ -1,17 +1,11 @@
-/* Chat for an agent Qorqbot runs itself (js/agent-runtime.js): End session in the session line, Stop, the activity line and the
+/* Chat for an agent Qorqbot runs itself (js/agent-runtime.js): Stop, the activity line and the
    question cards. Uses the dashboard's existing tokens. */
-.mchat[hidden], .mchat-cards[hidden], .mchat-activity[hidden], .mchat-stop[hidden], .gchat-session .gchat-end[hidden], .mchat-card-error[hidden], .mchat-notice[hidden] { display: none; }
-.gchat-session[data-state="closed"] .gchat-session-dot, .gchat-session[data-state="off"] .gchat-session-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--fg-3, var(--fg-2)); }
-
-/* End session: a quiet text button at the end of the session line. A long line of text wraps beside it and the dot stays with the first line. */
+.mchat[hidden], .mchat-cards[hidden], .mchat-activity[hidden], .mchat-stop[hidden], .mchat-card-error[hidden], .mchat-notice[hidden] { display: none; }
+/* A long line of session text wraps; the working dots stay with its first line. */
 .gchat-session { align-items: flex-start; }
-.gchat-session-dot { align-self: flex-start; margin-top: 6px; }
 .gchat-session-text { flex: 1 1 auto; }
 .gchat-session > .gchat-working-tag { align-self: stretch; }
-.gchat-session .gchat-end { flex: none; margin-left: auto; height: 18px; line-height: 1; min-height: 0; padding: 0 8px; border: 0; border-radius: 6px; background: none; box-shadow: none; font-size: 11.5px; font-weight: 400; color: var(--fg-3, var(--fg-2)); }
-.gchat-session .gchat-end:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
-.gchat-session .gchat-end:disabled { opacity: .5; cursor: default; }
-.gchat-end:focus-visible, .mchat-stop:focus-visible, .mchat-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mchat-stop:focus-visible, .mchat-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* The block gives way before the conversation does: with a question card up, the message list keeps at least 160px (a short window,
    down to 560px tall), and the card is what shrinks (it scrolls inside itself; its title and the Send answer button stay in view). */

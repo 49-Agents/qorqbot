@@ -101,12 +101,15 @@ class ConversationReader:
         return None
 
     @staticmethod
-    def _project(archive, receipt, provider, conversation_id, begin, end) -> list[Entry]:
+    def _project(archive, receipt, provider, conversation_id, begin, end, *, bounded: bool = False) -> list[Entry]:
+        """The entries of the records in ``[begin, end)``. ``bounded`` reads those bytes only: the reader of one indexed
+        message names its end, so the archive does not read and parse the megabyte that follows it."""
         projector = Projector(provider, conversation_id)
         # The lineage's identity was verified when the archive bound it; a window may begin mid-conversation.
         projector.bound = True
         entries = []
-        with archive.iter_records(receipt, offset=begin) as records:
+        with (archive.iter_records(receipt, offset=begin, end=end) if bounded
+              else archive.iter_records(receipt, offset=begin)) as records:
             for record in records:
                 if record.kind == "partial" or record.end > end:
                     break

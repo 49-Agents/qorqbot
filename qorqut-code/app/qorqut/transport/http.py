@@ -552,17 +552,17 @@ class HTTPAPI:
                 with self.runtime.database.read() as uow:
                     owner = uow.repository("installation").get("service")
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
-                    raise DomainError("forbidden", "Only the installation owner can set up agent browsers")
+                    raise DomainError("forbidden", "Only the installation owner can set up the agent browser")
                 from qorqut.browser import setup as browser_setup
                 if parts[1] == "browser-accounts":
                     from qorqut.browser import sign_in
                     reader = partial(sign_in.accounts, self.runtime)
                     if request.method == "POST":
                         body = await read_json(request, limit=2048)
-                        checked_fields(body, {"action", "agent_id", "site"}, {"action", "agent_id", "site"})
+                        checked_fields(body, {"action", "site"}, {"action", "site"})
                         if body["action"] != "sign_out":
                             raise DomainError("validation_error", "Settings can only sign out. Ask Ordubashy to connect a website.")
-                        reader = partial(sign_in.sign_out, self.runtime, body["agent_id"], body["site"])
+                        reader = partial(sign_in.sign_out, self.runtime, body["site"])
                     data = await anyio.to_thread.run_sync(reader)
                     result = response(OperationResult.ok(data, request_id=request_id))
                     result.headers["Cache-Control"] = "private, no-store"
@@ -701,7 +701,7 @@ class HTTPAPI:
                     "management_coordinator_set", "management_list", "management_get", "management_resolve",
                     "system_incidents_list", "system_incidents_get",
                     "dashboard_summary_get", "global_progress_get", "records_health", "records_reconcile",
-                    "owner_inputs_list", "owner_input_get", "work_review_get",
+                    "conversation_history_search", "conversation_history_get", "work_review_get",
                     "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "agent_context_get",
                     "costs_overview",
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",

@@ -278,15 +278,17 @@ class BrowserTest(unittest.TestCase):
             live.tabs(20400)
         self.assertEqual(refused.exception.code, "browser_not_ready")
 
-    def test_the_port_is_the_one_of_the_browser_the_agent_uses_and_only_for_an_agent_with_a_browser(self):
+    def test_the_port_is_the_shared_browsers_and_only_for_an_agent_that_uses_it(self):
         runtime = SimpleNamespace()
         with mock.patch.object(setup, "targets", return_value=("owner", [{"agent_id": AGENT}])), \
                 mock.patch.object(sign_in, "_meta", return_value={"managed": {"port": 20417}}) as meta, \
-                mock.patch.object(sign_in, "_state", return_value=Path("/state", AGENT)), \
-                mock.patch.object(agent_browsers, "meta_valid", return_value=True), \
+                mock.patch.object(sign_in, "_state", return_value=Path("/state", agent_browsers.SHARED_ID)), \
+                mock.patch.object(agent_browsers, "meta_valid", return_value=True) as valid, \
                 mock.patch.object(agent_browsers, "supervisor_state", return_value={"state": "ready"}):
             self.assertEqual(live.port(runtime, AGENT), 20417)
-            meta.assert_called_once_with(runtime, AGENT)
+            meta.assert_called_once_with(runtime)                     # there is one browser: the agent only says whose tabs
+            self.assertEqual(valid.call_args.args[1:], (agent_browsers.SHARED_ID, Path("/state", agent_browsers.SHARED_ID)))
+            self.assertEqual(live.shared_port(runtime), 20417)
             with self.assertRaises(DomainError) as refused:
                 live.port(runtime, "22222222-2222-4222-8222-222222222222")
             self.assertEqual(refused.exception.code, "not_found")
@@ -297,7 +299,7 @@ class BrowserTest(unittest.TestCase):
         for state, valid in (("stopped", True), ("starting", True), ("unverified", True), ("failed", True), ("ready", False)):
             with self.subTest(state=state, valid=valid), mock.patch.object(setup, "targets", return_value=("owner", [{"agent_id": AGENT}])), \
                     mock.patch.object(sign_in, "_meta", return_value={"managed": {"port": 20417}}), \
-                    mock.patch.object(sign_in, "_state", return_value=Path("/state", AGENT)), \
+                    mock.patch.object(sign_in, "_state", return_value=Path("/state", agent_browsers.SHARED_ID)), \
                     mock.patch.object(agent_browsers, "meta_valid", return_value=valid), \
                     mock.patch.object(agent_browsers, "supervisor_state", return_value={"state": state}), \
                     self.assertRaises(DomainError) as refused:
@@ -319,7 +321,7 @@ class BrowserTest(unittest.TestCase):
                 with self.subTest(tab=tab), self.assertRaises(DomainError) as refused:
                     live.open_view(runtime, AGENT, tab)
                 self.assertEqual(refused.exception.code, "not_found")
-        state.assert_called_once_with(runtime, AGENT)                 # the browser the agent uses: its own, or the Shared one
+        state.assert_called_once_with(runtime)                        # the one browser every agent uses
         view.assert_called_once_with(AGENT, 20400, TAB, marks=Path("/state", idle_tabs.WATCHED))
         return woken
 

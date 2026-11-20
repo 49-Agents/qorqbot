@@ -162,20 +162,19 @@ const connectorsPanel = (() => {
     let accountsView = null, accountsTimer = 0;
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
     function paintAccounts() {
-      const section = root.querySelector('[data-cx-accounts]'), agents = accountsView?.agents;
-      section.hidden = !agents?.length;
+      const section = root.querySelector('[data-cx-accounts]'), rows = accountsView?.sites;
+      section.hidden = !rows;
       if (section.hidden) return;
-      const busy = agents.find(agent => agent.signing_in), note = root.querySelector('[data-cx-signin-note]');
+      const busy = accountsView.signing_in, note = root.querySelector('[data-cx-signin-note]');
       note.hidden = !busy;
-      if (busy) note.textContent = `Finish signing in to ${busy.signing_in} in the Chrome window, then close that window. The agents’ browser is paused until you do.`;
-      const rows = agents.flatMap(agent => agent.sites.map(item => ({agent, item})));
+      if (busy) note.textContent = `Finish signing in to ${busy} in the Chrome window, then close that window. The agents’ browser is paused until you do.`;
       const list = root.querySelector('[data-cx-accounts-list]');
       list.hidden = !rows.length;
       root.querySelector('[data-cx-accounts-empty]').hidden = !!rows.length || !!busy;
-      list.innerHTML = rows.map(({agent, item}) => {
+      list.innerHTML = rows.map(item => {
         const [label, tone] = SIGN_IN_STATUS[item.session_saved ?? null];
-        return `<div class="cx-row cx-account-row" data-cx-site="${esc(item.site)}"><div class="cx-row-main"><div class="cx-row-title"><h3>${esc(item.site)}</h3><span class="cx-status" data-tone="${tone}">${label}</span></div>${agents.length > 1 ? `<p class="cx-row-does">${esc(agent.name)}</p>` : ''}</div>
-          <div class="cx-row-action"><button type="button" class="quiet" data-cx-site-action="sign_out" data-cx-agent="${esc(agent.agent_id)}" data-cx-site-name="${esc(item.site)}"${busy ? ' disabled' : ''}>${item.session_saved === false ? 'Remove' : 'Sign out'}</button></div></div>`;
+        return `<div class="cx-row cx-account-row" data-cx-site="${esc(item.site)}"><div class="cx-row-main"><div class="cx-row-title"><h3>${esc(item.site)}</h3><span class="cx-status" data-tone="${tone}">${label}</span></div></div>
+          <div class="cx-row-action"><button type="button" class="quiet" data-cx-site-action="sign_out" data-cx-site-name="${esc(item.site)}"${busy ? ' disabled' : ''}>${item.session_saved === false ? 'Remove' : 'Sign out'}</button></div></div>`;
       }).join('');
       clearTimeout(accountsTimer);
       // Ordubashy starts sign-ins from Chat, so this list has to notice them on its own.
@@ -187,10 +186,10 @@ const connectorsPanel = (() => {
       try {
         const next = coreData(change ? await post('/root/browser-accounts', change) : await api('/root/browser-accounts'));
         if (!live()) return true;
-        const wasBusy = accountsView?.agents?.some(agent => agent.signing_in);
+        const wasBusy = !!accountsView?.signing_in;
         accountsView = next; accountsError(''); paintAccounts();
         // The session list only settles once the agent's browser is back after the window closes.
-        if (wasBusy && !next.agents?.some(agent => agent.signing_in)) { clearTimeout(accountsTimer); accountsTimer = setTimeout(() => { loadAccounts(); loadBrowser(); }, 1500); }
+        if (wasBusy && !next.signing_in) { clearTimeout(accountsTimer); accountsTimer = setTimeout(() => { loadAccounts(); loadBrowser(); }, 1500); }
         return true;
       } catch (failure) {
         if (live()) accountsError(failure.message || 'Website sign-ins could not be loaded.');
@@ -215,12 +214,10 @@ const connectorsPanel = (() => {
         downloading ? 'Downloading' : !browserView.chrome_installed ? (ownChrome.state === 'failed' ? 'Download failed' : 'Chrome needed') : 'Setup needed';
       status.dataset.tone = ready ? 'ok' : 'warn';
       const agents = browserView.agents || [];
-      const problems = agents.filter(agent => agent.state !== 'healthy')
-        .map(agent => agents.length > 1 ? `${agent.name}: ${agent.explanation}` : agent.explanation);
       detail.textContent = ready ? `Ready for ${agents.map(agent => agent.name).join(', ')}.` :
         !browserView.tool_installed ? 'The tool agents use to control their browser isn’t installed. Quit and reopen Qorqbot to install it again.' :
         !browserView.chrome_installed ? ownChrome.explanation || 'Agents need Google Chrome to browse, and it isn’t installed on this computer. Install it from google.com/chrome, then press Retry setup.' :
-        problems.join(' ') || 'Preparing agent browsers…';
+        browserView.explanation || 'Preparing the agent browser…';
       retry.hidden = ready || !browserView.tool_installed;
       retry.disabled = downloading || (!browserView.chrome_installed && !ownChrome.state);
       root.dispatchEvent(new CustomEvent('browser-setup-painted', {bubbles: true}));
@@ -264,7 +261,7 @@ const connectorsPanel = (() => {
       const siteAction = event.target.closest('[data-cx-site-action]');
       if (siteAction) {
         siteAction.disabled = true;
-        if (!await loadAccounts({action: siteAction.dataset.cxSiteAction, agent_id: siteAction.dataset.cxAgent, site: siteAction.dataset.cxSiteName})) siteAction.disabled = false;
+        if (!await loadAccounts({action: siteAction.dataset.cxSiteAction, site: siteAction.dataset.cxSiteName})) siteAction.disabled = false;
         return;
       }
       if (event.target.closest('[data-cx-browser-retry]')) { await loadBrowser(true); return; }

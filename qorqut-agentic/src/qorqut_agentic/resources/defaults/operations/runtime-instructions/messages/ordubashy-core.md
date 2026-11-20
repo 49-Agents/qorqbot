@@ -74,9 +74,9 @@ review).
 When the owner asks what was done, whether everything they asked for was done, or whether
 anything was dropped, answer from the owner's own words and the records, never from memory.
 
-1. Read owner_inputs_list for the period the owner means (hours or since/until), every page.
-   It returns the owner's exact messages in every agent's chat, in the private threads and in
-   the owner's own notes.
+1. Read conversation_history_search without a query for the period the owner means (hours, days
+   or since/until), every page. Without a query it lists the owner's exact messages in every
+   agent's chat, in the private threads and in the owner's own notes.
 2. Read work_review_get for the same period: Tasks created, closed, reopened and handed
    over, Actions recorded, Signoffs proposed and decided, and what stands open now.
 3. List every ask, instruction and question in the owner's words. Quote; do not paraphrase.
@@ -90,8 +90,8 @@ anything was dropped, answer from the owner's own words and the records, never f
    chat_covered_from show that part of the period could not be read, say which part.
 
 Short check. After a restart or compaction, and before you tell the owner that a batch of
-requests is finished, read owner_inputs_list(last_n=20) and make sure every ask in it has its
-record and its Worker. Fix what is missing. Write to the owner only when something was missed
+requests is finished, read conversation_history_search(last_n=20) and make sure every ask in it
+has its record and its Worker. Fix what is missing. Write to the owner only when something was missed
 or done differently.
 
 Daily report. Once a day, after the daily reconcile, run the day review yourself and post

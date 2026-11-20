@@ -74,7 +74,7 @@ def register_agent_browser_management(runtime):
 
     Like ``browser_turn`` it is dispatched by the authenticated MCP bridge, which authorizes it in a short read unit and then
     runs the host effects outside any database transaction. Who may call it is decided by the host policy rule and the
-    worker-manager check, never by a role file or a caller-supplied value."""
+    manager's own check that the caller is the configured Ordubashy, never by a role file or a caller-supplied value."""
     def resolve_namespace(_context, _arguments):
         return "global"
 
@@ -84,10 +84,9 @@ def register_agent_browser_management(runtime):
     runtime.registry.register(OperationDescriptor(AGENT_BROWSER_MANAGE, {
         "type": "object", "additionalProperties": False,
         "properties": {
-            "agent_id": {"type": "string", "format": "uuid", "description": instruction_text('operations-the-active-permanent-worker-whose-own-browser-to')},
             "action": {"enum": list(ACTIONS)},
         },
-        "required": ["agent_id", "action"],
+        "required": ["action"],
     }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),
         exposure=frozenset({"mcp"}), global_capability="read_global_context", resolve_namespace=resolve_namespace,
         description=instruction_text('operations-set-up-diagnose-repair-restart-or-stop-an'),
@@ -97,7 +96,6 @@ def register_agent_browser_management(runtime):
         "properties": {
             "action": {"enum": ["open", "status", "sign_out"]},
             "site": {"type": "string", "maxLength": 300, "description": "A website such as slack.com, or its https sign-in address. Required for open and sign_out."},
-            "agent_id": {"type": "string", "format": "uuid", "description": "A permanent worker who needs the sign-in. Not needed: every agent uses the Shared browser and has its sign-ins."},
         },
         "required": ["action"],
     }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),

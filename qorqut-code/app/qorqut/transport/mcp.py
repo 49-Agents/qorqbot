@@ -137,6 +137,7 @@ ARGUMENT_ALIASES = {
     "fastmail_messages_search": {"query": "q", "text": "q"},
     "fastmail_reply": {"message_id": "reply_message_id"},
     "tables_rows_list": {"search": "query", "q": "query"},
+    "conversation_history_search": {"q": "query", "search": "query"},
 }
 # Transport fields that are never an operation's own argument, so never a name to rename.
 TRANSPORT_ARGUMENTS = frozenset({"response_detail", "tool_names", "sections", "if_read_token"})
@@ -705,9 +706,10 @@ class MCPTransport:
                         namespace = self.runtime.application.namespace(context, descriptor, args)
                         with self.runtime.database.read() as uow:
                             self.runtime.application.authorize(context, descriptor, (), uow, namespace=namespace, arguments=args)
-                        # The manager decides the exact worker target and rechecks it under the agent's lock; host effects run
-                        # here, outside every database transaction, under the instance's writer admission.
-                        value = self.runtime.browser_manager.manage(actor.principal.id, args, options.idempotency_key)
+                        # The manager rechecks who is calling under the browser's lock; host effects run here, outside
+                        # every database transaction, under the instance's writer admission.
+                        from qorqut.browser import setup as browser_setup
+                        value = browser_setup.agent_manage(self.runtime, actor.principal.id, args, options.idempotency_key)
                         return OperationResult.ok(value, request_id=request_id)
                     if canonical_name == BROWSER_OPERATION:
                         self.runtime.registry.bind_arguments(canonical_name, args)

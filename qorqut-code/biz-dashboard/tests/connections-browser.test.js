@@ -17,18 +17,18 @@ test('Connections renders browser readiness and the extensions, with treg set up
     await page.evaluate(() => {
       window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
       window.coreData = value => value;
-      window.browserState = {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: false,
-        agents: [{name: 'Ordubashy', state: 'missing', diagnostic: 'Preparing agent browser…'}]};
+      window.browserState = {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: false, state: 'missing',
+        explanation: 'The browser hasn’t been set up yet. Press Retry setup.', agents: [{name: 'Ordubashy', connected: false}]};
       window.tregStatus = 'not_set_up';
       window.sent = [];
-      window.api = async url => url === '/root/browser-setup' ? window.browserState : url === '/root/browser-accounts' ? {agents: []} :
+      window.api = async url => url === '/root/browser-setup' ? window.browserState : url === '/root/browser-accounts' ? {signing_in: null, sites: []} :
         {platform: 'linux', clients: [],
           connectors: [{id: 'treg', kind: 'extension', status: window.tregStatus}, {id: 'whatsapp', kind: 'extension', status: 'not_installed'}]};
       window.post = async (url, body) => {
         window.sent.push({url, body});
         if (url === '/root/browser-setup' && body.action === 'retry') {
-          window.browserState = {...window.browserState, ready: true,
-            agents: [{name: 'Ordubashy', state: 'healthy', diagnostic: 'Ready.'}]};
+          window.browserState = {...window.browserState, ready: true, state: 'healthy', explanation: '',
+            agents: [{name: 'Ordubashy', connected: true}]};
           return window.browserState;
         }
         if (url === '/root/extensions/treg/key') {
@@ -84,9 +84,9 @@ test('without an installed Chrome the card follows the download of Qorqbot’s o
       window.coreData = value => value;
       window.sent = [];
       window.setup = chrome => ({kind: 'built_in', tool_installed: true, chrome_installed: false, ready: false, managed_chrome: chrome,
-        agents: [{name: 'Ordubashy', state: 'unsupported', explanation: 'Install Chrome, then press Retry setup.'}]});
+        state: 'unsupported', explanation: 'Install Chrome, then press Retry setup.', agents: [{name: 'Ordubashy', connected: false}]});
       window.browserState = window.setup({state: 'downloading', explanation: 'Qorqbot is downloading its own browser (about 200 MB). This card updates by itself.'});
-      window.api = async url => url === '/root/browser-setup' ? window.browserState : url === '/root/browser-accounts' ? {agents: []}
+      window.api = async url => url === '/root/browser-setup' ? window.browserState : url === '/root/browser-accounts' ? {signing_in: null, sites: []}
         : {platform: 'linux', clients: [], connectors: []};
       window.post = async (url, body) => { window.sent.push({url, body}); return window.browserState; };
     });
@@ -129,13 +129,13 @@ test('website sign-ins are led by Ordubashy and Settings only lists and signs ou
       window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
       window.coreData = value => value;
       window.sent = [];
-      window.accounts = {agents: [{agent_id: 'a', name: 'Ordubashy', signing_in: 'github.com', sites: [{site: 'slack.com', session_saved: true}, {site: 'notion.so', session_saved: false}]}]};
+      window.accounts = {signing_in: 'github.com', sites: [{site: 'slack.com', session_saved: true}, {site: 'notion.so', session_saved: false}]};
       window.api = async url => url === '/root/browser-accounts' ? window.accounts : url === '/root/browser-setup'
-        ? {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, agents: [{name: 'Ordubashy', state: 'healthy'}]}
+        ? {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', agents: [{name: 'Ordubashy', connected: true}]}
         : {platform: 'linux', clients: [], connectors: [{id: 'treg', kind: 'extension', status: 'not_set_up'}]};
       window.post = async (url, body) => {
         window.sent.push(body);
-        window.accounts = {agents: [{...window.accounts.agents[0], signing_in: null, sites: window.accounts.agents[0].sites.filter(item => item.site !== body.site)}]};
+        window.accounts = {signing_in: null, sites: window.accounts.sites.filter(item => item.site !== body.site)};
         return window.accounts;
       };
     });
@@ -147,11 +147,11 @@ test('website sign-ins are led by Ordubashy and Settings only lists and signs ou
     assert.match(await page.locator('[data-cx-accounts]').textContent(), /ask Ordubashy in Chat/);
     assert.match(await page.locator('[data-cx-accounts]').textContent(), /can’t block those actions in code/);
     assert.equal(await page.locator('[data-cx-site="notion.so"] [data-cx-site-action]').textContent(), 'Remove');
-    await page.evaluate(() => { window.accounts = {agents: [{...window.accounts.agents[0], signing_in: null}]}; });
+    await page.evaluate(() => { window.accounts = {...window.accounts, signing_in: null}; });
     await page.locator('[data-cx-signin-note]').waitFor({state: 'hidden'});
     await page.locator('[data-cx-site="slack.com"] [data-cx-site-action]').click();
     await page.locator('[data-cx-site="slack.com"]').waitFor({state: 'detached'});
-    assert.deepEqual(await page.evaluate(() => window.sent[0]), {action: 'sign_out', agent_id: 'a', site: 'slack.com'});
+    assert.deepEqual(await page.evaluate(() => window.sent[0]), {action: 'sign_out', site: 'slack.com'});
   } finally { await browser.close(); }
 });
 
@@ -164,10 +164,10 @@ test('every agent uses the one Shared browser, so Settings offers no browser cho
     await page.evaluate(() => {
       window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
       window.coreData = value => value;
-      window.browserState = {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, agents: [
-        {agent_id: 'lead', name: 'Ordubashy', state: 'healthy', browser: 'shared'},
-        {agent_id: 'atlas', name: 'Atlas', state: 'healthy', browser: 'shared'}]};
-      window.api = async url => url === '/root/browser-setup' ? window.browserState : url === '/root/browser-accounts' ? {agents: []}
+      window.browserState = {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', agents: [
+        {agent_id: 'lead', name: 'Ordubashy', connected: true},
+        {agent_id: 'atlas', name: 'Atlas', connected: true}]};
+      window.api = async url => url === '/root/browser-setup' ? window.browserState : url === '/root/browser-accounts' ? {signing_in: null, sites: []}
         : {platform: 'linux', clients: [], connectors: []};
       window.post = async () => window.browserState;
     });
