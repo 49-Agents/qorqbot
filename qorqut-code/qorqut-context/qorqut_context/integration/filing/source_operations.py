@@ -11,14 +11,16 @@ admission, queue, publication and completion path as uploads. `context_edit` que
 targets and authority, the Operations `context_graph_edits` binding makes it durable, and the queue driver runs exactly that
 plan later with no model. Its supervised variant (a `qorqut-supervised-edit-v1` plan with an exact Markdown document, notes
 included) is not queued: `qorqut_context.integration.graph_edits.supervised_edit` previews it purely or publishes it directly, through the
-descriptor's prepare / external / apply lifecycle. `context_filing_costs`, the owner's usage read, lives in
-`qorqut_context.integration.usage`.
+descriptor's prepare / external / apply lifecycle. `personal_set` changes the owner's record by naming facts
+(`qorqut_context.integration.graph_edits.personal_edit`): it builds the queued graph-edit plan itself and admits it through the
+same path. `context_filing_costs`, the owner's usage read, lives in `qorqut_context.integration.usage`.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 import json
 
+from qorqut_context.integration.graph_edits import personal_edit
 from qorqut_context.integration.graph_edits.supervised_edit import (EDIT_INPUT_SCHEMA as EDIT_INPUT, EDIT_OUTPUT_SCHEMA as EDIT_OUTPUT,
                                                                      SupervisedEdits, is_supervised, require_variant)
 from qorqut_operations.application import OperationDescriptor
@@ -38,6 +40,7 @@ DESCRIPTIONS = {
     "context_upload_map": instruction_text('source-operations-owner-view-the-source-to-publication-chain'),
     "context_instruct": instruction_text('source-operations-focused-attributed-correction-to-context-you-are'),
     "context_edit": instruction_text('source-operations-explicit-typed-edit-of-the-published-context'),
+    personal_edit.NAME: instruction_text('source-operations-add-correct-or-remove-facts-in-the-owner'),
 }
 
 # The authority metadata of these operations (declared once, here; the host's registry takes it from ``registration``).
@@ -46,6 +49,8 @@ ENTRIES = (
     CatalogEntry("context_upload_map", False, "read", frozenset({"dashboard", "worker"}), True),
     CatalogEntry("context_instruct", False, "compound", frozenset({"mcp", "dashboard", "worker"})),
     CatalogEntry("context_edit", False, "compound", frozenset({"mcp", "dashboard", "worker"})),
+    # Agent-only: the record is maintained by the configured Ordubashy, never from an owner or dashboard session.
+    CatalogEntry(personal_edit.NAME, False, "compound", frozenset({"mcp", "worker"})),
 )
 
 
@@ -60,6 +65,7 @@ class ContextSourceOperations:
         self.filing, self.clock, self.graph_edits = filing, clock, graph_edits
         self.instruct_roles = frozenset(instruct_roles)
         self.supervised = None if graph_edits is None else SupervisedEdits(graph_edits)
+        self.personal = None if graph_edits is None else personal_edit.PersonalEdits(graph_edits)
 
     def require_filing(self):
         if self.filing is None:
@@ -81,6 +87,9 @@ class ContextSourceOperations:
             effect_kind="compound", exposure={"mcp", "dashboard", "worker"}, owner_only=False, supports_signoff=False,
             description=DESCRIPTIONS["context_edit"], prepare=self.prepare_edit, external=self.external_edit, apply=self.apply_edit,
             **shared))
+        registry.register(OperationDescriptor(personal_edit.NAME, personal_edit.INPUT, personal_edit.OUTPUT,
+            effect_kind="compound", exposure={"mcp", "worker"}, owner_only=False, supports_signoff=False,
+            description=DESCRIPTIONS[personal_edit.NAME], prepare=self.prepare_personal, apply=self.apply_personal, **shared))
         return self
 
     def read(self, operation, ctx, args, uow):
@@ -187,6 +196,17 @@ class ContextSourceOperations:
         if self.supervised is None:
             raise DomainError("operation_unavailable", "Supervised Context edits are not composed on this installation")
         return self.supervised
+
+    def require_personal(self):
+        if self.personal is None:
+            raise DomainError("operation_unavailable", "Graph edits are not composed on this installation")
+        return self.personal
+
+    def prepare_personal(self, ctx, args, options, uow):
+        return self.require_personal().prepare(ctx, args, options, uow, self.clock)
+
+    def apply_personal(self, ctx, plan, uow):
+        return self.require_personal().apply(ctx, plan, uow)
 
     def prepare_edit(self, ctx, args, options, uow):
         require_variant(args)

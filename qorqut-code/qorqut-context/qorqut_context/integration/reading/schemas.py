@@ -17,6 +17,10 @@ CHANGES_LIMIT = (1, 100, 20)
 # The pinned engine's index returns at most this many hits per query, so a search can be paged this deep.
 MAX_SEARCH_WINDOW = 1000
 
+# The engine's own type marker on the owner's record: required on the node, never a fact about the owner.
+PERSONAL_HIDDEN = frozenset({"basic_entity_type"})
+PERSONAL_FIELDS = 50
+
 CURSOR = {"type": "string", "minLength": 1, "maxLength": 1024}
 REF = {"type": "string", "pattern": "^((node|edge|source):)?[a-z0-9]{5}$"}
 RECORD_REF = {"type": "string", "pattern": "^((node|edge|note|source):)?[a-z0-9]{5}$"}
@@ -56,6 +60,8 @@ EXPAND_INPUT = {
     "limit": _limit(EXPAND_LIMIT), "cursor": CURSOR,
 }
 CHANGES_INPUT = {"ref": RECORD_REF, "limit": _limit(CHANGES_LIMIT), "cursor": CURSOR}
+PERSONAL_INPUT = {"fields": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 200},
+                             "maxItems": PERSONAL_FIELDS, "description": instruction_text('schemas-only-these-fields-of-the-owner-s-record')}}
 
 # ---- response definitions
 
@@ -182,6 +188,8 @@ HOME_OUTPUT = _output({"empty": {"type": "boolean"}, "totals": _TOTALS,
                        "personal_context": {"oneOf": [{"type": "null"}, object_schema({
                            "ref": _REF("node"), "summary": _STRING, "attributes": _ATTRIBUTES})]},
                        "nodes": {"type": "array", "items": _ref("home_node")}, "page": _ref("page")})
+PERSONAL_OUTPUT = _output({"ref": {"oneOf": [{"type": "null"}, _REF("node")]}, "summary": _STRING, "facts": _ATTRIBUTES,
+                           "fields": {"type": "array", "items": _STRING}, "missing": {"type": "array", "items": _STRING}})
 FIND_OUTPUT = _output({"query": _STRING, "match": {"enum": ["all_words", "any_word", "browse"]}, "items": {"type": "array", "items": {
     "oneOf": [_ref("node"), _ref("relationship"), _ref("note"), _ref("source")]}}, "page": _ref("page")})
 EXPAND_OUTPUT = _output({"origin": _ref("node"), "depth": {"type": "integer", "minimum": 1, "maximum": 3},

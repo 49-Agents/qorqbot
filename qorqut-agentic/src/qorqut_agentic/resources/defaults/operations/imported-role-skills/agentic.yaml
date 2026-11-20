@@ -137,3 +137,18 @@ entries:
     an optional Description and a folder slug and makes only the record and empty
     hq/ and code/ folders, with no agents, setup, services or documents.
   path: native/skills/project-creation/SKILL.md
+- id: asset-d604a5d406a4deaa0e2c
+  kind: skill
+  description: Read or update what is known about the owner (names, contacts,
+    dates, background, links, their choices for forms and applications) with
+    personal_get and personal_set. Use before asking the owner anything about
+    themselves, when filling or building a form, application, profile, bio or
+    message in their name, and when the owner or a source gives a new fact about
+    them.
+  when_to_use: Read or update what is known about the owner (names, contacts,
+    dates, background, links, their choices for forms and applications) with
+    personal_get and personal_set. Use before asking the owner anything about
+    themselves, when filling or building a form, application, profile, bio or
+    message in their name, and when the owner or a source gives a new fact about
+    them.
+  path: native/skills/personal-record/SKILL.md

@@ -22,7 +22,7 @@ UNAVAILABLE = {"forbidden", "policy_denied", "not_found", "operation_unavailable
 GUIDANCE = (
     ("Tasks", ("tasks_list", "tasks_get", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete",
                "crm_activity_list", "crm_activity_record")),
-    ("Shared Context", ("context_home", "context_object", "context_expand", "context_find")),
+    ("Shared Context", ("context_home", "context_object", "context_expand", "context_find", "personal_get")),
     ("Materials", ("context_items_list", "context_items_get", "materials_update", "context_upload", "content_list", "content_get", "context_items_archive")),
     ("Tables", ("tables_list", "tables_get", "tables_rows_list", "tables_create", "tables_update", "tables_rows_write",
                 "tables_thread_get", "tables_comment", "tables_follow",

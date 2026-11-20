@@ -24,7 +24,8 @@ class OwnerRecordInStartupTextTests(unittest.TestCase):
                                  "phone": ["+1 555 0100"], "email": ["sam@example.com", "s@example.org"]}))
         self.assertIn(f"About the owner (personal record {REF})", text)
         self.assertIn("Never ask the owner for a fact this record holds", text)
-        self.assertIn(f"read context_object(ref='{REF}') fresh", text)
+        self.assertIn("read personal_get fresh", text)
+        self.assertIn("Ordubashy maintains it with personal_set", text)
         self.assertIn("- date_of_birth: 1990-01-02", text)
         self.assertIn("- phone: +1 555 0100", text)
         self.assertIn("- email: sam@example.com; s@example.org", text)
@@ -41,7 +42,7 @@ class OwnerRecordInStartupTextTests(unittest.TestCase):
         self.assertIn("- phone: +1 555 0100", owner)
         self.assertLessEqual(len(owner), home_text.PERSONAL_CHARACTERS + 700)   # the rule line and the closing line
         # Whatever was cut or left out is named, so a reader knows the record holds more and where.
-        self.assertIn(f"The record holds more under: notes, work_history. Open {REF} for all of it.", owner)
+        self.assertIn("The record holds more under: notes, work_history. Read personal_get for all of it.", owner)
 
     def test_the_owner_record_does_not_shrink_the_graph_pointer(self):
         node = {"kind": "node", "id": "n0001", "ref": "node:n0001", "summary": "A company.", "attributes": {},
