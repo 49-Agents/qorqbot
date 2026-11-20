@@ -3,6 +3,10 @@
 Status: **plan and work log.** Decisions below were made by the owner on 2026-11-18. Each work item records what was
 built and what was verified; an item without a "Verified" line is not done.
 
+Shipped (2026-11-20): work items 1 to 5 are merged into `dev` with PR #110. Sign-in through the live view (under item 2)
+is merged with PR #119. "What exists today" below is the state before this plan. The "Not verified" lines are unchanged:
+merging did not verify them.
+
 ## Owner decisions
 
 1. **Browser first, app later.** The standalone app work is a separate, later project.
@@ -187,7 +191,8 @@ Why: on a server `website_sign_in open` failed with `browser_no_screen` (29 time
 and Ordubashy then asked the owner for the password and typed it into the page itself. With the live view the owner can sign
 in in the agent's real page, so no password has to pass through an agent.
 
-Built (branch `feature/browser-sign-in-live-view`, stacked on this one; item 7 of the browser efficiency plan):
+Built (branch `feature/browser-sign-in-live-view`, stacked on this one; item 7 of the browser efficiency plan; merged into
+`dev` with PR #119):
 
 - Without a screen, `open` opens the site's sign-in address in a new tab of the browser the agent uses (the Shared browser for a
   Shared agent) over DevTools, stops and pauses nothing, and answers `{"opened", "where": "live_view", "agent", "next"}`. With a

@@ -2,8 +2,9 @@
 
 The prepared browser launcher now uses Vercel `agent-browser` 0.38.1 instead of
 Playwright CLI. It attaches to the existing configured CDP endpoint; it does not
-provision a replacement Chrome profile. Configuration shape and registered
-business-browser ownership checks remain unchanged. The backend's model/chat
+provision a replacement Chrome profile. The target file keeps its shape; its one
+optional entry, `"shared": true`, marks the installation's Shared browser (see
+BROWSER-MANAGEMENT.md). Projects have no browsers. The backend's model/chat
 features are not exposed: the calling Luna or role agent remains the sole model.
 
 The exact tools/browser lockfile needs Node >=24 and npm >=11, which the package
@@ -27,10 +28,20 @@ snapshots may still be large; prefer observe for bounded reads. Ref-based action
 accept eN or @eN. Playwright run-code, old mouse/key subcommands, and request-level
 inspection are explicitly unsupported; use ordinary controls or scoped page eval.
 Do not load the upstream unrestricted skill as a replacement for the role skill.
+The command vocabulary, `read` and the refusals are in BROWSER-CONTROL.md.
+
+For a Shared target the adapter adds `--pin-tab`, so each session keeps to its own
+tab. When that tab is gone the backend's `tab_gone` report is kept, but its advice
+(which names `agent-browser` commands and offers another open tab) is replaced by
+"Open a new tab with tab-new <url> and continue there." When `frame` answers
+"Frame not found", the reply adds how to reach a frame's fields: by ref from
+`snapshot`, a CSS selector only for a frame of the same site, and an `eval` that
+removes `role=presentation` from payment frames (Stripe) so `snapshot` shows them.
 
 Ordubashy commands still require --consumer-id for activity attribution. Native
 callers use their own configured browser lease-free, without the queue or action
-intents (see BROWSER-COMMAND-RECOVERY.md). Durable workers use the canonical
+intents (see BROWSER-COMMAND-RECOVERY.md), and may send up to 10 commands in one
+call (`commands`, see BROWSER-HANDLES.md). Durable workers use the canonical
 browser-turn queue: acquire
 or read compact state, interact through the pinned command adapter, checkpoint
 the tab/step/outcome/next action, then release. A queued durable turn persists a

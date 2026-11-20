@@ -43,7 +43,9 @@ download qualification, not to every code change.
    bundled but inactive; Fastmail, Telegram and WhatsApp install separately.
 3. **Build:** `prepare-local.py` and `native_build.py` build
    the Ubuntu 24.04 x86-64 archive. Docker is a construction and acceptance tool,
-   not a customer requirement. System tools are user-installed dependencies; record the resolved Python library
+   not a customer requirement. Python, Git and tmux are user-installed dependencies of
+   the Linux archive, which ships agent-browser; the Mac archive ships Python, Git, tmux and agent-browser
+   (`--bundled-tools`). Record the resolved Python library
    inputs and hashes. Do not claim bit-for-bit reproducibility.
 4. **Contents:** the prepared-source audit inside `native_build.py` plus inspection of the final archive,
    including native assets and third-party wheels. Preserve required attribution.
