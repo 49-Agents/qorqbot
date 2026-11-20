@@ -3,9 +3,14 @@
 .gchat-view-host { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; }
 .gchat-view-host[hidden] { display:none; }
 .gchat { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; width: 100%; color: var(--fg); font-size: 15.75px; --chat-top-inset: 0px; box-sizing: border-box;
-  /* The agent menu's mark is fixed at the top left (44px high, 10px from the top). The conversation and the banner start just below it,
-     so nothing scrolls or sits beside it; there is no other control at the top. */
+  /* The agent menu's mark is fixed at the top left (44px high, 10px from the top). Everything but the conversation starts just
+     below it; there is no other control at the top. */
   padding-top: 46px; }
+/* The conversation itself runs up to the top edge and scrolls past the mark, with no empty band cutting it off. Only its very
+   start, the preview window and a banner are held below the mark. */
+.gchat > .chat-view { margin-top: -46px; --chat-top-inset: 46px; }
+.gchat > .chat-view:has(> .gchat-banner:not([hidden])) { --chat-top-inset: 0px; }
+.gchat > .chat-view > .gchat-banner { margin-top: 54px; }
 .gchat-session[hidden] { display: none; }
 /* One restrained session line sits by the composer: live, working, starting capture, capture disabled or offline. */
 .gchat-session { display: flex; align-items: center; gap: 7px; flex: none; padding: 0 12px 6px; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
