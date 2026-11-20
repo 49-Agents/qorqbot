@@ -243,8 +243,11 @@ idle-tab sweeper does), over Chrome's loopback DevTools port:
 
 The command's output is one JSON line: `captcha` is `solved`, `not_found`, `again` or `failed`, with `type`, `method`
 (`click`, `solver`, `already`, `waited`), a plain `reason` for a failure, and `next` when the agent has something to do
-(for a failure: "Ask the owner."). Exit code 0 only for `solved`. The whole command is bounded at 150 seconds; an agent's
-tool call is given up on after 240.
+(for a failure: "Ask the owner."). When `next` leaves the captcha to the owner (a failure, or no captcha recognised) and the
+tab is known, the reply also carries `reference`, the tab's `tab` reference (see [The tab-reference command](#the-tab-reference-command)),
+and `next` says to pass it to `request_user_input` or give it to Ordubashy, so the owner is shown the tab instead of being told
+where to look. Exit code 0 only for `solved`. The whole command is bounded at 150 seconds; an agent's tool call is given up
+on after 240.
 
 The key is the Global Settings variable `CAPTCHA_SOLVER_API_KEY`, read on the server for each call through the Settings
 files' reader, the private values over the shared ones; `CAPTCHA_SOLVER_PROVIDER` may say `anticaptcha` and nothing else.
@@ -263,6 +266,37 @@ checkbox passes on a click from this headless Chrome, whether sites accept an in
 are unverified. Known limits: a callback passed to `hcaptcha.render` or `turnstile.render` in code cannot be reached (the
 fields and `getResponse()` are still set); picture and text captchas of other vendors are not recognised; after a failed
 click a vendor's picture puzzle may stay open over the page.
+
+## The tab-reference command
+
+When the owner must do something in a page (a captcha that could not be solved, a sign-in, a confirmation), the agent sends
+`["tab-reference"]` as a `browser_turn` command, with nothing else, and shows that tab in Chat instead of describing where to
+click. Like `captcha` it goes in a call of its own (inside `commands` it is refused before anything runs, as is any argument),
+it is run by the server and not by `agent-browser` (`qorqut/browser/tab_reference.py`, dispatched in `access.py`), and the
+shell launcher does not have it. It is read-only: it touches no page. It marks the session's tab as used
+(`idle_tabs.note_use`), so a tab waiting for the owner's answer is not unloaded for idleness, and it takes no command lock.
+
+It reads the tab the caller's session is bound to as `captcha` does, checks that tab is open in the browser, and prints one
+JSON line with exit code 0: `{"reference": {"type": "tab", "id": "<agent uuid>:<tab id>"}, "next": "Pass this reference to
+request_user_input, or give it to Ordubashy, to show the owner this tab in Chat."}`. The agent is the one whose browser the
+command ran in: the caller's own (or Shared) browser, or the worker's own browser when Ordubashy has selected it. With no tab
+open (or a bound tab that has closed) it exits 1 with `{"reason": "..."}` telling the agent to open the page first; in a managed
+desktop, which is no agent's browser, it exits 1 and says to use a `browser` reference.
+
+`request_user_input` takes the reference as `{"type": "tab", "id": "<agent uuid>:<tab id>"}` with `business_id` absent or
+null (`qorqut/native_chat/references.py`). Naming a tab grants no control and no authorization:
+
+- **When the tool is called** the agent must be one the caller may read (as for an `agent` reference) and the tab must be
+  listed by that agent's browser now; anything else (unknown agent, browser stopped or not answering, tab closed) is the
+  tool's usual "reference is not available".
+- **When Chat is read** the same check is made again for each page of Chat, with the browser's tabs listed once per agent
+  however many of its tabs the page names. The owner's card is `{type, id, business_id: null, label, available, agent_id,
+  tab_id, agent_label}`; `label` is the page's title (at most 200 characters, else the address's host, else "Tab"). A tab that
+  is gone shows the "Unavailable tab" placeholder. The title is the page's own text and is only ever shown as text.
+- **Viewing** is the owner's alone and goes through the existing live-view route (`browser/live.py`); a reference neither
+  opens a view nor lets anyone else.
+
+Checked by `tests/test_browser_tab_reference.py`, `tests/test_chat_references.py` and `tests/test_user_input_tab.py`.
 
 ## Projects have no browsers
 

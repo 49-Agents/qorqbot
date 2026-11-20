@@ -66,8 +66,8 @@ for the whole run.
 - The commands run in order under one use lock and one read of the target, so a switch between the agent's own browser and
   a Shared one cannot fall between them. Every command is validated before the first one runs; a refused command (the reply
   names it as `commands[N]`), a browser that is not ready, or a first command the runner cannot start raises as a single
-  command does, with nothing run. `captcha` is refused inside a batch (`commands[N]: captcha goes in a call of its own, as
-  command.`), so it always runs alone.
+  command does, with nothing run. `captcha` and `tab-reference` are refused inside a batch (`commands[N]: captcha goes in a
+  call of its own, as command.`), so they always run alone.
 - The run stops at the first command that exits non-zero, times out or fails; the later ones are not run.
 - Only the lease-free path takes `commands`: an agent's own browser, or a worker's browser selected by Ordubashy. A delegated
   assignment keeps one command per call, because each action there has a durable record that can be reconciled; `commands`

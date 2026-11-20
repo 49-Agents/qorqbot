@@ -319,6 +319,16 @@ class BatchOutputTest(BatchCase):
         self.assertIn("commands[1]", str(refused.exception))
         self.assertEqual(self.ran, [])
 
+    def test_tab_reference_is_refused_in_a_batch_before_anything_runs_and_so_is_any_argument_to_it(self):
+        for command in (["tab-reference"], ["tab-reference", "e1"]):
+            with self.assertRaises(DomainError) as refused:
+                self.batch([["click", "e1"], command])
+            self.assertEqual(refused.exception.code, "validation_error")
+            self.assertEqual(self.ran, [])
+        with self.assertRaises(DomainError) as refused:
+            self.batch([["click", "e1"], ["tab-reference"]])
+        self.assertIn("commands[1]: tab-reference goes in a call of its own", str(refused.exception))
+
     def test_an_unexpected_failure_of_the_first_command_raises(self):
         self.script = [step(raises=OSError("pipe"))]
         with self.assertRaises(OSError):
