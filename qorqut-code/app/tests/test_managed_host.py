@@ -519,6 +519,30 @@ class SendTest(ManagedTestCase):
         self.assertEqual(events[0]["message_uuids"], [])
         self.assertEqual(client.status()["phase"], "idle")
 
+    def test_status_carries_what_the_context_holds_as_the_driver_last_reported_it(self):
+        client = InProcessHost(self).ready()
+        self.assertIsNone(client.status()["usage"])
+        driver = FakeSession.last
+        driver._emit("usage", last={"totalTokens": 120000, "inputTokens": 119000, "outputTokens": 1000})   # mid-run, no limit yet
+        usage = wait_for(lambda: client.status()["usage"], message="the usage")
+        self.assertEqual((usage["tokens"], usage["window"]), (120000, None))
+        self.assertTrue(usage["at"])
+        driver._emit("turn_finished", status="completed", message_uuids=[], blocked_message_uuids=[], session_id=driver.session_id,
+                     usage={"last": {"totalTokens": 131000}, "contextWindow": 1000000})
+        usage = wait_for(lambda: (lambda found: found if found["tokens"] == 131000 else None)(client.status()["usage"]),
+                         message="the usage of the finished turn")
+        self.assertEqual(usage["window"], 1000000)
+        driver._emit("usage", last={"totalTokens": 145000})                 # the limit once known stays known
+        usage = wait_for(lambda: (lambda found: found if found["tokens"] == 145000 else None)(client.status()["usage"]),
+                         message="the next usage")
+        self.assertEqual(usage["window"], 1000000)
+        driver._emit("usage", last={"totalTokens": "many"})                 # nothing usable: the last reading stands
+        driver.emit_autonomous_turn()                                       # a turn that reports none: the same
+        wait_for(lambda: [e for e in client.events()["events"] if e["type"] == "turn_finished"][1:], message="the second turn")
+        self.assertEqual(client.status()["usage"]["tokens"], 145000)
+        logged = [e for e in client.events()["events"] if e["type"] == "usage"]
+        self.assertEqual(logged[0]["last"]["totalTokens"], 120000)
+
     def test_a_hook_blocked_prompt_is_an_event_and_the_turn_still_completes(self):
         client = InProcessHost(self).ready()
         value = new_uuid()

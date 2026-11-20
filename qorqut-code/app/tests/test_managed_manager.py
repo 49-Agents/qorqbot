@@ -350,6 +350,17 @@ class EnsureOpen(ManagerFixture):
         self.assertNotIn("s3cret-value", json.dumps(spec["args"]), "and never into an argument")
         self.assertLessEqual(timeout, 30)
 
+    def test_the_clients_own_compaction_is_switched_off_only_for_an_agent_whose_conversation_qorqbot_compacts(self):
+        self.manager.ensure_open(PROFILE, 30)
+        self.assertNotIn("DISABLE_AUTO_COMPACT", self.launcher.started[-1][1]["env"])        # nothing composed: as before
+        asked = []
+        self.runtime.compaction = SimpleNamespace(replaces_client=lambda agent_id: asked.append(agent_id) or self.own)
+        for self.own, expected in ((False, None), (True, "1"), ("yes", None)):
+            self.launcher.inspections.pop(AGENT, None)
+            self.manager.ensure_open(PROFILE, 30)
+            self.assertEqual(self.launcher.started[-1][1]["env"].get("DISABLE_AUTO_COMPACT"), expected)
+        self.assertEqual(asked, [AGENT] * 3)
+
     def test_the_resumed_conversation_is_not_sent_the_role_again(self):
         self.resume = SESSION
         opened = self.manager.ensure_open(PROFILE, 30)

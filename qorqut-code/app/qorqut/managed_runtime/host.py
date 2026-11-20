@@ -239,6 +239,7 @@ class ManagedHost:
         self.pending: collections.OrderedDict = collections.OrderedDict()
         self.inflight: collections.OrderedDict = collections.OrderedDict()
         self.last_turn: dict | None = None
+        self.usage: dict | None = None      # what the session's context holds, as the driver last reported it (see ``_usage``)
         self.last_error = None
         self.last_activity_mono = time.monotonic()
         self.last_activity_at = layout.now_iso()
@@ -491,6 +492,7 @@ class ManagedHost:
         pending = [dict(item) for item in self.pending.values()]
         status = {**self._identity(), "phase": self._phase(), "activity": self.activity, "turn_started_at": self.turn_started_at,
                   "pending": pending, "last_turn_status": (self.last_turn or {}).get("status"), "last_turn": self.last_turn,
+                  "usage": self.usage,
                   "inflight": list(self.inflight)[:20], "seq": self.events.seq, "last_activity_at": self.last_activity_at,
                   "idle_seconds": self.launch["idle_seconds"], "last_error": self.last_error}
         if len(json.dumps(status, ensure_ascii=False, default=str)) > MAX_STATUS_BYTES:
@@ -881,6 +883,25 @@ class ManagedHost:
     def _event_request_cancelled(self, event):
         self.pending.pop(event.get("request_id"), None)
 
+    @staticmethod
+    def _usage(reported):
+        """``{"tokens", "window", "at"}`` from a driver's usage report: ``last.totalTokens`` is what the context holds after the
+        latest model request, ``contextWindow`` the model's limit (None while the client has not said). None for anything else."""
+        last = reported.get("last") if isinstance(reported, dict) else None
+        tokens = last.get("totalTokens") if isinstance(last, dict) else None
+        if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens <= 0:
+            return None
+        window = reported.get("contextWindow")
+        return {"tokens": tokens, "window": window if isinstance(window, int) and not isinstance(window, bool) and window > 0 else None,
+                "at": layout.now_iso()}
+
+    def _event_usage(self, event):
+        found = self._usage(event)
+        if found is not None:
+            if found["window"] is None and self.usage:
+                found["window"] = self.usage["window"]
+            self.usage = found
+
     def _event_turn_finished(self, event):
         status = event.get("status")
         blocked = [item for item in event.get("blocked_message_uuids") or () if isinstance(item, str)]
@@ -907,6 +928,7 @@ class ManagedHost:
         for key in ("error", "reason", "blocked_message_uuids", "stop_reason"):
             if event.get(key):
                 self.last_turn[key] = event[key]
+        self.usage = self._usage(event.get("usage")) or self.usage
         self._touch()
 
     def _event_error(self, event):

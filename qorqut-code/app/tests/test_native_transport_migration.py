@@ -17,8 +17,12 @@ from qorqut_operations.storage.inventory import read_objects
 from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 EXTENSIONS = ExtensionSet(())
-PREVIOUS = upgrade.STATES[-2]
 MANAGED = native_transport_managed.NAME
+AT = upgrade.STATES.index(MANAGED)
+PREVIOUS = upgrade.STATES[AT - 1]
+# The transforms that came after this one; none of them touches the native session table.
+LATER = list(upgrade.STATES[AT + 1:])
+LAST = upgrade.STATES[-1]
 TABLE = ('table', 'native_sessions')
 
 
@@ -50,6 +54,10 @@ class NativeTransportMigrationTests(unittest.TestCase):
             "owner,observed_at,verified_at) VALUES(?,'agent','claude','conversation',?,?,4242,'1',?,'now','now')",
             (identity, generation, transport, 'host:4242:1' if transport == 'managed' else None))
 
+    def later(self):
+        """What the transforms after this one added."""
+        return set(self.states[-1][1]) - set(self.states[AT][1])
+
     def capture(self, session):
         self.connection.execute("INSERT INTO native_captures(agent_id,provider,conversation_id,transcript_path,session_id,created_at,"
                                 "updated_at) VALUES('agent','claude','conversation','/transcript.jsonl',?,'now','now')", (session,))
@@ -68,10 +76,9 @@ class NativeTransportMigrationTests(unittest.TestCase):
 
     # ----- the chain -------------------------------------------------------------------------------------------------
 
-    def test_it_is_the_last_state_and_changes_only_the_native_session_table(self):
-        self.assertEqual(upgrade.STATES[-1], MANAGED)
-        self.assertIs(upgrade.TRANSFORMS[-1], native_transport_managed)
-        (_, old), (_, new) = self.states[-2], self.states[-1]
+    def test_it_changes_only_the_native_session_table(self):
+        self.assertIs(upgrade.TRANSFORMS[AT - 1], native_transport_managed)
+        (_, old), (_, new) = self.states[AT - 1], self.states[AT]
         self.assertEqual(set(new) - set(old), set())
         self.assertEqual({key for key in old if new[key] != old[key]}, {TABLE})
         # Exactly one value is added to the rule.
@@ -85,7 +92,7 @@ class NativeTransportMigrationTests(unittest.TestCase):
         self.assertIn(MANAGED, str(refusal.exception))
 
     def test_the_stripped_composition_is_the_previous_release_for_this_table_alone(self):
-        for assembly, objects in self.states[:-1]:
+        for assembly, objects in self.states[:AT]:
             self.assertIn("CHECK(transport IN ('terminal','codex_queue'))", objects[TABLE][1])
             self.assertNotIn('managed', objects[TABLE][1])
 
@@ -96,18 +103,18 @@ class NativeTransportMigrationTests(unittest.TestCase):
             self.session(self.connection, 'managed-session', 2, 'managed')
         before, objects = self.sessions(), read_objects(self.connection)
         self.assertEqual(upgrade.inspect(self.connection, EXTENSIONS)['store'], PREVIOUS)
-        self.assertEqual(upgrade.inspect(self.connection, EXTENSIONS)['pending'], [MANAGED])
+        self.assertEqual(upgrade.inspect(self.connection, EXTENSIONS)['pending'], [MANAGED, *LATER])
 
         result = upgrade.apply(self.connection, EXTENSIONS)
 
-        self.assertEqual((result['from'], result['added'], result['store'], result['pending']), (PREVIOUS, [MANAGED], MANAGED, []))
+        self.assertEqual((result['from'], result['added'], result['store'], result['pending']), (PREVIOUS, [MANAGED, *LATER], LAST, []))
         after = read_objects(self.connection)
         self.assertEqual({key for key in objects if after[key] != objects[key]}, {TABLE})
-        self.assertEqual(set(after), set(objects))
+        self.assertEqual(set(after) - set(objects), self.later())
         self.assertEqual(self.sessions(), before)  # no row moved
         self.assertEqual(self.connection.execute('PRAGMA integrity_check').fetchall(), [('ok',)])
         self.assertEqual(self.connection.execute('PRAGMA writable_schema').fetchone()[0], 0)
-        self.assertTrue(self.opens(MANAGED))
+        self.assertTrue(self.opens(LAST))
         # The connection that upgraded and one opened afterwards both apply the new rule, and only that.
         self.session(self.connection, 'managed-session', 2, 'managed')
         other = sqlite3.connect(self.path, isolation_level=None)
@@ -125,7 +132,7 @@ class NativeTransportMigrationTests(unittest.TestCase):
         path = self.path.with_name('base.sqlite3')
         connection = self.store(upgrade.BASE, path)
         result = upgrade.apply(connection, EXTENSIONS)
-        self.assertEqual((result['from'], result['added'][-1], result['store']), (upgrade.BASE, MANAGED, MANAGED))
+        self.assertEqual((result['from'], result['added'][-1], result['store']), (upgrade.BASE, LAST, LAST))
         self.session(connection, 'managed-session', 2, 'managed')
         self.assertEqual(connection.execute('SELECT transport FROM native_sessions ORDER BY generation').fetchall(),
                          [('terminal',), ('managed',)])
@@ -146,13 +153,13 @@ class NativeTransportMigrationTests(unittest.TestCase):
         upgrade.apply(self.connection, EXTENSIONS)
         target = read_objects(self.connection)
         result = upgrade.revert(self.connection, EXTENSIONS, to=PREVIOUS)
-        self.assertEqual((result['removed'], result['dropped_rows'], result['store']), ([MANAGED], {MANAGED: 0}, PREVIOUS))
+        self.assertEqual((result['removed'], result['dropped_rows'], result['store']), ([MANAGED, *LATER], {MANAGED: 0, **{name: 0 for name in LATER}}, PREVIOUS))
         self.assertNotEqual(read_objects(self.connection)[TABLE], target[TABLE])
         self.assertEqual(self.sessions(), [('terminal-session', 'terminal', None)])
         with self.assertRaises(sqlite3.IntegrityError):
             self.session(self.connection, 'managed-session', 2, 'managed')
         self.assertTrue(self.opens(PREVIOUS))
-        self.assertFalse(self.opens(MANAGED))
+        self.assertFalse(self.opens(LAST))
         # Forward again returns exactly the target.
         upgrade.apply(self.connection, EXTENSIONS)
         self.assertEqual(read_objects(self.connection), target)
@@ -170,7 +177,7 @@ class NativeTransportMigrationTests(unittest.TestCase):
 
         result = upgrade.revert(self.connection, EXTENSIONS, to=PREVIOUS, discard_rows=True)
 
-        self.assertEqual((result['dropped_rows'], result['store']), ({MANAGED: 1}, PREVIOUS))
+        self.assertEqual((result['dropped_rows'], result['store']), ({MANAGED: 1, **{name: 0 for name in LATER}}, PREVIOUS))
         self.assertEqual(self.sessions(), [('terminal-session', 'terminal', None)])
         self.assertEqual(self.connection.execute('PRAGMA integrity_check').fetchall(), [('ok',)])
         self.assertTrue(self.opens(PREVIOUS))
@@ -179,7 +186,7 @@ class NativeTransportMigrationTests(unittest.TestCase):
             self.connection.execute("DELETE FROM native_sessions WHERE id='terminal-session'")
         self.assertEqual(read_objects(self.connection)[('trigger', native_transport_managed.NO_DELETE)],
                          target[('trigger', native_transport_managed.NO_DELETE)])
-        self.assertEqual(set(read_objects(self.connection)), set(target))
+        self.assertEqual(set(read_objects(self.connection)), set(target) - self.later())
 
     def test_a_managed_binding_that_history_refers_to_is_not_discarded(self):
         upgrade.apply(self.connection, EXTENSIONS)
@@ -193,7 +200,7 @@ class NativeTransportMigrationTests(unittest.TestCase):
         self.assertFalse(self.connection.in_transaction)
         self.assertEqual(read_objects(self.connection), target)
         self.assertEqual(len(self.sessions()), 2)
-        self.assertEqual(upgrade.inspect(self.connection, EXTENSIONS)['store'], MANAGED)
+        self.assertEqual(upgrade.inspect(self.connection, EXTENSIONS)['store'], LAST)
         with self.assertRaises(sqlite3.IntegrityError):
             self.connection.execute("DELETE FROM native_sessions WHERE id='managed-session'")
 

@@ -484,6 +484,7 @@ def catalog(extensions=()):
             TableClassification('reminder_occurrences', PRIVATE_EXCLUDED, 'Reminder delivery history is private operational state and is excluded from general history.'),
             TableClassification('browser_cleanup_enrollments', PRIVATE_EXCLUDED, 'Default reminder enrollment links private agents and reminders; it is excluded from general history.'),
             TableClassification('timeline_deliveries', PRIVATE_EXCLUDED, 'Delivery bookkeeping: which revision of a timeline each agent conversation was last told; no content.'),
+            TableClassification('compactions', PRIVATE_EXCLUDED, 'The log of each agent conversation handoff: what the agent filed about private owner messages; excluded from general history.'),
             TableClassification('agent_current_work', PRIVATE_EXCLUDED, 'Authored worker status is shared by source permission and can describe private work; it is never exported to general history.'),
             TableClassification('agent_checkpoint_findings', PRIVATE_EXCLUDED, 'Diagnostics and execution traces can embed private source or provider data.'),
             TableClassification('system_incident_fault_runs', PRIVATE_EXCLUDED, 'Diagnostics and execution traces can embed private source or provider data.'),

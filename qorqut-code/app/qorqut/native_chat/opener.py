@@ -24,6 +24,9 @@ Binding cannot appear before the client has taken up a first message, and a resu
 One open per agent at a time (``_flights``); an owner or a synchronous caller waits for the open in progress and then finds the
 session bound, any other source is told it is already waking. Non-owner sources are paced (``_cooldown``): nothing retries faster
 than the source's own wait/retry loop, and a failing open backs off up to ``MAX_BACKOFF_SECONDS``.
+
+``SessionOpener.replace`` is not an input source: it closes a running conversation and opens a fresh one in its place, under the
+same flight, for Qorqbot's own compaction (``native_chat/compaction.py``, ``docs/COMPACTION.md``).
 """
 
 from __future__ import annotations
@@ -307,6 +310,65 @@ class SessionOpener:
             raise self._failure(error) from None
         self._opened(agent_id)
         return "live"
+
+    # ----- replacing a conversation (Qorqbot's own compaction) --------------------------------------------------------
+
+    def replace(self, profile: dict, closing: str, compose, key: str, *, close_seconds: float = 45.0) -> str:
+        """Close the agent's conversation ``closing`` and open a fresh one whose next message after its instructions is the text
+        ``compose()`` returns. Returns the fresh conversation's id. ``native_chat/compaction.py`` is the only caller.
+
+        All of it runs under the agent's flight: no wake and no owner open can start a session between the close and the open,
+        which would resume the conversation just closed. They wait, and find the fresh one bound. ``compose`` is called once the
+        closed conversation can take nothing more, so its text can account for everything that reached it.
+
+        This is not an input source. An agent that is off or paused is refused (``agent_off``) and never turned on; nothing is
+        turned off (the host is asked to close gracefully, as an idle close does); a failure is neither paced nor counted in the
+        streak ``agents/unreachable.py`` reads. Only ``closing`` is ever closed: when another conversation already runs (an
+        earlier try got that far) it is only given the text. The fresh conversation becomes the selected one when it binds, as
+        any new conversation does; until then the closed one stays selected, so a replacement that fails before that leaves the
+        agent asleep and its next input resumes the conversation that was closed. ``DomainError`` when it was not replaced."""
+        agent_id, managed = profile["agent_id"], self.managed
+        if managed is None:
+            raise DomainError("managed_unavailable", "This agent's session is not open")
+        total, poll = self._limits()[:2]
+        with self._flight(agent_id, self._clock() + total, SESSION_OPENING[0]):
+            self._require_on(agent_id)
+            running = self._conversation(agent_id)
+            if running == "":
+                raise DomainError(*SESSION_OPENING, retryable=True)      # a host that has no conversation yet: not ours to close
+            if running == closing:
+                managed.close(agent_id, "graceful")
+                gone = self._clock() + close_seconds
+                while self._conversation(agent_id) is not None:
+                    if self._clock() >= gone:
+                        raise DomainError("close_timeout", "The session did not close in time", retryable=True)
+                    self._sleep(poll)
+                self._require_on(agent_id)                               # the owner may have ended it while it closed
+                running = None
+            text = compose()
+            deadline = self._clock() + total
+            self._bound(profile, text, key, running is None, deadline, total)
+            # A fresh session that announced itself from its own role command was not given the text by ``_bound``; the host
+            # keeps one copy of this uuid, so giving it again is harmless.
+            managed.send_first(agent_id, text, managed.first_message_uuid(agent_id, key, text), deadline)
+            fresh = self._conversation(agent_id)
+            if not fresh or fresh == closing:
+                raise DomainError("not_replaced", "The closed conversation was opened again", retryable=True)
+            return fresh
+
+    def _require_on(self, agent_id: str) -> None:
+        if self.desired(agent_id) in NOT_WAKEABLE:
+            raise DomainError("agent_off", "This agent is turned off")
+
+    def _conversation(self, agent_id: str) -> str | None:
+        """The conversation the agent's host runs: its id, "" while the host has none yet, None when no host runs."""
+        try:
+            host = self.managed.handle(agent_id)
+        except DomainError:
+            raise
+        except Exception:  # noqa: BLE001 - the manager's ``HostUnverified``: such a host is not known to be gone
+            raise DomainError("host_unverified", "A session of this agent could not be verified", retryable=True) from None
+        return None if host is None else str(host.record.get("session_id") or "")
 
     # ----- the open itself --------------------------------------------------------------------------------------------
 

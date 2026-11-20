@@ -756,6 +756,7 @@ class ManagedRuntime:
         # (``#!/usr/bin/env node``, an npm install) finds its interpreter where the owner's terminal does, not only where this
         # service does. The programs a self-contained installation ships come first, then the folders the session names.
         env["PATH"] = agent_cli_launch.session_path(env) or env.get("PATH") or os.defpath
+        env.update(table.launch_environment(client, own_compaction=self._own_compaction(agent_id)))
         spec = {"agent_id": agent_id, "folder": workspace, "executable": found, "args": args, "env": {**env, **extra["env"]},
                 "resume_session_id": resume, "send_role": table.role_command(client) if resume is None else False,
                 "idle_seconds": self._idle, "client": client, "driver": table.driver(client),
@@ -771,6 +772,11 @@ class ManagedRuntime:
         except Exception as error:  # noqa: BLE001 - LaunchError and anything the launcher raised; its detail may carry paths
             raise self._launch_failure(error) from None
         return self._record(verified)
+
+    def _own_compaction(self, agent_id) -> bool:
+        """Whether Qorqbot compacts this agent's conversation in place of the client (``CompactionController.replaces_client``)."""
+        controller = getattr(self._runtime, "compaction", None)
+        return controller is not None and controller.replaces_client(agent_id) is True
 
     @staticmethod
     def _launch_failure(error):
