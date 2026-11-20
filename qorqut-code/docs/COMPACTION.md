@@ -123,9 +123,9 @@ The table is added by the offline `python -m qorqut.migration.upgrade` transform
 
 | Value | What runs |
 |---|---|
-| unset | Nothing here. The client compacts as before. |
+| `0` | Nothing here. The client compacts as before. |
 | `1` | This compaction, with the client's own left in place behind it. The client's own compaction has come at about 330,000 tokens, only about 30,000 after this one asks, so a slow filing can be overtaken by it; the handoff is then filed from the client's summary. |
-| `only` | This compaction, and Ordubashy's Claude session is started with `DISABLE_AUTO_COMPACT=1`, so the client never compacts on its own, neither at its limit nor while idle (checked in Claude Code 2.1.328). Its manual `/compact` stays. |
+| unset or `only` (the default) | This compaction, and Ordubashy's Claude session is started with `DISABLE_AUTO_COMPACT=1`, so the client never compacts on its own, neither at its limit nor while idle (checked in Claude Code 2.1.328). Its manual `/compact` stays. |
 
 The variable for `only` comes from the client table
 (`managed_runtime/clients.py`, `launch_environment`). The managed runtime asks

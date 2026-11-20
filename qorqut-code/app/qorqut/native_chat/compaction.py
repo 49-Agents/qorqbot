@@ -20,8 +20,8 @@ What the two messages are to the client: plain user messages handed to the host 
 (``opener.WAKE_TEXT``). Both start with an opening tag, so Chat does not show them as something the owner said and the index of
 the owner's own turns never holds them.
 
-``QORQUT_OWN_COMPACTION`` in the service's environment says whether this runs (``mode_by_environment``): unset, it does
-nothing; ``1`` turns it on and leaves the client's own compaction in place behind it; ``only`` turns it on and has the
+``QORQUT_OWN_COMPACTION`` in the service's environment says how this runs (``mode_by_environment``): ``0`` turns it off;
+``1`` leaves the client's own compaction in place behind it; unset or ``only``, the default, has the
 coordinator's session started with the client's automatic compaction switched off (``replaces_client``, which the managed
 runtime asks at each start). Only the configured coordinator's conversation is compacted, and only when its client reports what
 the context holds (``usage`` in the host's status). It runs for a Claude Code session only: the request, the last messages and
@@ -78,9 +78,10 @@ OFF, ON, ONLY = "off", "on", "only"
 
 
 def mode_by_environment() -> str:
-    """``off`` (unset), ``on`` (the client's own compaction stays behind this one) or ``only`` (it is switched off)."""
+    """``only`` (the default: the client's own compaction is switched off), ``on`` (``1``: it stays behind this one) or
+    ``off`` (``0``: nothing here runs)."""
     value = os.environ.get(ENVIRONMENT, "").strip().lower()
-    return ONLY if value == ONLY else ON if value in ("1", "true", "yes", "on") else OFF
+    return OFF if value in ("0", "false", "no", "off") else ON if value in ("1", "true", "yes", "on") else ONLY
 
 
 def limit(window=None) -> int:

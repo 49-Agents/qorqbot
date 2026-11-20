@@ -147,7 +147,8 @@ class NativeCompactionTests(HandoffCase):
         off = self.make(mode='off')
         off.step()
         self.assertEqual(self.session.sent, [])
-        self.assertFalse(CompactionController(self.runtime).enabled)     # off unless the service's environment says so
+        with mock.patch.dict('os.environ', {compaction.ENVIRONMENT: '0'}):
+            self.assertFalse(CompactionController(self.runtime).enabled)
         self.step()
         self.assertEqual(len(self.session.sent), 1)
 
@@ -409,8 +410,8 @@ class NativeCompactionTests(HandoffCase):
         self.assertFalse(self.make(mode='off').replaces_client(self.lead))
         self.assertTrue(self.make(mode='only').enabled)
         with mock.patch.dict('os.environ', {compaction.ENVIRONMENT: ''}):
-            self.assertEqual(compaction.mode_by_environment(), 'off')
-        for value, mode in (('1', 'on'), ('on', 'on'), ('only', 'only'), (' ONLY ', 'only'), ('0', 'off'), ('never', 'off')):
+            self.assertEqual(compaction.mode_by_environment(), 'only')     # the default
+        for value, mode in (('1', 'on'), ('on', 'on'), ('only', 'only'), (' ONLY ', 'only'), ('0', 'off'), ('off', 'off')):
             with mock.patch.dict('os.environ', {compaction.ENVIRONMENT: value}):
                 self.assertEqual(compaction.mode_by_environment(), mode)
 
