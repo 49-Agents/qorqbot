@@ -152,6 +152,17 @@ class HelperTests(Fixture):
         self.assertNotIn("QORQBOT_MANAGED_CLAUDE", unset)
 
 
+class OwnerVariables(unittest.TestCase):
+    def test_what_the_launcher_recorded_without_the_path(self):
+        native = {"HOME": "/Users/owner", "CLAUDE_CONFIG_DIR": None, "PATH": "/Users/owner/bin", "TMPDIR": "/t", "n": 1, "": "x"}
+        self.assertEqual(agent_cli_launch.owner_variables({"QORQUT_NATIVE_USER_ENV": json.dumps(native)}),
+                         {"HOME": "/Users/owner", "CLAUDE_CONFIG_DIR": None, "TMPDIR": "/t"})
+
+    def test_nothing_when_the_service_was_started_without_one_or_it_is_unreadable(self):
+        for environ in ({}, {"QORQUT_NATIVE_USER_ENV": ""}, {"QORQUT_NATIVE_USER_ENV": "{"}, {"QORQUT_NATIVE_USER_ENV": "[1]"}):
+            self.assertEqual(agent_cli_launch.owner_variables(environ), {}, environ)
+
+
 class StartSites(Fixture):
     def test_the_installed_versions_probe_runs_our_copy_when_it_is_selected(self):
         self.install()

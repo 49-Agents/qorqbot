@@ -726,6 +726,10 @@ class ManagedRuntime:
         self._require_client(client, {}, self._label(profile))
         prepared = self._prepared(agent_id)
         workspace, env = str(prepared["workspace"]), dict(prepared["env"])
+        # The client runs as the owner's own command line would (their HOME, their sign-in), not with this service's private
+        # HOME and folders: a value of None removes the variable in the client. What the owner set in Settings stays.
+        for variable, value in agent_cli_launch.owner_variables().items():
+            env.setdefault(variable, value)
         # The client's own configuration folder must be the one its conversations were created in: a resume only finds its
         # conversation there, and the host passes the client nothing but this environment (``launch.json``).
         for variable in CLIENT_HOME_VARIABLES:

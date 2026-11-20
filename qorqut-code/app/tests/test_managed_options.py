@@ -337,6 +337,39 @@ class ManagerLaunch(base.ManagerFixture):
         env = self.spec()["env"]
         self.assertEqual((env["CODEX_HOME"], env["CLAUDE_CONFIG_DIR"]), ("/scratch/codex-home", "/scratch/claude-config"))
 
+    def test_the_client_runs_with_the_owners_own_environment_not_the_services(self):
+        # A folder or Mac installation: the service has its own HOME and an explicit CLAUDE_CONFIG_DIR, and the launcher
+        # recorded what the owner's own command line had. The client gets the owner's: on a Mac an explicit CLAUDE_CONFIG_DIR
+        # would make Claude Code read another Keychain item than the one the setup screen reads and the sign-in writes.
+        native = {"HOME": "/Users/owner", "CLAUDE_CONFIG_DIR": None, "CODEX_HOME": None, "XDG_CONFIG_HOME": None,
+                  "TMPDIR": "/var/owner-tmp", "PATH": "/Users/owner/bin", "GIT_CONFIG_GLOBAL": None, "bad": 7}
+        service = {"HOME": "/app/instance/home", "CLAUDE_CONFIG_DIR": "/Users/owner/.claude", "CODEX_HOME": "/Users/owner/.codex",
+                   "XDG_CONFIG_HOME": "/app/instance/home/config", "GIT_CONFIG_GLOBAL": os.devnull,
+                   "QORQUT_NATIVE_USER_ENV": json.dumps(native)}
+        with mock.patch.dict(os.environ, service):
+            self.open()
+        env = self.spec()["env"]
+        self.assertEqual((env["HOME"], env["TMPDIR"]), ("/Users/owner", "/var/owner-tmp"))
+        for name in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL"):
+            self.assertIn(name, env)
+            self.assertIsNone(env[name], name + " is removed in the client, as the owner had it unset")
+        self.assertNotIn("bad", env)
+        self.assertIsInstance(env["PATH"], str)
+        self.assertIn("/Users/owner/bin", env["PATH"].split(os.pathsep), "the owner's PATH is searched, after the session's own")
+
+    def test_a_folder_the_owner_set_themselves_is_kept_and_settings_win(self):
+        native = {"HOME": "/Users/owner", "CLAUDE_CONFIG_DIR": "/Volumes/work/claude", "TMPDIR": "/var/owner-tmp"}
+        prepared = self.manager._prepare_override
+
+        def with_settings(agent_id):
+            result = prepared(agent_id)
+            return {**result, "env": {**result["env"], "TMPDIR": "/from/settings"}}
+        self.manager._prepare_override = with_settings
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": "/Volumes/work/claude", "QORQUT_NATIVE_USER_ENV": json.dumps(native)}):
+            self.open()
+        env = self.spec()["env"]
+        self.assertEqual((env["CLAUDE_CONFIG_DIR"], env["HOME"], env["TMPDIR"]), ("/Volumes/work/claude", "/Users/owner", "/from/settings"))
+
     def test_every_supported_role_opens_alike(self):
         # Ordubashy, a global worker, the learning applier: the manager no longer asks the role. What differs is the prepared
         # workspace: an ecosystem scope is prepared to bypass, any other scope to deny (and the allowed tools on the command line).

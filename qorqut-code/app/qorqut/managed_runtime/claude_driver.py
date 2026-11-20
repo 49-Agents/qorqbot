@@ -240,7 +240,7 @@ def _transcript_path(folder, session_id, env):
     """Where Claude Code writes this session's transcript: ``<config dir>/projects/<folder, non-alphanumerics as "-">/<id>.jsonl``.
     When the computed file does not exist the other project folders are checked for the id (Claude Code shortens very long
     folder names with a hash this does not reproduce); failing that the computed path is returned."""
-    config = env.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    config = env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
     projects = Path(config) / "projects"
     try:
         real = os.path.realpath(folder)
