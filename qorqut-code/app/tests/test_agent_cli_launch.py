@@ -238,6 +238,20 @@ class StartSites(Fixture):
             ManagedCodexRunner(RunnerConfig()).run(**ARGS)
         self.assertEqual(seen, [self.codex, "/opt/codex", "codex"])
 
+    def test_a_context_configuration_naming_claude_keeps_the_librarys_own_runner(self):
+        from qorqut_context.integration.service import ContextSettings
+        from qorqut_context.runner import RunnerConfig
+        from qorqut.shared_context import service
+        chosen = []
+        with mock.patch.object(service.integration, "compose_context", side_effect=lambda app, locations, settings, **kw: chosen.append(settings.runner)), \
+                mock.patch.object(service, "context_locations", return_value=None):
+            service.compose_context(None, None, ContextSettings(config=RunnerConfig(executable="/usr/local/bin/claude")))
+            service.compose_context(None, None, ContextSettings(config=RunnerConfig(executable="codex")))
+            service.compose_context(None, None, ContextSettings())
+        self.assertIsNone(chosen[0])
+        self.assertIsInstance(chosen[1], service.ManagedCodexRunner)
+        self.assertIsInstance(chosen[2], service.ManagedCodexRunner)
+
 
 class ManagedSessions(Fixture):
     """A managed session opened after a download sees our copy first, with nothing relaunched."""

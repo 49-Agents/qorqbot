@@ -17,6 +17,7 @@ import stat
 from qorqut_context.integration import service as integration
 from qorqut_context.integration.service import ContextLocations, ContextSettings
 from qorqut_context.runner import AppServerRunner, RunnerConfig
+from qorqut_context.claude_runner import is_claude
 from qorqut_operations.contracts import DomainError
 
 from qorqut import agent_cli_launch
@@ -92,7 +93,9 @@ class ManagedCodexRunner(AppServerRunner):
 def compose_context(application, paths, settings: ContextSettings | None = None) -> integration.ContextComposition:
     """The Context composition of one instance, bound to the host's locations, eligible roles and coordinator lookup."""
     settings = settings or ContextSettings()
-    if settings.runner is None:
+    # A configuration that names the claude executable keeps the library's own runner selection (the Claude CLI runner):
+    # the app-server runner would start claude with Codex arguments and every input would fail.
+    if settings.runner is None and not is_claude(settings.config or RunnerConfig()):
         settings = replace(settings, runner=ManagedCodexRunner(settings.config or RunnerConfig()))
     return integration.compose_context(application, context_locations(paths), settings, instruct_roles=INSTRUCT_ROLES,
                                        coordinator=coordinator_of)
