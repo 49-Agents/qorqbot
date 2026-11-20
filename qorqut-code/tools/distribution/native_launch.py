@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import urllib.parse
 import urllib.request
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -422,6 +423,53 @@ def install_command(root, directory=None, remove=False, path_value=None, home=No
     return message
 
 
+# Kept beside the remembered port, not in the instance: the instance must stay empty until its first start.
+REMOTE_ACCESS = '.run/remote-access.json'
+
+
+def remote_origin(value):
+    """``value`` as scheme://host[:port], or ValueError when it is not a plain http(s) address without a path."""
+    parsed = urllib.parse.urlsplit(value.strip())
+    if (parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password
+            or parsed.path not in ('', '/') or parsed.query or parsed.fragment):
+        raise ValueError('Give the address as https://name.example.ts.net or https://name.example.ts.net:PORT, without a path')
+    host = '[' + parsed.hostname.lower() + ']' if ':' in parsed.hostname else parsed.hostname.lower()
+    return f'{parsed.scheme}://{host}' + (f':{parsed.port}' if parsed.port else '')
+
+
+def remote_origins(root):
+    """The addresses, besides this computer's own, that the dashboard answers to; a damaged record counts as none."""
+    try:
+        return [remote_origin(value) for value in read_json(Path(root) / REMOTE_ACCESS)['origins']]
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+
+
+def remote_access(root, address=None, running=False, port=None):
+    """Show, set (an address) or clear ('off') the address other computers on a private network use for the dashboard.
+    Qorqbot keeps listening on this computer only: a forwarder such as `tailscale serve` carries that address here."""
+    path = Path(root) / REMOTE_ACCESS
+    if address is None:
+        current = remote_origins(root)
+        return ('Remote access: ' + ', '.join(current)) if current else 'Remote access is off.'
+    restart = ' Stop and start Qorqbot for this to take effect.' if running else ''
+    if address == 'off':
+        path.unlink(missing_ok=True)
+        return 'Remote access is off.' + restart
+    origin = remote_origin(address)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    save_json(path, {'origins': [origin]})
+    local = f'http://127.0.0.1:{port}' if port else 'its local address'
+    serve = (f'\n  tailscale serve --bg --https={urllib.parse.urlsplit(origin).port or 443} {local}'
+             if port and origin.startswith('https://') else '')
+    return (f'Qorqbot will answer at {origin}.{restart}\n'
+            f'It still listens on this computer only, so something must forward that address to {local}. With Tailscale:'
+            f'{serve}\n' if serve else
+            f'Qorqbot will answer at {origin}.{restart}\n'
+            f'It still listens on this computer only, so something must forward that address to {local}.\n') + (
+            'Whoever can open that address uses the dashboard as you, so keep it on a private network.')
+
+
 def default_port(run_dir):
     """The port this folder last served on. Agents keep the dashboard address they were started with, so a later
     start without --port reuses it; 1049 is the first default."""
@@ -679,14 +727,17 @@ def require_completed_update(root):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Run Qorqbot in this folder.')
     parser.add_argument('command', nargs='?', default='start',
-                        choices=('start', 'stop', 'status', 'verify', 'setup', 'calendar-connect', 'install-command'))
+                        choices=('start', 'stop', 'status', 'verify', 'setup', 'calendar-connect', 'install-command',
+                                 'remote-access'))
     parser.add_argument('--port', type=int, help='Local port. Defaults to the port this folder last used, first 1049.')
     parser.add_argument('--no-open', action='store_true', help='Do not open the dashboard in your browser.')
     parser.add_argument('--dir', type=Path, help='install-command: directory for the qorqbot command.')
     parser.add_argument('--remove', action='store_true', help='install-command: remove the qorqbot command.')
     args, remaining = parser.parse_known_args(argv)
-    if remaining and args.command != 'calendar-connect':
+    if remaining and args.command not in ('calendar-connect', 'remote-access'):
         parser.error('Unrecognized arguments: ' + ' '.join(remaining))
+    if args.command == 'remote-access' and len(remaining) > 1:
+        parser.error('remote-access takes one address, or off')
     root = Path(__file__).resolve().parent.parent
     runtime = root / 'runtime'
     if args.command == 'install-command':
@@ -705,6 +756,9 @@ def main(argv=None):
     existing = active(state)
     if args.port is None:
         args.port = default_port(run_dir)
+    if args.command == 'remote-access':
+        print(remote_access(root, remaining[0] if remaining else None, running=bool(existing), port=args.port))
+        return 0
     if args.command == 'status':
         # The desktop app reads "from Terminal" to leave a Terminal-started server running when it quits.
         print(('Running at ' + existing['url'] + (' from Terminal' if existing.get('terminal') else '')) if existing else 'Stopped')
@@ -780,6 +834,8 @@ def main(argv=None):
                 '--token-file', root / 'instance/config/owner-token', '--host', '127.0.0.1', '--port', str(args.port)]
         for name, location in record['components'].items():
             argv.extend(['--component', f'{name}={location}'])
+        for origin in remote_origins(root):
+            argv.extend(['--origin', origin])
         logdir = root / 'instance/logs'
         logdir.mkdir(mode=0o700, exist_ok=True)
         with (logdir / 'application.log').open('ab') as log:

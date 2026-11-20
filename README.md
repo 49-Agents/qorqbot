@@ -94,4 +94,17 @@ home (not under `/mnt/c`) and run `./qorqbot`. Full steps:
 Add `--no-open` to start without opening the browser, or `--port 1050` to use
 another port. Later starts reuse the last port, so running agents keep their address.
 
+**From your other computers:** Qorqbot listens on its own computer only. To open
+the dashboard from another machine on a private network such as Tailscale, tell
+Qorqbot which address to answer at, restart it, and forward that address to it:
+
+```sh
+qorqbot remote-access https://my-computer.my-tailnet.ts.net:1049   # `off` undoes it
+tailscale serve --bg --https=1049 http://127.0.0.1:1049
+```
+
+This works the same whether Qorqbot was started by the app or from a terminal.
+Whoever can open that address uses the dashboard as you, so keep it on a private
+network and never publish it to the internet.
+
 Licensed under the [PolyForm Noncommercial License 1.0.0](https://github.com/49-Agents/qorqbot/blob/main/LICENSE). Personal and noncommercial use is free. Commercial use needs a [commercial license](https://qorqbot.com/commercial-license/), per person and free until January 1, 2027. See [LICENSE-SCOPE.md](LICENSE-SCOPE.md) and [pricing](https://qorqbot.com/pricing/).
