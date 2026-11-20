@@ -2,7 +2,8 @@
 
 The authority metadata is the retained v1 one for the existing names: ``context_home``, ``context_object``,
 ``context_expand`` and ``context_find`` are agent-facing reads of every registered agent (the host policy resolver's
-core default, unchanged), and ``context_changes`` stays an owner view. Scope resolution is also v1's: a caller reads
+core default, unchanged), and ``context_changes`` stays an owner view. ``personal_get`` is the owner's own record as plain
+facts, under the same authority as the other agent reads: every registered agent reads the whole record. Scope resolution is also v1's: a caller reads
 under its selected business, or under Global with the ``read_global_context`` capability. Because the one published
 graph is shared, the scope only selects *who may ask*; the content returned never depends on it. Handlers use the
 reader alone: they take nothing from the caller's arguments to decide identity or scope, and they never reach
@@ -21,7 +22,7 @@ from . import schemas
 from .reader import SharedContextReader
 
 OWNER = "shared-context"
-AGENT_READS = ("context_home", "context_object", "context_expand", "context_find")
+AGENT_READS = ("context_home", "context_object", "context_expand", "context_find", "personal_get")
 
 INPUTS = {
     "context_home": (schemas.HOME_INPUT, ()),
@@ -29,6 +30,7 @@ INPUTS = {
     "context_find": (schemas.FIND_INPUT, ()),
     "context_expand": (schemas.EXPAND_INPUT, ("ref",)),
     "context_changes": (schemas.CHANGES_INPUT, ()),
+    "personal_get": (schemas.PERSONAL_INPUT, ()),
 }
 OUTPUTS = {
     "context_home": schemas.HOME_OUTPUT,
@@ -36,6 +38,7 @@ OUTPUTS = {
     "context_find": schemas.FIND_OUTPUT,
     "context_expand": schemas.EXPAND_OUTPUT,
     "context_changes": schemas.CHANGES_OUTPUT,
+    "personal_get": schemas.PERSONAL_OUTPUT,
 }
 DESCRIPTIONS = {
     "context_home": instruction_text('operations-the-shared-published-context-graph-a-bounded-page'),
@@ -43,6 +46,7 @@ DESCRIPTIONS = {
     "context_find": instruction_text('operations-literal-word-and-prefix-search-over-published-node'),
     "context_expand": instruction_text('operations-the-relationships-around-a-published-node-out-to'),
     "context_changes": instruction_text('operations-owner-view-published-change-events-newest-first-with'),
+    "personal_get": instruction_text('operations-the-owner-s-personal-record-as-plain-facts'),
 }
 ENTRIES = (
     *(CatalogEntry(name, False, "read") for name in AGENT_READS),
@@ -55,7 +59,7 @@ def _namespace(context, _arguments):
 
 
 class SharedContextOperations:
-    """Binds one ``SharedContextReader`` to the five read descriptors."""
+    """Binds one ``SharedContextReader`` to the read descriptors."""
 
     def __init__(self, reader: SharedContextReader):
         if not isinstance(reader, SharedContextReader):
@@ -67,7 +71,7 @@ class SharedContextOperations:
 
     def descriptors(self) -> tuple[OperationDescriptor, ...]:
         handlers = {"context_home": self._home, "context_object": self._object, "context_find": self._find,
-                    "context_expand": self._expand, "context_changes": self._changes}
+                    "context_expand": self._expand, "context_changes": self._changes, "personal_get": self._personal}
         descriptors = []
         for entry in ENTRIES:
             properties, required = INPUTS[entry.name]
@@ -99,6 +103,9 @@ class SharedContextOperations:
     def _expand(self, ctx, args):
         return self.reader.expand(args["ref"], depth=args.get("depth"), direction=args.get("direction"),
                                   limit=args.get("limit"), cursor=args.get("cursor"))
+
+    def _personal(self, ctx, args):
+        return self.reader.personal(fields=args.get("fields"))
 
     def _changes(self, ctx, args):
         if ctx.principal_kind != "human":

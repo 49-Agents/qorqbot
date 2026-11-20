@@ -422,32 +422,36 @@ class GraphEdits:
         if ctx.principal_kind not in ("agent", "human"):
             raise DomainError("forbidden", "Only an owner or an authorized context role may edit the context base")
 
-    def prepare(self, ctx, arguments: dict, options, uow, clock):
+    def prepare(self, ctx, arguments: dict, options, uow, clock, *, operation: str = "context_edit", edit: dict | None = None,
+                title: str = "Context Graph Edit"):
+        """``edit`` is the plan of an operation that derives it from its own arguments (``personal_set``) instead of taking it
+        as ``arguments['edit']``. The prepared change then belongs to ``operation`` and carries that operation's arguments; the
+        plan, its checks, the binding and the queue input are the same as for ``context_edit``."""
         self._actor(ctx)
-        plan, content, digest = normalized(arguments["edit"], self.ports.source_bytes)
+        plan, content, digest = normalized(arguments["edit"] if edit is None else edit, self.ports.source_bytes)
         admission = ctx.business_id
         caller = self.application_context(ctx, uow)
         snapshot, targets = self._evidence(uow, plan, admission)
         self.authority.check_personal(uow, caller, snapshot, plan)
-        self.authority.check(uow, caller, namespaces(targets, admission), arguments)
+        self.authority.check(uow, caller, namespaces(targets, admission), arguments if edit is None else {"edit": plan})
         namespace = namespace_name(admission)
-        builder = PlanBuilder(ctx, "context_edit", arguments, "Context Graph Edit", clock=clock, namespace=namespace,
+        builder = PlanBuilder(ctx, operation, arguments, title, clock=clock, namespace=namespace,
                               affected_scope=scope_of(admission))
         bindings.admit(builder, uow, plan=plan, content=content, plan_digest=digest, reserved_event_id=self._reserve(uow, snapshot, plan),
-                       attribution=self.attribution(ctx, uow, admission),
+                       attribution=self.attribution(ctx, uow, admission, operation),
                        targets=targets, business_id=admission, max_content_bytes=self.ports.source_bytes)
         builder.effects.append("The published Context is not changed now. The queue driver rechecks your current authority and the "
                                "published base, then publishes exactly this plan as one event, with no model, in queue order.")
         return builder.build()
 
     @staticmethod
-    def attribution(ctx, uow, admission) -> dict:
+    def attribution(ctx, uow, admission, operation: str = "context_edit") -> dict:
         """The original caller, frozen with the edit: who, as what, in which scope and under which authenticated delegation (the
         registration and the closed binding/assignment/generation triplet, never the plan text, a credential or a decision)."""
         actor = uow.connection.execute("SELECT display_name FROM principals WHERE id=?", (ctx.principal_id,)).fetchone()
         return {"principal_id": ctx.principal_id, "principal_kind": ctx.principal_kind, "display_name": actor["display_name"] if actor else None,
                 "agent_id": ctx.agent_id, "role_id": getattr(ctx.role_artifact_ref, "id", None), "business_id": admission,
-                "operation": "context_edit", "delegation": bindings.delegation_of(ctx)}
+                "operation": operation, "delegation": bindings.delegation_of(ctx)}
 
     def application_context(self, ctx, uow):
         """The invoking caller's context refreshed from its current registration inside this transaction, still carrying the
@@ -495,7 +499,9 @@ class GraphEdits:
             raise DomainError("revision_conflict", "The objects this edit changes were re-owned or removed since preparation")
         caller = self.application_context(ctx, uow)
         self.authority.check_personal(uow, caller, snapshot, fresh)
-        self.authority.check(uow, caller, namespaces(targets, admission), plan.arguments)
+        # An operation that derived its plan is checked against the plan it queued, as the driver's recheck does.
+        self.authority.check(uow, caller, namespaces(targets, admission),
+                             plan.arguments if plan.operation_name == self.authority.name else {"edit": fresh})
         event_id = companion["reserved_event_id"]
         if event_id in bindings.taken_event_ids(uow) or event_id in snapshot.used_ids or event_id in self._pending_ids():
             raise DomainError("conflict", "The reserved Context event ID is no longer available; prepare the edit again")

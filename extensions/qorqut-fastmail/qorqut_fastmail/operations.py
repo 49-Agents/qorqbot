@@ -24,6 +24,8 @@ from qorqut_operations.application.plans import TEXT, PlanBuilder, apply_records
 from qorqut_operations.application.registry import CatalogEntry
 from qorqut_operations.contracts import DomainError, FieldChange, PreviewResource, StructuredPreview, canonical_hash, plain
 
+from .readable import FORMATS, readable
+
 CAPABILITY = "manage_fastmail"
 PROGRAM = "fastmail.account_mutation"
 MAX_INLINE_ATTACHMENT_BASE64 = 1 * 1024 * 1024          # below the 2 MiB MCP request ceiling; no separate upload protocol
@@ -63,6 +65,9 @@ _MASKED_EMAIL = schema({"id": _REF, "state": {"type": "string", "enum": ["enable
                         "url": {"type": "string", "maxLength": 2000},
                         "emailPrefix": {"type": "string", "maxLength": 64, "pattern": r"^[A-Za-z0-9._+-]+$"}})
 
+# An agent reads the words of a message; ``source`` returns the body exactly as the provider holds it.
+_BODY_FORMAT = {"type": "string", "enum": list(FORMATS), "default": "text"}
+
 READS = {
     "fastmail_capabilities_get": (schema(), instruction_text('operations-the-configured-fastmail-account-its-id-supported-actions')),
     "fastmail_identities_list": (schema(), instruction_text('operations-the-account-s-sending-identities-id-name-email')),
@@ -72,10 +77,10 @@ READS = {
         "has_keyword": {"type": "string", "minLength": 1, "maxLength": 64}, "before": TEXT, "after": TEXT,
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "position": {"type": "integer", "minimum": 0}}),
         instruction_text('operations-search-messages-in-the-account-at-most-100')),
-    "fastmail_message_get": (schema({"account_id": _ACCOUNT, "message_id": _REF}, ("message_id",)),
+    "fastmail_message_get": (schema({"account_id": _ACCOUNT, "message_id": _REF, "body_format": _BODY_FORMAT}, ("message_id",)),
                              instruction_text('operations-read-one-message-with-its-expected-state-optional')),
     "fastmail_thread_get": (schema({"account_id": _ACCOUNT, "thread_id": _REF, "limit": {"type": "integer", "minimum": 1, "maximum": 100},
-                                    "position": {"type": "integer", "minimum": 0}}, ("thread_id",)),
+                                    "position": {"type": "integer", "minimum": 0}, "body_format": _BODY_FORMAT}, ("thread_id",)),
                             instruction_text('operations-read-one-thread-page-at-most-100-messages')),
     "fastmail_attachment_get": (schema({"attachment_id": _REF, "message_id": _REF, "offset": {"type": "integer", "minimum": 0},
                                         "limit": {"type": "integer", "minimum": 1, "maximum": MAX_ATTACHMENT_CHUNK}},
@@ -271,9 +276,10 @@ class FastmailOperations:
             elif op == "fastmail_messages_search":
                 result = client.search(args)
             elif op == "fastmail_message_get":
-                result = client.message(args["message_id"])
+                result = readable(client.message(args["message_id"]), args.get("body_format", "text"))
             elif op == "fastmail_thread_get":
-                result = client.thread(args["thread_id"], position=args.get("position"), limit=args.get("limit"))
+                result = readable(client.thread(args["thread_id"], position=args.get("position"), limit=args.get("limit")),
+                                  args.get("body_format", "text"))
             else:
                 result = self.attachment(client, args)
         if not isinstance(result, dict) or len(json.dumps(plain(result), default=str)) > MAX_RESULT_BYTES:

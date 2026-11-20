@@ -7,10 +7,10 @@ work.
 
 ## Before asking
 
-Read the personal context node: `context_home` returns `personal_context.ref`;
-read it with `context_object`. Do not ask for anything the node already holds.
+Read the personal record with `personal_get`. Do not ask for anything it already
+holds.
 
-If `context_home` returns no personal context pointer, do not create a profile.
+If `personal_get` returns no `ref`, do not create a profile.
 Ask only the tools question below, tell the owner the personal store is
 unavailable on this installation, and complete the step with that as the reason.
 
@@ -48,11 +48,10 @@ skip everything, save nothing and do not ask again in this run.
 
 ## Saving
 
-Save the answers to the personal context node with one `context_edit` for the
-whole step, following your Personal context rules: keep the node ID, its person
-type and every unrelated attribute; choose plain attribute names; put the
-owner's statement, this conversation as its source and today's date in the
-rationale; cite `self`. Record only what the owner said. Do not infer a
+Save the answers to the personal record with one `personal_set` call for the
+whole step, following your Personal context rules: choose plain field names, and
+give the owner's statement, this conversation as its source and today's date.
+Record only what the owner said. Do not infer a
 timezone from a city without saying so, and do not invent values.
 
 A queued edit is not yet published. Check its result before telling the owner

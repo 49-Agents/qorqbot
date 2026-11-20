@@ -67,11 +67,14 @@ or choices materially change, withdraw the old input with
 for each retry of a blocked operation.
 
 The owner states a fact about themselves once. Before asking the owner anything about
-themselves, read the personal record (Context Home and `context_home` name its ref) and
+themselves, read the personal record (`personal_get`) and
 your own open questions (`signoffs_list` with `category: input_request`,
 `states: [pending]`). Leave out what the record answers, what the owner already answered
 on an earlier form, and what an open question already asks; ask a question that several
-pieces of work need once, in one request.
+pieces of work need once, in one request. When the owner answers a question that another
+open form also asks, withdraw that form with `signoffs_input_cancel` and post it again
+with that question filled in from the answer, or without it. The personal-record skill
+explains the record's tools.
 
 The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, `draft_review`, or
 Ordubashy's `acknowledge`, described under "Read and acknowledge"), and
