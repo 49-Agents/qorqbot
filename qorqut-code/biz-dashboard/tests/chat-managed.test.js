@@ -207,7 +207,7 @@ test('an agent the owner turned off says it stays off until a message is sent, a
 
 test('an open session reads starting, ready, working or disabled, in short plain words', () => {
   assert.deepEqual(runtime.summary(managed({phase: 'starting'}), 'Ada'), {key: 'starting', line: 'Starting Ada…'});
-  assert.deepEqual(runtime.summary(managed({phase: 'idle'}), 'Ada'), {key: 'live', line: 'Ada is ready.'});
+  assert.deepEqual(runtime.summary(managed({phase: 'idle'}), 'Ada'), {key: 'live', line: ''});
   assert.equal(runtime.summary(managed({phase: 'working'}), 'Ada').key, 'working');
   assert.equal(runtime.summary(managed({phase: 'working'}), 'Ada').line, '', 'the activity line says what it does');
   assert.equal(runtime.summary(managed({phase: 'blocked'}), 'Ada').key, 'working');
@@ -448,7 +448,7 @@ test('the wording of every state, in the Chat code: asleep, never started, openi
   assert.equal(wording({session: managed(), entries: 3, sending: true}).key, 'live');
   // working: the activity line speaks, the session line stays quiet; idle and open: ready
   assert.deepEqual(wording({session: managed({phase: 'working'}), entries: 3}), {key: 'working', line: '', empty: '', placeholder: 'Message Ada…'});
-  assert.deepEqual(wording({session: managed({phase: 'idle'}), entries: 3}), {key: 'live', line: 'Ada is ready.', empty: '', placeholder: 'Message Ada…'});
+  assert.deepEqual(wording({session: managed({phase: 'idle'}), entries: 3}), {key: 'live', line: '', empty: '', placeholder: 'Message Ada…'});
   assert.equal(wording({session: managed()}).empty, 'Your agent conversation appears here.');
   // the server's own sentence for a session that ended unexpectedly wins over "asleep"
   const crashed = closedSession({closed_text: 'Claude Code stopped unexpectedly. Send a message to start the session again.'});

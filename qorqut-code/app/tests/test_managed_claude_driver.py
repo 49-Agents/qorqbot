@@ -1461,6 +1461,12 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(describe("Weird Tool!", {}), "Using WeirdTool")
         self.assertLessEqual(len(describe("Bash", {"description": "d" * 500})), 80)
 
+    def test_said_activity_is_the_message_as_plain_text(self):
+        said = lambda text: claude_driver._bounded(claude_driver.said_activity(text), 100)
+        self.assertEqual(said("## Plan\n\n**First** I read `a_b.py`.\n- one\n1. two"), "Plan First I read a_b.py. one two")
+        self.assertEqual(said("2*3 is six"), "2*3 is six")
+        self.assertLessEqual(len(said("w" * 500)), 100)
+
     def test_shorten_input_cuts_strings_depth_and_width(self):
         value = {"a": "x" * 5000, "b": list(range(100)), "c": {"d": {"e": {"f": {"g": {"h": {"i": 1}}}}}}}
         short, cut = claude_driver._shorten_input(value)
