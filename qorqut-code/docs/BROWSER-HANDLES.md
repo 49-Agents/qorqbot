@@ -4,11 +4,14 @@
 MCP path used by Ordubashy, explicit native Codex helpers and durable workers;
 the business agent's shell launcher is unchanged.
 
-A native caller acquires with its session UUID once:
+A native caller acquires once:
 
 ```json
-{"action":"acquire","protocol":"handles","consumer_id":"<session-UUID>"}
+{"action":"acquire","protocol":"handles"}
 ```
+
+`consumer_id` (a session UUID) is optional; without it the handle names the agent's default session. The browser skills
+tell agents to leave it out.
 
 Native handles name the caller's own lease-free configured browser session. They
 are derived from the agent and session, stored nowhere, never expire and are never
@@ -63,7 +66,8 @@ for the whole run.
 - The commands run in order under one use lock and one read of the target, so a switch between the agent's own browser and
   a Shared one cannot fall between them. Every command is validated before the first one runs; a refused command (the reply
   names it as `commands[N]`), a browser that is not ready, or a first command the runner cannot start raises as a single
-  command does, with nothing run.
+  command does, with nothing run. `captcha` is refused inside a batch (`commands[N]: captcha goes in a call of its own, as
+  command.`), so it always runs alone.
 - The run stops at the first command that exits non-zero, times out or fails; the later ones are not run.
 - Only the lease-free path takes `commands`: an agent's own browser, or a worker's browser selected by Ordubashy. A delegated
   assignment keeps one command per call, because each action there has a durable record that can be reconciled; `commands`
@@ -109,11 +113,12 @@ The constants are in `qorqut/browser/access.py`, and a test fails if the bridge'
 
 ## Explicit Global selection (configured Ordubashy only)
 
-Ordubashy alone may add `browser_id` (a configured Global browser's surface id, from `action: "list"`) to a handles
-`acquire`; omitting it keeps Ordubashy's own configured browser. The handle names that exact browser, so later calls use
+Ordubashy alone may add `browser_id` to a handles `acquire`: a managed Global desktop's surface id, or an active permanent
+worker's agent ID for that worker's own browser, both from `action: "list"`. Omitting it keeps Ordubashy's own configured
+browser. The handle names that exact browser, so later calls use
 only the handle, and a different `browser_id` is refused. Projects have no browsers: `business_id` is not accepted. Identity,
 role, the browser-control skill and the operation permission are rechecked on every call. See
-[browser desktops](BROWSER-DESKTOPS.md).
+[browser desktops](BROWSER-DESKTOPS.md) and [Ordubashy using a worker's browser](BROWSER-MANAGEMENT.md#ordubashy-using-a-workers-browser).
 
 ## Ownership and recovery
 
