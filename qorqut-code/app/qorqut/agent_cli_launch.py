@@ -87,6 +87,24 @@ def executable(provider, default=None, environ=None):
     return default if found is None else found["path"]
 
 
+def owner_variables(environ=None) -> dict:
+    """The owner's own command-line variables that a client this service starts must get in place of the service's:
+    ``{name: value or None}``, None meaning the owner had it unset (``QORQUT_NATIVE_USER_ENV``, written by the launcher of a
+    folder or Mac installation; empty when the service was started without one). The service itself runs with its own HOME
+    and an explicit ``CLAUDE_CONFIG_DIR``; a client started with those keeps a different sign-in than the owner's own (on
+    macOS Claude Code names its Keychain item after an explicit ``CLAUDE_CONFIG_DIR``), which is the one the setup screen
+    reads and the sign-in button writes (``connectors._probe_environment``). PATH is left out: ``search_environment`` joins it."""
+    source = os.environ if environ is None else environ
+    try:
+        native = json.loads(source.get("QORQUT_NATIVE_USER_ENV") or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(native, dict):
+        return {}
+    return {key: value for key, value in native.items()
+            if isinstance(key, str) and key and key != "PATH" and (value is None or isinstance(value, str))}
+
+
 def search_environment(session_env=None):
     """The environment a CLI is looked up in: the owner's own (``QORQUT_NATIVE_USER_ENV`` over the service's, plus the usual system
     folders, as the connectors check does), with the folders the session's own PATH names first."""

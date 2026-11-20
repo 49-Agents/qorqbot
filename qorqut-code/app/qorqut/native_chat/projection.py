@@ -77,6 +77,11 @@ _COMMAND_RECORD = re.compile(r"<command-name>\s*(/?[^<\s]{1,200})\s*</command-na
 # What Claude Code records, as a user message, when a turn is stopped (with or without "for tool use"). It is the client's note about
 # a Stop, never something the owner typed: it is dropped, and the stopped turn ends.
 _INTERRUPT_RECORD = re.compile(r"\[Request interrupted by user(?: for tool use)?\]")
+# Claude Code's own filler: when a conversation whose last turn was stopped is resumed, it writes an assistant record with this
+# model and this text so the conversation alternates. The agent did not say it. Other records of that model (a usage limit, an
+# API error) are the owner's only explanation for a missing answer and stay visible.
+_SYNTHETIC_MODEL = "<synthetic>"
+_FILLER_TEXT = "No response requested."
 MAX_ENTRY_CHARS = 200_000
 SEND_SERVER = "qorqut"
 SEND_TOOL = "agents_message_send"
@@ -426,6 +431,8 @@ class Projector:
             notice = self._record_entries(identity, _claude_receipts(message.get("content")),
                                           _claude_inputs(message.get("content")), value, record)
             return notice if notice.entries else result
+        if message.get("model") == _SYNTHETIC_MODEL and text.strip() == _FILLER_TEXT:
+            return Result(hidden=True)  # no state change: it is written between turns, before the message that resumes
         final = message.get("stop_reason") in COMPLETING_STOPS
         if not text.strip():
             if final:

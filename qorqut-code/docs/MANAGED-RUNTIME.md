@@ -27,6 +27,15 @@ release does not end a running turn.
 - The host gets a small allow-listed environment. The agent's own environment,
   with its secrets, travels only in a private `launch.json` that the host reads
   and deletes at once. It never appears in a command line.
+- The client runs as the owner's own command line would. On a folder or Mac
+  installation the service has a private `HOME` and an explicit
+  `CLAUDE_CONFIG_DIR`; the launcher records what the owner had
+  (`QORQUT_NATIVE_USER_ENV`), and the manager gives the client those values,
+  unset ones included (`agent_cli_launch.owner_variables`). The setup screen's
+  sign-in check and the sign-in button use the same environment, so all three
+  read one sign-in. This matters on macOS, where Claude Code names its Keychain
+  item after an explicit `CLAUDE_CONFIG_DIR`. What the owner set in Settings
+  still wins.
 
 ### State folder
 

@@ -589,6 +589,15 @@ class SendTests(DriverCase):
         (other / (session_id + ".jsonl")).write_text("{}\n")
         self.assertEqual(claude_driver._transcript_path(self.folder, session_id, self.isolated), str(other / (session_id + ".jsonl")))
 
+    def test_transcript_path_without_a_config_folder_is_under_the_clients_home_not_the_hosts(self):
+        session_id = str(uuid.uuid4())
+        home = Path(self.isolated["HOME"]) / "owner-home"
+        env = {key: value for key, value in self.isolated.items() if key != "CLAUDE_CONFIG_DIR"}
+        env["HOME"] = str(home)
+        expected = home / ".claude" / "projects" / (
+            "".join(ch if ch.isalnum() else "-" for ch in os.path.realpath(self.folder))) / (session_id + ".jsonl")
+        self.assertEqual(claude_driver._transcript_path(self.folder, session_id, env), str(expected))
+
     def test_activity_is_short_plain_and_never_the_raw_input(self):
         session, recorder = self.make()
         session.start()
