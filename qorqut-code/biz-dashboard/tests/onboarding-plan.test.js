@@ -51,6 +51,15 @@ test('resumeIndex maps the retired activity step to calendar unless activity exi
   assert.equal(plan.resumeIndex(steps, {status: 'completed', step: 'activity'}), 0);
 });
 
+test('resumeIndex maps the retired Todo board step to calendar', () => {
+  assert.equal(plan.resumeIndex(steps, {status: 'in_progress', step: 'attention'}), 5);
+  assert.equal(plan.resumeIndex(steps, {status: 'completed', step: 'attention'}), 0);
+  const tour = fs.readFileSync(path.join(__dirname, '../js/onboarding.js'), 'utf8');
+  assert.doesNotMatch(tour, /\{id: 'attention'|attentionBoard/);
+  // The Focus step points at the feather that returns to the notes.
+  assert.match(tour, /\{id: 'focus'[^\n]*\n\s*body: '[^']*feather beside Browser/);
+});
+
 test('resumeIndex maps the retired connector steps to the browser step', () => {
   const withBrowser = [...steps, {id: 'browser-setup', chapter: 'connect'}];
   for (const step of ['connectors', 'connect-more'])
@@ -169,7 +178,7 @@ const real = [...ctx.allSteps];
 const ids = list => list.map(step => step.id);
 
 test('the tour is one list: no start, consent, terminal or managed-start step', () => {
-  assert.deepEqual(ids(real), ['assistant', 'focus', 'attention', 'calendar', 'journal', 'projects', 'signoffs', 'settings', 'privacy',
+  assert.deepEqual(ids(real), ['assistant', 'focus', 'calendar', 'journal', 'projects', 'signoffs', 'settings', 'privacy',
     'connect-overview', 'browser-setup', 'chat']);
   assert.ok(real.every(step => !step.variant && !step.managed && !step.terminal && !step.launch && !step.consent && !step.managedStart));
   assert.deepEqual(plan.chapters(real).map(c => c.id), ['online', 'workspace', 'projects', 'yours', 'connect']);

@@ -28,8 +28,8 @@ const onboardingPlan = (() => {
     if (!saved || saved.status !== 'in_progress') return 0;
     const find = id => steps.findIndex(step => saveId(step) === id);
     let index = find(saved.step);
-    // The retired Activity/Inbox step resumes at Calendar, the step that now follows the attention board.
-    if (index < 0 && saved.step === 'activity') index = find('calendar');
+    // The retired Todo board and Activity/Inbox steps resume at Calendar, the step that now follows Focus.
+    if (index < 0 && ['attention', 'activity'].includes(saved.step)) index = find('calendar');
     // The Learning Applier steps are retired while it is unavailable; their chapter continues at Settings.
     if (index < 0 && ['learning', 'context'].includes(saved.step)) index = find('settings');
     // The retired start steps (the folder consent, the terminal launch and the managed start) continue at the step that
