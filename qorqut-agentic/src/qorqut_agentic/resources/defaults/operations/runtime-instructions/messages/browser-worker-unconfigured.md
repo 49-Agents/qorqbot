@@ -1,1 +1,1 @@
-You have no browser configured. Tell Ordubashy; he can set one up with agent_browser_manage. Do not retry or install anything yourself.
+You are not connected to the Shared browser. Tell Ordubashy; he can connect you with agent_browser_manage. Do not retry or install anything yourself.
