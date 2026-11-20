@@ -20,6 +20,8 @@ from qorqut_operations.global_agents import global_profile
 _BROWSER_KEY = re.compile(r"^[A-Za-z0-9:_-]{1,200}$")
 _REQUESTER_KINDS = frozenset({"assignment", "agent", "owner"})
 _LIVE = frozenset({"queued", "owning"})
+# The assignment states nothing leaves (the delegation store's final states).
+_FINAL_ASSIGNMENT_STATES = frozenset({"completed", "cancelled"})
 
 
 def _now(value=None):
@@ -98,6 +100,15 @@ class BrowserTurnQueue:
     def _timestamp(value):
         return _now(value)
 
+    @staticmethod
+    def _ended(uow, turn):
+        """Whether the turn's assignment is final, so no generation of it can ever reconcile this turn."""
+        if turn["requester_kind"] != "assignment" or not turn["assignment_id"]:
+            return False
+        assignment = uow.connection.execute(
+            "SELECT state FROM operational_assignments WHERE id=?", (turn["assignment_id"],)).fetchone()
+        return assignment is not None and assignment["state"] in _FINAL_ASSIGNMENT_STATES
+
     def _expire(self, uow, browser_key, now):
         now_text = now.isoformat(timespec="microseconds").replace("+00:00", "Z")
         rows = uow.connection.execute(
@@ -113,10 +124,18 @@ class BrowserTurnQueue:
                 "SELECT 1 FROM browser_turn_actions WHERE turn_id=? AND action_id=? "
                 "AND state IN ('pending','running','uncertain') LIMIT 1",
                 (row["id"], row["command_id"])).fetchone() if row["command_id"] else None
-            if unsettled is not None and not legacy_native:
-                continue
             if row["command_id"] and row["command_until"] and _now(row["command_until"]) > now and not legacy_native:
                 continue
+            if unsettled is not None and not legacy_native:
+                # Only the assignment's current generation reconciles, and an assignment that completed or was cancelled
+                # never has one again. Its command fence has passed, so the outcome stays recorded as unknown and the
+                # browser is handed on instead of being held for good.
+                if not self._ended(uow, row):
+                    continue
+                uow.connection.execute(
+                    "UPDATE browser_turn_actions SET state='uncertain',error=COALESCE(error,?),updated_at=?,"
+                    "revision=revision+1 WHERE turn_id=? AND action_id=? AND state IN ('pending','running','uncertain')",
+                    ("assignment ended before this action was reconciled", now_text, row["id"], row["command_id"]))
             uow.connection.execute(
                 "UPDATE browser_turns SET state='released',lease_id=NULL,lease_until=NULL,command_id=NULL,command_until=NULL,"
                 "reason=?,released_at=?,updated_at=?,revision=revision+1 WHERE id=? AND state='owning'",
