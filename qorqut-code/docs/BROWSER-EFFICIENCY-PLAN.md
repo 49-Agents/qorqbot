@@ -12,7 +12,7 @@ differ (a batch keeps the first 24,576 characters of each command's `stdout`, no
 [BROWSER-CONTROL.md](BROWSER-CONTROL.md) describe what shipped. Since PRs #127 and #129 the skills are 8,192
 (`managed-browser-control`) and 6,388 (`ordubashy-browser-control`) characters, above the item 6 limits.
 
-This plan is separate from [the browser plan](BROWSER-PLAN.md) (Shared browser, live view, captcha; PR #110). That work
+This plan is separate from the Shared browser, live view and captcha work (PR #110). That work
 makes the browser more reliable. This one makes each browser task cost fewer characters and fewer calls.
 
 ## Why
