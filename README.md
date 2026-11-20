@@ -54,13 +54,15 @@ Needs an Apple silicon Mac (M1 or newer) on macOS 14 or newer.
 3. The first open sets Qorqbot up in `~/Qorqbot/qorqbot` in a few seconds and
    opens the dashboard. Sign in with your email: Qorqbot sends a code, and you
    do this once.
-4. Install at least one agent CLI and sign in to it once in Terminal:
-   [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or
-   [Codex](https://github.com/openai/codex) (`codex`). You can use both.
-5. The walkthrough starts by itself. It has you start Ordubashy, your lead
-   agent, in his own terminal, tours the workspace chapter by chapter and ends
-   in Chat, where you say hello and he sets you up: a few questions about you,
-   then the tools you want him to use. Skipped or finished, take it again from
+4. Qorqbot downloads [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+   and [Codex](https://github.com/openai/codex) itself. Choose the one you use
+   (you can use both) and sign in to your account on the page that opens in your
+   browser. You can do this later in **Settings**. Nothing is typed in Terminal.
+5. The walkthrough starts by itself. It tours the workspace chapter by chapter
+   and ends in Chat, where you say hello. That starts Ordubashy, your lead
+   agent, and he sets you up: a few questions about you, then the tools you
+   want him to use. Agents start when you message them or when there is work
+   for them. Skipped or finished, take it again from
    **Settings > Walkthrough** or **Help > Show Walkthrough**.
 
 Details: [Mac guide](qorqut-code/docs/distribution/MACOS.md).
@@ -86,9 +88,9 @@ cd qorqbot
 ```
 
 **Windows:** Qorqbot runs inside WSL2 with Ubuntu 24.04 and shows in your Windows
-browser. In Ubuntu: `sudo apt install python3.12 python3.12-venv git tmux`,
-install `claude` or `codex` there, extract the Ubuntu `.tar.gz` into your Ubuntu
-home (not under `/mnt/c`) and run `./qorqbot`. Full steps:
+browser. In Ubuntu: `sudo apt install python3.12 python3.12-venv git`,
+extract the Ubuntu `.tar.gz` into your Ubuntu home (not under `/mnt/c`) and run
+`./qorqbot`. Qorqbot downloads Claude Code and Codex inside Ubuntu itself. Full steps:
 [Windows guide](qorqut-code/docs/distribution/WINDOWS.md).
 
 Add `--no-open` to start without opening the browser, or `--port 1050` to use

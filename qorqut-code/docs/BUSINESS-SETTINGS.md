@@ -14,7 +14,7 @@ role. New bindings use the business's normal Settings store.
 The standard application pipeline applies hash-checked file changes with durable
 receipts, idempotency and optional exact-change signoff. The response contains
 only the key, configured status and business origin. Settings reads see the new
-value immediately. Existing terminal processes keep their environment until a
+value immediately. Running sessions keep their environment until a
 new session is started; this operation does not restart agents.
 
 Deploy core, publish/adopt Ordubashy 1.22.2, and refresh its prepared client

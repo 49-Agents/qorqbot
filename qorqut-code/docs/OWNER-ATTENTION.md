@@ -214,7 +214,7 @@ full identity, storage, operation, notification, and guard contract.
 Fresh local preparation and manual startup are the supported path; no numbered migration or automatic host
 upgrade is supplied (see [Release worker](release/README.md)). Publishing source packages does not repin agents.
 Explicitly adopt/reprepare the selected roles through canonical operations while retaining scope, plugins,
-assignments, overrides and terminal sessions. A fresh conversation loads the new
+assignments, overrides and agent sessions. A fresh conversation loads the new
 instructions; do not launch a model as a deployment check.
 
 

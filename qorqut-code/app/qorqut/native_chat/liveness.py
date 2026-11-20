@@ -7,6 +7,7 @@ Three answers, never two:
                thread, its writer lock is verifiably not held any more (descriptor closed or replaced, lock line absent while
                the descriptor table was readable).
 * ``alive``    the process exists with the recorded start ticks and, for a shared thread, still holds that exact writer lock.
+               A managed session is alive only while both its client process and the host process that drives it are.
 * ``unknown``  anything that could not be read or understood (permission denied, I/O error, malformed fields). Unknown is not
                dead: nothing is ended, superseded or replayed on it.
 """
@@ -70,15 +71,48 @@ def of_binding(binding: dict) -> str:
     return state(binding.get("pid"), binding.get("started"), binding.get("owner"))
 
 
+def managed_host(owner) -> tuple[int, str] | None:
+    """The host process of a managed binding's owner, ``host:<pid>:<start ticks>``; ``None`` for anything else."""
+    parts = owner.split(":") if isinstance(owner, str) else []
+    if len(parts) != 3 or parts[0] != "host" or not all(part.isascii() and part.isdigit() for part in parts[1:]):
+        return None
+    return int(parts[1]), parts[2]
+
+
+def worst(*answers: str) -> str:
+    """The least favourable answer: one verifiably dead part makes the whole dead; otherwise one unreadable part makes it
+    unknown; alive needs every part alive."""
+    for answer in (DEAD, UNKNOWN):
+        if answer in answers:
+            return answer
+    return ALIVE
+
+
 def of_session(row: dict) -> str:
-    """The answer for a ``native_sessions`` row: a shared Codex thread is judged by its owner tuple, anything else by the
-    process identity alone. A shared-thread row that lost its owner cannot be judged."""
-    if row["transport"] == "codex_queue":
-        owner = row["owner"]
-        if not owner:
-            return UNKNOWN
-        parts = owner.split(":")
-        if len(parts) != 5 or not parts[0].isdigit():
-            return UNKNOWN
-        return state(int(parts[0]), parts[1], owner)
+    """The answer for a ``native_sessions`` row: a managed session by its client process and its host process together, a row of an
+    older transport (a terminal pane, a shared Codex server; history after the cutover) by the process identity alone. The client
+    process alone is not enough for a managed session: one whose host is gone cannot be driven, so the verified death of either ends
+    the binding."""
+    if row["transport"] == "managed":
+        host = managed_host(row["owner"])
+        return worst(state(row["process_pid"], row["process_started"]), UNKNOWN if host is None else state(*host))
     return state(row["process_pid"], row["process_started"])
+
+
+# ----- availability -----------------------------------------------------------------------------------------------------
+# What a reader that says "online" or "offline" about a managed agent reports instead (``native_chat/opener.py`` has the rules):
+# ``open`` a session is bound; ``asleep`` none is, and the next input opens one; ``off`` the owner (or Ordubashy) turned it off, so
+# only the owner's own input (or Ordubashy's start) does; ``unavailable`` nothing can open it (paused, no managed runtime).
+OPEN, ASLEEP, OFF, UNAVAILABLE = "open", "asleep", "off", "unavailable"
+
+
+def availability(*, open_session: bool, desired_state: str | None, can_open: bool) -> str:
+    """Where an agent stands for the readers: an open session is ``open``; otherwise ``off`` when its recorded intent is stopped,
+    ``asleep`` when it can be opened (``can_open``) and is not paused, else ``unavailable``."""
+    if open_session:
+        return OPEN
+    if desired_state == "stopped":
+        return OFF
+    if can_open and desired_state != "paused":
+        return ASLEEP
+    return UNAVAILABLE

@@ -3,7 +3,7 @@
 const AGPAD_POLL_MS = 12000; // Shared poll cadence; the Viewbox reads at this interval.
 const AGENT_PANE_RATIO_KEY = "agent-pane-ratio";
 const AGENT_PANE_DEFAULT_RATIO = 1 / 2.15;
-const AGENT_PANE_MIN_TERMINAL = 260, AGENT_PANE_MIN_OVERVIEW = 240;
+const AGENT_PANE_MIN_CHAT = 260, AGENT_PANE_MIN_OVERVIEW = 240;
 let _agpad = null;
 
 // ------------------------------------------------------------ workspace registry
@@ -286,7 +286,7 @@ function agpadWorkspaceTick(p) {
 
 function agentPaneDividerMount(root) {
   const divider = root?.querySelector?.("[data-agent-pane-divider]");
-  const chat = root?.querySelector?.(".chat.termmode");
+  const chat = root?.querySelector?.(".chat.agentchat");
   const terminal = root?.querySelector?.(".global-agent-session") || chat;
   const pane = root?.querySelector?.(".agpad");
   if (!root || !divider || !chat || !terminal || !pane || !root.style) return () => {};
@@ -304,14 +304,14 @@ function agentPaneDividerMount(root) {
   const bounds = () => {
     const width = span().width;
     if (!width) return [0, 1];
-    const low = AGENT_PANE_MIN_TERMINAL / width;
+    const low = AGENT_PANE_MIN_CHAT / width;
     const high = 1 - AGENT_PANE_MIN_OVERVIEW / width;
     return low <= high ? [low, high] : [.5, .5];
   };
   const apply = (next, save = false) => {
     const [low, high] = bounds();
     ratio = Math.min(high, Math.max(low, Number(next) || AGENT_PANE_DEFAULT_RATIO));
-    root.style.setProperty("--ag-terminal-fr", `${ratio}fr`);
+    root.style.setProperty("--ag-chat-fr", `${ratio}fr`);
     root.style.setProperty("--ag-pane-fr", `${1 - ratio}fr`);
     divider.setAttribute("aria-valuemin", String(Math.round(low * 100)));
     divider.setAttribute("aria-valuemax", String(Math.round(high * 100)));

@@ -8,7 +8,7 @@ const envCurrent = p => envView === p && p.pane.isConnected && envScope() === p.
 // have every section; a project has only its environment overrides.
 const SETTINGS_SECTIONS = [
   {id: 'connections', title: 'Connections', hint: 'Tools your agents can use'},
-  {id: 'agents', title: 'Agents', hint: 'Claude Code, Codex and how agents start'},
+  {id: 'agents', title: 'Agents', hint: 'Claude Code, Codex, model and effort'},
   {id: 'appearance', title: 'Appearance', hint: 'Theme and text size'},
   {id: 'notifications', title: 'Notifications', hint: 'Desktop alerts'},
   {id: 'environment', title: 'Environment', hint: 'Variables such as API keys'},
@@ -45,15 +45,13 @@ async function renderSettings(c) {
   const look = appearance.get(), alerts = desktopNotify.prefs();
   const body = {
     connections: `<div class="st-block" data-search="connections browser websites extensions openrouter voice input microphone treg whatsapp" data-connectors-slot></div>`,
-    agents: `<div class="st-rows" data-agent-clients><p class="st-help">Checking Claude Code and Codex…</p></div>
-      <div class="st-rows">${settingsRow({label: 'Trusted agent folders', keywords: 'trust consent hooks prompts folder security',
-        help: '<span data-agent-trust-text>Checking…</span>', control: '<button type="button" class="quiet" data-agent-trust-toggle disabled>…</button>', attrs: 'data-agent-trust'})}
-      ${global ? settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat terminal workspace experimental',
-        help: 'Show Overseer in the Global agent roster and enable its chat, terminal and workspace. Off by default.<span class="set-testing-note" id="set-testing-note" role="status"></span>',
+    agents: `<div class="st-rows" data-agent-clients></div>
+      <div class="st-block" data-search="agents client model effort claude codex"><h3 class="ao-title">Client, model and effort</h3>
+        <p class="st-help ao-intro">What each agent runs on. Leave a field empty to use the default.</p><div data-agent-options></div></div>
+      ${global ? `<div class="st-rows">${settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat workspace experimental',
+        help: 'Show Overseer in the Global agent roster and enable its chat and workspace. Off by default.<span class="set-testing-note" id="set-testing-note" role="status"></span>',
         control: `<label class="set-switch" for="set-testing-toggle"><input type="checkbox" id="set-testing-toggle" role="switch" aria-label="Testing mode" disabled><span class="set-switch-track" aria-hidden="true"></span><span class="set-switch-label" id="set-testing-state">Loading…</span></label>`,
-        attrs: 'data-testing-mode'}) : ''}
-      ${settingsRow({label: 'Starting an agent', keywords: 'start launch terminal claude codex restart',
-        help: 'Choose the agent in the menu at the top left, click <b>&gt;_</b> above its Chat and type <code>claude</code> or <code>codex</code>. Agents never start by themselves.'})}</div>`,
+        attrs: 'data-testing-mode'})}</div>` : ''}`,
     appearance: `<div class="st-rows">${settingsRow({label: 'Theme', keywords: 'dark light system mode color colour', help: 'System follows your computer’s light or dark setting.',
         control: settingsChoice('theme', [['dark', 'Dark'], ['light', 'Light'], ['system', 'System']], look.theme)})}
       ${settingsRow({label: 'Text size', keywords: 'font zoom bigger smaller scale', help: 'Scales the whole dashboard.',
@@ -184,7 +182,7 @@ async function renderSettings(c) {
   });
   if (global) {
     connectorsPanel.mount(pane.querySelector('[data-connectors-slot]'), {compact: true, rows: true});
-    void paintAgentTrust(pane); void paintAgentClients(pane); void paintAbout(pane);
+    paintAgentClients(pane); void paintAgentOptions(pane); void paintAbout(pane);
   }
   pane.querySelector("#envsave").onclick = () => saveEnv(p);
   pane.querySelector("#envadd").onclick = () => {
@@ -257,21 +255,24 @@ async function saveTestingMode(p) {
   }
 }
 
-// Agents section: the CLIs agents run (owner_settings.agent_clients_view).
-async function paintAgentClients(pane) {
+// Agents section: Claude Code and Codex, downloaded and signed in from here (js/agent-clients.js).
+function paintAgentClients(pane) {
   const host = pane.querySelector('[data-agent-clients]'); if (!host) return;
-  let view;
-  try { view = coreData(await api('/root/agent-clients')); } catch (error) { host.innerHTML = `<p class="st-help">${esc(error.message || 'Could not check Claude Code and Codex.')}</p>`; return; }
+  const panel = agentClients.mount(host);
+  panel.root.addEventListener('agent-clients-painted', () => pane.dispatchEvent(new Event('settings-painted')));
+}
+
+// One row per agent: client, model and effort (js/agent-options.js). The agent list is the one the agents menu shows.
+async function paintAgentOptions(pane) {
+  const host = pane.querySelector('[data-agent-options]'); if (!host) return;
+  host.innerHTML = '<div class="st-rows"><p class="ao-empty">Reading your agents…</p></div>';
+  let agents;
+  try { agents = (await loadGlobalAgentProfiles()).filter(globalRosterAgent).map(a => ({agent_id: a.agent_id, name: a.display_name || a.name || a.agent_id})); }
+  catch (_) { host.innerHTML = '<div class="st-rows"><p class="ao-empty">Your agents couldn’t be read. Reload the page to try again.</p></div>'; return; }
   if (!host.isConnected) return;
-  const describe = (name, item, install, signIn) => {
-    if (!item.installed) return settingsRow({label: name, keywords: 'cli install version', help: `Not installed. ${install}`, control: '<span class="st-pill" data-tone="warn">Not installed</span>'});
-    const account = item.account?.email ? ` as ${esc(item.account.email)}${item.account.plan ? ` (${esc(item.account.plan)})` : ''}` : '';
-    const help = item.signed_in ? `Version ${esc(item.version || 'unknown')}. Signed in${account}.` : `Version ${esc(item.version || 'unknown')}. Not signed in: run <code>${signIn}</code> once in Terminal.`;
-    return settingsRow({label: name, keywords: 'cli install version signed account', help, control: `<span class="st-pill" data-tone="${item.signed_in ? 'ok' : 'warn'}">${item.signed_in ? 'Ready' : 'Sign in needed'}</span>`});
-  };
-  host.innerHTML = describe('Claude Code', view.claude, 'Install it from claude.com/code, then run <code>claude</code> once to sign in.', 'claude') +
-    describe('Codex', view.codex, 'Install it from github.com/openai/codex, then run <code>codex</code> once to sign in.', 'codex login');
-  pane.dispatchEvent(new Event('settings-painted'));
+  const panel = agentOptions.mount(host, agents);
+  panel.root.classList.add('st-rows');
+  panel.root.addEventListener('agent-options-painted', () => pane.dispatchEvent(new Event('settings-painted')));
 }
 
 // The Qorqbot account row in About (qorqut/account.py): who is signed in, personal or work use, and sign out.
@@ -322,31 +323,6 @@ async function paintAbout(pane) {
     try { await navigator.clipboard.writeText(button.dataset.copy); button.textContent = 'Copied'; } catch (_) { button.textContent = 'Select and copy'; }
     setTimeout(() => { if (button.isConnected) button.textContent = 'Copy path'; }, 2000);
   }));
-}
-
-// The owner's consent that Qorqbot's own agent folders are trusted (qorqut.agent_trust): claude and codex then skip their
-// folder-trust and Codex hook-review prompts for those folders. A CLI can still ask about an enclosing repository, which the
-// owner answers in the terminal. Turning it off restores Codex's own hook review for new launches.
-async function paintAgentTrust(pane) {
-  const section = pane.querySelector('[data-agent-trust]');
-  if (!section) return;
-  const text = section.querySelector('[data-agent-trust-text]'), toggle = section.querySelector('[data-agent-trust-toggle]');
-  let view;
-  try { view = coreData(await api('/root/agent-trust')); } catch (_) { text.textContent = 'Could not read this setting.'; return; }
-  if (!section.isConnected) return;
-  text.textContent = view.granted
-    ? 'On. Each agent’s own folder is marked as trusted in Claude Code and Codex, and Codex runs Qorqbot’s hooks there without its review prompt, whether you type claude or codex in the agent’s Terminal or press Start in Chat. Either CLI can still ask you to trust a larger folder around an agent, such as the git repository it sits in; you decide that in the terminal.'
-    : 'Off. The first time an agent starts in its folder, Claude Code asks whether to trust it and Codex asks you to review its hooks.';
-  toggle.textContent = view.granted ? 'Turn off' : 'Turn on';
-  toggle.disabled = false;
-  toggle.onclick = async () => {
-    toggle.disabled = true;
-    try {
-      if (view.granted) coreData(await post('/root/agent-trust', {granted: false}));
-      else await agentStart.consent();
-    } catch (error) { toast(error.message); }
-    void paintAgentTrust(pane);
-  };
 }
 
 function envError(p, message, retry = false) {

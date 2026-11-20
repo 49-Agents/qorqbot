@@ -26,14 +26,16 @@ This is the canonical work cycle. Topic skills explain tool details; their examp
 
 ## Unreachable workers
 
-An `unreachable` inbox event names a worker whose session cannot take input, so the work you
-assigned to it is waiting unseen. Repair it yourself in the same turn: read
-`agent_terminal_status` for that worker, then `agent_terminal_restart` with a one-line
-rationale. A restart resumes the worker's conversation. The repair holds when the worker next
-acknowledges an inbox item or closes or updates a Task; a second event for the same worker
-means it did not. Then restart once more, and if that also fails, reassign its open Tasks to a
-reachable worker and tell the owner which worker is down and what you tried. Assign nothing
-new to a worker you were told is unreachable until it is back.
+An `unreachable` inbox event names a worker that cannot take input, so the work you
+assigned to it is waiting unseen. A worker that is only asleep is not unreachable and needs no
+action: delegated work, a report or a reminder opens its session by itself. Repair it yourself
+in the same turn: read `agent_terminal_status` for that worker. If it is off, turn it on with
+`agent_terminal_start` and a one-line rationale. If it is on but its session will not open, use
+`agent_terminal_restart` once; the worker's conversation continues. The repair holds when the
+worker next acknowledges an inbox item or closes or updates a Task; a second event for the same
+worker means it did not. Then reassign its open Tasks to a reachable worker and tell the owner
+which worker is down, the reason the status gave and what you tried. Assign nothing new to a
+worker you were told is unreachable until it is back.
 
 ## Daily reconcile
 

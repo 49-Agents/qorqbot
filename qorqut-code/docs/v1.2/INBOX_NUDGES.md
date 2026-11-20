@@ -1,5 +1,7 @@
 # Backend inbox nudges (P5)
 
+> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 An agent with pending, authorized inbox events and a running native session gets one short advisory typed into that exact
 session by the application backend. Nothing runs inside the agent's session: no poller, no lease, no agent-side watcher.
 

@@ -12,6 +12,19 @@ from .client import load_registration
 from .transcript_snapshot import run as snapshot_transcript
 
 PROC_ROOT = Path("/proc")
+# What a managed host starts (``codex_driver.CodexSession._argv``): the app-server on stdio, nothing after it. A ``codex exec`` /
+# ``codex queue`` / TUI / websocket server never has this tail, so a process that does is the only shape a host's client can have.
+APP_SERVER_TAIL = (b"app-server", b"--listen", b"stdio://")
+WRITER_LOCKS = "thread-writer-locks"
+
+
+def runs_app_server(argv):
+    """Whether ``argv`` ends exactly in ``app-server --listen stdio://`` (a trailing empty element of a raw ``cmdline`` is ignored)."""
+    argv = list(argv)
+    if argv and argv[-1] == b"":
+        argv.pop()
+    return len(argv) > len(APP_SERVER_TAIL) and tuple(argv[-len(APP_SERVER_TAIL):]) == APP_SERVER_TAIL and b"exec" not in argv[:-3] \
+        and b"queue" not in argv[:-3]
 
 
 def process_identity(pid):
@@ -58,17 +71,39 @@ def owner_alive(owner):
     return False
 
 
-def thread_owner(pid, session_id):
+def owner_process(owner):
+    """The ``pid:start ticks`` of an owner string: the whole of a plain owner, the first two parts of a held-lock owner. The managed
+    binding's owner is always this two-part form (the app-server process); the five-part ``pid:ticks:fd:dev:inode`` is only the
+    proof, taken at the hook and by the probe, that this process holds the thread's writer lock."""
+    parts = owner.split(":") if isinstance(owner, str) else []
+    return ":".join(parts[:2]) if len(parts) in {2, 5} and all(part.isascii() and part.isdigit() for part in parts) else None
+
+
+def thread_owner(pid, session_id, home=None):
+    """The held-lock owner of ``session_id`` in process ``pid``: its writer lock under ``home`` (default ``$CODEX_HOME`` or
+    ``~/.codex``), or, with ``home=False``, under any Codex home (the process, not the folder, is what the caller anchors on)."""
     if sys.platform == 'darwin':
         return None
-    home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser().resolve()
-    expected = home / "thread-writer-locks" / (str(uuid.UUID(session_id)) + ".lock")
+    try:
+        name = str(uuid.UUID(session_id)) + ".lock"
+    except (ValueError, AttributeError, TypeError):
+        return None
+    if home is False:
+        expected = None
+    else:
+        home = Path(home or os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser().resolve()
+        expected = home / WRITER_LOCKS / name
     identity = process_identity(pid)
     if not identity:
         return None
-    for descriptor in (PROC_ROOT / str(pid) / "fd").iterdir():
+    try:
+        descriptors = list((PROC_ROOT / str(pid) / "fd").iterdir())
+    except OSError:
+        return None
+    for descriptor in descriptors:
         try:
-            if descriptor.readlink() != expected:
+            target = descriptor.readlink()
+            if (target != expected) if expected is not None else (target.name != name or target.parent.name != WRITER_LOCKS):
                 continue
             current = descriptor.stat()
             owner = f"{identity}:{descriptor.name}:{current.st_dev}:{current.st_ino}"
@@ -79,45 +114,49 @@ def thread_owner(pid, session_id):
     return None
 
 
-def session_process(session_id):
+def hosted_session_process(session_id, workspace, agent_id):
+    """``(identity, host)`` when this hook runs under the app-server a managed host of THIS agent started, else ``None``.
+
+    ``identity`` is ``pid:start ticks`` of that app-server (the managed binding's owner), ``host`` what ``native_binding.managed_host``
+    verified (the host record, its pid and start ticks, its command line, the app-server as its client without another ``codex``
+    between). Walking up from the hook, the nearest ``codex`` must be that app-server: a ``codex exec`` or a TUI an agent starts from
+    its shell comes first and ends the search. On Linux the app-server must also hold the writer lock of exactly ``session_id`` (it takes
+    it at ``thread/start``), so the session the hook names is a thread this process serves. This is a filter over facts the agent's
+    shell can also produce; the service binds only what its own token-verified host identity names (``verify_managed``)."""
+    from .native_binding import managed_host
     pid = os.getppid()
     for _ in range(12):
         try:
             process = PROC_ROOT / str(pid)
-            # An npm update can unlink the executable while its server is still running.
             if sys.platform == 'darwin':
                 from qorqut import process_info
                 observed_start = process_info.start_token(pid)
                 executable = process_info.exe(pid)
                 argv = [arg.encode() for arg in process_info.cmdline(pid)]
                 if process_info.start_token(pid) != observed_start:
-                    raise ProcessLookupError(pid)
+                    return None
             else:
                 executable = Path(str((process / "exe").readlink()).removesuffix(" (deleted)"))
                 argv = (process / "cmdline").read_bytes().split(b"\0")
             if executable.name == "codex":
-                if b"app-server" in argv:
-                    owner = thread_owner(pid, session_id)
-                    if owner:
-                        return owner
-                    break
-                if b"exec" in argv or b"queue" in argv:
-                    break
+                if not runs_app_server(argv):
+                    return None
+                host = managed_host(workspace, pid, agent_id, runtime="codex")
                 identity = process_identity(pid)
-                if sys.platform == 'darwin' and identity != f'{pid}:{observed_start}':
-                    raise ProcessLookupError(pid)
-                if identity:
-                    return identity
+                if host is None or identity is None or (sys.platform == 'darwin' and identity != f"{pid}:{observed_start}"):
+                    return None
+                if sys.platform != 'darwin' and owner_process(thread_owner(pid, session_id) or "") != identity:
+                    return None
+                return identity, host
             if sys.platform == 'darwin':
                 pid = process_info.parent_pid(pid)
             else:
-                fields = (process / "stat").read_text().rsplit(")", 1)[1].split()
-                pid = int(fields[1])
+                pid = int((process / "stat").read_text().rsplit(")", 1)[1].split()[1])
             if pid <= 1:
-                break
+                return None
         except (OSError, ValueError, IndexError):
-            break
-    raise DomainError("inbox_delivery_unavailable", "Cannot identify a running local Codex session for inbox delivery")
+            return None
+    return None
 
 
 def finish(hook, registration_path, *, diagnostics=sys.stderr):

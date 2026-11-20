@@ -651,14 +651,31 @@ class AgentActivity:
                         items_replacement_safe=complete)
                 sessions.append(session_view)
             state=next((s for s in ('running','idle','unknown','offline') if any(x['state']==s for x in sessions)),'unknown')
+            availability = self.availability(state, owner)
+            if availability in ('asleep', 'off'):
+                # A managed agent with no open session is not offline: asleep, the next input opens it; off, only the owner's input
+                # (or Ordubashy's start) does. ``state`` says so, ``availability`` names the three cases for every agent.
+                state = availability
             agent = {'agent_id':row['agent_id'],'name':row['name'],'display_name':row['display_name'],'role_id':row['role_id'],
                 'business_id':row['home_business_id'],'business_slug':row['slug'],'business_name':row['business_name'] or 'Global',
                 'state':state,'last_seen_at':max((x['last_seen_at'] for x in sessions if x['last_seen_at']),default=None),'sessions':sessions,
-                'inbox': nudge}
+                'inbox': nudge, 'availability': availability}
             if row['agent_id'] in workers:
                 agent['current_work'] = self.current_work(ctx, row['agent_id'], assignments.get(row['agent_id']), uow, access, now)
             agents.append(agent)
         return {'agents':agents,'next_cursor':cursor,'as_of':timestamp(self.clock)}
+
+    def availability(self, state, owner):
+        """``open`` (a session runs), ``asleep`` (managed, on, no session: opened by the next input), ``off`` (ended by the owner or
+        killed by Ordubashy), ``unavailable``; None when no managed runtime is composed to open anything (the state stands as
+        observed)."""
+        from qorqut.native_chat import liveness
+        opener = getattr(getattr(self.runtime, 'native_chat', None), 'opener', None)
+        if opener is None:
+            return None
+        return liveness.availability(open_session=state in ('running', 'idle'),
+                                     desired_state=owner['desired_state'] if owner else None,
+                                     can_open=opener.managed is not None)
 
     @staticmethod
     def work_stale(reviewed_at, now):

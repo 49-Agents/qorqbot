@@ -38,7 +38,7 @@ def inside(phase):
         assert launcher.AGENT_BROWSER_VERSION in subprocess.run([browser_tool, '--version'], capture_output=True, text=True,
                                                                   check=True, timeout=60).stdout
         assert env.get('QORQUT_AGENT_BROWSER_EXECUTABLE') == str(browser_tool)
-        for name, flag in (('git', '--version'), ('tmux', '-V')):
+        for name, flag in (('git', '--version'),):
             path = shutil.which(name, path=env['PATH'])
             assert path and not Path(path).is_relative_to(root), name
             subprocess.run([path, flag], env=env, cwd=root, check=True, timeout=60)

@@ -143,7 +143,7 @@ class BroadcastDispatch:
                 else:
                     # Persist the uncertain boundary BEFORE the external write. A restart
                     # must never replay a write whose outcome it cannot establish.
-                    self._finish(uow, delivery, 'uncertain', _stamp(self.clock()), detail='Terminal write outcome is not confirmed')
+                    self._finish(uow, delivery, 'uncertain', _stamp(self.clock()), detail='Delivery outcome is not confirmed')
                     input_reserved = True
             if input_reserved:
                 try:
@@ -155,7 +155,7 @@ class BroadcastDispatch:
                         state = 'uncertain'
                     detail = result.get('detail')
                 except Exception:
-                    state, detail = 'uncertain', 'Terminal write outcome is uncertain'
+                    state, detail = 'uncertain', 'Delivery outcome is uncertain'
                 with self.database.transaction() as uow:
                     self._finish(uow, delivery, state, _stamp(self.clock()), detail=detail, prior='uncertain')
 

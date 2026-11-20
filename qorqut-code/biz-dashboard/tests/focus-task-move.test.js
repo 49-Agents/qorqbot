@@ -112,11 +112,11 @@ browserTest('different agent selection and Focus controls await the inline dirty
       window.route=(new Function('ws',`let selectionVersion=0, selected='a', gated=false;
         let _agpad={agentId:'a',view:'focus',focusWorkspace:ws};
         const root={},c={},pane={dataset:{},querySelector(){return null;}},agents=[{agent_id:'a',role:{id:'ordubashy'}},{agent_id:'b',role:{id:'global-worker'}}];
-        const current=()=>true,globalWorkspaceTerminal=()=>null,overseerRole=()=>false,testingModeEnabled=()=>true;
+        const current=()=>true,overseerRole=()=>false,testingModeEnabled=()=>true;
         const enterComingSoon=()=>{},leaveComingSoon=()=>{},paintSelection=()=>{},disposeChat=()=>{},ls=()=>{};
         const agentWorkspaceCanLeave=async p=>{await p.focusWorkspace.close();return !p.focusWorkspace.isOpen();};
         const agpadRequestView=async(p,v)=>{if(!await agentWorkspaceCanLeave(p))return false;p.view=v;return true;},agpadShownView=p=>p?.view;
-        const mountAgentView=()=>{},mountTerminal=()=>{},agviewboxReveal=()=>{};
+        const mountAgentView=()=>{},agviewboxReveal=()=>{};
         const agpadMount=(name,el,opts)=>{_agpad={agentId:opts.agentId,view:opts.initialView||'focus'};};
         const $=(selector)=>selector==='.global-agents'?root:{};
         ${select}\n${open}\nreturn {open:(id,opts)=>root.openAgent(id,opts),current:()=>_agpad,view:v=>agpadRequestView(_agpad,v)};`))(ws);

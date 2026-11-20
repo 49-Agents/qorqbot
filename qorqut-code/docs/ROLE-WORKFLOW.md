@@ -69,7 +69,7 @@ deploy and reprepare as one controlled rollout to avoid leaving agents blocked.
 Resolve any short-name collisions before rollout. No role republishing, profile
 repinning, business-context edit, or database migration is required.
 
-Preserve running terminals, credentials, role/plugin selections and business
+Preserve running sessions, credentials, role/plugin selections and business
 records. Use each client's normal skill refresh behavior; confirm discovery in
 the intended session before calling it available. Do not launch real agents or
 send live work merely to validate source changes. Reverting source alone does not
@@ -102,7 +102,7 @@ Owner-run live acceptance, using temporary work after an authorized rollout:
    agent message cannot replace a formal owner decision.
 5. With no actionable work, verify the session ends its turn quietly while
    delivery remains active. A later assignment/message should be handled on the
-   existing nudge without another terminal prompt. Test both supported clients.
+   existing nudge without another prompt. Test both supported clients.
 
 Native discovery references: [Claude skills](https://code.claude.com/docs/en/skills)
 and [Codex skills](https://developers.openai.com/codex/skills).

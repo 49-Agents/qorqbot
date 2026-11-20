@@ -78,8 +78,7 @@ Prepared folders must be inside the registered businesses root.
 An initial legacy projection requires migrate_legacy=True only as part of a
 reviewed migration. Normal preparation repairs known managed projections and
 removes revoked generated skills; unknown Qorqut skill subtrees are errors.
-No preparation code touches personal CLI configuration, starts a model session, changes
-tmux, or starts an MCP process. Credentials are opaque token_urlsafe(48) values;
+No preparation code touches personal CLI configuration, starts a model session, or starts an MCP process. Credentials are opaque token_urlsafe(48) values;
 the database stores their unprefixed SHA-256 token_hash and credential ID.
 The local credential is mode 0600 and never appears in public configuration.
 
@@ -134,31 +133,21 @@ rollout approval. Limits and recovery boundaries are in
 `../../docs/ORDUBASHY-DURABLE-DELEGATION.md`.
 
 The shared service issues no provider credentials: GitHub and Git are the upstream
-clients, authenticated the ordinary way inside the terminal.
+clients, authenticated the ordinary way inside the agent's shell tools.
 Readiness is reported per CLI. Missing or drifting files in an unused CLI do not
 block the other. The old `prepare_claude_agent` entry remains a compatibility
 wrapper. The profile's existing `runtime` field is descriptive, not a lock on
 which CLI can use its identity; opening either does not mutate the profile.
 
-Minimum contracts are Claude Code 2.1.263 and Codex CLI 0.153.4. These checks do
-not establish project/hook trust, login, or host sandbox compatibility. Review
-Codex hooks with `/hooks` and start a fresh conversation. Prepared Codex uses a
+Minimum contracts are Claude Code 2.1.263 and Codex CLI 0.170.0 (both come from `agent_cli_install.MINIMUM_VERSIONS`). These checks do
+not establish login or host sandbox compatibility. Prepared Codex uses a
 restricted permission profile; legacy personal `sandbox_mode` settings override
-such profiles and must be reconciled by the owner. Do not disable the sandbox or
-silently grant hook trust.
+such profiles and must be reconciled by the owner. Do not disable the sandbox.
 
-Owner consent (`qorqut/agent_trust.py`) is the one exception, and it is
-explicit, not silent: on one dashboard screen the owner allows Qorqbot to start
-agents itself. Qorqbot then records folder trust for its prepared agent
-workspaces only (`~/.claude.json`, `~/.codex/config.toml`): the workspace folder
-as given and, when different, its resolved path. An enclosing git repository
-(Qorqbot's operations repository or an external one) is never recorded, so a CLI
-can still ask the owner to trust it; the owner answers that in the terminal. The
-prepared agent shell runs Codex with `--dangerously-bypass-hook-trust` while the
-consent file `<runtime>/agent-trust.json` exists, and only when the shell is
-physically in the agent's workspace root (see below). Revoking it in Settings
-deletes the file, so new Codex launches return to native hook review. Without
-consent nothing changes and the `/hooks` review above still applies.
+Qorqbot never edits the CLIs' own trust files (`~/.claude.json`, `~/.codex/config.toml`) and asks the owner for no
+folder consent: an agent runs headless as a managed session, so no trust prompt can appear. The Claude host passes the
+prepared launch settings with `--settings`; the Codex driver asks `hooks/list` for the current hash of each prepared hook
+and trusts exactly those hashes for that session through launch options.
 
 Claude account connectors (Gmail, Calendar, Drive and others) belong to the
 owner's Claude account. Qorqbot does not list or set them up; when an agent
@@ -311,7 +300,7 @@ prompt text. Setting-layer and personal/managed-source presence are explicitly
 not_inspected. Compatibility tests pin Claude 2.1.263's generated contract;
 live conversational acceptance remains an owner-run rollout check.
 
-The native hook composer supports Claude and Codex. Inbox delivery is backend-owned; neither adapter starts Monitor or an inbox watcher. The exact native binding, current process evidence, durable input arbiter and raw transcript capture are described in [Native Chat](../../../docs/v1.2/NATIVE_CHAT_CHECKPOINT.md) and [Inbox](../../../docs/AGENT-INBOX.md). The backend may use a provider queue or verified terminal adapter according to the native transport. These are not agent-managed polling loops. Only explicit inbox tool calls acknowledge events.
+The native hook composer supports Claude and Codex. Inbox delivery is backend-owned; neither adapter starts Monitor or an inbox watcher. The exact native binding, current process evidence, durable input arbiter and raw transcript capture are described in [Native Chat](../../../docs/v1.2/NATIVE_CHAT_CHECKPOINT.md) and [Inbox](../../../docs/AGENT-INBOX.md). The backend delivers through the agent's managed session; it is not an agent-managed polling loop. Only explicit inbox tool calls acknowledge events.
 
 Activity observations and checkpoint credentials always use the exact registered
 workspace. Claude may continue after its cwd changes only when that registration's
@@ -362,11 +351,12 @@ its private outbox pending for the next connection.
 
 Generated agent-local Codex configuration explicitly sets
 `shell_environment_policy.inherit = "all"` and `ignore_default_excludes = true`
-so shell tools retain the operator-provided terminal environment, including
+so shell tools retain the environment the managed session was started with, including
 credentials. No values are copied into generated files. Explicit user/managed
 filters are not cleared. This changes neither filesystem nor MCP authorization.
-The parent terminal must already contain a variable for Codex to inherit it;
-reconnecting to an existing tmux shell does not reload Global Settings.
+The service's environment must already contain a variable for Codex to inherit it;
+an open session keeps the environment it started with, so a Global Settings change
+reaches an agent at its next session start.
 
 ## Role work command
 
@@ -446,24 +436,19 @@ sandbox escape; an action outside their grants fails.
 Claude local settings select `dontAsk` with explicit allow rules for Qorqut MCP,
 role-declared MCP connections, reads, web tools, and writes to existing allowed
 paths. Every agent is global (ecosystem scope), so its settings also allow host
-tools and carry no generated filesystem deny rules. Its prepared Bash
-terminal loads `.qorqut/agent-shell.bash`, which preserves personal `.bashrc`
-and makes plain `claude` pass the prepared launch settings via `--settings`.
-That trusted launch file selects `bypassPermissions`; the local settings keep
-`dontAsk`. The `claude` and `codex` wrappers (bash and zsh) apply that, the
-connector arguments, the trust refresh, the Codex hook-trust bypass and the
-opening `/role` or `$role` prompt only when `pwd -P` equals the physical workspace
-root. From any other folder, a workspace subfolder included, or when the folder
-cannot be determined, they run `command claude "$@"` / `command codex "$@"` with
-exactly the owner's arguments. Claude ignores bypass when set only in project
-settings, so outside the prepared terminal use:
+tools and carry no generated filesystem deny rules. The trusted launch file
+`.qorqut/claude-launch-settings.json` selects `bypassPermissions`; the local settings keep
+`dontAsk`. Claude ignores bypass when set only in project settings, so the managed host starts
+Claude with it explicitly (`--settings <workspace>/.qorqut/claude-launch-settings.json`) and answers
+every permission request itself, allowing when the launch settings say bypass and denying otherwise;
+no permission request reaches the owner (questions an agent asks on purpose still do). Only Qorqbot's
+own downloaded copy runs, named by its stable `tools/<provider>-current/` path
+(`qorqut/agent_cli_launch.py`), and it is started so that it never updates itself:
+`DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1` for Claude Code and
+`-c check_for_update_on_startup=false` for Codex. The owner's own CLI is never touched.
 
-```
-claude --settings /absolute/agent/workspace/.qorqut/claude-launch-settings.json
-```
-
-Already-running Claude conversations need the native mode selection or a resume
-with these launch settings; preparing files never sends model input or kills a
+Already-open Claude sessions keep their launch settings until the session is
+closed and opened again; preparing files never sends model input or kills a
 session. Personal/managed ask rules, interaction tools, and platform-enforced
 restrictions are not silently rewritten. The no-prompt policy addresses tool
 permission dialogs, not questions about missing business information.
@@ -475,23 +460,23 @@ Prepared workspaces start on owner-chosen role defaults (`ROLE_MODEL_DEFAULTS` i
 Ordubashy `gpt-6-luna` with high reasoning; Learning Applier `gpt-6-astra` with
 low reasoning; workers start on Ordubashy's persisted model and effort. Any other
 role or scope gets no model default. No Fast/service-tier override is added.
-These are project startup defaults, not interactive launcher arguments or model
-restrictions: an owner can select another model/effort for a conversation. Native
-interactive `codex resume` preserves the conversation selection. Codex may still
+These are project startup defaults, not launcher arguments or model
+restrictions: an owner can select another client, model and effort per agent in
+Settings (applied at the agent's next session start), and a resumed conversation
+keeps its own selection. Codex may still
 warn that saving a user-wide default is shadowed by the project default; that is
 different from changing the current conversation.
 
-Preparation updates generated configuration, not running session choices. Existing
-processes started explicitly with `--model` keep that selection. Deployment and
+Preparation updates generated configuration, not running session choices. Open
+sessions started with an explicit model keep that selection. Deployment and
 agent preparation are required to activate this source change. Roles, task
 workers' explicit assignment choices and personal `~/.codex/config.toml` are not
-changed. Plain noninteractive `codex exec resume`
-uses its own model resolution; the conversation-preservation check here covers
-Qorqut's owner-facing native interactive terminal.
+changed. The conversation-preservation check
+here covers Qorqut's owner-facing managed Codex session.
 
 The opt-in loopback-only contract `QORQUT_TEST_CODEX_MODEL_DEFAULTS=1` exercises
 the installed CLI with synthetic responses and no production credentials: default
-Luna request, explicit Astra/high choice, then native interactive resume without
+Luna request, explicit Astra/high choice, then a resumed conversation without
 a forced model flag.
 
 
@@ -513,7 +498,7 @@ allow 240 seconds; Claude's startup setting is local to the prepared agent folde
 Exhausting the budget returns an error but keeps the bridge alive and repairs its
 connection in the background. Background discovery gets 60 seconds per attempt.
 A background repair cannot complete a request that already returned an error.
-It does not restart the terminal or model session.
+It does not restart the managed session or the model.
 
 Discovery and known read-only calls may be replayed. A call rejected for an
 expired session, or one that failed before connecting, can be sent after recovery.

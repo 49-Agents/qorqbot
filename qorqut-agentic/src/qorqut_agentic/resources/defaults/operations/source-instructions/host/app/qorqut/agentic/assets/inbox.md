@@ -179,10 +179,10 @@ self-reminders and reminders to authorized peers. Ordubashy can coordinate
 authorized projects or selected agents. Learning Applier contact restrictions
 still apply to other-agent senders; those roles may set their own self-reminders.
 
-Only the installation owner may select Input to submit text with Enter to existing
-agent terminals through Broadcast; agents use Inbox broadcast delivery. Use
-registered operations rather than shell,
-tmux or owner HTTP impersonation. It does not start stopped agents. Check
+Only the installation owner may select Input to submit text to agent sessions
+through Broadcast; agents use Inbox broadcast delivery. Use
+registered operations rather than shell
+or owner HTTP impersonation. It does not start agents that are turned off. Check
 individual results: unavailable or uncertain input is not confirmed delivery;
 do not blindly resend uncertain writes. Inbox delivery persists while agents
 are offline, but does not guarantee immediate agent execution.

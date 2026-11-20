@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 import stat
 
 from qorqut_context.integration import service as integration
 from qorqut_context.integration.service import ContextLocations, ContextSettings
-from qorqut_context.runner import RunnerConfig
+from qorqut_context.runner import AppServerRunner, RunnerConfig
 from qorqut_operations.contracts import DomainError
 
+from qorqut import agent_cli_launch
 from qorqut.agents.roles import SUPPORTED_GLOBAL_ROLES
 from qorqut.management.identity import configured_ordubashy
 from qorqut.service.changes import CONTEXT_QUEUE_KIND
@@ -74,8 +75,25 @@ def coordinator_of(uow) -> str | None:
     return configured_ordubashy(uow)
 
 
+class ManagedCodexRunner(AppServerRunner):
+    """The library's app-server runner, started on the Codex Qorqbot selects at each run.
+
+    The library runs its configured executable, ``codex`` by default, from this process's PATH, which does not hold Qorqbot's own
+    downloaded Codex if it was downloaded after the service started. While that copy is the selected one it is used instead of
+    the bare default; an executable named in the runner configuration is never replaced."""
+
+    def run(self, **arguments):
+        selected = agent_cli_launch.executable("codex") if self.config.executable == "codex" else None
+        if selected is None:
+            return super().run(**arguments)
+        return AppServerRunner(replace(self.config, executable=selected)).run(**arguments)
+
+
 def compose_context(application, paths, settings: ContextSettings | None = None) -> integration.ContextComposition:
     """The Context composition of one instance, bound to the host's locations, eligible roles and coordinator lookup."""
+    settings = settings or ContextSettings()
+    if settings.runner is None:
+        settings = replace(settings, runner=ManagedCodexRunner(settings.config or RunnerConfig()))
     return integration.compose_context(application, context_locations(paths), settings, instruct_roles=INSTRUCT_ROLES,
                                        coordinator=coordinator_of)
 

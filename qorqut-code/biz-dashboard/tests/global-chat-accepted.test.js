@@ -12,6 +12,7 @@ assert.ok(start >= 0 && end > start);
 const makeMatcher = new Function('held', 'entries', `
   ${normalizer}
   const GLOBAL_CHAT_ACCEPTED = new Map([['scope', held]]), GLOBAL_CHAT_HIDDEN = new Set();
+  ${source.match(/^const GLOBAL_CHAT_ECHO_SLACK = .*;$/m)[0]}
   const globalChatScope = () => 'scope', agentId = 'agent', conversation = {}, inputs = [];
   const GLOBAL_CHAT_INPUT_STATE = {submitted: 'Sent'};
   ${source.slice(start, end)}
@@ -26,6 +27,18 @@ function fixture(sent, transcript) {
     speaker: 'user', position: 20 + i, timestamp: '2026-11-08T23:04:07Z'}]));
   return {records, entries, match: makeMatcher(held, entries)};
 }
+
+test('an echo stamped a moment before the receipt settles it; a much older identical entry does not', () => {
+  const at = Date.parse('2026-11-08T23:03:57Z');
+  const stamped = offset => {
+    const {records, entries, match} = fixture(['hello'], ['hello']);
+    entries.get('entry-0').timestamp = new Date(at + offset).toISOString();
+    match();
+    return records[0].entry;
+  };
+  assert.equal(stamped(-130), 'entry-0');      // a session that was just opened writes the line slightly before the receipt
+  assert.equal(stamped(-60000), undefined);    // an old identical message is not this send
+});
 
 test('trailing whitespace does not leave a Sent bubble; original text is preserved', () => {
   for (const suffix of [' ', '\t', '\n', ' \r\n']) {

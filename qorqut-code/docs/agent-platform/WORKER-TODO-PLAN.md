@@ -1,5 +1,7 @@
 # Worker Todo
 
+> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 Implemented on `codex/worker-todo`, based on `b91d455`. The existing Todo service,
 state tables, native nudge loop and dashboard renderer now serve permanent workers.
 No schema migration or separate worker scheduler is required.

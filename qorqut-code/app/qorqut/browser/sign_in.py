@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, build_opener
 
 from qorqut_operations.contracts import DomainError, utc_now
-from qorqut.agent_trust import _atomic_write
+from qorqut.atomic_write import atomic_write as _atomic_write
 from .agent_browsers import SHARED_ID, STOP_REQUEST_FILE, _read_json, agent_state, uses_shared
 from .agent_supervisor import chrome_environment, request_close, stop_child, visible_chrome_command
 

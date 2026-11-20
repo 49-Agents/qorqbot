@@ -81,13 +81,12 @@ Editing the recalled text, or a `setDraft` that changes it, ends the recall and 
 modifier, an IME composition, a key another handler already took (the command menu) or a
 hidden, disabled or `inputDisabled` composer.
 
-## Native Chat/Terminal lifecycle
+## Native Chat lifecycle
 
-`mountAgentView` lazily mounts Chat and Terminal into separate hosts for the current
-agent. Switching toggles `hidden`; it retains both viewers and their streams until
-agent/page navigation or disposal. There is no cache across agents. Hidden Chat
-must not acknowledge replies, and hidden Terminal must not resize the server PTY.
-Refresh still fetches Chat state or replaces the terminal viewer explicitly.
+`mountAgentView` lazily mounts Chat for the current agent and retains it and its stream
+until agent/page navigation or disposal. There is no cache across agents and no terminal view:
+every agent is a managed session, reached through Chat alone. Hidden Chat must not acknowledge
+replies. Refresh still fetches Chat state.
 
 ## Presentation model (fields accepted by render)
 
@@ -222,8 +221,8 @@ Thread-specific feed/composer/bubble classes are retired; update consumers and t
 rather than maintaining a second set of presentation rules.
 
 Consolidate current global-chat.css message/composer/preview rules plus effective
-agent-workspace.css Chat overrides into chat-view.css. Native-only header/session/
-Terminal diagnostic shell rules remain in global-chat.css. Shared form typography
+agent-workspace.css Chat overrides into chat-view.css. Native-only header/session
+shell rules remain in global-chat.css. Shared form typography
 also applies when composerHost places it outside `.chat-view`. No ancestor-specific
 shrinking in Focus. Preserve channel strip/button styling separately.
 

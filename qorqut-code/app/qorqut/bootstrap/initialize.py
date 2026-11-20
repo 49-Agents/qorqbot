@@ -62,6 +62,10 @@ COMPONENT_SOURCES = {"app": ("qorqut-code", "app"), "operations_engine": ("qorqu
                      "context_engine": ("qorqut-context", ""), "dashboard": ("biz-dashboard", ""), "roles": ("qorqut-agentic", "src/qorqut_agentic/resources/defaults")}
 # The authored role sources published into the catalog; only the first and last are registered as agents.
 ROLES = ("ordubashy", "global-worker", "learning-applier")
+# The plugins Ordubashy holds from the first start: email guidance, and the agent-control tools (status, start, restart, kill, ping,
+# execute_command) that the unreachable-agent alert tells him to use. Only he holds them; the policy refuses them to every other
+# role, and a worker created later receives only what Ordubashy grants it.
+ORDUBASHY_PLUGINS = ("email-management", "agent-terminal-control")
 AGENTS = (("ordubashy", "ordubashy", "Ordubashy", runtime_seed('initial-ordubashy-assignment')),
           ("learning-applier", "learning-applier", "Learning Applier", runtime_seed('initial-learning-assignment')))
 # The shipped profile grants: the Overseer additionally reads its dedicated experience sources, which the ordinary
@@ -259,8 +263,8 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
         with runtime.owned_preparation():
             register_context_sources(database, paths)
             pins = {}
-            email_pin = None
-            for kind, source in [('role', role) for role in ROLES] + [('plugin', 'email-management')]:
+            plugin_pins = []
+            for kind, source in [('role', role) for role in ROLES] + [('plugin', plugin) for plugin in ORDUBASHY_PLUGINS]:
                 with database.read() as uow:
                     plan = runtime.publisher.prepare(context, {"source_id": source}, InvocationOptions(idempotency_key=f"seed-{source}"), uow, kind)
                 pin = apply_initial_plan(database, context, plan, runtime.publisher, runtime.publisher.resolve_file_target,
@@ -268,10 +272,10 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
                 if kind == 'role':
                     pins[source] = pin
                 else:
-                    email_pin = pin
+                    plugin_pins.append(pin)
             for role, name, display_name, brief in AGENTS:
                 data = _ok(runtime.application.invoke(context, "agents_create", {
-                    "role": pins[role], "plugins": [{**email_pin, "config": {}}] if role == 'ordubashy' else [],
+                    "role": pins[role], "plugins": [{**pin, "config": {}} for pin in plugin_pins] if role == 'ordubashy' else [],
                     "name": name, "display_name": display_name, "assignment_brief": brief,
                     "scope": {"kind": "ecosystem", "allowed_business_ids": [],
                               "global_capabilities": AGENT_CAPABILITIES[role]}},

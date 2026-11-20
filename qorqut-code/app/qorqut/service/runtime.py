@@ -88,7 +88,7 @@ class Runtime:
     broadcasts: object = None
     broadcast_dispatcher: object = None
     terminal_control: object = None
-    terminals: object = None  # The assembled TerminalService; installed once by service composition.
+    managed_launch: object = None  # Prepares and launches managed sessions; installed once by service composition.
     background_operations: object = None
     checkpoints: object = None
     management: object = None
@@ -102,6 +102,9 @@ class Runtime:
     delegation: object = None
     delegation_operations: object = None
     native_chat: object = None
+    # The managed runtime: agents switched to a headless Claude session under a detached host. Started with ``native_chat`` (which
+    # holds it too); it spawns nothing on start and never stops a host on stop, so hosts outlive this service.
+    managed_runtime: object = None
     inbox_nudges: object = None
     reminders: object = None  # the shared host reminder service (also application.reminders)
     selection: ExtensionSet = NO_EXTENSIONS  # the owner's startup selection; fixed for the process
@@ -520,7 +523,11 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.native_chat.chat import NativeChat
     from qorqut.overseer.retention import Retention
     runtime.overseer_retention = Retention(runtime)
-    runtime.native_chat = NativeChat.build(runtime)
+    # The managed runtime reads ``runtime.paths`` and, when it opens a session, ``runtime.managed_launch`` (installed later by service
+    # composition, read at that moment); the session probe, input arbiter and backend share it through ``NativeChat``.
+    from qorqut.managed_runtime.manager import ManagedRuntime
+    runtime.managed_runtime = ManagedRuntime(runtime)
+    runtime.native_chat = NativeChat.build(runtime, managed=runtime.managed_runtime)
     from qorqut.overseer.operations import OverseerOperations
     runtime.overseer = OverseerOperations(runtime).register()
     from qorqut.native_chat.nudges import NudgeBackend, delivery_view, isolated, paced

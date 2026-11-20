@@ -34,3 +34,16 @@ def isolate(case) -> dict:
     for name in VARIABLES:
         assert os.environ[name].startswith(str(root)), name
     return values
+
+
+def tests_on_host_path(case) -> None:
+    """Let a host process that ``case`` starts import this folder for the length of the test.
+
+    Such a host loads its stand-in driver from here (``test_managed_host:FakeSession``). The launcher hands the host the
+    ``PYTHONPATH`` of the environment, not ``sys.path``, so a run started with ``python -I`` or without ``PYTHONPATH`` would
+    otherwise end with ``driver_import_failed``."""
+    here = str(Path(__file__).resolve().parent)
+    entries = [here] + [item for item in os.environ.get("PYTHONPATH", "").split(os.pathsep) if item and item != here]
+    patcher = mock.patch.dict(os.environ, {"PYTHONPATH": os.pathsep.join(entries)})
+    patcher.start()
+    case.addCleanup(patcher.stop)

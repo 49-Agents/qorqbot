@@ -25,7 +25,8 @@ For a local build:
 5. Run `python3 qorqut-code/tools/distribution/native_build.py --prepared PREPARED --output BUILD --report BUILD_REPORT.json --version VERSION`.
    The builder audits source, wheels, notices/resources and console entry points
    once, retaining the findings in `source_audit`. It assembles the verified
-   wheelhouse and archive. Python, Git/tmux and agent clients stay external. The
+   wheelhouse and archive. Python and Git stay external; Claude Code and Codex are
+   downloaded by Qorqbot itself. The
    build downloads the pinned agent-browser tool, checks its checksum and ships it
    in `runtime/tools`. The installed app downloads its own pinned Chrome for
    Testing build while it runs.
@@ -60,11 +61,11 @@ checksum. Test installation inside the WSL Linux filesystem and dashboard access
 from a Windows browser before claiming Windows host acceptance. See WINDOWS.md.
 
 Mac targets native Apple silicon, macOS 14+. The Mac archive is self-contained:
-it ships Python 3.12, Git, tmux and agent-browser. On the Mac, build those once
+it ships Python 3.12, Git and agent-browser. On the Mac, build those once
 with `tools/distribution/macos_tools.py --output TOOLS --work WORK`. Follow
 export, projection and preparation steps above, then add `--target macos14-arm64
 --bundled-tools TOOLS` to native_build.py; this must run on a Mac. Without `--bundled-tools` the
-archive uses the computer's own Python 3.12, Git and tmux. A Linux assembly can
+archive uses the computer's own Python 3.12 and Git. A Linux assembly can
 fetch Mac wheels but cannot qualify them. On an actual Mac run
 `tools/distribution/check_posix.py --archive MAC_ARCHIVE --output
 /tmp/qb-mac-check`; the output must be a new short path.
@@ -77,7 +78,7 @@ mounts that DMG, checks its signature and identical embedded archive, and
 exercises the packaged launcher with a fresh home folder: install, verify,
 dashboard, stop and restart. It saves the DMG, checksum, archive and reports as
 a GitHub Actions artifact. A second job then opens that DMG on clean `macos-15`
-and `macos-26` runners with no Homebrew, Python, tmux or developer tools and
+and `macos-26` runners with no Homebrew, Python or developer tools and
 requires the sign-in screen. The optional `notarize` input (with a version)
 signs with the Developer ID certificate from repository secrets, notarizes and
 staples the DMG, and checks it with `stapler validate` and `spctl`. Without a
@@ -91,7 +92,7 @@ CI artifacts do not prove the downloaded app's Gatekeeper/Open Anyway flow,
 a separate macOS user account, or interactive agent sign-in. Record those
 checks separately before promoting the candidate to the website.
 
-Record fresh setup, restart, stopped updates, process permissions, agent terminal
+Record fresh setup, restart, stopped updates, process permissions, agent session
 and browser results separately. Mac process inspection can be denied or return
 an empty environment for another process; update/connector installation must
 then refuse rather than infer that the installation's tools are stopped. Native

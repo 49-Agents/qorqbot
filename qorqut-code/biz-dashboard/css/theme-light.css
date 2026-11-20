@@ -30,10 +30,8 @@
 :root[data-theme="light"] .st-nav button:hover, :root[data-theme="light"] .st-choice button:hover { background: var(--hover); color: var(--fg); }
 :root[data-theme="light"] button.cx-link:hover { background: none; color: var(--fg); }
 
-/* Selected tab and Chat/Terminal fills (hard-coded for dark in tasks.css, global-chat.css, agent-workspace.css). */
+/* Selected tab fill (hard-coded for dark in tasks.css, agent-workspace.css). */
 :root[data-theme="light"] .tind,
-:root[data-theme="light"] .gchat-view-toggle .ttab[aria-pressed="true"],
-:root[data-theme="light"] .agent-workspace-app .gchat-view-toggle .ttab[aria-pressed="true"],
 :root[data-theme="light"] .agent-workspace-app .agpad .tind { background: var(--nav-selected); }
 :root[data-theme="light"] .agpad .ttab[data-attention="true"]::after { background: var(--fg); }
 :root[data-theme="light"] .chat-unread-dot { background: var(--fg); box-shadow: none; }

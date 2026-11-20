@@ -1180,10 +1180,10 @@ function mountChatView(host, options = {}) {
     node.dataset.inputId = item.key; node.dataset.state = item.state || ''; node.dataset.inputType = item.inputType || '';
     node.dataset.resendable = String(!!item.resendable);
     const signature = JSON.stringify([item.state, item.stateLabel, item.text, item.notice?.label, !!item.resendable, item.collapsedSource,
-      (item.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
+      (item.actions || []).map(action => [action.key, action.label, !!action.disabled, action.title || ''])]);
     if (node.chatSignature !== signature) {
       node.chatSignature = signature;
-      const actions = (item.actions || []).map(action => `<button type="button" class="quiet" data-pending-action="${esc(action.key)}" data-${esc(action.key)}="${esc(item.key)}" ${action.disabled ? 'disabled' : ''}>${esc(action.label)}</button>`).join('');
+      const actions = (item.actions || []).map(action => `<button type="button" class="quiet" data-pending-action="${esc(action.key)}" data-${esc(action.key)}="${esc(item.key)}" ${action.disabled ? `disabled${action.title ? ` title="${esc(action.title)}"` : ''}` : ''}>${esc(action.label)}</button>`).join('');
       node.innerHTML = `${item.collapsedSource === 'telegram' ? telegramBody(item.text) : `<div class="gchat-body">${markerHtml(item.notice)}${item.text ? `<span class="gchat-text">${speaker === 'user' ? renderSafeLinks(item.text) : esc(item.text)}</span>` : ''}</div>`}
         <span class="gchat-state" data-state="${esc(item.state || '')}">${esc(item.stateLabel || '')}</span>
         ${actions ? `<span class="gchat-pending-actions">${actions}</span>` : ''}`;
@@ -1202,15 +1202,21 @@ function mountChatView(host, options = {}) {
     form.hidden = !!c.hidden;
     input.disabled = !!c.inputDisabled; send.disabled = !!c.sendDisabled;
     if (attach) attach.disabled = !!c.inputDisabled || !!c.filesDisabled;
-    mic?.setLocked(!!c.hidden || !!c.inputDisabled);
+    mic?.setLocked(!!c.hidden || !!c.inputDisabled, c.disabledReason || '');
+    // A control that is off says why, in plain words, and says what it is for again when it is on.
+    const why = c.inputDisabled ? c.disabledReason || '' : '';
+    if (c.inputDisabled) input.title = why; else input.removeAttribute('title');
+    send.title = c.sendDisabled ? why || c.sendingReason || '' : '';
+    if (!send.title) send.removeAttribute('title');
+    if (attach) attach.title = c.inputDisabled ? why || 'Attach files' : c.filesDisabled ? c.filesReason || 'Attach files' : 'Attach files';
     const files = c.attachments || [];
     attachments.hidden = !files.length;
-    const signature = JSON.stringify([files, !!c.filesDisabled]);
+    const signature = JSON.stringify([files, !!c.filesDisabled, c.filesReason || '']);
     if (attachments.signature !== signature) {
       attachments.signature = signature;
       attachments.innerHTML = files.map(file => {
         const kind = chatViewFileKind(file.name);
-        return `<span class="gchat-file-choice gchat-file-card" data-file-kind="${kind[0]}">${chatViewFileFace(file.name, kind)}<button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? 'disabled' : ''}>×</button></span>`;
+        return `<span class="gchat-file-choice gchat-file-card" data-file-kind="${kind[0]}">${chatViewFileFace(file.name, kind)}<button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? `disabled title="${esc(c.filesReason || '')}"` : ''}>×</button></span>`;
       }).join('');
     }
     if (send.dataset.label !== c.sendLabel) {

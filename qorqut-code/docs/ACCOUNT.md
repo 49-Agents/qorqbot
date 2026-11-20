@@ -23,7 +23,7 @@ Nothing else is sent: no conversations, prompts, files, records, agent names or 
 ## Where things are kept
 
 - `<runtime>/account.json`, mode 0600: the token, the account summary, the installation ID, the last heartbeat
-  time and the last licence answer (paid or not, paid-through date, plan, optional status, when it was fetched). It is never written to `.env`, because agent terminals receive `.env` values.
+  time and the last licence answer (paid or not, paid-through date, plan, optional status, when it was fetched). It is never written to `.env`, because agent sessions receive `.env` values.
 - The installation ID is random. It identifies the installation, not the person.
 
 ## Behaviour

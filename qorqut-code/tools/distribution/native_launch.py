@@ -2,7 +2,7 @@
 """Consumer launcher, copied to runtime/launch.py by native_build.py.
 
 A Linux package uses system Python and standard venv/pip with the release wheelhouse.
-A self-contained (Mac) package ships its Python environment, tmux and git ready to use.
+A self-contained (Mac) package ships its Python environment and git ready to use.
 No installer, daemon, permission broker or host configuration is installed.
 """
 from __future__ import annotations
@@ -78,14 +78,14 @@ def environment(root, home):
     env['QORQUT_NATIVE_USER_ENV'] = json.dumps(native_env)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'QORQUT_INSTALLATION_CONFIG',
                 'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'BIZ_DASH_TOKEN',
-                'QORQUT_MCP_URL', 'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE', 'PIP_TARGET',
+                'QORQUT_MCP_URL', 'BAZARLYK_MCP_URL', 'PIP_TARGET',
                 'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE',
                 'QORQUT_NATIVE_ROOT'):
         env.pop(key, None)
     paths = {
         'HOME': home, 'XDG_CONFIG_HOME': home / 'config', 'XDG_CACHE_HOME': home / 'cache',
         'XDG_DATA_HOME': home / 'data', 'XDG_STATE_HOME': home / 'state',
-        'XDG_RUNTIME_DIR': home / 'run', 'TMPDIR': home / 'tmp', 'TMUX_TMPDIR': root / '.run',
+        'XDG_RUNTIME_DIR': home / 'run', 'TMPDIR': home / 'tmp',
         'npm_config_cache': home / 'cache/npm', 'PIP_CACHE_DIR': home / 'cache/pip',
     }
     for key, path in paths.items():
@@ -93,13 +93,13 @@ def environment(root, home):
         env[key] = str(path)
     if sys.platform == 'darwin':
         link_user_keychains(home, user_home)
-    # A self-contained package ships tmux and git; they come before the computer's own so every Mac runs the same ones.
+    # A self-contained package ships git; it comes before the computer's own so every Mac runs the same one.
     shipped = [str(runtime / 'native/bin')] if (runtime / 'native/bin').is_dir() else []
     env.update({
         'PATH': os.pathsep.join([str(runtime / 'venv/bin'), *shipped, user_path]),
         'QORQUT_FOLDER_ROOT': str(root),
         'QORQUT_CALENDAR_CONFIG': str(root / 'instance/config/calendar.json'),
-        'BIZ_DASH_HOST': '127.0.0.1', 'BIZ_TMUX_SOCKET': 'qorqut',
+        'BIZ_DASH_HOST': '127.0.0.1',
         'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
         'PYTHONDONTWRITEBYTECODE': '1', 'PIP_DISABLE_PIP_VERSION_CHECK': '1',
         'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
@@ -156,7 +156,7 @@ def tree_digest(folder):
 
 def bundled(runtime):
     """What a self-contained package ships ready to use, as {folder: digest}: its Python environment (``venv``) and its
-    tmux and git (``native``). Empty for a package that uses the computer's own Python, git and tmux."""
+    git (``native``). Empty for a package that uses the computer's own Python and git."""
     trees = read_json(runtime / 'PAYLOAD.json').get('bundled') or {}
     if not isinstance(trees, dict) or set(trees) - set(BUNDLED_TREES):
         raise RuntimeError('Unsupported package manifest')
@@ -203,7 +203,7 @@ def install_hint(*packages, system=None):
 
 def require_prerequisites(env, self_contained=False):
     if self_contained:
-        # The package runs on the Python, git and tmux it ships; nothing has to be installed first.
+        # The package runs on the Python and git it ships; nothing has to be installed first.
         if sys.version_info[:2] != (3, 12):
             raise RuntimeError('Start Qorqbot with its own ./qorqbot command, which uses the Python shipped in this folder.')
         return
@@ -247,7 +247,7 @@ def agent_browser_path(root):
 
 
 def shipped_agent_browser(root):
-    """The browser tool the package ships, or None. A self-contained package has it beside its tmux and git; a package that
+    """The browser tool the package ships, or None. A self-contained package has it beside its git; a package that
     uses the computer's own tools has it in ``runtime/tools``, so that the folder of bundled tools stays absent there."""
     for place in ('runtime/native/bin/agent-browser', 'runtime/tools/agent-browser'):
         path = Path(root) / place
@@ -319,6 +319,20 @@ def ensure_agent_browser(root, *, system=None, machine=None, download=_download)
         shutil.rmtree(work, ignore_errors=True)
 
 
+# Claude Code and Codex that Qorqbot downloaded (from Settings, by app/qorqut/agent_cli_install.py, which owns the pinned URLs,
+# checksums and the install itself) live in <folder>/tools/<provider>-<version>/. The launcher does not put them on PATH or name
+# them in the service environment (that environment reaches every process Qorqbot starts, including the owner's own CLIs, and would pin a
+# version a later release removes): the service finds its copy at each launch (app/qorqut/agent_cli_launch.py). The launcher
+# only knows where an installed copy is, for tools and tests; a test keeps these equal to that module's.
+AGENT_CLI_VERSIONS = {'claude': '2.1.327', 'codex': '0.170.0'}
+AGENT_CLI_EXECUTABLE = {'claude': 'QORQUT_CLAUDE_EXECUTABLE', 'codex': 'QORQUT_CODEX_EXECUTABLE'}
+AGENT_CLI_ENTRY = {'claude': 'claude', 'codex': 'bin/codex'}
+
+
+def agent_cli_path(root, provider):
+    return Path(root) / 'tools' / f'{provider}-{AGENT_CLI_VERSIONS[provider]}' / AGENT_CLI_ENTRY[provider]
+
+
 def chrome_installed(path=None, system=None):
     """Google Chrome, which the agents' browsers run on. Qorqbot cannot install it; the owner is told when it is missing."""
     if (system or platform.system()) == 'Darwin' and os.access(MAC_CHROME, os.X_OK):
@@ -326,20 +340,12 @@ def chrome_installed(path=None, system=None):
     return any(shutil.which(name, path=path) for name in ('google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser'))
 
 
-AGENT_CLIS = (('claude', 'Claude Code', 'https://docs.anthropic.com/en/docs/claude-code'),
-              ('codex', 'Codex', 'https://github.com/openai/codex'))
-
-
 def readiness_notes(path, system=None):
-    """Optional tools the dashboard works without but agents need. Returned as lines to print, never raised."""
+    """Optional tools the dashboard works without but agents need. Claude Code and Codex are not listed: Settings in the
+    dashboard downloads them and signs them in. Returned as lines to print, never raised."""
     notes = []
     if not chrome_installed(path, system):
         notes.append('Your agents need Google Chrome to work on the web. Install it from ' + CHROME_URL)
-    if not shutil.which('tmux', path=path):
-        notes.append('Agent terminals need tmux. Install it with: ' + install_hint('tmux', system=system))
-    if not any(shutil.which(command, path=path) for command, _, _ in AGENT_CLIS):
-        notes.append('No agent CLI found. Install one and sign in once in a terminal: '
-                     + '; '.join(f'{name} ({command}) {url}' for command, name, url in AGENT_CLIS))
     return notes
 
 
@@ -469,20 +475,56 @@ def inspect_darwin(root, *arguments):
     return result.stdout.strip()
 
 
-def require_stopped_terminals(root, env):
-    executable = shutil.which('tmux', path=env.get('PATH'))
-    if not executable:
-        if any((root / '.run').glob('tmux-*/*')):
-            raise ValueError('tmux is unavailable and terminal sockets remain; restore tmux and close this installation’s terminals.')
-        return
-    # A pre-rename installation can still have live native clients on the old socket.
-    for socket in ('qorqut', 'bazarlyk'):
-        result = subprocess.run([executable, '-L', socket, 'list-sessions'],
-                                env=env, capture_output=True, text=True)
-        if result.returncode == 0:
-            raise ValueError('Stop this installation’s agent terminals before changing its runtime')
-        if not any(text in result.stderr.lower() for text in ('no server running', 'no such file or directory')):
-            raise ValueError('Could not prove that this installation’s agent terminals are stopped')
+def listening_terminal_sockets(root):
+    """Sockets under ``.run/tmux-*/`` (left by an older version that ran agents in tmux) that something still answers on.
+    A socket nobody listens on is a leftover file and is ignored; nothing is signalled or removed here."""
+    live = []
+    for path in sorted((root / '.run').glob('tmux-*/*')):
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.settimeout(2)
+            probe.connect(str(path))
+            live.append(path)
+        except OSError:
+            continue
+        finally:
+            probe.close()
+    return live
+
+
+def require_no_terminal_agents(root):
+    """Refuse while an older version's tmux server still runs for this installation: agents may still live in it, and this
+    package cannot move them. The cutover ends them cleanly and writes down what each agent was doing."""
+    live = listening_terminal_sockets(root)
+    if live:
+        raise ValueError('Some agents of this installation still run in the old terminal mode (' + ', '.join(map(str, live)) + '). '
+                         'Run the managed cutover first (python -m qorqut.migration.managed_cutover), then update. '
+                         'If only your own Terminal view is left there, close it, or end that server with: tmux -S <socket> kill-server')
+
+
+def stop_managed_hosts(root, env, timeout=30):
+    """Close every managed agent session of this installation before its runtime changes. Closed sessions open again by
+    themselves at the next input. The work is done by ``qorqut.managed_runtime.shutdown`` of the installed runtime; this
+    raises when a host is still there afterwards. Returns that module's report (``{}`` when no runtime environment exists
+    yet, and so no agent ever ran)."""
+    python = root / 'runtime/venv/bin/python'
+    if not python.is_file():
+        return {}
+    try:
+        done = subprocess.run([str(python), '-I', '-B', '-m', 'qorqut.managed_runtime.shutdown',
+                               '--instance-root', str(root / 'instance'), '--timeout', str(timeout)],
+                              env=env, cwd=root, capture_output=True, text=True, timeout=timeout + 60)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError('Could not close this installation’s running agents; close them from the dashboard first') from error
+    try:
+        report = json.loads(done.stdout.strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        report = None
+    if done.returncode != 0 or not isinstance(report, dict) or not report.get('ok'):
+        left = ', '.join(report.get('remaining', ())) if isinstance(report, dict) else ''
+        raise ValueError('Running agents could not be closed' + (' (' + left + ')' if left else '')
+                         + '. Stop Qorqbot, wait a minute and try again.')
+    return report
 
 
 def installation_processes(root):
@@ -698,9 +740,8 @@ def main(argv=None):
     os.umask(0o077)
     run_dir = root / '.run'
     run_dir.mkdir(mode=0o700, exist_ok=True)
-    if max(len(os.fsencode(run_dir / f'tmux-{os.getuid()}/qorqut')),
-           len(os.fsencode(run_dir / 'c/org.chromium.Chromium.XXXXXX/SingletonSocket'))) >= 104:
-        raise RuntimeError('Choose a shorter installation path so local terminal sockets fit (roughly 50 characters or fewer)')
+    if len(os.fsencode(run_dir / 'c/org.chromium.Chromium.XXXXXX/SingletonSocket')) >= 104:
+        raise RuntimeError('Choose a shorter installation path so the browser sockets fit (roughly 50 characters or fewer)')
     state = run_dir / 'app.json'
     existing = active(state)
     if args.port is None:

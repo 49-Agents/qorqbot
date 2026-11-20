@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 const source = read('js/global-agents.js');
-const buttons = {guide: 'Walkthrough', terminal: 'Terminal', settings: 'Settings'};
+const buttons = {guide: 'Walkthrough', settings: 'Settings'};
 const button = name => source.match(new RegExp(`<button class="item agent global-workspace-${name}"[^>]*>`))[0];
 
 for (const [name, label] of Object.entries(buttons)) {

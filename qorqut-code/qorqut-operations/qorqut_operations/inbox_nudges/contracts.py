@@ -23,7 +23,8 @@ NUDGE_TEXT = (
 )
 
 PROVIDERS = ("claude", "codex")
-TRANSPORTS = ("terminal", "codex_queue")
+# How a native session is reached: the registered terminal, a shared Codex server, or the headless Claude of a managed runtime host.
+TRANSPORTS = ("terminal", "codex_queue", "managed")
 
 # What an attempt announces. The stored names are kept for receipt compatibility; their meanings are event-based (a notice is
 # only ever for events not yet announced to its conversation, never "because time passed" or because work progressed).

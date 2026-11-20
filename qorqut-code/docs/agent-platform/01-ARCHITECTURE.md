@@ -1,5 +1,7 @@
 # Architecture
 
+> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 One shared application serves the dashboard and Claude Code and Codex agents. See
 [domain APIs](../../DOMAIN-APIS.md) and the [v1.2 contracts](../v1.2/CONTRACTS.md) for the
 companion contracts for storage, permissions and context delivery.
@@ -29,8 +31,7 @@ permission checks. Long-running background work may use managed subprocesses,
 but there is one shared service and no MCP server or model runner per agent.
 
 The application supplies Claude with tools; it does not replace Claude Code's
-conversation loop. tmux shells and terminal mirroring remain the interactive
-runtime. Background DeepSeek jobs are explicitly named workloads such as filing
+conversation loop. Qorqbot runs Claude Code and Codex as managed sessions. Background DeepSeek jobs are explicitly named workloads such as filing
 or extraction, not members of the business-agent roster.
 
 ## Four independent concepts

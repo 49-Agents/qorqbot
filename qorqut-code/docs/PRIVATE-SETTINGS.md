@@ -58,15 +58,14 @@ closed; symlinks are rejected. No UI controls or automatic operation grants exis
 The scope owner can retrieve these values through `environment_get`.
 
 Private overlays are scope-local: Global private values never inherit into
-business discovery, retrieval or terminals. For an allowed role, an overlay wins
+business discovery, retrieval or sessions. For an allowed role, an overlay wins
 over the same ordinary `.env` key. Other roles still receive the ordinary value
 if one exists, but cannot discover or retrieve the private replacement. To make
 a key exclusively private, remove its ordinary `.env` entry as a separate,
 reviewed configuration change. The existing Settings UI edits only `.env`.
 
-New agent terminals receive their role's local overlay. Owner workspace shells
-and background environment consumers do not receive private overlays. Existing
-terminals retain their original environment; restarting the service does not
-revoke values already delivered to a process or transcript. Recreate affected
-sessions when changing access. This is application authorization, not OS isolation:
+New agent sessions receive their role's local overlay. Background environment
+consumers do not receive private overlays. A running session keeps its original
+environment; restarting the service does not revoke values already delivered to a
+process or transcript. End and reopen affected sessions when changing access. This is application authorization, not OS isolation:
 unrestricted processes running as the same Unix user can read private files.

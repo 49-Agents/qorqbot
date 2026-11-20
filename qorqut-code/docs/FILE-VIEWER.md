@@ -144,7 +144,7 @@ this explorer performs no layout migration. All reads use the existing tokenless
 ## Reader page
 
 `/files/view` is a small standalone page with its own JavaScript and CSS (`js/file-viewer.js`,
-`css/file-viewer.css`). It mounts no terminal or dashboard, never polls, and offers no edit or task
+`css/file-viewer.css`). It mounts no dashboard, never polls, and offers no edit or task
 control. The page has a strict content security policy (`script-src 'self'`, no inline script, no
 frames except the inert HTML preview, no form targets). The header shows the filename, an understated root-relative path, a
 **Current file** / **Historical version N** indicator, **Copy link**, **Download**, and **History**

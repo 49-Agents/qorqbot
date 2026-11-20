@@ -36,10 +36,11 @@ from the normal package index.
 Needed only for the optional pieces you enable later (the scripts neither check nor install them):
 
 - **Browser runtime** (agent browser): Node **24+** and npm **11+** (`app/tools/browser/package.json` engines),
-  then Chrome (managed Global desktops: [Browser desktops](BROWSER-DESKTOPS.md)). Terminal control needs `tmux`.
+  then Chrome (managed Global desktops: [Browser desktops](BROWSER-DESKTOPS.md)).
 - **WhatsApp tool**: Go (the version in `extensions/whatsapp/native/go.mod`) and a C compiler (SQLite uses CGO).
-- **Native coding CLIs** for worker sessions (Claude Code, Codex): the pinned versions are in
-  `app/tools/native_clis/package.json`.
+- **Native coding CLIs** for agent sessions (Claude Code, Codex): the pinned versions are in
+  `app/tools/native_clis/package.json`. Qorqbot runs them itself as managed sessions
+  ([managed agent sessions](MANAGED-RUNTIME.md)); nobody opens a terminal or types their commands.
 - **Paper web UI** (only with Paper): Node/npm to build `web/dist`, see below.
 
 ## Stage 1 — export the source
@@ -329,6 +330,10 @@ configuration update. It also retains the exact retired binding under
 `<instance>/config/agentic-layer-history/<sha256>.json` (0700 directory, 0600 file) before any effect, so the
 original supplier provenance stays readable after the active binding names the new distribution.
 
+An installation whose agents still run in tmux terminals moves to managed sessions with the explicit offline
+`python -m qorqut.migration.managed_cutover <inspect|apply> --instance-root <path>`, run with the service stopped after the
+normal upgrade; see [managed agent sessions](MANAGED-RUNTIME.md#cutover-of-an-older-installation).
+
 **Private files**, all mode 0600 in `<instance>/config/` (mode 0700):
 
 | File | Content |
@@ -368,7 +373,7 @@ without `snapshot_sha256` must be re-exported. This integrity check detects chan
 bytes; it is not a signature against the same OS owner.
 
 The initializer imports all supplied procedural sources, enables the core email
-and terminal packages plus the explicitly selected extensions, seeds the module's
+and session-control packages plus the explicitly selected extensions, seeds the module's
 packaged management toolkit, and commits the initial authored tree. It writes the
 private `config/agentic-layer.json` binding last, and references its digest in the
 normal initialization receipt. Supplied unselected extension procedures remain

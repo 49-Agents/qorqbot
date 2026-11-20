@@ -5,6 +5,7 @@ from dataclasses import replace
 import logging
 import queue
 import re
+import threading
 import time
 import uuid
 from contextlib import nullcontext
@@ -14,8 +15,7 @@ import anyio
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from qorqut_operations.contracts import (DomainError, InvocationContext, InvocationOptions, OperationResult,
-                                         canonical_bytes, canonical_hash, new_id, plain)
+from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, OperationResult, canonical_bytes, canonical_hash, new_id
 from qorqut_operations import local_time
 from qorqut_operations.storage.database import REQUEST_TIMING, RequestTiming
 from qorqut_operations.storage.repositories import decode_row
@@ -23,6 +23,9 @@ from .auth import AuthenticatedPrincipal
 from .mcp import split_options
 from .results import failure, response
 
+# Set when the service has been asked to stop (``service/main.py``): an event stream ends at its next turn of the loop instead of
+# keeping the server waiting for a browser tab that never closes it.
+STOPPING = threading.Event()
 _UUID_RE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 
 
@@ -178,9 +181,9 @@ async def revalidated_async(request, changes, kinds, scope, produce):
 
 
 class HTTPAPI:
-    def __init__(self, runtime, authentication, origins, *, compatibility=None, terminals=None):
+    def __init__(self, runtime, authentication, origins, *, compatibility=None):
         self.runtime, self.authentication, self.origins = runtime, authentication, origins
-        self.compatibility, self.terminals = compatibility, terminals
+        self.compatibility = compatibility
         self.route_counters = RouteCounters()
         # The selected extensions' routes are exact keys on the frozen selection; a route grants no authority, the
         # dispatch below still applies its own owner, bearer and origin checks before any handler is called.
@@ -276,7 +279,7 @@ class HTTPAPI:
     # compatibility.py). Every other real endpoint either fits within that
     # same 4-segment envelope before an id/slug appears, or extends past it
     # only through a uuid (already templated) or authored content (asset
-    # paths, context/person slugs, and terminal/agent name selectors, which
+    # paths, context/person slugs, and agent name selectors, which
     # accept either the agent's uuid or its plain registered name). Capping
     # at 4 keeps every literal-only route distinct while forcing any
     # authored tail of any length beyond it into one placeholder segment.
@@ -434,24 +437,7 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
-            if parts == ["root", "agent-trust"] and request.method in {"GET", "POST"}:
-                if request.headers.get("authorization") is not None:
-                    raise DomainError("forbidden", "Agent trust consent is for the owner's dashboard")
-                context, _ = self.context(actor)
-                with self.runtime.database.read() as uow:
-                    owner = uow.repository("installation").get("service")
-                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
-                    raise DomainError("forbidden", "Only the installation owner can change agent trust")
-                from qorqut.agent_trust import owner_view
-                body = await read_json(request, limit=1024) if request.method == "POST" else None
-                if request.method == "POST" and not isinstance(body, dict):
-                    raise DomainError("validation_error", "Agent trust consent must be an object")
-                agent_id = request.query_params.get("agent_id")
-                data = await anyio.to_thread.run_sync(partial(owner_view, self.runtime, body, agent_id))
-                result = response(OperationResult.ok(data, request_id=request_id))
-                result.headers["Cache-Control"] = "private, no-store"
-                return result
-            if parts in (["root", "about"], ["root", "agent-clients"]) and request.method == "GET":
+            if parts == ["root", "about"] and request.method == "GET":
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Settings details are for the owner's dashboard")
                 context, _ = self.context(actor)
@@ -460,8 +446,29 @@ class HTTPAPI:
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
                     raise DomainError("forbidden", "Only the installation owner can read these settings")
                 from qorqut import owner_settings
-                reader = (partial(owner_settings.about_view, runtime_directory=self.runtime.paths.runtime)
-                          if parts[1] == "about" else owner_settings.agent_clients_view)
+                data = await anyio.to_thread.run_sync(partial(owner_settings.about_view, runtime_directory=self.runtime.paths.runtime))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
+            if parts == ["root", "agent-clients"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Agent clients are for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can set up agent clients")
+                from qorqut import owner_settings
+                reader = owner_settings.agent_clients_view
+                if request.method == "POST":
+                    body = await read_json(request, limit=1024)
+                    if not isinstance(body, dict):
+                        raise DomainError("validation_error", "An agent client change must be an object")
+                    checked_fields(body, {"provider", "action"}, {"provider", "action"})
+                    if body["provider"] not in ("claude", "codex") or body["action"] not in (
+                            "download", "cancel_download", "connect", "cancel_connect"):
+                        raise DomainError("validation_error", "Choose claude or codex, and download, cancel_download, connect or cancel_connect")
+                    reader = partial(owner_settings.agent_clients_action, body["provider"], body["action"])
                 data = await anyio.to_thread.run_sync(reader)
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
@@ -564,7 +571,7 @@ class HTTPAPI:
             from qorqut.native_chat import http as native_chat_http
             if native_chat_http.matches(parts) and self.runtime.native_chat is not None:
                 return await native_chat_http.route(self.runtime, request, actor.principal.id, parts, request_id)
-            if parts[:1] == ["root"] and parts[1:2] in (["agents"], ["terminal"], ["terminals"], ["workspace-terminal"]):
+            if parts[:1] == ["root"] and parts[1:2] == ["agents"]:
                 context, _ = self.context(actor)
                 if parts == ["root", "agents"] and request.method == "GET":
                     result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, "agents_list", {"scope": "global"}))
@@ -580,8 +587,6 @@ class HTTPAPI:
                     return JSONResponse(data, headers={"Cache-Control": "no-store"})
                 if len(parts) >= 4 and parts[1] == "agents" and parts[3] == "browser-live":
                     return await self.browser_live(request, context, parts[2], parts[4:], request_id)
-                if self.terminals and parts[1:2] in (["terminal"], ["terminals"], ["workspace-terminal"]):
-                    return await self.terminals.route(request, context, None, parts[1:])
                 raise DomainError("not_found", "Global agent endpoint is not registered")
             if parts[:2] == ['root','release'] and len(parts)==3:
                 if request.headers.get('authorization') is not None:
@@ -685,16 +690,6 @@ class HTTPAPI:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
                 if parts[2] in {"routines_runs", "jobs_get"} and args.get("scope") != "global":
                     raise DomainError("forbidden", "Global routines and jobs are read with scope=global")
-                result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
-                return response(result)
-            if parts == ["root", "operations", "agent_terminal_start"] and request.method == "POST":
-                # Chat's Start button: the owner's own start of one Global agent, through the normal operation, policy and
-                # durable terminal dispatch. Only a single target is accepted here; batches stay with terminal_command_issue.
-                context, _ = self.context(actor)
-                args, options = split_options(await read_json(request, limit=4096))
-                checked_fields(args, {"target_agent_id", "rationale"}, {"target_agent_id", "rationale"})
-                if options.business_id is not None or options.review_business_id is not None:
-                    raise DomainError("forbidden", "This endpoint requires Global scope")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
             if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {
@@ -825,9 +820,7 @@ class HTTPAPI:
                     result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, tail[1], args, options))
                     return response(result, statuses=self.statuses)
                 if tail[:1] == ["chat"]:
-                    raise DomainError("legacy_chat_retired", "Project chat execution is retired; use the registered Claude Code terminal")
-                if tail[:1] in (["terminal"], ["terminals"]) and self.terminals:
-                    return await self.terminals.route(request, context, business, tail)
+                    raise DomainError("legacy_chat_retired", "Project chat execution is retired; use Chat")
                 if self.compatibility:
                     return await self.compatibility.business_route(request, context, business, tail)
             elif self.compatibility:
@@ -921,7 +914,7 @@ class HTTPAPI:
         async def events():
             # A dedicated limiter, not the shared worker pool: this blocks a
             # thread for up to a second at a time for the stream's whole life,
-            # same reasoning as the terminal mirror's own `idle_limiter`.
+            # same reasoning as any long-lived stream.
             idle_limiter = anyio.CapacityLimiter(1)
             last_seq = 0
             last_heartbeat = time.monotonic()
@@ -944,7 +937,7 @@ class HTTPAPI:
                         for event in replay:
                             yield frame(event)
                             last_seq = event["seq"]
-                while not await request.is_disconnected():
+                while not STOPPING.is_set() and not await request.is_disconnected():
                     try:
                         event = await anyio.to_thread.run_sync(subscriber.queue.get, True, 1.0, limiter=idle_limiter)
                     except queue.Empty:
@@ -1017,7 +1010,7 @@ class HTTPAPI:
                 return
             try:
                 yield event("open", {"view": view.id, "tab": tab})
-                while not await request.is_disconnected():
+                while not STOPPING.is_set() and not await request.is_disconnected():
                     if time.monotonic() - checked_at >= 2:
                         current = await anyio.to_thread.run_sync(live.tabs, port)
                         checked_at = time.monotonic()

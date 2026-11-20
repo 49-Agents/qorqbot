@@ -2,7 +2,7 @@
 
 `qorqut-code` is the application host of Qorqut (Qorqbot v1.3): composition, database and
 migrations, permissions, Signoffs, the role and plugin catalog, MCP and HTTP transports, native
-chat and bootstrap, background jobs, browser and terminal support, and everyday integrations. The
+chat and bootstrap, background jobs, browser and managed agent session support, and everyday integrations. The
 independent engines and the owner dashboard live in ordinary component directories (see
 [Repository ownership](docs/REPOSITORIES.md)); which package owns which code after the Operations / Context / host split is in the
 [v1.3 module map](docs/v1.3/MODULE-MAP.md).
@@ -78,8 +78,9 @@ The host composes the following retained capabilities. Each links to its contrac
   membership row is never authority. Agents cannot create agents (Ordubashy registers workers). See
   [agent platform decisions](docs/agent-platform/README.md), [agent management coordination](docs/AGENT-MANAGEMENT-COORDINATION.md),
   [agent inbox](docs/AGENT-INBOX.md), [messaging and the keyless local API](docs/AGENT-MESSAGING.md),
-  [Viewbox](docs/AGENT-VIEWBOX.md) and
-  [terminal control](docs/AGENT-TERMINAL-CONTROL.md).
+  [Viewbox](docs/AGENT-VIEWBOX.md),
+  [session control](docs/AGENT-TERMINAL-CONTROL.md) and
+  [managed agent sessions](docs/MANAGED-RUNTIME.md).
 - **Chat and attention.** [Native Chat](docs/v1.2/NATIVE_CHAT_CHECKPOINT.md) is derived from each registered agent's
   captured native conversation; every input to a native session passes one arbiter bound to the exact registered
   session. Shared Codex sessions use the existing app-server Unix socket for Chat and steering input
@@ -93,7 +94,7 @@ The host composes the following retained capabilities. Each links to its contrac
   [supersession](docs/LEARNING-SUPERSESSION.md). Retained historical procedural records stay readable; the retired
   engine's tables and the standalone `qorqut-learning` backend are not installed or started. Its independent source
   history remains outside this release.
-- **Browser and terminal.** [Chrome control](docs/BROWSER-CONTROL.md), [browser handles](docs/BROWSER-HANDLES.md),
+- **Browser.** [Chrome control](docs/BROWSER-CONTROL.md), [browser handles](docs/BROWSER-HANDLES.md),
   [global browser desktops](docs/BROWSER-DESKTOPS.md),
   [agent browser backend](docs/AGENT-BROWSER-BACKEND.md), [command recovery](docs/BROWSER-COMMAND-RECOVERY.md),
   and [owner-directed code sessions](docs/OWNER-DIRECTED-CODE-SESSIONS.md).

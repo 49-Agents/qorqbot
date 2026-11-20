@@ -42,8 +42,8 @@ Claude Code session. For each durable assignment, use a separate root session:
    must be recreated from the canonical assignment/checkpoint, not from the
    parent transcript.
 
-Do not use `codex queue` for worker follow-ups: it remains the existing
-parent-session inbox delivery path. Durable worker sessions have no parent
+Do not deliver worker follow-ups through the parent session's inbox delivery
+path. Durable worker sessions have no parent
 inbox watcher, do not run the registered-agent startup hook, and do not inherit
 the parent's consumer UUID or current-work declaration.
 

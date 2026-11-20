@@ -66,11 +66,11 @@ replying to every acknowledgement.
 
 Delivery is immediate and durable, including when the recipient is offline.
 The existing Claude watcher checks immediately and then every ten minutes,
-repeating its advisory nudge while items remain pending. This neither launches
-Claude nor injects terminal input. A stopped session receives its pending messages
-when it next starts/checks. No new model runtime adapter is introduced.
+repeating its advisory nudge while items remain pending. Delivery to an agent whose
+session is asleep opens the session ([managed agent sessions](MANAGED-RUNTIME.md)).
+An agent that is off receives its pending messages when it is next turned on. No new model runtime adapter is introduced.
 
-The owner pane beside the terminal shows direct messages with sender, timestamp,
+The owner pane beside Chat shows direct messages with sender, timestamp,
 reply indication and an expandable plain-text body. Inspecting them does not
 acknowledge them.
 
@@ -162,7 +162,7 @@ titled Onbashy, so rows are told apart by agent and business ID. Refresh with
 `agents_message_recipients(all_businesses=true, role_id="business-agent", scope="global")`.
 It also includes the Dev directory, one Dev peer per business that has adopted
 it, each titled Dev (`role_id="dev"`). Ordubashy routes implementation to Dev
-through these messages and tasks; it never controls Dev's terminal.
+through these messages and tasks; it never controls Dev's session.
 Results include agent ID, role, business ID and slug, plus the businesses checked
 so a business without an agent is visible. Use the returned business ID as the send
 operation's `business_id` option, and omit `scope="global"` for that business send.

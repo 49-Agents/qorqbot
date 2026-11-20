@@ -1,5 +1,7 @@
 # Native Chat checkpoint (P2): native-session Chat backend
 
+> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 Branch `v1.2/native-chat`, built from the foundation-integration parent `7679f287164c0d0cfa109e6415baabb8500160df` (Operations
 `138f40c64e457f0b8723b6b764e1905a69e763fc`, dashboard `3c34ab14829e9cdc963c5b3fffbea8ce44e4bf63` unchanged, no submodule moved).
 Implements the P2 section of `FEATURE_PORT_DISPATCH.md` for the host (`app/`). Dashboard presentation is the later UI worker's:

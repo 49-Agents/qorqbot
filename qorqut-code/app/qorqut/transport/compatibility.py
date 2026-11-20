@@ -7,7 +7,6 @@ from email import policy as email_policy
 from email.parser import BytesParser
 import json
 from pathlib import Path, PurePosixPath
-import re
 
 import anyio
 from markdown_it import MarkdownIt
@@ -69,8 +68,8 @@ def business_task_page(tasks, query, business_id):
 
 
 class DashboardCompatibility:
-    def __init__(self, runtime, *, terminals=None, background=None, local_files=None):
-        self.runtime, self.terminals, self.background = runtime, terminals, background
+    def __init__(self, runtime, *, background=None, local_files=None):
+        self.runtime, self.background = runtime, background
         if local_files is None:
             from qorqut.service.local import LocalFiles
             local_files = LocalFiles(runtime)

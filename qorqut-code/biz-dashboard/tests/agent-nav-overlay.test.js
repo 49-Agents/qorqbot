@@ -36,8 +36,9 @@ async function fixture({mobile=false,many=false}={}) {
     window.agTakeLinkedWorkspace=()=>null;window.agentWorkspaceTakeRequest=()=>null;window.agentWorkspaceRehydrate=()=>null;
     window.agentWorkspaceRequest=null;window.agentWorkspaceApplied=null;window._agpad=null;
     window.agentViewDispose=()=>{};window.mounts=[];
+    window.changeHandlers=[];window.onChange=(kinds,scope,handler)=>{const item={kinds,handler,off:false};changeHandlers.push(item);return()=>{item.off=true;};};
+    window.loadGlobalAgentProfiles=async()=>globalAgentProfiles.slice();
     window.mountAgentView=(pane,agent)=>{mounts.push(agent.agent_id);pane.innerHTML='<p style="padding-top:48px">Chat with '+esc(agent.display_name)+'</p>';};
-    window.mountTerminal=(_id,pane)=>{pane.textContent='Workspace terminal';};
     window.agpadMount=(_name,pane,options)=>{
       window._agpad={agentId:options.agentId};pane.hidden=!options.open;pane.textContent='Agent workspace';
       pane.closest('.agsplit').classList.toggle('pad-off',!options.open);
@@ -130,11 +131,6 @@ browserTest('the trigger follows agent selection and mouse focus never keeps the
     assert.match(await trigger.getAttribute('aria-label'),/Ordubashy selected/);
     await page.mouse.move(420,780);await page.waitForFunction(()=>!document.querySelector('.agent-nav-overlay').matches(':popover-open'));
     assert.equal(await nav.isVisible(),false);
-    { const box=await trigger.boundingBox(); await page.mouse.move(box.x+box.width/2,box.y+box.height/2); }
-    await nav.locator('.global-workspace-terminal').click();
-    assert.match(await trigger.getAttribute('aria-label'),/Terminal selected/);
-    assert.equal(await trigger.locator('.identity-avatar').count(),0);
-    assert.equal(await page.locator('.global-agent-session').evaluate(el=>el.getBoundingClientRect().width),1200);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
@@ -449,4 +445,32 @@ browserTest('focus preview reads stop scheduling after navigation closes',async(
     assert.equal(await page.locator('[data-agent-focus]').first().textContent(),'Loading focus…');
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
+});
+
+browserTest('a worker created while the page is open joins the menu at once; the selection, the chat and the agent pane stay',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    const before=await page.evaluate(()=>({mounts:mounts.slice(),selected:document.querySelector('[data-global-agent].on')?.dataset.globalAgent,chat:document.querySelector('#global-agent-chat').innerHTML}));
+    assert.equal(await page.locator('[data-global-agent]').count(),2);
+    await page.evaluate(()=>{
+      globalAgentProfiles.push({agent_id:'orchid',display_name:'Orchid',role:{id:'global-worker'},scope:{kind:'ecosystem'}});
+      changeHandlers.filter(item=>item.kinds.includes('agents')&&!item.off).forEach(item=>item.handler());
+    });
+    await page.waitForFunction(()=>document.querySelectorAll('[data-global-agent]').length===3);
+    const after=await page.evaluate(()=>({mounts:mounts.slice(),selected:document.querySelector('[data-global-agent].on')?.dataset.globalAgent,chat:document.querySelector('#global-agent-chat').innerHTML,
+      names:[...document.querySelectorAll('[data-global-agent] .agent-nav-label')].map(n=>n.textContent)}));
+    assert.deepEqual(after.names,['Ordubashy','Atlas','Orchid']);
+    assert.deepEqual([after.mounts,after.selected,after.chat],[before.mounts,before.selected,before.chat]);
+    // The new row opens like any other.
+    await page.locator('[data-agent-nav-trigger]').focus();await page.keyboard.press('Enter');
+    await page.locator('[data-global-agent="orchid"]').click();
+    assert.deepEqual(await page.evaluate(()=>mounts.slice(-1)),['orchid']);
+    // A change that does not alter the roster repaints nothing; a retired worker leaves.
+    await page.evaluate(()=>{window.rowsBefore=document.querySelector('[data-global-agent="orchid"]');changeHandlers.forEach(item=>!item.off&&item.handler());});
+    await page.waitForTimeout(100);
+    assert.equal(await page.evaluate(()=>rowsBefore===document.querySelector('[data-global-agent="orchid"]')),true);
+    await page.evaluate(()=>{globalAgentProfiles.splice(1,1);changeHandlers.forEach(item=>!item.off&&item.handler());});
+    await page.waitForFunction(()=>document.querySelectorAll('[data-global-agent]').length===2);
+    assert.deepEqual(errors,[]);
+  } finally { await browser.close(); }
 });

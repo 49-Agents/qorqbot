@@ -1,5 +1,7 @@
 # Native Chat — DTO description
 
+> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 Status: implemented, including the current versus selected conversation, the exact session binding on the session and on
 every input, a pinned send and the optional `agent_message` field of a notice entry (below). This is the
 contract the dashboard's Chat message list, composer and agent navigation read. It replaces the
