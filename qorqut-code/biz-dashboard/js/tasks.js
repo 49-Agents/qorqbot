@@ -742,7 +742,7 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
       });
       if(host && !embedded){
         const actions=document.createElement('div');actions.className='task-inline-actions';
-        actions.innerHTML='<button type="button" class="quiet" data-task-back>Back</button>'+(t.task_type!=='email'?'<button type="button" class="quiet" data-task-move>Move to project…</button>':'');
+        actions.innerHTML='<button type="button" class="quiet" data-task-back>Back</button>'+'<button type="button" class="quiet" data-task-move>Move to project…</button>';
         actions.querySelector('[data-task-back]').onclick=()=>m.close();
         const moveButton=actions.querySelector('[data-task-move]');if(moveButton)moveButton.onclick=startMove;
         el.querySelector('.tdetail').prepend(actions);
@@ -844,7 +844,7 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
     m=modal({
       title: `Task · ${tBusiness(t).name || biz}`, width: special ? 980 : 620, body,
       actions: [
-        ...(embedded || t.task_type === 'email' ? [] : [{ label: "Move to project…", onClick: startMove }]),
+        ...(embedded ? [] : [{ label: "Move to project…", onClick: startMove }]),
         { label: "Close", onClick: close => close() },
       ],
       onOpen:wire, onClose:teardown,

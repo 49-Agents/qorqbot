@@ -82,12 +82,13 @@ WHEN (OLD.event_id IS NOT NULL OR NEW.id IS NOT OLD.id OR NEW.business_id IS NOT
  OR NEW.author_id IS NOT OLD.author_id OR NEW.recorder_id IS NOT OLD.recorder_id
  OR NEW.attribution_json IS NOT OLD.attribution_json OR NEW.change_json IS NOT OLD.change_json
  OR NEW.created_at IS NOT OLD.created_at OR NEW.reference_namespace IS NOT OLD.reference_namespace)
- AND NOT (OLD.item_type='task' AND NEW.business_id IS NOT OLD.business_id AND NEW.event_id IS OLD.event_id
+ AND NOT (OLD.item_type IN ('task','table') AND NEW.business_id IS NOT OLD.business_id AND NEW.event_id IS OLD.event_id
  AND NEW.id IS OLD.id AND NEW.item_type IS OLD.item_type AND NEW.item_id IS OLD.item_id AND NEW.kind IS OLD.kind
  AND NEW.body IS OLD.body AND NEW.summary IS OLD.summary AND NEW.refs_json IS OLD.refs_json
  AND NEW.author_id IS OLD.author_id AND NEW.recorder_id IS OLD.recorder_id
  AND NEW.attribution_json IS OLD.attribution_json AND NEW.change_json IS OLD.change_json
- AND NEW.created_at IS OLD.created_at AND relocation_permits(OLD.business_id,NEW.business_id,OLD.item_id)
+ AND NEW.created_at IS OLD.created_at
+ AND relocation_permits(OLD.business_id,NEW.business_id,CASE OLD.item_type WHEN 'task' THEN OLD.item_id ELSE 'table:' || OLD.item_id END)
  AND NEW.reference_namespace IS COALESCE(OLD.reference_namespace, CASE WHEN OLD.business_id IS NULL THEN 'global' ELSE 'business:' || OLD.business_id END))
 BEGIN SELECT RAISE(ABORT,'Thread messages are immutable; only the delivering event is attached once'); END""",
     """CREATE TRIGGER thread_messages_immutable_delete BEFORE DELETE ON thread_messages

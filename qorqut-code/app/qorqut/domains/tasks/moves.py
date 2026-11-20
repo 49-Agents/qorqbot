@@ -33,7 +33,7 @@ PREVIEW = "tasks_move_to_project_preview"
 MOVE = "tasks_move_to_project"
 OPERATIONS = (TARGETS, PREVIEW, MOVE)
 MAXIMUM_TARGETS = 1000
-COUNTS = ("tasks", "comments", "private_messages", "project_links", "focus_cards", "crm_entries")
+COUNTS = ("tasks", "comments", "private_messages", "project_links", "focus_cards", "crm_entries", "linking_tasks", "historical_relationships")
 VISIBILITY = ("Ordinary access to these Tasks follows the destination project's rules once they are moved. The private "
               "owner-Ordubashy conversations of the moved Tasks stay private and keep their messages; moving grants no one "
               "membership and no new access.")
