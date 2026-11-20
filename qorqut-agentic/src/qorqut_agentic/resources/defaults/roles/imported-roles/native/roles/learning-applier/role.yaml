@@ -1,6 +1,6 @@
 schema_version: 1
 id: learning-applier
-version: 1.18.2
+version: 1.21.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/learning-applier/BRIEF.md
