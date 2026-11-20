@@ -4,7 +4,7 @@ The row is the owner's own presentation file (``qorqut.dashboard_preferences.thr
 through its own route. ``thread_pins_list`` and ``thread_pins_set`` give the configured coordinator (Ordubashy) the same two
 actions as agent tools, for when the owner asks him to pin or unpin a thread. The file written is always the installation
 owner's, never the caller's. A pin grants nothing: a thread is pinned only after the caller's own ordinary read of its record
-succeeds (the same read the private owner channel and ``owner_inputs_list`` use), and a stored pin is shown by title only when
+succeeds (the same read the private owner channel and ``conversation_history_search`` use), and a stored pin is shown by title only when
 that read still succeeds. Nothing else of the owner's Focus is writable here.
 """
 from __future__ import annotations

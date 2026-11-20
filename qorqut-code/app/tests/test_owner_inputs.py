@@ -1,4 +1,4 @@
-"""The owner's own messages over a period: every agent's chat, the private threads and the owner's notes."""
+"""The conversation with the owner: the list of the owner's own messages over a period, and the search of both sides."""
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
 
+from qorqut.composition.policy import resolve_operation_policy
 from qorqut.domains.owner_inputs import OwnerInputs, PAGE_CHARACTERS
 from qorqut.inbox.private_conversations import PrivateConversations
 from qorqut.native_chat import projection, store
@@ -29,11 +30,13 @@ class Archive:
     """One conversation's records by offset, as the transcript archive serves them."""
 
     def __init__(self):
-        self.records = []
+        self.records, self.ends = [], []
 
-    def add(self, text, uuid):
+    def add(self, text, uuid, speaker="user"):
         offset = len(self.records) * 10
-        value = {"type": "user", "sessionId": "session", "uuid": uuid, "message": {"role": "user", "content": text}}
+        value = {"type": speaker, "sessionId": "session", "uuid": uuid, "message": {"role": speaker, "content": text}}
+        if speaker == "assistant":
+            value["message"].update(content=[{"type": "text", "text": text}], stop_reason="end_turn")
         self.records.append(SimpleNamespace(kind="json", value=value, offset=offset, length=10, end=offset + 10))
         return offset
 
@@ -41,7 +44,8 @@ class Archive:
         return SimpleNamespace(receipt_id=receipt_id, record_boundary=len(self.records) * 10)
 
     @contextmanager
-    def iter_records(self, receipt, offset=0):
+    def iter_records(self, receipt, offset=0, end=None):
+        self.ends.append(end)
         yield iter(row for row in self.records if row.offset >= offset)
 
 
@@ -76,14 +80,7 @@ class OwnerInputsTests(unittest.TestCase):
         lineage = projection.Lineage(agent, "claude", "session", "archive")
         with self.runtime.database.transaction() as uow:
             conn = uow.connection
-            session = {"agent_id": agent, "provider": "claude", "conversation_id": "session", "id": "binding-" + agent,
-                       "transcript_path": "/registered/session.jsonl"}
-            if store.get_capture(conn, agent, "claude", "session") is None:
-                conn.execute("INSERT INTO native_sessions(id,agent_id,provider,conversation_id,generation,transport,process_pid,"
-                             "process_started,observed_at,verified_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                             (session["id"], agent, "claude", "session", 1, "terminal", 1, "started", COVERED, COVERED))
-                capture = store.ensure_capture(conn, session)
-                store.update_capture(conn, capture, receipt_id="receipt")
+            session = self.session(conn, agent)
             delivered = None
             if via != "typed":      # delivered by the service: the turn points at the input that typed it
                 request = InputRequest(agent, via, new_id(), text, principal_id=self.owner if via == "chat" else None)
@@ -96,16 +93,42 @@ class OwnerInputsTests(unittest.TestCase):
                  10, when, COVERED, 0 if redacted else len(text), delivered, via, 1 if redacted else 0))
         return "chat:" + lineage.turn_id("native_id", uuid), offset
 
+    @staticmethod
+    def session(conn, agent):
+        """The agent's one conversation and its capture, made on first use."""
+        session = {"agent_id": agent, "provider": "claude", "conversation_id": "session", "id": "binding-" + agent,
+                   "transcript_path": "/registered/session.jsonl"}
+        if store.get_capture(conn, agent, "claude", "session") is None:
+            conn.execute("INSERT INTO native_sessions(id,agent_id,provider,conversation_id,generation,transport,process_pid,"
+                         "process_started,observed_at,verified_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                         (session["id"], agent, "claude", "session", 1, "terminal", 1, "started", COVERED, COVERED))
+            capture = store.ensure_capture(conn, session)
+            store.update_capture(conn, capture, receipt_id="receipt")
+        return session
+
+    def said(self, agent, text, when, *, origin="user"):
+        """One chat reply of ``agent``: its record in the archive and the completion indexed at that position."""
+        archive = self.archives.setdefault(agent, Archive())
+        uuid = new_id()
+        offset = archive.add(text, uuid, "assistant")
+        lineage = projection.Lineage(agent, "claude", "session", "archive")
+        with self.runtime.database.transaction() as uow:
+            self.session(uow.connection, agent)
+            store.insert_reply(uow.connection, lineage=lineage, kind="native_id", key=uuid, session_id=None, receipt_id="receipt",
+                               offset=offset, length=10, completed_at=when, preview=text[:180], origin=origin,
+                               user_work=origin == "user")
+        return "reply:" + lineage.reply_id("native_id", uuid)
+
     def answer(self, agent, offset, when, preview="Done."):
         with self.runtime.database.transaction() as uow:
             store.insert_reply(uow.connection, lineage=projection.Lineage(agent, "claude", "session", "archive"), kind="raw_range",
                                key=f"{offset}#reply", session_id=None, receipt_id="receipt", offset=offset + 5, length=5,
                                completed_at=when, preview=preview, origin="user", user_work=True)
 
-    def read(self, args=None, *, ctx=None, operation="owner_inputs_list"):
+    def read(self, args=None, *, ctx=None, operation="conversation_history_search"):
         return invoke(self.runtime, operation, args, ctx=ctx or self.runtime.coordinator)
 
-    def refused(self, ctx, operation="owner_inputs_list", args=None):
+    def refused(self, ctx, operation="conversation_history_search", args=None):
         result = self.runtime.application.invoke(ctx, operation, {"scope": "global", **(args or {})},
                                                  InvocationOptions(idempotency_key=new_id()))
         return None if result.status == "ok" else plain(result.error)["code"]
@@ -146,7 +169,7 @@ class OwnerInputsTests(unittest.TestCase):
         self.assertEqual(listed(agent_id=self.worker), [])
         early = self.read({"hours": 24 * 5})
         self.assertEqual(early["gaps"], [{"code": "chat_not_indexed_before", "at": COVERED,
-                                          "message": "Chat messages written before chat indexing began are not listed."}])
+                                          "message": "The owner's chat messages written before chat indexing began are not read."}])
         for bad in ({"hours": 2, "since": at(1)}, {"since": "2026-11-12T10:00:00"}, {"since": at(14), "until": at(13)},
                     {"last_n": 2, "cursor": "abc"}):
             self.assertEqual(self.refused(self.runtime.coordinator, args=bad), "validation_error", bad)
@@ -162,7 +185,7 @@ class OwnerInputsTests(unittest.TestCase):
         self.assertEqual(([item["id"] for item in rest["items"]], rest["next_cursor"], rest["since"]), (ids[2:], None, page["since"]))
         self.assertEqual(self.refused(self.runtime.coordinator, args={"limit": 3, "channels": ["chat"], "cursor": page["next_cursor"]}),
                          "validation_error")
-        full = self.read({"id": ids[1]}, operation="owner_input_get")["item"]
+        full = self.read({"id": ids[1]}, operation="conversation_history_get")["item"]
         self.assertEqual((full["text"], full["truncated"], full["id"]), (long_text, False, ids[1]))
         # A page stops once it carries enough text, and says there is more.
         for minute in range(1, 30):
@@ -186,7 +209,7 @@ class OwnerInputsTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["followed_by"]["reply"], {"at": at(9, 30), "preview": "Yes, confirmed this morning."})
         self.assertIsNone(result["items"][1]["followed_by"]["reply"])
         self.assertEqual(result["unanswered"], 1)
-        self.assertEqual(self.read({"id": result["items"][0]["id"]}, operation="owner_input_get")["item"]["text"],
+        self.assertEqual(self.read({"id": result["items"][0]["id"]}, operation="conversation_history_get")["item"]["text"],
                          "Did the supplier confirm?")
         # A retired per-worker channel is never read.
         self.write("UPDATE owner_conversations SET peer_agent_id=? WHERE source_id=?", (self.worker, open_chat["id"]))
@@ -246,20 +269,20 @@ class OwnerInputsTests(unittest.TestCase):
         self.assertEqual((private["id"], private["text"], private["chars"], private["redacted"]), (hidden, None, None, True))
         self.assertEqual(result["unanswered"], 1)
         self.assertEqual({broadcast["agent"]["id"], broadcast["also_to"][0]["id"]}, {self.lead, self.worker})
-        self.assertNotIn("secret-code-4417", str(self.read({"id": hidden}, operation="owner_input_get")))
+        self.assertNotIn("secret-code-4417", str(self.read({"id": hidden}, operation="conversation_history_get")))
 
     def test_an_archive_that_cannot_be_read_is_named_as_a_gap(self):
         listed, _ = self.turn(self.lead, "Send the contract.", at(9))
         self.archives[self.lead].records.clear()
         result = self.read()
         self.assertEqual((result["items"], [gap["code"] for gap in result["gaps"]]), ([], ["turn_not_found"]))
-        self.assertEqual(self.refused(self.runtime.coordinator, "owner_input_get", {"id": listed}), "operation_unavailable")
-        self.assertEqual(self.refused(self.runtime.coordinator, "owner_input_get", {"id": "chat:" + "0" * 64}), "not_found")
-        self.assertEqual(self.refused(self.runtime.coordinator, "owner_input_get", {"id": "other:1"}), "validation_error")
+        self.assertEqual(self.refused(self.runtime.coordinator, "conversation_history_get", {"id": listed}), "operation_unavailable")
+        self.assertEqual(self.refused(self.runtime.coordinator, "conversation_history_get", {"id": "chat:" + "0" * 64}), "not_found")
+        self.assertEqual(self.refused(self.runtime.coordinator, "conversation_history_get", {"id": "other:1"}), "validation_error")
 
     def test_only_the_owner_and_the_coordinator_in_person_may_read(self):
         self.turn(self.lead, "Send the contract.", at(9))
-        for operation, args in (("owner_inputs_list", {}), ("owner_input_get", {"id": "chat:" + "0" * 64})):
+        for operation, args in (("conversation_history_search", {}), ("conversation_history_get", {"id": "chat:" + "0" * 64})):
             self.assertEqual(self.refused(self.runtime.worker, operation, args), "forbidden")
         delegated = replace(self.runtime.coordinator, delegation_binding_id=new_id(), delegation_assignment_id=new_id(),
                             delegation_generation=1)
@@ -267,6 +290,112 @@ class OwnerInputsTests(unittest.TestCase):
             with self.assertRaises(DomainError) as refusal:
                 self.runtime.owner_inputs.caller(delegated, uow)
         self.assertEqual(refusal.exception.code, "forbidden")
+
+    # ----- the search ------------------------------------------------------------------------------------------------
+
+    def test_a_search_returns_the_messages_of_both_sides_that_hold_every_word_newest_first(self):
+        asked, _ = self.turn(self.lead, "Send the Linden contract today.", at(9))
+        told = self.said(self.lead, "The Linden contract went out at noon; the card on file paid the fee.", at(9, 5))
+        self.said(self.lead, "Linden contract checked again, nothing new.", at(9, 30), origin="nudge")
+        self.said(self.worker, "The Linden invoice is paid.", at(10))
+        self.said(self.worker, "Linden contract folder tidied.", at(10, 30), origin="nudge")      # a worker's own chatter
+        chat = create(self.runtime, "Where is the Linden contract kept?")
+        reply(self.runtime, chat, "The contract is in the Linden folder.")
+        self.stamp_thread("Where is the Linden contract kept?", at(12))
+        self.stamp_thread("The contract is in the Linden folder.", at(12, 5))
+        result = self.read({"query": "linden CONTRACT"})
+        self.assertEqual([(item["channel"], item["by"], item["at"]) for item in result["items"]], [
+            ("thread", "ordubashy", at(12, 5)), ("thread", "owner", at(12)), ("chat", "ordubashy", at(9, 30)),
+            ("chat", "ordubashy", at(9, 5)), ("chat", "owner", at(9))])
+        self.assertEqual((result["items"][3]["id"], result["items"][4]["id"]), (told, asked))
+        self.assertEqual((result["words"], result["order"], result["more"]), (["linden", "contract"], "newest_first", False))
+        self.assertEqual(result["items"][3]["excerpt"], "The Linden contract went out at noon; the card on file paid the fee.")
+        self.assertEqual(result["items"][0]["source"]["type"], "signoff")
+        self.assertEqual(result["items"][4]["agent"]["id"], self.lead)
+        self.assertNotIn("text", result["items"][0])
+        self.assertEqual(result["by"], "both")
+        # One side alone: what the owner wrote, or what Ordubashy wrote.
+        sides = {by: [(item["channel"], item["by"], item["at"]) for item in self.read({"query": "linden", "by": by})["items"]]
+                 for by in ("owner", "ordubashy")}
+        self.assertEqual(sides["owner"], [("thread", "owner", at(12)), ("chat", "owner", at(9))])
+        self.assertEqual(sides["ordubashy"], [("thread", "ordubashy", at(12, 5)), ("chat", "ordubashy", at(9, 30)),
+                                              ("chat", "ordubashy", at(9, 5))])
+        for other in ("agent", "coordinator"):
+            self.assertEqual(self.refused(self.runtime.coordinator, args={"query": "linden", "by": other}), "validation_error")
+        self.assertEqual(self.read({"query": "linden", "by": "owner"})["by"], "owner")
+        # by narrows a search; the list is of the owner's messages already.
+        self.assertEqual(self.refused(self.runtime.coordinator, args={"by": "owner"}), "validation_error")
+        # Another agent's reply is not part of this conversation, even when it answered the owner.
+        self.assertEqual(self.read({"query": "invoice"})["items"], [])
+        # The default period is four days back; it is named in the answer.
+        self.assertEqual((result["since"], result["searched_from"]), ("2026-11-08T18:00:00.000000Z", "2026-11-08T18:00:00.000000Z"))
+        # The owner searches the same conversation.
+        self.assertEqual(self.read({"query": "linden contract"}, ctx=self.runtime.owner)["items"], result["items"])
+
+    def test_every_word_must_appear_and_a_word_matches_only_where_a_word_starts(self):
+        self.turn(self.lead, "Check the fastmail inbox for the hotel reservation.", at(9))
+        found = lambda query: len(self.read({"query": query})["items"])      # noqa: E731
+        self.assertEqual([found("reserv"), found("hotel inbox"), found("mail"), found("hotel flight")], [1, 1, 0, 0])
+        self.assertEqual(self.refused(self.runtime.coordinator, args={"query": "..."}), "validation_error")
+        self.assertEqual(self.refused(self.runtime.coordinator, args={"query": " ".join(f"w{n}" for n in range(13))}),
+                         "validation_error")
+
+    def test_the_search_period_is_days_and_more_says_when_the_limit_cut_it(self):
+        self.turn(self.lead, "Renew the Linden domain.", "2026-11-10T09:00:00.000000Z")
+        self.turn(self.lead, "Did the Linden domain renew?", at(9))
+        self.turn(self.lead, "Linden wrote back.", at(10))
+        times = lambda args: [item["at"] for item in self.read({"query": "linden", **args})["items"]]      # noqa: E731
+        self.assertEqual(times({}), [at(10), at(9), "2026-11-10T09:00:00.000000Z"])
+        self.assertEqual(times({"days": 1}), [at(10), at(9)])
+        self.assertEqual(times({"hours": 8}), [at(10)])
+        self.assertEqual(times({"since": "2026-11-10T00:00:00Z", "until": "2026-11-11T00:00:00Z"}), ["2026-11-10T09:00:00.000000Z"])
+        cut = self.read({"query": "linden", "limit": 2})
+        self.assertEqual(([item["at"] for item in cut["items"]], cut["more"]), ([at(10), at(9)], True))
+        for args in ({"last_n": 5}, {"cursor": "x"}, {"limit": 51}, {"days": 2, "hours": 3}):
+            self.assertEqual(self.refused(self.runtime.coordinator, args={"query": "linden", **args}), "validation_error", args)
+        # The list takes days as well.
+        self.assertEqual(len(self.read({"days": 3})["items"]), 3)
+
+    def test_a_reply_is_read_in_full_with_the_owner_message_it_came_after(self):
+        asked, _ = self.turn(self.lead, "Which card paid the Linden fee?", at(9))
+        told = self.said(self.lead, "The card ending 5521 paid it. " + "x" * 400, at(9, 5))
+        hit = self.read({"query": "card 5521"})["items"][0]
+        self.assertEqual((hit["id"], hit["chars"], len(hit["excerpt"]) < 260), (told, 430, True))
+        item = self.read({"id": told}, operation="conversation_history_get")["item"]
+        self.assertEqual((item["by"], item["channel"], item["chars"], item["truncated"], item["text"][:29]),
+                         ("ordubashy", "chat", 430, False, "The card ending 5521 paid it."))
+        self.assertEqual(item["after"], {"id": asked, "at": at(9), "preview": "Which card paid the Linden fee?"})
+        self.assertNotIn("followed_by", item)
+        # A thread message of the coordinator opens by its id too.
+        chat = create(self.runtime, "Where is the Linden contract kept?")
+        reply(self.runtime, chat, "In the Linden folder.")
+        self.stamp_thread("In the Linden folder.", at(12))
+        answer = next(hit for hit in self.read({"query": "linden folder"})["items"] if hit["by"] == "ordubashy")
+        opened = self.read({"id": answer["id"]}, operation="conversation_history_get")["item"]
+        self.assertEqual((opened["by"], opened["text"]), ("ordubashy", "In the Linden folder."))
+        # One message is read as its own bytes: every archive read names where it ends.
+        self.assertTrue(self.archives[self.lead].ends and all(end is not None for end in self.archives[self.lead].ends))
+
+    def test_a_reply_after_a_possibly_private_input_is_not_returned(self):
+        self.turn(self.lead, "the door code is 4417", at(9), redacted=True)
+        echoed = self.said(self.lead, "Saved the door code 4417.", at(9, 1))
+        self.turn(self.lead, "Thanks.", at(9, 10))
+        later = self.said(self.lead, "The door code is saved in Settings.", at(9, 11))
+        self.assertEqual([item["id"] for item in self.read({"query": "door code"})["items"]], [later])
+        self.assertEqual(self.refused(self.runtime.coordinator, "conversation_history_get", {"id": echoed}), "not_found")
+
+    def test_among_agents_only_the_ordubashy_role_is_allowed_the_conversation(self):
+        registry = self.runtime.application.registry
+        for name in ("conversation_history_search", "conversation_history_get"):
+            decide = lambda role, overrides=None: resolve_operation_policy(      # noqa: E731
+                name, {}, overrides or {}, registry, role_id=role, scope="global")
+            self.assertEqual((decide("ordubashy").mode, decide("ordubashy", {name: "deny"}).mode), ("allow", "deny"))
+            for role in ("worker", "learning-applier", None):
+                self.assertEqual((decide(role).mode, decide(role).provenance), ("deny", "conversation_history_ordubashy_only"), role)
+                # No override opens it to another role.
+                self.assertEqual(decide(role, {name: "allow"}).mode, "deny", role)
+        # A worker that reached the handler all the same is refused there too.
+        self.assertEqual(self.refused(self.runtime.worker, args={"query": "linden"}), "forbidden")
 
     def test_reading_writes_nothing(self):
         chat = create(self.runtime, "Did the supplier confirm?")
@@ -277,6 +406,7 @@ class OwnerInputsTests(unittest.TestCase):
             reads = uow.connection.execute("SELECT count(*) FROM owner_conversation_reads").fetchone()[0]
         self.read(ctx=self.runtime.owner)
         self.read({"last_n": 5})
+        self.read({"query": "contract"})
         with self.runtime.database.read() as uow:
             self.assertEqual(uow.connection.execute("SELECT count(*) FROM owner_conversation_reads").fetchone()[0], reads)
             self.assertEqual(uow.connection.execute("SELECT count(*) FROM native_reads").fetchone()[0], 0)
