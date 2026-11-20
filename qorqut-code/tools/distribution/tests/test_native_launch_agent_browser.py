@@ -114,6 +114,42 @@ class AgentBrowserInstallTests(unittest.TestCase):
             self.assertEqual(env['QORQUT_AGENT_BROWSER_EXECUTABLE'], '/opt/mine/agent-browser')
 
 
+class ShippedAgentBrowserTests(unittest.TestCase):
+    """A package that ships the tool never downloads it."""
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root)
+
+    def ship(self, place):
+        path = self.root / place
+        path.parent.mkdir(parents=True)
+        path.write_bytes(FAKE_BINARY)
+        path.chmod(0o755)
+        return path
+
+    def test_a_linux_package_ships_it_in_runtime_tools_and_nothing_is_downloaded(self):
+        shipped = self.ship('runtime/tools/agent-browser')
+        never = FakeDownload(error=AssertionError('downloaded although shipped'))
+        self.assertEqual(native_launch.ensure_agent_browser(self.root, download=never, system='Linux', machine='x86_64'),
+                         (shipped, None))
+        self.assertEqual(never.calls, [])
+        self.assertFalse((self.root / 'runtime/native').exists())      # that folder means bundled git and tmux
+
+    def test_the_service_is_given_the_shipped_copy(self):
+        shipped = self.ship('runtime/tools/agent-browser')
+        with mock.patch.dict(os.environ, {'HOME': str(self.root), 'PATH': '/usr/bin:/bin', 'QORQUT_TIMEZONE': 'UTC'}, clear=True):
+            env = native_launch.environment(self.root, self.root / 'home')
+        self.assertEqual(env['QORQUT_AGENT_BROWSER_EXECUTABLE'], str(shipped))
+
+    def test_a_self_contained_package_keeps_its_own_place(self):
+        shipped = self.ship('runtime/native/bin/agent-browser')
+        self.assertEqual(native_launch.shipped_agent_browser(self.root), shipped)
+
+    def test_a_copy_that_cannot_run_is_not_taken_as_shipped(self):
+        self.ship('runtime/tools/agent-browser').chmod(0o644)
+        self.assertIsNone(native_launch.shipped_agent_browser(self.root))
+
+
 class ChromeTests(unittest.TestCase):
     def test_missing_chrome_is_a_readiness_note(self):
         with mock.patch.object(native_launch, 'chrome_installed', return_value=False):
