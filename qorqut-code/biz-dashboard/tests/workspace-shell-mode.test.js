@@ -5,7 +5,6 @@ const fs=require('node:fs');
 const path=require('node:path');
 let chromium;
 try { ({chromium}=require('playwright')); } catch (_) {}
-if (!chromium) { try { ({chromium}=require(require('node:module').createRequire('/home/alp/qorqut/worktrees/draft-review/verification/').resolve('playwright'))); } catch (_) {} }
 const executable=process.env.CHROME_PATH || chromium?.executablePath();
 const available=!!chromium && fs.existsSync(executable);
 const browserTest=(name,run)=>test(name,{skip:!available && 'Local Playwright Chromium is unavailable'},run);
