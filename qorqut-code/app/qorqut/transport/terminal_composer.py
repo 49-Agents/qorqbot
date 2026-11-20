@@ -68,6 +68,11 @@ FOOTER_PHRASES = (
 # Codex's configurable status line (``  <model> · <directory>``), drawn in explicit 256-colour/RGB tints below the
 # composer and its blank separator row. Its colours are not the gray "dim" range, so it is recognized by shape instead.
 STATUS_SEPARATOR = " \u00b7 "
+# Claude Code 2.1.3 lists the conversation and its background agents below its footer while one of them runs: a bold
+# ``● main`` row (the filled marker is on the conversation the composer talks to), then one dim ``◯ <agent> …`` row per
+# agent, ending in that agent's own description. Seen on 2.1.287 and 2.1.329.
+AGENT_MAIN = re.compile(r"^\s{0,4}\u25cf\s+main\s*$")
+AGENT_ROW = re.compile(r"^\s{0,4}[\u25ef\u25cb]\s+\S")
 
 
 @dataclass(frozen=True)
@@ -205,11 +210,37 @@ def _codex_status_line(cells):
     return (text[:1].isspace() and STATUS_SEPARATOR in text and "plain" not in visible and "tinted" in visible)
 
 
+def _agent_list(client, rows, start):
+    """The row where Claude Code's agent list starts below the composer, or ``len(rows)`` when there is none.
+
+    The list is recognized only as a whole and only where the client draws it: below the input box's closing rule and a
+    blank row, the ``● main`` row, then nothing but dim ``◯ …`` rows and blank rows down to the bottom of the screen.
+    The rows from there on are chrome, and their wording is an agent's description, never a dialog or a spinner line. A
+    filled marker on any other row means the composer talks to that agent and not to the conversation, a row in another
+    style is something this module does not know, and ``● main`` inside the input box is typed text: none of those is the
+    list, so the rows keep their ordinary reading (not chrome)."""
+    if client != "claude":
+        return len(rows)
+    ruled = False
+    for index in range(start, len(rows)):
+        text = _text(rows[index])
+        if RULE.match(text):
+            ruled = True
+        elif AGENT_MAIN.match(text):
+            agents = rows[index + 1:]
+            if (ruled and index > start and _blank(rows[index - 1])
+                    and all(_blank(cells) or (AGENT_ROW.match(_text(cells)) and _chrome(cells)) for cells in agents)):
+                return index
+            break
+    return len(rows)
+
+
 def _trailing_chrome(client, rows, start):
     """Whether every row from ``start`` to the bottom is client chrome. For Codex this includes its status line, but only
-    once a blank row has separated it from the composer (the composer's own rows end before that blank row)."""
+    once a blank row has separated it from the composer (the composer's own rows end before that blank row). For Claude
+    Code it includes the agent list at the bottom."""
     separated = False
-    for index in range(start, len(rows)):
+    for index in range(start, _agent_list(client, rows, start)):
         cells = rows[index]
         if _blank(cells):
             separated = True
@@ -348,7 +379,7 @@ def read(client, raw, cursor=None, expect=None, allow_busy=False, allow_text=Fal
     if client == "claude" and top is None and not (row + 1 < len(rows) and RULE.match(_text(rows[row + 1]))):
         return result("unrecognized", "no_input_box")
     # Chrome only: the rows below the composer, and the rows directly above it (where a turn's status line is drawn).
-    below = [_text(rows[index]) for index in range(row + 1, len(rows))]
+    below = [_text(rows[index]) for index in range(row + 1, _agent_list(client, rows, row + 1))]
     above_from = (top if top is not None else row)
     above = [_text(rows[index]) for index in range(max(0, above_from - STATUS_ROWS_ABOVE), above_from)]
     if _contains("\n".join(below), MODAL_PHRASES):
@@ -404,7 +435,7 @@ def _pasted(client, rows, candidates, expect, cursor, result, allow_busy=False):
         end = _holds_paste(client, rows, first, expect, cursor)
         if end is None:
             continue
-        trailing = [_text(rows[index]) for index in range(end + 1, len(rows))]
+        trailing = [_text(rows[index]) for index in range(end + 1, _agent_list(client, rows, end + 1))]
         above = [_text(rows[index]) for index in range(max(0, first - STATUS_ROWS_ABOVE), first)]
         if _contains("\n".join(trailing), MODAL_PHRASES):
             return result("modal", "modal_dialog")
