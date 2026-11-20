@@ -649,7 +649,7 @@ class AgentBrowserManager:
         """``(connected, code, problem)`` for one agent. It is connected only when its record and its target file both name the
         Shared browser as it is recorded now. ``problem`` says why ``ensure`` cannot connect it, when it cannot."""
         if path_has_symlink(agent.workspace) or not agent.workspace.is_dir():
-            return False, "browser_workspace_unavailable", "This agent's folder isn't ready yet. Start the agent once; it is connected then."
+            return False, "browser_workspace_unavailable", "This agent's folder isn't ready yet. Send the agent a message in Chat once; it is connected then."
         record, configured = agent_state(self.paths, agent.agent_id) / MEMBERSHIP_FILE, agent.workspace / ".qorqut"
         if (path_has_symlink(record) or path_has_symlink(configured / "browser.json")
                 or (configured.exists() and not configured.is_dir())):

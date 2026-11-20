@@ -1,25 +1,21 @@
-"""The owner's one-time consent for Qorqbot to start Claude Code and Codex in its own agent folders.
+"""The owner's one-time consent for Qorqbot to start Claude Code in its own agent folders (Terminals mode).
 
-Each CLI asks once per folder whether to trust it, and Codex also asks the owner to review the hooks Qorqbot prepares. An
-automated start never types into those prompts, so without this consent Chat's Start button cannot bring an agent online.
-The same consent lets the owner type ``claude`` or ``codex`` in an agent's own terminal without those prompts. Qorqbot never
-starts an agent by itself: every start is the owner's, from Chat's Start button or the agent's terminal.
+Claude Code asks once per folder whether to trust it. A start that Qorqbot types into an agent's terminal never answers that
+prompt, so without this consent Chat's Start button cannot bring a terminal agent online. The same consent lets the owner type
+``claude`` in an agent's own terminal without the prompt.
 
-With consent, given on one dashboard screen that names both effects:
+With consent, given on one dashboard screen:
 
-* folder trust is recorded for Qorqbot's prepared agent workspaces only, in the CLIs' own files (``~/.claude.json`` and
-  ``~/.codex/config.toml``, honouring ``CLAUDE_CONFIG_DIR`` and ``CODEX_HOME``);
-* the prepared agent shell runs Codex with ``--dangerously-bypass-hook-trust`` in the agent's workspace root while the
-  consent file exists (``preparation.py`` reads :func:`marker_path`).
+* folder trust is recorded for Qorqbot's prepared agent workspaces only, in Claude Code's own file (``~/.claude.json``,
+  honouring ``CLAUDE_CONFIG_DIR``).
 
-The wrappers apply the hook bypass, connectors and role prompt only when the shell is in the agent's own workspace root
-(``preparation.py``); ``claude`` and ``codex`` run unchanged from any other folder. Only the workspace folder is recorded
-(see :func:`folder_keys`): a CLI can still ask the owner to trust an enclosing git repository, which the owner answers in the
+The wrapper applies the trust refresh and role prompt only when the shell is in the agent's own workspace root
+(``preparation.py``); ``claude`` runs unchanged from any other folder. Only the workspace folder is recorded (see
+:func:`folder_keys`): Claude Code can still ask the owner to trust an enclosing git repository, which the owner answers in the
 terminal.
 
-Nothing is written without consent. A folder the owner explicitly marked with another Codex trust level is left alone.
-Revoking removes the consent file, which stops the hook bypass for new launches; folder trust already recorded in a CLI's
-file stays, because it is that CLI's own record.
+Nothing is written without consent. Revoking removes the consent file; folder trust already recorded in Claude Code's file
+stays, because it is that client's own record. Codex configuration is never written: Codex agents do not run in terminals.
 """
 import fcntl
 import json
@@ -27,15 +23,15 @@ import os
 from pathlib import Path
 import tempfile
 import time
-import tomllib
 
+from qorqut.atomic_write import atomic_write as _atomic_write
 from qorqut_operations.contracts import DomainError, utc_now
 
 CONSENT_FILE = "agent-trust.json"
 # A CLI rewrites its own file while it runs. A changed file between read and replace is read again, a bounded number of times.
 WRITE_ATTEMPTS = 3
 
-TRUSTED, ALREADY, KEPT, UNAVAILABLE = "trusted", "already_trusted", "kept_owner_setting", "unavailable"
+TRUSTED, ALREADY, UNAVAILABLE = "trusted", "already_trusted", "unavailable"
 
 
 def marker_path(runtime_directory) -> Path:
@@ -65,7 +61,7 @@ def consent(runtime_directory, change=None) -> dict:
 
 def user_environment(environ=None) -> dict:
     """The invoking user's CLI paths. The Mac app runs the service with its own HOME and keeps the user's in
-    ``QORQUT_NATIVE_USER_ENV``; the CLIs started in agent terminals use the user's."""
+    ``QORQUT_NATIVE_USER_ENV``; the client started in an agent terminal uses the user's."""
     environ = os.environ if environ is None else environ
     try:
         native = json.loads(environ.get("QORQUT_NATIVE_USER_ENV") or "{}")
@@ -74,16 +70,11 @@ def user_environment(environ=None) -> dict:
     if not isinstance(native, dict):
         native = {}
     pick = lambda key: native[key] if key in native else environ.get(key)
-    return {"HOME": pick("HOME") or str(Path.home()), "CLAUDE_CONFIG_DIR": pick("CLAUDE_CONFIG_DIR"),
-            "CODEX_HOME": pick("CODEX_HOME")}
+    return {"HOME": pick("HOME") or str(Path.home()), "CLAUDE_CONFIG_DIR": pick("CLAUDE_CONFIG_DIR")}
 
 
 def claude_file(env) -> Path:
     return Path(env["CLAUDE_CONFIG_DIR"] or env["HOME"]) / ".claude.json"
-
-
-def codex_file(env) -> Path:
-    return Path(env["CODEX_HOME"] or Path(env["HOME"]) / ".codex") / "config.toml"
 
 
 def folder_keys(folder) -> list[str]:
@@ -124,52 +115,16 @@ def trust_claude(path: Path, folders) -> str:
     return UNAVAILABLE
 
 
-def trust_codex(path: Path, folders) -> str:
-    """Append ``[projects."<folder>"] trust_level = "trusted"`` for each folder Codex has no setting for. The file is
-    appended to, never re-serialized, so the owner's comments and layout are kept."""
-    if not path.parent.is_dir():
-        return UNAVAILABLE
-    path = Path(os.path.realpath(path))
-    for _ in range(WRITE_ATTEMPTS):
-        try:
-            before = path.stat() if path.exists() else None
-            text = path.read_text(encoding="utf-8") if before else ""
-            projects = tomllib.loads(text).get("projects", {})
-        except (OSError, ValueError, tomllib.TOMLDecodeError):
-            return UNAVAILABLE
-        if not isinstance(projects, dict):
-            return UNAVAILABLE
-        levels = [projects.get(key, {}).get("trust_level") if isinstance(projects.get(key), dict) else None for key in folders]
-        if all(level == "trusted" for level in levels):
-            return ALREADY
-        if any(level not in (None, "trusted") for level in levels):
-            return KEPT
-        # JSON string escapes are valid TOML basic-string escapes.
-        addition = "".join(f'\n[projects.{json.dumps(key)}]\ntrust_level = "trusted"\n'
-                           for key, level in zip(folders, levels) if level is None)
-        updated = text + ("" if not text or text.endswith("\n") else "\n") + addition
-        try:
-            check = tomllib.loads(updated)["projects"]
-        except (tomllib.TOMLDecodeError, KeyError):
-            return UNAVAILABLE
-        if any(check.get(key, {}).get("trust_level") != "trusted" for key in folders):
-            return UNAVAILABLE
-        if _replace_if_unchanged(path, before, updated.encode("utf-8")):
-            return TRUSTED
-        time.sleep(0.05)
-    return UNAVAILABLE
-
-
 def ensure(runtime_directory, folder, environ=None) -> dict | None:
     """Record folder trust for one agent workspace when the owner has consented; None when there is no consent."""
     if not marker_path(runtime_directory).exists():
         return None
     env, keys = user_environment(environ), folder_keys(folder)
-    return {"claude": trust_claude(claude_file(env), keys), "codex": trust_codex(codex_file(env), keys)}
+    return {"claude": trust_claude(claude_file(env), keys)}
 
 
 def owner_view(runtime, change=None, agent_id=None, environ=None) -> dict:
-    """The dashboard's view: consent and which CLIs are set up.
+    """The dashboard's view: consent and whether Claude Code is set up.
 
     Granting records folder trust for every active global agent's workspace at once; agents prepared later are trusted
     when they are started (``AgentTerminalBackend``). ``agent_id`` is accepted for compatibility and not used."""
@@ -188,9 +143,9 @@ def owner_view(runtime, change=None, agent_id=None, environ=None) -> dict:
 
 
 def clients(environ=None) -> dict:
-    """Which CLIs have a user configuration to record trust in."""
+    """Whether Claude Code has a user configuration to record trust in."""
     env = user_environment(environ)
-    return {"claude": claude_file(env).is_file(), "codex": codex_file(env).parent.is_dir()}
+    return {"claude": claude_file(env).is_file()}
 
 
 def _replace_if_unchanged(path: Path, before, content: bytes) -> bool:
@@ -208,23 +163,8 @@ def _replace_if_unchanged(path: Path, before, content: bytes) -> bool:
     return True
 
 
-def _atomic_write(path: Path, content: bytes, *, mode: int) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix="." + path.name + ".")
-    try:
-        os.fchmod(fd, mode)
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-
-
 def main(argv=None) -> int:
-    """``python -I -m qorqut.agent_trust ensure --runtime DIR --folder DIR``, run by an agent shell before claude or codex.
+    """``python -I -m qorqut.agent_trust ensure --runtime DIR --folder DIR``, run by an agent shell before claude.
 
     It never stands in the way of a launch: any failure is ignored and the exit status is always 0."""
     import argparse

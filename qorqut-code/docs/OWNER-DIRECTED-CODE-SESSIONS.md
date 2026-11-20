@@ -80,7 +80,7 @@ Global. Nested references and prepared targets retain the single-business
 binding; the existing shared-context reads remain available. Excluded entirely: agent administration,
 permission/grant administration, subscription/watchers, agent presence and
 work tracking, role workflow, managed bootstrap/checkpoint calls, background
-routines, terminal controls, credential issuance, account-wide email,
+routines, session controls, credential issuance, account-wide email,
 outbound sends, Signoff decisions, and every read-acknowledgement operation
 (`owner_conversation_mark_read` stays dashboard-only).
 

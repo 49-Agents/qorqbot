@@ -1,5 +1,7 @@
 # Qorqut agent platform
 
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 These are application contracts. The application is one shared service with an MCP and
 HTTP interface, explicit roles and optional capability plugins, database-backed
 operational records, and owner Signoffs for protected changes.

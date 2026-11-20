@@ -12,7 +12,7 @@ import threading
 
 from qorqut_operations.contracts import DomainError, canonical_hash, new_id, plain, utc_now
 from qorqut_operations.storage.repositories import decode_row
-from qorqut.agent_trust import _atomic_write
+from qorqut.atomic_write import atomic_write as _atomic_write
 from qorqut.management.identity import installation_owner
 
 TOOL = re.compile(r"^mcp__claude_ai_([A-Za-z0-9_-]{1,80}?)__([A-Za-z0-9_-]{1,120})$")

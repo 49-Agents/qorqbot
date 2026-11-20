@@ -294,7 +294,14 @@ class DelegatedRuntime:
 
     def command(self, assignment, registration, registration_path, thread_id):
         build = worker_command if self.runtime == "codex" else claude_worker_command
-        return build(assignment, registration, registration_path, executable=self.executable, thread_id=thread_id)
+        command = build(assignment, registration, registration_path, executable=self.executable, thread_id=thread_id)
+        # Only Qorqbot's own downloaded copy gets its no-self-update arguments (Codex's update check); the owner's never does.
+        command[1:1] = self._managed()["args"]
+        return command
+
+    def _managed(self):
+        from qorqut import agent_cli_launch
+        return agent_cli_launch.for_executable(RUNTIME_EXECUTABLES[self.runtime], self.executable)
 
     def environment(self, cwd):
         env = {"PATH": os.environ.get("PATH", os.defpath), "TERM": "dumb", "LANG": os.environ.get("LANG", "C.UTF-8")}
@@ -306,6 +313,7 @@ class DelegatedRuntime:
             # by the command line, not by hiding the home folder.
             env.update({name: os.environ[name] for name in CLAUDE_ENVIRONMENT if name in os.environ})
             env.setdefault("HOME", str(Path.home()))
+        env.update(self._managed()["env"])
         for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"):
             if name in os.environ:
                 env[name] = os.environ[name]

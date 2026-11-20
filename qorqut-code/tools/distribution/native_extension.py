@@ -367,13 +367,14 @@ def install(root, archive, expected, *, config=None, resume=False):
             for key in ('PIP_TARGET', 'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE'):
                 env.pop(key, None)
             env.update(PIP_CONFIG_FILE=os.devnull, PIP_NO_INDEX='1')
-            launcher.require_stopped_terminals(root, env)
+            launcher.require_no_terminal_agents(root, env)
+            launcher.stop_managed_hosts(root, env)
             # macOS process inspection uses the verified app environment's
             # psutil library. A fresh download has no such environment yet.
             launcher.prepare(root, env)
             launcher.stop_agent_browsers(root)
             if installation_processes(root):
-                raise ValueError('Stop this installation’s remaining browsers and helper processes before installing an extension')
+                raise ValueError('Stop this installation’s remaining agents, browsers and helper processes before installing an extension')
             launcher.initialize(root, env)
             if instance_lock is None:
                 instance_lock = lifetime.open('a')

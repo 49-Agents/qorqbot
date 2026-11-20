@@ -9,7 +9,6 @@ import argparse
 import fcntl
 import hashlib
 import importlib.util
-import json
 import os
 from pathlib import Path
 import shutil
@@ -156,10 +155,11 @@ def main(argv=None):
                 raise ValueError('Unrecorded update files remain; inspect them before another update')
             launcher.require_completed_extension_installs(runtime)
             env = launcher.environment(root, instance / 'home')
-            launcher.require_stopped_terminals(root, env)
+            launcher.require_no_terminal_agents(root, env)
+            launcher.stop_managed_hosts(root, env)
             launcher.stop_agent_browsers(root)
             if runtime_processes(runtime):
-                raise ValueError('Stop this installation’s remaining browsers and helper processes before updating')
+                raise ValueError('Stop this installation’s remaining agents, browsers and helper processes before updating')
             config = launcher.read_json(instance / 'config/extensions.json')
             bundled = {'qorqut_google_calendar.extension:create', launcher.TREG_FACTORY, launcher.OPENROUTER_FACTORY}
             if any(item.get('factory') not in bundled for item in config.get('extensions', ())):

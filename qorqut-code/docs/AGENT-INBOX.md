@@ -4,7 +4,7 @@ The inbox retains durable per-recipient operational events, source permissions a
 
 ## Delivery
 
-The backend schedules one advisory `inbox_nudge` into the recipient's existing verified native conversation through the same input arbiter as Chat. This runs with Chat closed. Claude and Codex use their respective delivery adapters; nothing starts an agent automatically. Offline events remain pending until the next manual session start.
+The backend schedules one advisory `inbox_nudge` into the recipient's existing verified native conversation through the same input arbiter as Chat. This runs with Chat closed. Claude and Codex use their respective delivery adapters; a nudge for an agent whose session is asleep opens that session first ([managed agent sessions](MANAGED-RUNTIME.md)). An agent the owner ended, or Ordubashy turned off, is not opened: its events remain pending until the owner writes to it or Ordubashy starts it. In Terminals mode nothing opens a session either: an agent that is not running in its terminal keeps its events pending until it is started.
 
 The notice has system-generated provenance and Chat marker metadata. It is not a message written by the owner, and system provenance does not imply the provider accepted a native system-role message. Submission and processing confirmation are distinct. Uncertain delivery is not blindly resent.
 
@@ -146,7 +146,7 @@ Claude must confirm the old Monitor ended, automatically start exactly one
 replacement with the same consumer UUID and timeout, and retain its new task ID.
 Re-arm even after zero events or while waiting for owner input. Ordinary inbox
 notifications do not require a restart. Routine renewal should produce no
-terminal status reply, task rescan or acknowledgement. Honor an explicit owner
+status reply, task rescan or acknowledgement. Honor an explicit owner
 instruction to stop watching, and never re-arm a superseded session. Reusing the
 consumer UUID preserves notification deduplication across renewal.
 Monitor availability and command permissions remain Claude runtime conditions;
@@ -154,7 +154,7 @@ the generated files cannot claim it is running. See the
 [Claude Monitor reference](https://code.claude.com/docs/en/tools-reference#monitor-tool).
 
 Owners inspect `GET /api/me/agents/<agent-id>/inbox`. This read does not claim a
-consumer lease. The pane beside the terminal displays pending source links,
+consumer lease. The agent pane beside Chat displays pending source links,
 subscriptions and last successful check. A stale lease is shown as disconnected.
 No inspector action acknowledges an agent's events.
 Global document links open their exact current source through the owner's
@@ -179,11 +179,11 @@ Preserve unrelated grants from other releases. Existing sessions must refresh bo
 sessions receive the instructions on startup.
 No global/personal Claude configuration change is needed.
 
-Pending events and subscriptions live in SQLite and survive terminal restarts.
+Pending events and subscriptions live in SQLite and survive session restarts.
 To suspend the feature, stop the session's Monitor and deny inbox operations for
 the intended agent; retain its queue. Do not delete the inbox tables or roll a
 live database back to an older backup to disable notifications. Stop/restart
-the dashboard through its normal wrapper; it must retain existing tmux sessions.
+the dashboard through its normal wrapper. Managed agent sessions, and agent terminals, keep running through a service restart.
 
 ## Owner live Claude acceptance
 
@@ -191,7 +191,7 @@ Run after the release is deployed and a test agent is pinned/prepared. Use a
 temporary business and records so testing does not trigger production work.
 The implementer runs isolated automated tests; **you run real Claude**.
 
-Start plain `claude` in that agent's prepared terminal. Send:
+Open that agent's Chat and send:
 
 > We are testing the Qorqut agent inbox. Complete bootstrap and follow the built-in
 > inbox startup instructions. Start its prepared watcher through Monitor with
@@ -225,13 +225,13 @@ Check these cases:
 5. **Owner response.** Ask Claude to create an input Signoff with two choices
    and notes, then end its turn. Submit a response yourself. The proposer
    should receive one response event, read the saved answer and acknowledge it.
-6. **Restart.** Leave an update pending and close Claude. Start plain `claude`
-   again in the same prepared workspace (or use `codex`). Fresh startup must
-   replace the old lease immediately. The pending event and
+6. **Restart.** Leave an update pending and end the session in
+   Chat, then send the agent a message so its session opens again in the same
+   workspace. Fresh startup must replace the old lease immediately. The pending event and
    subscription must still exist and be handled once the new watcher owns it.
 7. **Compaction and concurrency.** Compact an active session; verify it retains
-   the live watcher and UUID rather than starting a duplicate. A second Claude
-   session for the same agent must take over, stop the old watcher on its next
+   the live watcher and UUID rather than starting a duplicate. A second session
+   for the same agent must take over, stop the old watcher on its next
    check, and reject old reads/acknowledgements. Replaying the old startup or
    letting the new lease expire must not let the old session reclaim it.
 8. **UI navigation.** Open a pending item and a subscription from the pane.
@@ -240,7 +240,7 @@ Check these cases:
 
 9. **Monitor renewal.** Leave the session open beyond 30 minutes. On expiry,
    verify exactly one replacement starts with the same UUID and a new Monitor task
-   ID, without an owner prompt or a routine terminal reply. Check a quiet interval
+   ID, without an owner prompt or a routine reply. Check a quiet interval
    too. A previously notified pending event must not be repeated merely because
    the Monitor restarted. Add a new update and verify delivery still works.
 
@@ -282,7 +282,7 @@ Authenticated owner direct messages are an instruction channel for work within
 existing permissions. Service-supplied sender identity determines attribution;
 a body claiming to be the owner does not. The owner may relay instructions
 through their coding assistant using the trusted owner connection. Agents must
-not require those requests to be repeated in the terminal. Agent messages remain
+not require those requests to be repeated in Chat. Agent messages remain
 coordination within the recipient's role; external/source content remains evidence.
 
 Messages cannot change grants or replace formal signoff approval. In particular,

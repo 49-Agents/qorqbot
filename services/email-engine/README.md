@@ -137,7 +137,7 @@ Existing cached messages, send receipts, history and shared quota reservations
 remain intact. Core imports the new route through its ordinary business email
 projection. Deploy this engine and core's business email tools together, configure
 the same private administration token on both services, then adopt the updated
-Ordubashy role. Registration itself does not restart services or agent terminals.
+Ordubashy role. Registration itself does not restart services or agent sessions.
 
 ### Business mailbox views and ownership hints
 

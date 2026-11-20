@@ -343,7 +343,7 @@ class SupervisorImports(unittest.TestCase):
     def test_listing_a_browsers_pages_needs_nothing_of_the_application(self):
         import sys
         from qorqut.browser import control
-        blocked = {name: None for name in ("qorqut.browser.sign_in", "qorqut.browser.agent_browsers", "qorqut.agent_trust")}
+        blocked = {name: None for name in ("qorqut.browser.sign_in", "qorqut.browser.agent_browsers", "qorqut.atomic_write")}
         with mock.patch.dict(sys.modules, blocked), \
                 mock.patch.object(control, "devtools_json", return_value=[page(), {"type": "iframe"}, "junk"]) as asked:
             self.assertEqual(idle_tabs.pages(20400), [page()])

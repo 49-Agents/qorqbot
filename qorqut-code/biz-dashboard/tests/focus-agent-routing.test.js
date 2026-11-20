@@ -9,10 +9,10 @@ function roster(){
  let selectionVersion=0, selected='a', gated=false;
  let _agpad={agentId:'a',view:'focus',workspaceFrame:{},journalMount:null};
  const root={},c={},pane={dataset:{},querySelector(){return null;}},agents=[{agent_id:'a',role:{id:'ordubashy'}},{agent_id:'b',role:{id:'global-worker'}},{agent_id:'c',role:{id:'global-worker'}}];
- const current=()=>true,globalWorkspaceTerminal=()=>null,overseerRole=()=>false,testingModeEnabled=()=>true;
+ const current=()=>true,overseerRole=()=>false,testingModeEnabled=()=>true;
  const enterComingSoon=()=>{},leaveComingSoon=()=>{},paintSelection=()=>{},disposeChat=()=>{},ls=()=>{};
  const agentWorkspaceCanLeave=p=>api.guard(p),agpadRequestView=(p,v)=>api.request(p,v),agpadShownView=p=>p?.view;
- const mountAgentView=()=>{},mountTerminal=()=>{},agviewboxReveal=()=>{};
+ const mountAgentView=()=>{},agviewboxReveal=()=>{};
  const agpadMount=(name,el,opts)=>{_agpad={agentId:opts.agentId,view:opts.initialView||'focus'};};
  const $=(selector)=>selector==='.global-agents'?root:{};
  ${selectCode}\n${openCode}

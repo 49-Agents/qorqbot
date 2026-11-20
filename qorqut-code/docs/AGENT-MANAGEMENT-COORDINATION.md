@@ -95,7 +95,7 @@ a finished Stop (a notification-started turn), stores it in the session's activi
 checkpoint and uses it at Stop; a correction continues under the same marker.
 The Claude path is covered by fixtures only; a live session check belongs to the
 owner. Protocol 1 disables the older periodic mid-turn reminder for that client.
-No personal Claude/Codex configuration or production terminal is involved.
+No personal Claude/Codex configuration or production session is involved.
 
 The reminder improves update discipline; it provides no continuity. A crash,
 forced termination, killed hook or lost service response can skip it, and work not
@@ -114,7 +114,7 @@ Older exact-event v2 text needs saved delivery provenance. Count-only v1 text
 cannot prove its source and is not automatically cancelled; quoted text and an
 unknown UUID cannot cancel an ordinary user prompt. The five-minute polling
 cadence is unchanged. Watcher version 3 replaces an older helper on normal
-re-preparation without requiring a terminal restart. Native hook configuration
+re-preparation without requiring a session restart. Native hook configuration
 changes may still require the CLI's normal reload/restart behavior.
 
 ## Model-free incident reporting
@@ -180,10 +180,10 @@ these bounds alone; full production load measurement remains a rollout check.
 ## Verification and adoption
 
 Ordubashy runs on Codex or Claude Code. Every prepared workspace carries both
-clients' hooks and instructions, so the owner starts whichever CLI they choose in
-Ordubashy's own terminal, and management intake, delegated answers and the Focus
+clients' hooks and instructions, so the owner chooses the CLI Ordubashy runs in
+Settings > Agents, and management intake, delegated answers and the Focus
 board and automatic durable workers follow that session. The profile `runtime` is only the
-default: the CLI that terminal control starts and that Chat names first. Change it
+default: the CLI used until a client is chosen there, which Chat names first. Change it
 with `agents_update` and `changes={"runtime":"codex"}` or `{"runtime":"claude-code"}`;
 the agent identity and records stay the same in both directions.
 
@@ -205,7 +205,7 @@ Verify coordinator identity, role/runtime, current memberships, protocol version
 system reporter health by readback, and check one agent's management/current-work/inbox
 workflow before broader adoption. A source merge alone is not evidence of adoption.
 
-Observable technical failures are the detection boundary. Absence, idle terminals,
+Observable technical failures are the detection boundary. Absence, idle sessions,
 or a stale heartbeat cannot distinguish a native crash from normal exit, so this
 release does not auto-file native-crash tickets. Failures before authentication,
 host loss and simultaneous database/spool unavailability cannot guarantee durable

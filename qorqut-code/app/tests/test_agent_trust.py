@@ -1,4 +1,6 @@
-"""Owner consent lets Qorqbot record folder trust for its own agent workspaces, and nothing is written without it."""
+"""Owner consent lets Qorqbot record Claude Code folder trust for its own agent workspaces (Terminals mode), and nothing is written without it.
+
+Every path points into a temporary folder; the real user's CLI files are never read or written."""
 import isolated_cli_environment  # before any Qorqbot import: tests never touch the real user's CLI files
 
 from contextlib import contextmanager
@@ -8,7 +10,6 @@ import shutil
 from pathlib import Path
 import sqlite3
 import tempfile
-import tomllib
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -23,7 +24,7 @@ class Base(unittest.TestCase):
         isolated_cli_environment.isolate(self)
         self.root = Path(tempfile.mkdtemp())
         self.home = self.root / "home"
-        (self.home / ".codex").mkdir(parents=True)
+        self.home.mkdir(parents=True)
         self.runtime = self.root / "runtime"
         self.runtime.mkdir()
         self.folder = self.root / "agents" / "ordubashy"
@@ -35,9 +36,6 @@ class Base(unittest.TestCase):
 
     def claude_data(self):
         return json.loads((self.home / ".claude.json").read_text())
-
-    def codex_text(self):
-        return (self.home / ".codex" / "config.toml").read_text()
 
 
 class ConsentTests(Base):
@@ -70,12 +68,10 @@ class EnvironmentTests(Base):
     def test_the_users_paths_win_over_the_apps(self):
         env = trust.user_environment(self.environ)
         self.assertEqual(trust.claude_file(env), self.home / ".claude.json")
-        self.assertEqual(trust.codex_file(env), self.home / ".codex" / "config.toml")
 
     def test_cli_config_directories_are_honoured(self):
-        env = trust.user_environment({"HOME": str(self.home), "CLAUDE_CONFIG_DIR": "/c", "CODEX_HOME": "/x"})
+        env = trust.user_environment({"HOME": str(self.home), "CLAUDE_CONFIG_DIR": "/c"})
         self.assertEqual(trust.claude_file(env), Path("/c/.claude.json"))
-        self.assertEqual(trust.codex_file(env), Path("/x/config.toml"))
 
     def test_symlinked_folders_are_keyed_both_ways(self):
         link = self.root / "link"
@@ -126,56 +122,27 @@ class ClaudeTests(Base):
         self.assertTrue(data["projects"]["/a"]["hasTrustDialogAccepted"])
 
 
-class CodexTests(Base):
-    def path(self):
-        return self.home / ".codex" / "config.toml"
-
-    def test_trust_is_appended_and_comments_kept(self):
-        self.path().write_text('# mine\nmodel = "x"\n\n[projects."/b"]\ntrust_level = "trusted"\n')
-        self.assertEqual(trust.trust_codex(self.path(), ['/a "q"']), trust.TRUSTED)
-        text = self.codex_text()
-        self.assertTrue(text.startswith('# mine\nmodel = "x"\n'))
-        projects = tomllib.loads(text)["projects"]
-        self.assertEqual(projects['/a "q"'], {"trust_level": "trusted"})
-        self.assertEqual(projects["/b"], {"trust_level": "trusted"})
-
-    def test_missing_file_is_created_when_codex_is_set_up(self):
-        self.assertEqual(trust.trust_codex(self.path(), ["/a"]), trust.TRUSTED)
-        self.assertEqual(tomllib.loads(self.codex_text())["projects"]["/a"]["trust_level"], "trusted")
-        self.assertEqual(trust.trust_codex(self.path(), ["/a"]), trust.ALREADY)
-
-    def test_no_codex_directory_is_unavailable(self):
-        self.assertEqual(trust.trust_codex(self.root / "nowhere" / "config.toml", ["/a"]), trust.UNAVAILABLE)
-
-    def test_an_explicit_owner_setting_is_kept(self):
-        original = '[projects."/a"]\ntrust_level = "untrusted"\n'
-        self.path().write_text(original)
-        self.assertEqual(trust.trust_codex(self.path(), ["/a"]), trust.KEPT)
-        self.assertEqual(self.codex_text(), original)
-
-    def test_a_file_that_cannot_take_an_appended_table_is_left_alone(self):
-        for original in ('projects = { "/b" = { trust_level = "trusted" } }\n', "not = = toml"):
-            with self.subTest(original=original):
-                self.path().write_text(original)
-                self.assertEqual(trust.trust_codex(self.path(), ["/a"]), trust.UNAVAILABLE)
-                self.assertEqual(self.codex_text(), original)
-
-
 class EnsureTests(Base):
     def test_without_consent_nothing_is_written(self):
         self.claude({"projects": {}})
         self.assertIsNone(trust.ensure(self.runtime, self.folder, self.environ))
         self.assertEqual(self.claude_data(), {"projects": {}})
-        self.assertFalse((self.home / ".codex" / "config.toml").exists())
 
-    def test_with_consent_both_clis_trust_the_folder(self):
+    def test_codex_configuration_is_never_written(self):
+        self.claude({"projects": {}})
+        (self.home / ".codex").mkdir()
+        trust.consent(self.runtime, {"granted": True})
+        trust.ensure(self.runtime, self.folder, self.environ)
+        self.assertEqual(list((self.home / ".codex").iterdir()), [])
+        self.assertFalse(hasattr(trust, "trust_codex"))
+
+    def test_with_consent_claude_code_trusts_the_folder(self):
         self.claude({"projects": {}})
         trust.consent(self.runtime, {"granted": True})
         result = trust.ensure(self.runtime, self.folder, self.environ)
-        self.assertEqual(result, {"claude": trust.TRUSTED, "codex": trust.TRUSTED})
+        self.assertEqual(result, {"claude": trust.TRUSTED})
         key = os.path.realpath(self.folder)
         self.assertTrue(self.claude_data()["projects"][key]["hasTrustDialogAccepted"])
-        self.assertEqual(tomllib.loads(self.codex_text())["projects"][key]["trust_level"], "trusted")
 
 
 class OwnerViewTests(Base):
@@ -251,44 +218,26 @@ class FolderKeysTest(Base):
                 self.assertEqual(trust.folder_keys(link), [os.path.abspath(link), os.path.realpath(agent)])
                 self.assertEqual(trust.folder_keys(str(link) + "/"), [os.path.abspath(link), os.path.realpath(agent)])
 
-    def test_ensure_records_only_the_workspace_in_both_clis(self):
+    def test_ensure_records_only_the_workspace(self):
         trust.consent(self.runtime, {"granted": True})
         for name, (base, agent) in self.layouts().items():
             with self.subTest(name):
                 self.claude({"projects": {"/mine": {"hasTrustDialogAccepted": False}}})
-                (self.home / ".codex" / "config.toml").write_text('model = "x"\n')
-                self.assertEqual(trust.ensure(self.runtime, agent, self.environ), {"claude": trust.TRUSTED, "codex": trust.TRUSTED})
+                self.assertEqual(trust.ensure(self.runtime, agent, self.environ), {"claude": trust.TRUSTED})
                 keys = self.only(agent)
                 projects = self.claude_data()["projects"]
                 self.assertEqual(set(projects), {"/mine", *keys})
                 self.assertTrue(all(projects[key]["hasTrustDialogAccepted"] is True for key in keys))
-                codex = tomllib.loads(self.codex_text())["projects"]
-                self.assertEqual(codex, {key: {"trust_level": "trusted"} for key in keys})
                 for ancestor in (agent.parent, base / "instance" / "operations", base / "instance", base):
                     self.assertNotIn(os.path.realpath(ancestor), projects)
-                    self.assertNotIn(os.path.realpath(ancestor), codex)
 
     def test_the_agent_shell_command_records_only_the_workspace_too(self):
         trust.consent(self.runtime, {"granted": True})
         base, agent = self.layouts()["the operations repository"]
         self.claude({"projects": {}})
-        with mock.patch.dict(os.environ, {"HOME": str(self.home), "CLAUDE_CONFIG_DIR": str(self.home),
-                                          "CODEX_HOME": str(self.home / ".codex")}):
+        with mock.patch.dict(os.environ, {"HOME": str(self.home), "CLAUDE_CONFIG_DIR": str(self.home)}):
             self.assertEqual(trust.main(["ensure", "--runtime", str(self.runtime), "--folder", str(agent)]), 0)
         self.assertEqual(set(self.claude_data()["projects"]), set(self.only(agent)))
-        self.assertEqual(set(tomllib.loads(self.codex_text())["projects"]), set(self.only(agent)))
-
-    def test_codex_levels_the_owner_set_are_kept(self):
-        trust.consent(self.runtime, {"granted": True})
-        base, agent = self.layouts()["the operations repository"]
-        self.claude({"projects": {}})
-        enclosing = os.path.realpath(base / "instance" / "operations")
-        original = f'# mine\n[projects.{json.dumps(os.path.realpath(agent))}]\ntrust_level = "untrusted"\n' \
-                   f'[projects.{json.dumps(enclosing)}]\ntrust_level = "untrusted"\n'
-        (self.home / ".codex" / "config.toml").write_text(original)
-        result = trust.ensure(self.runtime, agent, self.environ)
-        self.assertEqual(result["codex"], trust.KEPT)
-        self.assertEqual(self.codex_text(), original)
 
     def test_nothing_is_recorded_after_the_owner_revokes(self):
         trust.consent(self.runtime, {"granted": True})
@@ -297,11 +246,10 @@ class FolderKeysTest(Base):
         self.claude({"projects": {}})
         self.assertIsNone(trust.ensure(self.runtime, agent, self.environ))
         self.assertEqual(self.claude_data(), {"projects": {}})
-        self.assertFalse((self.home / ".codex" / "config.toml").exists())
 
 
 class MainTest(unittest.TestCase):
-    """What an agent shell runs before claude or codex."""
+    """What an agent shell runs before claude."""
 
     def setUp(self):
         isolated_cli_environment.isolate(self)

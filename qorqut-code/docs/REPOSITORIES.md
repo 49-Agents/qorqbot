@@ -23,7 +23,7 @@ input metadata, not a requirement of the publication layout. Neither exporter pu
 
 | Repository | Responsibility |
 |---|---|
-| `qorqut-code` | Application host: composition, database and migrations, permissions, Signoffs, catalog, MCP and HTTP transports, native chat and bootstrap, background jobs, browser/terminal support and everyday integrations. |
+| `qorqut-code` | Application host: composition, database and migrations, permissions, Signoffs, catalog, MCP and HTTP transports, native chat and bootstrap, background jobs, browser and managed agent session support and everyday integrations. |
 | `qorqut-operations` | Portable Operations engine: authority, application and storage contract, Projects, Tasks/Actions, tags, relationships, operational tables, assets, source documents and exact document history, inbox, Signoffs, routines, background services and the snapshot engine. A library; it starts no thread or store until the host invokes it, and it imports nothing from the host, Context or an extension. |
 | `qorqut-context` | Shared Context engine: knowledge graph, evidence, propagation, publication and graph history, with no dependencies. Its `qorqut_context.integration` package (extra `integration`, which requires `qorqut-operations`) owns the Context queue, filing, graph edits, reads, questions, usage and recovery that connect it to Operations. |
 | `biz-dashboard` | Owner dashboard (static frontend and its small local helpers). Served by the host. |
@@ -77,8 +77,8 @@ discovery and assignment; no marketplace repository or service is needed.
 ## Compatibility names
 
 The Python distribution and import (`qorqut-core`, `qorqut`), `QORQUT_*` and
-`BIZ_*` environment variables, MCP key/tool namespace, generated skill names, tmux
-socket, `.qorqut` storage directories, saved history refs and internal identifiers
+`BIZ_*` environment variables, MCP key/tool namespace, generated skill names, the former tmux
+socket name (now read only by the managed cutover tool), `.qorqut` storage directories, saved history refs and internal identifiers
 such as `business_id` and `business_create` remain stable compatibility identifiers.
 Renaming them would change active integrations and stored receipts.
 

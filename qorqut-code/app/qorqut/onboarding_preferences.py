@@ -8,7 +8,9 @@ import tempfile
 
 from qorqut_operations.contracts import DomainError
 
-# Saved step ids, in walkthrough order. Removing an id makes saved progress unreadable, so ids are only added.
+# Saved step ids, in walkthrough order. Removing an id makes saved progress unreadable, so ids are not removed. "terminal" and
+# "start" belong to steps the walkthrough no longer has; they stay so progress saved earlier still loads (the dashboard resumes
+# such progress at the next existing step), and nothing new is added for them.
 STEPS = ("assistant", "terminal", "start", "focus", "attention", "activity", "calendar", "journal",
          "projects", "signoffs", "learning", "context", "settings", "privacy", "connect-overview", "browser-setup", "chat",
          "connectors", "connect-more")

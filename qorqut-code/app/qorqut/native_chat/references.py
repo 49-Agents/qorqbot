@@ -1,6 +1,6 @@
 """The identity-only references of ``request_user_input``: one pure contract for the tool, the archive projection and the owner view.
 
-A reference names an existing Task, Signoff, Project, configured browser, registered agent, delta or open browser tab by
+A reference names an existing Task, Signoff, Project, configured browser, delta or open browser tab by
 identity only. It carries no label, state, URL or decision; those are resolved from current records at the owner boundary,
 never taken from the model. Nothing here reads a database, a configuration or an archive."""
 
@@ -9,9 +9,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT, TYPE_PROJECT, TYPE_DELTA, TYPE_TAB = (
-    "task", "signoff", "browser", "agent", "project", "delta", "tab")
-TYPES = (TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_AGENT, TYPE_PROJECT, TYPE_DELTA, TYPE_TAB)
+TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_PROJECT, TYPE_DELTA, TYPE_TAB = (
+    "task", "signoff", "browser", "project", "delta", "tab")
+TYPES = (TYPE_TASK, TYPE_SIGNOFF, TYPE_BROWSER, TYPE_PROJECT, TYPE_DELTA, TYPE_TAB)
+# The agent reference ({type: "agent", id}) is retired: the tool refuses it, and an archived presentation that carries one
+# is still shown, without it.
+RETIRED_TYPES = ("agent",)
 VERSION = 1
 MAX_MESSAGE_CHARS = 4000
 MAX_REFERENCES = 8
@@ -38,14 +41,14 @@ def _reference(raw: Any) -> dict:
         raise InputError("Each reference is {type, id} with an optional business_id")
     kind, identity, business = raw["type"], raw["id"], raw.get("business_id")
     if kind not in TYPES:
-        raise InputError("Reference type must be task, signoff, browser, agent, project, delta or tab")
+        raise InputError("Reference type must be task, signoff, browser, project, delta or tab")
     pattern = SURFACE_ID if kind == TYPE_BROWSER else TASK_ID if kind == TYPE_TASK else TAB if kind == TYPE_TAB else UUID
     if not isinstance(identity, str) or not pattern.fullmatch(identity):
-        raise InputError("A task reference id is its Task id; a signoff, agent, project or delta reference id is its UUID; a "
+        raise InputError("A task reference id is its Task id; a signoff, project or delta reference id is its UUID; a "
                          "browser reference id is a managed Global browser id from browser_turn list, never an agent ID; a tab "
                          "reference id is the reference printed by the browser command tab-reference")
-    if kind in (TYPE_AGENT, TYPE_DELTA, TYPE_TAB) and business is not None:
-        raise InputError("An agent, delta or tab reference is {type, id} only; its business_id is absent or null")
+    if kind in (TYPE_DELTA, TYPE_TAB) and business is not None:
+        raise InputError("A delta or tab reference is {type, id} only; its business_id is absent or null")
     if business is not None and (not isinstance(business, str) or not UUID.fullmatch(business)):
         raise InputError("business_id is the record's owning business UUID, or null for Global")
     if kind == TYPE_PROJECT and business != identity:
@@ -83,17 +86,28 @@ def normalize(message: Any, references: Any = None) -> dict:
 
 def presentation(value: Any) -> dict | None:
     """A stored ``user_input`` result re-validated to exactly the shape the tool returns, or ``None``. The archive is read-only
-    evidence, so anything that is not that exact shape (extra fields, another version, a bad reference) is not a presentation."""
+    evidence, so anything that is not that exact shape (extra fields, another version, a bad reference) is not a presentation.
+    A reference of a retired type, as the tool once returned it, is left out and the rest is kept."""
     if not isinstance(value, dict) or set(value) != {"version", "message", "references"} or value["version"] != VERSION:
         return None
+    stored = value["references"]
+    if not isinstance(stored, list) or len(stored) > MAX_REFERENCES:
+        return None
+    kept = [raw for raw in stored if not _retired(raw)]
     try:
-        normal = normalize(value["message"], value["references"])
+        normal = normalize(value["message"], kept)
     except InputError:
         return None
     # The tool coalesces duplicates and trims, so a faithful result is already in that form.
-    if normal["message"] != value["message"] or normal["references"] != value["references"]:
+    if normal["message"] != value["message"] or normal["references"] != kept:
         return None
     return normal
+
+
+def _retired(raw: Any) -> bool:
+    """A stored reference of a retired type in the exact form the tool returned: ``{type, id, business_id: null}``, a UUID id."""
+    return (isinstance(raw, dict) and set(raw) == {"type", "id", "business_id"} and raw["type"] in RETIRED_TYPES
+            and isinstance(raw["id"], str) and bool(UUID.fullmatch(raw["id"])) and raw["business_id"] is None)
 
 
 def unavailable(kind: str, identity: str, business_id: str | None) -> dict:

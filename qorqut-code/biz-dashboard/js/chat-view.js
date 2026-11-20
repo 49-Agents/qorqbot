@@ -389,12 +389,6 @@ function chatViewTypedChip(ref, cls) {
     dot.append(Object.assign(document.createElement('span'), {className: 'core'}));
     chip.append(dot);
   }
-  // Agent: the shared identity glyph (Tiny Spirit) before the current display name; informational, like native Chat's recipients.
-  if (ref.type === 'agent' && ref.available !== false && typeof agentGlyph === 'function') {
-    const icon = document.createElement('span'); icon.className = 'gchat-agent-icon'; icon.setAttribute('aria-hidden', 'true');
-    icon.innerHTML = agentGlyph({...(ref.presentation || {}), agent_id: ref.id, display_name: ref.label, role: ref.role}, 18);
-    chip.append(icon);
-  }
   const label = document.createElement('span'); label.textContent = ref.label || '';
   chip.append(label);
   // The status ball already shows the state; keep its word only as clipped text for the accessible name, never as a visible label.
@@ -506,11 +500,6 @@ function chatViewTypedMount(ref, host, options, entryKey) {
     };
     update(ref);
     return {el:button,update(next){update(next);return true;},dispose(){button.remove();}};
-  }
-  if (ref.type === 'agent') {
-    const item = {el: chatViewTypedChip(ref, 'gchat-agent-reference'), dispose() { item.el.remove(); }};
-    item.update = next => next.available !== false && (item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-agent-reference').childNodes), true);
-    return item;
   }
   if (ref.type === 'delta') {
     const el = document.createElement('button'); el.type = 'button'; el.className = 'gchat-reference';
@@ -1079,7 +1068,8 @@ function mountChatView(host, options = {}) {
     node._typedHost?.remove(); node._typedHost = null;
   }
   function paintTyped(node, entry) {
-    const refs = entry.referenceOnly || (entry.speaker === 'agent' && entry.partial !== true) ? (entry.typedReferences || []) : [];
+    // Agent references are retired: one from an older message or server is not drawn.
+    const refs = (entry.referenceOnly || (entry.speaker === 'agent' && entry.partial !== true) ? (entry.typedReferences || []) : []).filter(ref => ref.type !== 'agent');
     if (!refs.length) { if (node._typedHost) disposeTyped(node); return; }
     if (!node._typedHost) {
       node._typedHost = document.createElement('div'); node._typedHost.className = 'gchat-typed';
@@ -1102,11 +1092,11 @@ function mountChatView(host, options = {}) {
       }
       next.set(key, item);
       // Only a resolved Task is a flat attachment row; every other typed reference keeps its own component.
-      sequence.push({key, view: item, kind: ref.type === 'agent' ? 'agent' : (['table', 'task'].includes(ref.type) && available ? 'attachment' : null)});
+      sequence.push({key, view: item, kind: ['table', 'task'].includes(ref.type) && available ? 'attachment' : null});
     }
     for (const [key, item] of node._typed) if (!next.has(key)) item.dispose();
     node._typed = next;
-    // Consecutive agents and attachments each share a group while retaining canonical reference order.
+    // Consecutive attachments share a group while retaining canonical reference order.
     const slots = [];
     let run = null;
     for (const mounted of sequence) {
@@ -1119,8 +1109,8 @@ function mountChatView(host, options = {}) {
       const key = JSON.stringify([slot.kind, slot.items[0].key]);
       let container = node._typedGroups.get(key);
       if (!container) {
-        container = document.createElement('div'); container.className = slot.kind === 'agent' ? 'gchat-agent-references' : 'gchat-attachment';
-        container.setAttribute('role', 'group'); container.setAttribute('aria-label', slot.kind === 'agent' ? 'Agent references' : 'Table and record references');
+        container = document.createElement('div'); container.className = 'gchat-attachment';
+        container.setAttribute('role', 'group'); container.setAttribute('aria-label', 'Table and record references');
       }
       groups.set(key, container);
       let rowCursor = container.firstChild;
@@ -1180,10 +1170,10 @@ function mountChatView(host, options = {}) {
     node.dataset.inputId = item.key; node.dataset.state = item.state || ''; node.dataset.inputType = item.inputType || '';
     node.dataset.resendable = String(!!item.resendable);
     const signature = JSON.stringify([item.state, item.stateLabel, item.text, item.notice?.label, !!item.resendable, item.collapsedSource,
-      (item.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
+      (item.actions || []).map(action => [action.key, action.label, !!action.disabled, action.title || ''])]);
     if (node.chatSignature !== signature) {
       node.chatSignature = signature;
-      const actions = (item.actions || []).map(action => `<button type="button" class="quiet" data-pending-action="${esc(action.key)}" data-${esc(action.key)}="${esc(item.key)}" ${action.disabled ? 'disabled' : ''}>${esc(action.label)}</button>`).join('');
+      const actions = (item.actions || []).map(action => `<button type="button" class="quiet" data-pending-action="${esc(action.key)}" data-${esc(action.key)}="${esc(item.key)}" ${action.disabled ? `disabled${action.title ? ` title="${esc(action.title)}"` : ''}` : ''}>${esc(action.label)}</button>`).join('');
       node.innerHTML = `${item.collapsedSource === 'telegram' ? telegramBody(item.text) : `<div class="gchat-body">${markerHtml(item.notice)}${item.text ? `<span class="gchat-text">${speaker === 'user' ? renderSafeLinks(item.text) : esc(item.text)}</span>` : ''}</div>`}
         <span class="gchat-state" data-state="${esc(item.state || '')}">${esc(item.stateLabel || '')}</span>
         ${actions ? `<span class="gchat-pending-actions">${actions}</span>` : ''}`;
@@ -1202,15 +1192,21 @@ function mountChatView(host, options = {}) {
     form.hidden = !!c.hidden;
     input.disabled = !!c.inputDisabled; send.disabled = !!c.sendDisabled;
     if (attach) attach.disabled = !!c.inputDisabled || !!c.filesDisabled;
-    mic?.setLocked(!!c.hidden || !!c.inputDisabled);
+    mic?.setLocked(!!c.hidden || !!c.inputDisabled, c.disabledReason || '');
+    // A control that is off says why, in plain words, and says what it is for again when it is on.
+    const why = c.inputDisabled ? c.disabledReason || '' : '';
+    if (c.inputDisabled) input.title = why; else input.removeAttribute('title');
+    send.title = c.sendDisabled ? why || c.sendingReason || '' : '';
+    if (!send.title) send.removeAttribute('title');
+    if (attach) attach.title = c.inputDisabled ? why || 'Attach files' : c.filesDisabled ? c.filesReason || 'Attach files' : 'Attach files';
     const files = c.attachments || [];
     attachments.hidden = !files.length;
-    const signature = JSON.stringify([files, !!c.filesDisabled]);
+    const signature = JSON.stringify([files, !!c.filesDisabled, c.filesReason || '']);
     if (attachments.signature !== signature) {
       attachments.signature = signature;
       attachments.innerHTML = files.map(file => {
         const kind = chatViewFileKind(file.name);
-        return `<span class="gchat-file-choice gchat-file-card" data-file-kind="${kind[0]}">${chatViewFileFace(file.name, kind)}<button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? 'disabled' : ''}>×</button></span>`;
+        return `<span class="gchat-file-choice gchat-file-card" data-file-kind="${kind[0]}">${chatViewFileFace(file.name, kind)}<button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? `disabled title="${esc(c.filesReason || '')}"` : ''}>×</button></span>`;
       }).join('');
     }
     if (send.dataset.label !== c.sendLabel) {

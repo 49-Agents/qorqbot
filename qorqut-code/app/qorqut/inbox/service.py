@@ -280,7 +280,7 @@ class InboxService(OperationsInboxService):
         only a candidate and is refused (``inbox_selection_required``): it never replaces the selection, whether or not the
         old process is gone. The same conversation may renew its process and generation after the old one is verified dead.
         ``owner_selection`` authorizes replacement through ``NativeChat.select``: either the owner requests it or the host
-        observer follows the verified foreground terminal conversation. Ordinary agent bootstrap calls never carry it."""
+        observer follows the verified session's conversation. Ordinary agent bootstrap calls never carry it."""
         import uuid
         try:
             consumer = str(uuid.UUID(session_id))
@@ -315,7 +315,7 @@ class InboxService(OperationsInboxService):
                     rebound = True
                 if not same and row and not owner_selection:
                     raise DomainError('inbox_selection_required',
-                        'The terminal conversation is awaiting host verification')
+                        "The agent's conversation is awaiting host verification")
             if rebound and row:
                 delegation = getattr(self.app, 'operational_delegation', None)
                 if delegation is not None:

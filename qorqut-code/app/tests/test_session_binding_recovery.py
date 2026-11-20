@@ -128,7 +128,7 @@ class SessionBindingTests(unittest.TestCase):
             yield NS(connection=object())
             events.append('commit')
         selected = NS(binding=self.native, generation=38, desired_state='running',
-                      public=lambda: {'generation': 38})
+                      public=lambda terminal=False: {'generation': 38})
         profile = {'agent_id': self.registration['agent_id'], 'workspace': str(self.workspace)}
         adapter = NS(verify=Mock(return_value=(self.native, 'dead')),
                      publish_local=Mock(side_effect=lambda *_: events.append('publish')))

@@ -54,11 +54,11 @@ async function fixture(width=900) {
       }finally{if(peer)activePeerReads--;}
     };
   });
-  for(const file of ['read-cache','safe-links','san-juan-time','chat-view','slash-commands','workflow-panel','global-chat'])await page.addScriptTag({path:path.join(root,'js',file+'.js')});
+  for(const file of ['read-cache','safe-links','san-juan-time','chat-view','slash-commands','workflow-panel','agent-runtime','global-chat'])await page.addScriptTag({path:path.join(root,'js',file+'.js')});
   await page.evaluate(()=>{
     window.mount=(id='ord',role='ordubashy')=>{
       window.controller?.dispose();
-      window.controller=mountGlobalChat(document.querySelector('#pane'),profile(id,role),{openTerminal:()=>{}});
+      window.controller=mountGlobalChat(document.querySelector('#pane'),profile(id,role),{});
     };
     mount();
   });
@@ -83,7 +83,9 @@ browserTest('focus strip is the top of the composer and never loads a Todo list'
     const label=await page.locator('.gchat-focus-label').boundingBox(),dots=await page.locator('.gchat-working-dots').boundingBox();
     assert.ok(Math.abs(dots.y+dots.height/2-(label.y+label.height/2))<1);
     assert.equal(await page.locator('.wfpanel .gchat-working-tag').count(),1);
-    assert.equal(await page.locator('.gchat-session').isVisible(),false);
+    // The session line carries only End session while the session is open; no status text beside it.
+    assert.equal(await page.locator('.gchat-session .gchat-end').isVisible(),true);
+    assert.equal(await page.locator('.gchat-session-text').innerText(),'');
     await page.locator('.gchat-composer textarea').fill('Unsent draft');
     await page.evaluate(()=>{_agpad.attentionAgentId='atlas';working=false;stream.dispatchEvent(new MessageEvent('chat',{data:JSON.stringify({kind:'changed',cursor:1})}));});
     await page.waitForFunction(()=>document.querySelector('.gchat-working-tag').hidden);

@@ -1,13 +1,13 @@
 """Durable exact session bindings for registered agents.
 
 ``SessionRegistry.reconcile`` turns one probe result into the agent's binding state. A binding is created only from a verified
-live observation (hook marker plus the live process and pane/thread-lock), is reused while the same conversation is still
+live observation (hook marker plus the live client process and its host), is reused while the same conversation is still
 held by the same process, and ends only on evidence: the client's own ``SessionEnd``, the bound process or thread writer
 being gone, or the selected conversation being re-held by a new process after the old one is verified gone. A momentary
-failure to verify (a tmux hiccup, a screen read) never ends a binding; waiting inputs then simply keep waiting for the same
+failure to verify (a host that cannot be reached for a moment) never ends a binding; waiting inputs then simply keep waiting for the same
 session.
 
-The owner row records the conversation followed from the registered terminal. The native observer updates it before
+The owner row records the conversation adopted from the agent's verified session. The native observer updates it before
 reconciliation. A new observation cannot receive messages until that verified adoption completes.
 """
 

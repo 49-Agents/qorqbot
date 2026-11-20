@@ -1,6 +1,6 @@
 """Trusted internal owner -> agent delivery into the canonical Messages store.
 
-This is deliberately not ``agents_message_send`` and not the Dev-only terminal capability: only the Telegram bridge,
+This is deliberately not ``agents_message_send`` and not the agent-control tools: only the Telegram bridge,
 after it has authenticated the exact owner ``user.id`` in the exact bound chat, may record a message whose sender is
 the installation owner. Nothing here is exposed as a tool.
 """

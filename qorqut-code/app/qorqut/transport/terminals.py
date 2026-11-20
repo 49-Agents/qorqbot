@@ -12,13 +12,15 @@ import time
 import anyio
 from starlette.responses import JSONResponse, StreamingResponse
 
+from qorqut import agent_cli_launch
 from qorqut.bootstrap.preparation import prepare_agent
 from qorqut.bootstrap.preparation import installed_versions
 from qorqut.composition.locations import agent_workspace, business_hq
 from qorqut_operations.contracts import DomainError, Principal
 from qorqut.agents.global_scope import active_global
 from qorqut.management.identity import require_protected_control
-from .http import checked_fields, read_json
+from qorqut.managed_runtime import mode
+from .http import STOPPING, checked_fields, read_json
 
 # Extra owner workspace shells beyond the original slot 1.
 WORKSPACE_TERMINAL_SLOTS = ("2", "3")
@@ -60,6 +62,19 @@ class TerminalService:
         if type(capture_transcripts) is not bool:
             raise ValueError("Transcript capture selection must be a boolean")
         self.capture_transcripts = capture_transcripts
+
+    def _paths(self):
+        return getattr(self.runtime, "paths", None)
+
+    def require_terminals(self):
+        """The gate in front of every terminal entry point: it runs before tmux or the broker is touched.
+
+        A switch in progress is retryable; a managed installation has no terminals at all."""
+        paths = self._paths()
+        if mode.switching(paths):
+            raise DomainError("runtime_switching", "Agents are being switched. Try again in a minute.", retryable=True)
+        if not mode.is_terminal(paths):
+            raise DomainError("terminal_mode_off", "Agents run as managed sessions on this installation.")
 
     def _host_environment(self, profile, business):
         if profile is not None and self.agent_environment:
@@ -155,6 +170,7 @@ class TerminalService:
 
     def open(self, context, business, selector, *, cols=120, rows=32, execution=None, reconnect=False):
         from contextlib import nullcontext
+        self.require_terminals()
         admission = self.runtime.application.writer_admission
         with admission.writer() if admission is not None else nullcontext():
             return self._open_admitted(context, business, selector, cols=cols, rows=rows, execution=execution, reconnect=reconnect)
@@ -177,6 +193,10 @@ class TerminalService:
             # Bind once to the prepared agent, independently of later code cwd.
             # Settings cannot substitute another agent's registration path.
             env["QORQUT_REGISTRATION"] = str(Path(cwd) / ".qorqut/registration.json")
+        else:
+            # A host session runs the CLI Qorqbot selects at this moment, which may be a copy downloaded since the service
+            # started; the shell's wrappers keep that copy from updating itself. A container target has its own CLIs.
+            env = agent_cli_launch.session_environment(env)
         shell = self.shell
         prepared_rc = Path(cwd) / ".qorqut/agent-shell.bash"
         prepared_zsh = Path(cwd) / ".qorqut/zsh"
@@ -191,6 +211,7 @@ class TerminalService:
 
     def open_workspace(self, context, *, slot=1, cols=120, rows=32):
         from contextlib import nullcontext
+        self.require_terminals()
         admission = self.runtime.application.writer_admission
         with admission.writer() if admission is not None else nullcontext():
             return self._open_workspace_admitted(context, slot=slot, cols=cols, rows=rows)
@@ -201,7 +222,10 @@ class TerminalService:
         key, session, cwd = self.workspace_binding(context, slot)
         # This is deliberately just a shell. It has no agent profile, preparation,
         # credentials, inbox, or transcript capture hook.
-        self.broker.ensure_session(session, self.shell, cwd, env=self.global_environment(), cols=cols, rows=rows)
+        # The owner's own shell: no updater variable is set in it (they would reach the owner's own Claude Code too). Our copy,
+        # when selected, is reached through a launcher that starts only that copy without self-update.
+        env = agent_cli_launch.session_environment(self.global_environment(), plain=True)
+        self.broker.ensure_session(session, self.shell, cwd, env=env, cols=cols, rows=rows)
         return self.broker.get_or_start(key, self.broker.attach_cmd(session), cwd, cols=cols, rows=rows)
 
     def listing(self, context, business):
@@ -229,6 +253,8 @@ class TerminalService:
         """
         if not isinstance(data, str) or len(data) > 65536:
             raise DomainError("validation_error", "Terminal input requires bounded text")
+        if not mode.is_terminal(self._paths()):
+            return {"state": "unavailable", "detail": "Agents run as managed sessions on this installation"}
         with self.runtime.database.read() as uow:
             business = uow.repository("businesses").get(business_id) if business_id else None
             row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND home_business_id IS ? AND status='active'",
@@ -267,6 +293,7 @@ class TerminalService:
         present (attach or create a plain shell; this never starts an agent client), then exactly the selected conversation is
         resumed into it by the attachment service, which refuses everything it cannot prove safe and never starts a fresh
         conversation."""
+        self.require_terminals()
         service = self.attachment()
         if service is None:
             raise DomainError("operation_unavailable", "Native conversation attachment is unavailable")
@@ -314,11 +341,14 @@ class TerminalService:
         """Trusted approved archive effect: clear only this business's sessions.
 
         Unlike opening a terminal, this never prepares an agent or launches a
-        replacement model. Missing sessions are already reset, including retries.
+        replacement model. Missing sessions are already reset, including retries. A managed installation, or one
+        without tmux, has no sessions to reset and returns quietly.
         """
+        if not mode.is_terminal(self._paths()):
+            return
         broker = self.execution(business).broker
         if broker is None or not broker.tmux_available():
-            raise DomainError("operation_unavailable", "Project terminal reset is unavailable")
+            return
         sessions = set(broker.list_sessions(broker.session_prefix(business["slug"])))
         for row in agents:
             key, session, _ = self.binding(business, row, broker)
@@ -329,6 +359,7 @@ class TerminalService:
             broker.stop(key)
 
     async def route(self, request, context, business, tail):
+        self.require_terminals()
         if tail == ["terminals"] and request.method == "GET":
             return JSONResponse(await anyio.to_thread.run_sync(lambda: self.listing(context, business)))
         # Owner shells: workspace-terminal/<action> is slot 1; slots 2 and 3 add their number.
@@ -377,7 +408,7 @@ class TerminalService:
                     # avoid replying to historical device queries during scrollback replay.
                     yield b"event: replay\ndata: {}\n\n"
                     yield b"data: " + base64.b64encode(blob) + b"\n\n"
-                while not await request.is_disconnected():
+                while not STOPPING.is_set() and not await request.is_disconnected():
                     if time.monotonic() - checked_at >= 5:
                         try:
                             await anyio.to_thread.run_sync(check_target)

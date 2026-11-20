@@ -20,7 +20,6 @@ import argparse
 import ast
 import configparser
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -87,6 +86,13 @@ REQUIRED_RUNTIME_ASSETS = {
     "native-helpers": ("qorqut-code/app/qorqut/bootstrap/browser_init.cjs", "qorqut-code/app/tools/browser/desktop_session.py",
                        "qorqut-code/app/tools/browser/run-agent-browser", "qorqut-code/app/tools/browser/package.json",
                        "qorqut-code/biz-dashboard/index.html", "qorqut-code/biz-dashboard/pty_broker.py"),
+    # The legacy Terminals mode: its broker, the terminal view and its owner-facing switch, and the terminal emulator's licence.
+    "legacy-terminals": ("qorqut-code/biz-dashboard/js/terminal.js", "qorqut-code/biz-dashboard/js/xterm.js",
+                         "qorqut-code/biz-dashboard/css/xterm.css", "qorqut-code/biz-dashboard/js/agent-start.js",
+                         "qorqut-code/biz-dashboard/js/agent-mode.js", "qorqut-code/biz-dashboard/css/agent-mode.css",
+                         "qorqut-code/biz-dashboard/js/agent-trust-row.js", "qorqut-code/biz-dashboard/js/agent-terminal-view.js",
+                         "qorqut-code/biz-dashboard/css/legacy-terminals.css",
+                         "qorqut-code/biz-dashboard/LICENSES/xterm-MIT.txt", "qorqut-code/biz-dashboard/THIRD-PARTY-NOTICES.md"),
     "core-instructions": ("qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/imported-roles",
                           "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml", "qorqut-code/app/qorqut/release_worker/lifetime.py"),
     "google-calendar": ("qorqut-code/extensions/google-calendar/pyproject.toml",),

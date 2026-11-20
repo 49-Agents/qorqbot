@@ -1,0 +1,157 @@
+"""Telegram owner input for a managed agent: what the shared arbiter reports for a headless session, and what the owner is told.
+
+Every agent runs as a managed session, so a message that cannot be delivered now speaks of its session, never of a terminal. The worker is exercised with stand-in bridge and store objects; nothing here reaches Telegram or an agent.
+"""
+from types import SimpleNamespace as NS
+import unittest
+from unittest.mock import patch
+
+from qorqut.native_chat.contracts import InputResult, RESULT_DEFERRED, RESULT_REJECTED, STATE_SUBMITTED, STATE_UNCERTAIN
+from qorqut_telegram import owner_input
+from qorqut_telegram.owner_input import DEFERRALS, NOTICE_REASONS, OwnerInputs
+
+
+class Writer:
+    """``bridge.write(...)`` as a context manager over one stored input row."""
+
+    def __init__(self, row):
+        self.row, self.updates = row, []
+        repository = NS(get=lambda key: dict(self.row), update=lambda key, changes, expected_revision=None: self.updates.append(changes))
+        self.uow = NS(repository=lambda name: repository,
+                      connection=NS(execute=lambda *a: NS(fetchone=lambda: None)))
+
+    def __enter__(self):
+        return self.uow
+
+    def __exit__(self, *exc):
+        return False
+
+
+class ManagedOwnerInputTests(unittest.TestCase):
+    def inputs(self, row=None):
+        row = {"id": "i1", "agent_id": "a1", "state": "queued", "attempts": 0, "revision": 1, "purpose": "owner_message",
+               "notice_sent_at": None, "message_id": "m1", "sensitive": 0, **(row or {})}
+        self.writer = Writer(row)
+        bridge = NS(now=lambda: "2026-01-01T00:00:00Z", rng=NS(random=lambda: 1.0), write=lambda operation: self.writer, wake=lambda: None)
+        return OwnerInputs(bridge), row
+
+    def deliver(self, reason):
+        """Defer an input for ``reason`` and return the notice text the owner would get (None when there is none)."""
+        worker, row = self.inputs()
+        sent = []
+        with patch.object(owner_input.store, "message", return_value={"chat_name": "ordubashy", "id": "m1"}), \
+             patch.object(owner_input, "notice", side_effect=lambda bridge, uow, message, text, key: sent.append(text)):
+            worker._defer(row, reason, "2026-01-01T00:00:00Z")
+        return sent[0] if sent else None
+
+    # what the arbiter says
+    def test_a_closed_managed_session_is_a_deferral_with_its_own_code(self):
+        result = InputResult(state=RESULT_DEFERRED, reason="session_closed")
+        outcome = OwnerInputs._outcome(result)
+        self.assertEqual((outcome.status, outcome.reason), ("deferred", "session_closed"))
+        self.assertEqual(DEFERRALS["session_closed"], "session_closed")
+
+    def test_the_legacy_arbiter_codes_still_map(self):
+        for arbiter, worker in (("unsupported_target", "terminal_unsupported"),):
+            outcome = OwnerInputs._outcome(InputResult(state=RESULT_DEFERRED, reason=arbiter))
+            self.assertEqual((outcome.status, outcome.reason), ("deferred", worker))
+        self.assertEqual(OwnerInputs._outcome(InputResult(state=RESULT_REJECTED, reason="unsupported_runtime")).status, "failed")
+
+    def test_every_deferral_a_managed_session_reports_stays_queued(self):
+        for reason in ("session_closed", "session_starting", "session_closing", "turn_running", "host_busy", "host_unverified",
+                       "host_never_received", "host_rejected", "checkpoint_failed", "stale_session"):
+            with self.subTest(reason=reason):
+                outcome = OwnerInputs._outcome(InputResult(state=RESULT_DEFERRED, reason=reason))
+                self.assertEqual((outcome.status, outcome.reason), ("deferred", reason))
+
+    def test_a_submitted_input_is_submitted_and_keeps_its_receipt(self):
+        receipt = {"adapter": "managed", "client": "claude", "transport": "managed", "message_uuid": "u1", "queued": True}
+        outcome = OwnerInputs._outcome(InputResult(state=STATE_SUBMITTED, reason="queued_mid_turn", evidence=receipt))
+        self.assertEqual((outcome.status, outcome.reason, outcome.receipt), ("submitted", "queued_mid_turn", receipt))
+        outcome = OwnerInputs._outcome(InputResult(state=STATE_UNCERTAIN, reason="host_timeout", evidence=receipt))
+        self.assertEqual((outcome.status, outcome.reason), ("uncertain", "host_timeout"))
+
+    # what the owner reads
+    def test_a_closed_session_says_it_could_not_be_opened_and_not_that_a_composer_is_involved(self):
+        text = self.deliver("session_closed")
+        self.assertIn("its session is not open and could not be opened right now", text)
+        self.assertIn("will be delivered when its session can take it", text)
+        self.assertNotIn("terminal", text.replace("nothing was started", ""))
+        self.assertNotIn("composer", text)
+        self.assertIn("Nothing was interrupted.", text)
+        self.assertNotIn("Nothing was started", text)
+
+    def test_an_open_that_failed_is_queued_with_the_reason_it_failed_for(self):
+        for reason, words in (("cli_unavailable", "Claude Code is not installed"), ("resume_unavailable", "its file is missing"),
+                              ("open_busy", "several sessions are starting"), ("session_starting", "still starting")):
+            with self.subTest(reason=reason):
+                outcome = OwnerInputs._outcome(InputResult(state=RESULT_DEFERRED, reason=reason))
+                self.assertEqual((outcome.status, outcome.reason), ("deferred", reason))
+                self.assertIn(words, self.deliver(reason))
+                self.assertNotIn("composer", self.deliver(reason))
+
+    def test_a_running_turn_is_waited_out_in_a_sentence_about_the_agent(self):
+        text = self.deliver("turn_running")
+        self.assertIn("because it is working on something", text)
+        self.assertNotIn("composer", text)
+
+    def test_every_managed_reason_has_its_own_wording(self):
+        for reason in NOTICE_REASONS:
+            with self.subTest(reason=reason):
+                text = self.deliver(reason)
+                self.assertIn(NOTICE_REASONS[reason], text)
+                self.assertNotIn("composer", text)
+                self.assertNotIn("terminal is busy", text)
+
+    def test_a_reason_nobody_worded_reads_as_a_session(self):
+        text = self.deliver("composer_busy")
+        self.assertIn("its session is not ready for input", text)
+        self.assertNotIn("terminal", text)
+        self.assertNotIn("composer", text)
+
+    def test_the_notice_comes_once_per_queue_episode(self):
+        worker, row = self.inputs({"notice_sent_at": "2026-01-01T00:00:00Z"})
+        with patch.object(owner_input.store, "message", return_value={"chat_name": "ordubashy"}), \
+             patch.object(owner_input, "notice") as notice:
+            worker._defer(row, "session_closed", "2026-01-01T00:00:00Z")
+        notice.assert_not_called()
+        self.assertEqual(self.writer.updates[0]["deferral_reason"], "session_closed")
+
+    # what the owner reads when it is not delivered
+    def settled(self, state, code, receipt=None):
+        worker, _ = self.inputs()
+        sent = []
+        row = {"id": "i1", "purpose": "owner_message", "sensitive": 0, "message_id": "m1", "state": state, "error_code": code,
+               "receipt_json": receipt}
+        with patch.object(owner_input.store, "message", return_value={"chat_name": "ordubashy", "id": "m1"}), \
+             patch.object(owner_input, "notice", side_effect=lambda bridge, uow, message, text, key: sent.append(text)):
+            worker._after(NS(), row, "now")
+        return sent[0]
+
+    def test_an_uncertain_managed_message_points_to_chat_not_the_terminal(self):
+        for receipt in ({"transport": "managed"}, '{"transport": "managed"}', None):
+            with self.subTest(receipt=receipt):
+                text = self.settled("uncertain", "host_timeout", receipt)
+                self.assertIn("reached its session", text)
+                self.assertIn("check its Chat before resending", text)
+                self.assertNotIn("terminal", text)
+
+    def test_a_failed_managed_message_says_session_not_terminal(self):
+        text = self.settled("failed", "driver_unavailable", {"transport": "managed"})
+        self.assertIn("could not be delivered to its session (driver_unavailable)", text)
+        self.assertNotIn("terminal", text)
+
+    def test_every_failure_reads_as_a_session_whatever_the_receipt(self):
+        self.assertIn("could not be delivered to its session (terminal_unsupported)",
+                      self.settled("failed", "terminal_unsupported", {"client": "claude"}))
+        for code, receipt in (("submit_unconfirmed", None), ("session_changed", '{"client": "claude"}')):
+            text = self.settled("uncertain", code, receipt)
+            self.assertIn("reached its session", text)
+            self.assertNotIn("terminal", text)
+
+    def test_session_changed_on_a_managed_receipt_reads_as_a_session(self):
+        self.assertIn("reached its session", self.settled("uncertain", "session_changed", {"transport": "managed"}))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -53,29 +53,37 @@ def _read(pid, operation):
         raise PermissionError('Cannot inspect process ' + str(pid)) from exc
 
 
-def fields(pid):
-    """Existing stat field positions, populated from actual OS observations."""
+def _tty_group(process, pid):
+    """``(device, foreground group)`` of the process's controlling terminal, read through the tty device itself."""
+    tty = _terminal(process)
+    foreground, device = -1, 0
+    if tty:
+        descriptor = os.open(tty, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
+        try:
+            try:
+                foreground = os.tcgetpgrp(descriptor)
+            except OSError:
+                # A different terminal session can reject tcgetpgrp. Darwin ps
+                # reads the kernel's foreground group without acquiring that tty.
+                try:
+                    output = subprocess.check_output(['/bin/ps', '-o', 'tpgid=', '-p', str(int(pid))], text=True, timeout=2)
+                    foreground = int(output.strip())
+                except (subprocess.SubprocessError, ValueError) as exc:
+                    raise OSError('Cannot inspect terminal foreground process group') from exc
+            device = os.fstat(descriptor).st_rdev
+        finally:
+            os.close(descriptor)
+    return device, foreground
+
+
+def fields(pid, terminal=False):
+    """Existing stat field positions, populated from actual OS observations. On macOS the terminal device and foreground group
+    (fields 4 and 5) read 0 and -1 unless ``terminal`` is true: only the terminal backend asks for them, because reading them
+    opens the process's tty device, which a managed agent (it has no terminal) never needs."""
     if not darwin():
         return Path(f'/proc/{int(pid)}/stat').read_text().rsplit(')', 1)[1].split()
     def observe(process):
-        tty = _terminal(process)
-        foreground, device = -1, 0
-        if tty:
-            descriptor = os.open(tty, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
-            try:
-                try:
-                    foreground = os.tcgetpgrp(descriptor)
-                except OSError:
-                    # A different terminal session can reject tcgetpgrp. Darwin ps
-                    # reads the kernel's foreground group without acquiring that tty.
-                    try:
-                        output = subprocess.check_output(['/bin/ps', '-o', 'tpgid=', '-p', str(int(pid))], text=True, timeout=2)
-                        foreground = int(output.strip())
-                    except (subprocess.SubprocessError, ValueError) as exc:
-                        raise OSError('Cannot inspect terminal foreground process group') from exc
-                device = os.fstat(descriptor).st_rdev
-            finally:
-                os.close(descriptor)
+        device, foreground = _tty_group(process, pid) if terminal else (0, -1)
         value = ['0'] * 20
         value[:6] = ['Z' if process.status() in {_psutil().STATUS_ZOMBIE, _psutil().STATUS_DEAD} else 'S',
                      str(process.ppid()), str(os.getpgid(int(pid))), str(os.getsid(int(pid))),

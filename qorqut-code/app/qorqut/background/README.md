@@ -1,6 +1,6 @@
 # Bounded Background Work
 
-Business agents remain Claude Code sessions in mirrored terminals. These programs
+Agents run as managed sessions (or, in Terminals mode, in terminals). These programs
 never launch, wake, schedule, or impersonate a business agent. They run fixed,
 bounded application work through the shared backend.
 

@@ -23,7 +23,7 @@ CATALOG = (
 
 
 def _probe_environment(environ=None):
-    """The environment an agent terminal gets (pty_broker.ensure_session): the invoking user's own HOME and CLI
+    """The environment the owner's own command line gets: the invoking user's own HOME and CLI
     configuration, with keys the user did not set removed. Claude keeps a separate sign-in per CLAUDE_CONFIG_DIR, so an
     explicit default would report a different account than the agents use."""
     base = dict(os.environ if environ is None else environ)
@@ -78,11 +78,10 @@ def host_platform(proc_version="/proc/version") -> str:
 
 def view(runtime, *, environ=None) -> dict:
     """Every extension with its status, for the owner's dashboard. Reads local files only."""
-    from qorqut.agent_trust import clients
     platform = host_platform()
     items = []
     for entry in CATALOG:
         item = dict(entry)
         item.update(_keyed_status(runtime, entry["id"]) if entry["id"] in KEYED else _whatsapp_status(runtime, platform))
         items.append(item)
-    return {"connectors": items, "clients": clients(environ), "platform": platform}
+    return {"connectors": items, "platform": platform}

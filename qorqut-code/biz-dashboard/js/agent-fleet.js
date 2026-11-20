@@ -1,6 +1,6 @@
 // Shared agent roster presence: one compact activity read paints the navigation's working dots.
-// Polling never opens a terminal or loads task histories; the backend activity read stays unchanged.
-// Navigation presence reflects agent activity, not whether the browser's terminal stream is connected.
+// Polling never loads task histories; the backend activity read stays unchanged.
+// Navigation presence reflects agent activity, not whether a browser stream is connected.
 let agentNavNext = 0, agentNavPending = false;
 const agentNavStates = new Map();
 const agentNavObservedAt = new Map();

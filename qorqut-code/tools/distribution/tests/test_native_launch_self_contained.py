@@ -1,4 +1,4 @@
-"""A self-contained package ships its Python environment, tmux and git; nothing is built or installed on the user's computer.
+"""A self-contained package ships its Python environment and git; nothing is built or installed on the user's computer.
 
     python3.12 -m unittest discover -s tools/distribution/tests -v
 
@@ -43,7 +43,7 @@ class Folder(unittest.TestCase):
             (self.runtime / 'venv/bin/python').symlink_to('python3.12')
             write(self.runtime / 'venv/lib/python3.12/site-packages/qorqut/__init__.py', 'VALUE = 1\n')
             write(self.runtime / 'native/bin/git', '#!/bin/sh\n', 0o755)
-            write(self.runtime / 'native/bin/tmux', '#!/bin/sh\n', 0o755)
+            write(self.runtime / 'native/bin/agent-browser', '#!/bin/sh\n', 0o755)
             manifest['bundled'] = {name: native_launch.tree_digest(self.runtime / name) for name in ('native', 'venv')}
         write(self.runtime / 'PAYLOAD.json', json.dumps(manifest))
         return manifest
@@ -65,7 +65,7 @@ class TreeDigest(Folder):
         linked = native_launch.tree_digest(tree)
         self.assertNotEqual(without_program_bit, linked)
         (tree / 'bin/git-upload-pack').unlink()
-        (tree / 'bin/git-upload-pack').symlink_to('tmux')
+        (tree / 'bin/git-upload-pack').symlink_to('agent-browser')
         self.assertNotEqual(linked, native_launch.tree_digest(tree))
 
     def test_group_and_other_permission_bits_do_not_matter(self):
@@ -86,7 +86,7 @@ class Verify(Folder):
     def test_changed_shipped_tools_are_refused(self):
         self.ship()
         native_launch.verify(self.runtime)
-        (self.runtime / 'native/bin/tmux').write_text('#!/bin/sh\necho other\n')
+        (self.runtime / 'native/bin/agent-browser').write_text('#!/bin/sh\necho other\n')
         with self.assertRaisesRegex(RuntimeError, 'Package checksum failed: native'):
             native_launch.verify(self.runtime)
 

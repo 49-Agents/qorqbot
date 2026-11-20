@@ -11,7 +11,7 @@ hooks write a tiny local observation on lifecycle and tool events. One shared
 service thread samples registered sessions every 60 seconds and writes a single
 SQLite batch. No model call, HTTP request, per-agent daemon or inbox event is needed
 for a heartbeat. Action hooks execute a standalone stdlib script rather than
-importing the application. Reads do not acknowledge messages or resume terminals.
+importing the application. Reads do not acknowledge messages or open sessions.
 
 Running means a native session is handling a turn; Idle means that session has
 finished or awaits approval. Native process start identity and boot identity
@@ -88,7 +88,7 @@ Deploy core and dashboard together after approval, applying migration 055 throug
 normal service initialization. Reprepare agents to install the new hooks and role
 procedure. No role republishing or profile repinning is required. Existing sessions
 without the new hooks cannot be retroactively classified; show unobserved presence
-until their next successful prepared bootstrap. Preserve terminals and credentials;
+until their next successful prepared bootstrap. Preserve running sessions and credentials;
 do not restart or prompt real agents just to populate the fleet.
 
 The collector shares the existing recovery write-admission barrier and never

@@ -2,7 +2,7 @@
 
 ``Broadcasts`` binds the host's global-agent facts (who is an active global, its profile, where it reaches) and its
 owner-directed contact rule. ``BroadcastDispatcher`` keeps only what is the host's: the thread and its lifecycle, the
-terminal input call and the authority and protected-control checks it hands to the delivery engine."""
+session input call and the authority and protected-control checks it hands to the delivery engine."""
 from datetime import datetime, timezone
 from threading import Event, Thread
 
@@ -20,23 +20,23 @@ class Broadcasts(OperationsBroadcasts):
 
 
 class BroadcastDispatcher:
-    """Independent bounded delivery loop; no model calls or terminal startup."""
-    def __init__(self, runtime, broadcasts, terminals=None, *, clock=lambda: datetime.now(timezone.utc), interval=2):
-        self.runtime, self.broadcasts, self.terminals = runtime, broadcasts, terminals
+    """Independent bounded delivery loop; no model calls, and it never opens a session."""
+    def __init__(self, runtime, broadcasts, launch=None, *, clock=lambda: datetime.now(timezone.utc), interval=2):
+        self.runtime, self.broadcasts, self.launch = runtime, broadcasts, launch
         self.clock, self.interval = clock, interval
         self.stop_event, self.thread = Event(), None
 
     @property
     def engine(self):
-        """The delivery engine over the current runtime, broadcasts, terminals and clock; it keeps nothing between calls."""
+        """The delivery engine over the current runtime, broadcasts, launch port and clock; it keeps nothing between calls."""
         return BroadcastDispatch(self.runtime.application, self.runtime.database, self.broadcasts,
             require_authority=self.runtime.require_authority, require_protected_control=require_protected_control,
             input_existing=self._input_existing, stopping=self.stop_event.is_set, clock=lambda: self.clock())
 
     def _input_existing(self, business_id, recipient, message, *, key):
-        if not self.terminals:
-            return {'state': 'unavailable', 'detail': 'Terminal backend is unavailable'}
-        return self.terminals.input_existing(business_id, recipient, message, key=key)
+        if not self.launch:
+            return {'state': 'unavailable', 'detail': 'The session input port is unavailable'}
+        return self.launch.input_existing(business_id, recipient, message, key=key)
 
     def start(self):
         if self.thread and self.thread.is_alive():

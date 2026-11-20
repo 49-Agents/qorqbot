@@ -13,11 +13,12 @@ class Broker:
         return 0, self.screen
 
 
-def backend(snapshots, screen="› Ask Codex to do anything\n"):
+def backend(snapshots, screen="claude\n"):
     terminals = SimpleNamespace(runtime=SimpleNamespace())
     result = AgentTerminalBackend(terminals, timeout=5, sleep=lambda seconds: None)
     broker = Broker(screen)
     result.selected = lambda row: (broker, None, "session", None, None)
+    result._ready = lambda row, client, **kwargs: None
     sequence = iter(snapshots)
 
     def snapshot(row, client=None):
@@ -38,14 +39,14 @@ def unreadable():
 
 class WaitReadyTest(unittest.TestCase):
     def test_a_process_that_cannot_be_read_yet_is_observed_again(self):
-        ready = {"pane_id": "%1", "command": "codex"}
-        backend([unreadable(), unreadable(), ready]).wait_ready({"agent_id": "a"}, "codex")
+        ready = {"pane_id": "%1", "command": "claude"}
+        backend([unreadable(), unreadable(), ready]).wait_ready({"agent_id": "a"}, "claude")
 
     def test_other_failures_still_stop_the_start(self):
-        refused = DomainError("operation_unavailable", "A shared app-server is not a terminal viewer")
+        refused = DomainError("operation_unavailable", "Expected exactly one registered terminal pane")
         with self.assertRaises(DomainError) as raised:
-            backend([refused]).wait_ready({"agent_id": "a"}, "codex")
-        self.assertIn("app-server", raised.exception.message)
+            backend([refused]).wait_ready({"agent_id": "a"}, "claude")
+        self.assertIn("one registered terminal pane", raised.exception.message)
 
 
 class OpenedSnapshotTest(unittest.TestCase):
@@ -63,10 +64,10 @@ class OpenedSnapshotTest(unittest.TestCase):
             backend([self.starting_shell()] * 3).opened_snapshot({"agent_id": "a"}, attempts=3)
 
     def test_other_failures_stop_at_once(self):
-        refused = DomainError("operation_unavailable", "A shared app-server is not a terminal viewer")
+        refused = DomainError("operation_unavailable", "Expected exactly one registered terminal pane")
         with self.assertRaises(DomainError) as raised:
             backend([refused]).opened_snapshot({"agent_id": "a"})
-        self.assertIn("app-server", raised.exception.message)
+        self.assertIn("one registered terminal pane", raised.exception.message)
 
 
 if __name__ == "__main__":

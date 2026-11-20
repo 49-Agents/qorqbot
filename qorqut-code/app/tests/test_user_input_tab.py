@@ -197,11 +197,11 @@ class OwnerViewTest(Case):
         self.browsers[AGENT].append(page(THIRD, "New"))
         self.assertEqual(self.views(tab(AGENT, THIRD))[("tab", f"{AGENT}:{THIRD}", None)]["label"], "New")
 
-    def test_other_references_of_the_page_are_resolved_as_before(self):
+    def test_a_retired_agent_reference_of_the_page_is_left_out(self):
         with mock.patch.object(UserInput, "agent", return_value={"agent_id": AGENT, "display_name": "Ada", "role": {"id": "ordubashy"}}):
             views = self.views({"type": "agent", "id": AGENT, "business_id": None}, tab(AGENT))
-        self.assertEqual(views[("agent", AGENT, None)]["label"], "Ada")
-        self.assertEqual(views[("agent", AGENT, None)]["role"], {"id": "ordubashy"})
+        # A retired agent reference is not shown; the tab still names its agent.
+        self.assertEqual(list(views), [("tab", f"{AGENT}:{TAB}", None)])
         self.assertEqual(views[("tab", f"{AGENT}:{TAB}", None)]["agent_label"], "Ada")
 
     def test_an_error_that_is_not_about_availability_is_still_raised(self):
@@ -242,7 +242,7 @@ class ToolTest(Case):
         from qorqut.native_chat import user_input
         self.assertIn("tab", user_input.SCHEMA["properties"]["references"]["items"]["properties"]["type"]["enum"])
         self.assertIn("tab-reference", user_input.DESCRIPTION)
-        self.assertIn("task|signoff|browser|agent|project|delta|tab", user_input.DESCRIPTION)
+        self.assertIn("task|signoff|browser|project|delta|tab", user_input.DESCRIPTION)
 
 
 class ProjectionTest(unittest.TestCase):

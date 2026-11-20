@@ -47,13 +47,12 @@ let tPrincipal = null;              // principal_id of the last applied /me/task
 const T_OVERVIEW_VIEWS = [];
 const T_VIEWS = ["tasks", "notes", "globalNotes", "businessNotes", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS];
 const T_GLOBAL_VIEWS = ["notes", "tasks", "signoffs", "uploads", "routines", ...T_OVERVIEW_VIEWS];
-const T_VIEW_LABEL = { status: "Agent status", tasks: "Tasks", globalTasks: "Global tasks", notes: "Notes", globalNotes: "Global Notes", businessNotes: "Project notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines", charts: "Charts", costs: "Costs", tables: "Tables", inbox: "Agent inbox", focus: "Focus", attentionBoard: "Todo", calendar: "Calendar", browser: "Browser", viewbox: "Viewbox", desktop: "Desktop", memory: "Working memory" };
+const T_VIEW_LABEL = { status: "Agent status", tasks: "Tasks", globalTasks: "Global tasks", notes: "Notes", globalNotes: "Global Notes", businessNotes: "Project notes", signoffs: "Signoffs", uploads: "Uploads", routines: "Routines", charts: "Charts", costs: "Costs", tables: "Tables", inbox: "Agent inbox", focus: "Focus", calendar: "Calendar", browser: "Browser", viewbox: "Viewbox", desktop: "Desktop", memory: "Working memory" };
 const T_VIEW_ICON = {
   workflow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12h-8M21 6H8M21 18h-8M3 6v4a2 2 0 0 0 2 2h3M3 10v6a2 2 0 0 0 2 2h3"/></svg>',
 
   calendar: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/></svg>`,
   status: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 15v-3m5 3V8m5 7v-5"/></svg>`,
-  attentionBoard: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h2m3 0h5M7 15h2m3 0h5"/></svg>`,
   focus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8l-1 6 4 4v2H5v-2l4-4-1-6ZM12 15v7"/></svg>`,
   browser: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6.5 6.5h.01M9 6.5h.01"/></svg>`,
   desktop: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H4zM8 20h8m-4-4v4"/></svg>`,

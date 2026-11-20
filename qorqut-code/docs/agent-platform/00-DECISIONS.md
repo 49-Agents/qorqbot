@@ -1,5 +1,7 @@
 # Agent Platform Decisions
 
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 These decisions describe the application. Executable contracts and tests define
 implemented behavior; historical implementation plans do not override current policy.
 

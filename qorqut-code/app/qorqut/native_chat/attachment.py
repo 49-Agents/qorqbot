@@ -1,8 +1,10 @@
-"""Verified conversation attachment and compatibility controls for older terminal clients.
+"""Verified conversation attachment and compatibility controls for older terminal clients (Terminals mode, Claude Code only).
 
 The current UI mirrors the registered terminal directly. Chat's observer follows its verified foreground conversation.
 Older clients can still request a specific attachment token or an explicit resume; those requests retain their identity
-checks and never interrupt a different foreground process.
+checks and never interrupt a different foreground process. On an installation that runs managed sessions none of this acts:
+the view says so and a resume is refused before any terminal is touched. A selected conversation that is not a Claude Code
+conversation counts as nothing selected: a terminal resumes only Claude Code conversations.
 """
 
 from __future__ import annotations
@@ -12,17 +14,16 @@ import logging
 import os
 import sys
 import re
-import shlex
 import subprocess
 import time
-from functools import lru_cache
 from pathlib import Path
 
 from qorqut_operations.contracts import DomainError
-from qorqut.bootstrap import codex_session, features
-from qorqut.transport.agent_terminal_control import NATIVE_ONLY
+from qorqut.bootstrap import features
+from qorqut.managed_runtime import mode
+from qorqut.transport.agent_terminal_control import NATIVE_ONLY, TERMINAL_MODE_OFF, start_flags
 
-from . import codex_control, codex_viewer, liveness, selection, store
+from . import liveness, selection, store
 from .probe import REASON_LIVE, REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME
 
 LOG = logging.getLogger(__name__)
@@ -31,7 +32,6 @@ ATTACHED, RECONNECTING, DISCONNECTED, MISMATCH, UNSUPPORTED = (
     "attached", "reconnecting", "disconnected", "mismatch", "unsupported")
 ACTION_RECONNECT, ACTION_SELECT = "reconnect", "select_candidate"
 MODE_SELECTED, MODE_FIRST_LAUNCH, MODE_UNMANAGED = "selected", "first_launch", "unmanaged"
-REASON_VIEWER_UNVERIFIED = "viewer_unverified"
 
 # A submitted resume keeps the view ``reconnecting`` for this long: while its client (or, for a shell prompt that has not yet run
 # the command, the shell) has not shown the selected conversation. A launch that never registers then reads as a failure.
@@ -40,19 +40,15 @@ CLIENT_LAUNCH_SECONDS = 90
 STOP_WAIT_SECONDS = 5
 LAUNCHER_LOOKUP_SECONDS = 5
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-CLIENT_NAMES = {"claude": "Claude Code", "codex": "Codex"}
-
-
-def viewer_tail(conversation_id: str, endpoint: str) -> list[str]:
-    """The exact trailing arguments of the terminal client this host launches to show one shared-server Codex thread."""
-    return ["resume", conversation_id, "--remote", endpoint]
+CLIENT_NAMES = {"claude": "Claude Code"}
+PROC_ROOT = Path("/proc")
 
 
 def _view(agent_id, chosen, state, reason, detail, *, action=None, observed=None, candidate=None, token=None,
           mode=None, auto_reconnect=False) -> dict:
     return {"agent_id": agent_id, "state": state, "reason": reason, "detail": detail, "action": action,
             "mode": mode or (MODE_SELECTED if chosen is not None else MODE_FIRST_LAUNCH),
-            "selection": chosen.public() if chosen is not None else None,
+            "selection": chosen.public(terminal=True) if chosen is not None else None,
             "observed": observed, "candidate": candidate, "token": token, "auto_reconnect": auto_reconnect}
 
 
@@ -60,17 +56,6 @@ def _same_pane(first: dict, second: dict) -> bool:
     """The same registered pane and the same shell process in it: tmux session id, pane id, shell pid and its start ticks."""
     return (first["state"] == second["state"] == "present"
             and all(first[key] == second[key] for key in ("session_id", "pane_id", "pane_pid", "shell_started")))
-
-
-@lru_cache(maxsize=8)
-def _codex_remote_resume(identity) -> bool:
-    """Whether the Codex build at ``identity`` documents resuming over a ``unix://`` address (``--remote``)."""
-    try:
-        text = subprocess.run([identity[0], "resume", "--help"], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                              timeout=3).stdout
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return "--remote" in text and "unix://" in text
 
 
 def effective_executable(client: str, shell_pid: int) -> str:
@@ -81,7 +66,7 @@ def effective_executable(client: str, shell_pid: int) -> str:
     this service's. So the lookup runs that same shell, with that shell's own environment, working directory and arguments, and
     asks it for the executable (``type -P`` skips functions and aliases, exactly what ``command claude`` runs). Anything that
     cannot be established this way is ``unsupported_runtime``; no other binary is ever substituted."""
-    root = codex_session.PROC_ROOT / str(shell_pid)
+    root = PROC_ROOT / str(shell_pid)
     unsupported = DomainError("unsupported_runtime", "The terminal's launcher for this client cannot be established")
     try:
         if sys.platform == 'darwin':
@@ -129,10 +114,28 @@ class AttachmentService:
     def _backend(self):
         return getattr(getattr(self.runtime, "terminal_control", None), "backend", None)
 
+    def _terminals(self) -> bool:
+        return mode.is_terminal(getattr(self.runtime, "paths", None))
+
+    def _require_terminals(self) -> None:
+        """The gate in front of every action: a managed installation (or one mid-switch) has no terminal to resume into."""
+        paths = getattr(self.runtime, "paths", None)
+        if mode.switching(paths):
+            raise DomainError("runtime_switching", "Agents are being switched. Try again in a minute.", retryable=True)
+        if not mode.is_terminal(paths):
+            raise DomainError("terminal_mode_off", TERMINAL_MODE_OFF)
+
     def _load(self, agent_id: str):
+        """The agent's profile and its selected conversation; a selection of any client but Claude Code is no selection."""
         with self.runtime.database.read() as uow:
             profile = store.active_profile(uow.connection, agent_id, self.runtime.paths)
             chosen = selection.selected(uow.connection, agent_id) if profile is not None else None
+        if chosen is not None and chosen.provider != "claude":
+            chosen = None
+        # The same rule as the backend's: an agent whose effective client is not Claude Code has nothing a terminal can resume.
+        client_of = getattr(self._backend(), "terminal_client", None)
+        if chosen is not None and client_of is not None and client_of(profile) is None:
+            chosen = None
         return profile, chosen
 
     def revision(self, agent_id: str) -> str | None:
@@ -168,14 +171,6 @@ class AttachmentService:
             self.check_input(agent_id, token)
             return action()
 
-    @staticmethod
-    def _endpoint(chosen) -> str | None:
-        """The selected server's already-verified local control socket as a ``--remote`` address."""
-        try:
-            return "unix://" + codex_control.control_socket(chosen.owner)
-        except (OSError, TypeError, AttributeError):
-            return None
-
     def _launching(self, agent_id: str, chosen, pane: dict, seconds: float) -> bool:
         record = self._launches.get(agent_id)
         return (record is not None and record[0] == chosen.revision and record[1] == pane.get("pane_id")
@@ -183,10 +178,15 @@ class AttachmentService:
 
     def _evaluate(self, profile: dict, chosen) -> dict:
         agent_id = profile["agent_id"]
+        if not self._terminals():
+            # A managed agent runs headless under its own host: it has no pane to attach to, so no pane is looked at (and no
+            # "not in terminal" or mismatch is reported). ``selected`` keeps the raw terminal input boundary closed for it.
+            return _view(agent_id, chosen, UNSUPPORTED, "managed", "Qorqbot runs this agent; it has no terminal to attach",
+                         mode=MODE_SELECTED)
         observed = self.probe.observe(profile)
         live = observed.observation if observed.reason == REASON_LIVE else None
         relation = selection.relation(chosen, live)
-        other = observed.candidate or (live if relation == selection.CANDIDATE else None)
+        other = live if relation == selection.CANDIDATE else None
         candidate = ({"provider": other.provider, "conversation_id": other.conversation_id, "transport": other.transport}
                      if other is not None else None)
         if observed.reason in (REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME):
@@ -196,9 +196,6 @@ class AttachmentService:
                          "No conversation is selected for this agent yet", action=ACTION_SELECT if candidate else None,
                          candidate=candidate)
         client = chosen.provider
-        if client not in ("claude", "codex"):
-            return _view(agent_id, chosen, UNSUPPORTED, "runtime_changed",
-                         "The agent's runtime no longer matches its selected conversation")
         backend = self._backend()
         if backend is None:
             return _view(agent_id, chosen, UNSUPPORTED, "terminal_unavailable", "Host terminal control is unavailable")
@@ -209,7 +206,7 @@ class AttachmentService:
                 return _view(agent_id, chosen, UNSUPPORTED, "native_only", "Attaching needs this agent's native session on the host")
             return _view(agent_id, chosen, DISCONNECTED, "unverifiable", "The terminal cannot be verified right now",
                          candidate=candidate)
-        if candidate is not None and not chosen.shared_server:
+        if candidate is not None:
             return _view(agent_id, chosen, MISMATCH, selection.REASON_CANDIDATE,
                          "Another conversation is running in the terminal; select it to use it, or reconnect the selected one "
                          "after it stops", action=ACTION_SELECT, candidate=candidate)
@@ -217,12 +214,10 @@ class AttachmentService:
         if state == liveness.UNKNOWN:
             return _view(agent_id, chosen, DISCONNECTED, "unverifiable",
                          "The selected conversation's process cannot be verified right now")
-        if chosen.shared_server:
-            return self._shared_server(profile, chosen, pane, state, relation, candidate)
         return self._terminal_owned(agent_id, chosen, pane, state, live, relation)
 
     def _terminal_owned(self, agent_id, chosen, pane, state, live, relation) -> dict:
-        """Claude Code and a foreground Codex: attached only when the selected process is the pane's foreground client."""
+        """Claude Code: attached only when the selected process is the pane's foreground client."""
         client = chosen.provider
         if state == liveness.ALIVE:
             found = pane.get("client")
@@ -238,54 +233,6 @@ class AttachmentService:
             # The same conversation re-held by a new process after the old one is gone: its adoption is still due.
             return _view(agent_id, chosen, RECONNECTING, selection.REASON_PENDING, "The resumed conversation is registering")
         return self._stopped(agent_id, chosen, pane)
-
-    def _shared_server(self, profile, chosen, pane, state, relation, candidate) -> dict:
-        """Compare the native TUI's current displayed ID with the durable selection.
-
-        The title survives narrow panes and approval dialogs. It is recomputed by
-        Codex on thread navigation, whereas argv only records the initial resume.
-        A shortened title is resolved against all loaded server IDs, with ambiguity
-        refused. No transcript scraping, extra agent, prompt, or thread creation.
-        """
-        agent_id = profile["agent_id"]
-        if state == liveness.DEAD:
-            if relation == selection.PENDING:
-                return _view(agent_id, chosen, RECONNECTING, selection.REASON_PENDING, "The resumed conversation is registering")
-            return self._stopped(agent_id, chosen, pane)
-        endpoint = self._endpoint(chosen)
-        if relation != selection.HELD or endpoint is None:
-            return _view(agent_id, chosen, DISCONNECTED, "unverifiable", "The Codex server and its thread cannot be verified right now")
-        if pane["state"] == "absent" or pane["kind"] == "shell":
-            if pane["state"] == "present" and self._launching(agent_id, chosen, pane, SHELL_LAUNCH_SECONDS):
-                return _view(agent_id, chosen, RECONNECTING, "launching", "Opening the selected conversation")
-            return _view(agent_id, chosen, DISCONNECTED, "viewer_not_attached",
-                         "The conversation is running; reconnect to open it in Terminal", action=ACTION_RECONNECT,
-                         auto_reconnect=chosen.desired_state == "running")
-        if pane["kind"] == "client":
-            found = pane["client"]
-            configured = codex_viewer.configured(found["argv"], endpoint, profile["workspace"])
-            displayed = codex_viewer.displayed_thread(chosen.owner, pane.get("title")) if configured else None
-            if displayed == chosen.conversation_id:
-                # The bounded server read must not authorize a pane that changed while it ran.
-                current = self._backend().pane_observation(profile, "codex")
-                if (not _same_pane(pane, current) or current.get("kind") != "client"
-                        or current.get("client") != found or current.get("title") != pane.get("title")):
-                    return _view(agent_id, chosen, DISCONNECTED, "terminal_changed", "The terminal changed; reconnect")
-                observed = {"client": "codex", "pane_id": pane["pane_id"], "pid": found["pid"], "started": found["started"],
-                            "transport": "codex_queue", "conversation_id": displayed}
-                return _view(agent_id, chosen, ATTACHED, "verified", "Codex is showing the selected conversation",
-                             observed=observed, token=self._token(agent_id, chosen, observed))
-            if displayed is not None or candidate is not None:
-                selectable = candidate if candidate and candidate["conversation_id"] == displayed else None
-                return _view(agent_id, chosen, MISMATCH, selection.REASON_CANDIDATE,
-                             "The terminal is showing another conversation",
-                             candidate=selectable, action=ACTION_SELECT if selectable else None)
-            if configured and self._launching(agent_id, chosen, pane, CLIENT_LAUNCH_SECONDS):
-                return _view(agent_id, chosen, RECONNECTING, "launching",
-                             "Waiting for Codex to display the selected conversation")
-            return _view(agent_id, chosen, UNSUPPORTED, REASON_VIEWER_UNVERIFIED,
-                         "This terminal has no readable conversation identity. Exit its client in Diagnostic terminal, then reconnect")
-        return _view(agent_id, chosen, MISMATCH, "other_program", "Another program is running in this agent's terminal")
 
     def _stopped(self, agent_id, chosen, pane) -> dict:
         """The selected conversation's process is verified gone: exact resume is possible only into no pane or a pane whose
@@ -315,8 +262,8 @@ class AttachmentService:
         """Resume exactly the selected conversation into the agent's absent or idle-shell terminal. The caller has authorized the
         owner and made sure a shell exists. Serialized per agent on the runtime's shared lock: a concurrent call finds the
         first one's launch and returns it, so two requests never start two clients. Anything that cannot be proved safe is
-        refused; nothing falls back to a fresh conversation. A shared Codex viewer must publish its current native identity
-        before its output or input is attached."""
+        refused; nothing falls back to a fresh conversation."""
+        self._require_terminals()
         with self.locks(agent_id):
             profile, chosen = self._load(agent_id)
             if profile is None:
@@ -338,6 +285,7 @@ class AttachmentService:
         bootstrap. ``authorized`` is the revision captured before the old pane was touched (None: nothing was selected, so the
         controller's own first-launch launcher applies and ``None`` is returned). A selection that is not the authorized one
         any more, or a launch that cannot be proved safe, raises; it is never replaced by a fresh conversation."""
+        self._require_terminals()
         with self.locks(agent_id):
             profile, chosen = self._load(agent_id)
             current = chosen.revision if chosen is not None else None
@@ -364,25 +312,15 @@ class AttachmentService:
                     "readiness is not confirmed and no role was bootstrapped")
 
     def _command(self, chosen, shell_pid: int) -> str:
-        """The one exact resume command, after checking the capability of the executable the pane's shell will really run."""
-        client, conversation = chosen.provider, chosen.conversation_id
+        """The one exact resume command, after checking the capability of the executable the pane's shell will really run. The
+        agent's stored model and effort are appended, as for every start Qorqbot types."""
+        conversation = chosen.conversation_id
         if not UUID.fullmatch(conversation):
             raise DomainError("invalid_transition", "The selected conversation id is not resumable")
-        executable = effective_executable(client, shell_pid)
-        if client == "claude":
-            if not features.probe(executable).get("resume"):
-                raise DomainError("unsupported_runtime", "The installed Claude Code does not document --resume")
-            return f"claude --resume {conversation}"
-        if chosen.shared_server and liveness.of_binding(chosen.binding) == liveness.ALIVE:
-            endpoint = self._endpoint(chosen)
-            if endpoint is None:
-                raise DomainError("invalid_transition", "The Codex server endpoint cannot be verified right now")
-            if not _codex_remote_resume(features.executable_identity(executable)):
-                raise DomainError("unsupported_runtime", "The installed Codex does not document resuming over a unix:// endpoint")
-            return "codex --config " + shlex.quote(codex_viewer.TITLE_CONFIG) + " " + " ".join(
-                shlex.quote(item) for item in viewer_tail(conversation, endpoint))
-        # A stopped Codex conversation resumes by its exact id through the normal shared background server.
-        return f"codex --config {shlex.quote(codex_viewer.TITLE_CONFIG)} resume {conversation}"
+        executable = effective_executable("claude", shell_pid)
+        if not features.probe(executable).get("resume"):
+            raise DomainError("unsupported_runtime", "The installed Claude Code does not document --resume")
+        return f"claude --resume {conversation}" + start_flags(self.runtime.paths, chosen.agent_id)
 
     def _launch(self, profile: dict, chosen, authorized: str) -> None:
         """Type the one exact resume command. Caller holds the agent's lock. The selection and the pane are re-read at the last

@@ -17,7 +17,7 @@ Inside Ubuntu install the application prerequisites:
 
 ```sh
 sudo apt update
-sudo apt install python3.12 python3.12-venv git tmux
+sudo apt install python3.12 python3.12-venv git
 ```
 
 Download/extract the supplied Linux TAR.GZ **inside your Ubuntu home**, for example
@@ -37,7 +37,7 @@ The dashboard opens in your Windows browser at `http://127.0.0.1:1049` (through
 `wslview` if installed, otherwise `explorer.exe`). If it does not open, open that
 address yourself. `--no-open` skips the browser and `--port` picks another port;
 later starts reuse the last port so running agents keep their address. Your first
-visit offers a walkthrough that starts your first agent and tours the workspace. Standard WSL localhost forwarding is required; no firewall or
+visit offers a walkthrough that tours the workspace and ends in Chat, where you meet your first agent. Standard WSL localhost forwarding is required; no firewall or
 network configuration is changed by Qorqbot. Ctrl+C stops the foreground app.
 Use `./qorqbot stop`, `status` or `verify` inside the Ubuntu folder as needed.
 
@@ -49,8 +49,9 @@ at the same path after setup. Back up the stopped folder before updates/removal.
 Do not unregister the WSL distro as an application-uninstall method: that would
 delete other Linux data too.
 
-Install tmux and your chosen Linux Codex/Claude Code client **inside Ubuntu** for
-agent terminals. The same applies to optional desktop tools used by agents.
+Qorqbot downloads the Linux Claude Code and Codex clients **inside Ubuntu** itself;
+you sign in from the dashboard. Optional desktop tools used by agents must be
+installed inside Ubuntu.
 Agents' web browsing works as in the Linux guide: the package ships the
 `agent-browser` tool, and inside Ubuntu Qorqbot downloads its own Chrome once
 the app runs. If Settings says that Chrome cannot start here, install Google Chrome

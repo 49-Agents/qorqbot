@@ -375,7 +375,7 @@ class Inbound:
         if request is not None:
             lines.append(f'[Request {request["request_key"]} ({request["input_mode"]}): {request["request_reason"]}]')
         if sensitive:
-            lines.append("[Secret input: the value is not stored here. It is queued for direct delivery to the agent's terminal "
+            lines.append("[Secret input: the value is not stored here. It is queued for direct delivery to the agent's session "
                          "and is discarded if it cannot be delivered before it expires.]")
             return "\n".join(lines)
         # Telegram caps a message at 4096 characters, far below the canonical limit; if a header ever did not fit, the message

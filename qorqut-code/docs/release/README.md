@@ -137,7 +137,7 @@ frozen `adoption_recipe` includes `businesses_root` and `profiles`, keyed by
 the exact selected agent IDs with each current `revision` and `service_url`.
 It checks the live runtime and publication artifact, publishes via `plugins_publish`,
 updates pins via `agents_update`, backs up projections and prepares those agents.
-It neither starts a conversation nor restarts a terminal. The receipt binds the
+It neither starts a conversation nor restarts a session. The receipt binds the
 artifact, plan and agent list. There is no role adoption recipe in this source.
 
 A frozen `persistent_installation` object in `adoption_recipe` (absolute `config` path, raw-byte

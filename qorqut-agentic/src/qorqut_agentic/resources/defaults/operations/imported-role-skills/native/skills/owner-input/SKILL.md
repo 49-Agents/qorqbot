@@ -211,8 +211,8 @@ reminder into your native session, even while you are busy, but it names no even
 and acknowledges nothing. Keep working on the direct user request, check
 `inbox_list` at a suitable checkpoint or on completion, and follow the built-in
 inbox instructions in mandatory bootstrap context to handle and acknowledge the
-exact events. Events that arrive while no native session is running wait for the
-next manual start. Retain submitted answers with the signoff; lasting project
+exact events. Events that arrive while your session is closed wait. Qorqbot opens it for them by
+itself unless you are turned off or run in a terminal; then they wait until you are started. Retain submitted answers with the signoff; lasting project
 instructions can enter Context through its existing authorized source input
 (`context_upload` or a focused `context_instruct`) when appropriate.
 

@@ -1,5 +1,7 @@
 # Terminal paste verification and recovery
 
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](../MANAGED-RUNTIME.md).
+
 A strict native input can reach the terminal composer before the CLI redraws it.
 The transport observes the paste after 300 ms, then permits up to nine further
 read-only observations 200 ms apart. Every observation verifies the same client,

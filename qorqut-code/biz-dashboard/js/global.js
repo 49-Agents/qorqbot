@@ -2,7 +2,7 @@
 // Agents use registered root workspaces. Charts live in the shared drawer (js/overview-drawer.js).
 // Route metadata only: there is no main menu or rail. Costs renders as a page solely inside embedded Business management; elsewhere it is a
 // shared-drawer tab. Context and Calendar are agent-pane views (AGENT_PANE_DESTINATIONS); Tables is a drawer tab. Settings is opened from
-// the Agents navigation footer (below Terminal); #/global/settings stays a valid route.
+// the Agents navigation footer ; #/global/settings stays a valid route.
 const GLOBAL_PAGES = {
   agents: { title: 'Agents' },
   costs: { title: 'Costs' },

@@ -1,6 +1,5 @@
-"""Process-scoped MCP provenance; shared app-server pipes deliberately stay unbound."""
+"""Process-scoped MCP provenance; shared app-server pipes deliberately stay unbound (a managed host's own app-server is bound)."""
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -10,7 +9,7 @@ from .terminal_chat import native_process
 
 
 class BridgeBinding:
-    def __init__(self,registration,*,ancestor=native_process,proc=Path('/proc')):
+    def __init__(self,registration,*,ancestor=native_process,proc=Path('/proc'),processes=None):
         self.registration=registration;self.ancestor=ancestor;self.proc=proc
         self.bound=None;self.reason='native_session_association_unavailable'
         self.parent=None
@@ -24,8 +23,25 @@ class BridgeBinding:
                 else:
                     args=(proc/str(process['pid'])/'cmdline').read_bytes().split(b'\0')
                 if b'app-server' in args:
-                    self.reason='shared_app_server_without_thread_provenance';return
-                if any(value in args for value in (b'exec',b'queue',b'--print',b'-p',b'--agent-id')):return
+                    # A shared server serves many threads and the bridge cannot name one: unbound. The one app-server a managed host
+                    # of this agent started serves exactly one thread, so the process is the provenance (the same rule as the
+                    # managed claude; the service still checks the binding against its own host identity). Anything else about it,
+                    # a different host, a stale or missing record, a reused pid, another command line, stays unbound.
+                    try:from .native_binding import managed_host
+                    except ImportError:return
+                    from .codex_session import runs_app_server
+                    if runtime!='codex' or not runs_app_server(args) or managed_host(registration['workspace'],process['pid'],
+                            registration['agent_id'],processes=processes,runtime='codex') is None:
+                        self.reason='shared_app_server_without_thread_provenance';return
+                    self.parent=(runtime,f"{process['pid']}:{process['started']}");break
+                if any(value in args for value in (b'exec',b'queue',b'--agent-id')):return
+                if any(value in args for value in (b'--print',b'-p')):
+                    # A headless client is bound only as the child of a verified managed runtime host; a plain ``claude -p``
+                    # (a delegated worker, a diagnostic run) is not.
+                    try:from .native_binding import managed_host
+                    except ImportError:return
+                    if runtime!='claude-code' or managed_host(registration['workspace'],process['pid'],registration['agent_id'],
+                                                              processes=processes) is None:return
                 self.parent=(runtime,f"{process['pid']}:{process['started']}");break
             except (OSError,ValueError):continue
 

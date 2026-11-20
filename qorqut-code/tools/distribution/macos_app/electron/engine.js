@@ -255,7 +255,7 @@ class Engine {
       throw new EngineError('incomplete', `${this.root} exists but is not a complete Qorqbot folder. Nothing was replaced. Move it aside and try again.`);
     }
     if (this.root.length > MAX_ROOT_LENGTH) {
-      throw new EngineError('path', `The install folder path is too long for local terminal sockets (${this.root}).`);
+      throw new EngineError('path', `The install folder path is too long for local sockets (${this.root}).`);
     }
     onLine('Verifying the bundled package');
     if ((await sha256File(this.archive)) !== this.archiveSha256) {

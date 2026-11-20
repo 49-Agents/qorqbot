@@ -21,7 +21,7 @@ class TabReferenceTest(unittest.TestCase):
 
     def test_the_type_is_known_and_listed_for_the_tool_s_schema(self):
         self.assertEqual((refs.TYPE_TAB, refs.TYPES[-1]), ("tab", "tab"))
-        self.assertEqual(refs.TYPES[:6], ("task", "signoff", "browser", "agent", "project", "delta"))      # nothing moved
+        self.assertEqual(refs.TYPES[:5], ("task", "signoff", "browser", "project", "delta"))      # the agent type is retired
 
     def test_an_agent_uuid_a_colon_and_a_chrome_tab_id_is_a_tab_reference_without_a_business(self):
         expected = [{"type": "tab", "id": GOOD, "business_id": None}]
@@ -46,7 +46,7 @@ class TabReferenceTest(unittest.TestCase):
         for business in (BUSINESS, AGENT, "", 0, "x"):
             with self.assertRaises(refs.InputError, msg=repr(business)) as raised:
                 self.one({"type": "tab", "id": GOOD, "business_id": business})
-            self.assertIn("agent, delta or tab reference is {type, id} only", str(raised.exception))
+            self.assertIn("delta or tab reference is {type, id} only", str(raised.exception))
 
     def test_nothing_but_type_id_and_business_id_is_taken(self):
         for extra in ("label", "url", "title", "agent_id", "tab_id", "viewer_url"):
@@ -54,12 +54,15 @@ class TabReferenceTest(unittest.TestCase):
                 self.one({"type": "tab", "id": GOOD, extra: "https://evil.example/"})
 
     def test_the_id_forms_of_the_other_types_are_not_swapped(self):
-        for kind in ("agent", "signoff", "delta"):
+        for kind in ("signoff", "delta"):
             with self.assertRaises(refs.InputError, msg=kind):
                 self.one({"type": kind, "id": GOOD})
         with self.assertRaises(refs.InputError):
             self.one({"type": "tab", "id": AGENT})                  # the agent's UUID alone names no tab
-        self.assertEqual(self.one({"type": "agent", "id": AGENT}), [{"type": "agent", "id": AGENT, "business_id": None}])
+
+    def test_an_agent_reference_is_refused(self):
+        self.assertIn("project, delta or tab", self.refusal({"type": "agent", "id": AGENT}))
+        self.assertNotIn("agent,", self.refusal({"type": "agent", "id": AGENT}))
 
     def test_the_messages_name_the_type_and_the_command_that_prints_it(self):
         self.assertIn("delta or tab", self.refusal({"type": "page", "id": GOOD}))
@@ -68,8 +71,18 @@ class TabReferenceTest(unittest.TestCase):
     def test_exact_duplicates_are_shown_once_and_tabs_of_one_agent_are_kept_apart_in_order(self):
         other = f"{AGENT}:{TAB[::-1]}"
         shown = refs.normalize("Look.", [{"type": "tab", "id": GOOD}, {"type": "tab", "id": other},
-                                         {"type": "tab", "id": GOOD, "business_id": None}, {"type": "agent", "id": AGENT}])
-        self.assertEqual([item["id"] for item in shown["references"]], [GOOD, other, AGENT])
+                                         {"type": "tab", "id": GOOD, "business_id": None}, {"type": "task", "id": "ab3cd"}])
+        self.assertEqual([item["id"] for item in shown["references"]], [GOOD, other, "ab3cd"])
+
+    def test_a_stored_presentation_keeps_its_message_and_drops_a_retired_agent_reference(self):
+        shown = refs.normalize("Look.", [{"type": "tab", "id": GOOD}])
+        agent = {"type": "agent", "id": AGENT, "business_id": None}
+        stored = {**shown, "references": [agent, *shown["references"], agent]}
+        self.assertEqual(refs.presentation(stored), shown)
+        self.assertEqual(refs.presentation({**shown, "references": [agent]}), {**shown, "references": []})
+        # Only the form the tool returned is recognised: anything else is still not a presentation.
+        for bad in ({**agent, "business_id": BUSINESS}, {**agent, "id": "ada"}, {**agent, "label": "Ada"}, {"type": "agent", "id": AGENT}):
+            self.assertIsNone(refs.presentation({**shown, "references": [bad]}), bad)
 
     def test_a_stored_presentation_with_a_tab_is_a_presentation_and_a_bad_one_is_not(self):
         shown = refs.normalize("Look.", [{"type": "tab", "id": GOOD}])

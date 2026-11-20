@@ -3,7 +3,7 @@
 A secret inbound body is written here (0600, fsynced) before the queue pointer commits and the poll cursor advances, and
 is referenced from the database only by an opaque ID. Files live in a 0700 directory outside the repositories, the
 database, backups, exports and history. Deletion is best effort: this is not a secure-erasure claim, and client
-transcripts may retain what a terminal client received.
+transcripts may retain what the agent's client received.
 """
 
 from __future__ import annotations

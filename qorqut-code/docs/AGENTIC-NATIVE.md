@@ -45,7 +45,7 @@ between the service's current grants and the native process.
 
 Python tools use `LocalProcessRuntime` with the helper's current interpreter,
 the fixed alias `python`, an explicitly empty environment and the module's
-bounded runtime limits. This retains the native terminal's OS authority; it is
+bounded runtime limits. This runs with the OS authority of the user running Qorqbot; it is
 not an OS security sandbox. Tool code can access files and networking allowed
 by that OS account. Native plugin activation and operational grants still use
 the host's existing permission system.

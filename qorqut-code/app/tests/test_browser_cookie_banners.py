@@ -137,7 +137,7 @@ class WatchTest(unittest.TestCase):
 
     def test_the_connection_is_made_to_the_address_chrome_names_without_anything_of_the_application(self):
         from qorqut.browser import control
-        blocked = {name: None for name in ("qorqut.browser.sign_in", "qorqut.browser.agent_browsers", "qorqut.agent_trust")}
+        blocked = {name: None for name in ("qorqut.browser.sign_in", "qorqut.browser.agent_browsers", "qorqut.atomic_write")}
         with mock.patch.dict(sys.modules, blocked), mock.patch("websockets.sync.client.connect") as connect, \
                 mock.patch.object(control, "devtools_json", return_value={"webSocketDebuggerUrl": "ws://127.0.0.1:20400/devtools/browser/x"}) as asked:
             self.assertIs(cookie_banners._connect(20400), connect.return_value)
