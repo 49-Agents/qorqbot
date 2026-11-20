@@ -28,7 +28,19 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
   const placeWorkingTag = () => {
     if (mobile.matches || primary?.agent_id !== agentId) workingHost.prepend(workingTag);
     else contextRow.insertBefore(workingTag, head);
+    placeActivity();
   };
+  // The chat's activity line (what the agent is doing, Stop) takes the focus intent's place while the agent works.
+  // Only in the chat of the agent whose focus this is; anywhere else it stays in its own block above the composer.
+  let activityLine = null, activityHome = null;
+  const placeActivity = () => {
+    if (!activityLine) return;
+    const here = !mobile.matches && primary?.agent_id === agentId;
+    if (here && activityLine.parentNode !== panel) panel.insertBefore(activityLine, expanded);
+    else if (!here && activityLine.parentNode !== activityHome) activityHome.append(activityLine);
+  };
+  const activityShown = () => !!activityLine && activityLine.parentNode === panel && !activityLine.hidden;
+  const paintIntent = () => { intent.hidden = !intent.textContent || activityShown(); };
   const show = () => { panel.hidden = false; };
   let peerVersion=0,peerPending=null,peerAgents=[];
   const peerData=new Map();
@@ -96,7 +108,7 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
     panel.querySelector('.gchat-focus-label').textContent = !loaded ? 'Loading…' : !primary ? 'Ordubashy unavailable' : focusError || focus?.unavailable ? 'Focus unavailable'
       : focused ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
     intent.textContent=focused && !focusError && typeof attention.intent==='string' ? attention.intent.trim() : '';
-    intent.hidden=!intent.textContent;
+    paintIntent();
     head.setAttribute('aria-expanded', String(open));
     head.setAttribute('aria-label', (open ? 'Collapse' : 'Expand') + ' focus details');
     panel.classList.toggle('wfpanel-collapsed', !open);
@@ -143,6 +155,7 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
   paint();
   panel.onclick = event => {
     const selection=window.getSelection();
+    if(event.target.closest('.mchat-activity'))return;
     if(!event.target.closest('.wfpanel-head') && selection && !selection.isCollapsed && panel.contains(selection.anchorNode))return;
     open=!open;peerVersion++;peerPending=null;paint();if(open)void refreshPeers();
   };
@@ -154,7 +167,9 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
   mobile.addEventListener('change', onResize);
   return {
     refresh, show,
-    dispose() { disposed = true;peerVersion++; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); workingHost.prepend(workingTag); panel.remove(); },
+    hostActivity(line) { if (disposed || activityLine === line) return; activityLine = line; activityHome = line.parentNode; placeActivity(); },
+    paintActivity() { if (!disposed) paintIntent(); },
+    dispose() { disposed = true; if (activityLine && activityLine.parentNode === panel) activityHome.append(activityLine);peerVersion++; unsubscribe(); clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); mobile.removeEventListener('change', onResize); workingHost.prepend(workingTag); panel.remove(); },
   };
 }
 

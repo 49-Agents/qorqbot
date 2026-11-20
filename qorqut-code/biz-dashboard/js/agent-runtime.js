@@ -1,6 +1,6 @@
 // Chat for an agent Qorqbot runs itself. Every agent is run this way: the owner only uses Chat. This file holds the session wording
 // for each state (asleep, opening, working, ready, off, cannot start), the Stop button, the activity line, the question cards, the
-// End session button and the refusal texts. js/global-chat.js calls it.
+// refusal texts. js/global-chat.js calls it.
 // The server shapes are in docs/MANAGED-RUNTIME.md. `session.managed` is
 // {open, off, phase, activity, turn_started_at, can_stop, closed_text, pending: [{request_id, kind: 'question', tool, questions:
 // [{question, header, options: [{label, description}], multiSelect}]}]}. `off` is true for an agent the owner ended: it stays off
@@ -176,7 +176,9 @@ const agentRuntime = (() => {
     };
     // One action the owner is offered after a refusal (starting a new conversation); gone as soon as a session is open.
     const offer = (what, onChoose) => { noticeText.textContent = what.text; noticeAction.textContent = what.label; choose = onChoose; notice.hidden = false; el.hidden = false; };
-    const clearOffer = () => { choose = null; notice.hidden = true; noticeText.textContent = ''; el.hidden = !(cards.size || !line.hidden); };
+    // The activity line can be shown elsewhere (the chat's focus strip); the block then takes no room for it.
+    const lineHere = () => !line.hidden && line.parentNode === el;
+    const clearOffer = () => { choose = null; notice.hidden = true; noticeText.textContent = ''; el.hidden = !(cards.size || lineHere()); };
     const fail = (node, text) => { const box = node.querySelector('.mchat-card-error'); box.textContent = text; box.hidden = !text; };
 
     function update(session) {
@@ -205,7 +207,7 @@ const agentRuntime = (() => {
       }
       cardsHost.hidden = cards.size === 0;
       // The block takes room only while it has something to show.
-      el.hidden = !(cards.size || info.text || !notice.hidden);
+      el.hidden = !(cards.size || lineHere() || !notice.hidden);
     }
     async function interrupt() {
       if (stopping || !binding()) { if (!binding()) onError('Couldn’t stop. Try again in a moment.'); return; }
@@ -236,6 +238,11 @@ const agentRuntime = (() => {
       const node = button?.closest('[data-request-id]');
       if (node) void answer(node.dataset.requestId);
     });
+    // Shown outside the block, the activity line takes its own Stop press, and the press goes no further.
+    line.addEventListener('click', event => {
+      if (line.parentNode === el || !event.target.closest('.mchat-stop')) return;
+      event.stopPropagation?.(); void interrupt();
+    });
     // Enter in a typed answer sends the card, like its button.
     el.addEventListener('keydown', event => {
       if (event.key !== 'Enter' || event.isComposing || !event.target.matches?.('[data-q-other]')) return;
@@ -243,32 +250,10 @@ const agentRuntime = (() => {
       const node = event.target.closest('[data-request-id]');
       if (node) void answer(node.dataset.requestId);
     });
-    return {el, update, offer, clearOffer, dispose() { disposed = true; el.remove(); cards.clear(); }, get session() { return last; }};
+    return {el, line, update, offer, clearOffer, dispose() { disposed = true; el.remove(); line.remove(); cards.clear(); }, get session() { return last; }};
   }
 
-  // End session: a quiet button in the session line, shown only while a session is open. It posts the close, which turns the agent
-  // off. `send(path, body)` posts to the agent's chat route and returns its data or throws; `onDone()` runs when it was taken.
-  const END_FAILED = 'Couldn’t end the session. Try again.';
-  const canEnd = session => !!managedOf(session)?.open && session.state === 'live';
-  function createEnd({send, onDone, onError, doc = globalThis.document}) {
-    const el = doc.createElement('button');
-    el.setAttribute('type', 'button'); el.className = 'quiet gchat-end'; el.hidden = true; el.textContent = 'End session';
-    const TITLE = 'Turn the agent off until you send it a message';
-    el.setAttribute('title', TITLE);
-    let busy = false;
-    el.addEventListener('click', async () => {
-      if (busy) return;
-      busy = true; el.disabled = true; el.setAttribute('title', 'Ending the session…');
-      try { await send('/close', {}); busy = false; el.disabled = false; el.setAttribute('title', TITLE); onDone(); }
-      catch (_) { busy = false; el.disabled = false; el.setAttribute('title', TITLE); onError(END_FAILED); }
-    });
-    return {el, update(session) { el.hidden = !canEnd(session); }};
-  }
-  // The session as the owner sees it the moment End session was taken, before the next read confirms it.
-  const afterEnd = session => session ? {...session, state: 'offline', reason: 'session_closed', binding: null, working: false,
-    managed: {...(session.managed || {}), open: false, off: true, phase: 'idle', activity: '', can_stop: false, pending: []}} : session;
-
-  return {managedOf, closed, canOpen, canEnd, working, summary, startHint, emptyText, placeholder, unavailableText, activity, refusalText, isRetryable, newConversationOffer,
-    questionList, cardHtml, questionDecision, createBar, createEnd, afterEnd, END_FAILED, escapeHtml};
+  return {managedOf, closed, canOpen, working, summary, startHint, emptyText, placeholder, unavailableText, activity, refusalText, isRetryable, newConversationOffer,
+    questionList, cardHtml, questionDecision, createBar, escapeHtml};
 })();
 if (typeof module !== 'undefined') module.exports = agentRuntime;

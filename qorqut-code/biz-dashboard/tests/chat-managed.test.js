@@ -2,8 +2,8 @@
 // node --test biz-dashboard/tests/chat-managed.test.js
 // Chat for an agent Qorqbot runs itself (js/agent-runtime.js and its use in js/global-chat.js and js/slash-commands.js). Every agent is
 // run that way: the session wording for each state (asleep, opening, working, ready, off, cannot start), Stop, the activity line,
-// the question cards, End session, the refusal words and the unavailable slash-command refusal.
-// The bar, End session and shell run against the small fake DOM below; global-chat.js functions are cut out of the source and run
+// the question cards, the refusal words and the unavailable slash-command refusal.
+// The bar and shell run against the small fake DOM below; global-chat.js functions are cut out of the source and run
 // against fakes (no browser, no server, no dependencies).
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -152,11 +152,9 @@ test('every session is managed: `execution` is neither needed nor read, and no s
     assert.equal(runtime.managedOf(session).open, true);
     assert.equal(runtime.summary(session, 'Ada').key, 'live');
     assert.equal(runtime.startHint(session, 'Ada'), 'Send a message to start Ada');
-    assert.equal(runtime.canEnd(session), true);
   }
   assert.equal(runtime.managedOf(null), null);
   assert.equal(runtime.summary(null, 'Ada'), null);
-  assert.equal(runtime.canEnd(null), false);
   // a session that arrives with no `managed` part at all reads as open while it is live, and closed once the server says so
   assert.equal(runtime.managedOf({state: 'live', can_send: true}).open, true);
   assert.equal(runtime.managedOf({state: 'offline', reason: 'session_closed'}).open, false);
@@ -198,7 +196,6 @@ test('an agent the owner turned off says it stays off until a message is sent, a
   assert.equal(runtime.placeholder(session, 'Ada', true), 'Message Ada to turn it on…');
   assert.equal(runtime.placeholder(session, 'Ada', false), 'Message Ada to turn it on…');
   assert.equal(runtime.canOpen(session), true, 'the composer is usable: the message turns it on');
-  assert.equal(runtime.canEnd(session), false);
   // off wins over a stale open flag, and over the server's closed text; a message on its way reads as starting
   assert.equal(runtime.managedOf({...managed(), managed: {open: true, off: true}}).open, false);
   assert.equal(runtime.summary(closedSession({off: true, closed_text: 'x'}), 'Ada').key, 'off');
@@ -398,61 +395,6 @@ test('without a binding an answer posts nothing and says so', async () => {
   const [card] = cardsOf(ui); card.querySelectorAll('[data-q]')[0].checked = true; click(card.querySelector('[data-answer="submit"]')); await flush();
   assert.deepEqual(ui.sent, []);
   assert.match(card.querySelector('.mchat-card-error').textContent, /Not connected/);
-});
-
-// ---- End session
-function endButton() {
-  freshPage();
-  const sent = [], errors = [], done = [], state = {fail: null, hold: null};
-  const made = runtime.createEnd({doc,
-    send: async (route, body) => { sent.push([route, body]); if (state.hold) await state.hold; if (state.fail) throw state.fail; return {}; },
-    onDone: () => done.push(1), onError: text => errors.push(text)});
-  doc.body.append(made.el);
-  return {...made, sent, errors, done, state};
-}
-
-test('End session is a quiet button, shown only while a session is open, that posts the close', async () => {
-  const ui = endButton();
-  assert.equal(ui.el.hidden, true);
-  assert.equal(ui.el.textContent, 'End session');
-  assert.equal(ui.el.getAttribute('type'), 'button');
-  assert.match(ui.el.className, /\bquiet\b/);
-  ui.update(managed()); assert.equal(ui.el.hidden, false);
-  click(ui.el); await flush();
-  assert.deepEqual(ui.sent, [['/close', {}]]);
-  assert.equal(ui.done.length, 1);
-  assert.deepEqual(ui.errors, []);
-  for (const gone of [closedSession(), offSession(), null, managed({}, {state: 'offline', can_send: false})]) { ui.update(gone); assert.equal(ui.el.hidden, true, JSON.stringify(gone)); }
-  ui.update(managed({phase: 'working', can_stop: true})); assert.equal(ui.el.hidden, false, 'also while working');
-  ui.update(managed({phase: 'starting'})); assert.equal(ui.el.hidden, false, 'also while starting');
-});
-
-test('End session is disabled while the close is in flight, refuses a second press, and says so when it fails', async () => {
-  const ui = endButton(); let release; ui.state.hold = new Promise(done => { release = done; });
-  ui.update(managed());
-  click(ui.el); click(ui.el);
-  assert.equal(ui.el.disabled, true);
-  assert.equal(ui.sent.length, 1);
-  release(); await flush();
-  assert.equal(ui.el.disabled, false);
-  assert.equal(ui.done.length, 1);
-  ui.state.hold = null; ui.state.fail = new Error('x'); click(ui.el); await flush();
-  assert.deepEqual(ui.errors, ['Couldn’t end the session. Try again.']);
-  assert.equal(ui.done.length, 1);
-  assert.equal(ui.el.disabled, false);
-});
-
-test('after End session the view shows the off state at once: closed, off, no binding, nothing to stop or answer', () => {
-  const ended = runtime.afterEnd(managed({phase: 'working', activity: 'Reading', can_stop: true, pending: [question()]}, {working: true}));
-  assert.equal(ended.binding, null);
-  assert.equal(ended.state, 'offline');
-  assert.equal(runtime.managedOf(ended).off, true);
-  assert.equal(runtime.managedOf(ended).open, false);
-  assert.deepEqual(runtime.managedOf(ended).pending, []);
-  assert.equal(runtime.summary(ended, 'Ada').key, 'off');
-  assert.equal(runtime.canOpen(ended), true);
-  assert.equal(runtime.canEnd(ended), false);
-  assert.equal(runtime.afterEnd(null), null);
 });
 
 // ---- slash commands
@@ -730,23 +672,22 @@ test('the real submit sends a closed agent’s message with no pin, and a live a
   assert.deepEqual(live.banners.filter(Boolean), ['/cost isn’t available when Qorqbot runs Ada.']);
 });
 
-// syncManaged against the fake DOM: the Stop block goes above the session line, and End session follows the session.
+// syncManaged against the fake DOM: the Stop block goes above the session line.
 function shell({session}) {
   freshPage();
   const root = doc.createElement('div'), chatView = doc.createElement('div'), sessionLine = doc.createElement('div');
   chatView.append(sessionLine); root.append(chatView); doc.body.append(root);
   const cleanups = [], banners = [], loads = [], sent = [];
   const state = {session, finished: false};
-  const sync = new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'state', 'endSession',
+  const sync = new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'state', 'contextStatus',
     `let managedBar = null; let session = state.session; let finished = false;
      ${between('  const runtimeSend =', '  // The session line says what the empty')}
      return {syncManaged, bar: () => managedBar, set: value => { session = value; }, finish: () => { finished = true; }};`)(
-    runtime, 'Ada', sessionLine, () => state.session?.binding, () => {}, () => loads.push(1), t => banners.push(t), cleanups, r => r, async (url, body) => { sent.push([url, body]); return {}; }, '/chat', state,
-    runtime.createEnd({doc, send: async () => ({}), onDone: () => {}, onError: () => {}}));
+    runtime, 'Ada', sessionLine, () => state.session?.binding, () => {}, () => loads.push(1), t => banners.push(t), cleanups, r => r, async (url, body) => { sent.push([url, body]); return {}; }, '/chat', state, null);
   return {root, chatView, sessionLine, sync, cleanups, banners, loads, sent};
 }
 
-test('a managed agent gets the Stop block above the session line, and End session follows whether a session is open', () => {
+test('a managed agent gets the Stop block above the session line', () => {
   const s = shell({session: managed({phase: 'working', activity: 'Editing', can_stop: true})});
   s.sync.syncManaged();
   const bar = s.sync.bar();
@@ -756,10 +697,20 @@ test('a managed agent gets the Stop block above the session line, and End sessio
   assert.equal(bar.el.querySelector('.mchat-stop').hidden, false);
   assert.equal(bar.el.querySelector('.mchat-activity-text').textContent, 'Editing');
   assert.equal(s.cleanups.length, 1);
-  // asleep: nothing to stop, nothing to end
+  // asleep: nothing to stop
   s.sync.set(closedSession()); s.sync.syncManaged();
   assert.equal(bar.el.hidden, true);
   assert.equal(s.sync.bar(), bar, 'the same block is kept');
+});
+
+test('shown outside its block, the activity line takes no room there and still stops the agent', async () => {
+  const ui = bar(), strip = doc.createElement('div');
+  doc.body.append(strip); strip.append(ui.line);
+  ui.update(managed({phase: 'working', activity: 'Editing', can_stop: true}));
+  assert.equal(ui.line.hidden, false);
+  assert.equal(ui.el.hidden, true, 'nothing left to show above the composer');
+  click(ui.line.querySelector('.mchat-stop')); await flush();
+  assert.equal(ui.sent.filter(([route]) => route === '/interrupt').length, 1);
 });
 
 test('the Stop block is not built before the first session read', () => {

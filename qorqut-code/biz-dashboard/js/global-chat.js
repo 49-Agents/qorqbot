@@ -1,6 +1,6 @@
 // Persistent chat for any registered agent (global or business). It is a projection of the agent's native session
 // conversation (qorqut-code docs/v1.2/NATIVE_CHAT_DTO.md): opening, switching or reading never starts, resumes, stops or types
-// into an agent; a message from the owner starts or wakes the agent's session, and End session turns the agent off. One mount owns
+// into an agent; a message from the owner starts or wakes the agent's session, and it rests again by itself. One mount owns
 // one SSE stream, its timers and listeners, and releases all of them in dispose().
 // Composer state is bound to the exact agent and conversation, and outlives a mount so a switch never leaks or loses it.
 // When agents run in terminals (the legacy option) a payload with `session.execution === 'terminal'` takes the small guarded calls into
@@ -205,12 +205,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   const $q = selector => root.querySelector(selector);
   const sessionLine = document.createElement('div');
   sessionLine.className = 'gchat-session'; sessionLine.setAttribute('role', 'status'); sessionLine.setAttribute('aria-live', 'polite'); sessionLine.dataset.state = 'loading';
-  sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span>`;
-  // End session sits at the end of the session line, shown only while a session is open.
-  const endSession = agentRuntime.createEnd({send: (path, body) => runtimeSend(path, body), onError: text => showBanner(text), onDone: () => {
-    showBanner(''); session = agentRuntime.afterEnd(session); paintSession(); void load();
-  }});
-  sessionLine.append(endSession.el);
+  sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-text">Loading…</span>`;
   const sessionText = sessionLine.querySelector('.gchat-session-text');
   const workingTag = sessionLine.querySelector('.gchat-working-tag');
 
@@ -433,10 +428,10 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (key === 'disabled') return {text: 'Chat unavailable.', action: null};
     return {text: '', action: null};
   }
-  // ---- managed runtime: Stop, the activity line, the cards and End session follow the session
+  // ---- managed runtime: Stop, the activity line and the cards follow the session
   const runtimeSend = async (path, body) => coreData(await post(`${base}${path}`, body));
   function syncManaged() {
-    // A terminal agent has no managed session: no Stop block, no activity line, no question cards, no End session.
+    // A terminal agent has no managed session: no Stop block, no activity line, no question cards.
     const terminal = typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session);
     if (session && !terminal && !managedBar && sessionLine.parentNode) {
       managedBar = agentRuntime.createBar({label, send: runtimeSend, binding: () => liveBinding()?.binding_id || null,
@@ -444,8 +439,10 @@ function mountGlobalChat(pane, agent, options = {}) {
       sessionLine.parentNode.insertBefore(managedBar.el, sessionLine);
       cleanups.push(() => managedBar?.dispose());
     }
+    // In Ordubashy's own chat the activity line (what it is doing, Stop) sits in the focus strip, where the focus intent is.
+    if (managedBar) contextStatus?.hostActivity(managedBar.line);
     managedBar?.update(session);
-    endSession.update(finished || terminal ? null : session);
+    contextStatus?.paintActivity();
   }
   // The session line says what the empty conversation does not already say in the middle of the pane.
   const sessionLineText = (summary, hint) => hint.text && ['closed', 'off', 'starting'].includes(summary.key) ? '' : summary.line;
@@ -459,15 +456,15 @@ function mountGlobalChat(pane, agent, options = {}) {
     // An empty conversation already shows the same direction in the middle of the pane.
     const hint = emptyState();
     sessionText.textContent = finished ? 'This chat is no longer available.' : terminal ? agentTerminalView.sessionLineText(summary, hint) : sessionLineText(summary, hint);
-    // The activity line (Stop, what the agent is doing) already shows the dots while it is there; in the focus panel they stay.
-    workingTag.hidden = !working || (workingTag.parentElement === sessionLine && !!agentRuntime.activity(session).text);
+    // The activity line (Stop, what the agent is doing) already shows the dots while it is there.
+    workingTag.hidden = !working || !!agentRuntime.activity(session).text;
     contextStatus?.show();
     // The question card and the activity line take room from the message list. Whether the owner was at the end of it is read before
     // they appear, so the list stays at its end (the last message is never under the card) and a list scrolled up stays where it is.
     const pinned = !!view?.isAtBottom?.();
     syncManaged();
     if (options.openTerminal && typeof agentTerminalView !== 'undefined') agentTerminalView.syncChat(root, session, options, terminalSync);
-    sessionLine.hidden = !sessionText.textContent && endSession.el.hidden && (!working || workingTag.parentElement !== sessionLine);
+    sessionLine.hidden = !sessionText.textContent && (workingTag.hidden || workingTag.parentElement !== sessionLine);
     const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId);
     // A message that opens the session is on its way: every control that is off says the one thing, "Starting <agent>…", until the session is open.
     const opening = !terminal && (GLOBAL_CHAT_OPENING.has(agentId) || (agentRuntime.closed(session) && GLOBAL_CHAT_INFLIGHT.has(composerScope)));
