@@ -8,6 +8,8 @@ const attentionQueue=(()=>{
   let calendarRows=[],calendarCalendars=[],calendarError='',discardedKeys=new Set();
   const pendingDiscards=new Set();
   const mounts=new Set(),lists=new Set(),acknowledged=new Set(),signoffMounts=new Map();
+  // Signoffs the owner just marked unread from the strip, shown unread until the server answers.
+  const pendingUnread=new Set();
   let queueOkAt=0,signoffOkAt=0;
   let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
   // Due reminders addressed to the owner. Opening or reading one never changes it; only an explicit dismiss/snooze/cancel does.
@@ -174,7 +176,8 @@ const attentionQueue=(()=>{
   }
   const paintAll=()=>{mounts.forEach(paint);const current=remaining();lists.forEach(host=>{if(!host.isConnected){lists.delete(host);return;}host.innerHTML=current.length?current.map(button).join(''):'<p class="muted">Nothing new</p>';});paintSignoffs();};
   const unseen=item=>!viewedIds(item).every(id=>acknowledged.has(id));
-  const signoffUnread=id=>queueRows.some(item=>unseen(item) && (item.signoff_id===id || item.source?.type==='signoff' && item.source.id===id));
+  const signoffRows=id=>queueRows.filter(item=>item.signoff_id===id || item.source?.type==='signoff' && item.source.id===id);
+  const signoffUnread=id=>pendingUnread.has(id) || signoffRows(id).some(unseen);
   const reminderKey=r=>`reminder:${r.reminder_id}:${r.occurrence_id}:${r.revision}`;
   const reminderUnread=r=>queueRows.some(item=>item.id===reminderKey(r) && unseen(item));
   function acceptQueue(data){queueRows=data.items || [];items=distinctDestinations(queueRows);sideChats=data.side_chats || [];discardedKeys=new Set(data.discarded || []);}
@@ -306,7 +309,7 @@ const attentionQueue=(()=>{
         if(divider)divider.hidden=!chats;
       }
       const grouped=signoffs.filter(isFiling).length>1;
-      const markup=(mount.sideChatHost?'':chats)+due+recovery+(grouped?filingsChip():'')+[...signoffs.filter(s=>!toRead(s) && !(grouped && isFiling(s))),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);const blocking=signoffBlocking(s);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}"${blocking?' data-blocking="true"':''} aria-label="${toRead(s)?'Read':askKind(s)==='question'?'Question':askKind(s)==='request'?'Request':'Review'} ${esc(title)}${blocking?' · Blocking':''}${unread?' · Unread':''}" title="${esc(title)}${blocking?' (blocking)':''}">${signoffIcon(s)}</button>`;}).join('');
+      const markup=(mount.sideChatHost?'':chats)+due+recovery+(grouped?filingsChip():'')+[...signoffs.filter(s=>!toRead(s) && !(grouped && isFiling(s))),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);const blocking=signoffBlocking(s);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}"${blocking?' data-blocking="true"':''} aria-label="${toRead(s)?'Read':askKind(s)==='question'?'Question':askKind(s)==='request'?'Request':'Review'} ${esc(title)}${blocking?' · Blocking':''}${unread?' · Unread':''}" title="${esc(title)}${blocking?' (blocking)':''}\nRight-click to mark ${unread?'read':'unread'}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'')+(calendarError?'<button type="button" class="quiet" data-calendar-retry title="'+esc(calendarError)+'">Retry calendar</button>':'');
       if(host._signoffHTML!==html){
         const focused=document.activeElement, key=host.contains?.(focused) && focused?.matches?.('[data-signoff-key],[data-reminder-key]') ? chipKey(focused) : null;
@@ -372,10 +375,26 @@ const attentionQueue=(()=>{
     event.preventDefault();
     const pin=threadPins.find(chip.dataset.threadPin);if(pin)void threadPins.set(pin.source,pin.title,false);
   }
+  // Right-click on a Signoff chip toggles it read/unread. Read clears every new row about it (its own and replies on it);
+  // unread forgets the current version's viewed marker so the server lists it as new again. Neither decides the Signoff.
+  function signoffContextMenu(event){
+    const chip=event.target.closest('[data-signoff-key]');if(!chip || !event.currentTarget.contains(chip))return;
+    const s=signoffs.find(item=>item.id===chip.dataset.signoffKey);if(!s)return;
+    event.preventDefault();
+    if(signoffUnread(s.id)){
+      if(pendingUnread.delete(s.id))paintSignoffs();
+      void acknowledge([`signoff:${s.id}:${s.proposal_revision}:${s.payload_hash}`,...signoffRows(s.id).flatMap(viewedIds)]);
+      return;
+    }
+    const key=`signoff:${s.id}:${s.proposal_revision}:${s.payload_hash}`;
+    acknowledged.delete(key);pendingUnread.add(s.id);paintSignoffs();
+    const settle=()=>pendingUnread.delete(s.id);
+    void persist({unviewed:[key]},settle,settle,'Could not mark unread');
+  }
   function reminderContextMenu(event){
     const calendar=event.target.closest('[data-calendar-key]');
     if(calendar && event.currentTarget.contains(calendar)){event.preventDefault();void discardCalendar(calendar.dataset.calendarKey);return;}
-    const chip=event.target.closest('[data-reminder-key]'); if(!chip || !event.currentTarget.contains(chip))return;
+    const chip=event.target.closest('[data-reminder-key]'); if(!chip || !event.currentTarget.contains(chip)){signoffContextMenu(event);return;}
     event.preventDefault();
     const reminder=dueReminders.find(r=>r.reminder_id===chip.dataset.reminderKey);
     if(reminder)void remindersDismissDue(reminder).catch(error=>toast(error.message || 'Could not dismiss reminder.'));

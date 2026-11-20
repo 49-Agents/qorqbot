@@ -35,7 +35,7 @@ def recent_calendar_key(key):
     return bool(found) and found.group(1) >= (date.today() - timedelta(days=CALENDAR_KEEP_DAYS)).isoformat()
 
 
-def _saved(runtime_directory, owner, suffix, ids=(), keep=None, limit=None):
+def _saved(runtime_directory, owner, suffix, ids=(), keep=None, limit=None, remove=()):
     directory = Path(runtime_directory) / 'dashboard-preferences'
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / (hashlib.sha256(owner.encode()).hexdigest() + suffix)
@@ -44,6 +44,7 @@ def _saved(runtime_directory, owner, suffix, ids=(), keep=None, limit=None):
         stored = set(json.loads(path.read_text())) if path.exists() else set()
         saved = {item for item in stored if keep(item)} if keep else set(stored)
         saved.update(ids)
+        saved.difference_update(remove)
         if limit and len(saved) > limit:
             saved = set(sorted(saved)[-limit:])
         if saved != stored:
@@ -62,8 +63,9 @@ def _saved(runtime_directory, owner, suffix, ids=(), keep=None, limit=None):
         return saved
 
 
-def viewed(runtime_directory, owner, ids=()):
-    return _saved(runtime_directory, owner, '.attention.json', ids)
+def viewed(runtime_directory, owner, ids=(), unviewed=()):
+    """The owner's viewed attention IDs; ``unviewed`` ones are forgotten, so they show as new again."""
+    return _saved(runtime_directory, owner, '.attention.json', ids, remove=unviewed)
 
 
 def discarded(runtime_directory, owner, ids=()):
@@ -76,11 +78,11 @@ def queue(runtime, ctx, change=None):
         if ctx.principal_kind != 'human' or ctx.principal_id != installation_owner(uow):
             raise DomainError('forbidden', 'Attention queue is owner-only')
     if change is not None:
-        if (not isinstance(change, dict) or not change or not set(change) <= {'viewed', 'discarded'}
+        if (not isinstance(change, dict) or not change or not set(change) <= {'viewed', 'unviewed', 'discarded'}
                 or any(not isinstance(ids, list) or len(ids) > 200 or any(not isinstance(x, str) or not 1 <= len(x) <= 500 for x in ids)
                        for ids in change.values())
                 or not all(recent_calendar_key(x) for x in change.get('discarded', []))):
-            raise DomainError('validation_error', 'Supply viewed attention IDs or recent discarded calendar keys')
+            raise DomainError('validation_error', 'Supply viewed or unviewed attention IDs or recent discarded calendar keys')
     candidates = [item for item in replies(runtime, ctx)['items'] if not item.get('nav_only')]
     with runtime.database.read() as uow:
         # Match the visible history of each current supported global; listing a board does not mark it read. Boards of
@@ -127,7 +129,8 @@ def queue(runtime, ctx, change=None):
             **({'asks': row['input_kind']} if row.get('input_kind') in ('question', 'request') else {})})
     # Only acknowledge exact versions the owner could see; a newer reply remains new.
     allowed = {item['id'] for item in candidates}
-    seen = viewed(runtime.paths.runtime, ctx.principal_id, [x for x in (change or {}).get('viewed', []) if x in allowed])
+    seen = viewed(runtime.paths.runtime, ctx.principal_id, [x for x in (change or {}).get('viewed', []) if x in allowed],
+                  [x for x in (change or {}).get('unviewed', []) if x in allowed])
     gone = discarded(runtime.paths.runtime, ctx.principal_id, (change or {}).get('discarded', []))
     groups = {}
     order = lambda item: (item['created_at'] or '', item.get('placement_sequence', 0), item['id'])
