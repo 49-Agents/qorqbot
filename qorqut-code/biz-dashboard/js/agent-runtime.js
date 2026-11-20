@@ -53,7 +53,8 @@ const agentRuntime = (() => {
     if (session.reason === 'binding_not_ready' || session.reason === 'capture_not_ready' || managed.phase === 'starting' || (session.can_send && !viewing)) return {key: 'starting', line: `Starting ${label}…`};
     if (working(session, managed)) return {key: 'working', line: ''};
     if (managed.turnError) return {key: 'error', line: `${label} couldn’t answer: ${managed.turnError}`};
-    return {key: 'live', line: `${label} is ready.`};
+    // Ready says nothing: the composer being usable already says it.
+    return {key: 'live', line: ''};
   }
   const startHint = (session, label) => managedOf(session)?.off ? `Send a message to turn ${label} on` : `Send a message to start ${label}`;
   const emptyText = (session, label) => managedOf(session)?.off ? `${label} is off. Send a message to turn it on.` : `${startHint(session, label)}. Its conversation will appear here.`;

@@ -115,6 +115,15 @@ def _bounded(text, limit):
     return text if len(text) <= limit else text[: limit - 1] + "\u2026"
 
 
+_MARKDOWN_MARKS = re.compile(r"^[ \t]*(?:#{1,6}|>|[-*+]|\d+\.)[ \t]+|\*\*|`+", re.M)
+
+
+def said_activity(text):
+    """The activity line for the agent's own words: its latest message as plain text (headings, quotes, bullets, bold and code
+    marks taken out)."""
+    return _MARKDOWN_MARKS.sub("", str(text or ""))
+
+
 def scrub_diagnostic(raw, limit=300):
     """The last ``limit`` characters of CLI diagnostics (bytes or str) with anything credential-shaped replaced, on one line."""
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
@@ -1007,8 +1016,16 @@ class ClaudeSession:
         self._current = message_uuid
         self._emit("turn_started", message_uuid=message_uuid)
 
-    def _activity(self, text):
+    # The agent's own words change with every message: at most one such line a second, so a burst of messages is not a burst of events.
+    SAID_ACTIVITY_SECONDS = 1.0
+    _said_at = float("-inf")
+
+    def _activity(self, text, said=False):
         text = _bounded(text, 100)
+        if said:
+            if time.monotonic() - self._said_at < self.SAID_ACTIVITY_SECONDS:
+                return
+            self._said_at = time.monotonic()
         if text and text != self._last_activity:
             self._last_activity = text
             self._emit("activity", text=text)
@@ -1028,7 +1045,7 @@ class ClaudeSession:
             elif block.get("type") == "thinking":
                 self._activity("Thinking")
             elif block.get("type") == "text" and str(block.get("text") or "").strip():
-                self._activity("Writing a reply")
+                self._activity(said_activity(block["text"]), said=True)   # the agent's latest words, on one line (``_activity`` cuts it short)
 
     def _on_usage(self, body):
         """Keep what the latest model request of the session held: all it sent (cached or not) plus what it wrote is what the

@@ -61,7 +61,7 @@ import tomllib
 import uuid
 
 from .claude_driver import (
-    ClaudeSessionError as _TransportError, _ProcessTransport, _bounded, _bounded_input, _clean, scrub_diagnostic,
+    ClaudeSessionError as _TransportError, _ProcessTransport, _bounded, _bounded_input, _clean, said_activity, scrub_diagnostic,
 )
 
 __all__ = ["CodexSession", "CodexSessionError"]
@@ -587,8 +587,16 @@ class CodexSession:
             self._dispatch_done = True
             self._events_wake.notify_all()
 
-    def _activity(self, text):
+    # The agent's own words change with every message: at most one such line a second, so a burst of messages is not a burst of events.
+    SAID_ACTIVITY_SECONDS = 1.0
+    _said_at = float("-inf")
+
+    def _activity(self, text, said=False):
         text = _bounded(text, 100)
+        if said:
+            if time.monotonic() - self._said_at < self.SAID_ACTIVITY_SECONDS:
+                return
+            self._said_at = time.monotonic()
         if text and text != self._last_activity:
             self._last_activity = text
             self._emit("activity", text=text)
@@ -898,6 +906,8 @@ class CodexSession:
         if kind == "agentMessage":
             if method == "item/completed" and isinstance(item.get("text"), str):
                 self._last_text = item["text"][: self.RESULT_TEXT_LIMIT]
+                if item["text"].strip():
+                    self._activity(said_activity(item["text"]), said=True)     # the agent's latest words, on one line
             if method == "item/started":
                 self._activity("Writing a reply")
             return
