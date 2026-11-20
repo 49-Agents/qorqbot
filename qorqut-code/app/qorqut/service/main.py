@@ -3,16 +3,20 @@
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 import argparse
+import importlib.util
 import json
 import logging
 import os
 from pathlib import Path
+import sys
+import threading
 
 from qorqut.background.providers import BackgroundModelClient, ProviderConfig
 from qorqut_operations.contracts import DomainError
 from qorqut.transport.auth import Authentication
 from qorqut.transport.compatibility import DashboardCompatibility
 from qorqut.transport.managed_launch import ManagedLaunch
+from qorqut.managed_runtime import mode as runtime_mode
 from .local import LocalFiles
 from .instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from .runtime import build_runtime
@@ -43,9 +47,73 @@ def transcript_capture_configuration(value=None):
     return value
 
 
-def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="",
-             model_client_factory=None, database=None, signing_key=None,
-             nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, recovery_config=None,
+class TerminalBroker:
+    """The dashboard's tmux broker (``pty_broker.py``), loaded the first time a terminal is used.
+
+    Composing the service in managed mode, or on a computer without tmux, must not load it, start a process or write a file; the
+    module binds the tmux program it finds when it is loaded, so a tmux installed while the service runs is looked for again
+    each time a call finds none."""
+
+    def __init__(self, paths, load=None):
+        self._paths, self._load, self._module, self._lock = paths, load, None, threading.Lock()
+
+    def module(self):
+        with self._lock:
+            if self._module is None:
+                try:
+                    self._module = (self._load or load_terminal_broker)(self._paths)
+                except (OSError, ImportError, AttributeError) as error:
+                    raise DomainError("operation_unavailable", "Agent terminals are not available on this installation") from error
+            if getattr(self._module, "TMUX", True) is None:
+                from qorqut.terminal_support import find_tmux
+                self._module.TMUX = find_tmux()
+            return self._module
+
+    def __getattr__(self, name):
+        if name.startswith("__") or name in {"_paths", "_load", "_module", "_lock"}:
+            raise AttributeError(name)
+        return getattr(self.module(), name)
+
+
+def load_terminal_broker(paths):
+    from qorqut.installation import component
+    path = component(paths, 'dashboard') / 'pty_broker.py'
+    spec = importlib.util.spec_from_file_location("qorqut_dashboard_pty_broker", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def compose_terminals(runtime, *, paths, endpoint, local, shell, broker, capture_transcripts, terminal_workspace, execution_provider):
+    """The terminal side of the service, composed in every mode as at DUAL: it starts no process, writes no file and needs no
+    tmux. Whether it may be used is decided at call time by the installation's mode (``TerminalService.require_terminals``)."""
+    from qorqut.transport.agent_terminal_control import AgentTerminalBackend
+    from qorqut.transport.terminals import TerminalService
+    terminals = TerminalService(runtime, broker or TerminalBroker(paths), service_url=endpoint, shell=shell,
+        environment=local.environment, global_environment=local.environment, agent_environment=local.agent_environment,
+        capture_transcripts=capture_transcripts, workspace=terminal_workspace, execution_provider=execution_provider)
+    # The native binding adapter and Ordubashy's terminal tools reach the terminals through these two.
+    runtime.terminals = terminals
+    runtime.terminal_control.backend = AgentTerminalBackend(terminals)
+    return terminals
+
+
+def recover_switch(runtime):
+    """At start, after the managed runtime and the terminal side exist. A failure here is logged and never stops the service."""
+    switch = getattr(runtime, "runtime_switch", None)
+    if switch is None:
+        return
+    try:
+        switch.recover()
+    except Exception:  # noqa: BLE001 - recovery of an interrupted switch must not keep the service from starting
+        logging.getLogger(__name__).exception("Recovering an interrupted switch of how agents run failed")
+
+
+def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="/bin/bash",
+             model_client_factory=None, broker=None, database=None, signing_key=None,
+             nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
+             execution_provider=None, recovery_config=None,
              context=None, extensions=None):
     from qorqut.background.integration import attach_background
     from qorqut_operations.background.programs import ProgramRegistry
@@ -70,9 +138,16 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="",
     # Browser lease mutations participate in shared admission; the browser class has no separate writer service.
     runtime.recovery_quiescer.browser_writers = KnownZeroWriters("browser")
     # A live managed agent host (a headless client session that outlives the service) refuses the window; it never closes or
-    # kills one.
+    # kills one. In Terminals mode the Qorqut tmux socket is read as well; the mode is asked at each window, and managed mode
+    # never runs tmux.
     from qorqut.managed_runtime.state import state_root
-    runtime.recovery_quiescer.host_writers = ManagedHostWriters(lambda: state_root(runtime.paths))
+    from qorqut.storage.host_writers import HostTerminalWriters, ModeHostWriters
+    from qorqut.terminal_support import find_tmux
+    runtime.recovery_quiescer.host_writers = ModeHostWriters(
+        ManagedHostWriters(lambda: state_root(runtime.paths)), HostTerminalWriters(find_tmux), runtime.paths)
+    terminals = compose_terminals(runtime, paths=paths, endpoint=endpoint, local=local, shell=shell, broker=broker,
+                                  capture_transcripts=capture_transcripts, terminal_workspace=terminal_workspace,
+                                  execution_provider=execution_provider)
     launch = ManagedLaunch(runtime, service_url=endpoint,
         environment=local.environment, global_environment=local.environment,
         agent_environment=local.agent_environment, capture_transcripts=capture_transcripts)
@@ -95,16 +170,32 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="",
         selected = RecoveryAdminConfig.load(recovery_config, paths=paths)
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
             lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)
-    # Agent sessions are not tied to a project, so an approved archive has nothing to reset.
-    runtime.domains.archive.reset_terminals = lambda business, agents: None
-    compatibility = DashboardCompatibility(runtime, background=runtime.background, local_files=local)
+    # Returns silently in managed mode and without tmux, so an approved archive never needs either.
+    runtime.domains.archive.reset_terminals = terminals.reset_business_for_archive
+    # The managed runtime and the terminal side both exist now: finish what a service that died mid-switch left behind.
+    recover_switch(runtime)
+    compatibility = DashboardCompatibility(runtime, terminals=terminals, background=runtime.background, local_files=local)
     authentication = Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token, signing_key=signing_key,
                                     integration_adapter=runtime.selection.integration_adapter)
     from qorqut.installation import component
     # Trusted registration is complete: nothing can declare or install an operation once traffic is served.
     runtime.freeze_registry()
     return create_app(runtime, dashboard_root=component(paths, 'dashboard'), authentication=authentication, origins=origins,
-        compatibility=compatibility)
+        compatibility=compatibility, terminals=terminals)
+
+
+def terminals_selected(args) -> bool:
+    """Whether this installation's setting says Terminals right now. Anything that cannot be read is managed."""
+    try:
+        return runtime_mode.is_terminal(instance_paths_from_arguments(args, required=("app", "dashboard")))
+    except (DomainError, OSError, ValueError):
+        return False
+
+
+def terminal_shell():
+    """The owner's login shell for terminals, or bash when it is one a terminal does not start."""
+    shell = os.environ.get("SHELL", "/bin/bash")
+    return shell if Path(shell).name in {"bash", "sh", "dash", "zsh", "fish"} else "/bin/bash"
 
 
 def main(argv=None):
@@ -126,13 +217,13 @@ def main(argv=None):
     parser.add_argument("--recovery-config", type=Path, help="Private external host configuration for local encrypted recovery")
     parser.add_argument("--context-config", type=Path, help="Explicit JSON file of Context RunnerConfig fields (model, effort, limits); "
                         "the library defaults apply without it")
-    # Removed with the agent terminals. An earlier version's start command (a hand-made service unit) still passes it, so it is
-    # accepted and ignored, with one warning, instead of ending the service at start.
+    # The owner's own Workspace shell opens here in Terminals mode. While agents run as managed sessions there are no terminals, so
+    # the option has no effect; an earlier version's start command still passes it, and that must not end the service at start.
     parser.add_argument("--terminal-workspace", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    if args.terminal_workspace is not None:
-        logging.getLogger(__name__).warning("Ignoring --terminal-workspace: agents no longer run in terminals, so the option has no "
-                                            "effect. Remove it from this start command.")
+    if args.terminal_workspace is not None and not terminals_selected(args):
+        logging.getLogger(__name__).warning("Ignoring --terminal-workspace: it has no effect while agents run as managed sessions. "
+                                            "Remove it from this start command.")
     try:
         if args.workspace is None:
             raise DomainError("invalid_configuration", "Set the explicit engine workspace with --workspace")
@@ -170,7 +261,8 @@ def main(argv=None):
             from qorqut.shared_context.service import runner_config_from_file
             context_settings = ContextSettings(config=runner_config_from_file(args.context_config))
         app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=token,
-            database=database,
+            shell=terminal_shell(), database=database,
+            terminal_workspace=args.terminal_workspace or os.environ.get("QORQUT_TERMINAL_WORKSPACE") or None,
             recovery_config=args.recovery_config, context=context_settings, extensions=selection)
         if args.prepare_agent:
             # Preparing an agent writes its bootstrap material, so only the backend that owns the instance may do it:

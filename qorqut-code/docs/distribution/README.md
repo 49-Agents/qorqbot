@@ -40,7 +40,8 @@ cd qorqbot
 Press Ctrl+C to stop. `./qorqbot status`, `./qorqbot stop` and `./qorqbot verify`
 are available from another terminal. Agents run as background sessions that close
 by themselves when idle; the updater closes any that are open, and they start again
-when you next message them. Stop Qorqbot before deleting the installation. Application files live
+when you next message them. With the optional Terminals (legacy) mode, agents run in tmux terminals instead: nothing
+closes them or starts them by itself, and the updater refuses while they run. Stop Qorqbot before deleting the installation. Application files live
 in `runtime/`; your records/work live in `instance/operations/`. The browser
 tool is part of `runtime/` and is replaced with it; a folder first installed
 from an older release keeps the copy it downloaded in `tools/` until then.

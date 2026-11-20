@@ -20,9 +20,11 @@ PROVIDERS = ("claude", "codex")
 RUNTIME_PROVIDERS = {"claude-code": "claude", "codex": "codex"}
 PROVIDER_RUNTIMES = {value: key for key, value in RUNTIME_PROVIDERS.items()}
 
-# How an input reaches the native session. Only ``managed`` (the headless session of a managed runtime host, its owner
-# ``host:<host pid>:<host start ticks>``) is ever written now; ``terminal`` and ``codex_queue`` stay valid values because rows
-# of earlier installations carry them and the stored CHECK and the nudge contract still list them.
+# How an input reaches the native session. ``managed`` is the headless session of a managed runtime host (its owner
+# ``host:<host pid>:<host start ticks>``); ``terminal`` is the verified composer of the agent's tmux pane (Terminals mode, Claude
+# Code only). ``codex_queue`` is never written now: it stays a valid value because rows of earlier installations carry it and the
+# stored CHECK and the nudge contract still list it.
+EXECUTION_TERMINAL, EXECUTION_MANAGED = "terminal", "managed"
 TRANSPORTS = ("terminal", "codex_queue", "managed")
 
 # Claude Code commands that open a menu or panel only a terminal can show. A managed session has no terminal, so Chat refuses

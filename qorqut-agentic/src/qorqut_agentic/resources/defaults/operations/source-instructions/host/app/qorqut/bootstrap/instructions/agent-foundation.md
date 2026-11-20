@@ -44,8 +44,8 @@ A backend inbox nudge is a system-generated notice delivered into your
 session, possibly while you are busy; it is not an owner message and acknowledges
 nothing. Continue the direct user request, check the inbox with the MCP inbox tools
 at a suitable checkpoint or on completion, and acknowledge only the exact events you
-handled. Events that arrive while your session is closed open it by themselves; if
-you are turned off they wait until you are turned on. Nothing needs to be installed, started or polled; there is no Monitor or
+handled. Events that arrive while your session is closed wait. Qorqbot opens it for them by
+itself unless you are turned off or run in a terminal; then they wait until you are started. Nothing needs to be installed, started or polled; there is no Monitor or
 watcher.
 
 Projects have no resident agents. The Global agents (Ordubashy, Learning Applier and

@@ -45,3 +45,27 @@ test('a command the catalog marks unavailable is refused with plain words, and n
   assert.equal(slash.refusal({}, list[0], 'Ada'), '/cost isn’t available when Qorqbot runs Ada.');
   assert.doesNotMatch(refuse('/cost'), /terminal|tmux|CLI/i);
 });
+
+// Terminals mode lists a menu command again as an entry to finish in the Terminal (the catalog passes through js/agent-terminal-view.js).
+test('the menu tags a command that finishes in the Terminal, and an unavailable one stays tagged unavailable', () => {
+  const terminalView = require('../js/agent-terminal-view.js');
+  const menus = [];
+  global.document = {activeElement: null, createElement: () => { const menu = {setAttribute() {}, remove() {}, addEventListener() {}, querySelector: () => null}; menus.push(menu); return menu; }};
+  const listeners = {};
+  const input = {value: '/c', setAttribute() {}, removeAttribute() {}, addEventListener: (type, fn) => { listeners[type] = fn; }, removeEventListener() {}};
+  const draw = list => {
+    const menu = menus.length;
+    slash.attach({input, form: {prepend() {}}, commands: () => list});
+    listeners.input();
+    return menus[menu].innerHTML;
+  };
+  try {
+    const managedMenu = draw(catalog);
+    assert.match(managedMenu, /slash-tag" title="Not available when Qorqbot runs the agent">Not available/);
+    assert.doesNotMatch(managedMenu, />Terminal</);
+    const terminalMenu = draw(terminalView.catalog(catalog));
+    assert.match(terminalMenu, /slash-tag" title="Opens a menu you finish in the agent’s Terminal">Terminal/);
+    assert.doesNotMatch(terminalMenu, /Not available/);
+    assert.equal(slash.refusal({execution: 'terminal'}, terminalView.catalog(catalog)[2], 'Ada'), null, 'a Terminal entry is never refused');
+  } finally { delete global.document; }
+});

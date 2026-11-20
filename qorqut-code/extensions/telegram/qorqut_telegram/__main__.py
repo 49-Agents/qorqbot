@@ -7,6 +7,7 @@
     python -m qorqut_telegram notify --socket PATH --secret-file PATH --event-key K --title T --reason R [--text-file -]
     python -m qorqut_telegram status --url http://127.0.0.1:1071
     python -m qorqut_telegram resolve --url URL --outbox-id ID --expected-revision N --action retry|mark_delivered [--provider-message-id N]
+    python -m qorqut_telegram composer-check --client codex|claude --screen FILE [--cursor X,Y] [--pasted-file FILE]
 
 Nothing here prints a token, a producer secret or a chat/agent identifier. ``validate`` reads the token file only to check its
 shape and never echoes it. No command writes the live configuration.
@@ -145,6 +146,31 @@ def cmd_resolve(args):
     return _owner(args, "telegram_delivery_resolve", body)
 
 
+def cmd_composer_check(args):
+    """Classify a saved ``tmux capture-pane -p -e`` screen offline. Nothing is typed and no terminal is touched."""
+    from qorqut.transport import terminal_composer
+    try:
+        raw = Path(args.screen).read_text(encoding="utf-8", errors="replace")
+        cursor = None
+        if args.cursor:
+            x, y = (int(part) for part in args.cursor.split(","))
+            cursor = (x, y, True)
+    except (OSError, ValueError):
+        print("Cannot read the screen file or the cursor position (use X,Y)", file=sys.stderr)
+        return 2
+    expect = None
+    if args.pasted_file:
+        try:
+            expect = Path(args.pasted_file).read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            print("Cannot read the pasted-text file", file=sys.stderr)
+            return 2
+    reading = terminal_composer.read(args.client, raw, cursor, expect=expect)
+    ok = reading.state == "pasted" if expect is not None else reading.ready
+    _print({"client": args.client, "state": reading.state, "reason": reading.reason, "ready": ok})
+    return 0 if ok else 1
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="python -m qorqut_telegram", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -178,6 +204,13 @@ def build_parser():
     resolve.add_argument("--provider-message-id", type=int)
     resolve.add_argument("--idempotency-key")
     resolve.set_defaults(handler=cmd_resolve)
+    check = commands.add_parser("composer-check")
+    check.add_argument("--client", required=True, choices=("codex", "claude"))
+    check.add_argument("--screen", required=True)
+    check.add_argument("--cursor", help="visible tmux cursor as X,Y (0-based); omit when the client hides its cursor")
+    check.add_argument("--pasted-file", help="the exact text that was pasted: classify a capture taken after the paste, "
+                       "and report ready only if that text (or the client's placeholder for it) occupies the composer")
+    check.set_defaults(handler=cmd_composer_check)
     return parser
 
 

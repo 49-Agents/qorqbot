@@ -8,6 +8,10 @@ The view is ``{client, model, effort, effective_client, clients: {claude: {ready
 (``managed_runtime.options.effective_client``), ``clients`` says which CLIs are installed and signed in, ``session_open`` whether
 the agent's session is open (a host is running for it, or one claims to and cannot be verified).
 
+When the installation runs its agents in terminals (``managed_runtime.mode``) the view and the change stay available (a terminal
+start passes the stored model and effort too), ``session_open`` is false (no host exists to hold the client) and a change of
+``client`` to Codex is refused: only Claude Code agents run in terminals.
+
 The routes are registered in ``http.py``, which refuses any request carrying an ``Authorization`` header before it gets here. The
 owner guard is the one of every other Chat route (``chat._target``: the installation owner, an active registered agent). A change
 of ``client`` while the session is open is refused ``session_open``; model and effort may change at any time and apply from the
@@ -20,7 +24,7 @@ from contextlib import nullcontext
 
 from qorqut_operations.contracts import DomainError
 
-from qorqut.managed_runtime import models, options as stored
+from qorqut.managed_runtime import mode, models, options as stored
 
 FIELDS = stored.FIELDS
 
@@ -58,7 +62,7 @@ def _view(chat, runtime, profile: dict, agent_id: str, *, ready=None) -> dict:
     return {**options.public(), "effective_client": effective, "model_fits": models.fits(effective, options.model),
             "clients": {name: {"ready": bool(ready(name))} for name in ("claude", "codex")},
             "suggestions": {name: list(models.SUGGESTIONS[name]) for name in ("claude", "codex")},
-            "session_open": _session_open(getattr(chat, "managed", None), agent_id)}
+            "session_open": False if mode.is_terminal(runtime.paths) else _session_open(getattr(chat, "managed", None), agent_id)}
 
 
 def view(chat, runtime, principal_id: str, agent_id: str, *, ready=None) -> dict:
@@ -81,7 +85,8 @@ def change(chat, runtime, principal_id: str, agent_id: str, body, *, ready=None)
         raise DomainError("validation_error", "Request fields are invalid",
                           field_errors={name: "unknown field" for name in unknown})
     ready = ready or stored.ready_function()
-    managed = getattr(chat, "managed", None)
+    terminals = mode.is_terminal(runtime.paths)
+    managed = None if terminals else getattr(chat, "managed", None)
     # No open of this agent runs while the client changes (the lifecycle lock, as the runtime switch does it).
     hold = managed.hold(agent_id) if managed is not None and hasattr(managed, "hold") and "client" in body else nullcontext()
     with hold:
@@ -92,6 +97,8 @@ def change(chat, runtime, principal_id: str, agent_id: str, body, *, ready=None)
                 raise DomainError(error.code, str(error)) from None
             # A change is what moves the client an open would use: naming the one already in use, or clearing a choice that
             # resolves to it anyway, changes nothing and is allowed while the session is open.
+            if terminals and wanted == "codex":
+                raise DomainError("validation_error", "Only Claude Code agents can run in terminals.")
             before = stored.effective_client(runtime.paths, agent_id, profile, ready)
             if _session_open(managed, agent_id) and stored.choose(wanted, profile, ready) != before:
                 raise DomainError("session_open", "A session is open. End it, then change the client")

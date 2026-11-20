@@ -75,14 +75,16 @@ class Selection:
     def holds(self, observation) -> bool:
         """Whether ``observation`` is the selected conversation held by exactly the process the owner row was adopted for.
         Provider and conversation alone are not enough: a same-conversation observation of a new process is only ``PENDING``
-        until bootstrap adopts it. A session's observation owner is its host (``host:<pid>:<ticks>``), which the owner row never
-        holds: the hook that adopted the conversation recorded the client process, ``pid:ticks``. Either agrees; any other owner
-        tuple is a different process arrangement."""
+        until bootstrap adopts it. A managed session's observation owner is its host (``host:<pid>:<ticks>``), which the owner row
+        never holds: the hook that adopted the conversation recorded the client process, ``pid:ticks``. Either agrees; any other
+        owner tuple is a different process arrangement. A terminal observation has no owner: the row has to agree with its process."""
         if not self.matches_observation(observation):
             return False
         if observation.pid != self.pid or observation.started != self.started:
             return False
-        return self.owner in (None, f"{observation.pid}:{observation.started}", observation.owner)
+        if observation.transport == "managed":
+            return self.owner in (None, f"{observation.pid}:{observation.started}", observation.owner)
+        return observation.owner is None and self.owner in (None, f"{observation.pid}:{observation.started}")
 
     def relation(self, observation) -> str | None:
         """``HELD`` / ``PENDING`` / ``CANDIDATE`` for a live observation, ``None`` for no observation."""
@@ -92,9 +94,10 @@ class Selection:
             return CANDIDATE
         return HELD if self.holds(observation) else PENDING
 
-    def public(self) -> dict:
+    def public(self, *, terminal: bool = False) -> dict:
+        """``terminal`` is the installation's mode (``mode.is_terminal``): the transport names what serves the conversation now."""
         return {"provider": self.provider, "conversation_id": self.conversation_id, "generation": self.generation,
-                "revision": self.revision, "transport": "managed",
+                "revision": self.revision, "transport": "terminal" if terminal else "managed",
                 "desired_state": self.desired_state}
 
 

@@ -7,6 +7,7 @@ import isolated_cli_environment
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -114,6 +115,7 @@ class HelperTests(Fixture):
             self.assertEqual(agent_cli_launch.executable("codex", "codex", {}), "codex")
             self.assertEqual(agent_cli_launch.for_executable("codex", self.codex, {}), {"args": [], "env": {}})
             self.assertEqual(agent_cli_launch.session_environment({"A": "1"}, {}), {"A": "1"})
+            self.assertEqual(agent_cli_launch.session_environment({"A": "1"}, {}, plain=True), {"A": "1"})
         # An import that fails for any reason is "no install module".
         with mock.patch("builtins.__import__", side_effect=ImportError("broken")):
             self.assertIsNone(agent_cli_launch._install())
@@ -141,6 +143,33 @@ class HelperTests(Fixture):
         # A session does not carry the updater variables.
         self.assertNotIn("DISABLE_AUTOUPDATER", result)
         self.assertNotIn("DISABLE_UPDATES", result)
+
+    def test_the_owners_plain_shell_gets_a_launcher_for_our_claude_only_and_no_updater_variables(self):
+        self.install()
+        root = self.base / "folder 'q' $x"
+        environ = {"PATH": "/service", "QORQUT_FOLDER_ROOT": str(root)}
+        result = agent_cli_launch.session_environment({"OWNER": "1"}, environ, plain=True)
+        folder = root / "tools/launchers"
+        self.assertEqual(result["PATH"], str(folder) + os.pathsep + "/service")
+        self.assertEqual(result["OWNER"], "1")
+        for name in ("DISABLE_AUTOUPDATER", "DISABLE_UPDATES", "QORQBOT_MANAGED_CLAUDE", "QORQBOT_MANAGED_CODEX"):
+            self.assertNotIn(name, result)
+        # Terminals run Claude Code only: no launcher for Codex, even when its copy is selected.
+        self.assertEqual(sorted(entry.name for entry in folder.iterdir()), ["claude"])
+        # The launcher starts our copy with its settings and passes the owner's arguments and exit status through.
+        program(Path(self.claude), '#!/bin/sh\nprintf "%s\\n" "$@" "u=${DISABLE_AUTOUPDATER:-}${DISABLE_UPDATES:-}"; exit 5\n')
+        process = subprocess.run([str(folder / "claude"), "two words", "$HOME"], capture_output=True, text=True,
+                                 env={"PATH": "/usr/bin:/bin"})
+        self.assertEqual((process.returncode, process.stdout.splitlines()), (5, ["two words", "$HOME", "u=11"]))
+        # Nothing is written, and the environment is unchanged, where the folder cannot be written or is unknown.
+        self.assertEqual(agent_cli_launch.session_environment({"A": "1"}, {"PATH": "/s"}, plain=True), {"A": "1"})
+        blocked = self.base / "blocked"
+        blocked.write_text("a file, not a folder")
+        self.assertEqual(agent_cli_launch.session_environment({"A": "1"}, {"QORQUT_FOLDER_ROOT": str(blocked)}, plain=True), {"A": "1"})
+        # A second call leaves unchanged launchers alone.
+        before = (folder / "claude").stat().st_mtime_ns
+        agent_cli_launch.session_environment({}, environ, plain=True)
+        self.assertEqual((folder / "claude").stat().st_mtime_ns, before)
 
     def test_the_path_a_session_would_have_had_is_kept_after_ours(self):
         self.install()

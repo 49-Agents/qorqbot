@@ -1,6 +1,6 @@
 # Idle worker ticks: terminal control reads first
 
-> **Historical record.** Since 2026-11-19 every agent runs as a managed session, and the terminal mechanism described below (tmux, the terminal view, typed client commands) was removed; see [managed agent sessions](../MANAGED-RUNTIME.md).
+> **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](../MANAGED-RUNTIME.md).
 
 Package P06 of the v1.2 responsiveness work. Two background workers opened a write unit on every cycle although nothing was due,
 holding the single SQLite writer lock for no effect. The host's terminal controller is fixed here; the Signoff owner-attention

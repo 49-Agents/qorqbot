@@ -3,8 +3,11 @@
 The capability package `agent-terminal-control` gives Ordubashy six tools to
 control the sessions of permanent global workers. The tool and package names keep
 the word "terminal" because they are identifiers that stored plans and tool
-catalogues use. They no longer touch a terminal: every agent runs as a managed
-session (see [managed agent sessions](MANAGED-RUNTIME.md)). The code is
+catalogues use. In managed mode, the default, they act on the agent's managed
+session and touch no terminal (see [managed agent sessions](MANAGED-RUNTIME.md)).
+In Terminals mode, the legacy option, they act on the agent's tmux terminal (see
+[Terminals mode](#terminals-mode)). The installation's mode is asked at every
+call. The code is
 `app/qorqut/agents/terminal_control.py`; the package source (manifest, tools,
 rules, skill) is under `qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app/plugins/agent-terminal-control/`.
 
@@ -12,14 +15,14 @@ rules, skill) is under `qorqut-agentic/src/qorqut_agentic/resources/defaults/ope
 
 | Tool | What it does |
 |---|---|
-| `agent_terminal_status` | Whether the worker is on or off, asleep or open, and working. With `action_id` it adds that action's receipt. With only `batch_id` it lists each agent's state in a batch. |
+| `agent_terminal_status` | Whether the agent is on or off, whether its session is open, and whether it is working. With `action_id` it adds that action's receipt. With only `batch_id` it lists each agent's state in a batch. |
 | `agent_terminal_start` | Turns the worker on and opens its session, resuming its selected conversation. |
 | `agent_terminal_restart` | Turns the worker on, closes its session, waits for it to close (up to 30 seconds), and opens it again in the same conversation. |
-| `agent_terminal_kill` | Closes the session and turns the worker off. Active work ends. The worker stays off until the owner messages it or Ordubashy starts it. |
+| `agent_terminal_kill` | Closes the agent's session and turns it off, ending active work. The worker stays off until the owner messages it or Ordubashy starts it. |
 | `agent_terminal_ping` | Sends the owner-issued direct message. |
 | `agent_terminal_execute_command` | Runs a session command such as `/compact` on a worker, or an owner-issued command by its id. |
 
-Status reports one of `off`, `open` or `asleep`, plus `working` or `idle`, the
+In managed mode status reports one of `off`, `open` or `asleep`, plus `working` or `idle`, the
 client (Claude Code or Codex) and the activity line. A worker is asleep when it
 is on but its session is closed, for example after 15 idle minutes. Any input
 wakes it, so a sleeping worker needs no start. Idle is not proof of dormancy, so
@@ -51,7 +54,8 @@ ping has no proposal path: it needs the owner's explicit ping command.
 and a `command` that starts with `/` (for example `/compact`). It is delivered as
 a direct message through the normal input path. A command that only opens a menu
 in an interactive client (such as bare `/model` or `/resume`) is refused, because
-a managed session has no menu to show.
+a managed session has no menu to show. In Terminals mode the command is typed
+into the agent's client in its terminal.
 
 ## Target selectors and batches
 
@@ -84,7 +88,7 @@ A batch is not an atomic transaction.
 
 ## Execution
 
-All tools use registered agent IDs. They accept no paths, commands or keystrokes
+This section describes managed mode; Terminals mode follows below. All tools use registered agent IDs. They accept no paths, commands or keystrokes
 from the caller.
 
 - **start:** records the intent "on", opens the session and waits for it to bind.
@@ -107,9 +111,30 @@ Status returns no conversation text. A plan or command prepared against a
 session stays valid until the session or the selected conversation changes; the
 turn state does not invalidate it.
 
+## Terminals mode
+
+When the installation runs its agents in terminals (Settings > Agents > "How agents run" >
+"Terminals (legacy)", Claude Code agents only), the same six tools and the same
+authorization, selectors and batches apply. Only the effect differs, and a plan or
+command prepared in one mode never matches in the other.
+
+| Tool | In Terminals mode |
+|---|---|
+| `agent_terminal_status` | Returns the observed terminal (whether it exists, and the program in front: a shell, the client, or an unrecognized one) instead of the session state. No terminal text is returned. |
+| `agent_terminal_start` | Needs an absent terminal or an idle shell. Starts the agent's client in the terminal, resuming its selected conversation, with the agent's stored model and effort, and waits for its input box. |
+| `agent_terminal_restart` | Needs an existing terminal. Ends it, then starts the client again as start does. |
+| `agent_terminal_kill` | Needs an existing terminal. Ends the terminal. The worker is turned off. |
+| `agent_terminal_ping` | Types the owner-issued message into the running client's input box. The agent must be running in its terminal. |
+| `agent_terminal_execute_command` | Types the command into the running client, as ping does. |
+
+Nothing opens a terminal by itself and there is no idle close, so an agent that is not
+running in its terminal receives nothing until it is started. Start and restart are
+refused while the installation is being switched, and one already queued waits. The receipt rules
+are the same: `uncertain` before an effect, never replayed.
+
 ## Related
 
 To tell a worker something, Ordubashy uses `agents_message_send`; it arrives
-through the inbox and wakes a sleeping worker. Direct messages to a project's
+through the inbox and, in managed mode, wakes a sleeping worker. Direct messages to a project's
 Dev agent are retired. Input broadcasts are installation-owner-only; Ordubashy
 keeps inbox broadcasts.

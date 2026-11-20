@@ -24,6 +24,12 @@ class Folder(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
         (self.root / '.run').mkdir()
 
+    def write_mode(self, mode):
+        path = self.root / native_launch.MODE_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({'schema_version': 1, 'mode': mode}))
+        return path
+
     def fake_python(self, body):
         python = self.root / 'runtime/venv/bin/python'
         python.parent.mkdir(parents=True)
@@ -33,14 +39,85 @@ class Folder(unittest.TestCase):
 
 
 class ServiceEnvironment(Folder):
-    def test_no_terminal_variables_are_set(self):
-        with mock.patch.dict(os.environ, {'HOME': str(self.root), 'PATH': '/usr/bin:/bin', 'QORQUT_TIMEZONE': 'UTC'}, clear=True):
-            env = native_launch.environment(self.root, self.root / 'home')
-        self.assertNotIn('TMUX_TMPDIR', env)
+    def environment(self, **extra):
+        with mock.patch.dict(os.environ, {'HOME': str(self.root), 'PATH': '/usr/bin:/bin', 'QORQUT_TIMEZONE': 'UTC', **extra}, clear=True):
+            return native_launch.environment(self.root, self.root / 'home')
+
+    def test_terminal_sockets_stay_inside_this_installation_in_every_mode(self):
+        self.assertEqual(self.environment()['TMUX_TMPDIR'], str(self.root / '.run'))
+        self.write_mode('terminal')
+        self.assertEqual(self.environment()['TMUX_TMPDIR'], str(self.root / '.run'))
+
+    def test_a_shipped_tmux_is_never_put_on_the_path(self):
+        env = self.environment()
+        self.assertNotIn('tmux', ' '.join(env['PATH'].split(os.pathsep)))
         self.assertNotIn('BIZ_TMUX_SOCKET', env)
+
+    def test_an_inherited_terminal_workspace_does_not_leak_in(self):
+        self.assertNotIn('QORQUT_TERMINAL_WORKSPACE', self.environment(QORQUT_TERMINAL_WORKSPACE='/somewhere'))
 
     def test_readiness_notes_never_mention_tmux(self):
         self.assertFalse(any('tmux' in note for note in native_launch.readiness_notes('/nonexistent', system='Darwin')))
+
+
+class ModeReader(Folder):
+    def test_no_file_means_managed(self):
+        self.assertEqual(native_launch.read_mode(self.root), 'managed')
+
+    def test_terminal(self):
+        self.write_mode('terminal')
+        self.assertEqual(native_launch.read_mode(self.root), 'terminal')
+        self.write_mode('managed')
+        self.assertEqual(native_launch.read_mode(self.root), 'managed')
+
+    def test_anything_else_means_managed(self):
+        path = self.write_mode('terminal')
+        for text in ('', 'not json', '[]', '{"schema_version": 2, "mode": "terminal"}', '{"mode": "terminal"}',
+                     '{"schema_version": 1, "mode": "other"}', '{"schema_version": 1, "mode": ["terminal"]}',
+                     json.dumps({'schema_version': 1, 'mode': 'terminal', 'note': 'x' * 5000})):
+            with self.subTest(text=text[:40]):
+                path.write_text(text)
+                self.assertEqual(native_launch.read_mode(self.root), 'managed')
+
+    def test_an_unreadable_file_means_managed(self):
+        path = self.write_mode('terminal')
+        path.chmod(0)
+        self.addCleanup(path.chmod, 0o600)
+        if os.access(path, os.R_OK):
+            self.skipTest('permissions are not enforced for this user')
+        self.assertEqual(native_launch.read_mode(self.root), 'managed')
+
+    def test_a_directory_in_its_place_means_managed(self):
+        path = self.write_mode('terminal')
+        path.unlink()
+        path.mkdir()
+        self.assertEqual(native_launch.read_mode(self.root), 'managed')
+
+    def test_it_agrees_with_the_products_own_reader(self):
+        app = Path(__file__).resolve().parents[3] / 'app'
+        sys.path.insert(0, str(app))
+        self.addCleanup(sys.path.remove, str(app))
+        from types import SimpleNamespace
+        from qorqut.managed_runtime import mode
+        paths = SimpleNamespace(runtime=self.root / 'instance/operations/.runtime')
+        path = self.write_mode('terminal')
+        cases = ['', '{"schema_version": 1, "mode": "terminal"}', '{"schema_version": 1, "mode": "managed"}',
+                 '{"schema_version": 3, "mode": "terminal"}', '{"schema_version": 1, "mode": "x"}', 'garbage',
+                 json.dumps({'schema_version': 1, 'mode': 'terminal', 'pad': 'x' * 4100})]
+        for text in cases:
+            with self.subTest(text=text[:40]):
+                path.write_text(text)
+                self.assertEqual(native_launch.read_mode(self.root), mode.current(paths))
+
+
+class SocketRoom(Folder):
+    def test_only_terminals_mode_checks_the_socket_path(self):
+        run_dir = Path('/tmp/' + 'a' * 120 + '/.run')
+        native_launch.require_terminal_socket_room(self.root, run_dir)              # managed: nothing to fit
+        self.write_mode('terminal')
+        with self.assertRaisesRegex(RuntimeError, 'local terminal sockets fit'):
+            native_launch.require_terminal_socket_room(self.root, run_dir)
+        native_launch.require_terminal_socket_room(self.root, self.root / '.run')   # a short path is fine in terminals too
 
 
 class LeftoverTerminalSockets(Folder):
@@ -69,6 +146,69 @@ class LeftoverTerminalSockets(Folder):
         with self.assertRaisesRegex(ValueError, 'managed cutover'):
             native_launch.require_no_terminal_agents(self.root)
         self.assertTrue(path.exists())
+
+
+class TerminalsGuard(Folder):
+    """In Terminals mode the guard lists this installation's own tmux sessions (a stand-in tmux here) and ends nothing."""
+
+    def fake_tmux(self, body):
+        tmux = self.root / 'bin/tmux'
+        tmux.parent.mkdir(exist_ok=True)
+        tmux.write_text('#!/bin/sh\n' + body)
+        tmux.chmod(0o755)
+        return {'PATH': f'{tmux.parent}:/usr/bin:/bin', 'TMUX_TMPDIR': '/elsewhere'}
+
+    def setUp(self):
+        super().setUp()
+        self.write_mode('terminal')
+        self.log = self.root / 'calls.txt'
+
+    def test_running_agent_terminals_refuse_with_a_plain_message_and_are_only_listed(self):
+        env = self.fake_tmux(f'echo "$TMUX_TMPDIR $*" >> {self.log}\n'
+                             'case "$*" in *list-sessions*) echo agent-one; exit 0;; esac\nexit 9\n')
+        with self.assertRaises(ValueError) as caught:
+            native_launch.require_no_terminal_agents(self.root, env)
+        message = str(caught.exception)
+        self.assertIn('run in terminals', message)
+        self.assertIn('Managed sessions', message)
+        self.assertNotIn('cutover', message)
+        calls = self.log.read_text().splitlines()
+        self.assertTrue(calls)
+        for call in calls:                                   # only this installation's folder, only listing
+            self.assertTrue(call.startswith(str(self.root / '.run') + ' '), call)
+            self.assertIn('list-sessions', call)
+            self.assertNotIn('kill', call)
+
+    def test_no_running_session_lets_the_update_go_on(self):
+        env = self.fake_tmux('echo "no server running on /x" >&2\nexit 1\n')
+        native_launch.require_no_terminal_agents(self.root, env)
+
+    def test_a_tmux_that_cannot_be_understood_refuses(self):
+        env = self.fake_tmux('echo "unexpected failure" >&2\nexit 1\n')
+        with self.assertRaisesRegex(ValueError, 'Could not prove'):
+            native_launch.require_no_terminal_agents(self.root, env)
+
+    def test_without_tmux_a_live_socket_still_blocks_and_a_stale_one_does_not(self):
+        env = {'PATH': str(self.root / 'nowhere')}
+        path = self.root / '.run/tmux-1000/qorqut'
+        path.parent.mkdir()
+        stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        stale.bind(str(path))
+        stale.close()
+        native_launch.require_no_terminal_agents(self.root, env)
+        path.unlink()
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(server.close)
+        server.bind(str(path))
+        server.listen(1)
+        with self.assertRaisesRegex(ValueError, 'tmux is unavailable'):
+            native_launch.require_no_terminal_agents(self.root, env)
+
+    def test_managed_mode_ignores_tmux_and_keeps_the_cutover_message(self):
+        self.write_mode('managed')
+        env = self.fake_tmux(f'echo called >> {self.log}\nexit 0\n')
+        native_launch.require_no_terminal_agents(self.root, env)
+        self.assertFalse(self.log.exists())
 
 
 class StopManagedHosts(Folder):

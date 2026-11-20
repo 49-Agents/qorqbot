@@ -72,6 +72,27 @@ class RenameCompatibilityTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'managed cutover'):
                 launch.require_no_terminal_agents(root)
 
+    def test_runtime_update_in_terminals_mode_waits_for_running_terminals_and_does_not_name_the_cutover(self):
+        path = Path(__file__).parents[2] / 'tools/distribution/native_launch.py'
+        spec = importlib.util.spec_from_file_location('rename_native_launch_terminals', path)
+        launch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launch)
+        with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+            root = Path(directory)
+            setting = root / launch.MODE_FILE
+            setting.parent.mkdir(parents=True)
+            setting.write_text('{"schema_version": 1, "mode": "terminal"}')
+            tmux = root / 'bin/tmux'
+            tmux.parent.mkdir()
+            env = {'PATH': str(tmux.parent) + ':/usr/bin:/bin'}
+            tmux.write_text('#!/bin/sh\necho "no server running on x" >&2\nexit 1\n')
+            tmux.chmod(0o755)
+            launch.require_no_terminal_agents(root, env)
+            tmux.write_text('#!/bin/sh\necho agent\nexit 0\n')
+            with self.assertRaisesRegex(ValueError, 'run in terminals') as caught:
+                launch.require_no_terminal_agents(root, env)
+            self.assertNotIn('cutover', str(caught.exception))
+
     def test_first_new_history_ref_continues_the_old_history(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'repo'

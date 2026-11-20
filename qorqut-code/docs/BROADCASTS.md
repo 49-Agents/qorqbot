@@ -83,7 +83,8 @@ Input delivery sends the text to the recipient's session through the shared inpu
 arbiter (`native_chat/arbiter.py`), which verifies the registered session. A
 recipient whose session is asleep and on is opened for it, and the delivery waits
 for the open; a recipient that is off is not opened and the result is
-`unavailable`. Only the installation owner and Ordubashy can select Input, and
+`unavailable`. In Terminals mode nothing opens a session: an agent that is not running
+in its terminal receives nothing until it is started. Only the installation owner and Ordubashy can select Input, and
 Input adds no confirmation step. Input results are
 reported per recipient as `delivered`, `unavailable`, `uncertain`, `failed`, or
 `denied`; an uncertain write must not be blindly resent. Inbox results

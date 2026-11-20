@@ -17,7 +17,7 @@ import unittest
 from unittest import mock
 
 from qorqut.instance_paths import InstancePaths
-from qorqut.managed_runtime import options as launch_options
+from qorqut.managed_runtime import mode as runtime_mode, options as launch_options
 from qorqut.migration import managed_cutover as cutover
 from qorqut_operations.contracts import DomainError
 
@@ -407,6 +407,18 @@ class Apply(Installation):
         self.live('agent-c', 'claude', argv=['/opt/claude', '--settings', 'x'])
         self.apply(only='agent-c')
         self.assertEqual(launch_options.read(self.paths, 'agent-c').public(), {'client': 'claude', 'model': 'kept-model', 'effort': None})
+
+    def test_a_stored_effort_and_model_are_never_cleared_by_a_client_that_states_neither(self):
+        launch_options.write(self.paths, 'agent-c', model='kept-model', effort='high')
+        self.live('agent-c', 'claude', argv=['/opt/claude', '--settings', 'x'])
+        self.apply(only='agent-c')
+        self.assertEqual(launch_options.read(self.paths, 'agent-c').public(), {'client': 'claude', 'model': 'kept-model', 'effort': 'high'})
+
+    def test_a_client_that_states_an_effort_replaces_only_that_field(self):
+        launch_options.write(self.paths, 'agent-c', model='kept-model', effort='low')
+        self.live('agent-c', 'claude', argv=['/opt/claude', '--effort', 'max'])
+        self.apply(only='agent-c')
+        self.assertEqual(launch_options.read(self.paths, 'agent-c').public(), {'client': 'claude', 'model': 'kept-model', 'effort': 'max'})
 
     def test_dry_run_through_the_command_line_changes_nothing(self):
         self.live('agent-a', 'claude')
@@ -810,6 +822,54 @@ class ServiceMustBeStopped(Installation):
         with self.assertRaises(DomainError) as caught:
             cutover.run_apply(self.paths, self.env, machine=self.machine, tmux_factory=self.factory, socket='qorqut')
         self.assertEqual(caught.exception.code, 'instance_in_use')
+
+
+class TerminalsChosenInSettings(Installation):
+    def choose_terminals(self):
+        runtime_mode.commit(self.paths, runtime_mode.TERMINAL)
+        self.addCleanup(runtime_mode._cache.clear)
+
+    def test_apply_by_hand_refuses_and_touches_nothing(self):
+        self.live('agent-a', 'claude')
+        self.choose_terminals()
+        before = self.database_digest()
+        with self.assertRaises(cutover.CutoverError) as caught:
+            cutover.run_apply(self.paths, self.env, machine=self.machine, tmux_factory=self.factory, socket='qorqut', lock=False)
+        self.assertEqual(caught.exception.code, 'terminal_mode_chosen')
+        self.assertEqual(caught.exception.message, 'This installation runs agents in terminals by the owner\'s choice. '
+                                                   'Switch to Managed sessions in Settings instead.')
+        self.assertEqual((self.machine.signals, self.server.kills(), self.database_digest()), ([], [], before))
+
+    def test_the_command_line_says_it_in_the_same_words(self):
+        self.live('agent-a', 'claude')
+        self.choose_terminals()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            status = cutover.main(['apply', '--json', '--instance-root', str(self.root), '--tmux-socket', 'qorqut'], env=self.env,
+                                  machine=self.machine, tmux_factory=self.factory)
+        payload = json.loads(out.getvalue())
+        self.assertEqual((status, payload['error']['code']), (1, 'terminal_mode_chosen'))
+        self.assertEqual(self.machine.signals, [])
+
+    def test_inspect_still_works(self):
+        self.live('agent-a', 'claude')
+        self.choose_terminals()
+        state = cutover.survey(self.paths, self.env, machine=self.machine, tmux_factory=self.factory, socket='qorqut')
+        self.assertTrue(any(view['agent_id'] == 'agent-a' and view['client'] == 'claude' for view in state['agents']))
+
+    def test_the_settings_switch_runs_it_inside_the_service(self):
+        self.live('agent-a', 'claude')
+        self.choose_terminals()
+        document = cutover.run_apply(self.paths, self.env, machine=self.machine, tmux_factory=self.factory, socket='qorqut',
+                                     wait_seconds=5, poll=1, only='agent-a', lock=False, switching=True)
+        self.assertIsNone(document['stopped_at'])
+        self.assertEqual(document['results'][0]['status'], 'done')
+
+    def test_a_managed_installation_is_not_refused(self):
+        self.live('agent-a', 'claude')
+        document = cutover.run_apply(self.paths, self.env, machine=self.machine, tmux_factory=self.factory, socket='qorqut',
+                                     wait_seconds=5, poll=1, only='agent-a', lock=False)
+        self.assertEqual(document['results'][0]['status'], 'done')
 
 
 class JsonOutput(Installation):

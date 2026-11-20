@@ -13,13 +13,15 @@ You cannot target yourself; do not restart yourself. An approved batch is frozen
 do not expand it yourself. Inspect batch_id through agent_terminal_status for each
 agent's execution result.
 
-An agent runs as a managed session that Qorqbot starts; there is no terminal. status shows
-whether the worker is on or off, asleep or open, and working. start turns the worker on and
-opens its session, resuming its selected conversation. restart closes the session and opens it
-again in the same conversation. kill closes the session and turns the worker off, ending active
-work; idle is not proof of dormancy. A worker that is off stays off until the owner messages it or
-you start it. A session closes by itself after 15 idle minutes and the worker is then asleep, not
-off: any input wakes it, so a sleeping worker needs no start.
+status shows whether the worker is on or off, whether its session is open, and whether it is
+working. start turns the worker on and opens its session, resuming its selected conversation.
+restart closes the session and opens it again in the same conversation. kill closes the session
+and turns the worker off, ending active work; idle is not proof of dormancy. When status shows
+managed: true, Qorqbot runs the session itself: a worker that is off stays off until the owner
+messages it or you start it, and a session closes by itself after 15 idle minutes; the worker is
+then asleep, not off, and any input wakes it, so a sleeping worker needs no start. When status
+has no managed key, the worker runs in a terminal: nothing starts it by itself, so a worker that
+is not running needs agent_terminal_start.
 
 To tell a worker something, use agents_message_send; it arrives through the inbox and wakes a
 sleeping worker. Direct terminal messages (delivery="terminal") are refused. Direct ping is only

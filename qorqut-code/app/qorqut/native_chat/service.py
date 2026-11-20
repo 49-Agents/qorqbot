@@ -10,7 +10,8 @@ the reference so a later stop can still prove the drain.
 
 Each agent's pass also asks the managed runtime for the host's latest state and events: a change of its phase, pending
 request or activity reaches Chat as a visible change (activity text at most once a second), and a prompt a hook blocked is
-recorded on the input that carried it.
+recorded on the input that carried it. When the installation runs its agents in terminals (``managed_runtime.mode``, asked on
+every pass) the managed runtime is not consulted: the pass follows the terminal's conversation and bumps only on a working change.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import threading
 import time
 
 from qorqut_operations.contracts import DomainError, utc_now
+from qorqut.managed_runtime import mode
 
 from . import store
 from .arbiter import AgentLocks, InputArbiter
@@ -146,7 +148,7 @@ class NativeBackend:
         """Bind, capture and index one agent, then deliver its waiting inputs. Safe to repeat."""
         if self.adopt is not None:
             self.adopt(profile)
-        managed = self.managed
+        managed = None if mode.is_terminal(getattr(self.runtime, "paths", None)) else self.managed
         with self.locks(profile["agent_id"]):
             changed = self._refresh_managed(managed, profile["agent_id"]) if managed is not None else False
             observed = self.probe.observe(profile)
@@ -159,7 +161,7 @@ class NativeBackend:
             if managed is not None:
                 self._publish_managed(agent_id, reconciled, observed, changed)
                 self._apply_blocked(managed, agent_id)
-            elif self._working.get(agent_id) != working:   # no managed runtime composed
+            elif self._working.get(agent_id) != working:   # no managed runtime composed, or Terminals mode
                 with self.database.transaction(operation="native_chat.working") as uow:
                     self.runtime.application.ensure_writes_open(uow)
                     store.bump(uow.connection, agent_id)

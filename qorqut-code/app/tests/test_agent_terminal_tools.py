@@ -1,4 +1,5 @@
-"""Ordubashy's agent tools (``agent_terminal_*``) mean one thing: control of an agent's managed session.
+"""Ordubashy's agent tools (``agent_terminal_*``) in managed mode (the default) mean control of an agent's managed session.
+Terminals mode is covered by ``test_agent_terminal_tools_terminal_mode``; here the terminal backend must never be reached.
 
 status reads on/off, asleep/open and working; start turns the agent on and opens its session; restart closes it and opens it again
 in the same conversation; kill closes it and turns it off; ping (and the owner-issued execute_command) deliver a direct message.
@@ -91,9 +92,22 @@ class Case(unittest.TestCase):
 
 
 class ContractTests(Case):
-    def test_there_is_no_terminal_backend_to_attach_or_to_ask(self):
+    def test_the_managed_path_never_reaches_the_terminal_backend(self):
+        class Untouchable:
+            def __getattr__(self, name):
+                raise AssertionError(f"the terminal backend was touched: {name}")
+        self.control.backend = Untouchable()
+        self.managed.handles = [object(), None]
+        with mock.patch("time.sleep"):
+            self.control.snapshot(self.target)
+            self.control.binding(self.target)
+            self.control.session_state(self.target)
+            for action in ("start", "restart", "kill", "ping"):
+                self.control._execute(self.target, action, "hello" if action == "ping" else None, "k")
+
+    def test_the_source_runs_no_tmux_and_no_process(self):
         source = inspect.getsource(terminal_control)
-        for word in ("backend", "tmux", "agent_terminal_control", "terminal_composer"):
+        for word in ("tmux", "subprocess", "agent_terminal_control", "terminal_composer"):
             self.assertNotIn(word, source)
         self.assertFalse(hasattr(self.control, "_validate"))
 
@@ -107,10 +121,10 @@ class ContractTests(Case):
         for name, descriptor in registered.items():
             self.assertEqual(descriptor.name, name)
         self.assertEqual(DESCRIPTIONS, {
-            "status": "Whether the agent is on or off, asleep or open, and working.",
+            "status": "Whether the agent is on or off, whether its session is open, and whether it is working.",
             "start": "Turn the agent on and open its session.",
             "restart": "Close the agent's session and open it again in the same conversation.",
-            "kill": "Close the agent's session and turn it off until the owner messages it or you start it.",
+            "kill": "Close the agent's session and turn it off, ending active work.",
             "ping": "Send the owner-issued direct message.",
             "execute_command": "Run the owner-issued session command, such as compacting."})
         for key, text in DESCRIPTIONS.items():
