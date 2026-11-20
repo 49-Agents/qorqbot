@@ -658,6 +658,8 @@ class HTTPAPI:
                     # Move to project: the source is the explicit source_business_id argument (null for Global), so the root
                     # route is allowed and the business route must agree with it. No scope selector is accepted.
                     "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project",
+                    "tables_move_to_project_preview", "tables_move_to_project",
+                    "notes_move_to_project_preview", "notes_move_to_project",
                     # Parent-detail readers promised to the record pane: a routine's runs and a known job's own safe
                     # result. Root is Global-source only; the business route reads its Project source. Both are normal
                     # reads through split_options, argument validation and policy, with no job browser or enumeration.

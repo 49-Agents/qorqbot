@@ -1,5 +1,7 @@
 # Move to project
 
+Tables and project notes move too: see [RECORD-MOVE.md](RECORD-MOVE.md).
+
 Three registered operations move existing Tasks, Stories and Customer records, with their whole descendant trees, from
 Global or one Project into another active Project. Every Task keeps its id, its internal parents and everything attached
 to it. Only the owning scope changes. This is not Project nesting, not a conversation merge and not a copy.

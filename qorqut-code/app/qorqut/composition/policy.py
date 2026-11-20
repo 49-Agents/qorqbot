@@ -34,7 +34,9 @@ READS_AS_TASK = frozenset({"tasks_notes_list", "tasks_thread_get", "tasks_associ
 PROJECT_OPERATIONS = frozenset({"project_record_get", "project_items_list", "project_items_candidates",
                                 "project_item_get", "project_items_link", "project_items_unlink",
                                 # Move to project: the handler also rechecks the Task tools it stands on in both scopes.
-                                "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project"})
+                                "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project",
+                                "tables_move_to_project_preview", "tables_move_to_project",
+                                "notes_move_to_project_preview", "notes_move_to_project"})
 # CRM and Table-discussion operations and the existing operation whose decision each may never exceed. This is a
 # prerequisite, not only a fallback: the new name's own override, else role default, else the prerequisite's mode is
 # combined with the prerequisite's effective decision, strongest of deny > signoff > allow. An ``allow`` on the new name never

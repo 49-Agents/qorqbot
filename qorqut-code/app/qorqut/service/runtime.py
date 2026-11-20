@@ -594,6 +594,15 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # Focus cards and unsupported bindings. The adapter is attached here, before the registry freezes.
     from qorqut.domains.tasks.moves import TaskMoves
     runtime.task_moves = TaskMoves(application, domains.tasks).register(registry)
+    # Move tables to project: the preview and the atomic relocation of whole Tables (rows, history, CRM memberships, discussion).
+    # Move notes to project, and the uploaded file a moved table was imported from: files go to the destination's folder.
+    from qorqut.composition.locations import document_root
+    from qorqut.domains.documents.moves import NoteMoves
+    from qorqut.domains.tables.moves import TableMoves
+    from qorqut_operations.documents.relocation import DocumentRelocation
+    document_moves = DocumentRelocation(lambda business, path: document_root(paths, business, path))
+    runtime.table_moves = TableMoves(application, documents=document_moves).register(registry)
+    runtime.note_moves = NoteMoves(application, document_moves).register(registry)
     # The aggregate CRM activity read: the Domain's local activity merged with the directly linked sources, which are read
     # through the composed Task, Signoff, Action and document readers. It owns no storage and writes nothing.
     from qorqut.domains.crm import CRMActivityOperations

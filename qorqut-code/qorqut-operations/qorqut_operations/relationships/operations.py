@@ -25,12 +25,15 @@ from qorqut_operations.relationships.edges import (CONTEXT, ROLE, edge_values, e
 from qorqut_operations.relationships.ports import RelationshipPorts
 from qorqut_operations.relationships.reviews import ContextReviews
 from qorqut_operations.storage.assembly import AssemblyError
-from qorqut_operations.tasks.relocation import moved_location, proven_journey
+from qorqut_operations.relationships.relocation import DOCUMENT_ENDS, current_place
+from qorqut_operations.tasks.relocation import proven_journey
 from qorqut_operations.tasks.scope import task_context, task_namespace
 
 SCOPE = {"scope": {"enum": ["business", "global"]}}
 # The edge's own scope is the selected one (the default ``origin`` of an endpoint read).
 _HERE = object()
+# Edge end types whose record a relocation can take out of the edge's scope.
+MOVABLE_ENDS = frozenset({"task", "table", *DOCUMENT_ENDS})
 # The eight operations whose owning namespace is the business or, for the owner and an authorized global agent, Global. This is
 # the Task namespace contract (``task_namespace`` / ``task_context``) and nothing else: graph, navigation, archive, Material and
 # review operations stay business-only.
@@ -130,18 +133,19 @@ class RelationshipOperations:
                 "target_item": self.endpoint(ctx, target, uow, origin)}
 
     def endpoint(self, ctx, item, uow, origin=_HERE):
-        """One endpoint, resolved in its own scope. A Task that a relocation took out of the edge's scope is read where the
-        audited resolver says it is now, with the caller's authority there; anything else unavailable stays unavailable."""
+        """One endpoint, resolved in its own scope. A Task, Table or project document that a relocation took out of the edge's
+        scope is read where its audited move record says it is now, with the caller's authority there; anything else
+        unavailable stays unavailable."""
         here = ctx.business_id if origin is _HERE else origin
         if item["type"] == "task" and here != ctx.business_id and self.task_here(ctx, item, uow):
             return self.items.resolve(ctx, item, uow)
         try:
             return self.items.resolve(self.scoped(ctx, here, uow), item, uow)
         except DomainError as error:
-            if error.code not in UNAVAILABLE or item["type"] != "task":
+            if error.code not in UNAVAILABLE or item["type"] not in MOVABLE_ENDS:
                 raise
-            location = moved_location(uow, here, item["id"])
-            if location is None:
+            location = current_place(uow, item["type"], here, item["id"])
+            if location == here:
                 raise
         return {**self.items.resolve(self.scoped(ctx, location, uow), item, uow), "business_id": location, "moved": True}
 

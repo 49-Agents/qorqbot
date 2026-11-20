@@ -238,6 +238,21 @@ class TaskMoveHistoryTests(unittest.TestCase):
             self.assertTrue(identity.taken(uow.connection, task_id))
             self.assertTrue(identity.taken(uow.connection, task_id.upper()))
 
+    def test_a_link_left_behind_finds_a_note_moved_to_another_project(self):
+        note = str(uuid4())
+        self.records[(self.destination, 'material', note)] = 'Launch brief'
+        with self.db.transaction() as uow:
+            uow.connection.execute("INSERT INTO documents(id,business_id,namespace,kind,path,content_hash,created_at,updated_at) "
+                                   "VALUES(?,?,?,'business_owned_note','notes/brief.md','x',?,?)",
+                                   (note, self.destination, self.destination, STAMP, STAMP))
+            uow.connection.execute("INSERT INTO document_moves(move_id,document_id,kind,source_business_id,destination_business_id,source_path,"
+                                   "destination_path,revision_before,actor_id,moved_at) VALUES(?,?,'business_owned_note',?,?,?,?,1,?,?)",
+                                   (str(uuid4()), note, self.source, self.destination, 'notes/brief.md', 'notes/brief.md', self.owner, STAMP))
+        task_id = self.task('Send the brief', status='open')
+        edge = self.edge(('task', task_id), ('material', note))
+        [shown] = [item for item in self.listing(self.source, item={'type': 'task', 'id': task_id}) if item['id'] == edge]
+        self.assertEqual((shown['target_item']['business_id'], shown['target_item']['moved']), (self.destination, True))
+
 
 if __name__ == '__main__':
     unittest.main()
