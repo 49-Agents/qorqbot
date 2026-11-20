@@ -29,9 +29,13 @@ Codex. For each site, one at a time:
    owner's account is signed in. Read only; send, change or post nothing.
 5. Tell the owner in one line that the site is connected, or what went wrong.
 
-If the agent browser is not ready, point the owner to its card in Settings,
-which explains the fix. Do not install tooling or launch Chrome yourself.
-Record the site as not connected with that reason and continue.
+If the agent browser is not ready, set it up yourself: call
+`agent_browser_manage` with action `status`, then `ensure` (or `repair` when
+status says so), and check `status` again. Do not send the owner to Settings
+for this. Do not install tooling or launch Chrome yourself. Only if `status`
+still names something the owner must do (install Google Chrome, restart the
+computer), tell them exactly that, record the site as not connected with that
+reason and continue.
 
 ## What you cannot set up yourself
 

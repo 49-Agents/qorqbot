@@ -705,9 +705,10 @@ class MCPTransport:
                         namespace = self.runtime.application.namespace(context, descriptor, args)
                         with self.runtime.database.read() as uow:
                             self.runtime.application.authorize(context, descriptor, (), uow, namespace=namespace, arguments=args)
-                        # The manager decides the exact worker target and rechecks it under the agent's lock; host effects run
-                        # here, outside every database transaction, under the instance's writer admission.
-                        value = self.runtime.browser_manager.manage(actor.principal.id, args, options.idempotency_key)
+                        # The manager rechecks who is calling under the browser's lock; host effects run here, outside
+                        # every database transaction, under the instance's writer admission.
+                        from qorqut.browser import setup as browser_setup
+                        value = browser_setup.agent_manage(self.runtime, actor.principal.id, args, options.idempotency_key)
                         return OperationResult.ok(value, request_id=request_id)
                     if canonical_name == BROWSER_OPERATION:
                         self.runtime.registry.bind_arguments(canonical_name, args)

@@ -31,7 +31,9 @@ registered agent workspace. It uses the installation's prepared Python runtime,
 so no shell activation or global CLI installation is needed. Re-preparation after
 removing the skill/role removes the managed launcher and both native skill copies.
 
-For Ordubashy's launcher, the operator supplies `.qorqut/browser.json` in that exact agent workspace:
+The launcher reads `.qorqut/browser.json` in that exact agent workspace. For Ordubashy and the permanent workers
+`agent_browser_manage` writes it, naming the Shared browser, and replaces a hand-written one
+([BROWSER-MANAGEMENT.md](BROWSER-MANAGEMENT.md)); for any other agent the operator supplies it:
 
 ```json
 {

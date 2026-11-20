@@ -124,8 +124,8 @@ class BrowserAccess:
             if owner == actor.principal.id or error.code not in {
                     "browser_not_configured", "browser_configuration_invalid", "browser_not_ready"}:
                 raise
-            raise DomainError(error.code, "The Shared browser is not usable for that worker now. Run agent_browser_manage for "
-                              "the worker with action ensure or repair, then try again.") from None
+            raise DomainError(error.code, "The Shared browser is not usable for that worker now. Run agent_browser_manage with "
+                              "action ensure or repair, then try again.") from None
 
     def _native(self, actor, action, body, browser_key, handle):
         """Configured browsers are lease-free: no turn, lease, fence or durable intent gates a call."""
@@ -345,8 +345,8 @@ class BrowserAccess:
                                         for agent, name in self.worker_browsers(actor.principal.id).items()]}
 
     def _worker_label(self, agent, name):
-        """A worker's entry is its tabs in the Shared browser. A worker that is not connected to it (the operator installed
-        its browser, or its record cannot be read) is named plainly; ``agent_browser_manage`` reports why."""
+        """A worker's entry is its tabs in the Shared browser. A worker that is not connected to it yet (or whose record
+        cannot be read) is named plainly; ``agent_browser_manage`` reports why and connects it."""
         from .agent_browsers import uses_shared
         try:
             shared = uses_shared(self.runtime.paths, agent)
@@ -686,5 +686,5 @@ class BrowserAccess:
         expected = shared_target(self.runtime.paths) if chosen else None
         if chosen != marked or (chosen and (expected is None or expected["cdp_endpoint"] != endpoint)):
             raise DomainError("browser_configuration_invalid", "Your browser target file does not match your saved browser "
-                              "record, so no browser was used. Tell Ordubashy; he can repair it with agent_browser_manage.")
+                              "record, so no browser was used. Ordubashy repairs it with agent_browser_manage (action repair).")
         return chosen

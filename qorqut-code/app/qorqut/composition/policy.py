@@ -115,9 +115,9 @@ def _user_input(name, defaults, overrides, registry, *, role_id, scope, resolve)
 
 def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, resolve):
     if name in {"agent_browser_manage", "website_sign_in"}:
-        # Standing owner authority for the configured Ordubashy over his workers' browsers: no per-action Signoff and no role
-        # file or override can widen it to another role. The handler still proves the exact configured Ordubashy and an
-        # active worker target; an explicit deny override remains respected.
+        # Standing owner authority for the configured Ordubashy over the browser the agents use: no per-action Signoff and no role
+        # file or override can widen it to another role. The handler still proves the exact configured Ordubashy; an
+        # explicit deny override remains respected.
         if role_id != ORDUBASHY_ROLE or overrides.get(name) == "deny":
             return PolicyDecision("deny", "browser_management_role")
         return PolicyDecision("allow", "browser_management_owner_authority")
