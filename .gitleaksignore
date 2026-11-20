@@ -20,7 +20,8 @@ d4589b3e58141f3508db097f3ef28880052666ee:qorqut-code/app/tests/test_managed_clau
 # Dummy solver key and token in the captcha tests (rewritten to plain test values later).
 33c51caca81e447b267addbb1464eefdcb5aa9d0:qorqut-code/app/tests/test_browser_captcha_solver.py:generic-api-key:13
 33c51caca81e447b267addbb1464eefdcb5aa9d0:qorqut-code/app/tests/test_browser_captcha.py:generic-api-key:21
-# Reviewed false positives: made-up tokens in the managed Codex driver test fixtures (they test that such values are hidden).
+
+# Reviewed false positives: made-up tokens in managed Codex driver test fixtures (redaction tests).
 2fce50b5009b7c67765c975059e62931800e7c98:qorqut-code/app/tests/test_managed_codex_driver.py:curl-auth-header:206
 2fce50b5009b7c67765c975059e62931800e7c98:qorqut-code/app/tests/test_managed_codex_driver.py:generic-api-key:188
 2fce50b5009b7c67765c975059e62931800e7c98:qorqut-code/app/tests/test_managed_codex_driver.py:generic-api-key:1165
