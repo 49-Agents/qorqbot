@@ -183,7 +183,8 @@ class World:
     # -- the cutover tool ------------------------------------------------------------------------------------------------
     def view(self, item):
         present = self.terminal_up.get(item["agent_id"], False)
-        return {"agent_id": item["agent_id"], "name": item["name"], "session_present": present, "leftovers": [],
+        # The survey carries the registered name ("atlas"); the owner reads the one Chat shows ("Atlas").
+        return {"agent_id": item["agent_id"], "name": item["name"].lower(), "session_present": present, "leftovers": [],
                 "client": "claude" if present else "none", "turn": "running" if item["agent_id"] in self.turns else "idle",
                 "problems": list(self.problems.get(item["agent_id"], [])), "other_processes": []}
 
@@ -282,7 +283,10 @@ class Refusals(unittest.TestCase):
     def test_turns_in_terminals_refuse_unless_forced(self):
         world = World(self, terminals=True)
         world.turns = {"m"}
-        self.assertEqual(world.refusal(self, OWNER, "managed").code, "turns_running")
+        error = world.refusal(self, OWNER, "managed")
+        self.assertEqual((error.code, [dict(item) for item in error.details["agents"]]),
+                         ("turns_running", [{"agent_id": "m", "name": "Mira"}]))
+        self.assertTrue(error.message.startswith("Mira is in the middle of a turn."))
         self.assertEqual(world.events, [])
         world.switch.start(OWNER, "managed", force=True)
         self.assertIn(("apply", "m", True, "terminal"), world.events)

@@ -491,18 +491,28 @@ async function renderGlobalAgents(c) {
     if (!shellMode()) { existing?.remove(); return; }
     if (!existing) links.querySelector('[data-global-settings]').insertAdjacentHTML('beforebegin', shellButton());
   };
+  // The Chat of the agent that stays open gets or loses its Terminal view: that is decided when the view is mounted
+  // (js/agent-terminal-view.js), so a mode answered after the first paint mounts it again.
+  const remountAgentChat = () => {
+    const agent = agents.find(a => a.agent_id === selected);
+    if (!agent || gated || pane.dataset.agentPane !== 'on') return;
+    disposeChat();
+    mountAgentView(pane, agent, {isCurrent: () => current() && selected === agent.agent_id});
+  };
   const onModeChanged = () => {
     if (!current()) return;
-    const had = hasWorkspaceShell();
+    const had = hasWorkspaceShell(), before = selectionVersion;
     paintShellEntry();
-    if (had === hasWorkspaceShell()) return;
-    if (had && selected === GLOBAL_WORKSPACE_TERMINAL) {
-      const fallback = agents.find(a => a.role?.id === 'ordubashy') || agents[0];
-      selected = null;
-      if (fallback) select(fallback, null, true); else { disposeChat(); pane.innerHTML = '<p class="muted" role="status">No agents are available.</p>'; }
-    } else if (savedShell && selectionVersion === firstVersion) select(GLOBAL_WORKSPACE_TERMINAL);
-    paintSelection();
-    if (typeof agentNavPaint === 'function') agentNavPaint();
+    if (had !== hasWorkspaceShell()) {
+      if (had && selected === GLOBAL_WORKSPACE_TERMINAL) {
+        const fallback = agents.find(a => a.role?.id === 'ordubashy') || agents[0];
+        selected = null;
+        if (fallback) select(fallback, null, true); else { disposeChat(); pane.innerHTML = '<p class="muted" role="status">No agents are available.</p>'; }
+      } else if (savedShell && selectionVersion === firstVersion) select(GLOBAL_WORKSPACE_TERMINAL);
+      paintSelection();
+      if (typeof agentNavPaint === 'function') agentNavPaint();
+    }
+    if (selectionVersion === before) remountAgentChat();
   };
   document.addEventListener('agent-mode-changed', onModeChanged);
   globalModeUnsubscribe = () => document.removeEventListener('agent-mode-changed', onModeChanged);

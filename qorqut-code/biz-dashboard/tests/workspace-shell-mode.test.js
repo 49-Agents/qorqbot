@@ -119,7 +119,21 @@ browserTest('a late Terminals answer shows the entry but does not override a cho
     await page.evaluate(()=>document.querySelector('[data-global-agent="atlas"]').click());
     await page.evaluate(()=>setMode('terminal'));
     assert.equal(await page.locator(entry).count(),1);
-    assert.deepEqual(await page.evaluate(()=>mounts),['ord','atlas']);
+    // Atlas stays the choice; its Chat is mounted again so it gets its Terminal view.
+    assert.deepEqual(await page.evaluate(()=>mounts),['ord','atlas','atlas']);
+    assert.deepEqual(errors,[]);
+  } finally { await browser.close(); }
+});
+
+browserTest('a mode answered after the first paint mounts the open agent’s Chat again, in both directions',async()=>{
+  const {browser,page,errors}=await fixture({mode:'managed',remembered:'ord'});
+  try {
+    assert.deepEqual(await page.evaluate(()=>mounts),['ord']);
+    await page.evaluate(()=>setMode('terminal'));
+    assert.deepEqual(await page.evaluate(()=>mounts),['ord','ord']);
+    await page.evaluate(()=>setMode('managed'));
+    assert.deepEqual(await page.evaluate(()=>mounts),['ord','ord','ord']);
+    assert.equal(await page.evaluate(()=>torn),0,'no shell viewer was open');
     assert.deepEqual(errors,[]);
   } finally { await browser.close(); }
 });

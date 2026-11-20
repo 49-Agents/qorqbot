@@ -390,16 +390,18 @@ class RuntimeSwitch:
             return {"ending": [], "busy": [], "survey": None}
         from qorqut.migration import managed_cutover as cutover
         state = self._survey()
+        # The owner reads the name Chat shows, not the registered one the survey carries.
+        name = lambda view: labels.get(view["agent_id"], view["name"])  # noqa: E731
         unclear = [view for view in state["agents"] if cutover.refusals(view, force=force, allow_mismatch=False)]
         if unclear:
-            named = [view["name"] for view in unclear]
+            named = [name(view) for view in unclear]
             sentence = (f"{named[0]}'s terminal holds something Qorqbot does not recognise (for example a second program). "
                         "Close it yourself, then try again.") if len(named) == 1 else (
                 f"The terminals of {names_of(named)} hold something Qorqbot does not recognise (for example a second program). "
                 "Close them yourself, then try again.")
             raise DomainError("terminal_unclear", sentence,
-                              details={"agents": [{"agent_id": v["agent_id"], "name": v["name"]} for v in unclear]})
-        busy = [{"agent_id": v["agent_id"], "name": v["name"]} for v in state["agents"] if v.get("turn") == "running"]
+                              details={"agents": [{"agent_id": v["agent_id"], "name": name(v)} for v in unclear]})
+        busy = [{"agent_id": v["agent_id"], "name": name(v)} for v in state["agents"] if v.get("turn") == "running"]
         if busy and not force:
             raise self._turns(busy)
         ending = [view["agent_id"] for view in state["agents"] if view["session_present"] or view["leftovers"]]
@@ -610,7 +612,7 @@ class RuntimeSwitch:
                 self._step(done=index + 1)
             try:
                 self._end_workspace_shells()
-                self._verify_terminals_gone()
+                self._verify_terminals_gone(labels)
             except Abort as stop:
                 raise Abort(self._aborted(stop.message, closed, False)) from stop
         mode.commit(self.paths, MANAGED, message=DONE[MANAGED])
@@ -632,9 +634,9 @@ class RuntimeSwitch:
         except cutover.CutoverError as error:
             raise Abort("Your Workspace terminal could not be ended.") from error
 
-    def _verify_terminals_gone(self) -> None:
+    def _verify_terminals_gone(self, labels) -> None:
         state = self._survey()
-        left = [view["name"] for view in state["agents"] if view["session_present"] or view["client"] != "none"]
+        left = [labels.get(view["agent_id"], view["name"]) for view in state["agents"] if view["session_present"] or view["client"] != "none"]
         if left:
             raise Abort(f"{names_of(left)} {_plural(left, 'still has a terminal', 'still have terminals')} that did not end.")
 
