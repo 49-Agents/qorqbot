@@ -93,8 +93,6 @@ class UserInput:
         Returns the display facts: ``label`` and, for a Task, ``state``; for a browser also its viewer when ``viewer`` asks for
         a ready one. ``tabs`` is the caller's memo of the tabs already listed, by agent (see ``tab``)."""
         kind, identity, business = reference["type"], reference["id"], reference["business_id"]
-        if kind == refs.TYPE_AGENT:
-            return self.agent(ctx, identity, uow)
         if kind == refs.TYPE_TAB:
             return self.tab(ctx, identity, uow, tabs)
         if kind == refs.TYPE_BROWSER:
@@ -119,7 +117,7 @@ class UserInput:
         return found
 
     def agent(self, ctx, identity, uow):
-        """A registered agent as Chat names it, through the existing ``agents_get`` read authorization: the caller must be allowed
+        """A registered agent whose browser tab Chat shows, through the existing ``agents_get`` read authorization: the caller must be allowed
         that read, and a Global agent needs the Global capabilities while a business-home agent is outside Global. An unknown id,
         a human principal or a profile the caller may not read is an ``UNAVAILABLE`` error."""
         authorize_item_read(self.app, ctx, "agents_get", uow)
@@ -177,15 +175,13 @@ class UserInput:
         views, listed = {}, {}       # listed: each agent's open tabs, asked of its browser once for the whole page
         for key in dict.fromkeys(found):
             kind, identity, business = key
+            if kind in refs.RETIRED_TYPES:
+                continue
             try:
                 facts = self.resolve(ctx, {"type": kind, "id": identity, "business_id": business}, uow, viewer=True, tabs=listed)
             except DomainError as error:
                 if error.code not in UNAVAILABLE and error.code != "invalid_configuration":
                     raise
-                continue
-            if kind == refs.TYPE_AGENT:
-                views[key] = {"type": kind, "id": identity, "business_id": None, "label": facts["display_name"], "available": True,
-                              **{name: facts[name] for name in ("role", "presentation") if name in facts}}
                 continue
             if kind == refs.TYPE_TAB:
                 agent_id, tab_id = refs.tab_parts(identity)

@@ -1,13 +1,13 @@
 ---
 name: qorqut-role-chat-references
-description: Show the owner a message in Chat with clickable cards for Projects, Tasks, pending Signoffs, configured browsers, browser tabs or registered agents right below it (request_user_input), also whenever the owner asks to refer, link or open one, and select an exact browser with browser_turn action=list and browser_id.
+description: Show the owner a message in Chat with clickable cards for Projects, Tasks, pending Signoffs, configured browsers or browser tabs right below it (request_user_input), also whenever the owner asks to refer, link or open one, and select an exact browser with browser_turn action=list and browser_id.
 ---
 
 # Chat references
 
 Use `request_user_input` when the owner should look at, decide or act on existing records
 while reading your message: a Project to open, a Signoff to decide, a browser or one of its tabs to log in or act in,
-a Task whose state matters, an agent you are talking about. It returns at once. It creates no request, waits for no answer and
+a Task whose state matters. It returns at once. It creates no request, waits for no answer and
 grants no approval, so keep working on whatever does not depend on the owner's reply.
 
 ```
@@ -20,8 +20,6 @@ request_user_input(message="Two decisions are ready for you.",
                                {"type": "task", "id": "<task id>"}])
 request_user_input(message="Here is the cold outreach project.",
                    references=[{"type": "project", "id": "<project uuid>", "business_id": "<same project uuid>"}])
-request_user_input(message="The new worker takes this on next.",
-                   references=[{"type": "agent", "id": "<agent uuid>"}])
 ```
 
 - `message`: plain text, at most 4000 characters. Say what you need; the cards are not a substitute.
@@ -34,8 +32,6 @@ request_user_input(message="The new worker takes this on next.",
     project in the dashboard.
   - `browser`: the exact configured browser `id` from `browser_turn` `action=list`, only
     `{type, id}`; there is no project selector.
-  - `agent`: the registered agent's UUID, only `{type, id}` (no `business_id`, name or icon);
-    the owner sees its current name and icon. Only agents your existing agent read allows.
   - `tab`: one open page in the Shared browser, exactly as the browser command `tab-reference` printed it
     (yours, or one a worker gave you): `{"type": "tab", "id": "<agent uuid>:<tab id>"}`, only `{type, id}`. Use it when the owner must do
     something in that page (a captcha that could not be solved, a sign-in, a confirmation) instead of describing where to
@@ -49,7 +45,7 @@ request_user_input(message="The new worker takes this on next.",
 - An unknown, deleted or unreadable record, a wrong `business_id` or a malformed field is
   refused and nothing is shown. Never guess an id.
 - The owner sees current records: a Task's title and state, a Signoff decided in its own card,
-  a browser as a live view, an agent as a name with its icon. The reference decides nothing: use `signoffs_input_create`
+  a browser as a live view. The reference decides nothing: use `signoffs_input_create`
   for a question that needs a recorded decision, and read the Signoff afterwards.
 - Showing a browser takes no browser turn; you still use a browser only through `browser_turn`.
 
