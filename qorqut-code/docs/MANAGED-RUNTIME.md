@@ -189,6 +189,10 @@ question), `close` (end the session and turn the agent off) and `options`.
   checking it is the recorded host) and removes stale files. The updater and the
   extension installer run it through `tools/distribution/native_launch.py`
   (`stop_managed_hosts`). Closed sessions open again at the next input.
+  On an installation whose service sees its instance through a private bind
+  mount, run the tool in the same view (the same `BindPaths=`): from outside it
+  sees an empty folder, finds no agents and reports success without closing
+  anything.
 - The updater refuses while an old tmux server of the installation still
   answers (`require_no_terminal_agents`). Run the cutover first.
 
