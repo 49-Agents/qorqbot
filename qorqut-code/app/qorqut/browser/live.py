@@ -50,16 +50,23 @@ class Closed(Exception):
 
 
 def port(runtime, agent_id):
-    """The DevTools port of the managed browser the agent uses: its own, or the Shared browser."""
-    from . import setup, sign_in
-    from .agent_browsers import meta_valid, supervisor_state
+    """The DevTools port of the browser for an agent that uses it. The agent ID only says whose tabs the owner is watching:
+    there is one browser."""
+    from . import setup
     _, agents = setup.targets(runtime)
     if agent_id not in [agent["agent_id"] for agent in agents]:
         raise DomainError("not_found", "This agent has no browser")
-    meta, directory = sign_in._meta(runtime, agent_id), sign_in._state(runtime, agent_id)
+    return shared_port(runtime)
+
+
+def shared_port(runtime):
+    """The DevTools port of the Shared browser, only while it is the exact Chrome its supervisor started."""
+    from . import sign_in
+    from .agent_browsers import meta_valid, supervisor_state
+    meta, directory = sign_in._meta(runtime), sign_in._state(runtime)
     # The port in the record is only a claim: another program may hold it now, and the owner's clicks and keys would go there.
     if not meta_valid(meta, directory.name, directory) or supervisor_state(directory, meta)["state"] != "ready":
-        raise DomainError("browser_not_ready", "This agent's browser isn't running. Wait until it shows Ready in Settings, then reconnect.")
+        raise DomainError("browser_not_ready", "The browser isn't running. Wait until it shows Ready in Settings, then reconnect.")
     return meta["managed"]["port"]
 
 
@@ -278,4 +285,4 @@ def open_view(runtime, agent_id, tab_id):
             idle_tabs.wake(port_, tab_id, 0)
         except Exception:
             pass
-    return View(agent_id, port_, tab_id, marks=sign_in._state(runtime, agent_id) / idle_tabs.WATCHED), port_
+    return View(agent_id, port_, tab_id, marks=sign_in._state(runtime) / idle_tabs.WATCHED), port_

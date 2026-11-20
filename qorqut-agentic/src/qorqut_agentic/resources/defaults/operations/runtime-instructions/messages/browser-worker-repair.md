@@ -1,1 +1,1 @@
-) Tell Ordubashy; he can diagnose and repair it with agent_browser_manage.
+) Tell Ordubashy; he can diagnose and repair it with agent_browser_manage. If you are Ordubashy, run it now (status, then repair) and try again.

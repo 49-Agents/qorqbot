@@ -1,1 +1,1 @@
-You are not connected to the Shared browser. Tell Ordubashy; he can connect you with agent_browser_manage. Do not retry or install anything yourself.
+You are not connected to the Shared browser. Tell Ordubashy; he connects every agent with agent_browser_manage (action ensure). If you are Ordubashy, do that now and try again. Do not retry or install anything yourself.

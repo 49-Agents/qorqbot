@@ -1,6 +1,6 @@
-"""Built-in browser setup converges eligible agents without altering healthy browsers."""
+"""Built-in browser setup converges the one browser and connects eligible agents without altering a healthy one."""
 
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -10,14 +10,16 @@ from unittest import mock
 
 from qorqut_operations.contracts import DomainError
 from qorqut.bootstrap.browser import BrowserError
-from qorqut.browser import setup
+from qorqut.browser import setup, sign_in
 from qorqut.browser.agent_browsers import AgentBrowserManager
 
 
 class BrowserSetupTest(unittest.TestCase):
     def setUp(self):
-        setup.LAST_FAILURES.clear()
-        self.addCleanup(setup.LAST_FAILURES.clear)
+        setup.LAST_FAILURE.clear()
+        self.addCleanup(setup.LAST_FAILURE.clear)
+        sign_in._window.clear()
+        self.addCleanup(sign_in._window.clear)
         connection = sqlite3.connect(":memory:")
         connection.row_factory = sqlite3.Row
         connection.executescript("""
@@ -39,7 +41,7 @@ class BrowserSetupTest(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.runtime = SimpleNamespace(database=SimpleNamespace(read=Read), browser_manager=mock.Mock(),
-                                       paths=SimpleNamespace(runtime=Path(folder.name)))
+                                       browser_access=mock.Mock(), paths=SimpleNamespace(runtime=Path(folder.name)))
         # Setup starts the download of Qorqbot's own Chrome; here it is recorded, never run.
         patch = mock.patch.object(setup.managed_chrome, 'start')
         self.chrome_download = patch.start(); self.addCleanup(patch.stop)
@@ -56,8 +58,18 @@ class BrowserSetupTest(unittest.TestCase):
                 self.assertNotRegex(text, r'action=|[a-z]+_[a-z]+|docs/|QORQUT')
         self.assertEqual(setup.explanation('healthy'), '')
 
+    def test_ordubashy_reads_every_explanation_without_a_button_to_press(self):
+        states = ['missing', 'stopped', 'target_missing', 'unsupported', 'busy', 'conflict', 'invalid', 'unavailable', 'new']
+        texts = ([setup.explanation(state) for state in states] + [setup.explanation('stopped', stop_requested=True)]
+                 + list(setup.FAILURE_TEXT.values()))
+        for text in texts:
+            with self.subTest(text=text):
+                self.assertNotRegex(setup.for_agent(text), r'(?i)retry setup|this card')
+        self.assertIn('action=ensure', setup.for_agent(setup.explanation('missing')))
+        self.assertIn('action=status', setup.for_agent(setup.explanation('busy')))
+
     def test_the_owner_is_not_told_to_install_chrome_which_qorqbot_downloads_itself(self):
-        # Shown per agent only while a Chrome is there; with none the card shows the download's own explanation.
+        # Shown only while a Chrome is there; with none the card shows the download's own explanation.
         for text in (setup.explanation('unsupported'), setup.explanation('missing', failure_code='browser_capability_missing')):
             self.assertNotIn('Install Chrome', text)
             self.assertIn('Retry setup', text)
@@ -67,16 +79,15 @@ class BrowserSetupTest(unittest.TestCase):
         self.assertNotIn('on purpose', setup.explanation('stopped'))
 
     def test_the_real_failure_reason_reaches_settings_until_setup_succeeds(self):
-        states = {'lead': {'state': 'missing', 'diagnostic': 'x', 'browser': 'own'}, 'worker': {'state': 'healthy', 'diagnostic': 'x', 'browser': 'own'}}
-        fail = {'lead': DomainError('browser_workspace_unavailable', 'internal wording')}
-        self.run_setup(states, fail=fail)
-        def status(_owner, arguments, **_k):
-            return states[arguments['agent_id']]
-        lead = self.read_view(status)['agents'][0]
-        self.assertIn('Start the agent once', lead['explanation'])
-        self.assertNotIn('internal wording', lead['explanation'])
-        self.run_setup(states)
-        self.assertNotIn('Start the agent once', self.read_view(status)['agents'][0]['explanation'])
+        missing = {'state': 'missing', 'diagnostic': 'x', 'agents': []}
+        self.assertEqual(self.run_setup(missing, fail=DomainError('browser_not_ready', 'internal wording')), ['ensure'])
+        self.assertEqual(setup.LAST_FAILURE, {'code': 'browser_not_ready'})
+        text = self.read_view(lambda *_a, **_k: dict(missing))['explanation']
+        self.assertIn("didn't respond in time", text)
+        self.assertNotIn('internal wording', text)
+        self.run_setup(missing)
+        self.assertEqual(setup.LAST_FAILURE, {})
+        self.assertNotIn("didn't respond in time", self.read_view(lambda *_a, **_k: dict(missing))['explanation'])
 
     def test_an_unknown_failure_still_tells_the_owner_what_to_do(self):
         text = setup.explanation('missing', failure_code='unexpected')
@@ -88,85 +99,97 @@ class BrowserSetupTest(unittest.TestCase):
         self.assertEqual(owner, 'owner')
         self.assertEqual([item['agent_id'] for item in agents], ['lead', 'worker'])
 
-    def test_ensure_only_missing_or_stopped_browsers(self):
-        states = {'lead': 'healthy', 'worker': 'missing'}
-        calls = []
-        def manage(_owner, arguments, idempotency_key=None, owner_control=False):
-            self.assertTrue(owner_control)
-            calls.append((arguments['agent_id'], arguments['action']))
-            if arguments['action'] == 'ensure':
-                states[arguments['agent_id']] = 'healthy'
-            return {'state': states[arguments['agent_id']], 'diagnostic': 'Ready.', 'browser': 'own'}
+    def run_setup(self, status, *args, fail=None, **kwargs):
+        """Run ``ensure_all`` over a scripted status and return the actions it ran on the browser, as the owner."""
+        actions = []
+        def manage(owner, arguments, idempotency_key=None, owner_control=False):
+            self.assertEqual((owner, owner_control), ('owner', True))
+            self.assertEqual(list(arguments), ['action'])
+            if arguments['action'] == 'status':
+                return dict(status)
+            self.assertTrue(idempotency_key)
+            actions.append(arguments['action'])
+            if fail is not None:
+                raise fail
+            return {'state': 'healthy', 'diagnostic': 'Ready.', 'agents': []}
         self.runtime.browser_manager.manage.side_effect = manage
         with mock.patch.object(setup, 'view', return_value={'ready': True}) as view:
-            self.assertEqual(setup.ensure_all(self.runtime), {'ready': True})
-        self.assertIn(('worker', 'ensure'), calls)
-        self.assertNotIn(('lead', 'ensure'), calls)
+            self.assertEqual(setup.ensure_all(self.runtime, *args, **kwargs), {'ready': True})
         view.assert_called_once_with(self.runtime)
+        return actions
 
-    def run_setup(self, states, *args, fail=(), **kwargs):
-        """Run ``ensure_all`` over scripted states and return the agents it tried to start."""
-        ensured = []
-        def manage(_owner, arguments, idempotency_key=None, owner_control=False):
-            agent = arguments['agent_id']
-            if arguments['action'] == 'status':
-                return dict(states[agent])
-            ensured.append(agent)
-            if agent in fail:
-                raise fail[agent]
-            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
-        self.runtime.browser_manager.manage.side_effect = manage
-        with mock.patch.object(setup, 'view', return_value={}):
-            setup.ensure_all(self.runtime, *args, **kwargs)
-        return ensured
+    def test_ensure_only_a_browser_that_is_missing_stopped_or_not_connected(self):
+        for state in ('missing', 'stopped', 'target_missing'):
+            with self.subTest(state=state):
+                self.assertEqual(self.run_setup({'state': state}), ['ensure'])
+                self.assertEqual(self.run_setup({'state': state}, {}), ['ensure'])
+        for state in ('healthy', 'busy', 'unsupported'):
+            with self.subTest(state=state):
+                self.assertEqual(self.run_setup({'state': state}), [])
+                self.assertEqual(self.run_setup({'state': state}, {}), [])
+
+    def test_only_the_owners_retry_repairs_saved_settings(self):
+        for state in ('conflict', 'invalid'):
+            with self.subTest(state=state):
+                self.assertEqual(self.run_setup({'state': state}), ['repair'])
+                self.assertEqual(self.run_setup({'state': state}, {}), [], 'automatic setup never repairs')
+
+    def test_nothing_is_set_up_while_the_owner_signs_in(self):
+        with mock.patch.dict(sign_in._window, {'site': 'example.com'}):
+            self.assertEqual(self.run_setup({'state': 'stopped'}), [])
+            self.assertEqual(self.run_setup({'state': 'stopped'}, {}), [])
+        self.runtime.browser_manager.manage.assert_not_called()
 
     def test_automatic_setup_leaves_a_deliberately_stopped_browser_alone(self):
-        states = {'lead': {'state': 'stopped', 'stop_requested': True}, 'worker': {'state': 'stopped'}}
-        self.assertEqual(self.run_setup(states, {}), ['worker'])
+        self.assertEqual(self.run_setup({'state': 'stopped', 'stop_requested': True}, {}), [])
+        self.assertEqual(self.run_setup({'state': 'stopped'}, {}), ['ensure'])
 
     def test_owner_retry_starts_a_deliberately_stopped_browser(self):
-        states = {'lead': {'state': 'stopped', 'stop_requested': True}, 'worker': {'state': 'healthy'}}
-        self.assertEqual(self.run_setup(states), ['lead'])
+        self.assertEqual(self.run_setup({'state': 'stopped', 'stop_requested': True}), ['ensure'])
 
-    def test_one_failure_does_not_block_other_agents(self):
-        for error in (DomainError('browser_not_ready', 'no'), RuntimeError('unexpected')):
-            states = {'lead': {'state': 'missing'}, 'worker': {'state': 'missing'}}
+    def test_a_failed_setup_is_recorded_not_raised(self):
+        for error, code in ((DomainError('browser_not_ready', 'no'), 'browser_not_ready'), (RuntimeError('unexpected'), 'unexpected')):
             with self.subTest(error=type(error).__name__), self.assertNoLogs(setup.logger, 'CRITICAL'):
-                self.assertEqual(self.run_setup(states, fail={'lead': error}), ['lead', 'worker'])
+                self.assertEqual(self.run_setup({'state': 'missing'}, fail=error), ['ensure'])
+                self.assertEqual(setup.LAST_FAILURE, {'code': code})
 
     def test_failures_back_off_until_success_and_cap(self):
-        states = {'lead': {'state': 'missing'}, 'worker': {'state': 'healthy'}}
-        fail = {'lead': DomainError('browser_not_ready', 'no')}
+        status, key = {'state': 'missing'}, setup.BROWSER_BACKOFF
+        fail = DomainError('browser_not_ready', 'no')
         backoff, now = {}, [1000.0]
-        run = lambda failing=fail: self.run_setup(states, backoff, fail=failing, clock=lambda: now[0])
-        self.assertEqual(run(), ['lead'])
-        self.assertEqual(backoff['lead']['next_attempt'], 1000 + setup.BACKOFF_BASE)
+        run = lambda failing=fail: self.run_setup(status, backoff, fail=failing, clock=lambda: now[0])
+        self.assertEqual(run(), ['ensure'])
+        self.assertEqual(backoff[key]['next_attempt'], 1000 + setup.BACKOFF_BASE)
         now[0] += setup.BACKOFF_BASE - 1
+        calls = self.runtime.browser_manager.manage.call_count
         self.assertEqual(run(), [])
+        self.assertEqual(self.runtime.browser_manager.manage.call_count, calls, 'not even a status call before its time')
         now[0] += 1
-        self.assertEqual(run(), ['lead'])
-        self.assertEqual(backoff['lead']['next_attempt'], now[0] + setup.BACKOFF_BASE * 2)
-        backoff['lead'].update(failures=20, next_attempt=0)
-        self.assertEqual(run(), ['lead'])
-        self.assertEqual(backoff['lead']['next_attempt'], now[0] + setup.BACKOFF_LIMIT)
-        backoff['lead']['next_attempt'] = 0
-        self.assertEqual(run(failing={}), ['lead'])
-        self.assertNotIn('lead', backoff)
+        self.assertEqual(run(), ['ensure'])
+        self.assertEqual(backoff[key]['next_attempt'], now[0] + setup.BACKOFF_BASE * 2)
+        backoff[key].update(failures=20, next_attempt=0)
+        self.assertEqual(run(), ['ensure'])
+        self.assertEqual(backoff[key]['next_attempt'], now[0] + setup.BACKOFF_LIMIT)
+        backoff[key]['next_attempt'] = 0
+        self.assertEqual(run(failing=None), ['ensure'])
+        self.assertNotIn(key, backoff)
 
     def test_owner_retry_ignores_backoff(self):
-        states = {'lead': {'state': 'missing'}, 'worker': {'state': 'healthy'}}
-        self.assertEqual(self.run_setup(states), ['lead'])
+        backoff = {}
+        self.assertEqual(self.run_setup({'state': 'missing'}, backoff, fail=DomainError('browser_not_ready', 'no'),
+                                        clock=lambda: 1000.0), ['ensure'])
+        self.assertEqual(self.run_setup({'state': 'missing'}, backoff, clock=lambda: 1000.0), [])
+        self.assertEqual(self.run_setup({'state': 'missing'}), ['ensure'])
+        self.assertEqual(backoff[setup.BROWSER_BACKOFF]['failures'], 1, "the owner's retry does not touch the automatic wait")
 
     def test_setup_starts_the_chrome_download_without_waiting_for_it(self):
-        states = {'lead': {'state': 'missing'}, 'worker': {'state': 'healthy'}}
-        self.assertEqual(self.run_setup(states, {}), ['lead'])
+        self.assertEqual(self.run_setup({'state': 'missing'}, {}), ['ensure'])
         self.chrome_download.assert_called_once()
         self.assertEqual(self.chrome_download.call_args.args[0], self.runtime.paths.runtime)
 
-    def test_a_failed_chrome_download_backs_off_like_an_agent_and_owner_retry_ignores_it(self):
-        states = {'lead': {'state': 'healthy'}, 'worker': {'state': 'healthy'}}
+    def test_a_failed_chrome_download_backs_off_like_the_browser_and_owner_retry_ignores_it(self):
         backoff, now = {}, [1000.0]
-        run = lambda *args: self.run_setup(states, *args, clock=lambda: now[0])
+        run = lambda *args: self.run_setup({'state': 'healthy'}, *args, clock=lambda: now[0])
         finished = lambda: self.chrome_download.call_args.args[1]
         run(backoff)
         finished()(DomainError('chrome_download_failed', 'offline'))
@@ -186,16 +209,21 @@ class BrowserSetupTest(unittest.TestCase):
         finished()(None)
         self.assertNotIn(setup.CHROME_BACKOFF, backoff)
 
+    def computer(self, tool=True, chrome='/chrome'):
+        """What this computer has: the browser tool or not, and an installed Chrome or none."""
+        stack = ExitStack()
+        stack.enter_context(mock.patch('qorqut.bootstrap.browser.runtime_executable',
+                                       mock.Mock(side_effect=None if tool else BrowserError('missing'))))
+        stack.enter_context(mock.patch('qorqut.native_paths.installed_chrome', return_value=chrome))
+        return stack
+
     def read_view(self, status, tool=True, chrome='/chrome'):
-        self.runtime.browser_access = mock.Mock()
         self.runtime.browser_manager.manage.side_effect = status
-        check = mock.Mock(side_effect=None if tool else BrowserError('missing'))
-        with mock.patch('qorqut.bootstrap.browser.runtime_executable', check), \
-                mock.patch('qorqut.native_paths.installed_chrome', return_value=chrome):
+        with self.computer(tool, chrome):
             return setup.view(self.runtime)
 
     def test_settings_show_the_download_in_place_of_install_chrome(self):
-        status = lambda *_a, **_k: {'state': 'unsupported', 'diagnostic': 'x', 'browser': 'own'}
+        status = lambda *_a, **_k: {'state': 'unsupported', 'diagnostic': 'x', 'agents': []}
         own = lambda state, text='': mock.patch.object(setup.managed_chrome, 'view', return_value={'state': state, 'explanation': text})
         with own('downloading', 'Qorqbot is downloading its own browser.'):
             view = self.read_view(status, chrome=None)
@@ -208,42 +236,140 @@ class BrowserSetupTest(unittest.TestCase):
             self.assertFalse(self.read_view(status, chrome=None)['chrome_installed'])
 
     def test_the_owner_is_not_asked_to_install_chrome_when_the_installed_one_is_used_in_place_of_qorqbots_own(self):
-        status = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
+        status = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.', 'agents': []}
         text = "This computer's security settings don't let Qorqbot's own browser start safely. Install Google Chrome."
         with mock.patch.object(setup.managed_chrome, 'view', return_value={'state': 'unusable', 'explanation': text}):
             self.assertEqual(self.read_view(status)['managed_chrome']['explanation'], setup.INSTALLED_CHROME_USED)
             self.assertEqual(self.read_view(status, chrome=None)['managed_chrome']['explanation'], text)
 
-    def test_ready_requires_every_browser_healthy_and_the_tool(self):
-        healthy = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
-        self.assertTrue(self.read_view(healthy)['ready'])
-        missing_tool = self.read_view(healthy, tool=False)
+    def test_ready_requires_a_healthy_browser_its_agents_and_the_tool(self):
+        state = lambda value: lambda *_a, **_k: {'state': value, 'diagnostic': 'x', 'agents': []}
+        self.assertTrue(self.read_view(state('healthy'))['ready'])
+        missing_tool = self.read_view(state('healthy'), tool=False)
         self.assertFalse(missing_tool['ready'])
         self.assertFalse(missing_tool['tool_installed'])
-        def mixed(_owner, arguments, **_k):
-            return {'state': 'healthy' if arguments['agent_id'] == 'lead' else 'stopped', 'diagnostic': 'x', 'browser': 'own'}
-        self.assertFalse(self.read_view(mixed)['ready'])
+        for value in ('stopped', 'target_missing', 'conflict', 'busy'):
+            self.assertFalse(self.read_view(state(value))['ready'], value)
+        with mock.patch.object(setup, 'active_global', return_value=None):       # no permanent agent uses the browser
+            self.assertFalse(self.read_view(state('healthy'))['ready'])
 
-    def test_the_view_carries_the_browser_the_status_reports(self):
-        def status(_owner, arguments, **_k):
-            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'shared'}
-        self.assertEqual([agent['browser'] for agent in self.read_view(status)['agents']], ['shared', 'shared'])
+    def test_the_view_is_one_browser_with_the_agents_the_status_reports(self):
+        agents = [{'agent_id': 'lead', 'name': 'Ordubashy', 'connected': True},
+                  {'agent_id': 'worker', 'name': 'Atlas', 'connected': False, 'problem': "This agent's folder isn't ready yet."}]
+        def status(owner, arguments, owner_control=False):
+            self.assertEqual((owner, arguments, owner_control), ('owner', {'action': 'status'}, True))
+            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'shared', 'agents': agents}
+        view = self.read_view(status)
+        self.assertEqual(set(view), {'kind', 'tool_installed', 'chrome_installed', 'managed_chrome', 'diagnostic', 'state',
+                                     'explanation', 'ready', 'agents'})
+        self.assertEqual((view['kind'], view['state'], view['diagnostic']), ('built_in', 'healthy', 'Ready.'))
+        self.assertEqual(view['agents'], agents)
+        self.assertEqual(view['explanation'], "Atlas: This agent's folder isn't ready yet.")
+        self.assertTrue(view['ready'])
+        self.runtime.browser_manager.manage.assert_called_once()
+
+    def test_the_view_says_signing_in_while_the_owners_window_is_open(self):
+        status = mock.Mock(return_value={'state': 'stopped', 'diagnostic': 'x', 'agents': []})
+        with mock.patch.dict(sign_in._window, {'site': 'example.com'}):
+            view = self.read_view(status)
+        self.assertEqual((view['state'], view['explanation']), ('signing_in', setup.SIGNING_IN))
+        self.assertEqual([agent['agent_id'] for agent in view['agents']], ['lead', 'worker'])
+        self.assertTrue(view['ready'], 'the pause for a sign-in is not a fault')
+        status.assert_not_called()
+        self.assertEqual(self.read_view(status)['state'], 'stopped')            # the window is closed again
 
     def test_setup_offers_no_browser_choice(self):
         self.assertFalse(hasattr(setup, 'choose'))
+        self.assertFalse(hasattr(setup, 'CHOICES'))
 
-    def test_a_status_failure_is_reported_for_that_agent_only(self):
-        def status(_owner, arguments, **_k):
-            if arguments['agent_id'] == 'lead':
-                raise OSError('secret path')
-            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
+    def test_a_status_failure_is_reported_without_its_internals(self):
+        def status(*_a, **_k):
+            raise OSError('secret path')
         with self.assertLogs(setup.logger, 'ERROR'):
             data = self.read_view(status)
-        lead, worker = data['agents']
-        self.assertEqual(lead['state'], 'unavailable')
-        self.assertNotIn('secret', lead['diagnostic'])
-        self.assertEqual(worker['state'], 'healthy')
+        self.assertEqual(data['state'], 'unavailable')
+        self.assertNotIn('secret', data['diagnostic'] + data['explanation'])
+        self.assertEqual([agent['agent_id'] for agent in data['agents']], ['lead', 'worker'])
         self.assertFalse(data['ready'])
+        def refused(*_a, **_k):
+            raise DomainError('maintenance', 'Paused for maintenance')
+        data = self.read_view(refused)
+        self.assertEqual((data['state'], data['diagnostic'], data['ready']), ('unavailable', 'Paused for maintenance', False))
+
+    # -- Ordubashy's agent_browser_manage --------------------------------------------------------------------------------
+
+    def agent_manage(self, action, state='healthy', fail=None, **computer):
+        """Run ``agent_manage`` as Ordubashy over a manager that answers ``state``, or refuses the action with ``fail``."""
+        def manage(_principal, arguments, idempotency_key=None):
+            if fail is not None and arguments['action'] == action:
+                raise fail
+            return {'action': arguments['action'], 'state': state, 'diagnostic': 'x', 'agents': []}
+        self.runtime.browser_manager.manage.reset_mock()
+        self.runtime.browser_manager.manage.side_effect = manage
+        with self.computer(**computer):
+            return setup.agent_manage(self.runtime, 'lead', {'action': action}, None if action == 'status' else 'key-1')
+
+    def managed(self):
+        return self.runtime.browser_manager.manage.call_args_list
+
+    def test_a_refused_caller_starts_no_chrome_download(self):
+        refusal = DomainError('forbidden', 'Only the installation owner or Ordubashy can manage the browser')
+        self.runtime.browser_manager.manage.side_effect = refusal
+        for action in ('ensure', 'repair', 'restart', 'stop'):
+            with self.subTest(action=action):
+                self.runtime.browser_manager.manage.reset_mock()
+                with mock.patch.object(setup, 'prepare_chrome') as prepare, self.assertRaises(DomainError) as caught:
+                    setup.agent_manage(self.runtime, 'worker', {'action': action}, 'key-1')
+                self.assertEqual(caught.exception.code, 'forbidden')
+                prepare.assert_not_called()
+                self.assertEqual(self.managed(), [mock.call('worker', {'action': 'status'})], 'refused before the action')
+        self.chrome_download.assert_not_called()
+        self.assertEqual(setup.LAST_FAILURE, {}, "someone else's refusal is not a setup failure")
+
+    def test_ensure_and_repair_start_the_chrome_download_and_other_actions_do_not(self):
+        for action, prepared in (('ensure', True), ('repair', True), ('restart', False), ('stop', False), ('status', False)):
+            with self.subTest(action=action), mock.patch.object(setup, 'prepare_chrome') as prepare:
+                self.assertEqual(self.agent_manage(action)['action'], action)
+                self.assertEqual(prepare.call_args_list, [mock.call(self.runtime)] if prepared else [])
+                self.assertEqual(self.managed()[-1], mock.call('lead', {'action': action}, None if action == 'status' else 'key-1'))
+        self.agent_manage('ensure')
+        self.chrome_download.assert_called_once()
+        self.assertIs(self.chrome_download.call_args.kwargs['automatic'], False, 'like Retry setup, it does not wait')
+
+    def test_a_mutation_is_refused_while_the_owner_signs_in(self):
+        with mock.patch.dict(sign_in._window, {'site': 'example.com'}):
+            for action in ('ensure', 'repair', 'restart', 'stop'):
+                with self.subTest(action=action), self.assertRaises(DomainError) as caught:
+                    self.agent_manage(action)
+                self.assertEqual(caught.exception.code, 'conflict')
+                self.assertEqual(self.managed(), [mock.call('lead', {'action': 'status'})], 'only the authorization ran')
+            self.chrome_download.assert_not_called()
+            status = self.agent_manage('status', state='stopped')
+            self.assertIs(status['setup']['sign_in_window_open'], True)
+        self.assertNotIn('sign_in_window_open', self.agent_manage('status')['setup'])
+
+    def test_the_answer_carries_what_the_settings_card_knows_in_ordubashys_words(self):
+        own = {'state': 'failed', 'explanation': "Qorqbot's own browser couldn't be downloaded. Press Retry setup."}
+        with mock.patch.object(setup.managed_chrome, 'view', return_value=own):
+            result = self.agent_manage('status', state='healthy')
+            self.assertEqual(result['setup'], {'tool_installed': True, 'chrome_installed': True, 'own_chrome': {
+                'state': 'failed', 'explanation': "Qorqbot's own browser couldn't be downloaded. Use action=ensure."}})
+            result = self.agent_manage('status', state='healthy', tool=False, chrome=None)
+            self.assertEqual((result['setup']['tool_installed'], result['setup']['chrome_installed']), (False, False))
+            setup.LAST_FAILURE['code'] = 'browser_capability_missing'
+            result = self.agent_manage('status', state='missing')
+            self.assertIn('action=ensure', result['setup']['last_failure'])
+            self.assertNotRegex(str(result['setup']), '(?i)retry setup')
+            self.assertNotIn('last_failure', self.agent_manage('status', state='healthy')['setup'])
+        self.assertEqual(setup.LAST_FAILURE, {'code': 'browser_capability_missing'}, 'a status call settles nothing')
+
+    def test_a_failed_action_is_remembered_until_one_leaves_the_browser_healthy(self):
+        with self.assertRaises(DomainError):
+            self.agent_manage('ensure', fail=DomainError('browser_not_ready', 'no'))
+        self.assertEqual(setup.LAST_FAILURE, {'code': 'browser_not_ready'})
+        self.assertIn("didn't respond in time", self.agent_manage('stop', state='stopped')['setup']['last_failure'])
+        self.assertNotIn('last_failure', self.agent_manage('ensure')['setup'])
+        self.assertEqual(setup.LAST_FAILURE, {})
 
 
 class StopRequestTest(unittest.TestCase):
@@ -252,20 +378,19 @@ class StopRequestTest(unittest.TestCase):
         self.addCleanup(folder.cleanup)
         self.directory = Path(folder.name).resolve()
         self.manager = AgentBrowserManager.__new__(AgentBrowserManager)
-        self.manager._exclusive_use = lambda _s: nullcontext()
+        self.manager._exclusive_use = lambda *_: nullcontext()
         self.manager._stop_managed = mock.Mock(return_value=True)
         self.manager._start_managed = mock.Mock(return_value=True)
-        self.manager._finish = mock.Mock(return_value={})
         self.manager._advice = lambda *_: 'advice'
         self.snapshot = SimpleNamespace(
-            meta_error=None, conflict=None, target_state='valid', target_error=None, meta={'mode': 'managed'},
-            directory=self.directory, running=False, healthy=False, agent_id='agent', ownership='managed', unit=None)
+            meta_error=None, conflict=None, busy=None, target_state='valid', target_error=None, meta={'mode': 'managed'},
+            directory=self.directory, workspace=self.directory / 'workspace', running=False, healthy=False)
 
     def apply(self, action):
         self.manager._apply(SimpleNamespace(effect=False), action, self.snapshot)
 
     def requested(self):
-        return 'stop_requested' in self.manager._result('status', self.snapshot, 'stopped', changed=False)
+        return 'stop_requested' in self.manager._result('status', self.snapshot, [], changed=False)
 
     def test_stop_is_remembered_and_every_explicit_start_clears_it(self):
         self.assertFalse(self.requested())
@@ -285,49 +410,71 @@ class StopRequestTest(unittest.TestCase):
 
 class OwnerAuthorizationTest(unittest.TestCase):
     def setUp(self):
+        rows = [{'agent_id': agent, 'display_name': name, 'home_business_id': None, 'slug': None}
+                for agent, name in (('learning', 'Learning Applier'), ('scout', 'Scout'), ('lead', 'Ordubashy'), ('atlas', 'Atlas'))]
         connection = mock.Mock()
+        connection.execute.return_value.fetchall.return_value = rows
         class Read:
             def __enter__(self):
                 return SimpleNamespace(connection=connection)
             def __exit__(self, *_):
                 return False
         self.application = mock.Mock()
-        self.application.policy.context_for.return_value = SimpleNamespace(principal_id='caller', principal_kind='human')
+        self.context = SimpleNamespace(principal_id='caller', principal_kind='human')
+        self.application.policy.context_for.return_value = self.context
         self.manager = AgentBrowserManager.__new__(AgentBrowserManager)
         self.manager.runtime = SimpleNamespace(application=self.application, database=SimpleNamespace(read=Read),
-                                               registry=mock.Mock())
-        self.manager_check = self.patch('qorqut.agents.worker_access.require_worker_manager',
-                                        side_effect=DomainError('reached_worker_check', 'stop here'))
-        self.role = self.patch('qorqut.agents.global_scope.active_global',
-                               return_value={'role': {'id': 'global-worker'}})
+                                               registry=mock.Mock(), paths=SimpleNamespace())
+        role = {'lead': 'ordubashy', 'atlas': 'global-worker', 'scout': 'global-worker', 'learning': 'learning-applier'}
+        self.patch('qorqut.agents.global_scope.active_global', side_effect=lambda _db, agent: {'role': {'id': role[agent]}})
+        self.patch('qorqut.browser.agent_browsers.agent_workspace_of', side_effect=lambda _paths, agent, *_: Path('/agents') / agent)
         self.owner = self.patch('qorqut.management.identity.is_active_installation_owner', return_value=True)
+        self.ordubashy = self.patch('qorqut.management.identity.configured_ordubashy', return_value='lead')
 
     def patch(self, target, **kwargs):
         patcher = mock.patch(target, **kwargs)
         self.addCleanup(patcher.stop)
         return patcher.start()
 
-    def authorize(self, **kwargs):
+    def agent(self, agent_id):
+        self.context.principal_id, self.context.principal_kind = agent_id, 'agent'
+        self.owner.return_value = False
+
+    def refused(self, **kwargs):
         with self.assertRaises(DomainError) as caught:
-            self.manager._authorize('caller', 'target', **kwargs)
+            self.manager._authorize(self.context.principal_id, **kwargs)
         return caught.exception.code
 
     def test_owner_control_is_refused_for_anyone_but_the_owner(self):
         self.owner.return_value = False
-        self.assertEqual(self.authorize(owner_control=True), 'forbidden')
+        self.assertEqual(self.refused(owner_control=True), 'forbidden')
+        self.agent('lead')
+        self.assertEqual(self.refused(owner_control=True), 'forbidden', "Ordubashy has the tool, not the owner's button")
         self.application.authorize.assert_not_called()
-        self.manager_check.assert_not_called()
 
-    def test_owner_control_replaces_only_the_operation_grant(self):
-        self.assertEqual(self.authorize(owner_control=True), 'reached_worker_check')
+    def test_owner_control_replaces_the_operation_grant_and_names_the_permanent_agents(self):
+        agents = self.manager._authorize('caller', owner_control=True)
         self.application.authorize.assert_not_called()
+        self.assertEqual([(agent.agent_id, agent.name, agent.lead) for agent in agents],
+                         [('lead', 'Ordubashy', True), ('atlas', 'Atlas', False), ('scout', 'Scout', False)])
+        self.assertEqual(agents[0].workspace, Path('/agents/lead'))
 
     def test_agent_callers_still_need_the_operation_grant(self):
-        self.assertEqual(self.authorize(), 'reached_worker_check')
+        self.agent('lead')
+        self.application.authorize.side_effect = DomainError('forbidden', 'no grant')
+        self.assertEqual(self.refused(), 'forbidden')
+        self.application.authorize.assert_called_once()
+        self.ordubashy.assert_not_called()
+
+    def test_ordubashy_manages_the_browser(self):
+        self.agent('lead')
+        self.assertEqual([agent.agent_id for agent in self.manager._authorize('lead')], ['lead', 'atlas', 'scout'])
         self.application.authorize.assert_called_once()
 
-    def test_only_the_owner_manages_ordubashys_browser(self):
-        self.role.return_value = {'role': {'id': 'ordubashy'}}
-        self.owner.return_value = False
-        self.assertEqual(self.authorize(), 'forbidden')
-        self.manager_check.assert_not_called()
+    def test_no_other_agent_manages_the_browser_even_with_the_grant(self):
+        self.agent('atlas')
+        self.assertEqual(self.refused(), 'forbidden')
+        self.application.authorize.assert_called_once()
+
+    def test_the_owner_without_owner_control_is_not_ordubashy(self):
+        self.assertEqual(self.refused(), 'forbidden')
