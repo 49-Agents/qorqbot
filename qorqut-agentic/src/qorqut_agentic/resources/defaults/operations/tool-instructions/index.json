@@ -632,6 +632,11 @@
       "line": 111
     },
     {
+      "id": "mcp-presentation-result-cut-to-fit-the-size-limit",
+      "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
+      "line": 150
+    },
+    {
       "id": "mcp-presentation-compact-receipt-index-by-default-platform-defaults",
       "source": "qorqut-code/app/qorqut/transport/mcp_presentation.py",
       "line": 35
