@@ -201,3 +201,18 @@ class AcknowledgeCommentTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+    def test_the_owner_can_mark_a_read_item_unread_again(self):
+        runtime = self.runtime
+        signoff = chats.invoke(runtime, 'signoffs_input_create', {'request_key': 'daily-report', 'form': REPORT, 'report_task': chats.report_task(runtime)},
+                               ctx=runtime.coordinator)['signoff']
+        listed = lambda change=None: [row for row in queue(runtime, runtime.owner, change)['items'] if row.get('signoff_id') == signoff['id']]
+        key = listed()[0]['id']
+        self.assertEqual(listed({'viewed': [key]}), [])
+        # Unviewing forgets the marker, so it is new again; the Signoff itself is untouched.
+        self.assertEqual([row['id'] for row in listed({'unviewed': [key]})], [key])
+        self.assertEqual(chats.invoke(runtime, 'signoffs_get', {'signoff_id': signoff['id']})['signoff']['state'], 'pending')
+        self.assertEqual(listed({'viewed': [key]}), [])
+        # An ID the owner could not see is ignored rather than stored.
+        self.assertEqual(listed({'unviewed': ['signoff:unknown:1:x']}), [])
+
