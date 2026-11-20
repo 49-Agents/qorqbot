@@ -36,7 +36,7 @@ request_user_input(message="The new worker takes this on next.",
     `{type, id}`; there is no project selector.
   - `agent`: the registered agent's UUID, only `{type, id}` (no `business_id`, name or icon);
     the owner sees its current name and icon. Only agents your existing agent read allows.
-  - `tab`: one open page of an agent's browser, exactly as the browser command `tab-reference` printed it
+  - `tab`: one open page in the Shared browser, exactly as the browser command `tab-reference` printed it
     (yours, or one a worker gave you): `{"type": "tab", "id": "<agent uuid>:<tab id>"}`, only `{type, id}`. Use it when the owner must do
     something in that page (a captcha that could not be solved, a sign-in, a confirmation) instead of describing where to
     click. The owner sees the page's title and opens its live view; it is refused once the tab is closed.

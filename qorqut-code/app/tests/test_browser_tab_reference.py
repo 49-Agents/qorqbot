@@ -76,7 +76,7 @@ class CommandTest(CommandTestCase):
         self.assertEqual(self.run_command(tabs, instance=f"configured:{WORKER}")[1]["reference"]["id"], f"{WORKER}:{OTHER}")
 
     def test_in_a_worker_s_browser_the_reference_names_the_worker_not_the_caller(self):
-        """Ordubashy works in a worker's own browser: the owner's live view lists that worker's tabs, not Ordubashy's."""
+        """Ordubashy works in a worker's tabs: the owner's live view lists that worker's tabs, not Ordubashy's."""
         self.bind(TAB, instance=f"configured:{WORKER}")
         self.assertEqual(self.run_command(listed(TAB), instance=f"configured:{WORKER}")[1]["reference"]["id"], f"{WORKER}:{TAB}")
 

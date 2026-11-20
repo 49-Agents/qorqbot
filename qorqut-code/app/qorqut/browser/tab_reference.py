@@ -23,13 +23,13 @@ from qorqut_operations.contracts import DomainError
 from qorqut.native_chat import references
 
 COMMAND = "tab-reference"
-# A target's ``instance`` (``access._worker_target``) is ``configured:<agent id>`` for the own or Shared browser of that agent (not
+# A target's ``instance`` (``access._worker_target``) is ``configured:<agent id>`` for that agent's tabs in the Shared browser (not
 # always the caller: Ordubashy may work in a worker's) and ``desktop:<surface>`` for a managed desktop, which is no agent's.
 OWN = "configured:"
 SHOW = "Pass this reference to request_user_input, or give it to Ordubashy, to show the owner this tab in Chat."
 SHOW_FIELD = SHOW.replace("this reference", "reference")      # the same advice in a reply that names the reference as a field
 NO_TAB = "You have no tab open. Open the page first, then run tab-reference again."
-NOT_AN_AGENT_BROWSER = "This browser is not an agent's own, so its tabs cannot be named. Show the owner a browser reference instead."
+NOT_AN_AGENT_BROWSER = "This browser is not the agents' browser, so its tabs cannot be named. Show the owner a browser reference instead."
 NOT_LOCAL = "tab-reference works only in a browser on this computer."
 
 

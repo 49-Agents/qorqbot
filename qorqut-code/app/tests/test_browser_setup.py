@@ -224,36 +224,13 @@ class BrowserSetupTest(unittest.TestCase):
             return {'state': 'healthy' if arguments['agent_id'] == 'lead' else 'stopped', 'diagnostic': 'x', 'browser': 'own'}
         self.assertFalse(self.read_view(mixed)['ready'])
 
-    def test_the_view_says_which_browser_each_agent_uses(self):
+    def test_the_view_carries_the_browser_the_status_reports(self):
         def status(_owner, arguments, **_k):
-            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'shared' if arguments['agent_id'] == 'worker' else 'own'}
-        self.assertEqual([agent['browser'] for agent in self.read_view(status)['agents']], ['own', 'shared'])
+            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'shared'}
+        self.assertEqual([agent['browser'] for agent in self.read_view(status)['agents']], ['shared', 'shared'])
 
-    def test_the_owner_moves_an_agent_to_the_shared_browser_and_back(self):
-        calls = []
-        def manage(_owner, arguments, idempotency_key=None, owner_control=False):
-            calls.append((arguments['agent_id'], arguments['action'], bool(idempotency_key), owner_control))
-            return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'own'}
-        self.runtime.browser_manager.manage.side_effect = manage
-        setup.LAST_FAILURES['worker'] = 'browser_not_ready'
-        with mock.patch.object(setup, 'view', return_value={'ready': True}):
-            self.assertEqual(setup.choose(self.runtime, 'worker', 'shared'), {'ready': True})
-            setup.choose(self.runtime, 'worker', 'own')
-        self.assertEqual(calls, [('worker', 'use_shared', True, True), ('worker', 'use_own', True, True)])
-        self.assertNotIn('worker', setup.LAST_FAILURES)
-
-    def test_a_choice_for_an_unknown_agent_or_browser_is_refused_before_anything_changes(self):
-        for agent, choice in (('learning', 'shared'), ('retired', 'own'), ('worker', 'named'), ('worker', ['shared'])):
-            with self.subTest(agent=agent, choice=choice), self.assertRaises(DomainError) as refused:
-                setup.choose(self.runtime, agent, choice)
-            self.assertEqual(refused.exception.code, 'validation_error')
-        self.runtime.browser_manager.manage.assert_not_called()
-
-    def test_a_refused_move_reaches_the_owner_with_its_reason(self):
-        self.runtime.browser_manager.manage.side_effect = DomainError('browser_in_use', 'The agent is using its browser')
-        with self.assertRaises(DomainError) as refused:
-            setup.choose(self.runtime, 'worker', 'shared')
-        self.assertEqual(refused.exception.code, 'browser_in_use')
+    def test_setup_offers_no_browser_choice(self):
+        self.assertFalse(hasattr(setup, 'choose'))
 
     def test_a_status_failure_is_reported_for_that_agent_only(self):
         def status(_owner, arguments, **_k):
