@@ -4,7 +4,8 @@
 // A preview is a read-only snapshot. Move is only ever sent for the exact preview on screen, with one idempotency key
 // per attempt; a transport failure retries that same key and payload, anything else needs a fresh preview.
 const TASK_MOVE_COUNTS = [['tasks', 'tasks (with descendants)'], ['comments', 'comments'], ['private_messages', 'private messages'],
-  ['project_links', 'project links'], ['focus_cards', 'Focus cards'], ['crm_entries', 'CRM entries']];
+  ['project_links', 'project links'], ['focus_cards', 'Focus cards'], ['crm_entries', 'CRM entries'],
+  ['linking_tasks', 'linked Tasks elsewhere (their links follow)'], ['historical_relationships', 'links kept in this project as history']];
 const TASK_MOVE_LISTED = 50;
 const taskMoveCall = async (operation, args, slug = null) =>
   coreData(await post(`${slug == null ? '/root' : `/biz/${encodeURIComponent(slug)}`}/operations/${operation}`, args));

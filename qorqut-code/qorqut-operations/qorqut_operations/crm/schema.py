@@ -81,6 +81,10 @@ WHEN (NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id OR NEW.tabl
   AND NEW.record_task_id IS OLD.record_task_id AND NEW.created_by IS OLD.created_by AND NEW.created_at IS OLD.created_at
   AND NEW.record_business_id IS NOT OLD.record_business_id
   AND relocation_permits(OLD.record_business_id,NEW.record_business_id,OLD.record_task_id))
+ AND NOT (NEW.id IS OLD.id AND NEW.business_id IS NOT OLD.business_id AND NEW.table_id IS OLD.table_id
+  AND NEW.record_task_id IS OLD.record_task_id AND NEW.record_business_id IS OLD.record_business_id
+  AND NEW.record_namespace IS OLD.record_namespace AND NEW.created_by IS OLD.created_by AND NEW.created_at IS OLD.created_at
+  AND relocation_permits(OLD.business_id,NEW.business_id,'table:' || OLD.table_id))
 BEGIN SELECT RAISE(ABORT,'A membership keeps its table, Task and creator; remove it and add the Task again to replace it'); END""",
     """CREATE TRIGGER crm_entries_keep BEFORE DELETE ON crm_entries
 BEGIN SELECT RAISE(ABORT,'A membership is retained; remove it softly'); END""",

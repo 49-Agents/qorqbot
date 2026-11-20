@@ -357,6 +357,46 @@
       "line": 83
     },
     {
+      "id": "moves-the-project-the-tables-are-in-now",
+      "source": "qorqut-code/app/qorqut/domains/tables/moves.py",
+      "line": 35
+    },
+    {
+      "id": "moves-tables-to-move-with-their-rows-history",
+      "source": "qorqut-code/app/qorqut/domains/tables/moves.py",
+      "line": 38
+    },
+    {
+      "id": "moves-owner-and-configured-ordubashy-read-exactly-what-moving-tables",
+      "source": "qorqut-code/app/qorqut/domains/tables/moves.py",
+      "line": 65
+    },
+    {
+      "id": "moves-owner-and-configured-ordubashy-move-the-previewed-tables",
+      "source": "qorqut-code/app/qorqut/domains/tables/moves.py",
+      "line": 69
+    },
+    {
+      "id": "moves-the-project-the-notes-are-in-now",
+      "source": "qorqut-code/app/qorqut/domains/documents/moves.py",
+      "line": 23
+    },
+    {
+      "id": "moves-project-notes-to-move-with-their-history",
+      "source": "qorqut-code/app/qorqut/domains/documents/moves.py",
+      "line": 26
+    },
+    {
+      "id": "moves-owner-and-configured-ordubashy-read-exactly-what-moving-notes",
+      "source": "qorqut-code/app/qorqut/domains/documents/moves.py",
+      "line": 34
+    },
+    {
+      "id": "moves-owner-and-configured-ordubashy-move-the-previewed-notes",
+      "source": "qorqut-code/app/qorqut/domains/documents/moves.py",
+      "line": 35
+    },
+    {
       "id": "viewbox-show-the-owner-a-link-beside-this-session",
       "source": "qorqut-code/app/qorqut/domains/viewbox.py",
       "line": 197

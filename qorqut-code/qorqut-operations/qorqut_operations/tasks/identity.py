@@ -6,7 +6,7 @@ here and nowhere else; existing ids keep whatever length they were made with.
 
 Storage keys a Task by ``(business_id, id)``, and older installations hold the same id in more than one project (slug ids
 and a few UUIDs), so no unique index can say "one Task per id". The writer says it instead: a generated id that is
-already used anywhere, archived and moved Tasks included, is drawn again, and a caller-supplied id that is already used
+already used anywhere, archived and moved Tasks included (and any id a relocation recorded), is drawn again, and a caller-supplied id that is already used
 anywhere is refused without saying where (``taken``). Ids compare without regard to case, so a lookup that ignores case
 never finds two new Tasks for one id. Existing Tasks keep their ids."""
 
@@ -29,8 +29,11 @@ def generate() -> str:
 
 
 def taken(connection, identity) -> bool:
-    """Whether any Task in any scope (Global, every project, archived included) already has ``identity``."""
-    return connection.execute("SELECT 1 FROM tasks WHERE id = ? COLLATE NOCASE LIMIT 1", (identity,)).fetchone() is not None
+    """Whether any Task in any scope (Global, every project, archived included) already has ``identity``, or a relocation
+    ever recorded it. A moved Task's id stays reserved even after that Task is gone: history left in the scopes it moved
+    out of (relationships, discussion references) names it there, and a new Task with the id would inherit it."""
+    return connection.execute("SELECT 1 FROM tasks WHERE id = ? COLLATE NOCASE UNION ALL "
+                              "SELECT 1 FROM task_moves WHERE task_id = ? COLLATE NOCASE LIMIT 1", (identity, identity)).fetchone() is not None
 
 
 def new_task_id(connection) -> str:
