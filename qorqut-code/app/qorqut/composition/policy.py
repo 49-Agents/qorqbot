@@ -10,12 +10,13 @@ phases of ``PolicyRules`` exactly where v1 evaluated them:
   proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools and the coordinator-only
   ``personal_set``, which both follow the caller's current ``context_edit`` decision);
 * ``after_override``: standing core defaults that sit between the explicit override and the role default;
-* ``after_default``: core defaults that apply only when neither an override nor a role default names the operation.
+* ``after_default``: core defaults that apply only when neither an override nor a role default names the operation, then
+  the coordinator's owner parity: what is still undecided is allowed to ``ordubashy`` unless ``ORDUBASHY_WITHHELD`` names it.
 
 ``resolve`` is the evaluator's re-entry (``tasks_notes_list`` reads as ``tasks_get``, ``actions_thread_get`` as
 ``actions_get``, and so on). New mutations take no fallback: ``actions_correct``, ``actions_withdraw``, ``actions_comment``
-and ``tags_create`` are denied until a role default or an override names them. The
-human-owner and worker constraints stay in the evaluator's principal-aware resolver."""
+and ``tags_create`` are denied until a role default or an override names them (to every role but the coordinator, whose
+owner parity allows them). The human-owner and worker constraints stay in the evaluator's principal-aware resolver."""
 
 from __future__ import annotations
 
@@ -227,12 +228,35 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
         return PolicyDecision("allow", "core_default")
 
 
+# Owner parity for the coordinator. The owner works through Ordubashy, so an agent tool that nothing above decided is
+# allowed to that role instead of denied: a tool added later reaches the coordinator without a role republish, and a
+# forgotten role entry can no longer lock it out of operational work. What stays the owner's is written down, never
+# implied: an owner-only operation (the evaluator refuses it before any rule), an explicit deny in the role file or an
+# override, the approval rules above (a Signoff stays a Signoff), a tool no agent can call (not exposed on MCP), and the
+# names below. The plugin grant, the global capability and each handler's own identity check still apply.
+ORDUBASHY_WITHHELD = frozenset({
+    # The Learning Applier's own pipeline: the coordinator reads learnings and proposes extraction, nothing more.
+    "learnings_legacy_pending", "learnings_review_get", "learnings_review_list",
+    # The channel other agents use to reach the coordinator; it cannot write to itself.
+    "management_message_send",
+    # Orientation of the owner's own code sessions.
+    "owner_session_bootstrap",
+    # The owner's dashboard progress views; their handlers answer the owner alone.
+    "business_progress_get", "global_progress_get",
+})
+
+
+def _ordubashy_parity(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    if role_id == ORDUBASHY_ROLE and name not in ORDUBASHY_WITHHELD and "mcp" in registry.metadata(name).exposure:
+        return PolicyDecision("allow", "ordubashy_owner_parity")
+
+
 HOST_POLICY_RULES = PolicyRules(
     # ``_prerequisites`` precedes the blanket Global-table rule so a new Table operation is never decided by it alone.
     before_override=(_extension_policy, _user_input, _ordubashy_reads, _prerequisites, global_tables, archive_approval_rule,
                     _owner_approvals, _learning_applier, _context_questions, _personal_record),
     after_override=(_standing_defaults,),
-    after_default=(_fallback_defaults,),
+    after_default=(_fallback_defaults, _ordubashy_parity),
 )
 
 

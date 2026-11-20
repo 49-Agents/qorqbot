@@ -1,6 +1,6 @@
 schema_version: 1
 id: ordubashy
-version: 1.82.0
+version: 1.83.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
@@ -174,17 +174,17 @@ default_tool_policy:
   roles_list: allow
   roles_publish: signoff
   routines_costs: allow
-  routines_create: signoff
-  routines_delete: signoff
+  routines_create: allow
+  routines_delete: allow
   routines_get: allow
   routines_list: allow
   routines_pause: allow
   routines_preview: allow
-  routines_resume: signoff
-  routines_run: signoff
+  routines_resume: allow
+  routines_run: allow
   routines_runs: allow
   routines_stop: allow
-  routines_update: signoff
+  routines_update: allow
   shared_instructions_update: signoff
   signoffs_get: allow
   signoffs_notes_list: allow
