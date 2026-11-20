@@ -911,7 +911,7 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
                                        input=agent_browser.standard_input(args),
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             completed = agent_browser.reply(args, completed)      # only read has its own reply
-            errors = agent_browser.explain(completed.stderr, pinned)
+            errors = agent_browser.frame_advice(args, agent_browser.explain(completed.stderr, pinned))
             if capture:
                 return completed.returncode, completed.stdout, errors
             if completed.stdout:
