@@ -253,6 +253,28 @@ class TaskMoveHistoryTests(unittest.TestCase):
         [shown] = [item for item in self.listing(self.source, item={'type': 'task', 'id': task_id}) if item['id'] == edge]
         self.assertEqual((shown['target_item']['business_id'], shown['target_item']['moved']), (self.destination, True))
 
+    def extension_table(self, name):
+        """An extension's table keyed to a Task, as Paper's Outreach handoffs are (the extension is not part of this repo)."""
+        with self.db.transaction() as uow:
+            uow.connection.execute(f"CREATE TABLE {name} (id TEXT PRIMARY KEY, business_id TEXT NOT NULL, task_id TEXT NOT NULL, "
+                                   "payload_json TEXT NOT NULL, FOREIGN KEY (business_id, task_id) REFERENCES tasks(business_id, id))")
+
+    def test_an_outreach_handoff_receipt_moves_with_its_task_but_an_unknown_binding_still_blocks(self):
+        from qorqut.domains.tasks.relocation import HostRelocation
+        self.tasks.relocation.adapters = (*self.tasks.relocation.adapters, HostRelocation())
+        self.extension_table('outreach_handoffs')
+        self.extension_table('unknown_bindings')
+        task_id, other = self.task('Outreach reply from a creator'), self.task('Bound elsewhere')
+        with self.db.transaction() as uow:
+            uow.connection.execute("INSERT INTO outreach_handoffs VALUES('h1',?,?,'{\"business_id\": \"kept\"}')", (self.source, task_id))
+            uow.connection.execute("INSERT INTO unknown_bindings VALUES('u1',?,?,'{}')", (self.source, other))
+        self.assertEqual([item['code'] for item in self.preview(other).blockers], ['unsupported_binding'])
+        self.assertEqual(self.preview(task_id).counts['extension_receipts'], 1)
+        self.move(task_id)
+        with self.db.read() as uow:
+            row = uow.connection.execute("SELECT business_id, payload_json FROM outreach_handoffs WHERE id='h1'").fetchone()
+            self.assertEqual(tuple(row), (self.destination, '{"business_id": "kept"}'))
+            self.assertIsNone(uow.connection.execute('PRAGMA foreign_key_check(outreach_handoffs)').fetchone())
 
 if __name__ == '__main__':
     unittest.main()
