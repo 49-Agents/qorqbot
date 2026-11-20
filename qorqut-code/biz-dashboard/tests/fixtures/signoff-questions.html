@@ -69,6 +69,9 @@ const fill=id=>{enter(id,'location','Use the garden.');enter(id,'materials','Bri
     if(location.hash==='#shot') {Object.keys(hosts).filter(id=>id!=='main').forEach(id=>hosts[id].hidden=true);enter('main','materials','Bring notebooks and pens.');button('main','location','yes').click();button('main','materials','yes').click();return;}
     out.singleDone=done('main').textContent==='Send' && hosts.main.querySelectorAll('[data-sg="respond"]').length===1;
     const ids=[...document.querySelectorAll('.sg-question-notes')].map(el=>el.id);out.uniqueLabels=new Set(ids).size===ids.length;
+    // A chat card with questions is a form: Send sits below the questions, which take the card's width and do not scroll at this size.
+    {const row=hosts.retry.querySelector('.sg-row'),body=row.querySelector('.sg-detail-body').getBoundingClientRect(),send=row.querySelector('[data-sg="respond"]').getBoundingClientRect(),inner=row.querySelector('.sg-detail-body');
+      out.chatForm=send.top>=body.bottom-1 && body.width>=row.clientWidth-40 && inner.scrollHeight<=inner.clientHeight+1;}
     // Message references are stored evidence, not part of the submitted answer byte budget.
     const boundary=item('boundary'), values=boundary.input.questions.map((q,i)=>({question_id:q.id,selected_choices:[],notes:i<2?'😀'.repeat(8000):'',status:'answered'}));
     values[2].notes='x'.repeat(65520-new TextEncoder().encode(JSON.stringify(values)).length);
