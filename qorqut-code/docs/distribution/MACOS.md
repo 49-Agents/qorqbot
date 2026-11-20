@@ -11,9 +11,15 @@ libraries already installed, plus tmux, git and the agent-browser tool, in
 not need Homebrew or Apple's developer tools. Setting `QORQUT_PYTHON` still
 selects another Python 3.12 for the launcher itself.
 Install and authenticate your chosen Codex or Claude Code client separately.
-Browser automation needs your installed Google Chrome.
-Standard Chrome in `/Applications/Google Chrome.app` is detected; an explicit
-`QORQUT_CHROME_EXECUTABLE` overrides it. Browser sandboxing remains enabled.
+Agents' web browsing needs no installed Chrome. Once the app runs, Qorqbot
+downloads its own Chrome (a pinned Chrome for Testing build, about 200 MB) in the
+background, checks it against its pinned checksum, and uses it for new agent
+browsers after it has started once on this Mac. Until then, or if it cannot start
+here, an installed `/Applications/Google Chrome.app` is used. An existing agent
+browser keeps the Chrome it was created with. An explicit
+`QORQUT_CHROME_EXECUTABLE` overrides both, and Qorqbot then downloads no Chrome;
+`QORQUT_AGENT_BROWSER_EXECUTABLE` replaces the shipped browser tool. Browser
+sandboxing remains enabled.
 
 Verify the download against its checksum, then extract to a short writable
 folder under your home directory:
@@ -27,7 +33,8 @@ cd qorqbot
 Your browser opens the printed localhost address (`--no-open` skips that;
 `--port` picks another port and later starts reuse it). First launch checks the
 shipped programs against the package's checksums and creates your records; it
-builds and downloads nothing. The shipped programs come before your own on the
+builds nothing, and downloads only Qorqbot's own Chrome (above), in the
+background after the app starts. The shipped programs come before your own on the
 PATH Qorqbot and its agent terminals use.
 Application files are in `runtime/`; records/work are in `instance/operations/`.
 Keep the initialized folder at the same path. Roughly 50 bytes or fewer is
@@ -89,23 +96,26 @@ What `--bundled-tools` adds to the archive:
   virtual environment, so it works wherever the folder is unpacked.
 - `runtime/native`: tmux (with libevent, utf8proc and jemalloc), git and
   agent-browser, their licenses in `native/licenses`, and `native/TOOLS.json`
-  with the source of each. `macos_tools.py` refuses a program that links
-  against anything outside macOS itself.
+  with the source of Python, tmux and git. `macos_tools.py` refuses a program
+  that links against anything outside macOS itself. `native_build.py` downloads
+  the pinned agent-browser package itself, checks its checksum and that the
+  binary runs, and records its version in `runtime/DEPENDENCIES.json`.
 - `PAYLOAD.json` records one checksum for each of the two folders. `verify`
   always checks `native`; it checks `venv` until first use, because optional
   extensions are installed into it afterwards.
 
 Without `--bundled-tools` the Mac archive is the earlier kind, which uses the
-computer's own Python 3.12, git and tmux and builds a virtual environment on
-first launch.
+computer's own Python 3.12, git and tmux, builds a virtual environment on
+first launch and ships the pinned agent-browser tool in `runtime/tools`, as the
+Linux package does.
 
 ## Qorqbot.app and DMG
 
 `tools/distribution/macos_app/build_dmg.py` wraps the exact checked archive in
 `Qorqbot.app`, a desktop app built with Electron, and a drag-to-Applications
 DMG. The app shows Qorqbot in its own window. It carries the archive unchanged
-in `Contents/Resources/qorqbot-payload`; the archive brings its own Python, git
-and tmux, so the app needs nothing installed on the Mac.
+in `Contents/Resources/qorqbot-payload`; the archive brings its own Python, git,
+tmux and agent-browser, so the app needs nothing installed on the Mac.
 
 - Opened from the disk image, Downloads or the Desktop, the app first offers to
   move itself to Applications and reopens from there.
@@ -150,7 +160,9 @@ Security > Open Anyway** once (right-click > Open no longer bypasses this on
 macOS 15 and newer). Opening without that prompt requires an Apple Developer ID:
 pass `--identity "Developer ID Application: ..."` and `--notary-profile NAME`
 (from `xcrun notarytool store-credentials`) to sign with the hardened runtime
-(`entitlements.plist`), notarize and staple. The notarized path is untested
+(`entitlements.plist`), notarize and staple. The Mac workflow's `notarize`
+input does this with the repository's Developer ID secrets, then checks the
+ticket with `stapler validate` and `spctl`. The notarized path is untested
 here; the bundled wheels' native libraries may also need Developer ID
 signatures before Apple accepts it.
 

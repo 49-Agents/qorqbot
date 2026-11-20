@@ -88,7 +88,8 @@ An agent uses its own browser (the default) or the installation's one **Shared b
   is not an agent and cannot be managed by that identifier.
 * Every agent set to it shares its cookies and website sign-ins. Each agent's commands run pinned to that agent's own tab
   (`agent-browser --pin-tab`): its first command opens a new tab, and a closed tab is reported as `tab_gone`, never replaced
-  by another agent's tab. The tabs are not hidden: `tab-list` shows them all.
+  by another agent's tab. The reply then tells the agent to open a new tab with `tab-new <url>` and continue there
+  (`agent_browser.explain`). The tabs are not hidden: `tab-list` shows them all.
 * The choice is the record `agent-browsers/<agent UUID>/shared.json`. The agent's generated `.qorqut/browser.json` then
   holds the Shared endpoint and `"shared": true`. A command is refused (`browser_configuration_invalid`) when the record and
   the target file disagree.
