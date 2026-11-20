@@ -42,6 +42,12 @@ release does not end a running turn.
   read one sign-in. This matters on macOS, where Claude Code names its Keychain
   item after an explicit `CLAUDE_CONFIG_DIR`. What the owner set in Settings
   still wins.
+- The client's `PATH` is the programs a self-contained installation ships
+  (`runtime/native/bin`: git and the browser tool), then the folders the
+  session names, then the owner's own search path
+  (`agent_cli_launch.session_path`). On a Mac without Apple's developer tools
+  the computer's own `git` only opens the system's install prompt, so the
+  shipped one has to come first.
 
 ### State folder
 

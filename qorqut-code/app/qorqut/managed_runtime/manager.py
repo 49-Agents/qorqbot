@@ -708,11 +708,6 @@ class ManagedRuntime:
         from qorqut.native_chat import client_state
         raise ManagedError("cli_unavailable", client_state.missing_text(label, client))
 
-    @staticmethod
-    def _search_environment(env) -> dict:
-        """The environment ``claude`` is looked up in (``agent_cli_launch.search_environment``)."""
-        return agent_cli_launch.search_environment(env)
-
     def _start(self, profile, resume, timeout, client=table.CLAUDE):
         """Prepare, launch and wait for ``ready``. Returns the verified host's record. ``client`` is the agent's effective client:
         it decides the executable, the driver, the first message of a fresh session, the model and effort flags, and how the host
@@ -747,8 +742,8 @@ class ManagedRuntime:
         args += table.launch_arguments(client, model, chosen.effort, workspace)
         # The client is started with the owner's search PATH as well as the session's: a client that is a script
         # (``#!/usr/bin/env node``, an npm install) finds its interpreter where the owner's terminal does, not only where this
-        # service does. The folders the session names stay first.
-        env["PATH"] = self._search_environment(env).get("PATH") or env.get("PATH") or os.defpath
+        # service does. The programs a self-contained installation ships come first, then the folders the session names.
+        env["PATH"] = agent_cli_launch.session_path(env) or env.get("PATH") or os.defpath
         spec = {"agent_id": agent_id, "folder": workspace, "executable": found, "args": args, "env": {**env, **extra["env"]},
                 "resume_session_id": resume, "send_role": table.role_command(client) if resume is None else False,
                 "idle_seconds": self._idle, "client": client, "driver": table.driver(client),

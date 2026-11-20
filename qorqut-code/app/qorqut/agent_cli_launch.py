@@ -117,6 +117,21 @@ def search_environment(session_env=None):
     return {**base, "PATH": os.pathsep.join(dict.fromkeys(folders))}
 
 
+def session_path(session_env=None) -> str:
+    """The PATH a managed session's client is started with: the programs a self-contained installation ships
+    (``runtime/native/bin``: git and the browser tool) first, as the launcher puts them before the computer's own on the
+    service's PATH, then the session's and the owner's own search PATH (``search_environment``). Without them the computer's git
+    comes first, and on a Mac without Apple's developer tools that one only opens the system's install prompt."""
+    try:
+        from qorqut import native_paths
+        root = native_paths.folder_root()
+    except Exception:  # noqa: BLE001 - no folder installation
+        root = None
+    shipped = [str(root / "runtime" / "native" / "bin")] if root is not None and (root / "runtime" / "native" / "bin").is_dir() else []
+    rest = [folder for folder in (search_environment(session_env).get("PATH") or "").split(os.pathsep) if folder]
+    return os.pathsep.join(dict.fromkeys([*shipped, *rest]))
+
+
 def locate(provider, session_env=None):
     """The one executable a managed session runs for ``provider``, or None: Qorqbot's own downloaded copy, else the owner's own
     that the installer accepts (``agent_cli_install.resolve``: on the owner's PATH and at least ``MINIMUM_VERSIONS``). The setup

@@ -266,6 +266,14 @@ class ManagerLaunch(base.ManagerFixture):
             self.open()
         self.assertEqual(self.spec()["env"]["PATH"], "/owner/node/bin:/usr/bin")
 
+    def test_a_self_contained_installation_puts_its_shipped_programs_before_the_owners(self):
+        shipped = self.base / "folder" / "runtime" / "native" / "bin"
+        shipped.mkdir(parents=True)
+        with mock.patch.object(hosts.agent_cli_launch, "search_environment", lambda env=None: {"PATH": "/owner/node/bin:/usr/bin"}), \
+                mock.patch.dict(os.environ, {"QORQUT_FOLDER_ROOT": str(self.base / "folder")}):
+            self.open()
+        self.assertEqual(self.spec()["env"]["PATH"], f"{shipped}:/owner/node/bin:/usr/bin", "the computer's own git comes after")
+
     def test_the_hosts_permission_mode_comes_from_the_prepared_settings(self):
         (self.workspace / ".qorqut" / "claude-launch-settings.json").write_text(
             json.dumps({"permissions": {"defaultMode": "bypassPermissions"}}))
