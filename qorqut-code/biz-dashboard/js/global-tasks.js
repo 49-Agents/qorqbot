@@ -212,7 +212,7 @@ function globalTasksMount(host, {agentId = null, heading = null, compact = false
     const special = !embedded && !!task && TASK_SPECIAL_TYPES.includes(task.task_type) && typeof recordSurfaceMount === 'function';
     const assigned = task?.assignee_ids || [agentId || assignees.find(a => a.is_owner)?.id].filter(Boolean);
     const choices = [...assignees, ...assigned.filter(id => !assignees.some(a => a.id === id)).map(id => ({id, display_name: 'Unavailable assignee'}))];
-    shell(`<div class="global-task-editor-heading">${embedded ? '' : '<button type="button" data-back>← Back</button>'}<h3>${task ? 'Global task' : 'New Global task'}</h3>${task && !embedded && task.task_type !== 'email' ? '<button type="button" class="quiet" data-task-move>Move to project…</button>' : ''}</div>
+    shell(`<div class="global-task-editor-heading">${embedded ? '' : '<button type="button" data-back>← Back</button>'}<h3>${task ? 'Global task' : 'New Global task'}</h3>${task && !embedded ? '<button type="button" class="quiet" data-task-move>Move to project…</button>' : ''}</div>
       ${special ? '<section class="record-thread-host" data-record-surface aria-label="Record conversation"><div data-task-progress></div></section>' : ''}
       <form data-editor><label class="global-task-wide">Title<input name="title" required maxlength="1000" value="${esc(task?.title || '')}"></label>
       ${taskTypeFields(task || {})}

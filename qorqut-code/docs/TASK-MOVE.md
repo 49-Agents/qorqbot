@@ -40,7 +40,10 @@ again. A state that has become incompatible is `move_blocked` with readable `blo
 |---|---|
 | Tasks | same id; `business_id` changed; revision +1; selected roots become top-level (the old parent stays untouched, shown as `previous_parent_id`); archived and completed descendants move too |
 | thread messages, follows, tags, snooze wakes, completions | scope only; ids, bodies, authors, times and events unchanged; explicit follows and unfollows preserved |
-| relationships | edges internal to the move follow; assignments must remain valid in the destination |
+| relationships | edges internal to the move follow, and so do a moved Task's links to agents (assignments must remain valid in the destination); every other edge whose other end stays behind stays in the source scope as written, as history (`historical_relationships` counts them). From the record's side its moved Task end is read where the audited resolver says it is now; from the moved Task's side `relationships_list` and the Story's associated records add the links written during its earlier stays |
+| Task links stored on other Tasks | a `$task_links` entry on a Task outside the move that names a moved Task is retargeted to the destination (that Task's revision advances) |
+| typed fields | validated under the destination's configuration; a custom field the Task already holds, unchanged, is kept even when the destination does not define it (as on any edit of older data) |
+| Email Task binding | the read-only historical conversation id moves with the Task unchanged; the mailbox and the conversation stay where they are |
 | private owner–Ordubashy conversations | same conversation id, messages and read state; source scope and key follow the Task |
 | Focus cards | same card, order and notes; the card's source key and every exact reference to the Task are rewritten; the board sequence advances |
 | Project links | links owned by the destination become redundant and are removed; others are retargeted |
@@ -57,10 +60,12 @@ Blockers are concrete incompatible data. They are listed in the preview and neve
 - `task_id_exists`, `conversation_exists`, `focus_card_exists`, `message_id_exists`, `follow_exists`, `completion_exists`,
   `tag_exists`, `relationship_id_exists`, `crm_record_exists`, `subscription_exists` - the destination already holds the
   same identity or key; nothing is merged;
-- `email_binding` - a Task with a non-null email conversation binding (this operation does not move mailbox ownership);
 - `fields_invalid` - typed fields that do not validate under the destination's own configuration;
-- `crossing_relationship`, `reviewed_relationship`, `external_task_link`, `assignee_unavailable` - a dependency or
-  reference that could not be carried without changing its meaning;
+- `crossing_dependency` - an open Task (moved or staying) that is `blocked_by` a Task on the other side of the move; a
+  closed Task's dependency is history and stays behind;
+- `reviewed_relationship` (an assignment or dependency with immutable Context review decisions; any other reviewed edge
+  stays behind as history), `assignee_unavailable` - a dependency or reference that could not be carried without changing
+  its meaning;
 - `unsupported_binding` - an active binding this operation does not rebind: rows of any other table that reference
   `tasks` by foreign key (for example Paper's `outreach_handoffs`), Overseer development bindings, pending or approved
   Signoffs, queued or running jobs, active or paused routines and live delegated assignments that name a moved Task;
@@ -94,6 +99,8 @@ a partial scan. The matching bindings feed the preview token, so one that appear
 Historical records are **preserved** and are not blockers: immutable message references and payloads, Signoff notes,
 Focus notes, inbox events and deliveries, retained checkpoint findings, incident impacts, terminal jobs and Signoffs.
 They keep naming the old scope and stay navigable through the location resolver and the historical reference scope below.
+Relationships whose other end does not move are history of the same kind. A moved Task's id stays reserved for good (no
+new Task can take an id a relocation recorded), so history left in a scope can never attach to another Task.
 
 ## Old references
 

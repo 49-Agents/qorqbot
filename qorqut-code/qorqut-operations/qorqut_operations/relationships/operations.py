@@ -11,10 +11,12 @@ their handlers; relationship rows are written only by the prepared plans of the 
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from qorqut_operations.application.catalog import CatalogContribution
-from qorqut_operations.application.plans import (PAGE, UUID, PlanBuilder, apply_records, page, require_revision, schema,
+from qorqut_operations.application.plans import (PAGE, UUID, PlanBuilder, apply_records, page, require_revision, rows, schema,
                                                  utc_clock)
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
@@ -23,9 +25,12 @@ from qorqut_operations.relationships.edges import (CONTEXT, ROLE, edge_values, e
 from qorqut_operations.relationships.ports import RelationshipPorts
 from qorqut_operations.relationships.reviews import ContextReviews
 from qorqut_operations.storage.assembly import AssemblyError
+from qorqut_operations.tasks.relocation import moved_location, proven_journey
 from qorqut_operations.tasks.scope import task_context, task_namespace
 
 SCOPE = {"scope": {"enum": ["business", "global"]}}
+# The edge's own scope is the selected one (the default ``origin`` of an endpoint read).
+_HERE = object()
 # The eight operations whose owning namespace is the business or, for the owner and an authorized global agent, Global. This is
 # the Task namespace contract (``task_namespace`` / ``task_context``) and nothing else: graph, navigation, archive, Material and
 # review operations stay business-only.
@@ -117,9 +122,61 @@ class RelationshipOperations:
         if role in self.ports.workflow_roles:
             raise DomainError("workflow_required", f"Use {self.ports.workflow_roles[role]} to change {role} relationships")
 
-    def visible_edge(self, ctx, edge, uow):
+    def visible_edge(self, ctx, edge, uow, origin=_HERE):
+        """An edge with both endpoints as the caller may read them. ``origin`` is the scope the edge was written in when that
+        is not the selected one (a link a moved Task left behind, see ``stay_edges``): its other endpoint is read there."""
         source, target = endpoints(edge)
-        return {**self.edge_view(edge), "source_item": self.items.resolve(ctx, source, uow), "target_item": self.items.resolve(ctx, target, uow)}
+        return {**self.edge_view(edge), "source_item": self.endpoint(ctx, source, uow, origin),
+                "target_item": self.endpoint(ctx, target, uow, origin)}
+
+    def endpoint(self, ctx, item, uow, origin=_HERE):
+        """One endpoint, resolved in its own scope. A Task that a relocation took out of the edge's scope is read where the
+        audited resolver says it is now, with the caller's authority there; anything else unavailable stays unavailable."""
+        here = ctx.business_id if origin is _HERE else origin
+        if item["type"] == "task" and here != ctx.business_id and self.task_here(ctx, item, uow):
+            return self.items.resolve(ctx, item, uow)
+        try:
+            return self.items.resolve(self.scoped(ctx, here, uow), item, uow)
+        except DomainError as error:
+            if error.code not in UNAVAILABLE or item["type"] != "task":
+                raise
+            location = moved_location(uow, here, item["id"])
+            if location is None:
+                raise
+        return {**self.items.resolve(self.scoped(ctx, location, uow), item, uow), "business_id": location, "moved": True}
+
+    @staticmethod
+    def task_here(ctx, item, uow):
+        return uow.connection.execute("SELECT 1 FROM tasks WHERE business_id IS ? AND id=?", (ctx.business_id, item["id"])).fetchone() is not None
+
+    def scoped(self, ctx, scope, uow):
+        """``ctx`` selected on ``scope`` with the caller's current reach there; a scope they cannot enter is unavailable."""
+        if scope == ctx.business_id:
+            return ctx
+        try:
+            return self.items.application.current_context(replace(ctx, business_id=scope, review_business_id=scope), uow)
+        except DomainError:
+            raise DomainError("not_found", "Reference scope is unavailable") from None
+
+    def stay_edges(self, ctx, args, uow):
+        """``(edge, origin)`` for the links a moved Task left in the scopes it stayed in before (a relocation never carries
+        a link whose other end stays behind). Only a listing that names a Task of the selected scope sees them, and only the
+        links written during that very Task's stay there (``proven_journey``); another Task that reused the id elsewhere,
+        before it arrived or after it left, links nothing."""
+        tasks = {item["id"] for item in (args.get("source"), args.get("target"), args.get("item")) if item and item["type"] == "task"}
+        found = []
+        for task_id in sorted(tasks):
+            stays = proven_journey(uow, ctx.business_id, task_id) or []
+            for scope, since, until in stays[1:]:
+                role = args.get("role")
+                for edge in rows(uow, "relationships", scope, where="((from_type='task' AND from_id=?) OR (to_type='task' AND to_id=?))"
+                                 + (" AND role=?" if role is not None else ""), parameters=(task_id, task_id, *((role,) if role is not None else ()))):
+                    source, target = endpoints(edge)
+                    if ((args.get("source") and source != args["source"]) or (args.get("target") and target != args["target"])
+                            or not (since <= edge["created_at"] and (until is None or edge["created_at"] < until))):
+                        continue
+                    found.append((edge, scope))
+        return found
 
     # -- reads -----------------------------------------------------------------------------------------------------
 
@@ -160,7 +217,8 @@ class RelationshipOperations:
             for item in (args.get("source"), args.get("target"), args.get("item")):
                 if item:
                     self.items.resolve(ctx, item, uow)
-            for edge in related_rows(uow, ctx.business_id, source=args.get("source"), target=args.get("target"), role=args.get("role")):
+            current = [(edge, _HERE) for edge in related_rows(uow, ctx.business_id, source=args.get("source"), target=args.get("target"), role=args.get("role"))]
+            for edge, origin in current + self.stay_edges(ctx, args, uow):
                 source, target = endpoints(edge)
                 if args.get("source_type") and source["type"] != args["source_type"]:
                     continue
@@ -171,7 +229,7 @@ class RelationshipOperations:
                     if not ((direction != "incoming" and source == args["item"]) or (direction != "outgoing" and target == args["item"])):
                         continue
                 try:
-                    value = self.visible_edge(ctx, edge, uow)
+                    value = self.visible_edge(ctx, edge, uow, origin)
                 except DomainError as exc:
                     if exc.code not in UNAVAILABLE:
                         raise
