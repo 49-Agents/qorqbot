@@ -61,7 +61,7 @@ class Case(unittest.TestCase):
             database=SimpleNamespace(read=read), paths=SimpleNamespace(runtime="/r"), application=SimpleNamespace())
         self.control = TerminalControl.__new__(TerminalControl)
         self.control.runtime, self.control.backend = self.runtime, self.backend
-        self.target = {"agent_id": AGENT, "revision": 3, "home_project_id": None, "name": "scout"}
+        self.target = {"agent_id": AGENT, "revision": 3, "name": "scout"}
         self.mode = mock.patch.object(mode, "current", return_value="terminal")
         self.mode.start()
         self.addCleanup(self.mode.stop)

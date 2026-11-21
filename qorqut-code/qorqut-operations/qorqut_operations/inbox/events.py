@@ -35,7 +35,7 @@ def row_for(uow, table, project, identity, sources=None):
     if handler is not None:
         return handler.row(uow, project, identity) if handler.row else None
     if table == 'agent_profiles':
-        row = uow.connection.execute('SELECT *,agent_id AS id,home_project_id AS project_id FROM agent_profiles WHERE home_project_id IS ? AND agent_id=?', (project, identity)).fetchone()
+        row = uow.connection.execute('SELECT *,agent_id AS id,NULL AS project_id FROM agent_profiles WHERE ? IS NULL AND agent_id=?', (project, identity)).fetchone()
         return dict(row) if row else None
     if table == 'principals':
         row = uow.connection.execute("SELECT p.*,m.project_id FROM principals p JOIN project_memberships m ON m.principal_id=p.id WHERE p.kind='human' AND m.project_id IS ? AND p.id=?", (project, identity)).fetchone()
@@ -139,7 +139,7 @@ class EventFinalizer:
         if handler is not None and handler.targets is not None:
             return handler.targets(uow, data, project, actor)
         if table == 'agent_profiles':
-            data = {**data, 'id': data['agent_id'], 'project_id': data['home_project_id']}
+            data = {**data, 'id': data['agent_id'], 'project_id': None}
         if table == 'principals':
             if data['kind'] != 'human': return []
             return [('principals', {**data, 'project_id': row[0]}, actor, 'updated', set())

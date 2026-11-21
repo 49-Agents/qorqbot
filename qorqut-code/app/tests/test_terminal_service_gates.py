@@ -84,15 +84,9 @@ class ServiceGateTest(Fixture):
                     self.assertTrue(error.retryable)
                     self.assertEqual(error.message, "Agents are being switched. Try again in a minute.")
 
-    def test_a_managed_installation_has_nothing_to_reset_and_receives_no_broadcast(self):
+    def test_a_managed_installation_receives_no_broadcast(self):
         service = self.service()
-        self.assertIsNone(service.reset_project_for_archive({"slug": "x"}, [{"agent_id": "a"}]))
         self.assertEqual(service.input_existing(None, "ordubashy", "hello", key="k")["state"], "unavailable")
-
-    def test_the_reset_is_silent_without_tmux_too(self):
-        self.terminals()
-        broker = SimpleNamespace(tmux_available=lambda: False)
-        self.assertIsNone(self.service(broker).reset_project_for_archive({"slug": "x"}, [{"agent_id": "a"}]))
 
     def test_constructing_the_service_starts_no_process_and_writes_no_file(self):
         before = sorted(self.base.rglob("*"))
@@ -118,7 +112,7 @@ class StartAgentTest(Fixture):
     def backend(self, snapshots, *, profile=None, resume=None, ready=None):
         self.workspace = self.base / "agents" / "ordubashy"
         self.workspace.mkdir(parents=True)
-        profile = profile or {"agent_id": "ordubashy", "home_project_id": None, "status": "active",
+        profile = profile or {"agent_id": "ordubashy", "status": "active",
                               "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": "ordubashy"}})}
         self.broker, self.opened, self.resumed = Broker(), [], []
 
@@ -187,7 +181,7 @@ class StartAgentTest(Fixture):
         self.assertEqual(raised.exception.code, "invalid_transition")
         self.assertEqual((self.opened, self.broker.typed), ([], []))
 
-    CODEX_PROFILE = {"agent_id": "ordubashy", "home_project_id": None, "status": "active",
+    CODEX_PROFILE = {"agent_id": "ordubashy", "status": "active",
                      "profile_json": json.dumps({"runtime": "codex", "role": {"id": "ordubashy"}})}
 
     def test_a_profile_that_says_codex_starts_claude_when_settings_say_claude_code(self):

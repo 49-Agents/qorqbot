@@ -149,11 +149,10 @@ new collection widgets is separate work.
 `validate_form` defaults ordinary questions/requests to
 `response_policy: management_allowed`; `draft_review` explicitly forces
 `owner_only`.
-[`management/service.py`](../app/qorqut/management/service.py),
-`auto_route_input`, can route eligible project-agent questions to the
-coordinator. This feature must remain distinct from owner-only questions. Set
-owner-only policy for the new owner-input path rather than silently changing
-all existing management questions.
+Management questions are routed through
+[`management/service.py`](../app/qorqut/management/service.py). This feature must
+remain distinct from owner-only questions. Set owner-only policy for the new
+owner-input path rather than silently changing all existing management questions.
 
 Cancellation retains the request and history. A generic replacement requires
 withdrawing the old request and creating a new one; `supersedes_id` is part of

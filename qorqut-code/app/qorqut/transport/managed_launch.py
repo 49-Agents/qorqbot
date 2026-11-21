@@ -36,16 +36,11 @@ class ManagedLaunch:
         self.runtime.require_authority()
         with self.runtime.database.read() as uow:
             current = self.runtime.application.current_context(context, uow)
-            if current.project_id is None:
-                installation = uow.repository("installation").get("service")
-                if current.principal_kind != "human" or not installation or installation["owner_principal_id"] != current.principal_id:
-                    raise DomainError("forbidden", "Preparing a global agent requires the installation owner")
-            else:
-                membership = uow.repository("project_memberships", project_id=current.project_id).get(current.principal_id)
-                if current.principal_kind != "human" or not membership or not membership["active"] or not membership["is_owner"]:
-                    raise DomainError("forbidden", "Preparing an agent requires the current project owner")
-            row = uow.connection.execute("SELECT * FROM agent_profiles WHERE home_project_id IS ? AND (agent_id=? OR name=?) AND status='active'",
-                                         (context.project_id, selector, selector)).fetchone()
+            installation = uow.repository("installation").get("service")
+            if current.principal_kind != "human" or not installation or installation["owner_principal_id"] != current.principal_id:
+                raise DomainError("forbidden", "Preparing a global agent requires the installation owner")
+            row = None if current.project_id is not None else uow.connection.execute(
+                "SELECT * FROM agent_profiles WHERE (agent_id=? OR name=?) AND status='active'", (selector, selector)).fetchone()
             if row is None:
                 raise DomainError("not_found", "Registered active agent was not found in this workspace")
             require_protected_control(uow, current.principal_id, current.principal_kind, [row["agent_id"]])
@@ -68,13 +63,13 @@ class ManagedLaunch:
         with admission.writer() if admission is not None else nullcontext():
             with self.runtime.database.read() as uow:
                 row = uow.connection.execute(
-                    "SELECT * FROM agent_profiles WHERE agent_id=? AND home_project_id IS NULL AND status='active'", (agent_id,)).fetchone()
+                    "SELECT * FROM agent_profiles WHERE agent_id=? AND status='active'", (agent_id,)).fetchone()
                 if row is None or active_global(uow.connection, agent_id) is None:
                     raise DomainError("not_found", "Registered active global agent was not found")
                 profile, _ = self.runtime.resolver.profile(Principal(agent_id, "agent"), connection=uow.connection)
             self.prepare(agent_id)
             env = agent_cli_launch.session_environment(dict(self._environment(profile, None)))
-            return {"workspace": str(agent_workspace(self.runtime.paths, agent_id, None)), "env": env}
+            return {"workspace": str(agent_workspace(self.runtime.paths, agent_id)), "env": env}
 
     def input_existing(self, project_id, agent_id, data, key=None):
         """Trusted broadcast port: it has no owner check because the dispatcher has already persisted an authorized broadcast.
@@ -82,10 +77,9 @@ class ManagedLaunch:
         if not isinstance(data, str) or len(data) > 65536:
             raise DomainError("validation_error", "Broadcast input requires bounded text")
         with self.runtime.database.read() as uow:
-            row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND home_project_id IS ? AND status='active'",
-                (agent_id, project_id)).fetchone()
-            # A project-home identity is never dispatched to, whatever its stored status.
-            if row is None or row["home_project_id"] is not None or active_global(uow.connection, agent_id) is None:
+            row = None if project_id is not None else uow.connection.execute(
+                "SELECT * FROM agent_profiles WHERE agent_id=? AND status='active'", (agent_id,)).fetchone()
+            if row is None or active_global(uow.connection, agent_id) is None:
                 return {"state": "unavailable", "detail": "Agent is unavailable"}
         if key is None:
             return {"state": "unavailable", "detail": "An agent is reached through its Chat session only"}

@@ -6,12 +6,11 @@ import base64
 from email import policy as email_policy
 from email.parser import BytesParser
 import json
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 import anyio
 from markdown_it import MarkdownIt
 from starlette.responses import JSONResponse, Response
-import yaml
 
 from qorqut.composition.locations import project_hq
 from qorqut_operations.contracts import DomainError, InvocationOptions, canonical_hash, new_id, plain
@@ -168,21 +167,6 @@ class DashboardCompatibility:
         return {"icon": presentation.get("icon", DEFAULT_AGENT_ICON), "color": presentation.get("color", DEFAULT_AGENT_COLOR),
                 "kind": profile.get("role", {}).get("id", "")}
 
-    def registered_agent(self, context, selector, *, include_inactive=False):
-        with self.runtime.database.read() as uow:
-            row = uow.connection.execute("SELECT agent_id FROM agent_profiles WHERE home_project_id=? AND (agent_id=? OR name=?) AND (status='active' OR ?)", (context.project_id, selector, selector, include_inactive)).fetchone()
-        if row is None:
-            raise DomainError("not_found", "Active registered agent was not found in this project")
-        return self.data(context, "agents_get", {"agent_id": row["agent_id"]})["agent"]
-
-    def agent_view(self, context, profile):
-        if profile.get("archival_record"):
-            return profile
-        notes = self.data(context, "notes_list", {"agent_id": profile["agent_id"], "limit": 30})["items"]
-        return {**profile, **self.appearance(profile), "agent_yaml": yaml.safe_dump({"generated": True, **profile}, sort_keys=False),
-                "notes": [Path(note["path"]).name for note in notes],
-                "sessions": self.local_files.session_names(context.project_id, profile["agent_id"]), "learnings": ""}
-
     def assignees(self, context):
         return self.data(context, "assignees_list")["assignees"]
 
@@ -281,13 +265,10 @@ class DashboardCompatibility:
                 registered = uow.connection.execute("SELECT b.* FROM projects b JOIN project_memberships m ON m.project_id=b.id WHERE m.principal_id=? AND m.active=1 AND b.archived_at IS NULL ORDER BY b.slug", (context.principal_id,)).fetchall()
             projects = []
             for row in registered:
-                selected = context.select_project(row["id"])
-                profiles = self.data(selected, "agents_list")["agents"]
                 metadata = json.loads(row["config_json"])
                 projects.append({"slug": row["slug"], "path": str(project_hq(self.runtime.paths, row)), "name": row["name"], "id": row["id"], "project_id": row["id"],
                     "one_liner": metadata.get("one_liner", metadata.get("description", "")), "stage": row["stage"], "website": metadata.get("website"),
-                    "owner": context.principal.display_name, "agents": [profile["name"] for profile in profiles],
-                    "agent_meta": {profile["name"]: self.appearance(profile) for profile in profiles}})
+                    "owner": context.principal.display_name})
             return JSONResponse(projects)
         if parts == ["marketplace"]:
             if not context.allowed_project_ids:
@@ -320,22 +301,8 @@ class DashboardCompatibility:
     def project_get(self, request, context, project, tail):
         if tail == ["env"]:
             return JSONResponse(self.local_files.environment_settings(context), headers={"Cache-Control": "no-store"})
-        if len(tail) == 3 and tail[0] == "session":
-            profile = self.registered_agent(context, tail[1], include_inactive=True)
-            return JSONResponse(self.local_files.session_events(context.project_id, profile["agent_id"], tail[2]))
         if tail == ["git"]:
             return JSONResponse(self.local_files.git_recent(context.project_id))
-        if tail == ["agents"]:
-            def produce():
-                profiles = self.data(context, "agents_list", {"include_inactive": request.query_params.get("include_inactive") == "true"})["agents"]
-                return JSONResponse([{**profile, **self.appearance(profile)} for profile in profiles] if request.query_params.get("summary") == "1"
-                    else [self.agent_view(context, profile) for profile in profiles])
-            # agent_view() also reads notes (documents) per profile; summary
-            # mode does not, but declaring the union for both is simpler and only
-            # costs summary mode an occasional extra miss, never a stale one.
-            return revalidated(request, self.runtime.changes, {"agents", "documents"}, context.project_id, produce)
-        if len(tail) == 2 and tail[0] == "agents":
-            return response(self.invoke(context, "agents_get", {"agent_id": tail[1]}))
         if len(tail) == 2 and tail[0] == "task":
             task = self.data(context, "tasks_get", {"task_id": tail[1]})["task"]
             return JSONResponse({"task": self.task_view(context, task)})
@@ -462,18 +429,6 @@ class DashboardCompatibility:
                 raise DomainError("not_found", "Task endpoint is not registered")
             result = self.invoke(context, operation, args, self.options(body, revision=current["revision"]))
             return response(result) if result.status != "ok" else JSONResponse({"task": self.task_view(context, plain(result.data["task"]))})
-        if tail == ["agent"]:
-            checked_fields(body, {"name", "display_name", "role", "assignment_brief", "kind", "plugins", "presentation"} | OPTIONS,
-                {"role"})
-            # A project agent's name is allocated; agents_create rejects a chosen one.
-            args = {key: body[key] for key in ("name", "display_name", "role", "assignment_brief", "plugins", "presentation") if key in body}
-            return response(self.invoke(context, "agents_create", args, self.options(body)), created=True)
-        if len(tail) == 3 and tail[0] == "agent" and tail[2] == "meta":
-            checked_fields(body, {"icon"} | OPTIONS)
-            profile = self.registered_agent(context, tail[1])
-            presentation = {**profile["presentation"], **{key: body[key] for key in ("icon",) if key in body}}
-            result = self.invoke(context, "agents_update", {"agent_id": profile["agent_id"], "changes": {"presentation": presentation}}, self.options(body, revision=profile["profile_revision"]))
-            return response(result) if result.status != "ok" else JSONResponse({"ok": True, **self.appearance({**profile, "presentation": presentation})})
         return self.document_post(request, context, project, tail, body)
 
     @staticmethod

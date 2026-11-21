@@ -368,7 +368,7 @@ def _verify_profile(intent, result, connection, paths, attempt) -> dict:
             or stored is None or image_fingerprint(stored) != capture["after"]):
         raise DomainError("operation_conflict", "The profile inbox capture is not an unchanged fresh insertion")
     captured = dict(stored)
-    fields = ("agent_id", "home_project_id", "name", "status", "profile_json", "revision")
+    fields = ("agent_id", "name", "status", "profile_json", "revision")
     try:
         projected_before = json.loads(captured["before_json"])
         projected_after = json.loads(captured["after_json"])

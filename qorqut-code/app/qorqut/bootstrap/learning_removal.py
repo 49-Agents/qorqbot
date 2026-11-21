@@ -943,8 +943,7 @@ def _native_catalogs(paths, transition: _Transition, extensions, *, connection=N
     database = _database_path(paths)
     if not os.path.lexists(database):
         return {"paths": [], "surveys": []}
-    query = ("SELECT p.agent_id, p.home_project_id, b.slug FROM agent_profiles p "
-             "LEFT JOIN projects b ON b.id=p.home_project_id WHERE p.status='active' ORDER BY p.agent_id")
+    query = "SELECT agent_id FROM agent_profiles WHERE status='active' ORDER BY agent_id"
     if connection is None:
         opened = _connect(database, "ro")
         try:
@@ -955,17 +954,14 @@ def _native_catalogs(paths, transition: _Transition, extensions, *, connection=N
         rows = connection.execute(query).fetchall()
     found, surveys = [], []
     inspected = 0
-    for agent_id, home, slug in rows:
-        if home is not None and (not isinstance(slug, str) or not slug):
-            raise DomainError("invalid_profile", "A project profile has no resolvable project workspace",
-                              details={"agent_id": agent_id})
+    for (agent_id,) in rows:
         try:
-            workspace = paths.agent_workspace(agent_id, project_folder=slug if home else None)
+            workspace = paths.agent_workspace(agent_id)
         except (InstancePathError, DomainError) as exc:
             raise DomainError("invalid_configuration", "An active profile's workspace path is unsafe",
                               details={"agent_id": agent_id}) from exc
         survey = {"agent_id": agent_id, "workspace": str(workspace),
-                  "scope": "project" if home else "global", "documents": {}}
+                  "scope": "global", "documents": {}}
         if not os.path.lexists(workspace):
             survey["state"] = "workspace_absent"
             surveys.append(survey)

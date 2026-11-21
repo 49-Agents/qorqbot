@@ -43,11 +43,11 @@ def plus(now, seconds):
 
 
 def target_fingerprint(profile):
-    """The registered target an owner input was accepted for: agent, home scope, workspace, role and runtime."""
+    """The registered target an owner input was accepted for: agent, workspace, role and runtime."""
     data = profile["profile_json"]
     data = json.loads(data) if isinstance(data, str) else data
     data = data if isinstance(data, dict) else {}
-    return canonical_hash({"agent": profile["agent_id"], "home": profile["home_project_id"], "namespace": profile["namespace"],
+    return canonical_hash({"agent": profile["agent_id"], "home": None, "namespace": "ecosystem",
                            "workspace": profile["workspace"], "role": (data.get("role") or {}).get("id"),
                            "runtime": data.get("runtime")})
 

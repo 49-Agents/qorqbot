@@ -37,11 +37,11 @@ def deliver_owner_message(uow, *, owner_id, agent_id, body, created_at, message_
     summary = (summary or body)[:SUMMARY_LIMIT]
     event_id = uow.connection.execute(
         "INSERT INTO inbox_events(project_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)",
-        (profile["home_project_id"], "agent_messages", identity, owner_id, "direct_message", summary, created_at)).lastrowid
+        (None, "agent_messages", identity, owner_id, "direct_message", summary, created_at)).lastrowid
     uow.connection.execute(
         "INSERT INTO agent_messages(id,event_id,project_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,summary,"
         "current_sender_id,current_recipient_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-        (identity, event_id, profile["home_project_id"], owner_id, agent_id, None, identity, body, created_at,
+        (identity, event_id, None, owner_id, agent_id, None, identity, body, created_at,
          normalize_summary(None), owner_id, agent_id))
     uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)", (agent_id, event_id))
     return identity, event_id

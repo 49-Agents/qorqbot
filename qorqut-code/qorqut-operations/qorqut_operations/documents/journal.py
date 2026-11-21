@@ -55,7 +55,7 @@ class JournalOperations:
     def _coordinator(self, ctx, uow):
         identity = self._coordinator_id(uow)
         if (ctx.principal_kind != "agent" or ctx.principal_id != identity
-                or ctx.home_project_id is not None or ctx.project_id is not None
+                or ctx.project_id is not None
                 or ctx.delegation_assignment_id):
             raise DomainError("forbidden", "Journal management belongs to the configured Global Ordubashy")
 

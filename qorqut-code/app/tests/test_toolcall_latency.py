@@ -289,74 +289,45 @@ class UnitReuseTests(unittest.TestCase):
     def resolver(self):
         resolver = AgentConfigResolver.__new__(AgentConfigResolver)
         resolver.paths = object()
-        resolver._profiles_lock, resolver._effective = threading.RLock(), OrderedDict()
+        resolver._profiles_lock = threading.RLock()
         return resolver
 
     def test_a_workspace_is_selected_once_per_unit(self):
         resolver = self.resolver()
-        project = {"slug": "shop"}
         with mock.patch.object(resolver_module, "agent_workspace",
-                               side_effect=lambda paths, agent, project: Path("/instance") / agent) as selected:
-            resolver._workspace("a", None)
-            resolver._workspace("a", None)
+                               side_effect=lambda paths, agent: Path("/instance") / agent) as selected:
+            resolver._workspace("a")
+            resolver._workspace("a")
             self.assertEqual(selected.call_count, 2)                 # outside a unit nothing is kept
             close = self.unit()
-            self.assertEqual([resolver._workspace("a", None) for _ in range(5)], [Path("/instance/a")] * 5)
+            self.assertEqual([resolver._workspace("a") for _ in range(5)], [Path("/instance/a")] * 5)
             self.assertEqual(selected.call_count, 3)
-            resolver._workspace("b", None)                           # another identity, another home scope
-            resolver._workspace("a", project)
-            self.assertEqual(selected.call_count, 5)
-            self.assertEqual(selected.call_args.args, (resolver.paths, "a", project))
+            resolver._workspace("b")                                 # another identity
+            self.assertEqual(selected.call_count, 4)
+            self.assertEqual(selected.call_args.args, (resolver.paths, "b"))
             other = self.resolver()                                  # another instance's resolver shares nothing
-            other._workspace("a", None)
-            self.assertEqual(selected.call_count, 6)
+            other._workspace("a")
+            self.assertEqual(selected.call_count, 5)
             close()
             self.unit()
-            resolver._workspace("a", None)                           # the next unit asks the file system again
-            self.assertEqual(selected.call_count, 7)
+            resolver._workspace("a")                           # the next unit asks the file system again
+            self.assertEqual(selected.call_count, 6)
 
     def test_a_refused_workspace_is_asked_again(self):
         from qorqut_operations.contracts import DomainError
         resolver = self.resolver()
         self.unit()
         answers = [DomainError("invalid_configuration", "symlink"), Path("/instance/a"), AssertionError("asked again")]
-        def select(paths, agent, project):
+        def select(paths, agent):
             answer = answers.pop(0)
             if isinstance(answer, Exception):
                 raise answer
             return answer
         with mock.patch.object(resolver_module, "agent_workspace", side_effect=select):
             with self.assertRaises(DomainError):
-                resolver._workspace("a", None)
-            self.assertEqual(resolver._workspace("a", None), Path("/instance/a"))
-            self.assertEqual(resolver._workspace("a", None), Path("/instance/a"))
-
-    def test_the_scope_projection_is_reused_for_the_same_profile_and_projects(self):
-        resolver = self.resolver()
-        active = ["b1", "b2"]
-        parsed = NS(name="parsed")
-        def project(profile, connection):
-            return NS(source=profile, data={"scope": {"allowed_project_ids": tuple(sorted(active))}})
-        with mock.patch.object(resolver_module, "with_effective_scope", side_effect=project) as projected, \
-                mock.patch.object(resolver_module, "active_project_ids", side_effect=lambda connection: frozenset(active)) as read:
-            first = resolver._effective_profile("a", "{json}", parsed, None)
-            self.assertIs(resolver._effective_profile("a", "{json}", parsed, None), first)
-            self.assertEqual(projected.call_count, 1)
-            self.assertEqual(read.call_count, 2)                     # the active projects are read every time
-            active.append("b3")                                      # a project appears: a new projection
-            changed = resolver._effective_profile("a", "{json}", parsed, None)
-            self.assertEqual(changed.data["scope"]["allowed_project_ids"], ("b1", "b2", "b3"))
-            self.assertEqual(projected.call_count, 2)
-            active.pop()                                             # and the earlier one is still exact
-            self.assertIs(resolver._effective_profile("a", "{json}", parsed, None), first)
-            reparsed = NS(name="reparsed")                           # same stored text, parsed again elsewhere
-            again = resolver._effective_profile("a", "{json}", reparsed, None)
-            self.assertIs(again.source, reparsed)
-            self.assertEqual(projected.call_count, 3)
-            self.assertIsNot(resolver._effective_profile("other", "{json}", reparsed, None), again)
-            with mock.patch.object(resolver_module, "PROFILE_CACHE_LIMIT", 1):
-                resolver._effective_profile("x", "{json}", parsed, None)
-            self.assertEqual(len(resolver._effective), 1)
+                resolver._workspace("a")
+            self.assertEqual(resolver._workspace("a"), Path("/instance/a"))
+            self.assertEqual(resolver._workspace("a"), Path("/instance/a"))
 
     def catalog(self):
         directory = tempfile.TemporaryDirectory()

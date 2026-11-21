@@ -43,10 +43,10 @@ repository. This is path validation, not protection against a same-user race.
 
 ### Areas (the trusted provider)
 
-`areas(uow)` is called inside the export read unit and returns values of exactly four kinds: `GlobalFiles`,
-`GlobalAgentFiles(agent_id)`, `ProjectAgentFiles(project, agent_id)` and `ProjectHeadquarters(project)`. They carry exact
+`areas(uow)` is called inside the export read unit and returns values of exactly three kinds: `GlobalFiles`,
+`GlobalAgentFiles(agent_id)` and `ProjectHeadquarters(project)`. They carry exact
 registered IDs/slugs; the host resolves them through `InstancePaths` (`files`, `agent_files(agent)`,
-`agent_files(agent, project_folder=slug)`, `project_hq(slug)`) after the unit closed. Anything else, an ID/slug that is not one
+`project_hq(slug)`) after the unit closed. Anything else, an ID/slug that is not one
 `SEGMENT` path segment, a duplicate (also case-folded), or overlapping resolved folders fails with `history_areas_invalid`
 before any file is captured. Nothing scans folders, reads tags or infers registrations. A resolved folder whose existing path
 crosses a symlink is reported as an excluded `symlink` area and none of it is read. Each value may carry

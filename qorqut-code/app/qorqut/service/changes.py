@@ -21,8 +21,7 @@ only for the coarse ones: `signoff_attention`'s capture trigger and
 `agent_profiles`/`principals`' capture triggers (migration 035) never
 include a `project_id`/`review_project_id` key in the captured row (the
 first has none of the signoff's own scope at all; the other two carry
-`home_project_id`, a differently-named column `_scope_of` does not look
-for) -- confirmed by reading those triggers directly, not assumed. Every
+no scope column) -- confirmed by reading those triggers directly, not assumed. Every
 write to those specific tables therefore lands at GLOBAL_SCOPE regardless
 of which project the row actually belongs to, while `project_memberships`
 and `relationships` (the other tables behind "agents" and "signoffs") do
@@ -135,7 +134,7 @@ GLOBAL_ONLY_KINDS = frozenset({"jobs_routines", "learnings", "thread_pins", CONT
 # also have at least one contributing source that always lands at
 # GLOBAL_SCOPE: "signoffs" via `signoff_attention` (no scope column captured,
 # see the module docstring) and the coarse `signoffs_notification_*` writes;
-# "agents" via `agent_profiles`/`principals` (captured `home_project_id`/no
+# "agents" via `agent_profiles`/`principals` (no
 # scope column at all, while `project_memberships` does carry a real
 # `project_id`). A route depending on one of these must check both its own
 # scope and GLOBAL_SCOPE, or it can miss the global-only half of the kind's

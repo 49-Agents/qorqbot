@@ -52,13 +52,13 @@ BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_js
 VALUES('signoff_attention','delete',inbox_actor(),json_object('signoff_id',OLD.signoff_id,'notify',OLD.notify,'urgent',OLD.urgent,'blocking',OLD.blocking,'reason',OLD.reason,'deadline',OLD.deadline,'revision',OLD.revision),NULL); END""",
     """CREATE TRIGGER inbox_capture_agent_profiles_insert AFTER INSERT ON agent_profiles
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('agent_profiles','insert',inbox_actor(),NULL,json_object('agent_id',NEW.agent_id,'home_project_id',NEW.home_project_id,'name',NEW.name,'status',NEW.status,'profile_json',NEW.profile_json,'revision',NEW.revision)); END""",
+VALUES('agent_profiles','insert',inbox_actor(),NULL,json_object('agent_id',NEW.agent_id,'name',NEW.name,'status',NEW.status,'profile_json',NEW.profile_json,'revision',NEW.revision)); END""",
     """CREATE TRIGGER inbox_capture_agent_profiles_update AFTER UPDATE ON agent_profiles
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('agent_profiles','update',inbox_actor(),json_object('agent_id',OLD.agent_id,'home_project_id',OLD.home_project_id,'name',OLD.name,'status',OLD.status,'profile_json',OLD.profile_json,'revision',OLD.revision),json_object('agent_id',NEW.agent_id,'home_project_id',NEW.home_project_id,'name',NEW.name,'status',NEW.status,'profile_json',NEW.profile_json,'revision',NEW.revision)); END""",
+VALUES('agent_profiles','update',inbox_actor(),json_object('agent_id',OLD.agent_id,'name',OLD.name,'status',OLD.status,'profile_json',OLD.profile_json,'revision',OLD.revision),json_object('agent_id',NEW.agent_id,'name',NEW.name,'status',NEW.status,'profile_json',NEW.profile_json,'revision',NEW.revision)); END""",
     """CREATE TRIGGER inbox_capture_agent_profiles_delete AFTER DELETE ON agent_profiles
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('agent_profiles','delete',inbox_actor(),json_object('agent_id',OLD.agent_id,'home_project_id',OLD.home_project_id,'name',OLD.name,'status',OLD.status,'profile_json',OLD.profile_json,'revision',OLD.revision),NULL); END""",
+VALUES('agent_profiles','delete',inbox_actor(),json_object('agent_id',OLD.agent_id,'name',OLD.name,'status',OLD.status,'profile_json',OLD.profile_json,'revision',OLD.revision),NULL); END""",
     """CREATE TRIGGER inbox_capture_project_memberships_insert AFTER INSERT ON project_memberships
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
 VALUES('project_memberships','insert',inbox_actor(),NULL,json_object('project_id',NEW.project_id,'principal_id',NEW.principal_id,'is_owner',NEW.is_owner,'active',NEW.active,'person_json',NEW.person_json,'revision',NEW.revision)); END""",

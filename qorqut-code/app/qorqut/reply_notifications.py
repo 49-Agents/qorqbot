@@ -76,7 +76,7 @@ def replies(runtime, ctx, include_communications=False, communications_after=Non
         # Chat replies come only from completed replies the backend indexed from the archive (provider end-of-turn evidence;
         # never partial, tool-only, owner echo or system notice), whether or not Chat was ever opened. A reply is unread while
         # its per-agent completion sequence is past the owner's read boundary. Only current supported globals contribute:
-        # replies of project-home, retired or unsupported registrations remain history, never unread navigation.
+        # replies of retired or unsupported registrations remain history, never unread navigation.
         for reply in native_store.unread_replies(uow.connection, ctx.principal_id):
             data = json.loads(reply['profile_json'])
             items.append({'id': 'gchat:' + reply['id'], 'kind': 'global', 'chat': True, 'agent_id': reply['agent_id'],

@@ -118,7 +118,7 @@ def own_namespace(ctx, args):
     """The namespace of an agent's own documents (a selected Project note target wins), or the selected scope."""
     if args.get(TARGET):
         return "project:" + args[TARGET]
-    return "agent:" + ctx.agent_id if ctx.agent_id and ctx.home_project_id is None else "project:" + ctx.project_id if ctx.project_id else "global"
+    return "agent:" + ctx.agent_id if ctx.agent_id else "project:" + ctx.project_id if ctx.project_id else "global"
 
 
 def identity_view(view, row, ctx, uow):
@@ -129,20 +129,17 @@ def identity_view(view, row, ctx, uow):
 class DocumentSources:
     """The one source service: store, library and the operational source operations.
 
-    ``agent_workspace(agent_id, project=None)`` and ``scope_root(project=None)`` are the host's existing location functions
-    bound to its paths; they place an agent's own note files. ``present(view, row, ctx, uow)`` is the publication adapter's
-    composition of one unscoped read (identity for a source-only caller). ``item_resolver`` is the host's optional record
-    resolver of a new resource's Task associations."""
+    ``present(view, row, ctx, uow)`` is the publication adapter's composition of one unscoped read (identity for a
+    source-only caller). ``item_resolver`` is the host's optional record resolver of a new resource's Task
+    associations."""
 
-    def __init__(self, store, library, *, agent_workspace, scope_root, clock=utc_clock, present=identity_view,
-                 item_resolver=None):
-        for name, value in (("agent_workspace", agent_workspace), ("scope_root", scope_root), ("present", present)):
-            if not callable(value):
-                raise TypeError(f"The document sources need a callable {name}")
+    def __init__(self, store, library, *, clock=utc_clock, present=identity_view, item_resolver=None):
+        if not callable(present):
+            raise TypeError("The document sources need a callable present")
         if not isinstance(library, SourceLibrary) or library.store is not store:
             raise TypeError("The document sources read through the library over their own store")
         self.store, self.library, self.clock = store, library, clock
-        self._agent_workspace, self._scope_root, self.present = agent_workspace, scope_root, present
+        self.present = present
         self.item_resolver = item_resolver
         self.descriptors = self._descriptors()
 
@@ -204,21 +201,12 @@ class DocumentSources:
         identity = identity or ctx.agent_id
         if identity is None:
             raise DomainError("validation_error", "An agent selector is required for a plan")
-        profile = uow.repository("agent_profiles", project_id=ctx.project_id).get(identity)
-        if profile is None and identity == ctx.agent_id:
-            profile = uow.repository("agent_profiles", project_id=None).get(identity)
+        profile = uow.repository("agent_profiles").get(identity)
         if profile is None or profile["status"] != "active":
             raise DomainError("not_found", "Active teammate not found")
         if write and ctx.principal_kind == "agent" and identity != ctx.agent_id:
             raise DomainError("forbidden", "Agents can edit only their own documents")
         return profile
-
-    def agent_prefix(self, profile, uow):
-        """The registered agent's identity directory in its scope root, relative to that root; never its name."""
-        project_id = profile["home_project_id"]
-        project = None if project_id is None else uow.repository("projects").get(project_id, required=True)
-        workspace = self._agent_workspace(profile["agent_id"], project)
-        return str(workspace.relative_to(self._scope_root(project))), project_id
 
     @staticmethod
     def check_global_notes(operation, ctx, args, uow, operations=GLOBAL_NOTE_OPS):
@@ -325,15 +313,12 @@ class DocumentSources:
             agent = args.get("agent_id", ctx.agent_id)
             if agent:
                 profile = self.active_agent(ctx, uow, agent)
-                if profile["home_project_id"] != ctx.project_id:
-                    found = rows(uow, "documents", profile["home_project_id"])
-                    found = [row for row in found if row["kind"] == "agent_note"]
+                if ctx.project_id is not None:
                     # Global agents keep private notes in their Global home. A
                     # selected project is an attribution filter, not a storage
                     # or access scope for those notes.
-                    if ctx.project_id is not None and profile["home_project_id"] is None:
-                        found = [row for row in found
-                                 if row["metadata_json"].get("related_project_id") == ctx.project_id]
+                    found = [row for row in rows(uow, "documents", None) if row["kind"] == "agent_note"
+                             and row["metadata_json"].get("related_project_id") == ctx.project_id]
                 found = [row for row in found if row["owning_agent_id"] == agent]
             if ctx.project_id is None and not agent:
                 # The owner's journal lists personal notes, not agent working notes.

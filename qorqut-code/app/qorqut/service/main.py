@@ -170,8 +170,6 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         selected = RecoveryAdminConfig.load(recovery_config, paths=paths)
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
             lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)
-    # Returns silently in managed mode and without tmux, so an approved archive never needs either.
-    runtime.domains.archive.reset_terminals = terminals.reset_project_for_archive
     # The managed runtime and the terminal side both exist now: finish what a service that died mid-switch left behind.
     recover_switch(runtime)
     compatibility = DashboardCompatibility(runtime, terminals=terminals, background=runtime.background, local_files=local)

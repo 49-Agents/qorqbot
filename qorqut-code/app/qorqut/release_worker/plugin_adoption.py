@@ -129,8 +129,7 @@ def adopt(plan_path, component_id, artifact_path, runtime_path, receipt_path):
                     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                     shutil.copy2(source, destination)
                     destination.chmod(0o600)
-            context = owner_ctx if row["home_project_id"] is None else owner_ctx.select_project(row["home_project_id"])
-            updated = runtime.application.invoke_or_raise(context, "agents_update",
+            updated = runtime.application.invoke_or_raise(owner_ctx, "agents_update",
                 {"agent_id": agent_id, "changes": changes, "rationale": "Owner-approved plugin release"},
                 InvocationOptions(expected_revision=row["revision"], idempotency_key=f"{plan['release_id']}:plugin:{component_id}:{agent_id}"))
             if updated.status != "ok":

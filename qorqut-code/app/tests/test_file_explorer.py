@@ -180,7 +180,7 @@ class ProjectBadgesTests(unittest.TestCase):
         self.signoff(superseded_by_id=replacement)
         managed = self.signoff(category='input_request')
         self.signoffs.ports = replace(self.signoffs.ports, management=NS(
-            coordinator=lambda *_:None, auto_route_input=lambda *_:None, routing_for=lambda *_:None,
+            coordinator=lambda *_:None, routing_for=lambda *_:None,
             managed_input_sql=f"s.id='{managed}'"))
         self.assertEqual(explorer.project_metadata(self.runtime, lambda _:self.context, {'example'})['example']['signoffs'], 1)
 

@@ -55,8 +55,8 @@ class Fixture(unittest.TestCase):
                 uow.repository('principals').insert(dict(id=identity, kind=kind, display_name=name, active=1,
                                                          created_at=STAMP, updated_at=STAMP))
             for identity, role in ((self.lead, 'ordubashy'), (self.worker, 'global-worker')):
-                uow.connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,namespace,name,workspace,profile_json,'
-                                       "created_at,updated_at) VALUES(?,?,'ecosystem',?,?,?,?,?)",
+                uow.connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,name,workspace,profile_json,'
+                                       "created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                                        (identity, identity, role, '/' + identity, profile(role), STAMP, STAMP))
             uow.repository('installation').insert(dict(id='service', installation_id=str(uuid4()), owner_principal_id=self.owner,
                                                        management_coordinator_id=self.lead, created_at=STAMP, updated_at=STAMP))

@@ -155,10 +155,10 @@ class References:
     targets = {"thing": ReferenceTarget("things_get", "thing_id")}
     def task_namespace(self, ctx, args): return "project:" + (ctx.project_id or "")
 class Agents:
-    # A current global agent: no home project, and every project active in this transaction is in its scope.
+    # A current global agent: every project active in this transaction is in its scope.
     def refresh_invocation_context(self, ctx, uow):
         row = uow.connection.execute("SELECT revision FROM agent_profiles WHERE agent_id=?", (ctx.principal_id,)).fetchone()
-        return replace(ctx, home_project_id=None, profile_revision=row[0],
+        return replace(ctx, profile_revision=row[0],
                        allowed_project_ids=effective_project_ids(uow.connection, ctx.principal_id))
     def policy_basis(self, ctx, uow):
         return AgentPolicyBasis({"things_create": "signoff"}, {}, {"id": GLOBAL_WORKER_ROLE, "version": "1"}, 1)
@@ -229,8 +229,8 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
                                              "hq_path": directory + "/w/hq"})
         uow.repository("project_memberships", project_id=PROJECT).insert({"principal_id": HUMAN, "is_owner": True})
         uow.repository("installation").insert({"id": "service", "installation_id": INSTALLATION, "owner_principal_id": HUMAN})
-        uow.connection.execute("INSERT INTO agent_profiles(agent_id, principal_id, home_project_id, namespace, name, "
-            "workspace, profile_json, created_at, updated_at) VALUES (?,?,NULL,'ecosystem',?,?,?, 'now', 'now')",
+        uow.connection.execute("INSERT INTO agent_profiles(agent_id, principal_id, name, "
+            "workspace, profile_json, created_at, updated_at) VALUES (?,?,?,?,?, 'now', 'now')",
             (AGENT, AGENT, "proposer", directory + "/agent",
              json.dumps({"status": "active", "role": {"id": GLOBAL_WORKER_ROLE}, "scope": {"kind": "ecosystem"}})))
         workers = authority.register_workers(uow, [PROJECT])

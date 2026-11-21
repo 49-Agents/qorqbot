@@ -633,7 +633,7 @@ class HTTPAPI:
             if parts[:1] == ["root"] and parts[1:2] in (["agents"], ["terminal"], ["terminals"], ["workspace-terminal"]):
                 context, _ = self.context(actor)
                 if parts == ["root", "agents"] and request.method == "GET":
-                    result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, "agents_list", {"scope": "global"}))
+                    result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, "agents_list", {}))
                     return response(result)
                 if len(parts) == 4 and parts[1] == "agents" and parts[3] == "viewbox" and request.method == "GET":
                     return await self.viewbox_board(request, context, parts[2], request_id)
@@ -871,16 +871,12 @@ class HTTPAPI:
                     return await self.data_upload_download(context, tail[1])
                 if tail[:1] == ["signoffs"]:
                     return await self.signoff_route(request, context, tail)
-                if len(tail) == 3 and tail[0] == "agents" and tail[2] in {"config", "permissions"}:
-                    if tail[2] == "config" and request.method == "GET":
-                        config = await anyio.to_thread.run_sync(lambda: self.runtime.agents.owner_config(context, tail[1]))
-                        return response(OperationResult.ok({"effective_config": config}, request_id=context.request_id))
-                    if tail[2] == "permissions" and request.method == "POST":
-                        body = await read_json(request)
-                        checked_fields(body, {"expected_revision", "idempotency_key", "overrides"}, {"expected_revision", "idempotency_key", "overrides"})
-                        options = InvocationOptions(expected_revision=body["expected_revision"], idempotency_key=body["idempotency_key"])
-                        result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, "permissions_set", {"agent_id": tail[1], "overrides": body["overrides"]}, options))
-                        return response(result)
+                if len(tail) == 3 and tail[0] == "agents" and tail[2] == "permissions" and request.method == "POST":
+                    body = await read_json(request)
+                    checked_fields(body, {"expected_revision", "idempotency_key", "overrides"}, {"expected_revision", "idempotency_key", "overrides"})
+                    options = InvocationOptions(expected_revision=body["expected_revision"], idempotency_key=body["idempotency_key"])
+                    result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, "permissions_set", {"agent_id": tail[1], "overrides": body["overrides"]}, options))
+                    return response(result)
                 if len(tail) == 2 and tail[0] == "operations" and request.method == "POST":
                     body = await read_json(request, limit=28 * 1024 * 1024 if tail[1] == "data_uploads_upload" else 2 * 1024 * 1024)
                     args, options = split_options(body)
@@ -1296,17 +1292,13 @@ class HTTPAPI:
                                                      actor.registration_id) == "foreign":
                             raise DomainError("forbidden", "Technical report session belongs to another registration",
                                               details={"reason": "technical_session_mismatch"})
-                        profile = uow.connection.execute(
-                            "SELECT home_project_id FROM agent_profiles WHERE agent_id=? AND status='active'",
-                            (actor.principal.id,)).fetchone()
-                        project_id = profile["home_project_id"] if profile else None
                         reporter_id = incidents.reporter_id
                         if reporter_id is None:
                             reporter_id = ensure_system_reporter(uow, incidents.authority)
                             incidents.reporter_id = reporter_id
                         try:
                             observation = incidents.reporter.external_observation(
-                                body["observation"], agent_id=actor.principal.id, project_id=project_id,
+                                body["observation"], agent_id=actor.principal.id, project_id=None,
                                 observation_namespace=actor.principal.id)
                         except ValueError as exc:
                             raise DomainError("validation_error", "Technical observation is invalid") from exc

@@ -38,7 +38,7 @@ class CoordinatorReach(unittest.TestCase):
                 status = 'inactive' if name == 'former' else 'active'
                 uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': name})
                 uow.repository('agent_profiles', project_id=None).insert({
-                    'agent_id': identity, 'principal_id': identity, 'namespace': 'ecosystem', 'name': name,
+                    'agent_id': identity, 'principal_id': identity, 'name': name,
                     'workspace': str(root / name), 'status': status,
                     'profile_json': {'name': name, 'status': status, 'runtime': 'claude-code', 'role': {'id': role},
                         'scope': {'kind': 'ecosystem', 'allowed_project_ids': [],

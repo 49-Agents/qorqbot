@@ -217,13 +217,11 @@ class InstancePaths:
     def project_code(self, folder: str) -> Path:
         return self._checked(self.project_root(folder) / "code")
 
-    def agent_workspace(self, agent_id: str, *, project_folder: str | None = None) -> Path:
+    def agent_workspace(self, agent_id: str) -> Path:
         """Resolve identity; only an explicitly mapped Ordubashy or Learning Applier uses a readable folder name; workers keep UUID folders."""
         agent = _segment(agent_id, "agent id")
-        base = self._operations if project_folder is None else self.project_root(project_folder)
-        if project_folder is None:
-            agent = self.global_agent_workspaces().get(agent, agent)
-        return self._checked(base / "agents" / agent)
+        agent = self.global_agent_workspaces().get(agent, agent)
+        return self._checked(self._operations / "agents" / agent)
 
     def global_agent_workspaces(self) -> dict[str, str]:
         """Explicit historical ID-to-folder binding, never role or display-name authority.
@@ -253,11 +251,11 @@ class InstancePaths:
         except (ValueError, TypeError, AttributeError):
             raise InstancePathError("Invalid fixed global-agent workspace mapping") from None
 
-    def agent_files(self, agent_id: str, *, project_folder: str | None = None) -> Path:
-        return self._checked(self.agent_workspace(agent_id, project_folder=project_folder) / "files")
+    def agent_files(self, agent_id: str) -> Path:
+        return self._checked(self.agent_workspace(agent_id) / "files")
 
-    def agent_transcripts(self, agent_id: str, *, project_folder: str | None = None) -> Path:
-        return self._checked(self.agent_workspace(agent_id, project_folder=project_folder) / "transcripts")
+    def agent_transcripts(self, agent_id: str) -> Path:
+        return self._checked(self.agent_workspace(agent_id) / "transcripts")
 
     def _checked(self, path: Path) -> Path:
         """Refuse a derived path whose existing parts include a symlink; unwritten paths cannot escape.

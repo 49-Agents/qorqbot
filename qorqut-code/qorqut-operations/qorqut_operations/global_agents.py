@@ -1,14 +1,13 @@
 """Current global agents and the project access they derive from the active project directory.
 
 This module is the one current-global eligibility authority of the engine and the host; it imports nothing from the
-host. A current global is an active ``agent`` principal whose registered profile row is active, has no home project
-and stores a decoded profile that is itself active, has an ecosystem scope without a project and holds one of the
-supported global roles. Missing or malformed profile JSON and wrong field types fail closed. Its project access is
-every project active in the reading transaction. The profile's stored ``allowed_project_ids`` list and its own
-membership rows are not consulted: a project registered later is included immediately and an archived project is
-excluded. A missing, inactive or retired principal or profile, an unknown or retired role, and any project-home
-profile is never global, so a retained historical row cannot regain eligibility here; history readers that present
-retained records do not use this predicate.
+host. A current global is an active ``agent`` principal whose registered profile row is active and stores a decoded
+profile that is itself active, has an ecosystem scope and holds one of the supported global roles. Missing or
+malformed profile JSON and wrong field types fail closed. Its project access is every project active in the reading
+transaction. Its own membership rows are not consulted: a project registered later is included immediately and an
+archived project is excluded. A missing, inactive or retired principal or profile and an unknown or retired role is
+never global, so a retained historical row cannot regain eligibility here; history readers that present retained
+records do not use this predicate.
 
 Humans and registered system workers keep their membership and owner rules, and this module says nothing about them.
 All-project access is project scope only: role and plugin operation grants and global capabilities are still decided
@@ -27,7 +26,7 @@ SUPPORTED_GLOBAL_ROLES = frozenset({ORDUBASHY_ROLE, LEARNING_APPLIER_ROLE, GLOBA
 # The one role several current globals may hold at once; every other supported role has at most one active holder.
 REPEATABLE_GLOBAL_ROLES = frozenset({GLOBAL_WORKER_ROLE})
 
-_GLOBAL_PROFILES = ("SELECT a.agent_id, a.revision, a.status, a.home_project_id, a.profile_json, p.kind, p.active "
+_GLOBAL_PROFILES = ("SELECT a.agent_id, a.revision, a.status, a.profile_json, p.kind, p.active "
                     "FROM agent_profiles a JOIN principals p ON p.id=a.agent_id")
 
 
@@ -50,9 +49,9 @@ def current_global_data(profile) -> dict | None:
     role, scope = data.get("role"), data.get("scope")
     if not isinstance(role, dict) or not isinstance(role.get("id"), str) or role["id"] not in SUPPORTED_GLOBAL_ROLES:
         return None
-    if not isinstance(scope, dict) or scope.get("kind") != "ecosystem" or scope.get("project_id") is not None:
+    if not isinstance(scope, dict) or scope.get("kind") != "ecosystem":
         return None
-    if any(key in scope and not _strings(scope[key]) for key in ("allowed_project_ids", "global_capabilities")):
+    if "global_capabilities" in scope and not _strings(scope["global_capabilities"]):
         return None
     return data
 
@@ -60,9 +59,8 @@ def current_global_data(profile) -> dict | None:
 def current_global_row(row) -> dict | None:
     """The decoded profile of a current supported global registration row, or None for anything else.
 
-    ``row`` is an ``agent_profiles`` row joined with its principal's ``kind`` and ``active`` columns. A project home
-    disqualifies the row whatever its status."""
-    if row is None or row["home_project_id"] is not None or row["status"] != "active":
+    ``row`` is an ``agent_profiles`` row joined with its principal's ``kind`` and ``active`` columns."""
+    if row is None or row["status"] != "active":
         return None
     if row["kind"] != "agent" or row["active"] not in (1, True):
         return None
@@ -90,7 +88,7 @@ def is_coordinator(connection, principal_id) -> bool:
 
 def global_agent_ids(connection) -> list[str]:
     return [row["agent_id"] for row in connection.execute(
-        _GLOBAL_PROFILES + " WHERE a.status='active' AND a.home_project_id IS NULL ORDER BY a.agent_id")
+        _GLOBAL_PROFILES + " WHERE a.status='active' ORDER BY a.agent_id")
         if current_global_row(row) is not None]
 
 

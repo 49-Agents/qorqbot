@@ -153,7 +153,7 @@ class HostEventRouting:
         return None
 
     def recipient_allowed(self, uow, agent, project, table, guard):
-        # Only active supported globals receive deliveries; project-home identities are historical.
+        # Only active supported globals receive deliveries.
         profile = active_global(uow.connection, agent)
         if profile is None: return False
         if project is None:

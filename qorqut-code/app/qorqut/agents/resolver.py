@@ -33,7 +33,6 @@ from . import role_workflow
 FREE_WORKERS = 3
 from . import cleanup_workflow
 from .context import MAX_CONTEXT_CHARACTERS, ContextSource, compose_context
-from .global_scope import with_effective_scope
 from .models import AgentProfile, EffectiveAgentConfig
 from .roles import SUPPORTED_GLOBAL_ROLES
 
@@ -187,7 +186,6 @@ class AgentConfigResolver:
         self._cache: OrderedDict[str, EffectiveAgentConfig] = OrderedDict()
         self._lock = RLock()
         self._profiles: OrderedDict[tuple[str, str], AgentProfile] = OrderedDict()
-        self._effective: OrderedDict[tuple, tuple[AgentProfile, AgentProfile]] = OrderedDict()
         self._profiles_registry: Any = None
         self._profiles_lock = RLock()
         self._fingerprints: OrderedDict[tuple, tuple[str, str]] = OrderedDict()
@@ -244,30 +242,7 @@ class AgentConfigResolver:
                     self._profiles.popitem(last=False)
         return profile
 
-    def _effective_profile(self, principal_id: str, profile_json: str, profile: AgentProfile, connection) -> AgentProfile:
-        """``with_effective_scope``, reusing the result for the same parsed profile and the same active projects.
-
-        The projection copies and refreezes the whole profile to replace one list. It is a pure function of the
-        parsed profile and the projects active in this transaction, which are read here on every call; only the
-        copy is reused, and only for the very object ``_parsed_profile`` returned, so an entry never outlives the
-        parse it was built from."""
-        projects = tuple(sorted(active_project_ids(connection)))
-        key = (principal_id, profile_json, projects)
-        with self._profiles_lock:
-            cached = self._effective.get(key)
-            if cached is not None and cached[0] is profile:
-                self._effective.move_to_end(key)
-                return cached[1]
-        effective = with_effective_scope(profile, connection)
-        if tuple(effective.data["scope"]["allowed_project_ids"]) == projects:
-            with self._profiles_lock:
-                self._effective[key] = (profile, effective)
-                self._effective.move_to_end(key)
-                while len(self._effective) > PROFILE_CACHE_LIMIT:
-                    self._effective.popitem(last=False)
-        return effective
-
-    def _workspace(self, agent_id: str, project) -> Path:
+    def _workspace(self, agent_id: str) -> Path:
         """The identity's workspace, selected and checked against symlinks once per unit of work.
 
         Selecting it resolves the path on disk and reads the fixed workspace mapping. One operation asks for the
@@ -275,11 +250,11 @@ class AgentConfigResolver:
         ``unit_memo``), and a refusal is never kept."""
         memo = unit_memo()
         if memo is None:
-            return agent_workspace(self.paths, agent_id, project)
-        key = (self, "workspace", agent_id, None if project is None else project["slug"])
+            return agent_workspace(self.paths, agent_id)
+        key = (self, "workspace", agent_id)
         found = memo.get(key)
         if found is None:
-            found = memo[key] = agent_workspace(self.paths, agent_id, project)
+            found = memo[key] = agent_workspace(self.paths, agent_id)
         return found
 
     def profile(self, principal: Principal, *, connection=None) -> tuple[AgentProfile, dict]:
@@ -292,26 +267,16 @@ class AgentConfigResolver:
         row = connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (principal.id,)).fetchone()
         if actor is None or actor["kind"] != "agent" or not actor["active"] or row is None or row["status"] != "active":
             raise DomainError("inactive_agent", "Agent identity is missing or inactive; read current configuration after preparation")
-        if row["home_project_id"] is not None:
-            # Projects own resources only. A project-home identity is historical
-            # whatever its stored status, and is never revived for execution.
-            raise DomainError("inactive_agent", "Project-home agent identities are historical and cannot operate")
         profile = self._parsed_profile(principal.id, row["profile_json"])
         if profile.role.id not in SUPPORTED_GLOBAL_ROLES:
             raise DomainError("inactive_agent", "Agent uses an unsupported role and cannot operate")
-        if profile.scope.kind != "ecosystem":
-            raise DomainError("profile_conflict", "An active agent must hold ecosystem scope")
         if (profile.agent_id != principal.id or row["principal_id"] != principal.id or profile.data["status"] != "active" or profile.revision != row["revision"]
-            or profile.data["name"] != row["name"] or profile.scope.project_id != row["home_project_id"]
-            or row["namespace"] != (profile.scope.project_id or "ecosystem")):
+            or profile.data["name"] != row["name"]):
             raise DomainError("profile_conflict", "Indexed identity and canonical profile disagree")
-        project = (None if row["home_project_id"] is None else
-                    connection.execute("SELECT slug FROM projects WHERE id=?", (row["home_project_id"],)).fetchone())
-        # The registered identity and home scope select the workspace; the stored column must agree, never choose.
-        if Path(row["workspace"]) != self._workspace(row["agent_id"], project):
+        # The registered identity selects the workspace; the stored column must agree, never choose.
+        if Path(row["workspace"]) != self._workspace(row["agent_id"]):
             raise DomainError("registration_conflict", "Agent workspace is not the registered identity's workspace")
-        # Effective access is every active project in this transaction, not the saved list.
-        return self._effective_profile(principal.id, row["profile_json"], profile, connection), dict(row)
+        return profile, dict(row)
 
     # -- AgentAuthority: what the Operations policy resolver asks of the agent registry -------------------------
 
@@ -344,12 +309,12 @@ class AgentConfigResolver:
                            review_project_id: str | None = None) -> InvocationContext:
         config = self.resolve_agent_config(principal, project_id=project_id, include_preparation=False)
         data = config.data
-        scope = data["scope"]
-        allowed = frozenset((scope["project_id"],)) if scope["kind"] == "project" else frozenset(scope["allowed_project_ids"])
+        with self.database.read() as uow:
+            allowed = active_project_ids(uow.connection)
         if review_project_id and review_project_id not in allowed:
             raise DomainError("forbidden", "Review project is outside the current scope")
-        return InvocationContext(principal, project_id=data.get("project_id"), home_project_id=scope.get("project_id"),
-            allowed_project_ids=allowed, global_capabilities=frozenset(scope.get("global_capabilities", ())),
+        return InvocationContext(principal, project_id=data.get("project_id"),
+            allowed_project_ids=allowed, global_capabilities=frozenset(data["scope"].get("global_capabilities", ())),
             profile_revision=data["profile_revision"], policy_revision=data["profile_revision"],
             role_artifact_ref=ArtifactRef(**data["role"]),
             enabled_plugin_refs=tuple(ArtifactRef(id=item["id"], version=item["version"], digest=item["digest"], kind="plugin") for item in data["plugins"]),
@@ -364,8 +329,8 @@ class AgentConfigResolver:
         """
         with self.database.read() as uow:
             profile, _ = self.profile(principal, connection=uow.connection)
-            ctx = InvocationContext(principal, project_id=project_id or profile.scope.project_id,
-                home_project_id=profile.scope.project_id, allowed_project_ids=profile.scope.projects,
+            ctx = InvocationContext(principal, project_id=project_id,
+                allowed_project_ids=active_project_ids(uow.connection),
                 global_capabilities=frozenset(profile.scope.global_capabilities),
                 profile_revision=profile.revision, policy_revision=profile.revision,
                 role_artifact_ref=profile.role, source='mcp', session_registration_id=session_registration_id,
@@ -377,15 +342,12 @@ class AgentConfigResolver:
         if ctx.agent_id is None:
             return ctx
         profile, _ = self.profile(ctx.principal, connection=uow.connection)
-        from qorqut_operations.project_lifecycle import active_project_ids, require_active_project
-        target = ctx.project_id or profile.scope.project_id
-        require_active_project(uow.connection, target)
-        if target is not None and target not in profile.scope.projects:
-            raise DomainError("forbidden", "The selected project is no longer in the current agent scope")
-        if ctx.review_project_id and ctx.review_project_id not in profile.scope.projects:
+        from qorqut_operations.project_lifecycle import require_active_project
+        require_active_project(uow.connection, ctx.project_id)
+        projects = active_project_ids(uow.connection)
+        if ctx.review_project_id and ctx.review_project_id not in projects:
             raise DomainError("forbidden", "The review project is no longer in the current agent scope")
-        return replace(ctx, project_id=target, home_project_id=profile.scope.project_id,
-            allowed_project_ids=profile.scope.projects & active_project_ids(uow.connection), global_capabilities=frozenset(profile.scope.global_capabilities),
+        return replace(ctx, allowed_project_ids=projects, global_capabilities=frozenset(profile.scope.global_capabilities),
             profile_revision=profile.revision, policy_revision=profile.revision, role_artifact_ref=profile.role,
             enabled_plugin_refs=tuple(ArtifactRef(id=item["id"], version=item["version"], digest=item["digest"], kind="plugin") for item in profile.data["plugins"]),
             context_refresh_required=ctx.profile_revision != profile.revision)
@@ -394,19 +356,11 @@ class AgentConfigResolver:
         with self.database.read() as uow:
             connection = uow.connection
             profile, row = proposed or self.profile(principal, connection=connection)
-            profile = with_effective_scope(profile, connection)
             from qorqut_operations.project_lifecycle import require_active_project
-            target = project_id or profile.scope.project_id
+            target = project_id
             require_active_project(connection, target)
-            if target is not None and target not in profile.scope.projects:
-                raise DomainError("forbidden", "Selected project is outside the agent's current scope")
-            projects = []
-            for permitted in sorted(profile.scope.projects):
-                project = connection.execute("SELECT * FROM projects WHERE id=?", (permitted,)).fetchone()
-                if project is None:
-                    raise DomainError("invalid_scope", f"Profile references an unregistered project: {permitted}")
-                if project["archived_at"] is None:
-                    projects.append({**dict(project), "display_name": project["name"]})
+            projects = [{**dict(project), "display_name": project["name"]} for project in connection.execute(
+                "SELECT * FROM projects WHERE archived_at IS NULL ORDER BY id")]
             selected = next((item for item in projects if item["id"] == target), None)
             registration = connection.execute("SELECT * FROM machine_registrations WHERE principal_id=? AND workspace=?", (principal.id, row["workspace"])).fetchone()
             owner_names = [item[0] for item in connection.execute(
@@ -440,9 +394,6 @@ class AgentConfigResolver:
                     self.registry, role_id=role.id).mode == "allow" for name in reads)
 
         selected_docs, signatures = {}, []
-        # Only global agents run; the retired project-agent instruction source is never required.
-        if profile.scope.kind != "ecosystem":
-            raise DomainError("invalid_scope", "Only ecosystem agents receive orientation")
         if "read_global_context" not in profile.scope.global_capabilities:
             raise DomainError("invalid_scope", "Ecosystem orientation requires read_global_context capability")
         def located(base, doc, key):
@@ -478,14 +429,13 @@ class AgentConfigResolver:
             return fingerprint, canonical_hash({"fingerprint": fingerprint, "signatures": signatures})
 
         # Both hashes are pure functions of the values below and of the frozen registry's operations. An unproposed
-        # profile is itself a pure function of its stored text, that registry and the active projects listed in its
-        # scope, so the same exact inputs reuse the same hashes instead of re-serialising the profile and every
+        # profile is itself a pure function of its stored text, that registry and the active projects, so the same
+        # exact inputs reuse the same hashes instead of re-serialising the profile and every
         # installed operation on each call. A proposed profile, an open registry or an unhashable value computes them.
         inputs = None
         if proposed is None and getattr(self.registry, "frozen", False) is True:
             try:
-                inputs = (agentic_revision, principal.id, row["profile_json"], tuple(profile.data["scope"]["allowed_project_ids"]),
-                          row["workspace"], target, tuple(tuple(item.items()) for item in projects), tuple(owner_names),
+                inputs = (agentic_revision, principal.id, row["profile_json"], row["workspace"], target, tuple(tuple(item.items()) for item in projects), tuple(owner_names),
                           tuple((item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts),
                           tuple(signatures))
                 hash(inputs)
@@ -690,11 +640,8 @@ class AgentConfigResolver:
         session_note = render(view, "host", "app/qorqut/agentic/assets/inbox-session-note.md")
         if not session_note.strip() or len(session_note) > MAX_CONTEXT_CHARACTERS:
             raise DomainError("agentic_resource_unavailable", "Managed inbox session guidance is empty or oversized")
-        visible_scope = plain(profile.to_dict()["scope"])
-        if profile.scope.kind == "ecosystem":
-            visible_scope["allowed_project_ids"] = [row["id"] for row in snapshot["projects"]]
         self.check_agentic_revision(snapshot["agentic_catalog_revision"])
-        return EffectiveAgentConfig({**profile.to_dict(), "scope": visible_scope, "workspace": snapshot["row"]["workspace"],
+        return EffectiveAgentConfig({**profile.to_dict(), "workspace": snapshot["row"]["workspace"],
             "project_id": snapshot["project"]["id"] if snapshot["project"] else None,
             "project_revision": snapshot["project"]["revision"] if snapshot["project"] else None,
             "effective_config_id": config_id, "configuration_revision": config_id, "context_refresh_required": False,

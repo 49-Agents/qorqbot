@@ -130,15 +130,15 @@ class Application:
             if profile is None or profile["status"] != "active":
                 raise DomainError("inactive_agent", "Agent profile is missing or inactive")
             found = global_profile(uow.connection, current.principal_id)
-            # Only current supported globals act; a project-home, unsupported-role, inactive or malformed profile is
+            # Only current supported globals act; an unsupported-role, inactive or malformed profile is
             # history, never an executable registration.
-            if found is None or current.home_project_id is not None:
+            if found is None:
                 raise DomainError("forbidden", "Only active global agents may invoke operations")
             scope = found["profile"]["scope"]
             if profile["revision"] != current.profile_revision:
                 raise DomainError("context_refresh_required", "Agent configuration changed", retryable=True,
                                   current_revision=profile["revision"])
-            # A global agent's project access is the active directory in this transaction, never its stored list.
+            # A global agent's project access is the active directory in this transaction.
             if not current.allowed_project_ids <= effective_project_ids(uow.connection, current.principal_id):
                 raise DomainError("forbidden", "Invocation scope is not granted by the current profile")
             if not current.global_capabilities <= set(scope.get("global_capabilities", ())):

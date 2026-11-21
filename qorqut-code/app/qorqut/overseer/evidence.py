@@ -1279,18 +1279,17 @@ class HostScanner:
                        f"ORDER BY {column} LIMIT ?")
                 for row in uow.connection.execute(sql, (project_id, bound, *parameters, *fresh, limit + 1)):
                     rows.append(([nskey, kind, row[0]], namespace, kind, row[0]))
-            if not tasks and (nskey, "transcript") >= (old[0], old[1]):
+            if not tasks and project_id is None and (nskey, "transcript") >= (old[0], old[1]):
                 bound = old[2] if (nskey, "transcript") == (old[0], old[1]) else ["", "", ""]
                 if not isinstance(bound, list) or len(bound) != 3:
                     raise DomainError("validation_error", "Invalid transcript enumeration cursor")
                 agent_filter = " AND c.agent_id IN (" + ",".join("?" for _ in agents) + ")" if agents else ""
                 inserted, fresh = self._inserted_after("native_captures", "c")
                 captures = uow.connection.execute("SELECT c.agent_id,c.provider,c.conversation_id FROM native_captures c "
-                    "JOIN agent_profiles p ON p.agent_id=c.agent_id WHERE p.home_project_id IS ? "
-                    "AND c.receipt_id IS NOT NULL AND c.captured_length>0 "
+                    "JOIN agent_profiles p ON p.agent_id=c.agent_id WHERE c.receipt_id IS NOT NULL  AND c.captured_length>0 "
                     "AND (c.agent_id,c.provider,c.conversation_id)>(?,?,?)" + agent_filter + inserted +
                     " ORDER BY c.agent_id,c.provider,c.conversation_id LIMIT ?",
-                    (project_id, *bound, *sorted(agents), *fresh, limit + 1))
+                    (*bound, *sorted(agents), *fresh, limit + 1))
                 for row in captures:
                     identity = [row[0], row[1], row[2]]
                     rows.append(([nskey, "transcript", identity], namespace, "transcript", identity))
@@ -1470,15 +1469,14 @@ class HostScanner:
         attribution = note.get("attribution") or {}
         source = attribution.get("source")
         if isinstance(source, dict) and source.get("provider") and source.get("session_id"):
-            rows = uow.connection.execute("SELECT c.agent_id,p.home_project_id FROM native_captures c "
+            rows = uow.connection.execute("SELECT c.agent_id FROM native_captures c "
                 "JOIN agent_profiles p ON p.agent_id=c.agent_id WHERE c.provider=? AND c.conversation_id=?",
                 (source["provider"], source["session_id"])).fetchall()
             if any(row[0] in self.journal.overseer_ids for row in rows):
                 return "excluded", []
             if len(rows) != 1:
                 return "unknown", []
-            source_ns = ({"kind": "project", "project_id": rows[0][1]} if rows[0][1]
-                         else {"kind": "global", "project_id": None})
+            source_ns = {"kind": "global", "project_id": None}
             pre = self._locator(source_ns, "transcript", _key([rows[0][0], source["provider"], source["session_id"]]),
                                 agent_id=rows[0][0], provider=source["provider"], conversation_id=source["session_id"])
             try:

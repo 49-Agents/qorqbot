@@ -155,15 +155,14 @@ class AgentTerminalBackend:
     def selected(self, row):
         """The registered tmux target of the agent: ``(broker, key, session, workspace, project)``."""
         self.require_terminal_mode()
-        with self.runtime.database.read() as uow:
-            project = uow.repository('projects').get(row['home_project_id']) if row['home_project_id'] else None
+        project = None
         execution = self.terminals.execution(project)
         if execution.target_identity is not None or execution.broker is not self.terminals.broker:
             raise DomainError('operation_unavailable', NATIVE_ONLY)
         broker = execution.broker
         if broker is None or not broker.tmux_available():
             raise DomainError('operation_unavailable', 'Host tmux is unavailable')
-        key, session, cwd = self.terminals.binding(project, row, broker)
+        key, session, cwd = self.terminals.binding(row, broker)
         return broker, key, session, cwd, project
 
     def snapshot(self, row, *, client=None):
@@ -481,7 +480,7 @@ class AgentTerminalBackend:
         # Reconstitute owner context solely for the existing trusted preparation path.
         with self.runtime.database.read() as uow:
             owner = uow.repository('installation').get('service')['owner_principal_id']
-            context = self.runtime.policy.context_for(owner, project_id=row['home_project_id'], review_project_id=None, uow=uow)
+            context = self.runtime.policy.context_for(owner, project_id=None, review_project_id=None, uow=uow)
         self.terminals.open(context, project, row['agent_id'])
         snap = self.opened_snapshot(row)
         if snap.get('command') not in SHELLS:

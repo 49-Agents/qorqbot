@@ -521,11 +521,8 @@ class TaskPlans:
             raise DomainError('operation_unavailable', 'Files cannot be read here, so this step cannot be checked')
         scopes = []
         try:
-            home = uow.connection.execute(
-                'SELECT p.home_project_id, b.slug FROM agent_profiles p LEFT JOIN projects b ON b.id=p.home_project_id '
-                'WHERE p.agent_id=?', (ctx.principal_id,)).fetchone()
-            if home is not None:
-                scopes.append(relative_to_operations(paths, agent_workspace_of(paths, ctx.principal_id, home[0], home[1])))
+            if uow.connection.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (ctx.principal_id,)).fetchone() is not None:
+                scopes.append(relative_to_operations(paths, agent_workspace_of(paths, ctx.principal_id)))
             if task.get('project_id'):
                 project = uow.connection.execute('SELECT slug FROM projects WHERE id=?', (task['project_id'],)).fetchone()
                 if project is not None:

@@ -117,7 +117,6 @@ class Principal:
 class InvocationContext:
     principal: Principal
     project_id: str | None = None
-    home_project_id: str | None = None
     allowed_project_ids: frozenset[str] = field(default_factory=frozenset)
     global_capabilities: frozenset[str] = field(default_factory=frozenset)
     profile_revision: int | None = None
@@ -146,7 +145,7 @@ class InvocationContext:
     def __post_init__(self):
         if not isinstance(self.principal, Principal):
             raise ValueError("Context requires an authenticated Principal")
-        for name in ("project_id", "home_project_id", "review_project_id", "initiated_by_principal_id", "job_id",
+        for name in ("project_id", "review_project_id", "initiated_by_principal_id", "job_id",
                      "owner_session_project_id",
                      "delegation_binding_id", "delegation_assignment_id"):
             _uuid(getattr(self, name), name)

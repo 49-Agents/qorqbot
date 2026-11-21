@@ -122,7 +122,7 @@ async def route(runtime, request, principal_id, parts, request_id):
             from qorqut.connectors import _probe_environment
             from .commands import catalog
             client = request.query_params.get("client") or ""
-            workspace = agent_workspace(runtime.paths, agent_id, None)
+            workspace = agent_workspace(runtime.paths, agent_id)
             return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace,
                                         managed=not mode.is_terminal(runtime.paths))))
         if tail == ["events"]:

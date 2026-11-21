@@ -26,7 +26,7 @@ class AcknowledgeTests(unittest.TestCase):
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': role})
             uow.repository('agent_profiles', project_id=None).insert({'agent_id': identity, 'principal_id': identity,
-                'namespace': 'ecosystem', 'name': role, 'workspace': role, 'profile_json': profile})
+                'name': role, 'workspace': role, 'profile_json': profile})
         return replace(self.ctx, principal=Principal(identity, 'agent'), source='mcp', profile_revision=1)
 
     def coordinator(self):

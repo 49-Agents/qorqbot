@@ -55,8 +55,8 @@ class EvidenceAccess:
             # Subject IDs are admitted as specific canonical records, never silently dropped.
             for agent_id in selection.get('agent_ids', []):
                 self._agent(ctx, agent_id, uow)
-                row = uow.connection.execute('SELECT home_project_id FROM agent_profiles WHERE agent_id=?', (agent_id,)).fetchone()
-                if row is None or ({'kind': 'project', 'project_id': row[0]} if row[0] else {'kind': 'global', 'project_id': None}) not in namespaces:
+                row = uow.connection.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (agent_id,)).fetchone()
+                if row is None or {'kind': 'global', 'project_id': None} not in namespaces:
                     _forbidden()
             for task_id in selection.get('task_ids', []):
                 rows = uow.connection.execute('SELECT project_id FROM tasks WHERE id=? LIMIT 101', (task_id,)).fetchall()
@@ -138,8 +138,8 @@ class EvidenceAccess:
                 agent, engine, conversation = loc.get('agent_id'), loc.get('provider'), loc.get('conversation_id')
                 if not all(isinstance(x, str) and x for x in (agent, engine, conversation)): _forbidden()
                 self._agent(ctx, agent, uow)
-                profile = uow.connection.execute('SELECT home_project_id FROM agent_profiles WHERE agent_id=?', (agent,)).fetchone()
-                if profile is None or profile['home_project_id'] != project: _forbidden()
+                profile = uow.connection.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (agent,)).fetchone()
+                if profile is None or project is not None: _forbidden()
                 capture = uow.connection.execute('SELECT receipt_id FROM native_captures WHERE agent_id=? AND provider=? AND conversation_id=?',
                                                  (agent, engine, conversation)).fetchone()
                 if capture is None: _forbidden()

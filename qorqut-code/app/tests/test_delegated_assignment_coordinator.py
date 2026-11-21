@@ -29,7 +29,7 @@ class CoordinatorControlsAssignments(unittest.TestCase):
             for identity in (self.coordinator, self.parent, self.other):
                 uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': 'Agent'})
                 uow.repository('agent_profiles', project_id=None).insert({
-                    'agent_id': identity, 'principal_id': identity, 'namespace': 'ecosystem', 'name': identity,
+                    'agent_id': identity, 'principal_id': identity, 'name': identity,
                     'workspace': str(root / identity), 'status': 'active',
                     'profile_json': {'name': identity, 'status': 'active', 'runtime': 'claude-code',
                         'role': {'id': 'ordubashy' if identity == self.coordinator else 'global-worker'},

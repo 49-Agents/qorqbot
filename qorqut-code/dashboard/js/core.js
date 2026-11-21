@@ -202,7 +202,7 @@ let tab0 = ls("tab");
 if (tab0 === "agents") tab0 = "tasks";
 const contextTab0 = {tables: "_tables"}[tab0];
 if (contextTab0) tab0 = "context";
-const state = { scope: "project", globalTab: "agents", project: null, projects: [], tab: TABS[tab0] ? tab0 : "tasks", agent: null, agents: [], ctx: contextTab0 || null };
+const state = { scope: "project", globalTab: "agents", project: null, projects: [], tab: TABS[tab0] ? tab0 : "tasks", agent: null, ctx: contextTab0 || null };
 // Per-URL {etag, body} cache for GET reads (Stage 2 PR4): a matching
 // If-None-Match lets the server return 304 without redoing the read, so an
 // unchanged pane costs a small header round trip instead of a full body.

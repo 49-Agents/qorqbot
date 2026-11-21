@@ -326,15 +326,14 @@ class AttentionRuntime:
                 self.runtime.application.ensure_writes_open(uow)
                 registered = uow.connection.execute('SELECT 1 FROM agent_activity WHERE agent_id=? AND session_id=? '
                     'AND registration_id=?', (agent_id, claim['claim_consumer_id'], registration_id)).fetchone()
-                profile = uow.connection.execute('SELECT p.home_project_id,b.slug FROM agent_profiles p '
-                    'LEFT JOIN projects b ON b.id=p.home_project_id WHERE p.agent_id=?', (agent_id,)).fetchone()
+                profile = uow.connection.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (agent_id,)).fetchone()
                 row = uow.connection.execute('SELECT agent_id FROM attention_reminders WHERE id=?', (claim['id'],)).fetchone()
                 if not registered or not profile or not row or row['agent_id'] != agent_id:
                     return False
                 # Both components are canonical UUIDs, so the client cannot choose a path.
                 from uuid import UUID
                 occurrence, token = str(UUID(claim['id'])), str(UUID(claim['claim_token']))
-                workspace = agent_workspace_of(self.runtime.paths, agent_id, profile['home_project_id'], profile['slug'])
+                workspace = agent_workspace_of(self.runtime.paths, agent_id)
                 path = Path(workspace) / '.qorqut' / 'attention-receipts' / (occurrence + '-' + token + '.json')
                 if not safe_path(path) or not path.is_file() or path.stat().st_mode & 0o077 or path.stat().st_size > 4096:
                     return False

@@ -67,10 +67,10 @@ class BrowserCleanupDefaults:
         if not owner or not is_active_installation_owner(uow, owner, "human"):
             return 0
         rows = uow.connection.execute(
-            "SELECT a.agent_id, a.home_project_id, a.status, a.profile_json, p.kind, p.active "
+            "SELECT a.agent_id, a.status, a.profile_json, p.kind, p.active "
             "FROM agent_profiles a JOIN principals p ON p.id=a.agent_id "
             "LEFT JOIN browser_cleanup_enrollments e ON e.agent_id=a.agent_id "
-            "WHERE e.agent_id IS NULL AND a.status='active' AND a.home_project_id IS NULL "
+            "WHERE e.agent_id IS NULL AND a.status='active' "
             "AND p.kind='agent' AND p.active=1 AND a.agent_id>? ORDER BY a.agent_id LIMIT ?",
             (self.after, BATCH)).fetchall()
         enrolled = 0

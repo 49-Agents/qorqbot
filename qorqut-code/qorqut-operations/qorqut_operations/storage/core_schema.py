@@ -56,8 +56,6 @@ CORE_SCHEMA = (
     """CREATE TABLE agent_profiles (
     agent_id TEXT PRIMARY KEY REFERENCES principals(id),
     principal_id TEXT NOT NULL UNIQUE REFERENCES principals(id),
-    home_project_id TEXT REFERENCES projects(id),
-    namespace TEXT NOT NULL,
     name TEXT NOT NULL,
     workspace TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive','retired')),
@@ -65,12 +63,9 @@ CORE_SCHEMA = (
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    CHECK (agent_id = principal_id),
-    CHECK ((home_project_id IS NULL AND namespace = 'ecosystem') OR namespace = home_project_id)
+    CHECK (agent_id = principal_id)
 )""",
-    """CREATE UNIQUE INDEX agent_profile_active_names ON agent_profiles(namespace, name) WHERE status = 'active'""",
-    """CREATE UNIQUE INDEX agent_profiles_one_active_role_per_home ON agent_profiles(home_project_id, json_extract(profile_json, '$.role.id'))
-WHERE status = 'active' AND home_project_id IS NOT NULL""",
+    """CREATE UNIQUE INDEX agent_profile_active_names ON agent_profiles(name) WHERE status = 'active'""",
     """CREATE TABLE "signoffs" (
     id TEXT PRIMARY KEY,
     review_project_id TEXT REFERENCES projects(id),

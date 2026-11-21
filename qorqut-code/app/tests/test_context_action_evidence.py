@@ -122,7 +122,7 @@ class ActionEvidenceTests(unittest.TestCase):
         self.store = DocumentStore(self.db, operations_root=self.root / "sources",
                                   document_root=lambda project, path: self.root / "sources")
         self.library = SourceLibrary(self.store)
-        sources = DocumentSources(self.store, self.library, agent_workspace=noop, scope_root=noop)
+        sources = DocumentSources(self.store, self.library)
         self.registry.register(sources.descriptors["context_get"])
         # Only one source descriptor is registered here, so the port ``DocumentSources.register`` publishes is set by hand.
         self.app.document_library = self.library

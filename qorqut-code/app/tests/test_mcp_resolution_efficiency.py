@@ -1,5 +1,8 @@
 """Focused behavior: ordinary invocations skip readiness diagnostics without changing public reads."""
 from collections import OrderedDict
+from contextlib import contextmanager
+from types import SimpleNamespace
+import sqlite3
 import threading
 import unittest
 
@@ -16,8 +19,7 @@ DIGEST = 'sha256:' + 'a' * 64
 
 def config_data(**overrides):
     data = {
-        'scope': {'kind': 'ecosystem', 'project_id': None,
-                  'allowed_project_ids': [PROJECT, REVIEW], 'global_capabilities': []},
+        'scope': {'kind': 'ecosystem', 'global_capabilities': []},
         'project_id': PROJECT,
         'profile_revision': 3,
         'role': {'id': 'ordubashy', 'version': '1.0.0', 'digest': DIGEST, 'kind': 'role'},
@@ -68,10 +70,10 @@ class PreparationTest(unittest.TestCase):
         self.assertEqual(second.data['preparation'], {})
         self.assertIsNone(second.data['delivery'])
         with self.assertRaises(TypeError):
-            second.data['scope']['project_id'] = OUTSIDE
+            second.data['scope']['kind'] = 'project'
         exported = second.to_dict()
-        exported['scope']['allowed_project_ids'].clear()
-        self.assertEqual(second.data['scope']['allowed_project_ids'], (PROJECT, REVIEW))
+        exported['scope']['global_capabilities'].append('read_global_context')
+        self.assertEqual(second.data['scope']['global_capabilities'], ())
 
     def test_the_outer_resolution_passes_the_keyword_through(self):
         resolver = self.resolver()
@@ -108,6 +110,14 @@ class PreparationTest(unittest.TestCase):
             return EffectiveAgentConfig(config_data())
 
         resolver.resolve_agent_config = resolve
+        connection = sqlite3.connect(':memory:')
+        connection.execute('CREATE TABLE projects (id TEXT, archived_at TEXT)')
+        connection.executemany('INSERT INTO projects VALUES (?, NULL)', [(PROJECT,), (REVIEW,)])
+
+        @contextmanager
+        def read():
+            yield SimpleNamespace(connection=connection)
+        resolver.database = SimpleNamespace(read=read)
         principal = Principal(id=PROJECT, kind='agent')
         context = resolver.invocation_context(principal, project_id=PROJECT, review_project_id=REVIEW)
         self.assertIs(recorded['include_preparation'], False)

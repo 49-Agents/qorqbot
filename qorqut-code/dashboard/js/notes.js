@@ -205,9 +205,7 @@ function ntAuthorName(n) {
   if (n.authorId === state.session?.principal_id) return "you";
   const profile = typeof globalAgentProfile === "function" ? globalAgentProfile(n.authorId) : null;
   if (profile) return profile.display_name || profile.name || "";
-  // Dev is project-scoped, not a Global profile: fall back to this project's own agent roster.
-  const projectAgent = ntProjectScope() ? (state.agents || []).find(a => a.agent_id === n.authorId) : null;
-  return projectAgent?.display_name || projectAgent?.name || "";
+  return "";
 }
 // ---- homepage
 // Shared card and activity-board presentation.

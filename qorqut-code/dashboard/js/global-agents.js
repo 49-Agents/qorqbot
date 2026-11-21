@@ -159,10 +159,9 @@ function globalAgentNavHold(hold) {
 }
 // Retired profiles and archival records never reach the list.
 const globalActiveProfile = agent => !!agent && typeof agent.agent_id === 'string' && !agent.archival_record && (agent.status === undefined || agent.status === 'active');
-// A global profile has ecosystem scope and no home project; a project-scoped
-// record claiming a supported role is refused here as the host refuses it.
+// A global profile has ecosystem scope.
 const globalRosterAgent = agent => globalActiveProfile(agent) && GLOBAL_AGENT_ROLES.includes(agent.role?.id || agent.role_id)
-  && agent.home_project_id == null && agent.scope?.kind === 'ecosystem';
+  && agent.scope?.kind === 'ecosystem';
 // Retired or unknown agents are history, not something to open or start.
 const GLOBAL_AGENT_UNAVAILABLE = 'This agent is no longer active. Its history is kept.';
 // Question mark in a circle, matching the stroke weight of the Settings icon.
@@ -390,7 +389,6 @@ async function renderGlobalAgents(c) {
       project: null, open: false, isCurrent: () => false,
     } : {
       project: null, agentId: agent.agent_id, workspaceScope: 'global', workspaceRole: agent.role?.id || null,
-      projectGrants: agent.scope?.allowed_project_ids || [],
       initialView: requestedView, open: true,
       isCurrent: () => current() && selected === agent.agent_id,
     });

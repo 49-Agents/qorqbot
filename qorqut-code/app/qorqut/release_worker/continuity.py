@@ -11,8 +11,8 @@ from qorqut.installation import app_manifest
 def snapshot(runtime):
     integrations = {}
     with runtime.database.read() as uow:
-        rows = uow.connection.execute('SELECT n.*,p.status,b.archived_at FROM native_session_owners n '
-            'JOIN agent_profiles p ON p.agent_id=n.agent_id LEFT JOIN projects b ON b.id=p.home_project_id LIMIT 1000').fetchall()
+        rows = uow.connection.execute('SELECT n.*,p.status FROM native_session_owners n '
+            'JOIN agent_profiles p ON p.agent_id=n.agent_id LIMIT 1000').fetchall()
         for row in rows:
             binding = json.loads(row['binding_json'])
             from qorqut.bootstrap.diagnostics import prepared_helpers
@@ -23,7 +23,7 @@ def snapshot(runtime):
             native='verified' if binding.get('execution_target')=='local' and owner_alive(binding.get('owner','')) else 'unknown'
             latest=uow.connection.execute('SELECT state FROM native_inputs WHERE agent_id=? ORDER BY sequence DESC LIMIT 1',(row['agent_id'],)).fetchone()
             delivery='waiting' if latest and latest['state'] in ('waiting','submitting') else 'uncertain' if latest and latest['state']=='uncertain' else 'available' if native=='verified' else 'unknown'
-            active=row['status']=='active' and not row['archived_at']
+            active=row['status']=='active'
             integrations[row['agent_id']] = {'session_id':row['consumer_id'],'generation':row['generation'],
                 'native_owner':binding.get('owner'),'target':binding.get('execution_target'),'desired_state':row['desired_state'],
                 'helper':helper,'native_process':native,'delivery':delivery,'backend_connection':'connected',
