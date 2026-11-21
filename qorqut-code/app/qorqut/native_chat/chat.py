@@ -367,12 +367,13 @@ class NativeChat:
             inputs = store.recent_inputs(conn, agent_id, 30)
             bindings = store.public_bindings(conn, [row["session_id"] for row in inputs])
             last_read = store.last_read(conn, agent_id, principal_id)
+            default = self._default(captures, latest, chosen)
+            selected = default if pair is None else self._explicit(captures, pair)
+            continues = self._continues(uow, captures, selected)
         view = self.session_view(profile, persisted, chosen=chosen)
-        default = self._default(captures, latest, chosen)
-        selected = default if pair is None else self._explicit(captures, pair)
         entries, older, info, rendered = [], None, None, 0
         if selected is not None:
-            entries, older, info, rendered = self._entries(principal_id, profile, selected, before, limit)
+            entries, older, info, rendered = self._entries(principal_id, profile, selected, before, limit, continues)
         return {"agent_id": agent_id, "name": store.profile_label(profile), "session": view, "revision": counters["revision"],
                 "cursor": counters["revision"], "conversation": info,
                 "conversations": [{"conversation_id": c["conversation_id"], "provider": c["provider"], "updated_at": c["updated_at"],
@@ -434,16 +435,31 @@ class NativeChat:
                 return found
         return max(captures, key=lambda c: c["updated_at"], default=None)
 
-    def _entries(self, principal_id, profile, capture, before, limit):
+    def _continues(self, uow, captures: list[dict], capture: dict | None) -> dict | None:
+        """The conversation that a compaction closed to open this one (``compaction.py``), which Chat loads above it:
+        ``{conversation_id, provider, at}``, or None. It is named only when it was captured for this agent under the same
+        provider, which a compaction never changes: Chat asks for it by that pair, and ``_explicit`` refuses an uncaptured one.
+        One read of the agent's compactions, on every state read; no archive is opened for it."""
+        handoff = getattr(self.runtime, "compaction_handoff", None)
+        if handoff is None or capture is None:
+            return None
+        link = handoff.continued(uow, capture["agent_id"], capture["conversation_id"])
+        if link is None:
+            return None
+        earlier = {"conversation_id": link["conversation_id"], "provider": capture["provider"], "at": link["at"]}
+        return earlier if any(self._same(c, earlier) for c in captures) else None
+
+    def _entries(self, principal_id, profile, capture, before, limit, continues=None):
         """One page of the selected conversation, with the facts that belong to exactly the entries it returns: the verified
         provenance of the system markers on it, the stored outgoing agent messages its notices name, the owner's current view of
         the references its presentations name, the durable completion bound to each assistant entry, and
         ``rendered_boundary`` -- the newest completion sequence among the completed assistant entries this page actually returns
         after projection and pagination (0 when it returns none). A client acknowledges that value, never the agent's newest
-        sequence, so a page that did not display a reply cannot acknowledge it."""
+        sequence, so a page that did not display a reply cannot acknowledge it. ``continues`` (``_continues``) is part of the
+        conversation's info whatever the page holds, so a fresh conversation with nothing captured yet still points back."""
         info = {"conversation_id": capture["conversation_id"], "provider": capture["provider"],
                 "complete": bool(capture["complete"]), "finalized": bool(capture["finalized"]), "error": capture["error_code"],
-                "captured_length": capture["captured_length"]}
+                "captured_length": capture["captured_length"], "continues": continues}
         if not capture["receipt_id"]:
             return [], None, info, 0
         archive = self.indexer.archive(profile)
