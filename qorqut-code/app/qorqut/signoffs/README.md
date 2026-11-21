@@ -58,7 +58,7 @@ a mixed-scope descriptor.
 
 `registered_worker_profiles` is a trusted mapping, or callable
 `(principal_id, uow) -> WorkerProfile`. Missing grants deny. Its project IDs are
-intersected with active database memberships. Increment its positive revision
+intersected with the active projects. Increment its positive revision
 whenever the program/grant definition changes. A system label or `source` field
 is not a grant. Effective profile configuration and runtime decisions both use
 `resolve_operation_policy`; do not introduce another role-default table.
@@ -99,7 +99,7 @@ signoffs.retry(context, signoff_id, **binding)
 `expected_status_revision`, and `idempotency_key`. Owner-only HTTP routes call
 `review` or `retry` directly; these commands own their transactions and must
 not be wrapped in another UoW or routed through an agent permission gate. They
-require a current human principal and active owner membership in the selected
+require a current human principal and installation owner's reach of the selected
 project. Approve and reject keep nonblank feedback verbatim,
 up to 8000 characters; whitespace-only feedback becomes null.
 

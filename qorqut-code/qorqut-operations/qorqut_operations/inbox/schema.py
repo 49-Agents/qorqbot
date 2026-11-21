@@ -4,7 +4,7 @@ They are blocks of the host's ``inbox`` owner, copied verbatim and kept in the o
 list is not contiguous in them (the native session and private owner-conversation statements sit between), so the host splices
 each tuple at its existing position instead of receiving one contribution; the combined schema, and so its fingerprint, is
 unchanged. The positions in the owner's statement list are 0 (``CHANGE_SCHEMA``), 2-13 (``CAPTURE_SCHEMA``: Signoff,
-Signoff attention, agent profile and project membership captures), 14-17 (``BROADCAST_SCHEMA``), 24-26
+Signoff attention, agent profile and project person detail captures), 14-17 (``BROADCAST_SCHEMA``), 24-26
 (``PRINCIPAL_CAPTURE_SCHEMA``), 27-35 (``MESSAGE_SCHEMA``) and 37-39 (``RELATIONSHIP_CAPTURE_SCHEMA``). No new owner, immutable
 field or validator is declared. The capture triggers write ``inbox_changes`` through the host's ``inbox_actor()`` SQL function.
 ``agent_messages`` keeps its own immutability triggers. The classifications repeat the existing exclusions: direct conversations
@@ -59,15 +59,15 @@ VALUES('agent_profiles','update',inbox_actor(),json_object('agent_id',OLD.agent_
     """CREATE TRIGGER inbox_capture_agent_profiles_delete AFTER DELETE ON agent_profiles
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
 VALUES('agent_profiles','delete',inbox_actor(),json_object('agent_id',OLD.agent_id,'name',OLD.name,'status',OLD.status,'profile_json',OLD.profile_json,'revision',OLD.revision),NULL); END""",
-    """CREATE TRIGGER inbox_capture_project_memberships_insert AFTER INSERT ON project_memberships
+    """CREATE TRIGGER inbox_capture_project_person_details_insert AFTER INSERT ON project_person_details
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('project_memberships','insert',inbox_actor(),NULL,json_object('project_id',NEW.project_id,'principal_id',NEW.principal_id,'is_owner',NEW.is_owner,'active',NEW.active,'person_json',NEW.person_json,'revision',NEW.revision)); END""",
-    """CREATE TRIGGER inbox_capture_project_memberships_update AFTER UPDATE ON project_memberships
+VALUES('project_person_details','insert',inbox_actor(),NULL,json_object('project_id',NEW.project_id,'principal_id',NEW.principal_id,'details_json',NEW.details_json,'revision',NEW.revision)); END""",
+    """CREATE TRIGGER inbox_capture_project_person_details_update AFTER UPDATE ON project_person_details
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('project_memberships','update',inbox_actor(),json_object('project_id',OLD.project_id,'principal_id',OLD.principal_id,'is_owner',OLD.is_owner,'active',OLD.active,'person_json',OLD.person_json,'revision',OLD.revision),json_object('project_id',NEW.project_id,'principal_id',NEW.principal_id,'is_owner',NEW.is_owner,'active',NEW.active,'person_json',NEW.person_json,'revision',NEW.revision)); END""",
-    """CREATE TRIGGER inbox_capture_project_memberships_delete AFTER DELETE ON project_memberships
+VALUES('project_person_details','update',inbox_actor(),json_object('project_id',OLD.project_id,'principal_id',OLD.principal_id,'details_json',OLD.details_json,'revision',OLD.revision),json_object('project_id',NEW.project_id,'principal_id',NEW.principal_id,'details_json',NEW.details_json,'revision',NEW.revision)); END""",
+    """CREATE TRIGGER inbox_capture_project_person_details_delete AFTER DELETE ON project_person_details
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('project_memberships','delete',inbox_actor(),json_object('project_id',OLD.project_id,'principal_id',OLD.principal_id,'is_owner',OLD.is_owner,'active',OLD.active,'person_json',OLD.person_json,'revision',OLD.revision),NULL); END""",
+VALUES('project_person_details','delete',inbox_actor(),json_object('project_id',OLD.project_id,'principal_id',OLD.principal_id,'details_json',OLD.details_json,'revision',OLD.revision),NULL); END""",
 )
 
 PRINCIPAL_CAPTURE_SCHEMA = (

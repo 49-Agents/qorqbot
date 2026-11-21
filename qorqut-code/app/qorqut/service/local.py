@@ -9,6 +9,7 @@ import subprocess
 from qorqut.bootstrap.client import path_has_symlink
 from qorqut.composition.locations import project_hq
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.storage import safe_io
 
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -113,8 +114,7 @@ class LocalFiles:
             installation = uow.repository("installation").get("service")
             owner = installation and installation["owner_principal_id"] == current.principal_id
         else:
-            member = uow.repository("project_memberships", project_id=current.project_id).get(current.principal_id)
-            owner = member and member["active"] and member["is_owner"]
+            owner = owner_may_act(uow.connection, current.principal_id, current.project_id)
         if current.principal_kind != "human" or not owner:
             raise DomainError("forbidden", "Environment settings require the current scope's owner")
         return current

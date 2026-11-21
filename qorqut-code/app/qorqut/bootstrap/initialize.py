@@ -285,13 +285,13 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
                                            InvocationOptions(idempotency_key="initialize-coordinator")), "Selecting the coordinator")
             # The explicit installation prerequisite for background programs, including the scheduled Overseer due
             # program. Register their definitions in this installation runtime, then create missing system workers
-            # only; no project membership is created and no disabled identity or membership is reactivated.
+            # only; no disabled identity is reactivated.
             from qorqut.background.integration import register_programs
             from qorqut.overseer.due import register_program as register_overseer_due
             register_programs(runtime.programs, tables=runtime.domains.tables)
             register_overseer_due(runtime, runtime.programs)
             with database.transaction() as uow:
-                runtime.authority.register_workers(uow, [])
+                runtime.authority.register_workers(uow)
         return {"installation_id": installation, "owner_principal_id": owner, "agents": created,
                 "coordinator_id": created["ordubashy"], "role_pins": pins}
     finally:

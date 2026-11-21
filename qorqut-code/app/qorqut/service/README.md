@@ -49,11 +49,10 @@ writes retain same-origin checks.
   their existing scoped agent credentials; they do not become owner requests.
 - Hostnames and origins must be explicitly configured. A reverse proxy must
   preserve the external Host. Forwarded headers are not trusted for identity.
-  Owner mutations require an exact same-origin Origin header and current active
-  owner membership in the selected project.
+  Owner mutations require an exact same-origin Origin header and the installation
+  owner in an active selected project.
 - `GET /api/session` returns `data.{principal_id,principal_kind,display_name,is_owner}`.
-- `GET /api/project/{slug}/agents/{id}/config` returns `data.effective_config`.
-  `POST .../permissions` accepts only `expected_revision`, `idempotency_key` and
+- `POST /api/project/{slug}/agents/{id}/permissions` accepts only `expected_revision`, `idempotency_key` and
   the replacement `overrides` map. The UI rereads configuration after saving.
 - Signoff list/get and approve/reject/retry routes use the shared signoff DTOs. Decision
   bodies preserve proposal revision, payload hash and status revision verbatim.

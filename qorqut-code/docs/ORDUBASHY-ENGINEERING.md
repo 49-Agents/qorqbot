@@ -9,7 +9,7 @@ worker's session. It may maintain configured operational settings with
 human build authority or transfer ownership of software and design work.
 
 The application uses refreshed registered role identity, current project scope
-and active membership, never agent names or caller-supplied role claims. Only the
+and active project, never agent names or caller-supplied role claims. Only the
 human owner and scoped Ordubashy may change the reserved `engineering`
 block. This is checked when preparing and validating application of the change.
 Other agents remain blocked even with an allow override. Current revisions,

@@ -76,10 +76,10 @@ def authorize(uow, ctx, receipt_id: str) -> dict:
         raise DomainError("forbidden", "The job or its frozen program definition no longer matches this filing")
     if job["state"] not in APPLY_STATES:
         raise DomainError("forbidden", "Only a running, applying or waiting claimed job can apply its completion")
-    worker = uow.connection.execute(
-        "SELECT p.kind, p.active, m.active AS member FROM principals p LEFT JOIN project_memberships m "
-        "ON m.principal_id = p.id AND m.project_id IS ? WHERE p.id=?", (bound["project_id"], ctx.principal_id)).fetchone()
-    if worker is None or worker["kind"] != "system" or not worker["active"] or (bound["project_id"] and not worker["member"]):
+    worker = uow.connection.execute("SELECT kind, active FROM principals WHERE id=?", (ctx.principal_id,)).fetchone()
+    reach = bound["project_id"] is None or uow.connection.execute(
+        "SELECT 1 FROM projects WHERE id=? AND archived_at IS NULL", (bound["project_id"],)).fetchone() is not None
+    if worker is None or worker["kind"] != "system" or not worker["active"] or not reach:
         raise DomainError("forbidden", "The registered worker is not active for this scope")
     return {"receipt": stored, "filing": bound, "job": job}
 

@@ -159,8 +159,6 @@ class SideChatRenameTests(unittest.TestCase):
         with runtime.database.transaction() as uow:
             uow.repository('projects').insert({'id': project, 'slug': 'project', 'name': 'Project',
                 'workspace': str(tmp_path / 'project'), 'hq_path': str(tmp_path / 'hq')})
-            uow.repository('project_memberships', project_id=project).insert({
-                'principal_id': runtime.owner.principal_id, 'active': 1, 'is_owner': 1})
         runtime.owner = replace(runtime.owner, allowed_project_ids={project})
         selected = replace(runtime.owner, project_id=project, review_project_id=project)
         s = invoke(runtime, 'side_chats_create', {'scope': 'project', 'text': 'Project question'}, ctx=selected)['signoff']

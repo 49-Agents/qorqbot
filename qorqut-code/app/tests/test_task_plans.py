@@ -893,9 +893,6 @@ class CheckTests(PlanFixture):
         there, here = self.question(ctx=ctx(beta)), self.question(ctx=ctx(alpha))
         owner = lambda project: replace(self.deciding_owner(), project_id=project, review_project_id=project,
                                          allowed_project_ids=frozenset({alpha, beta}))
-        with self.db.transaction() as uow:
-            for project in (alpha, beta):
-                uow.repository('project_memberships', project_id=project).insert({'principal_id': self.owner, 'is_owner': True})
         self.answer(there, owner(beta))
         self.assertEqual(self.signoff_state(there)[0], 'answered')
         refused = call(self.worker, alpha, 'tasks_step_done', {'step_id': 's1', 'evidence': {'signoff_id': there['id']}}, task)

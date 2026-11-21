@@ -2,7 +2,7 @@
 
 A globally owned operation may not stage effects on project-scoped rows: project content requires a separate
 project-owned proposal. A few v1 operations legitimately do (execution records of a global routine definition,
-membership grants of a global agent profile, one owner-selected document in the unified journal). Each such
+one owner-selected document in the unified journal). Each such
 exception is a typed ``ReviewScopeException`` made by trusted composition and handed to ``Application``; there is
 no other way to widen the rule, and an unlisted effect still fails closed with ``invalid_plan``."""
 

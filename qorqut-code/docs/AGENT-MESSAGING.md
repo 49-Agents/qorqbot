@@ -156,7 +156,7 @@ checks passed. This change does not modify that unrelated import ordering.
 ## Ordubashy directory
 
 Ordubashy's profile is required to include every registered project. Project
-creation extends that scope and its memberships in the same transaction, and
+creation extends that scope in the same transaction, and
 ordinary profile edits cannot narrow it. Its live bootstrap briefing therefore
 includes the project agent directory: one project agent per project, each
 titled Onbashy, so rows are told apart by agent and project ID. Refresh with

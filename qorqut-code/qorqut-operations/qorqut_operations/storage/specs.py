@@ -20,7 +20,7 @@ CORE_TABLES = {
     "installation": TableSpec(("id",)),
     "principals": TableSpec(("id",)),
     "projects": TableSpec(("id",)),
-    "project_memberships": TableSpec(("project_id", "principal_id"), "project_id"),
+    "project_person_details": TableSpec(("project_id", "principal_id"), "project_id"),
     "agent_profiles": TableSpec(("agent_id",)),
     "signoffs": TableSpec(("id",), "review_project_id", True, "status_revision"),
     "idempotency_receipts": TableSpec(("principal_id", "target_namespace", "operation_name", "idempotency_key"),

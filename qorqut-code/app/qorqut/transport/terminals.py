@@ -17,6 +17,7 @@ from qorqut.bootstrap.preparation import prepare_agent
 from qorqut.bootstrap.preparation import installed_versions
 from qorqut.composition.locations import agent_workspace
 from qorqut_operations.contracts import DomainError, Principal
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut.agents.global_scope import active_global
 from qorqut.management.identity import require_protected_control
 from qorqut.managed_runtime import mode
@@ -119,9 +120,8 @@ class TerminalService:
                 if current.principal_kind != "human" or not installation or installation["owner_principal_id"] != current.principal_id:
                     raise DomainError("forbidden", "Global terminals require the installation owner")
                 return
-            membership = uow.repository("project_memberships", project_id=current.project_id).get(current.principal_id)
-            if current.principal_kind != "human" or not membership or not membership["active"] or not membership["is_owner"]:
-                raise DomainError("forbidden", "Terminal access requires the current project owner")
+            if current.principal_kind != "human" or not owner_may_act(uow.connection, current.principal_id, current.project_id):
+                raise DomainError("forbidden", "Terminal access requires the installation owner in an active project")
 
     def agent(self, context, selector):
         self.owner(context)

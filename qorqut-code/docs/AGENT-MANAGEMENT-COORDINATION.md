@@ -13,7 +13,7 @@ never chooses a similarly named agent or gives it the owner's identity.
 `management_list/get` read canonical message/input sources. `management_route`
 changes attention destination with a revision check and an escalation reason;
 `management_resolve` resolves message intake only. Signoffs retain their own
-lifecycle. Current project membership, scope and operation policy remain
+lifecycle. Current project reach, scope and operation policy remain
 authoritative. Scope revocation removes access to the corresponding records.
 
 New ordinary question forms default to `response_policy=management_allowed`.
@@ -201,7 +201,7 @@ apply the additive migrations (management routing, checkpoint metadata, incident
 notice receipts), deploy matching core and dashboard, publish and adopt the intended
 role pins preserving explicit overrides and scopes, then configure the exact Codex
 Ordubashy through `management_coordinator_set` and run supported profile preparation.
-Verify coordinator identity, role/runtime, current memberships, protocol version and
+Verify coordinator identity, role/runtime, current project reach, protocol version and
 system reporter health by readback, and check one agent's management/current-work/inbox
 workflow before broader adoption. A source merge alone is not evidence of adoption.
 

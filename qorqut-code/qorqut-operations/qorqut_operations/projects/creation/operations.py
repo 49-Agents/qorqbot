@@ -47,8 +47,6 @@ class ProjectCreationOperations:
         self.operations_root, self.staging_root = operations_root, staging_root
         self.project_root, self.project_hq, self.relative_path = project_root, project_hq, relative_path
         self.projects_directory, self.creator_actor = projects_directory, creator_actor
-        # The bounded system programs are registered with the background service, which is attached after the domains.
-        self.worker_authority = None
         self.creation = Creation(self)
 
     def register(self, registry):

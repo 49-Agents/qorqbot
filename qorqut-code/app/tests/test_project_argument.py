@@ -98,8 +98,6 @@ class Harness(unittest.TestCase):
             for project, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta'), (self.gamma, 'Gamma')):
                 uow.repository('projects').insert({'id': project, 'slug': name.lower(), 'name': name,
                                                    'workspace': name.lower(), 'hq_path': name.lower() + '/hq'})
-                uow.repository('project_memberships', project_id=project).insert(
-                    {'principal_id': self.owner, 'active': 1, 'is_owner': 1})
             uow.connection.execute(
                 "INSERT INTO machine_registrations(id,principal_id,workspace,service_url,profile_revision,created_at,"
                 "updated_at) VALUES(?,?,?,?,1,?,?)",

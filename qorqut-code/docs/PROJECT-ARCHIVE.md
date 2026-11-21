@@ -26,7 +26,7 @@ dedicated agents cannot bootstrap or invoke project operations, and their
 project routines are skipped. They no longer surface as active work. Existing conversations may retain historical references;
 the current agent context explicitly identifies the active directory as authority.
 
-SQLite retains project records, memberships and profiles. Folders
+SQLite retains project records and profiles. Folders
 stay in place; domains, mailboxes and external services are unchanged. There is
 no pause or deletion operation. Archival is not an
 external-service shutdown or an OS process sandbox.

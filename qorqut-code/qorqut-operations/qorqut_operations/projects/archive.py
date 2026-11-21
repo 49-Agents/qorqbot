@@ -10,6 +10,7 @@ from qorqut_agentic.behavior.tool_help import text as instruction_text
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, ExpectedTarget, PolicyDecision, ResourceRef, canonical_hash
 from qorqut_operations.policy.rules import PolicyRules
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, UUID, TEXT
 
 OPERATION = "project_archive"
@@ -61,11 +62,10 @@ class ProjectArchive:
 
     @staticmethod
     def archived(ctx, args, options, uow):
-        """Archived projects the installation owner still owns, newest archival first."""
+        """Archived projects, newest archival first."""
         rows = uow.connection.execute(
             "SELECT b.id,b.slug,b.name,b.revision,b.archived_at FROM projects b JOIN installation i ON i.id='service' "
-            "JOIN project_memberships m ON m.project_id=b.id AND m.principal_id=i.owner_principal_id "
-            "WHERE b.archived_at IS NOT NULL AND m.active=1 AND m.is_owner=1 ORDER BY b.archived_at DESC, b.slug")
+            "WHERE b.archived_at IS NOT NULL ORDER BY b.archived_at DESC, b.slug")
         return {"items": [{"project_id": row["id"], "slug": row["slug"], "name": row["name"], "revision": row["revision"],
                            "archived_at": row["archived_at"]} for row in rows]}
 
@@ -86,9 +86,8 @@ class ProjectArchive:
             raise DomainError("forbidden", "Only the installation owner or Ordubashy can propose archival")
         if plan is not None:
             project_id = plan.arguments["project_id"]
-            member = uow.repository("project_memberships", project_id=project_id).get(installation["owner_principal_id"])
-            if not member or not member["active"] or not member["is_owner"]:
-                raise DomainError("forbidden", "Archive only a project currently owned by the installation owner")
+            if not owner_may_act(uow.connection, installation["owner_principal_id"], project_id):
+                raise DomainError("forbidden", "Archive only an active project of the installation owner")
             if (ctx.role_artifact_ref and ctx.role_artifact_ref.id == "ordubashy"
                     and project_id not in ctx.allowed_project_ids):
                 raise DomainError("forbidden", "Project is outside Ordubashy's current scope")
@@ -136,10 +135,6 @@ class ProjectArchive:
         require_revision(before, options.expected_revision)
         if before["archived_at"] is None:
             raise DomainError("project_not_archived", "This project is not archived")
-        installation = uow.repository("installation").get("service", required=True)
-        member = uow.repository("project_memberships", project_id=before["id"]).get(installation["owner_principal_id"])
-        if not member or not member["active"] or not member["is_owner"]:
-            raise DomainError("forbidden", "Restore only a project owned by the installation owner")
         project_id = before["id"]
         builder = PlanBuilder(ctx, RESTORE, args, "Restore project: " + before["name"],
                               namespace="global", affected_scope={"kind": "project", "project_id": project_id})

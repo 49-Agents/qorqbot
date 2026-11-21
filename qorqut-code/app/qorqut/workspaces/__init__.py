@@ -202,8 +202,7 @@ class WorkspaceService:
         agent_id, project_id = args.get("agent_id"), args.get("project_id")
         if not agent_id or not project_id:
             raise DomainError("validation_error", "Select the agent and project to read")
-        member = uow.repository("project_memberships", project_id=project_id).get(ctx.principal_id)
-        if not member or not member["active"] or project_id not in ctx.allowed_project_ids:
+        if project_id not in ctx.allowed_project_ids:
             raise DomainError("not_found", "Workspace project is unavailable")
         row = self.row(agent_id, project_id, key, uow)
         return {"workspace": self.view(row) if row else None, "agent_id": agent_id, "project_id": project_id}

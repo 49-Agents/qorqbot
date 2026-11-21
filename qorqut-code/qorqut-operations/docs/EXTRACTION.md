@@ -72,11 +72,10 @@ Requiring `manage_delegated_assignments` in the engine's delegation check is pre
   namespace that is absent or exactly the canonical admission namespace. Existing rows, extra, duplicate or mismatched targets,
   bare `ResourceRef` values, another operation or another scope keep the assignment's record boundary. The targets stay in the
   prepared plan, so `check_targets` (expected absence) and the apply transaction still guard them.
-* `_review_scope`: the three v1 exceptions become data (`ReviewScopeException`/`BoundResource`), supplied by
+* `_review_scope`: the exceptions become data (`ReviewScopeException`/`BoundResource`), supplied by
   trusted composition and checked exactly as before; the unlisted case still fails with `invalid_plan`. The host
-  registers these three:
-  `({"routines_run","routines_stop"}, {"jobs","routine_runs"})`,
-  `({"agents_create","agents_update","agents_deactivate"}, {"project_memberships"})`, and
+  registers these two:
+  `({"routines_run","routines_stop"}, {"jobs","routine_runs"})`, and
   `({"notes_update","notes_delete"}, bound_resources={"documents": BoundResource("document_id"),
   "managed_document_files": BoundResource("document_id","document_id")}, principal_kinds={"human"}, allow_delegated=False)`.
   A bound resource whose argument is absent never matches (v1 compared `None == None` for a composite ID).
@@ -243,14 +242,14 @@ authority, rewrite a prepared plan, or replace the visibility predicate.
 ### Ownership of tables, indexes, triggers and hooks
 
 Engine-owned (`storage/core_schema.py`, maintained directly): `principals`, `projects`,
-`project_memberships`, `installation`, `agent_profiles`, `signoffs`, `signoff_notes`, `signoff_attention`,
+`project_person_details`, `installation`, `agent_profiles`, `signoffs`, `signoff_notes`, `signoff_attention`,
 `signoff_notifications`, `signoff_notification_schedule`, `idempotency_receipts`, `apply_receipts`, `resource_claims`,
 `maintenance_state`, `change_sequences` (seed `signoffs`), `jobs`, `routines`, `routine_runs`, `routine_slots`.
 Newly engine-owned here: `signoff_notes`, `signoff_attention`, `signoff_notifications`,
 `signoff_notification_schedule`, `jobs`, `routines`, `routine_runs`, `routine_slots`.
 
 Repository specs (`storage/specs.py` `CORE_TABLES`, with the v1 keys, scope and revision columns) exist for the tables
-v1 also had specs for: `installation`, `principals`, `projects`, `project_memberships`, `agent_profiles`, `signoffs`,
+v1 also had specs for: `installation`, `principals`, `projects`, `project_person_details`, `agent_profiles`, `signoffs`,
 `idempotency_receipts`, `apply_receipts`, `resource_claims`, `maintenance_state`, `routines`, `routine_runs`,
 `routine_slots`, `jobs` (and, with "Neutral items and relationships" below, `relationships`, `context_reviews`,
 `context_review_states`). The four Signoff adjunct tables `signoff_notes`, `signoff_attention`, `signoff_notifications`
@@ -688,7 +687,7 @@ workflow_roles, materials, archive, navigation, review_edits)` are the complete 
 
 * the foundation probe,
 * the Signoff and registered-program slice. Its proposer is an active global agent (a supported role, an ecosystem scope,
-  no home project, no membership row): its project access is the active project directory, exactly as the engine requires
+  no home project): its project access is the active project directory, exactly as the engine requires
   of every agent. A project-home agent is refused with `forbidden` ("Only active global agents may invoke operations"). The slice asserts the Signoff, stale and forbidden
   decisions, single application, replay, principal attribution, routine and golden digest,
 * the neutral-item/relationship slice, which uses no protected-edge check,

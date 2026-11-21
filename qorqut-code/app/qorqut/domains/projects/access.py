@@ -8,7 +8,7 @@ IDs must agree and name a real Project the caller may currently reach. The name 
 The new ``project_*`` operations belong to the installation owner and the exact configured active Ordubashy. That
 is an identity gate checked on every call, independently of the transport and of policy: ordinary members, other
 agents, historical identities and delegated workers are refused. Project reads never bypass the caller's ordinary
-source authority: a Project's own scope is rechecked through the current active membership (humans) or the current
+source authority: a Project's own scope is rechecked through the installation owner's reach of an active project (humans) or the current
 active-global reach (agents); every target read rechecks its own domain.
 """
 
@@ -45,7 +45,7 @@ def project_row(ctx, project_id, uow, *, include_archived=False):
 
 
 def project_participant(ctx, project_id, uow) -> bool:
-    """Current reach of one Project: the active membership (humans) or active supported global reach (agents)."""
+    """Current reach of one Project: the installation owner's reach of an active project (humans) or active supported global reach (agents)."""
     return active_project_participant(uow.connection, project_id, ctx.principal_id) and project_id in ctx.allowed_project_ids
 
 
@@ -82,7 +82,7 @@ def guard(ctx, application, uow, *, project_id, operation="project_record_get", 
 
     Every surface that names a Project (the neutral item resolver, Focus and private-thread sources, directory labels,
     link targets and the ``project_*`` handlers) calls this exact function. It refreshes the caller once, then applies
-    the owner/exact-Ordubashy identity gate, the Project's *current* membership or global reach and archived state, and
+    the owner/exact-Ordubashy identity gate, the Project's *current* owner or global reach and archived state, and
     the ordinary policy of the named read. No label, summary, count or card is produced before it succeeds.
     """
     current = application.current_context(ctx, uow)

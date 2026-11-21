@@ -64,9 +64,6 @@ class HostDelegationProvider:
 HOST_REVIEW_EXCEPTIONS = (
     # Execution records of a global routine definition.
     ReviewScopeException(frozenset({"routines_run", "routines_stop"}), frozenset({"jobs", "routine_runs"})),
-    # Membership grants of a global agent profile.
-    ReviewScopeException(frozenset({"agents_create", "agents_update", "agents_deactivate"}),
-                         frozenset({"project_memberships"})),
     # One owner-selected document in the unified journal, by a human principal only.
     ReviewScopeException(frozenset({"notes_update", "notes_delete"}),
                          bound_resources={"documents": BoundResource("document_id"),

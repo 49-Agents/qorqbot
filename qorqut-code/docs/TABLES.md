@@ -157,8 +157,7 @@ The table, table-history, asset and data-upload operations live in the `qorqut_o
 
 Keep the database schema current before restarting the service. Each project
 needs the fixed `tables.version` worker. Global tables publish through the internal
-`tables.global-version` program, which needs its own system worker principal and no
-project membership: register it with the installation's existing
+`tables.global-version` program, which needs its own system worker principal: register it with the installation's existing
 `BackgroundAuthority.register_workers` maintenance path when deploying, as for any new
 program. Until then Global table writes are refused with a setup error; project
 tables are unaffected. Published role artifacts and profile pins select agent

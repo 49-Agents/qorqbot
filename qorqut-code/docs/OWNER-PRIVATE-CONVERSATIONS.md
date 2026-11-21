@@ -149,18 +149,15 @@ operation itself still resolves the pair ACL and rejects anyone but the
 installation owner (including a non-installation project owner) with
 `forbidden`.
 
-Known limitation: on a project route the generic human policy still requires
-the installation owner to hold an active owner membership in that project, as
-every other project mutation does. In this single-owner installation the
-registered owner is the owner-member of every project by construction, so
-the Global route with `source.project_id` and the project route agree; no
-special policy rule is added for the hypothetical plain-member case.
+On a project route the generic human policy admits the installation owner in
+every active project, as for every other project mutation, so the Global route
+with `source.project_id` and the project route agree.
 
 ## Error codes
 
 | Code | HTTP | When |
 | --- | --- | --- |
-| `forbidden` | 403 | Caller is not the pair; project outside active membership; `mark_read` by anyone but the installation owner |
+| `forbidden` | 403 | Caller is not the pair; project that is not active; `mark_read` by anyone but the installation owner |
 | `not_found` | 404 | Bound object does not exist, or a signoff's `review_project_id` mismatches the effective scope |
 | `validation_error` | 422 | Project mismatch/missing for the source type; a Reference given a project or a context-bound card id; blank `text`; bad `summary`; `mark_read.sequence` above `latest_sequence` |
 | `revision_conflict` | 409 | `send.expected_conversation_revision` mismatches the current revision |

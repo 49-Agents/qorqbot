@@ -127,7 +127,6 @@ class ProjectBadgesTests(unittest.TestCase):
                 uow.repository('projects').insert({'id':identity, 'slug':slug, 'name':slug.title(), 'workspace':slug,
                     'hq_path':slug + '/hq', 'config_json':{'one_liner':'Current project description'},
                     'archived_at':'2026-01-01T00:00:00Z' if identity == self.archived else None})
-                uow.repository('project_memberships', project_id=identity).insert({'principal_id':self.owner, 'is_owner':True})
             for i, (status, archived, kind, snoozed) in enumerate([
                 ('open', False, 'task', None), ('working', False, 'task', None),
                 ('needs_input', False, 'task', '2099-01-01T00:00:00Z'),

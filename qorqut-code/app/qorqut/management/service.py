@@ -8,7 +8,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock, ref, require_revision
 from qorqut_operations.tasks.scope import task_namespace
-from qorqut.agents.global_scope import reaches_project
+from qorqut.agents.global_scope import active_project_participant, reaches_project
 from .identity import configured_ordubashy, installation_owner, ordubashy_profile, owner_messages, require_coordinator
 from qorqut_operations.storage.repositories import decode_row
 from dataclasses import replace
@@ -86,16 +86,13 @@ class ManagementService:
         elif project_id not in ctx.allowed_project_ids:
             raise DomainError('forbidden', 'Management item is outside the selected scope')
         elif ctx.project_id is not None and project_id != ctx.project_id:
-            raise DomainError('forbidden','Management source membership is unavailable')
+            raise DomainError('forbidden','Management source project is unavailable')
         elif ctx.principal_kind == 'agent':
-            # An agent reaches a project only as a current supported global; agent membership rows are not consulted.
+            # An agent reaches a project only as a current supported global; no project home is consulted.
             if not reaches_project(uow.connection, ctx.principal_id, project_id):
                 raise DomainError('forbidden', 'Management source project is unavailable')
-        elif not uow.connection.execute(
-                'SELECT 1 FROM project_memberships m JOIN projects b ON b.id=m.project_id '
-                'WHERE m.principal_id=? AND m.project_id=? AND m.active=1 AND b.archived_at IS NULL',
-                (ctx.principal_id,project_id)).fetchone():
-            raise DomainError('forbidden','Management source membership is unavailable')
+        elif not active_project_participant(uow.connection, project_id, ctx.principal_id):
+            raise DomainError('forbidden','Management source project is unavailable')
 
     @staticmethod
     def _owner(uow):
@@ -296,7 +293,7 @@ class ManagementService:
         # The row keeps the coordinator that routed it; the coordinator configured now reads and settles it all the same.
         if ctx.principal_id in {row['coordinator_id'], configured_ordubashy(uow)}:
             return True
-        if ctx.principal_kind == 'human' and (ctx.principal_id == self._owner(uow) or row['project_id'] and uow.connection.execute('SELECT 1 FROM project_memberships WHERE project_id=? AND principal_id=? AND active=1 AND is_owner=1', (row['project_id'], ctx.principal_id)).fetchone()):
+        if ctx.principal_kind == 'human' and ctx.principal_id == self._owner(uow):
             return True
         if row['source_type'] == 'signoffs':
             source = uow.connection.execute('SELECT proposer_principal_id FROM signoffs WHERE id=?', (row['source_id'],)).fetchone()

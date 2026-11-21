@@ -13,9 +13,8 @@ EASTERN = ZoneInfo('America/New_York')
 
 # The one owner selection of the notification tick; the read-only preflight and the transaction share this text.
 ACTIVE_OWNERS_SQL = """SELECT DISTINCT p.id FROM principals p
-    WHERE p.active=1 AND p.kind='human' AND (EXISTS(SELECT 1 FROM project_memberships m
-    WHERE m.principal_id=p.id AND m.active=1 AND m.is_owner=1) OR EXISTS(
-    SELECT 1 FROM installation i WHERE i.owner_principal_id=p.id))"""
+    WHERE p.active=1 AND p.kind='human' AND EXISTS(
+    SELECT 1 FROM installation i WHERE i.owner_principal_id=p.id)"""
 
 
 def instant(value):
@@ -36,7 +35,7 @@ class SignoffNotifications:
         if context.principal_kind != 'human':
             raise DomainError('forbidden', 'Owner attention is available only to humans')
         projects = [dict(b) for b in uow.connection.execute('''SELECT b.id,b.name,b.slug FROM projects b
-            JOIN project_memberships m ON m.project_id=b.id WHERE m.principal_id=? AND m.active=1 AND m.is_owner=1 AND b.archived_at IS NULL''',
+            JOIN installation i ON i.owner_principal_id=? WHERE b.archived_at IS NULL''',
             (context.principal_id,)) if b['id'] in context.allowed_project_ids]
         installation = uow.repository('installation').get('service')
         if installation and installation['owner_principal_id'] == context.principal_id:

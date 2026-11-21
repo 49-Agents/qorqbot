@@ -98,7 +98,7 @@ Ports in `qorqut_operations/application/ports.py` are deliberately injected, not
 
 - Policy: `resolve(context, descriptor, expected_targets, uow) -> PolicyDecision`.
   Missing policy denies ordinary operations. Owner-only operations independently
-  verify active human owner membership and are not agent-exposed.
+  verify the human installation owner and are not agent-exposed.
   Optional `validate_plan(context, descriptor, change_set, uow)` binds a claimed
   worker's exact arguments to frozen job outputs before staging or applying.
 - Signoff: `stage(context, descriptor, change_set, options, uow) -> OperationResult`.

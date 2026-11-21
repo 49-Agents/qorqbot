@@ -7,6 +7,7 @@ from datetime import timedelta
 from qorqut_operations import local_time
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.projects.summary import (global_action_counts, global_task_completions, project_action_counts,
                                                 project_task_completions)
 from qorqut_operations.application.plans import schema, utc_clock
@@ -39,9 +40,7 @@ class ProjectProgress:
         installation = uow.repository('installation').get('service')
         if ctx.principal_kind != 'human' or not installation or installation['owner_principal_id'] != ctx.principal_id:
             raise DomainError('forbidden', 'Global progress requires the owner')
-        projects = [r[0] for r in uow.connection.execute(
-            'SELECT b.id FROM projects b JOIN project_memberships m ON m.project_id=b.id '
-            'WHERE m.principal_id=? AND m.active=1 AND m.is_owner=1 AND b.archived_at IS NULL', (ctx.principal_id,))]
+        projects = [r[0] for r in uow.connection.execute('SELECT id FROM projects WHERE archived_at IS NULL')]
         end = local_time.today(self.clock)
         keys = ('tasks_done', 'inbox_messages', 'learnings_accepted', 'new_tickets', 'actions')
         series = {(end-timedelta(days=i)).isoformat(): dict.fromkeys(keys, 0) for i in reversed(range(args.get('days',30)))}
@@ -74,8 +73,7 @@ class ProjectProgress:
         return {'series':[{'date':date,**values} for date,values in series.items()], 'timezone':local_time.TIMEZONE, 'days':len(series)}
 
     def read(self, ctx, args, opts, uow):
-        member = uow.repository("project_memberships", project_id=ctx.project_id).get(ctx.principal_id)
-        if ctx.principal_kind != "human" or not member or not member["active"] or not member["is_owner"]:
+        if ctx.principal_kind != "human" or not owner_may_act(uow.connection, ctx.principal_id, ctx.project_id):
             raise DomainError("forbidden", "Project progress requires its owner")
         end = local_time.today(self.clock)
         days = args.get("days", 30)

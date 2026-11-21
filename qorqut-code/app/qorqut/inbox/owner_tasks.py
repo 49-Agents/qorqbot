@@ -16,7 +16,6 @@ ALL_SCOPES = object()
 def tasks(uow, *, project=ALL_SCOPES, identity=None):
     # The installation identity is authoritative, not an assignee display name
     # or every project member marked owner. Match final committed assignment.
-    # The membership test belongs to that HUMAN owner, not to any agent.
     where, args = [], []
     if project is not ALL_SCOPES:
         where.append('t.project_id IS ?')
@@ -30,5 +29,5 @@ def tasks(uow, *, project=ALL_SCOPES, identity=None):
         "JOIN relationships r ON r.to_id=p.id AND r.to_type='person' "
         "AND r.from_type='task' AND r.role='assigned_to' "
         "JOIN tasks t ON t.id=r.from_id AND t.project_id IS r.project_id "
-        "WHERE i.id='service' AND (t.project_id IS NULL OR EXISTS (SELECT 1 FROM project_memberships m WHERE m.principal_id=p.id AND m.project_id=t.project_id AND m.active=1))" + (' AND ' + ' AND '.join(where) if where else '') +
+        "WHERE i.id='service' AND (t.project_id IS NULL OR EXISTS (SELECT 1 FROM projects pr WHERE pr.id=t.project_id AND pr.archived_at IS NULL))" + (' AND ' + ' AND '.join(where) if where else '') +
         ' ORDER BY t.project_id,t.created_at,t.id', args)

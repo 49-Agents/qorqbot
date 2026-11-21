@@ -4,6 +4,7 @@ import hashlib
 import json
 
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.project_lifecycle import is_installation_owner, owner_may_act
 from qorqut_operations.signoffs.inputs import validate_response
 
 from .authority import current_overseer
@@ -49,15 +50,10 @@ class OwnerInputGateway:
             principal = uow.connection.execute('SELECT kind,active FROM principals WHERE id=?', (owner,)).fetchone()
             if decision.get('kind') != 'respond' or principal is None or principal['kind'] != 'human' or not principal['active']:
                 raise DomainError('forbidden', 'The answer was not made by an active owner')
-            if project:
-                member = uow.connection.execute('SELECT active,is_owner FROM project_memberships WHERE project_id=? AND principal_id=?',
-                                                (project, owner)).fetchone()
-                if member is None or not member['active'] or not member['is_owner']:
-                    raise DomainError('forbidden', 'The responder no longer has owner authority for this scope')
-            else:
-                installation = uow.connection.execute("SELECT owner_principal_id FROM installation WHERE id='service'").fetchone()
-                if installation is None or installation[0] != owner:
-                    raise DomainError('forbidden', 'The responder is not the current installation owner')
+            if not is_installation_owner(uow.connection, owner):
+                raise DomainError('forbidden', 'The responder is not the current installation owner')
+            if project and not owner_may_act(uow.connection, owner, project):
+                raise DomainError('forbidden', 'The responder no longer has owner authority for this scope')
             message_id = decision.get('message_id')
             notes = ''
             if message_id is not None:

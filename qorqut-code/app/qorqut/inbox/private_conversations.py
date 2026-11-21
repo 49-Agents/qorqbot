@@ -227,20 +227,15 @@ class PrivateConversations:
         selected = ctx.select_project(project_id) if project_id is not None else replace(ctx, project_id=None)
         selected = replace(selected, review_project_id=project_id)
         if project_id is not None and not self.project_participant(ctx, project_id, uow):
-            raise DomainError('forbidden', 'Private conversation source is outside an active project membership')
+            raise DomainError('forbidden', 'Private conversation source is outside an active project')
         return self.app.current_context(selected, uow)
 
     @staticmethod
     def project_participant(ctx, project_id, uow):
         """Read now, in this unit of work: an agent through the effective scope of an active supported global (no
-        membership row, no project home, an active project); a person or system principal through its active
-        membership of the active project. Reach alone never selects a peer channel."""
-        if ctx.principal_kind == 'agent':
-            return active_project_participant(uow.connection, project_id, ctx.principal_id)
-        return bool(uow.connection.execute(
-            'SELECT 1 FROM project_memberships m JOIN projects b ON b.id=m.project_id '
-            'WHERE m.principal_id=? AND m.project_id=? AND m.active=1 AND b.archived_at IS NULL',
-            (ctx.principal_id, project_id)).fetchone())
+        project home, an active project); the installation owner or a system worker through the active project.
+        Reach alone never selects a peer channel."""
+        return active_project_participant(uow.connection, project_id, ctx.principal_id)
 
     def namespace(self, ctx):
         return 'project:' + ctx.project_id if ctx.project_id else 'global'

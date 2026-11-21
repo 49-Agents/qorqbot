@@ -4,6 +4,7 @@ from uuid import UUID, uuid5
 
 from qorqut_operations.contracts import DomainError, canonical_hash
 from qorqut_operations.policy import WorkerProfile
+from qorqut_operations.project_lifecycle import active_project_ids
 from qorqut_operations.storage.assembly import StorageContribution
 
 # Host tables the exact-output validation reads (``documents``: automatic work may not change mandatory instructions).
@@ -32,7 +33,7 @@ class BackgroundAuthority:
         self.programs.require(program_id, available=False)
         return str(uuid5(UUID(self.installation(uow)), "program:" + program_id))
 
-    def register_workers(self, uow, project_ids):
+    def register_workers(self, uow):
         uow.require_write()
         ids = []
         for program in self.programs:
@@ -42,10 +43,6 @@ class BackgroundAuthority:
                 uow.repository("principals").insert({"id": identity, "kind": "system", "display_name": program.id + " worker"})
             elif actor["kind"] != "system":
                 raise DomainError("invalid_principal", "Program principal identity is occupied")
-            for project_id in project_ids:
-                membership = uow.repository("project_memberships", project_id=project_id)
-                if membership.get(identity) is None:
-                    membership.insert({"principal_id": identity})
             ids.append(identity)
         return ids
 
@@ -55,17 +52,14 @@ class BackgroundAuthority:
         if not actor or actor["kind"] != "system" or not actor["active"]:
             raise DomainError("invalid_principal", "Registered program worker is missing or inactive",
                               details={'incident_classification':'setup_contract'})
-        if project_id:
-            member = uow.repository("project_memberships", project_id=project_id).get(principal_id)
-            if not member or not member["active"]:
-                raise DomainError("forbidden", "Worker is not registered for this project")
+        if project_id and project_id not in active_project_ids(uow.connection):
+            raise DomainError("forbidden", "Worker cannot act in a project that is missing or archived")
 
     def worker_profiles(self, principal_id, uow):
         for program in self.programs:
             if self.worker_id(program.id, uow) == principal_id:
                 self.require_worker(principal_id, None, uow)
-                projects = frozenset(x[0] for x in uow.connection.execute(
-                    "SELECT project_id FROM project_memberships WHERE principal_id=? AND active=1", (principal_id,)))
+                projects = active_project_ids(uow.connection)
                 revision = int(program.definition["digest"][:15], 16) + 1
                 return WorkerProfile(program.permissions, projects, frozenset(program.global_capabilities), revision)
         return None

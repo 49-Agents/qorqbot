@@ -60,8 +60,6 @@ proven staging tree.
 One plan creates, atomically from the caller's view:
 
 - the project row with `config_json = {one_liner, code: []}`;
-- the owner's membership and the memberships of the already registered, project-scoped bounded system
-  programs (no principal is created);
 - the empty folders `projects/{slug}/hq` and `projects/{slug}/code`, made with the Operations
   `create_directory_tree` file effect (a receipt-bound private staging area published with a
   no-replace rename and recognized afterwards only by its recorded inode identity; see

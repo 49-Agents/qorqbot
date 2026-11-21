@@ -120,8 +120,8 @@ it is a fresh read, not a frozen snapshot. A safety bound rejects more than
 20,000 matches rather than returning a misleading partial overview.
 
 Only an active ecosystem Ordubashy with `read_global_context`, `tasks_overview`
-and `tasks_list` permissions can use it. Current scope and active project
-memberships are rechecked, including the owner's membership for owner-assigned
+and `tasks_list` permissions can use it. Current scope and active projects
+are rechecked, including the owner's reach of the project for owner-assigned
 project work. Other humans marked owner and other Ordubashy agents are not the
 selected assignees. Denying task listing also denies the aggregate; granting this
 tool to another role does not bypass its Ordubashy-only boundary. No new global

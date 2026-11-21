@@ -53,8 +53,6 @@ class ShortTaskIdTests(unittest.TestCase):
             for project, slug in ((self.first, 'first'), (self.second, 'second')):
                 uow.repository('projects').insert({'id': project, 'name': slug.title() + ' project', 'slug': slug,
                                                      'workspace': slug, 'hq_path': 'hq-' + slug})
-                uow.repository('project_memberships', project_id=project).insert({'principal_id': self.owner,
-                                                                                    'is_owner': True})
             # Stored Tasks: a UUID, slug ids, and ids in the short format in another project, in Global and on an
             # archived Task.
             legacy = ((self.first, LEGACY_UUID, False), (self.first, 'seo-autopilot', False),

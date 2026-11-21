@@ -20,7 +20,7 @@ script is run from an unrelated working directory with a clean ``sys.path``. The
   directory, even an identical empty tree, is never adopted.
 
 The Signoff slice acts as an active global agent (a supported role, an ecosystem scope, no home project): its project
-access is the active project directory, never a membership row, exactly as the engine requires of every agent.
+access is the active project directory, exactly as the engine requires of every agent.
 
 The build needs ``setuptools`` and ``wheel`` available to ``pip`` (pip fetches them into the isolated build
 environment) and a package index for ``jsonschema``, ``markdown-it-py`` and ``PyYAML``. The fourth runtime dependency,
@@ -83,7 +83,8 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-probe-") as directory:
         uow.repository("principals").insert({"id": HUMAN, "kind": "human"})
         uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w",
                                              "hq_path": directory + "/w/hq"})
-        uow.repository("project_memberships", project_id=PROJECT).insert({"principal_id": HUMAN, "is_owner": True})
+        uow.repository("installation").insert({"id": "service", "installation_id": "11111111-1111-4111-8111-111111111111",
+                                                 "owner_principal_id": HUMAN})
     def prepare(ctx, args, options, uow):
         builder = PlanBuilder(ctx, "things_create", args, "Create")
         builder.record("things", args["id"], None, {"id": args["id"], "title": args["title"]})
@@ -227,13 +228,12 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
         uow.repository("principals").insert({"id": AGENT, "kind": "agent", "display_name": "Proposer"})
         uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w",
                                              "hq_path": directory + "/w/hq"})
-        uow.repository("project_memberships", project_id=PROJECT).insert({"principal_id": HUMAN, "is_owner": True})
         uow.repository("installation").insert({"id": "service", "installation_id": INSTALLATION, "owner_principal_id": HUMAN})
         uow.connection.execute("INSERT INTO agent_profiles(agent_id, principal_id, name, "
             "workspace, profile_json, created_at, updated_at) VALUES (?,?,?,?,?, 'now', 'now')",
             (AGENT, AGENT, "proposer", directory + "/agent",
              json.dumps({"status": "active", "role": {"id": GLOBAL_WORKER_ROLE}, "scope": {"kind": "ecosystem"}})))
-        workers = authority.register_workers(uow, [PROJECT])
+        workers = authority.register_workers(uow)
 
     # Signoff slice: a restricted global agent selects the project and stages, the owner approves the reviewed binding,
     # the engine applies once.
@@ -372,7 +372,8 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-neutral-") as directory:
         uow.repository("principals").insert({"id": HUMAN, "kind": "human", "display_name": "Owner"})
         uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w",
                                              "hq_path": directory + "/w/hq"})
-        uow.repository("project_memberships", project_id=PROJECT).insert({"principal_id": HUMAN, "is_owner": True})
+        uow.repository("installation").insert({"id": "service", "installation_id": "11111111-1111-4111-8111-111111111111",
+                                                 "owner_principal_id": HUMAN})
         for table, identity in (("notes", "n1"), ("tasks", "k1")):
             uow.repository(table, project_id=PROJECT).insert({"id": identity, "title": identity.upper(), "body": "body"})
 

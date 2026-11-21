@@ -49,10 +49,8 @@ class RoutineScheduler:
                     program.validate(row["arguments_json"])
                     worker_id = self.operations.authority.worker_id(row["job_kind"], uow)
                     self.operations.authority.require_worker(worker_id, None, uow)
-                    memberships = frozenset(item[0] for item in uow.connection.execute(
-                        "SELECT project_id FROM project_memberships WHERE principal_id=? AND active=1", (worker_id,)))
                     context = InvocationContext(Principal(worker_id, "system", "Routine program"), source="worker",
-                        project_id=row["project_id"], allowed_project_ids=projects & memberships)
+                        project_id=row["project_id"], allowed_project_ids=projects)
                     targets = [target for target in self.operations.targets(context, row, uow)
                         if target is None or target in context.allowed_project_ids]
                     # The saved target itself must suit the program, even when no project is currently reachable.

@@ -270,7 +270,7 @@ def main(argv=None):
                 with database.read() as uow:
                     actor = app.state.authentication.installation_owner(connection=uow.connection)[0]
                 from qorqut.transport.auth import AuthenticatedPrincipal
-                context, project = app.state.http_api.context(AuthenticatedPrincipal(actor), slug, owner=True)
+                context, project = app.state.http_api.context(AuthenticatedPrincipal(actor), slug)
                 profile, _ = runtime.managed_launch.agent(context, selector)
                 versions = ({"claude-code": args.claude_version or "", "codex": args.codex_version or ""}
                             if args.claude_version or args.codex_version else None)

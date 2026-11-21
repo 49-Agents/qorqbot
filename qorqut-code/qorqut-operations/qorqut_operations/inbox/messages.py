@@ -113,8 +113,7 @@ class Messages:
                 return peer
             if allow_owner and peer.principal_kind == 'human':
                 installation = uow.repository('installation').get('service')
-                member = uow.repository('project_memberships', project_id=ctx.project_id).get(identity) if ctx.project_id else None
-                if installation and installation['owner_principal_id'] == identity or member and member['is_owner'] and member['active']:
+                if installation and installation['owner_principal_id'] == identity:
                     return peer
         except DomainError:
             pass

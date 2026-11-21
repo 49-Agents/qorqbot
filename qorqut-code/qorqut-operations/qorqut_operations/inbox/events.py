@@ -38,7 +38,7 @@ def row_for(uow, table, project, identity, sources=None):
         row = uow.connection.execute('SELECT *,agent_id AS id,NULL AS project_id FROM agent_profiles WHERE ? IS NULL AND agent_id=?', (project, identity)).fetchone()
         return dict(row) if row else None
     if table == 'principals':
-        row = uow.connection.execute("SELECT p.*,m.project_id FROM principals p JOIN project_memberships m ON m.principal_id=p.id WHERE p.kind='human' AND m.project_id IS ? AND p.id=?", (project, identity)).fetchone()
+        row = uow.connection.execute("SELECT p.*,pr.id AS project_id FROM principals p JOIN installation i ON i.owner_principal_id=p.id JOIN projects pr ON pr.id=? WHERE p.kind='human' AND p.id=?", (project, identity)).fetchone()
         return dict(row) if row else None
     scope = 'review_project_id' if table == 'signoffs' else 'project_id'
     row = uow.connection.execute(f'SELECT * FROM {table} WHERE {scope} IS ? AND id=?', (project, identity)).fetchone()
@@ -143,10 +143,10 @@ class EventFinalizer:
         if table == 'principals':
             if data['kind'] != 'human': return []
             return [('principals', {**data, 'project_id': row[0]}, actor, 'updated', set())
-                    for row in uow.connection.execute('SELECT project_id FROM project_memberships WHERE principal_id=?', (data['id'],))]
-        if table == 'project_memberships':
+                    for row in uow.connection.execute('SELECT pr.id FROM projects pr JOIN installation i ON i.owner_principal_id=? ORDER BY pr.id', (data['id'],))]
+        if table == 'project_person_details':
             record = row_for(uow, 'principals', project, data['principal_id'])
-            return [('principals', record, actor, 'membership_changed', set())] if record else []
+            return [('principals', record, actor, 'details_changed', set())] if record else []
         if table == 'data_rows':
             record = row_for(uow, 'data_tables', project, data['table_id'])
             return [('data_tables', record, actor, 'rows_changed', set())] if record else []

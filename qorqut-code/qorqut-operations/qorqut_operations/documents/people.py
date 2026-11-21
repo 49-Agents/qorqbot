@@ -12,8 +12,8 @@ AFFILIATION = {"enum": ["internal", "external"]}
 
 def details(row, uow, *, project_id=None):
     principal = row.get("kind") == "human"
-    member = uow.repository("project_memberships", project_id=project_id).get(row["id"]) if principal else None
-    metadata = member.get("person_json", {}) if member else row.get("metadata_json", {})
+    stored = uow.repository("project_person_details", project_id=project_id).get(row["id"]) if principal else None
+    metadata = stored.get("details_json", {}) if stored else row.get("metadata_json", {})
     installation = uow.repository("installation").get("service")
     owner = principal and installation and installation["owner_principal_id"] == row["id"]
     return {
