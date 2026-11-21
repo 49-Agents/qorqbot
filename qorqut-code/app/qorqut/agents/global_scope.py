@@ -7,14 +7,13 @@ the supported global roles; the shared Operations authority
 and malformed profiles or wrong field types fail closed. Its project access is
 every active project, derived in the reading transaction: a new project is
 reachable at once and an archived one never is. A saved ``allowed_project_ids``
-list is not authority and agent membership rows are not consulted. Human and system
-memberships keep their meaning; role, plugin, capability and revision checks still
+list is not authority. The installation owner and system workers reach every active project; role, plugin, capability and revision checks still
 apply to every operation.
 """
 
 from __future__ import annotations
 
-from qorqut_operations.project_lifecycle import active_project_ids
+from qorqut_operations.project_lifecycle import active_project_ids, owner_may_act
 from qorqut_operations.contracts import DomainError, freeze, plain
 from qorqut_operations.global_agents import current_global_row
 
@@ -94,7 +93,7 @@ def with_effective_scope(profile: AgentProfile, connection) -> AgentProfile:
 def active_project_participant(connection, project_id: str, principal_id: str | None) -> bool:
     """An eligible current participant in an active project's work.
 
-    Humans and system/integration principals need their active membership; agents
+    The installation owner and active system workers qualify for every active project; agents
     qualify only as active supported globals. A project-home identity never does.
     """
     if not principal_id or not project_id:
@@ -104,6 +103,8 @@ def active_project_participant(connection, project_id: str, principal_id: str | 
         return False
     if principal["kind"] == "agent":
         return reaches_project(connection, principal_id, project_id)
-    member = connection.execute("SELECT active FROM project_memberships WHERE project_id=? AND principal_id=?",
-                                (project_id, principal_id)).fetchone()
-    return bool(member and member["active"])
+    if principal["kind"] == "human":
+        return owner_may_act(connection, principal_id, project_id)
+    if principal["kind"] == "system":
+        return bool(principal["active"]) and project_id in active_project_ids(connection)
+    return False

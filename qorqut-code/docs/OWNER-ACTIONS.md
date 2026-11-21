@@ -32,8 +32,7 @@ The application freezes the exact parameters, effects, revisions, proposer and
 policy in the project's existing Signoff queue. No operational record changes at
 submission. An authenticated human owner reviews the exact proposal revision/hash;
 the Signoff worker applies it without rerunning the agent. Current role, scope,
-project reach (Ordubashy's derived reach of every active project, not an agent
-membership row), policy and target revisions are rechecked at approval/application.
+project reach (Ordubashy's derived reach of every active project), policy and target revisions are rechecked at approval/application.
 Lost submission responses retry the same idempotency key. Rejected/stale proposals
 or revoked authority do not apply, and one approval never authorizes a later change.
 

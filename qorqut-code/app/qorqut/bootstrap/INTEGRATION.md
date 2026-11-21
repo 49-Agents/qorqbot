@@ -39,10 +39,6 @@ that application validation.
 
 ## Owner HTTP
 
-GET /api/project/{slug}/agents/{agent_id}/config authenticates the selected project
-owner, calls AgentOperations.owner_config(ctx, agent_id), and returns the
-canonical envelope with data: {effective_config: ...}.
-
 POST /api/project/{slug}/agents/{agent_id}/permissions invokes permissions_set with
 arguments {agent_id, overrides} and InvocationOptions(expected_revision,
 idempotency_key). The override map replaces the old map; omitted keys inherit.
@@ -181,9 +177,9 @@ this exact session, binding and generation; old lock files do not establish an o
 the old conversation until recovery has been verified.
 
 Project creation is the Global `project_create` operation (the configured Ordubashy is its only caller), not a bootstrap
-step: it registers the project with its owner and system memberships and makes the empty `projects/<slug>/hq` and `code` folders. It
+step: it registers the project and makes the empty `projects/<slug>/hq` and `code` folders. It
 creates and prepares no agent, document, Task, routine or external registration: projects have no resident
-agents, and the global agents reach a new project at once with no profile or membership write. There is no
+agents, and the global agents reach a new project at once with no profile write. There is no
 seed CLI or template scaffold. Existing preparation preserves current pins and authored content.
 
 register_context_sources registers authored metadata_json.bootstrap_key values:

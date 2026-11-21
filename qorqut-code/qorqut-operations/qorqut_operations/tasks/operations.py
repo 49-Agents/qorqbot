@@ -20,7 +20,7 @@ from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UUID, PlanBuilder, apply_records, newest_page, page, ref,
                                                  require_revision, rows, schema, timestamp, utc_clock)
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
-from qorqut_operations.project_lifecycle import active_project_ids
+from qorqut_operations.project_lifecycle import active_project_ids, owner_may_act
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.conversations import SUMMARY, participants
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, can_follow, follow_state
@@ -279,11 +279,9 @@ class TaskOperations:
                 raise DomainError("invalid_worker", "Only the installation owner or eligible agents may be Workers")
             if builder:
                 builder.expect(ref("installation", "service", None), installation)
-        member = uow.repository("project_memberships", project_id=ctx.project_id).get(identity)
-        if not member or not member["active"] or not actor or not actor["active"] or actor["kind"] != "human":
-            raise DomainError("invalid_assignee", "Assignee must be an active global agent or human member of this project")
+        if not actor or not actor["active"] or actor["kind"] != "human" or not owner_may_act(uow.connection, identity, ctx.project_id):
+            raise DomainError("invalid_assignee", "Assignee must be an active global agent or the installation owner")
         if builder:
-            builder.expect(ref("project_memberships", identity, ctx.project_id), member)
             builder.expect(ref("principals", identity, ctx.project_id), actor)
 
     # -- note references -------------------------------------------------------------------------------------------
@@ -446,13 +444,12 @@ class TaskOperations:
         installation = uow.repository("installation").get("service")
         owner = installation["owner_principal_id"] if installation else None
         found = uow.connection.execute(
-            "SELECT p.id,p.kind,p.display_name,a.name,m.is_owner,m.active AS member FROM principals p "
-            "LEFT JOIN project_memberships m ON m.principal_id=p.id AND m.project_id=? LEFT JOIN agent_profiles a ON a.agent_id=p.id "
-            "WHERE p.active=1 AND p.kind IN ('agent','human') ORDER BY p.kind,p.display_name,p.id", (ctx.project_id,))
+            "SELECT p.id,p.kind,p.display_name,a.name FROM principals p LEFT JOIN agent_profiles a ON a.agent_id=p.id "
+            "WHERE p.active=1 AND p.kind IN ('agent','human') ORDER BY p.kind,p.display_name,p.id")
+        reaches = ctx.project_id in active_project_ids(uow.connection)
         return {result_key: [{"id": row["id"], "kind": row["kind"], "display_name": row["display_name"], "name": row["name"],
-                               "is_owner": row["kind"] == "human" and (row["id"] == owner if workers else bool(row["is_owner"]))} for row in found
-                              if (row["id"] in global_agents or (row["kind"] == "human" and row["member"]
-                                                                  and (not workers or row["id"] == owner)))
+                               "is_owner": row["kind"] == "human" and row["id"] == owner} for row in found
+                              if (row["id"] in global_agents or (row["kind"] == "human" and row["id"] == owner and reaches))
                               and not directed(ctx, row["id"], uow)]}
 
     def list_tasks(self, ctx, arguments, uow, configuration, now):

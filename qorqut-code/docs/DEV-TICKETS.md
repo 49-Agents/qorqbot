@@ -28,7 +28,7 @@ Agent-facing lifecycle tools are scoped separately from the owner queue:
   authorized report and a bounded page of its durable follow-up/resolution
   history. The default page is 50 events (maximum 100); use the returned
   `events_next_offset` to read another page. Reporter ownership applies only
-  after the current selected scope and active membership checks.
+  after the current selected scope and active project checks.
 - `dev_tickets_follow_up(ticket_id, details)` appends context to an open report;
   it does not silently reopen a closed report.
 - `dev_tickets_resolve(ticket_id, resolution, verification, deployment_ref?)`

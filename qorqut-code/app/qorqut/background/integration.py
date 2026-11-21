@@ -144,8 +144,6 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
         maintenance=maintenance, tables=runtime.domains.tables,
         backup_downloader=backup_downloader)
     authority = runtime.authority
-    if getattr(runtime.domains, "project_creation", None):
-        runtime.domains.project_creation.worker_authority = authority
     runtime.policy.worker_profiles = authority.worker_profiles
     runtime.policy.job_consequence_verifier = authority.verify_consequence
     runtime.policy.job_plan_validator = authority.validate_plan

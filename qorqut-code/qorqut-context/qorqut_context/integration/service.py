@@ -12,9 +12,9 @@ by the first delivery or question mutation, never by composition or a read.
 
 ``ContextServices`` is the lifecycle contract the host lifetime owns (``start()``, bounded ``stop(timeout=...)``, ``running``,
 ``wake()``, ``diagnostics()``). Started only by the owner of the instance, it registers the dedicated backend ``system``
-principal and the ``context.file`` / ``context.instruct`` completion workers, adding only missing memberships for
-unarchived projects. Identities use the existing stable installation-derived IDs; an existing principal of another
-kind or a disabled one is a visible conflict, never repurposed or re-enabled. Existing disabled memberships are preserved.
+principal and the ``context.file`` / ``context.instruct`` completion workers. Identities use the existing stable
+installation-derived IDs; an existing principal of another kind or a disabled one is a visible conflict, never
+repurposed or re-enabled.
 It runs the existing ``ContextQueueDriver`` through the existing
 ``ContextDriverLoop`` on its one thread. That thread also runs the bounded, synchronous ``ContextUsageCollector`` before and
 after each driver step. It is the only worker: ``stop`` is true exactly when that thread, with any in-flight Context draft, Git
@@ -293,8 +293,8 @@ class ContextServices:
         """Register the driver and its filing workers at owned startup, never during reads or admission.
 
         Converted installations may have the old upload worker but no instruction worker. Both completion
-        programs need their stable system identities and memberships before they can admit work. Existing
-        disabled principals or memberships are never re-enabled; unrelated programs are untouched.
+        programs need their stable system identities before they can admit work. Existing
+        disabled principals are never re-enabled; unrelated programs are untouched.
         """
         with self.database.transaction(operation="context_driver_register") as uow:
             installation = uow.repository("installation").get("service")
@@ -309,7 +309,6 @@ class ContextServices:
             authority = self.programs.authority
             if authority is None:
                 raise DomainError("operation_unavailable", "The Context filing authority is not installed")
-            projects = uow.connection.execute("SELECT id FROM projects WHERE archived_at IS NULL").fetchall()
             for program_id in (FILE, INSTRUCT):
                 worker_id = authority.worker_id(program_id, uow)
                 worker = uow.repository("principals").get(worker_id)
@@ -317,10 +316,6 @@ class ContextServices:
                     uow.repository("principals").insert({"id": worker_id, "kind": "system",
                                                          "display_name": program_id + " worker"})
                 authority.require_worker(worker_id, None, uow)
-                for project in projects:
-                    members = uow.repository("project_memberships", project_id=project["id"])
-                    if members.get(worker_id) is None:
-                        members.insert({"principal_id": worker_id})
         return identity
 
     def _on_commit(self, event: dict) -> None:

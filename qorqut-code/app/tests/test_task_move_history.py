@@ -72,7 +72,6 @@ class TaskMoveHistoryTests(unittest.TestCase):
             for project, slug in ((self.source, 'launch'), (self.destination, 'product')):
                 uow.repository('projects').insert({'id': project, 'name': slug.title(), 'slug': slug,
                                                      'workspace': slug, 'hq_path': 'hq-' + slug})
-                uow.repository('project_memberships', project_id=project).insert({'principal_id': self.owner, 'is_owner': True})
         self.ctx = InvocationContext(Principal(self.owner, 'human'), source='dashboard',
                                      global_capabilities=frozenset({'read_global_context'}),
                                      allowed_project_ids=frozenset({self.source, self.destination}))

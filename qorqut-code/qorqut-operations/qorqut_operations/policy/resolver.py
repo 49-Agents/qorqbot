@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
-from qorqut_operations.project_lifecycle import active_project_ids, require_active_project
+from qorqut_operations.project_lifecycle import active_project_ids, owner_may_act, owner_project_ids, require_active_project
 from qorqut_operations.contracts import DomainError, InvocationContext, PolicyDecision, Principal, freeze, plain
 from .rules import PolicyRules, resolve_operation_policy, validate_modes
 
@@ -114,15 +114,11 @@ class PolicyResolver:
             profile = self.worker_profile(principal.id, uow)
             if context.source != "worker":
                 raise DomainError("forbidden", "Worker principals require the internal worker interface")
-            memberships = frozenset(row[0] for row in uow.connection.execute(
-                "SELECT project_id FROM project_memberships WHERE principal_id = ? AND active = 1", (principal.id,)))
-            context = replace(context, allowed_project_ids=profile.project_ids & memberships,
+            context = replace(context, allowed_project_ids=profile.project_ids,
                               global_capabilities=profile.global_capabilities,
                               profile_revision=profile.revision, policy_revision=profile.revision)
         if principal.kind == "human":
-            memberships = frozenset(row[0] for row in uow.connection.execute(
-                "SELECT project_id FROM project_memberships WHERE principal_id = ? AND active = 1", (principal.id,)))
-            context = replace(context, allowed_project_ids=context.allowed_project_ids & memberships)
+            context = replace(context, allowed_project_ids=context.allowed_project_ids & owner_project_ids(uow.connection, principal.id))
         if principal.kind == "human" and self.human_global_capabilities is not None:
             provider = self.human_global_capabilities
             capabilities = provider(principal.id, uow) if callable(provider) else provider.get(principal.id, ())
@@ -146,8 +142,7 @@ class PolicyResolver:
             values["job_id"] = job_id
         if actor.kind == "human":
             values["project_id"] = project_id or review_project_id
-            values["allowed_project_ids"] = frozenset(row[0] for row in uow.connection.execute(
-                "SELECT project_id FROM project_memberships WHERE principal_id = ? AND active = 1", (actor.id,)))
+            values["allowed_project_ids"] = owner_project_ids(uow.connection, actor.id)
         return self.refresh_context(InvocationContext(actor, **values), uow)
 
     def _agent_decision(self, context, descriptor, uow):
@@ -197,12 +192,9 @@ class PolicyResolver:
                         "installation_revision": installation["revision"],
                         **descriptor.global_capability_evidence(context.global_capabilities)})
                 return PolicyDecision("deny", "installation_owner_required")
-            member = (uow.repository("project_memberships", project_id=context.project_id).get(context.principal_id)
-                      if context.project_id else None)
-            if not member or not member["active"] or (descriptor.effect_kind != "read" and not member["is_owner"]):
+            if not owner_may_act(uow.connection, context.principal_id, context.project_id):
                 return PolicyDecision("deny", "owner_required")
-            return PolicyDecision("allow", "owner" if member["is_owner"] else "project_member", {"membership_revision": member["revision"],
-                                  **descriptor.global_capability_evidence(context.global_capabilities)})
+            return PolicyDecision("allow", "owner", descriptor.global_capability_evidence(context.global_capabilities))
         if context.principal_kind == "agent":
             return self._agent_decision(context, descriptor, uow)
         profile = self.worker_profile(context.principal_id, uow)

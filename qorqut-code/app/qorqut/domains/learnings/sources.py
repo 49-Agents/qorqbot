@@ -33,12 +33,8 @@ def human(uow, identity, project_id, *, owner_only=False):
     actor = uow.repository('principals').get(identity) if identity else None
     if not actor or actor['kind'] != 'human':
         return None
-    if project_id is None:
-        installation = uow.repository('installation').get('service')
-        owner = bool(installation and installation['owner_principal_id'] == identity)
-    else:
-        member = uow.repository('project_memberships', project_id=project_id).get(identity)
-        owner = bool(member and member['is_owner'])
+    installation = uow.repository('installation').get('service')
+    owner = bool(installation and installation['owner_principal_id'] == identity)
     if owner_only and not owner:
         return None
     return {'id': identity, 'name': actor['display_name'], 'role': 'owner' if owner else 'human'}

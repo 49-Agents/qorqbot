@@ -18,7 +18,7 @@ def register_environment(runtime):
             local.require_environment_owner(ctx, uow)
         elif ctx.principal_kind != "agent":
             raise DomainError("forbidden", "Settings values require an authorized agent or owner")
-        # Humans keep their membership rule; agents are active supported globals with derived project access.
+        # The owner and agents reach active projects by the shared rule; agents are active supported globals.
         if ctx.project_id is not None and not active_project_participant(uow.connection, ctx.project_id, ctx.principal_id):
             raise DomainError("forbidden", "Settings values require active project access")
         if args["key"] in IDENTITY_KEYS:

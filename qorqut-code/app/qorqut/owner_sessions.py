@@ -159,9 +159,6 @@ def issue_credential(database, *, project_id, label, endpoint=None, roots=None):
             raise DomainError("project_archived", "Owner sessions cannot be issued for an archived project")
         if not enabled(project["config_json"]):
             raise DomainError("forbidden", "Owner sessions are not enabled for this project")
-        member = uow.repository("project_memberships", project_id=project_id).get(owner_id)
-        if not member or not member["active"] or not member["is_owner"]:
-            raise DomainError("forbidden", "The installation owner must own this project")
         for row in uow.connection.execute(
                 "SELECT id, metadata_json, revision FROM credentials WHERE principal_id=? AND revoked_at IS NULL",
                 (owner_id,)).fetchall():

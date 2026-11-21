@@ -27,14 +27,13 @@ CORE_SCHEMA = (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 , archived_at TEXT, archived_by TEXT REFERENCES principals(id))""",
-    """CREATE TABLE project_memberships (
+    """CREATE TABLE project_person_details (
     project_id TEXT NOT NULL REFERENCES projects(id),
     principal_id TEXT NOT NULL REFERENCES principals(id),
-    is_owner INTEGER NOT NULL DEFAULT 0 CHECK (is_owner IN (0,1)),
-    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+    details_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(details_json)),
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL, person_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(person_json)),
+    updated_at TEXT NOT NULL,
     PRIMARY KEY (project_id, principal_id)
 )""",
     """CREATE TABLE installation (

@@ -13,6 +13,7 @@ from uuid import NAMESPACE_URL, uuid5
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut_operations.discussion.events import eligible_agents
 from qorqut_operations.discussion.schema import ITEM_TYPES
+from qorqut_operations.project_lifecycle import owner_may_act
 
 REASONS = ("creator", "assignee", "commenter", "represented", "explicit")
 
@@ -51,9 +52,7 @@ def can_follow(uow, item: ThreadItem, principal_id: str) -> bool:
     if item.project_id is None:
         owner = uow.connection.execute("SELECT owner_principal_id FROM installation WHERE id='service'").fetchone()
         return bool(owner and owner["owner_principal_id"] == principal_id)
-    member = uow.connection.execute("SELECT active FROM project_memberships WHERE project_id=? AND principal_id=?",
-                                    (item.project_id, principal_id)).fetchone()
-    return bool(member and member["active"])
+    return owner_may_act(uow.connection, principal_id, item.project_id)
 
 
 def auto_follow(uow, item: ThreadItem, principal_ids, reason: str) -> list[str]:

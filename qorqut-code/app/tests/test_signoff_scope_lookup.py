@@ -75,8 +75,6 @@ class Harness(unittest.TestCase):
             for project, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta'), (self.gamma, 'Gamma')):
                 uow.repository('projects').insert({'id': project, 'slug': name.lower(), 'name': name,
                                                      'workspace': name.lower(), 'hq_path': name.lower() + '/hq'})
-                uow.repository('project_memberships', project_id=project).insert(
-                    {'principal_id': self.owner, 'active': 1, 'is_owner': 1})
         self.owner_ctx = InvocationContext(Principal(self.owner, 'human'), source='dashboard',
             allowed_project_ids={self.alpha, self.beta, self.gamma}, global_capabilities={'read_global_context'})
         # A registered global agent over MCP: no review scope selected unless a call names one.

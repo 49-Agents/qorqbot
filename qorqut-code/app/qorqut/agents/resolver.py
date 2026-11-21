@@ -410,7 +410,7 @@ class AgentConfigResolver:
             selected = next((item for item in projects if item["id"] == target), None)
             registration = connection.execute("SELECT * FROM machine_registrations WHERE principal_id=? AND workspace=?", (principal.id, row["workspace"])).fetchone()
             owner_names = [item[0] for item in connection.execute(
-                "SELECT p.display_name FROM project_memberships m JOIN principals p ON p.id=m.principal_id WHERE m.project_id=? AND m.is_owner=1 AND m.active=1 AND p.active=1 ORDER BY p.id", (target,))]
+                "SELECT p.display_name FROM installation i JOIN principals p ON p.id=i.owner_principal_id WHERE i.id='service' AND p.active=1")]
             if target is None:  # Global scope names the registered installation owner.
                 owner_names = [item[0] for item in connection.execute(
                     "SELECT p.display_name FROM installation i JOIN principals p ON p.id=i.owner_principal_id WHERE i.id='service'")]

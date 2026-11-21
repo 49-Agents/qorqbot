@@ -38,7 +38,6 @@ class OwnerViewTests(Fixture):
         with self.db.transaction() as uow:
             uow.repository('projects').insert({'id': self.other, 'name': 'Closed project', 'slug': 'closed',
                                                  'workspace': 'closed', 'hq_path': 'hq2'})
-            uow.repository('project_memberships', project_id=self.project_id).insert({'principal_id': self.owner, 'is_owner': True})
         self.work = self.task(self.lead, 'Pay creators')
         self.item = {'type': 'task', 'id': self.work['id'], 'project_id': None}
         self.project = {'type': 'project', 'id': self.project_id, 'project_id': self.project_id}

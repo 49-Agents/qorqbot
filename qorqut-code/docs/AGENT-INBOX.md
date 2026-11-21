@@ -76,7 +76,7 @@ actions. Existing operation policies and signoff requirements remain in force.
 ### Ordubashy follows the owner's tasks
 
 Active ecosystem Ordubashy agents automatically follow tasks assigned to the
-registered installation owner, restricted to their current project memberships,
+registered installation owner, restricted to their current active projects,
 scope and task-read permissions. This is a derived rule over authoritative task
 assignments, not persisted manual subscriptions or a new polling job. It covers
 existing and future tasks, including completed/archived tasks while assigned;

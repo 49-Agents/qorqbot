@@ -24,7 +24,7 @@ first has none of the signoff's own scope at all; the other two carry
 `home_project_id`, a differently-named column `_scope_of` does not look
 for) -- confirmed by reading those triggers directly, not assumed. Every
 write to those specific tables therefore lands at GLOBAL_SCOPE regardless
-of which project the row actually belongs to, while `project_memberships`
+of which project the row actually belongs to, while `project_person_details`
 and `relationships` (the other tables behind "agents" and "signoffs") do
 carry a real `project_id` and scope correctly. PR3's ETag must check both
 scopes for "signoffs" and "agents" -- see ALSO_GLOBAL_KINDS and
@@ -67,7 +67,7 @@ KIND_BY_TABLE = {
     "signoffs": "signoffs", "signoff_attention": "signoffs", "signoff_notes": "signoffs",
     "documents": "documents", "context_entities": "documents",
     "action_logs": "action_logs", "action_projects": "action_logs",
-    "agent_profiles": "agents", "principals": "agents", "project_memberships": "agents",
+    "agent_profiles": "agents", "principals": "agents", "project_person_details": "agents",
     "data_tables": "tables", "data_rows": "tables",
     # A timeline row belongs to the Task, Project or Global it names; Global rows land at the global scope.
     "timeline_entries": "timeline", "timeline_questions": "timeline",
@@ -136,7 +136,7 @@ GLOBAL_ONLY_KINDS = frozenset({"jobs_routines", "learnings", "thread_pins", CONT
 # GLOBAL_SCOPE: "signoffs" via `signoff_attention` (no scope column captured,
 # see the module docstring) and the coarse `signoffs_notification_*` writes;
 # "agents" via `agent_profiles`/`principals` (captured `home_project_id`/no
-# scope column at all, while `project_memberships` does carry a real
+# scope column at all, while `project_person_details` does carry a real
 # `project_id`). A route depending on one of these must check both its own
 # scope and GLOBAL_SCOPE, or it can miss the global-only half of the kind's
 # writes and 304 on data that already changed. "action_logs": Global-stored

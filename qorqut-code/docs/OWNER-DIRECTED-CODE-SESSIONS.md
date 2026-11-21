@@ -282,7 +282,7 @@ and does not depend on Python at runtime.
 | Symptom | Meaning |
 | --- | --- |
 | HTTP 401 `unauthenticated` on connect | Missing/invalid/revoked/expired credential or a cached old header. Check the installed credential, reissue/install if needed, then reload the client's MCP connection. |
-| HTTP 403 `forbidden` on every call | `owner_sessions.enabled` is false, the project is archived, or the owner membership is inactive. |
+| HTTP 403 `forbidden` on every call | `owner_sessions.enabled` is false, the project is archived, or the credential's principal is not the installation owner. |
 | `forbidden: This operation is not in the owner-session catalog` | The operation exists but is deliberately outside this route; use the dashboard. |
 | `channel_required` | Freeform text aimed at a shared discussion; send it with `owner_conversation_send` instead. |
 | `revision_conflict` | Reread the object; retry with a fresh key if the owner's instruction still applies, otherwise ask. |

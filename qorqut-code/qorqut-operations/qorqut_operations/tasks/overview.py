@@ -15,6 +15,7 @@ from qorqut_operations.application.plans import PAGE, page, schema, timestamp
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.global_agents import effective_project_ids, is_global_agent
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.roles import ORDUBASHY_ROLE
 from qorqut_operations.tags.catalog import labels_by_item
 from qorqut_operations.tasks.models import snooze_view
@@ -95,8 +96,7 @@ class TaskOverview:
                 active = "(t.snoozed_until IS NULL OR t.snoozed_until<=?)"
                 clauses.append("NOT " + active if filters["snooze_filter"] == "snoozed" else active)
                 parameters.append(now)
-            owner_membership = uow.repository("project_memberships", project_id=project_id).get(owner["id"]) if project_id else None
-            owner_present = project_id is None or bool(owner_membership and owner_membership["active"])
+            owner_present = project_id is None or owner_may_act(uow.connection, owner["id"], project_id)
             # IS (not =) keeps NULL/Global joins scoped, including duplicate task IDs.
             assigned = ("EXISTS (SELECT 1 FROM relationships r WHERE r.project_id IS t.project_id AND r.from_type='task' AND r.from_id=t.id "
                         "AND r.role='assigned_to' AND r.to_type=? AND r.to_id=?)")

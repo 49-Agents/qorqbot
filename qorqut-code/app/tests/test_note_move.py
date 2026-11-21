@@ -174,9 +174,6 @@ class MoveOperationTests(NoteMoveFixture):
         from qorqut_operations.application.engine import Application
         from qorqut_operations.application.registry import OperationDescriptor, OperationRegistry
         from qorqut_operations.contracts import PolicyDecision
-        with self.db.transaction() as uow:
-            for project in (self.source, self.destination):
-                uow.repository('project_memberships', project_id=project).insert({'principal_id': self.owner, 'is_owner': True})
         self.denied = set()
         self.registry = OperationRegistry(())
         for name in ('notes_get', 'notes_update', 'notes_create', 'tables_get', 'tables_update', 'tables_create'):

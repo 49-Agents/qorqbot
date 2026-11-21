@@ -161,8 +161,7 @@ class Broadcasts:
         if ctx.principal_id in (row["sender_id"], row['created_by']): return row
         if ctx.principal_kind == "human":
             installation = uow.repository("installation").get("service")
-            member = uow.repository("project_memberships", project_id=project).get(ctx.principal_id) if project else None
-            if installation and installation["owner_principal_id"] == ctx.principal_id or member and member["active"] and member["is_owner"]: return row
+            if installation and installation["owner_principal_id"] == ctx.principal_id: return row
         role = self._role(ctx.principal_id, uow) if ctx.principal_kind == "agent" else None
         if role == "ordubashy" and (project is None or project in ctx.allowed_project_ids):
             if all(target['project_id'] is None or target['project_id'] in ctx.allowed_project_ids

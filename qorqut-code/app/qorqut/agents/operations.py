@@ -250,15 +250,6 @@ class AgentOperations:
         elif ctx.home_project_id is not None or not ctx.global_capabilities:
             raise DomainError("forbidden", "Ecosystem agent requires explicit global scope")
 
-    def owner_config(self, ctx, agent_id):
-        with self.resolver.database.read() as uow:
-            membership = uow.repository("project_memberships", project_id=ctx.project_id).get(ctx.principal_id) if ctx.project_id else None
-            if ctx.principal_kind != "human" or not membership or not membership["active"] or not membership["is_owner"]:
-                raise DomainError("forbidden", "Configuration inspection requires the selected project owner")
-            row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (agent_id,)).fetchone()
-            self._access(ctx, row)
-        return self.resolver.resolve_agent_config(Principal(agent_id, "agent"), project_id=ctx.project_id).to_dict()
-
     def profile_view(self, row, connection):
         value = json.loads(row["profile_json"])
         if row["status"] == "retired":
@@ -465,14 +456,6 @@ class AgentOperations:
             principal_values.update({"id": identity, "kind": "agent", "created_at": profile.data["created_at"]})
         changes.append(PreparedChange("record", principal_ref, "insert_principal" if creating else "update_principal", principal_values))
         if profile.data["status"] != "active":
-            # Agent project access is derived, never granted by membership: no new
-            # rows are written, and retirement only closes rows left from earlier models.
-            for membership in uow.connection.execute(
-                    "SELECT * FROM project_memberships WHERE principal_id=? AND active=1 ORDER BY project_id", (identity,)):
-                membership_ref = ResourceRef("project_memberships", identity, membership["project_id"], membership["project_id"])
-                expected.append(ExpectedTarget(membership_ref, revision=membership["revision"]))
-                changes.append(PreparedChange("record", membership_ref, "update_membership", {"active": False}))
-        if profile.data["status"] != "active":
             for credential in uow.repository("credentials").list(filters={"principal_id": identity}, limit=200):
                 if credential["revoked_at"] is None:
                     credential_ref = ResourceRef("credentials", credential["id"], project_id, namespace)
@@ -616,10 +599,6 @@ class AgentOperations:
                                if effect.kind == "file" and effect.resource.resource_type == "agent_bootstrap_files")
                 seed_document(uow.connection, row, base64.b64decode(content),
                                       author="system:" + plan.operation_name, operation=plan.operation_name, plan=plan)
-            elif document.action == "insert_membership":
-                raise DomainError("invalid_plan", "Agent project access is derived; prepare this change again")
-            elif document.action == "update_membership":
-                uow.repository("project_memberships", project_id=document.resource.project_id).update(identity, plain(document.values), expected_revision=expectations[document.resource].revision)
             elif document.action == "revoke_credential":
                 uow.repository("credentials").update(document.resource.resource_id, plain(document.values), expected_revision=expectations[document.resource].revision)
         return plain(change.values["result"])

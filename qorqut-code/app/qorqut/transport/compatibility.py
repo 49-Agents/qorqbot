@@ -15,6 +15,7 @@ import yaml
 
 from qorqut.composition.locations import project_hq
 from qorqut_operations.contracts import DomainError, InvocationOptions, canonical_hash, new_id, plain
+from qorqut_operations.project_lifecycle import owner_project_ids
 from qorqut_operations.team_channel import is_installation_owner
 from qorqut_operations.storage.repositories import decode_row
 from .http import check_body_length, checked_fields, read_json, revalidated
@@ -266,8 +267,7 @@ class DashboardCompatibility:
                 raise DomainError("forbidden", "Personal tasks require a human principal")
             with self.runtime.database.read() as uow:
                 projects = [dict(row) for row in uow.connection.execute(
-                    "SELECT b.id,b.slug,b.name FROM projects b JOIN project_memberships m ON m.project_id=b.id "
-                    "WHERE m.principal_id=? AND m.active=1 AND b.archived_at IS NULL ORDER BY b.slug", (context.principal_id,))
+                    "SELECT id,slug,name FROM projects WHERE archived_at IS NULL ORDER BY slug")
                     if row["id"] in context.allowed_project_ids]
             tasks = []
             for project in projects:
@@ -278,7 +278,8 @@ class DashboardCompatibility:
             return JSONResponse({"principal_id": context.principal_id, "tasks": tasks})
         if parts == ["project"]:
             with self.runtime.database.read() as uow:
-                registered = uow.connection.execute("SELECT b.* FROM projects b JOIN project_memberships m ON m.project_id=b.id WHERE m.principal_id=? AND m.active=1 AND b.archived_at IS NULL ORDER BY b.slug", (context.principal_id,)).fetchall()
+                reachable = owner_project_ids(uow.connection, context.principal_id)
+                registered = [row for row in uow.connection.execute("SELECT * FROM projects WHERE archived_at IS NULL ORDER BY slug") if row["id"] in reachable]
             projects = []
             for row in registered:
                 selected = context.select_project(row["id"])

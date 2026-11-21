@@ -14,7 +14,7 @@ Explicit denial and current membership/capabilities are rechecked on every call.
 Reads do not support signoff. No role pins or live permissions change on deploy.
 
 Global calls require the existing `read_global_context` capability as well as
-the operation grant. Project calls require active project membership and read
+the operation grant. Project calls require an active project and read
 only that project's own Settings. Unlike `environment_list`, value reads never
 inherit Global Settings into a project scope. Global agents must select Global
 to retrieve Global values. Callers cannot supply an arbitrary scope in arguments.

@@ -12,6 +12,7 @@ from dataclasses import replace
 from qorqut import owner_sessions
 from qorqut_operations.application.batches import NAME as BATCH_NAME
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.project_lifecycle import owner_may_act
 
 
 class OwnerSessionCaller:
@@ -33,9 +34,8 @@ class OwnerSessionCaller:
             raise DomainError("forbidden", "The owner-session project is unavailable or archived")
         if not owner_sessions.enabled(project["config_json"]):
             raise DomainError("forbidden", "Owner sessions are not enabled for this project")
-        member = uow.repository("project_memberships", project_id=actor.project_id).get(actor.principal.id)
-        if not member or not member["active"] or not member["is_owner"]:
-            raise DomainError("forbidden", "Owner-session project membership is unavailable")
+        if not owner_may_act(uow.connection, actor.principal.id, actor.project_id):
+            raise DomainError("forbidden", "The installation owner cannot act in the owner-session project")
 
     def identity(self, actor):
         return (actor.principal.id, actor.credential_id, actor.project_id)

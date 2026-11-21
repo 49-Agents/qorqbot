@@ -791,8 +791,7 @@ def technical_session_binding(connection, session_id, principal_id, registration
     return "foreign" if known else "unregistered"
 
 
-def ensure_system_reporter(uow, authority, *, program_id=INCIDENT_PROGRAM_ID,
-                           project_ids=()):
+def ensure_system_reporter(uow, authority, *, program_id=INCIDENT_PROGRAM_ID):
     """Provision the reporter using the same deterministic worker mechanism as jobs."""
     identity = authority.worker_id(program_id, uow)
     actor = uow.repository("principals").get(identity)
@@ -801,10 +800,6 @@ def ensure_system_reporter(uow, authority, *, program_id=INCIDENT_PROGRAM_ID,
                                                "display_name": "System Dev incident reporter"})
     elif actor["kind"] != "system":
         raise ValueError("Incident reporter principal identity is occupied")
-    for project_id in project_ids:
-        membership = uow.repository("project_memberships", project_id=project_id)
-        if membership.get(identity) is None:
-            membership.insert({"principal_id": identity})
     return identity
 
 

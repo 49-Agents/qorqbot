@@ -19,7 +19,6 @@ ROLE = {'id': 'role-a', 'version': '1', 'digest': 'sha256:role'}
 SCHEMA = '''
 CREATE TABLE projects(id TEXT PRIMARY KEY, name TEXT, archived_at TEXT);
 CREATE TABLE machine_registrations(principal_id TEXT, workspace TEXT);
-CREATE TABLE project_memberships(project_id TEXT, principal_id TEXT, is_owner INTEGER, active INTEGER);
 CREATE TABLE principals(id TEXT PRIMARY KEY, display_name TEXT, active INTEGER);
 CREATE TABLE installation(id TEXT, owner_principal_id TEXT);
 CREATE TABLE documents(id TEXT PRIMARY KEY, project_id TEXT, namespace TEXT, path TEXT, content_hash TEXT,

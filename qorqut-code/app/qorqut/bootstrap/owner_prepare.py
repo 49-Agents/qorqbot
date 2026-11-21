@@ -512,7 +512,7 @@ def prepare(database, *, project, code_root, nested=(), outside_roots=(), endpoi
     record = resolve_project(database, project)
     projection = build_projection(project=record, endpoint=endpoint, roots=roots, label=label,
                                   owner_name=resolve_owner_name(database))
-    # Issuance enforces the enabled project and owner membership, and revokes
+    # Issuance enforces the enabled, active project, and revokes
     # this label's previous credential; conflicts are already ruled out above.
     token = owner_sessions.issue_credential(database, project_id=record["id"], label=label,
                                             endpoint=endpoint, roots=[str(root) for root in roots])

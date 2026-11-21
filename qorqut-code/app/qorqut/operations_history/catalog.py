@@ -53,15 +53,6 @@ def catalog(extensions=()):
                 'created_at': Text(),
                 'updated_at': Text(),
             }, ('agent_id',)),
-            TableExport('project_memberships', {
-                'project_id': Text(),
-                'principal_id': Text(),
-                'is_owner': Integer(),
-                'active': Integer(),
-                'revision': Integer(),
-                'created_at': Text(),
-                'updated_at': Text(),
-            }, ('project_id', 'principal_id')),
         )),
         HistoryContribution('host.tasks', exports=(
             TableExport('tasks', {

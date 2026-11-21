@@ -177,7 +177,7 @@ def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, r
     if shared_read is not None:
         return shared_read
     if name in {"owner_conversation_get", "owner_conversation_send"} and scope == "project" and name not in defaults:
-        # Exact active project membership and source reads are checked again by the conversation service.
+        # The owner's reach of the active project and source reads are checked again by the conversation service.
         return PolicyDecision("allow", "project_owner_channel")
 
 

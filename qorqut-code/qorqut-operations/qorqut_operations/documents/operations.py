@@ -23,6 +23,7 @@ from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UUI
                                                  ref, require_revision, rows, schema, utc_clock)
 from qorqut_operations.contracts import (DomainError, ExpectedTarget, ResourceRef, canonical_hash, plain)
 from qorqut_operations.documents.serialization import BODY, HASH, SLUG, slugify, split_document
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.records.associations import TASK_IDS, link_new_resource
 from qorqut_operations.records.vocabulary import document_type
 from qorqut_operations.relationships import create_edge
@@ -499,15 +500,15 @@ class DocumentSources:
         elif operation == "context_people_update":
             validate_person_changes(ctx, args["changes"])
             principal = uow.repository("principals").get(args["document_id"])
-            member = uow.repository("project_memberships", project_id=ctx.project_id).get(args["document_id"]) if principal else None
-            if principal and principal["kind"] == "human" and member and member["active"]:
+            if principal and principal["kind"] == "human" and owner_may_act(uow.connection, principal["id"], ctx.project_id):
+                stored = uow.repository("project_person_details", project_id=ctx.project_id).get(principal["id"])
                 if set(args["changes"]) - {"affiliation", "contact", "summary"}:
                     raise DomainError("validation_error", "Human account details support affiliation, contact and summary only")
-                require_revision(member, options.expected_revision)
-                values = {**member.get("person_json", {}), **args["changes"]}
+                require_revision(stored, options.expected_revision)
+                values = {**(stored or {}).get("details_json", {}), **args["changes"]}
                 if "contact" in args["changes"]:
                     values["contact"] = {**person_details(principal, uow, project_id=ctx.project_id)["contact"], **args["changes"]["contact"]}
-                resource = builder.record("project_memberships", principal["id"], member, {"person_json": values}, label=principal["display_name"])
+                resource = builder.record("project_person_details", principal["id"], stored, {**({} if stored else {"principal_id": principal["id"]}), "details_json": values}, label=principal["display_name"])
                 if "affiliation" in args["changes"]:
                     affiliation_effect(builder, resource)
                 return builder.build()
@@ -674,7 +675,7 @@ class DocumentSources:
 
     def apply(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
-        if plan.operation_name in {"context_people_update", "context_people_affiliation_set"} and any(c.resource.resource_type == "project_memberships" for c in plan.changes):
+        if plan.operation_name in {"context_people_update", "context_people_affiliation_set"} and any(c.resource.resource_type == "project_person_details" for c in plan.changes):
             row = uow.repository("principals").get(plan.arguments["document_id"], required=True)
             return {"person": person_details(row, uow, project_id=ctx.project_id)}
         self.refresh(plan, uow)

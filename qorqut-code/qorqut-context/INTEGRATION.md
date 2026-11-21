@@ -167,7 +167,7 @@ records any final bound input that lacks a receipt (mechanical recovery, atomic,
 
 **Completion.** `completion.authorize(uow, ctx, receipt_id)` re-resolves the receipt, filing, job, frozen definition, worker
 and scope from storage and only accepts the bound job's own claimed worker (`running`/`applying`/`waiting_signoff`, active
-worker and membership); a presented receipt of another job, a cancelled or stopped job, a revoked worker or a changed
+worker and active project); a presented receipt of another job, a cancelled or stopped job, a revoked worker or a changed
 definition is `forbidden` and stays unapplied. `completion.applied_marker(builder, uow, receipt, application)` is the
 fresh-row compare-and-set the host adds to the same prepared plan as its own source bookkeeping.
 `completion.verify_pending(uow, driver_id=, programs=)` marks an unapplied receipt `conflict` (`binding_changed`) when its job

@@ -29,6 +29,7 @@ from qorqut_operations.records.vocabulary import RAW_KINDS, document_type
 from qorqut_operations.tags import item_labels
 
 from qorqut_operations.documents.journal_access import JOURNAL_KINDS, is_owner
+from qorqut_operations.project_lifecycle import installation_owner_of, owner_may_act
 from qorqut_operations.documents.materials import classification
 from qorqut_operations.documents.people import details
 
@@ -108,9 +109,8 @@ class RecordItems:
                 found = self.host.material_resource(ctx, identity, uow)
                 if found: return found
             if kind == "person":
-                member = uow.repository("project_memberships", project_id=ctx.project_id).get(identity)
                 row = uow.repository("principals").get(identity)
-                if member and row and row["kind"] == "human": return "principals", row
+                if row and row["kind"] == "human" and owner_may_act(uow.connection, identity, ctx.project_id): return "principals", row
         else:
             table = next((key for key, value in self.resource_types.items() if value == kind), None)
             if table == "action_logs":
@@ -151,16 +151,16 @@ class RecordItems:
         subtype = material.get("material_type") or row.get("kind") or self.host.fallback_subtype(table, row)
         archived = bool(row.get("archived") or metadata.get("archived") or
                         (table == "agent_profiles" and not self.host.current_agent(uow, row)) or
-                        (table == "principals" and (not row["active"] or not uow.repository("project_memberships", project_id=ctx.project_id).get(item["id"])["active"])))
+                        (table == "principals" and not row["active"]))
         person = {}
         revision = item_revision(row)
         if item["type"] == "person":
             person = details(row, uow, project_id=ctx.project_id)
             if table == "principals":
-                member = uow.repository("project_memberships", project_id=ctx.project_id).get(item["id"])
-                revision = member["revision"]
+                stored = uow.repository("project_person_details", project_id=ctx.project_id).get(item["id"])
+                revision = stored["revision"] if stored else None
                 if builder:
-                    builder.expect(ref("project_memberships", item["id"], ctx.project_id), member)
+                    builder.expect(ref("project_person_details", item["id"], ctx.project_id), stored)
             person.update({key: metadata.get(key, "") for key in ("name", "role", "org", "about")})
             person["aka"] = metadata.get("aka", [])
         return {**view, **item, **material, "revision": revision, "resource_type": table, "resource_id": item["id"], "subtype": subtype,
@@ -288,6 +288,6 @@ class RecordCandidates:
                 item_type = document_type(row)
                 if not kind or kind == item_type: yield {"type": item_type, "id": row["id"]}
         if not kind or kind == "person":
-            for member in rows(uow, "project_memberships", ctx.project_id):
-                principal = uow.repository("principals").get(member["principal_id"])
-                if principal and principal["kind"] == "human": yield {"type": "person", "id": principal["id"]}
+            owner = installation_owner_of(uow.connection)
+            principal = uow.repository("principals").get(owner) if owner and owner_may_act(uow.connection, owner, ctx.project_id) else None
+            if principal and principal["kind"] == "human": yield {"type": "person", "id": principal["id"]}

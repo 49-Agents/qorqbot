@@ -1,7 +1,7 @@
-"""Exact local project creation: one registered row, its memberships and an empty project folder, and nothing else.
+"""Exact local project creation: one registered row and an empty project folder, and nothing else.
 
 Creation is a global aggregate: the new project does not exist at preparation time. Its frozen change holds the selected
-identity, slug, metadata, owner and system memberships and the directory layout (``hq/`` and ``code/``, both empty). The folder is
+identity, slug, metadata, owner and the directory layout (``hq/`` and ``code/``, both empty). The folder is
 made by the Operations ``create_directory_tree`` file effect (a receipt-bound private staging area published with no-replace
 semantics, and recognized afterwards only by its recorded inode identity), then the row commits in the normal final
 transaction. Creation writes no document, Task, routine, checklist, agent, Context input or external registration, starts no
@@ -25,7 +25,7 @@ SLUG = re.compile(r"[a-z][a-z0-9-]{0,63}")
 FALLBACK_SLUG = "project"
 SUGGESTION_LIMIT = 1000
 # What a creation freezes in its one record change, and the only keys it writes into the new project's configuration.
-VALUE_KEYS = frozenset({"project", "owner_id", "worker_ids", "directories"})
+VALUE_KEYS = frozenset({"project", "owner_id", "directories"})
 CONFIG_KEYS = frozenset({"one_liner", "code"})
 
 
@@ -121,21 +121,6 @@ class Creation:
         if self.variants(slug):
             raise self.taken(slug, uow)
 
-    # --- bounded system memberships ---------------------------------------------------------------------------------
-
-    def workers(self, uow):
-        """The already registered bounded system programs that require project scope, revalidated; no principal is created."""
-        authority = self.operations.worker_authority
-        if authority is None:
-            raise DomainError("configuration_required", "Configure background programs before creating a project")
-        identities = []
-        for program in authority.programs:
-            if "project" in program.scope_kinds:
-                identity = authority.worker_id(program.id, uow)
-                authority.require_worker(identity, None, uow)
-                identities.append(identity)
-        return identities
-
     # --- prepare, validate, apply -------------------------------------------------------------------------------------
 
     def prepare(self, builder, args, uow):
@@ -153,9 +138,6 @@ class Creation:
             raise DomainError("forbidden", "Project creation requires an active installation owner")
         builder.expect(ref("installation", "service", None, "global"), installation)
         builder.expect(ref("principals", owner["id"], None, "global"), owner)
-        worker_ids = self.workers(uow)
-        for identity in worker_ids:
-            builder.expect(ref("principals", identity, None, "global"), uow.repository("principals").get(identity, required=True))
         slug = args.get("slug") or derive_slug(name)
         self.require_free(slug, uow)
         name_ref = ResourceRef(NAMES, slug, None, "global")
@@ -166,7 +148,7 @@ class Creation:
         folder, hq = self.operations.project_root({"slug": slug}), self.operations.project_hq({"slug": slug})
         project = {"id": project_id, "slug": slug, "workspace": str(folder), "hq_path": str(hq), "name": name,
                     "config_json": {"one_liner": summary, "code": []}}
-        builder.record("projects", project_id, None, {"project": project, "owner_id": owner["id"], "worker_ids": worker_ids,
+        builder.record("projects", project_id, None, {"project": project, "owner_id": owner["id"],
                                                          "directories": list(LAYOUT)},
                        action=ACTION, project_id=None, namespace="global", label=name)
         builder.changes.append(PreparedChange("file", folder_ref, DIRECTORY_ACTION, directory_values(LAYOUT)))
@@ -174,8 +156,8 @@ class Creation:
         shown = PreviewResource(DIRECTORIES, slug, f"{projects}/{slug}")
         builder.resources.append(shown)
         builder.previews.append(StructuredPreview(shown, (FieldChange("folders", None, [f"{projects}/{slug}/{path}" for path in LAYOUT]),)))
-        builder.effects.append("Creates only this new project, the owner's membership, the memberships of the already registered "
-                               f"project-scoped system programs, and the empty folder {projects}/{slug} with hq/ and code/. "
+        builder.effects.append("Creates only this new project and the empty folder "
+                               f"{projects}/{slug} with hq/ and code/. "
                                "It creates no agents, documents, Tasks, routines, Context inputs, external accounts, domains, "
                                "repositories or sessions. Every active global agent reaches the new project at once.")
         return builder.build()
@@ -208,20 +190,12 @@ class Creation:
         return values
 
     def validate(self, ctx, plan, uow):
-        values = self.check_frozen(plan, uow)
-        if set(values["worker_ids"]) != set(self.workers(uow)):
-            raise DomainError("revision_conflict", "Background programs changed after preparation")
+        self.check_frozen(plan, uow)
 
     def apply(self, ctx, plan, uow):
         values = self.check_frozen(plan, uow)
-        if set(values["worker_ids"]) != set(self.workers(uow)):
-            raise DomainError("revision_conflict", "Background programs changed after preparation")
         project = values["project"]
         uow.repository("projects").insert(project)
-        memberships = uow.repository("project_memberships", project_id=project["id"])
-        memberships.insert({"principal_id": values["owner_id"], "is_owner": True})
-        for identity in values["worker_ids"]:
-            memberships.insert({"principal_id": identity})
         return {"project": {"id": project["id"], "slug": project["slug"], "name": project["name"],
                              "summary": project["config_json"]["one_liner"], "workspace_path": project["workspace"],
                              "hq_path": project["hq_path"]},

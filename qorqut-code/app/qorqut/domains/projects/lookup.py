@@ -1,12 +1,12 @@
 """The neutral ``project`` item kind: how an existing Project resolves, is enumerated and fingerprinted.
 
 Registering this kind grants nothing. Every read below passes the one nonrecursive Project guard of ``access.guard``:
-the owner/exact configured Ordubashy identity, the Project's current membership or global reach, its archived state and
+the owner/exact configured Ordubashy identity, the Project's current owner or global reach, its archived state and
 the ordinary ``project_record_get`` policy (explicit deny included). ``resolve`` and ``fingerprint`` therefore never
 produce a label, summary or content hash for a Project the caller may not read right now.
 
-``candidates`` enumerates the accessible Project directory of the caller's scope: active Projects reached by current
-membership (humans) or current active-global reach (agents). Enumeration grants nothing; every candidate is resolved
+``candidates`` enumerates the accessible Project directory of the caller's scope: active Projects reached by
+the installation owner (humans) or current active-global reach (agents). Enumeration grants nothing; every candidate is resolved
 through the same guard before a caller sees any detail. Nothing here reads a Project's records, and a Project item is
 never a Task, a Story or a second copy.
 """

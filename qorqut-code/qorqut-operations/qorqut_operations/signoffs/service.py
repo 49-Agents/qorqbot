@@ -14,6 +14,7 @@ from time import monotonic
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.engine import ApprovalBinding
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationOptions, OperationResult,
                                          canonical_bytes, canonical_hash, new_id, plain, utc_now)
 from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
@@ -166,9 +167,7 @@ class SignoffService:
         if project not in context.allowed_project_ids:
             raise DomainError("forbidden", "Select an authorized review project")
         if owner or context.principal_kind == "human":
-            member = uow.repository("project_memberships", project_id=project).get(context.principal_id)
-            if (context.principal_kind != "human" or not member or not member["active"]
-                    or (owner and not member["is_owner"])):
+            if context.principal_kind != "human" or not owner_may_act(uow.connection, context.principal_id, project):
                 raise DomainError("forbidden", "This decision requires the current project owner")
         if owner and context.source not in ("dashboard", "worker"):
             raise DomainError("forbidden", "Owner decisions are unavailable through agent MCP")

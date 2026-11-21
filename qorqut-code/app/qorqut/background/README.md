@@ -39,7 +39,7 @@ operations. Its run and recovery use the same stable job ID as the maintenance
 generation ID. Its worker still needs normal installation registration. Neither
 program registration nor attachment creates a maintenance routine or job.
 
-Installation/import registers the system principals and memberships:
+Installation/import registers the system principals:
 
 ```python
 from qorqut_operations.background import BackgroundAuthority, ProgramRegistry
@@ -48,17 +48,15 @@ from qorqut.background.integration import register_programs
 programs = register_programs(ProgramRegistry())
 authority = BackgroundAuthority(database, programs)
 with database.transaction() as uow:
-    authority.register_workers(uow, registered_project_ids)
+    authority.register_workers(uow)
 ```
 
 The Context service also registers missing `context.file` and `context.instruct`
-workers and their unarchived-project memberships during owned startup. This
-repairs converted installations that retained the old upload worker but lacked
-the new instruction worker. Reads and submissions never register workers;
-disabled identities and memberships remain disabled. No job or input is replayed.
+workers during owned startup. Reads and submissions never register workers;
+disabled identities remain disabled. No job or input is replayed.
 
 Worker IDs are `uuid5(installation_id, "program:" + program_id)`. Registration
-never reactivates an existing revoked principal or membership. The exact program
+never reactivates an existing revoked principal. The exact program
 definition and grants are hashed into every job. Runtime configuration does not
 load executable modules, shell commands, or arbitrary program definitions.
 
@@ -91,7 +89,7 @@ failed Context model call or bypass any provider approval.
 | --- | --- |
 | `context.file` | Completion program (version 2) for a document source version (upload, note, journal or accepted learning). The source version, this job and the GENERAL Context queue input are created in one prepared operation; the backend Context driver alone propagates the input. The job never reads a body or calls a model: it returns `ProgramPending` (15 seconds) while the input is queued, processing or blocked, then freezes its one output, `context_filing_receipt(receipt_id)`, which settles the document status. A discarded input fails the job with `context_discarded`. See [Context filing completion](../../../docs/v1.2/CONTEXT_FILING.md). |
 | `context.instruct` | Completion program (version 1) for one focused owner instruction. Same shape as `context.file`: the instruction is frozen as its own source version under `foundation/instructions/{job-id}.txt`. |
-| `learnings.extract` | Preserved transcript pruning, repeated extraction, exact speaker evidence checks, deduplication, variants/votes, candidates and scan/run provenance. Acceptance never applies a learning. Global only (v1.2 G022): one Global stream, no project job, routine target or worker membership; project learning records stay readable and reviewable as history. |
+| `learnings.extract` | Preserved transcript pruning, repeated extraction, exact speaker evidence checks, deduplication, variants/votes, candidates and scan/run provenance. Acceptance never applies a learning. Global only (v1.2 G022): one Global stream, no project job or routine target; project learning records stay readable and reviewable as history. |
 | `learnings.engine_extract` (removed) | The standalone procedural learning engine and its review-issue program are not registered in this target. Its historical jobs, candidates and decisions stay readable as history, but no routine, configuration or worker can resolve or run it, and no engine evidence or package is imported. Factual Global learning stays with `learnings.extract`; procedural work belongs to Overseer. |
 | `repository.status` | Fixed read-only `git status --short` in the registered project HQ. No argv input, hooks, commits, or global Git configuration. |
 | `tables.version` | Publish a captured shared-table revision to the projects-root version branch, without changing the owner's branch or index. |
@@ -111,7 +109,7 @@ the job remains failed after that effect is recorded.
 
 ## Authority And Recovery
 
-`BackgroundAuthority` validates job ID, system principal, project membership,
+`BackgroundAuthority` validates job ID, system principal, active project,
 initiator attribution, registered definition digest, exact frozen operation args,
 source revisions, and declared resource types. A caller-supplied worker label is
 not authority. Job IDs are internal context fields, never accepted from transports.
@@ -207,7 +205,7 @@ New snapshots are processed; unchanged processed snapshots are skipped; changed
 snapshots are processed in full after pruning. Agent activity does not filter
 snapshots. The saved hash identifies the consumed snapshot, so growth during
 extraction is eligible on the next run.
-Project membership is checked and the hash is recomputed. The adapter may read
+The active project is checked and the hash is recomputed. The adapter may read
 selected historical sessions; this service never scans personal Claude directories.
 Legacy routine/learning caches outside the approved roots need an explicitly
 authorized owning-adapter export. Missing exports must be reported, not reset silently.

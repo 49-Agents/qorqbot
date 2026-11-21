@@ -6,8 +6,8 @@ the authenticated human. This aggregate excludes the separate
 exactly one project, and IDs are only unique within that project.
 
 `GET /api/me/tasks` returns `principal_id` and `tasks`. Each task uses the existing
-compatibility DTO plus `project: {id, slug, name}`. The endpoint intersects
-current active memberships with the caller's allowed projects, invokes the
+compatibility DTO plus `project: {id, slug, name}`. The endpoint reads
+the active projects the caller's allowed projects name, invokes the
 existing authorized `tasks_list` operation with the caller's principal ID, and
 follows pagination. Completed tasks remain in the API response but the drawer displays only open
 tasks; the full Tasks page provides completed history.

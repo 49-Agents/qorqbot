@@ -20,6 +20,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, Principal, plain
 from qorqut_operations.discussion import ThreadItem, can_follow, set_follow
 from qorqut_operations.application.plans import PAGE, UUID, PlanBuilder, apply_records, page, schema, timestamp, utc_clock
+from qorqut_operations.project_lifecycle import active_project_ids
 from qorqut_operations.tasks.scope import task_context, task_namespace
 
 STALE_SECONDS = 180
@@ -96,12 +97,10 @@ class AgentActivity:
             installation = uow.repository('installation').get('service')
             if not installation or installation['owner_principal_id'] != ctx.principal_id:
                 raise DomainError('forbidden', 'Agent activity requires the installation owner')
-            return {None, *[r[0] for r in uow.connection.execute(
-                'SELECT b.id FROM projects b JOIN project_memberships m ON m.project_id=b.id '
-                'WHERE b.archived_at IS NULL AND m.principal_id=? AND m.active=1', (ctx.principal_id,))]}
+            return {None, *active_project_ids(uow.connection)}
         if ctx.principal_kind == 'agent':
-            # An agent's reach is the shared active-global contract within this invocation, never a membership or a
-            # project home; any other agent identity has no scope at all.
+            # An agent's reach is the shared active-global contract within this invocation, never a project
+            # home; any other agent identity has no scope at all.
             scopes = set(effective_project_ids(uow.connection, ctx.principal_id) & ctx.allowed_project_ids)
             if active_global(uow.connection, ctx.principal_id) is not None and 'read_global_context' in ctx.global_capabilities:
                 scopes.add(None)
@@ -109,9 +108,7 @@ class AgentActivity:
         allowed = set(ctx.allowed_project_ids)
         if ctx.home_project_id:
             allowed.add(ctx.home_project_id)
-        scopes = {r[0] for r in uow.connection.execute(
-            'SELECT b.id FROM projects b JOIN project_memberships m ON m.project_id=b.id '
-            'WHERE b.archived_at IS NULL AND m.principal_id=? AND m.active=1', (ctx.principal_id,)) if r[0] in allowed}
+        scopes = allowed & active_project_ids(uow.connection)
         if ctx.home_project_id is None and 'read_global_context' in ctx.global_capabilities:
             scopes.add(None)
         return scopes

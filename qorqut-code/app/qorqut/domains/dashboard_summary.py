@@ -22,8 +22,7 @@ def register(registry, clock):
         if isinstance(now, str): now = datetime.fromisoformat(now.replace('Z', '+00:00'))
         # Reporting windows use the installation's calendar days (qorqut_operations.local_time).
         dates = [(local_time.today(lambda: now)-timedelta(days=i)).isoformat() for i in reversed(range(14))]
-        projects = uow.connection.execute('SELECT b.id,b.slug FROM projects b JOIN project_memberships m ON m.project_id=b.id '
-            'WHERE m.principal_id=? AND m.active=1 AND m.is_owner=1 AND b.archived_at IS NULL ORDER BY b.slug', (ctx.principal_id,)).fetchall()
+        projects = uow.connection.execute('SELECT id,slug FROM projects WHERE archived_at IS NULL ORDER BY slug').fetchall()
         items = []
         for project in projects:
             bid = project['id']

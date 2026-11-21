@@ -9,6 +9,7 @@ import json
 from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationContext, InvocationOptions,
     OperationResult, PolicyDecision, canonical_hash, plain)
 from qorqut_operations.global_agents import effective_project_ids, global_profile
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.storage.directory_layout import ACTION as DIRECTORY_ACTION
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
 from .delegation import authorize_delegation, creation_groups
@@ -249,17 +250,14 @@ class Application:
         if context.source not in descriptor.exposure and not owner_session_route:
             raise DomainError("forbidden", "Operation is not exposed to this caller")
         if descriptor.owner_only:
-            membership = (uow.repository("project_memberships", project_id=context.project_id).get(context.principal_id)
-                          if context.project_id else None)
             installation = uow.repository("installation").get("service") if namespace == "global" else None
             global_owner = bool(installation and installation["owner_principal_id"] == context.principal_id)
-            if context.principal_kind != "human" or not (global_owner or (membership and membership["active"] and membership["is_owner"])):
+            if context.principal_kind != "human" or not (global_owner or owner_may_act(uow.connection, context.principal_id, context.project_id)):
                 raise DomainError("forbidden", "This operation requires the owning human")
             return PolicyDecision("allow", "owner")
         if context.project_id and context.principal_kind == "human":
-            membership = uow.repository("project_memberships", project_id=context.project_id).get(context.principal_id)
-            if not membership or not membership["active"]:
-                raise DomainError("forbidden", "Principal is not an active member of this project")
+            if not owner_may_act(uow.connection, context.principal_id, context.project_id):
+                raise DomainError("forbidden", "Principal may not act in this project")
         if descriptor.plugin_requirement and context.principal_kind == "agent" and namespace != "global":
             if descriptor.plugin_requirement not in {ref.id for ref in context.enabled_plugin_refs}:
                 raise DomainError("forbidden", "Required plugin is not enabled")

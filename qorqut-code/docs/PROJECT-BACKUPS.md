@@ -38,8 +38,6 @@ database, with the product stopped. Restoring is a manual, reviewed action.
 
 ## Rollout
 
-Like any new program, `backups.pull` needs its system worker principal and
-memberships, registered with the existing `BackgroundAuthority.register_workers`
-maintenance path before first use. Until then project creation also refuses,
-because it requires a worker for every project-scope program. Registration
-enables no Routine.
+Like any new program, `backups.pull` needs its system worker principal,
+registered with the existing `BackgroundAuthority.register_workers`
+maintenance path before first use. Registration enables no Routine.

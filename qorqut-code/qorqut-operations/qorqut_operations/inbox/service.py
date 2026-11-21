@@ -52,7 +52,7 @@ class InboxHost(Protocol):
         """The runtime context of the global worker ``target`` that ``ctx`` may manage; refuses a caller who may not."""
 
     def project_member(self, ctx, project, uow) -> bool:
-        """Whether ``ctx`` currently has access to ``project`` (a membership, or an active global's derived access)."""
+        """Whether ``ctx`` currently has access to ``project`` (the installation owner or a system worker in an active project, or an active global's derived access)."""
 
     def private_visible(self, ctx, source_type, identity, project, uow):
         """Whether the private ``source_type`` item is visible, or None when the host has no such private source."""

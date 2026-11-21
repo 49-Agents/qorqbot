@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, OperationResult, canonical_bytes, canonical_hash, new_id
 from qorqut_operations import local_time
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.storage.database import REQUEST_TIMING, RequestTiming
 from qorqut_operations.storage.repositories import decode_row
 from .auth import AuthenticatedPrincipal
@@ -212,18 +213,15 @@ class HTTPAPI:
             # An operation that is not installed is refused by the application, with its own error.
             return ()
 
-    def context(self, actor, slug=None, *, owner=False):
+    def context(self, actor, slug=None):
         with self.runtime.database.read() as uow:
             project = uow.connection.execute("SELECT * FROM projects WHERE slug=? AND archived_at IS NULL", (slug,)).fetchone() if slug else None
             if slug and project is None:
                 raise DomainError("not_found", "Project is not available to this principal")
             project_id = project["id"] if project else None
             if project_id:
-                membership = uow.repository("project_memberships", project_id=project_id).get(actor.principal.id)
-                if not membership or not membership["active"]:
+                if not owner_may_act(uow.connection, actor.principal.id, project_id):
                     raise DomainError("not_found", "Project is not available to this principal")
-                if owner and not membership["is_owner"]:
-                    raise DomainError("forbidden", "This action requires the current project owner")
             context = self.runtime.policy.context_for(actor.principal.id, project_id=project_id,
                 review_project_id=project_id, uow=uow)
         return context, decode_row(project)
@@ -232,9 +230,8 @@ class HTTPAPI:
         with self.runtime.database.read() as uow:
             installation = uow.repository("installation").get("service")
             global_owner = bool(installation and installation["owner_principal_id"] == actor.principal.id)
-            owned = uow.connection.execute("SELECT 1 FROM project_memberships WHERE principal_id=? AND active=1 AND is_owner=1 LIMIT 1", (actor.principal.id,)).fetchone()
         return {"principal_id": actor.principal.id, "principal_kind": "human", "display_name": actor.principal.display_name,
-                "is_owner": bool(owned) or global_owner, "is_installation_owner": global_owner,
+                "is_owner": global_owner, "is_installation_owner": global_owner,
                 "operational_timezone": local_time.TIMEZONE}
 
     def _report_transport_failure(self, request, operation, *, context=None):
@@ -876,17 +873,14 @@ class HTTPAPI:
                 context, _ = self.context(actor)
                 return await self.signoff_route(request, context, parts[1:])
             if parts[:1] == ["project"] and len(parts) >= 2:
-                context, project = await anyio.to_thread.run_sync(lambda: self.context(actor, parts[1], owner=request.method != "GET"))
+                context, project = await anyio.to_thread.run_sync(lambda: self.context(actor, parts[1]))
                 tail = parts[2:]
                 if len(tail) == 3 and tail[0] == "data-uploads" and tail[2] == "download" and request.method == "GET":
                     return await self.data_upload_download(context, tail[1])
                 if tail[:1] == ["signoffs"]:
                     return await self.signoff_route(request, context, tail)
-                if len(tail) == 3 and tail[0] == "agents" and tail[2] in {"config", "permissions"}:
-                    if tail[2] == "config" and request.method == "GET":
-                        config = await anyio.to_thread.run_sync(lambda: self.runtime.agents.owner_config(context, tail[1]))
-                        return response(OperationResult.ok({"effective_config": config}, request_id=context.request_id))
-                    if tail[2] == "permissions" and request.method == "POST":
+                if len(tail) == 3 and tail[0] == "agents" and tail[2] == "permissions":
+                    if request.method == "POST":
                         body = await read_json(request)
                         checked_fields(body, {"expected_revision", "idempotency_key", "overrides"}, {"expected_revision", "idempotency_key", "overrides"})
                         options = InvocationOptions(expected_revision=body["expected_revision"], idempotency_key=body["idempotency_key"])

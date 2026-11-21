@@ -18,7 +18,7 @@ from qorqut_operations.storage.assembly import AssemblyError
 
 
 class AssigneeRules(Protocol):
-    """The host's rules for who a Task may be assigned to, beyond active membership of the owning scope.
+    """The host's rules for who a Task may be assigned to, beyond the owning scope's own reach.
 
     ``protect(ctx, identity, uow)`` raises when the caller may not direct that principal (v1 ``protect_peer_control``).
     ``owner_directed(ctx, identity, uow)`` is true for principals only the owner may assign (Learning Applier);
