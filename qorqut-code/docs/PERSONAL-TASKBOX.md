@@ -3,7 +3,7 @@
 The dashboard's Tasks drawer aggregates existing project tasks assigned to
 the authenticated human. This aggregate excludes the separate
 [Global task space](GLOBAL-TASKS.md). Every task in this feed remains owned by
-exactly one project, and IDs are only unique within that project.
+exactly one project, and its ID is unique across the whole store.
 
 `GET /api/me/tasks` returns `principal_id` and `tasks`. Each task uses the existing
 compatibility DTO plus `project: {id, slug, name}`. The endpoint intersects

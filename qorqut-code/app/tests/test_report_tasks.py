@@ -67,11 +67,11 @@ class ReportTaskTests(unittest.TestCase):
 
     def test_the_task_and_the_report_share_a_scope(self):
         ctx = self.coordinator()
-        self.refused(self.post(ctx, report_task={'id': 'work', 'project_id': self.project}), 'validation_error')
+        self.refused(self.post(ctx, report_task={'id': 'project-work', 'project_id': self.project}), 'validation_error')
         from dataclasses import replace
         project = replace(ctx, project_id=self.project, review_project_id=self.project)
         self.refused(self.post(project, scope='project', report_task=self.GLOBAL), 'validation_error')
-        signoff = self.posted(project, scope='project', report_task={'id': 'work', 'project_id': self.project})
+        signoff = self.posted(project, scope='project', report_task={'id': 'project-work', 'project_id': self.project})
         self.assertEqual((signoff['review_project_id'], signoff['report_task']['project_id'], signoff['report_task']['title']),
                          (self.project, self.project, 'Example work'))
 

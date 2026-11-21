@@ -48,7 +48,7 @@ SCHEMA = (
     FOREIGN KEY(project_id,table_id) REFERENCES data_tables(project_id,id),
     FOREIGN KEY(record_project_id,record_task_id) REFERENCES tasks(project_id,id)
 )""",
-    """CREATE UNIQUE INDEX crm_entries_global_key ON crm_entries(id) WHERE project_id IS NULL""",
+    """CREATE UNIQUE INDEX crm_entries_id_unique ON crm_entries(id)""",
     """CREATE UNIQUE INDEX crm_entries_record ON crm_entries(project_id,table_id,record_namespace,record_task_id)
 WHERE project_id IS NOT NULL""",
     """CREATE UNIQUE INDEX crm_entries_global_record ON crm_entries(table_id,record_namespace,record_task_id) WHERE project_id IS NULL""",

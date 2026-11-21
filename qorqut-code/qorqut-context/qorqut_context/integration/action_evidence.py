@@ -42,7 +42,7 @@ class ActionEvidence:
             try:
                 item = self.read(ctx, revision, uow, kind, refs[kind])
             except (DomainError, OSError):
-                # Missing, ambiguous, inaccessible and stale sources disclose the same generic result.
+                # Missing, inaccessible and stale sources disclose the same generic result.
                 # An optional reference must not prevent recording the accepted Action.
                 pass
             result.append({**item, "observed_at": observed_at})
@@ -55,9 +55,6 @@ class ActionEvidence:
         candidates &= {None, *ctx.allowed_project_ids}
         found = [row["project_id"] for row in uow.connection.execute(
             f"SELECT project_id FROM {table} WHERE id=?", (identity,)) if row["project_id"] in candidates]
-        # Task IDs are namespace-local. Prefer the Action's owning scope; never guess between other matches.
-        if owning in found:
-            return owning
         if len(found) != 1:
             raise DomainError("not_found", "Evidence reference is unavailable")
         return found[0]

@@ -1,8 +1,8 @@
 """Storage of the Context entities: the one ``context_entities`` table of named external references (a label and a URL).
 
 A Context entity is the ``entity`` item kind (``records.vocabulary``): resolved, related and archived through the
-neutral item resolver, with no operation of its own. ``SCHEMA`` and ``CHANGE_CAPTURE`` are the exact statements of the
-committed schema (owner ``legacy-context``), kept verbatim so the schema fingerprint is unchanged. ``CHANGE_CAPTURE``
+neutral item resolver, with no operation of its own. ``SCHEMA`` and ``CHANGE_CAPTURE`` are the statements of the schema
+(owner ``legacy-context``); one unique index on ``id`` makes an entity id name one entity in the whole store. ``CHANGE_CAPTURE``
 writes the host change feed's ``inbox_changes``, so the host composition places it where the committed order puts it (after
 ``SCHEMA``, as the last owner's statements).
 """
@@ -24,6 +24,7 @@ SCHEMA = (
     updated_at TEXT NOT NULL,
     PRIMARY KEY(project_id,id)
 )""",
+    """CREATE UNIQUE INDEX context_entities_id_unique ON context_entities(id)""",
 )
 
 CHANGE_CAPTURE = (

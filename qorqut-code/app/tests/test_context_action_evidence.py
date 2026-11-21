@@ -223,17 +223,15 @@ class ActionEvidenceTests(unittest.TestCase):
             self.assertEqual(EXCERPT_BYTES, len(item["excerpt"].encode("utf-8")))
             self.assertTrue(item["truncated"])
 
-    def test_task_ids_resolve_in_scope_and_ambiguous_references_stay_unavailable(self):
+    def test_a_task_id_resolves_in_the_scope_that_holds_the_task(self):
         result = self.record()
         revision = self.revision(result)
         with self.db.transaction() as uow:
-            uow.repository("tasks", project_id=self.project).insert(
-                {"id": "evidence-task", "title": "Project task", "status": "open", "created_by": self.owner})
-            evidence = ActionEvidence(self.app)(self.ctx, revision, uow)
-            self.assertIsNone(evidence[0]["project_id"])  # the Action owns the Global ID
-            revision["project_id"] = self.project
-            self.assertEqual(self.project, ActionEvidence(self.app)(self.ctx, revision, uow)[0]["project_id"])
-            revision["project_id"] = new_id()
+            for owning in (None, self.project):
+                revision["project_id"] = owning
+                evidence = ActionEvidence(self.app)(self.ctx, revision, uow)
+                self.assertEqual(("available", None), (evidence[0]["status"], evidence[0]["project_id"]))
+            revision["snapshot_json"]["refs"]["task"] = "missing-task"
             self.assertEqual("unavailable", ActionEvidence(self.app)(self.ctx, revision, uow)[0]["status"])
 
     def test_correction_gets_new_evidence_withdrawal_does_not_reread_and_old_input_is_immutable(self):
