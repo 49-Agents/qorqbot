@@ -91,8 +91,8 @@ function taskStateObserve(scope, task) {
   return entry.task;
 }
 
-// A confirmed move leaves the old scope's observation behind. Task ids are only unique within a scope, so forget
-// exactly the given scoped identities (scope is the status-cache key: a project slug, or null for Global).
+// A confirmed move leaves the old scope's observation behind. Observations are kept per scope, so forget exactly the
+// given scoped identities (scope is the status-cache key: a project slug, or null for Global).
 function taskStateForget(scope, ids) {
   for (const id of ids) _taskStateEntries.delete(_taskStateKey(scope, id));
 }

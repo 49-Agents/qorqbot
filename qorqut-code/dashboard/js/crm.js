@@ -343,7 +343,7 @@ function crmRecordForm(project, task, onRecorded) {
 // ---------------------------------------------------------------- scope-aware existing-record picker
 // Choose existing Tasks (any subtype) from Global or any accessible Project. The held scope defaults to the Table's own and
 // is changed only by the owner's explicit selection: it is never inferred from the current screen. Every selection keeps its
-// full scoped reference {type, id, project_id}, so the same id in two scopes stays two different records.
+// full reference {type, id, project_id}.
 function crmScopeChoices() {
   return [{value: 'global', label: 'Global', project_id: null, slug: null},
     ...(state.projects || []).filter(b => b && b.slug).map(b => ({value: 'p:' + (b.id || b.project_id), label: b.name || b.slug, project_id: b.id || b.project_id, slug: b.slug}))];

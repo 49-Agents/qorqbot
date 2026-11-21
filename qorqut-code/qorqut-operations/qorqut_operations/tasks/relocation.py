@@ -1,6 +1,6 @@
 """Move whole Task trees between owning scopes without changing any Task's identity.
 
-A Task is owned by exactly one scope (a project, or Global) and its id is only unique inside that scope. Moving a Task
+A Task is owned by exactly one scope (a project, or Global) and its id names it in the whole store. Moving a Task
 means changing the one ``project_id`` of the Task row and of the rows that belong to it, in one transaction, while its id,
 parents inside the moved tree, discussion, follows, completion, snooze history, tags, assignments and CRM memberships keep
 their identity and content. Nothing is copied, recreated or merged.
