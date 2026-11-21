@@ -42,7 +42,7 @@ TABLE = {
     # driver announces the thread (``ready_seconds`` 0): ``session_started`` comes right after ``thread/start``.
     CODEX: {"provider": "codex", "runtime": "codex", "driver": "qorqut.managed_runtime.codex_driver:CodexSession",
             "receipt": "codex", "role": "$role", "settings": ".codex/config.toml", "ready_seconds": 0,
-            "effort_flags": {name: name for name in ("minimal", "low", "medium", "high", "xhigh", "max")}},
+            "effort_flags": {name: name for name in ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")}},
 }
 # Whether a driver exists for the client.
 DRIVER_READY = {CLAUDE: True, CODEX: True}

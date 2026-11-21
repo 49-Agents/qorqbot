@@ -130,6 +130,9 @@ async def route(runtime, request, principal_id, parts, request_id):
         if tail == ["options"]:
             from . import launch_options
             return ok(await run(partial(launch_options.view, chat, runtime, principal_id, agent_id)))
+        if tail == ["models"]:
+            from . import launch_options
+            return ok(await run(partial(launch_options.models_view, chat, runtime, principal_id, agent_id)))
         raise DomainError("not_found", "Chat endpoint is not registered")
     if request.method != "POST":
         raise DomainError("not_found", "Chat endpoint is not registered")

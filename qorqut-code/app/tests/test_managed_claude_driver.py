@@ -702,6 +702,25 @@ class SendTests(DriverCase):
         session.close()
 
 
+class SettingsTests(DriverCase):
+    def test_model_and_effort_reach_a_running_session_as_control_requests(self):
+        session, recorder = self.make()
+        self.assertFalse(session.update_settings(model="sonnet"), "nothing is sent before the session runs")
+        session.start()
+        self.send(session, "hello")
+        recorder.wait("turn_finished")
+        self.assertTrue(session.update_settings(model="sonnet", effort="minimal"))
+        deadline = time.time() + 3
+        while len(self.inputs("control_request")) < 2 and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertEqual([item["request"] for item in self.inputs("control_request")],
+                         [{"subtype": "set_model", "model": "sonnet"}, {"subtype": "apply_flag_settings", "settings": {"effortLevel": "low"}}])
+        for bad in ({"model": "--evil"}, {"effort": "ultra"}, {}):
+            with self.assertRaises(ValueError):
+                session.update_settings(**bad)
+        session.close()
+
+
 class InterruptTests(DriverCase):
     def test_interrupt_on_an_idle_session_returns_at_once_and_sends_nothing(self):
         session, recorder = self.make()
@@ -1460,6 +1479,12 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(describe("mcp__qorqut__send_note", {}), "Using send_note (qorqut)")
         self.assertEqual(describe("Weird Tool!", {}), "Using WeirdTool")
         self.assertLessEqual(len(describe("Bash", {"description": "d" * 500})), 80)
+
+    def test_said_activity_is_the_message_as_plain_text(self):
+        said = lambda text: claude_driver._bounded(claude_driver.said_activity(text), 100)
+        self.assertEqual(said("## Plan\n\n**First** I read `a_b.py`.\n- one\n1. two"), "Plan First I read a_b.py. one two")
+        self.assertEqual(said("2*3 is six"), "2*3 is six")
+        self.assertLessEqual(len(said("w" * 500)), 100)
 
     def test_shorten_input_cuts_strings_depth_and_width(self):
         value = {"a": "x" * 5000, "b": list(range(100)), "c": {"d": {"e": {"f": {"g": {"h": {"i": 1}}}}}}}

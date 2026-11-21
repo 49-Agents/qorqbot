@@ -1190,14 +1190,13 @@ function mountChatView(host, options = {}) {
   function paintComposer() {
     const c = model.composer;
     form.hidden = !!c.hidden;
-    input.disabled = !!c.inputDisabled; send.disabled = !!c.sendDisabled;
+    input.disabled = !!c.inputDisabled;
     if (attach) attach.disabled = !!c.inputDisabled || !!c.filesDisabled;
     mic?.setLocked(!!c.hidden || !!c.inputDisabled, c.disabledReason || '');
     // A control that is off says why, in plain words, and says what it is for again when it is on.
     const why = c.inputDisabled ? c.disabledReason || '' : '';
     if (c.inputDisabled) input.title = why; else input.removeAttribute('title');
-    send.title = c.sendDisabled ? why || c.sendingReason || '' : '';
-    if (!send.title) send.removeAttribute('title');
+
     if (attach) attach.title = c.inputDisabled ? why || 'Attach files' : c.filesDisabled ? c.filesReason || 'Attach files' : 'Attach files';
     const files = c.attachments || [];
     attachments.hidden = !files.length;
@@ -1209,14 +1208,26 @@ function mountChatView(host, options = {}) {
         return `<span class="gchat-file-choice gchat-file-card" data-file-kind="${kind[0]}">${chatViewFileFace(file.name, kind)}<button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? `disabled title="${esc(c.filesReason || '')}"` : ''}>×</button></span>`;
       }).join('');
     }
-    if (send.dataset.label !== c.sendLabel) {
-      send.dataset.label = c.sendLabel; send.setAttribute('aria-label', c.sendLabel);
-      send.classList.toggle('gchat-icon-send', c.sendLabel === 'Send');
-      send.innerHTML = c.sendLabel === 'Send' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-7 7 7-7 7 7"/></svg>' : esc(c.sendLabel);
-    }
+    paintSend();
     input.placeholder = c.placeholder; input.setAttribute('aria-label', c.ariaLabel);
     if (input.maxLength !== c.maxLength) input.maxLength = c.maxLength;
     resizeComposer();
+  }
+  // While the agent works and nothing is typed or attached, Send is Stop (`composer.stop`): one press stops the agent. Typing
+  // anything turns it back into Send, so a message can still go in mid-turn.
+  const stopMode = () => !!model.composer.stop && !model.composer.hidden && !input.value.trim() && !(model.composer.attachments || []).length;
+  function paintSend() {
+    const c = model.composer, stopping = stopMode(), label = stopping ? 'Stop' : c.sendLabel;
+    send.type = stopping ? 'button' : 'submit';
+    send.disabled = stopping ? !!c.stopDisabled : !!c.sendDisabled;
+    send.title = stopping ? c.stopTitle || 'Stop' : c.sendDisabled ? (c.inputDisabled && c.disabledReason) || c.sendingReason || '' : '';
+    if (!send.title) send.removeAttribute('title');
+    send.classList.toggle('gchat-stop', stopping);
+    if (send.dataset.label === label) return;
+    send.dataset.label = label; send.setAttribute('aria-label', label);
+    send.classList.toggle('gchat-icon-send', label === 'Send' || label === 'Stop');
+    send.innerHTML = label === 'Send' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-7 7 7-7 7 7"/></svg>'
+      : label === 'Stop' ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg>' : esc(label);
   }
   function paintOlder() {
     olderButton.hidden = !model.older.visible;
@@ -1323,7 +1334,8 @@ function mountChatView(host, options = {}) {
   });
   olderButton.onclick = () => emit('onOlder');
   cleanups.push(() => { olderButton.onclick = null; });
-  listen(input, 'input', () => { resizeComposer(); emit('onDraft', input.value); });
+  listen(input, 'input', () => { resizeComposer(); paintSend(); emit('onDraft', input.value); });
+  listen(send, 'click', () => { if (send.type === 'button' && stopMode() && !send.disabled) emit('onStop'); });
   if (picker) {
     listen(input, 'paste', event => {
       const data = event.clipboardData;
@@ -1390,7 +1402,7 @@ function mountChatView(host, options = {}) {
     root,
     elements: {scroll: scroller, log, pending: pendingHost, composer: form, input, send, older: olderButton, jump, banner, empty: emptyNote},
     render,
-    setDraft(text) { const value = String(text ?? ''); if (!disposed && input.value !== value) { input.value = value; recall = null; resizeComposer(); } },
+    setDraft(text) { const value = String(text ?? ''); if (!disposed && input.value !== value) { input.value = value; recall = null; resizeComposer(); paintSend(); } },
     getDraft: () => input.value,
     focusComposer() { if (!disposed && !input.disabled && !form.hidden) input.focus(); },
     getScrollState() { if (!disposed && shown()) lastState = capture(); return {...lastState}; },

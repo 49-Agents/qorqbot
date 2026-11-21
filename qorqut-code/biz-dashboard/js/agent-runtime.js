@@ -53,7 +53,8 @@ const agentRuntime = (() => {
     if (session.reason === 'binding_not_ready' || session.reason === 'capture_not_ready' || managed.phase === 'starting' || (session.can_send && !viewing)) return {key: 'starting', line: `Starting ${label}…`};
     if (working(session, managed)) return {key: 'working', line: ''};
     if (managed.turnError) return {key: 'error', line: `${label} couldn’t answer: ${managed.turnError}`};
-    return {key: 'live', line: `${label} is ready.`};
+    // Ready says nothing: the composer being usable already says it.
+    return {key: 'live', line: ''};
   }
   const startHint = (session, label) => managedOf(session)?.off ? `Send a message to turn ${label} on` : `Send a message to start ${label}`;
   const emptyText = (session, label) => managedOf(session)?.off ? `${label} is off. Send a message to turn it on.` : `${startHint(session, label)}. Its conversation will appear here.`;
@@ -158,7 +159,8 @@ const agentRuntime = (() => {
 
   // The Stop button, the activity line and the question cards, in one block above the session line. `send(path, body)` posts to the agent's
   // chat route and returns its data or throws; `binding()` is the live session's binding id.
-  function createBar({label, send, binding, onChange, onError, now = Date.now, doc = globalThis.document}) {
+  // `stopHere: false`: the agent is stopped from elsewhere (the composer's Send turns into Stop, via `stop()`), so the line shows no Stop.
+  function createBar({label, send, binding, onChange, onError, now = Date.now, doc = globalThis.document, stopHere = true}) {
     const el = doc.createElement('div');
     el.className = 'mchat'; el.hidden = true;
     el.innerHTML = `<div class="mchat-notice" role="alert" hidden><span class="mchat-notice-text"></span><button type="button" class="mchat-notice-action"></button></div>
@@ -189,7 +191,7 @@ const agentRuntime = (() => {
       if (managed.open) clearOffer();
       const info = activity(session);
       line.hidden = !info.text; lineText.textContent = info.text;
-      stop.hidden = !info.stop; stop.disabled = stopping; stop.title = stopping ? 'Stopping…' : `Stop what ${label} is doing`;
+      stop.hidden = !info.stop || !stopHere; stop.disabled = stopping; stop.title = stopping ? 'Stopping…' : `Stop what ${label} is doing`;
       const wanted = managed.open ? managed.pending : [];
       for (const [id, card] of cards) if (!wanted.some(item => item.request_id === id)) { card.node.remove(); cards.delete(id); }
       for (const item of wanted) {
@@ -250,7 +252,7 @@ const agentRuntime = (() => {
       const node = event.target.closest('[data-request-id]');
       if (node) void answer(node.dataset.requestId);
     });
-    return {el, line, update, offer, clearOffer, dispose() { disposed = true; el.remove(); line.remove(); cards.clear(); }, get session() { return last; }};
+    return {el, line, update, offer, clearOffer, stop: () => interrupt(), get stopping() { return stopping; }, dispose() { disposed = true; el.remove(); line.remove(); cards.clear(); }, get session() { return last; }};
   }
 
   return {managedOf, closed, canOpen, working, summary, startHint, emptyText, placeholder, unavailableText, activity, refusalText, isRetryable, newConversationOffer,

@@ -115,6 +115,15 @@ def _bounded(text, limit):
     return text if len(text) <= limit else text[: limit - 1] + "\u2026"
 
 
+_MARKDOWN_MARKS = re.compile(r"^[ \t]*(?:#{1,6}|>|[-*+]|\d+\.)[ \t]+|\*\*|`+", re.M)
+
+
+def said_activity(text):
+    """The activity line for the agent's own words: its latest message as plain text (headings, quotes, bullets, bold and code
+    marks taken out)."""
+    return _MARKDOWN_MARKS.sub("", str(text or ""))
+
+
 def scrub_diagnostic(raw, limit=300):
     """The last ``limit`` characters of CLI diagnostics (bytes or str) with anything credential-shaped replaced, on one line."""
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
@@ -703,6 +712,33 @@ class ClaudeSession:
             self._interrupt_requested = True
             return self._send_interrupt()
 
+    # ``claude --effort`` levels (Qorqbot's ``minimal`` is the lowest of them); a running session takes them as ``effortLevel``.
+    _EFFORT_LEVELS = {"minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
+    _MODEL_NAME = re.compile(r"^[A-Za-z0-9._:/\[\]-]{1,100}$")
+
+    def update_settings(self, model=None, effort=None):
+        """Use ``model`` and/or ``effort`` from the next model request on, without a restart: ``set_model`` and
+        ``apply_flag_settings`` ``{"effortLevel": ...}`` (checked against Claude Code 2.1.329: ``get_settings`` then reports the
+        new values as applied). False when the session is not running; ``ValueError`` for a value the CLI cannot take."""
+        if model is not None and (not isinstance(model, str) or not self._MODEL_NAME.match(model) or model.startswith("-")):
+            raise ValueError("model is not a valid model name")
+        if effort is not None and effort not in self._EFFORT_LEVELS:
+            raise ValueError("effort is not a valid effort level")
+        if model is None and effort is None:
+            raise ValueError("nothing to change")
+        with self._lock:
+            if self._state != "running":
+                return False
+            requests = ([{"subtype": "set_model", "model": model}] if model is not None else []) + (
+                [{"subtype": "apply_flag_settings", "settings": {"effortLevel": self._EFFORT_LEVELS[effort]}}] if effort is not None else [])
+            try:
+                for request in requests:
+                    self._transport.write({"type": "control_request", "request_id": self._next_request_id("settings"),
+                                           "request": request})
+            except ClaudeSessionError:
+                return False
+            return True                  # the next assistant message reports the model in use (``_on_usage``)
+
     def answer(self, request_id, decision):
         """Reply to a ``permission_request`` or ``question``. ``decision`` is True/"allow" or False/"deny", or a dict:
         ``{"behavior": "allow"|"deny", "message": ..., "interrupt": bool, "updated_input": {...}, "answers": {...},
@@ -1007,8 +1043,16 @@ class ClaudeSession:
         self._current = message_uuid
         self._emit("turn_started", message_uuid=message_uuid)
 
-    def _activity(self, text):
+    # The agent's own words change with every message: at most one such line a second, so a burst of messages is not a burst of events.
+    SAID_ACTIVITY_SECONDS = 1.0
+    _said_at = float("-inf")
+
+    def _activity(self, text, said=False):
         text = _bounded(text, 100)
+        if said:
+            if time.monotonic() - self._said_at < self.SAID_ACTIVITY_SECONDS:
+                return
+            self._said_at = time.monotonic()
         if text and text != self._last_activity:
             self._last_activity = text
             self._emit("activity", text=text)
@@ -1028,7 +1072,7 @@ class ClaudeSession:
             elif block.get("type") == "thinking":
                 self._activity("Thinking")
             elif block.get("type") == "text" and str(block.get("text") or "").strip():
-                self._activity("Writing a reply")
+                self._activity(said_activity(block["text"]), said=True)   # the agent's latest words, on one line (``_activity`` cuts it short)
 
     def _on_usage(self, body):
         """Keep what the latest model request of the session held: all it sent (cached or not) plus what it wrote is what the

@@ -207,7 +207,7 @@ test('an agent the owner turned off says it stays off until a message is sent, a
 
 test('an open session reads starting, ready, working or disabled, in short plain words', () => {
   assert.deepEqual(runtime.summary(managed({phase: 'starting'}), 'Ada'), {key: 'starting', line: 'Starting Ada…'});
-  assert.deepEqual(runtime.summary(managed({phase: 'idle'}), 'Ada'), {key: 'live', line: 'Ada is ready.'});
+  assert.deepEqual(runtime.summary(managed({phase: 'idle'}), 'Ada'), {key: 'live', line: ''});
   assert.equal(runtime.summary(managed({phase: 'working'}), 'Ada').key, 'working');
   assert.equal(runtime.summary(managed({phase: 'working'}), 'Ada').line, '', 'the activity line says what it does');
   assert.equal(runtime.summary(managed({phase: 'blocked'}), 'Ada').key, 'working');
@@ -448,7 +448,7 @@ test('the wording of every state, in the Chat code: asleep, never started, openi
   assert.equal(wording({session: managed(), entries: 3, sending: true}).key, 'live');
   // working: the activity line speaks, the session line stays quiet; idle and open: ready
   assert.deepEqual(wording({session: managed({phase: 'working'}), entries: 3}), {key: 'working', line: '', empty: '', placeholder: 'Message Ada…'});
-  assert.deepEqual(wording({session: managed({phase: 'idle'}), entries: 3}), {key: 'live', line: 'Ada is ready.', empty: '', placeholder: 'Message Ada…'});
+  assert.deepEqual(wording({session: managed({phase: 'idle'}), entries: 3}), {key: 'live', line: '', empty: '', placeholder: 'Message Ada…'});
   assert.equal(wording({session: managed()}).empty, 'Your agent conversation appears here.');
   // the server's own sentence for a session that ended unexpectedly wins over "asleep"
   const crashed = closedSession({closed_text: 'Claude Code stopped unexpectedly. Send a message to start the session again.'});
@@ -679,11 +679,11 @@ function shell({session}) {
   chatView.append(sessionLine); root.append(chatView); doc.body.append(root);
   const cleanups = [], banners = [], loads = [], sent = [];
   const state = {session, finished: false};
-  const sync = new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'state', 'contextStatus',
+  const sync = new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'state', 'contextStatus', 'view',
     `let managedBar = null; let session = state.session; let finished = false;
      ${between('  const runtimeSend =', '  // The session line says what the empty')}
      return {syncManaged, bar: () => managedBar, set: value => { session = value; }, finish: () => { finished = true; }};`)(
-    runtime, 'Ada', sessionLine, () => state.session?.binding, () => {}, () => loads.push(1), t => banners.push(t), cleanups, r => r, async (url, body) => { sent.push([url, body]); return {}; }, '/chat', state, null);
+    runtime, 'Ada', sessionLine, () => state.session?.binding, () => {}, () => loads.push(1), t => banners.push(t), cleanups, r => r, async (url, body) => { sent.push([url, body]); return {}; }, '/chat', state, null, null);
   return {root, chatView, sessionLine, sync, cleanups, banners, loads, sent};
 }
 
@@ -694,7 +694,8 @@ test('a managed agent gets the Stop block above the session line', () => {
   assert.ok(bar);
   assert.equal(s.chatView.children[0], bar.el);
   assert.equal(s.chatView.children[1], s.sessionLine);
-  assert.equal(bar.el.querySelector('.mchat-stop').hidden, false);
+  // Stop is the composer's Send button while the agent works (chat-focus.test.js), never a button on this line.
+  assert.equal(bar.el.querySelector('.mchat-stop').hidden, true);
   assert.equal(bar.el.querySelector('.mchat-activity-text').textContent, 'Editing');
   assert.equal(s.cleanups.length, 1);
   // asleep: nothing to stop

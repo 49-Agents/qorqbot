@@ -159,16 +159,25 @@ silently starts a new conversation.
 ## Launch options
 
 `<state folder>/options.json` holds `client` (`claude` or `codex`), `model` and
-`effort` (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`), each optional.
-The owner sets them in Settings > Agents. The routes are
+`effort` (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`), each optional.
+The owner sets them in Settings > Agents, or with the model pill at the bottom left
+of the agent's chat composer. The routes are
 `GET/POST /api/root/agents/<id>/chat/options` (owner only).
+`GET /api/root/agents/<id>/chat/models` lists the models the agent's client
+reports and the effort levels of each model, asked from the client itself
+(`app/qorqut/managed_runtime/model_catalog.py`: Claude Code's `initialize`
+answer, Codex's `model/list`), kept for 30 minutes.
 
 - Without a stored client, the agent uses the client its profile names when that
   client is installed and signed in, else the other one. After the first
   successful open, the client used is stored, so the agent does not change
   client later.
-- A client change is refused with `session_open` while the session is open. Model
-  and effort apply at the next start.
+- A client change is refused with `session_open` while the session is open. A
+  model or effort that is set also reaches an open session at once (the host's
+  `model` command: Claude Code `set_model` and `apply_flag_settings`
+  `effortLevel`, Codex `thread/settings/update`), so it applies from the next
+  message; the reply's `applied` says whether it did. A cleared value applies at
+  the next start.
 - Claude Code receives `--model` and `--effort`. Codex receives model and effort
   together; a model without an effort gets `medium`.
 - The executable is Qorqbot's own downloaded copy when selected, else the

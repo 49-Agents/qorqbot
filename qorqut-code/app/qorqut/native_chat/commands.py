@@ -189,7 +189,7 @@ def codex_builtin(text: str) -> str | None:
     return next((name for name, _, _ in BUILT_IN["codex"] if name == word), None)
 
 
-EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
+EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 
 
 def codex_command(text: str):
