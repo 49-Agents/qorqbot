@@ -547,7 +547,7 @@ class RootRouteTests(Fixture):
     def test_the_route_still_refuses_a_project_option_and_a_project_scope(self):
         identity = self.table(self.alpha)
         for operation, body in (('tables_get', {'table_id': identity, 'project_id': self.alpha}),
-                                ('routines_get', {'routine_id': self.routine(self.alpha), 'review_project_id': self.alpha}),
+                                ('routines_runs', {'routine_id': self.routine(self.alpha), 'review_project_id': self.alpha}),
                                 ('relationships_get', {'relationship_id': self.edge(self.alpha), 'project_id': self.alpha})):
             with self.subTest(operation=operation):
                 refused = self.post(operation, body)
@@ -555,20 +555,26 @@ class RootRouteTests(Fixture):
         scoped = self.post('tables_get', {'table_id': identity, 'scope': 'project'})
         self.assertEqual(scoped['error']['code'], 'forbidden', scoped)
 
-    def test_the_other_families_are_accepted_without_a_project(self):
-        for operation, body in (('routines_get', {'routine_id': self.routine(self.alpha)}),
-                                ('routines_runs', {'routine_id': self.routine(self.beta)}),
+    def test_the_routes_other_operations_find_their_record_without_a_project(self):
+        for operation, body in (('routines_runs', {'routine_id': self.routine(self.beta)}),
                                 ('relationships_get', {'relationship_id': self.edge(self.beta)}),
-                                ('learnings_get', {'learning_id': self.learning(self.alpha)}),
                                 ('notes_get', {'document_id': self.note(self.alpha)})):
             with self.subTest(operation=operation):
                 result = self.post(operation, body)
                 self.assertEqual(result['status'], 'ok', result)
-        # A routine's runs still refuse a stated scope that is not Global; an unknown routine gives the ordinary answer.
+        # A routine's runs still refuse a stated scope that is not Global.
         refused = self.post('routines_runs', {'routine_id': self.routine(self.alpha), 'scope': 'project'})
         self.assertEqual(refused['error']['code'], 'forbidden', refused)
-        unknown = self.post('routines_get', {'routine_id': str(uuid4())})
-        self.assertEqual(unknown['error']['code'], 'scope_required', unknown)
+
+    def test_the_route_serves_no_operation_it_did_not_list(self):
+        for operation, body in (('routines_get', {'routine_id': self.routine(self.alpha)}),
+                                ('routines_pause', {'routine_id': self.routine(self.alpha)}),
+                                ('learnings_get', {'learning_id': self.learning(self.alpha)}),
+                                ('notes_update', {'document_id': self.note(self.alpha), 'body': 'x'})):
+            with self.subTest(operation=operation):
+                refused = self.post(operation, body)
+                self.assertEqual((refused['error']['code'], refused['error']['message']),
+                                 ('not_found', 'Endpoint is not registered'), refused)
 
     def test_a_record_outside_the_owners_reach_is_not_found_without_detail(self):
         archived = self.post('tables_get', {'table_id': self.table(self.delta)})

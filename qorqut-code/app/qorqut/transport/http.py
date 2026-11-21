@@ -223,8 +223,8 @@ class HTTPAPI:
             return ()
 
     def record_located(self, operation):
-        """Whether the operation names one existing record by its id and finds that record's project itself (``RecordLookup``),
-        so the root route accepts it with no project: the engine looks the record up within the caller's reach."""
+        """Whether the operation names one existing record by its id and finds that record's project itself (``RecordLookup``):
+        the root route then states no scope for it, and the engine looks the record up within the caller's reach."""
         try:
             return isinstance(self.runtime.registry.get(operation).locate_scope, RecordLookup)
         except DomainError:
@@ -717,7 +717,7 @@ class HTTPAPI:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.domains.archive.restore(context, args, options))
                 return response(result)
-            if len(parts) == 3 and parts[:2] == ["root", "operations"] and (parts[2] in {
+            if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {
                     "broadcast_recipients", "broadcasts_list", "broadcasts_get", "broadcasts_create", "broadcasts_update",
                     "broadcasts_pause", "broadcasts_resume", "broadcasts_cancel", "broadcasts_send_now",
                     "dev_tickets_list", "dev_tickets_status_set", "document_history_get", "files_link",
@@ -749,7 +749,8 @@ class HTTPAPI:
                     "tables_move_to_project_preview", "tables_move_to_project",
                     "notes_move_to_project_preview", "notes_move_to_project",
                     # Parent-detail readers promised to the record pane: a routine's runs and a known job's own safe
-                    # result. Root is Global-source only; the project route reads its Project source. Both are normal
+                    # result. Root reads a job from Global and a routine's runs from Global or, with no scope stated, from
+                    # the routine's own project; the project route reads its Project source. Both are normal
                     # reads through split_options, argument validation and policy, with no job browser or enumeration.
                     "routines_runs", "jobs_get",
                     # Global work: the eight neutral relationship operations that take the project-or-Global namespace, and the
@@ -766,7 +767,7 @@ class HTTPAPI:
                     "context_queue_get", "context_queue_retry", "context_queue_discard",
                     # The record panel's Global note reader: the existing owner-only READ, which declares only ``document_id`` (the
                     # route supplies the scope). No note write and no scope input is added here.
-                    "notes_get"} or (self.record_located(parts[2]) and parts[2] not in GLOBAL_TABLE_ROUTES)) and request.method == "POST":
+                    "notes_get"} and request.method == "POST":
                 context, _ = self.context(actor)
                 # workspace_get is the one owner cross-scope read that names its
                 # target project as a domain field, not a scope selector. An

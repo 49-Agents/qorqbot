@@ -2,22 +2,21 @@
 
 Global tasks use the ordinary task operations with `scope: "global"`. They have
 no project ID and are not a cross-project task collection. An invocation with
-no selected project defaults to Global, except a registered agent's MCP call
+no selected project defaults to Global, except a call
 that names one task by `task_id` (below); `scope: "project"` still requires an
 explicit project. Explicit Global selection clears the selected project for
 the whole task plan, its comments, dependencies and assignment edges.
 
 ### Finding a task's scope from its id
 
-A registered agent's MCP call that names one task by `task_id` and selects no
+A call that names one task by `task_id` and selects no
 scope (no `project_id`, no `scope`) runs in the scope that holds the task, as if
 that scope had been selected: the same authorization, policy, signoff staging and
-idempotency receipt. Only the agent's own active projects, and Global when it may
-use Global tasks, are searched, and only where it may read tasks. An id found in
-several of them is refused with `validation_error` listing them as
-`{project_id, project_name, title}`; pass `project_id` (or `scope: "global"`).
-On any MCP call a selected scope still stands (an owner session's is its bound
-project): a task found in exactly one other reachable scope is refused with
+idempotency receipt. Task ids are unique across the installation. Only the caller's
+active projects, and Global when it may use Global tasks, are searched, and only
+where it may read tasks.
+A selected scope still stands (an owner session's is its bound
+project): a task found in another reachable scope is refused with
 `not_found` and `details.task`. With no exact match, an id with upper-case
 letters is retried in lower case, and at least six `[0-9a-f-]` characters that
 begin exactly one reachable task id are refused with `not_found` and
@@ -25,14 +24,15 @@ begin exactly one reachable task id are refused with `not_found` and
 idempotent write returns its saved receipt even if the task moved since. A
 delegated worker that selects no scope is looked up only in its assignment's own
 project (a Global assignment already runs in Global); nothing else is searched.
-HTTP (the dashboard) and workers are unchanged.
+The dashboard is looked up the same way. An internal worker is not: it runs in
+the namespace stored with its work.
 
 ### Finding a signoff's review scope from its id
 
 The agent Signoff tools that name one Signoff by `signoff_id` (`signoffs_get`,
 `signoffs_notes_list`, `signoffs_comment`, `signoffs_attention_set`,
 `signoffs_input_cancel`, `signoffs_source_link`, `signoffs_source_unlink`,
-`signoffs_reject`) work the same way for a registered agent's MCP call that
+`signoffs_reject`) work the same way for a call that
 selects nothing (no `project_id`, no `scope`, no `review_project_id`): the
 call runs in the Signoff's own review scope. A project Signoff runs in that
 project. A Global one runs as `scope: "global"`: the lookup states that scope in
@@ -45,8 +45,22 @@ stands: a Signoff reviewed in another scope the caller may read is refused with
 `not_found` and `details.signoff` (`{id, review_project_id, project_name,
 title}`). An explicit `scope` or `review_project_id` is answered as before. An
 owner session stays in its bound project; a delegated worker that selects
-nothing is looked up only in the one scope its assignment binds. HTTP (the
-dashboard) and workers are unchanged.
+nothing is looked up only in the one scope its assignment binds. The
+dashboard is looked up the same way; an internal worker is not.
+
+### Finding any other record's project from its id
+
+The operations that name one existing Table (also the CRM entry and Table
+discussion operations), routine, relationship, learning, reminder, note or
+Context document by its id follow the same rule (`records/locate.py`): with
+nothing selected the call runs in the project that holds the record, or in
+Global, when the caller could read it by selecting that scope itself. Otherwise
+the operation gives the answer it gives for an unknown id. A selected scope
+stands: a record in another scope the caller may read is refused with
+`not_found` and `details` (`{id, project_id, project_name}`); reminders are
+served from any selected scope, because a reminder is loaded by its id alone.
+Lists, creates, moves and operations that take `project_id` as their own
+argument are not looked up.
 
 Only the installation owner or an active ecosystem agent with
 `read_global_context` and the relevant task operation grant can access them.
