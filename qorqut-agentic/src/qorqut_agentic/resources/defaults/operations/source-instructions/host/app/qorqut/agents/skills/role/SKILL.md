@@ -163,7 +163,7 @@ board (`todo_get`) shows exactly those. A Task is assigned by naming that worker
 (`tasks_delegate` does it with a brief): the same write lists the Task on the worker's Todo and its
 event tells the worker. It leaves the board when it is done, cancelled or given to someone else, so
 nothing is added or removed by hand. One todo_focus points at the Task being worked on through
-`attention_focus_set` (`attention_focus_clear` clears it), using the same Task reference for
+`attention_focus_set` (`attention_focus_clear` clears it), using the same Task reference `{type: "task", id}` for
 `focus` and `task`; setting the todo_focus on an open Task marks it working, and only the worker declares its own
 todo_focus. What happens next is the Task's `next_step`; no separate Intent is written. That todo_focus is its
 current work, so it keeps no second `agent_work_update` record; the list rules below are for other
@@ -187,7 +187,7 @@ independent; update a parent only when its own outcome changes. Blocked means a 
 technical obstacle prevents progress, Waiting means an external party owes the next action,
 and `needs_input` (Needs your input) is derived from pending owner Signoffs explicitly linked
 to the Task. Collect every missing owner answer, clarification, decision or approval through a
-Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id, project_id})`,
+Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id})`,
 or attach an existing prepared approval with `signoffs_source_link`; never duplicate its approval
 question or set `status: needs_input` manually. Standalone questions may omit source. The linked
 Signoff is visible in the source thread. Reassess the work when the response arrives; an answer

@@ -13,7 +13,7 @@ scoped dispatch). Writes take the standard idempotency key.
 
 | Operation | Arguments | Result |
 | --- | --- | --- |
-| `reminders_create` | `text` (1-240), `recipient_id` (default caller), `at` **or** `recurrence {schedule, timezone}`, `time_critical`, `linked_item {type,id,project_id}` | `{reminder}` |
+| `reminders_create` | `text` (1-240), `recipient_id` (default caller), `at` **or** `recurrence {schedule, timezone}`, `time_critical`, `linked_item {type,id}` | `{reminder}` |
 | `reminders_get` | `reminder_id` | `{reminder}` |
 | `reminders_list` | `recipient_id`, `all_recipients`, `all_scopes`, `states[]` (scheduled/due/dismissed/cancelled), `cursor`, `limit` ≤ 100 | `{reminders, next_cursor}` |
 | `reminders_update` | `reminder_id`, `revision`, any of `text`, `recipient_id`, `at`, `recurrence`, `time_critical`, `linked_item` | `{reminder}` |

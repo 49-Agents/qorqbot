@@ -23,7 +23,7 @@ Telegram: Ordubashy grants `telegram_send`, `telegram_history`, `telegram_delive
 the owner's own Telegram topic as a downloadable `document` or a displayed `photo` (static
 JPEG or PNG). The shared `skills/telegram-owner-communication/` skill documents the closed
 contract: `source` is a workspace file (relative path under `exports/` or `downloads/`) or a
-stored document with an explicit `project_id` (`null` for Global), `expected_sha256` is
+stored document by its `document_id` (its project is found from the id), `expected_sha256` is
 required, the framework `idempotency_key` makes retries safe, `caption` is plain text of at
 most 1024 characters and 1024 UTF-16 code units, and `reply_to` may name a message in the
 agent's own topic; there is no chat, topic, token, URL, bytes or file-id argument. Receiving

@@ -157,7 +157,7 @@ To put an existing project task on Focus, POST this to
 ```json
 {
   "scope": "global",
-  "source": {"type":"task","id":"<task ID>","project_id":"<project UUID>"},
+  "source": {"type":"task","id":"<task ID>"},
   "reason": "The completed implementation needs your review.",
   "requested_response": "Review the task and tell us whether changes are needed.",
   "display_name": "Review result",

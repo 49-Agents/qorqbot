@@ -139,8 +139,8 @@ the daily report is one. The engine enforces what makes it different:
   `response_policy` is always `owner_only`, so it is never routed to management.
 - It is never a dependency: `source` is refused at creation and `signoffs_source_link`
   refuses it, so no Task or record shows Needs your input because of it.
-- `report_task: {id, project_id}` is optional and names the Task the report belongs to
-  (`project_id` null for a Global Task); a report about no Task omits it. When it is given,
+- `report_task: {id}` is optional and names the Task the report belongs to
+  (its project is found from the id); a report about no Task omits it. When it is given,
   the caller must be able to read that Task, which may be closed; a Global report names a Global Task and a project
   report a Task of the same project. One Task may hold many reports. The link is its own
   table (`signoff_report_tasks`, one row per report), separate from `signoff_source_links`,

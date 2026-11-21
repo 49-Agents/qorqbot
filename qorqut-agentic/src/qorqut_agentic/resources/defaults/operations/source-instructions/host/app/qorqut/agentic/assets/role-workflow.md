@@ -51,8 +51,8 @@ board (todo_get) shows exactly those. A Task is assigned by naming that worker a
 (tasks_delegate does it with a brief): the same write lists the Task on the worker's Todo and its
 event tells the worker. It leaves the board when it is done, cancelled or given to someone else, so
 nothing is added or removed by hand. One todo_focus points at the Task being worked on through
-attention_focus_set (attention_focus_clear clears it), using the same Task reference for
-`focus` and `task`; setting the todo_focus on an open Task marks it working, and only the worker declares its own
+attention_focus_set (attention_focus_clear clears it), using the same Task reference
+`{type: "task", id}` for `focus` and `task`; setting the todo_focus on an open Task marks it working, and only the worker declares its own
 todo_focus. What happens next is the Task's `next_step`; no separate Intent is written. That todo_focus is its
 current work, so it keeps no second `agent_work_update` record; the list rules below are for other
 agents. Before its first Task a worker retains its one-item `agent_work_update` assignment.
@@ -63,7 +63,7 @@ scope for work_revision and item_keys. Prefer patch actions add/replace/remove;
 replace/remove use the matching item_key, leaving other items untouched. An empty
 patch confirms unchanged work without echoing the list. Include every
 concurrent task or owner conversation you are actively handling; use the exact
-project_id and task_id when available. Update on a meaningful change of todo_focus,
+task_id when there is one. Update on a meaningful change of todo_focus,
 handoff or completion, and clear finished items before waiting. Runtime presence is
 automatic; never send your own heartbeat or claim that an open terminal is working.
 The owner reads Task threads, and sees there only what is for them: their own messages,
@@ -100,7 +100,7 @@ children: "close", or update a parent only when its own outcome changes. Blocked
 technical obstacle prevents progress, Waiting means an external party owes the next action,
 and `needs_input` (Needs your input) is derived from pending owner Signoffs explicitly linked
 to the Task. Collect every missing owner answer, clarification, decision or approval through a
-Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id, project_id})`,
+Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id})`,
 or attach an existing prepared approval with `signoffs_source_link`; never duplicate its approval
 question or set `status: needs_input` manually. Standalone questions may omit source. The linked
 Signoff is visible in the source thread. Reassess the work when the response arrives; an answer

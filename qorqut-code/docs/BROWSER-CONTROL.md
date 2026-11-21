@@ -285,8 +285,8 @@ command ran in: the caller's, or a worker's when Ordubashy has selected that wor
 open (or a bound tab that has closed) it exits 1 with `{"reason": "..."}` telling the agent to open the page first; in a managed
 desktop, which is no agent's browser, it exits 1 and says to use a `browser` reference.
 
-`request_user_input` takes the reference as `{"type": "tab", "id": "<agent uuid>:<tab id>"}` with `project_id` absent or
-null (`qorqut/native_chat/references.py`). Naming a tab grants no control and no authorization:
+`request_user_input` takes the reference as `{"type": "tab", "id": "<agent uuid>:<tab id>"}` with no `project_id`
+(`qorqut/native_chat/references.py`). Naming a tab grants no control and no authorization:
 
 - **When the tool is called** the agent must be one the caller may read (as for an `agent` reference) and the tab must be
   listed by that agent's browser now; anything else (unknown agent, browser stopped or not answering, tab closed) is the

@@ -62,6 +62,21 @@ served from any selected scope, because a reminder is loaded by its id alone.
 Lists, creates, moves and operations that take `project_id` as their own
 argument are not looked up.
 
+### References
+
+A reference to a record is its type and its id, for example `{type: "task", id}`
+or `{type: "project", id: <project id>}`. Ids are unique across the
+installation, so the record's project is found from its id. An operation that
+takes references declares it (`complete_references`, `records/references.py`),
+and before the call is checked or planned each reference without a
+`project_id` gets the project that holds the record, when the caller could have
+named that project itself: it is active, the caller may use the kind's read
+operation there, and an owner session or delegated worker is bound to it. A
+reference that carries a `project_id` (a project id, or `null` for Global) is
+left as given. In every other case (an unknown id, a record in Global, a
+project the caller cannot reach) the reference gets `null` or stays as it is,
+and nothing says where the record is or whether it exists.
+
 Only the installation owner or an active ecosystem agent with
 `read_global_context` and the relevant task operation grant can access them.
 System principals cannot opt into Global tasks, even with a

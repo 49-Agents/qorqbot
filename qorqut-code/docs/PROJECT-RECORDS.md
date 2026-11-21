@@ -37,14 +37,12 @@ read is authorized by `project_record_get` in the item's own scope, so it needs 
 ## Canonical reference
 
 ```json
-{"type": "project", "id": "<PROJECT_UUID>", "project_id": "<PROJECT_UUID>"}
+{"type": "project", "id": "<PROJECT_UUID>"}
 ```
 
 A **public** Project reference (an operation argument, a Focus source/reference, a private-thread source, a link
-target, or a Project item) must name the same real Project in both fields. A null or omitted `project_id` is refused;
-it is never inferred from the route. Internal two-field neutral refs used only for fan-out (a stored relationship or
-Focus reference that already carries its owning project separately) may canonicalize, because the caller is not
-supplying the scope. Name and slug are read from the current `projects` row, so a rename keeps the conversation,
+target, or a Project item) is `{type: "project", id}`: the id is the Project's own, and the Project is found from it. Where a stored
+relationship or Focus reference carries its owning project separately, that field holds the same Project id. Name and slug are read from the current `projects` row, so a rename keeps the conversation,
 links and Focus identity. The private channel key is `source:<PROJECT_UUID>:project:<PROJECT_UUID>`. A Project card
 shows the real Project name; a custom Focus display name is refused for a Project source.
 
@@ -55,8 +53,8 @@ shows the real Project name; a custom Focus display name is refused for a Projec
 | `project_record_get` | `project_id` | `{project: {id, name, slug, summary, revision, archived, source}}` |
 | `project_items_list` | `project_id`, `section`, `root_tasks_only`, `include_closed`, `include_archived`, `cursor`, `limit` | `{items, next_cursor}` |
 | `project_items_candidates` | `project_id`, `source_project_id` (UUID or `null` for Global), `query`, `type`, `cursor`, `limit` | `{items, next_cursor}` |
-| `project_item_get` | `project_id`, `item: {type, id, project_id}` | `{item, record}` |
-| `project_items_link` | `project_id`, `item: {type, id, project_id}` | `{item, link, already_present}` |
+| `project_item_get` | `project_id`, `item: {type, id}` | `{item, record}` |
+| `project_items_link` | `project_id`, `item: {type, id}` | `{item, link, already_present}` |
 | `project_items_unlink` | `project_id`, `link_id`, `expected_revision` | `{removed: true}` |
 
 - `summary` is the existing Project `config_json.one_liner` (whitespace-normalized), never generated text.
