@@ -1,0 +1,15 @@
+/* The Explorer tab (js/agent-explorer.js). The tree, rows, search field and icon button are the Files tab's (css/agent-files.css);
+   these are the only rules of its own. */
+.agexplorer-top { display: flex; align-items: center; gap: 8px; padding: 14px 18px 12px; }
+.agexplorer-top > .agfiles-search { flex: 1; min-width: 0; margin: 0; }
+.agexplorer .agfiles-icon-btn[aria-pressed="false"] { color: var(--fg-2); }
+.agexplorer .agfiles-icon-btn[aria-pressed="true"] { background: var(--nav-selected, var(--hover)); color: var(--fg); }
+/* A finished row reads like the Journal's done line (.ntline.done in css/notes.css). */
+.agexplorer .agfiles-row.agexplorer-done .agfiles-name > span:last-of-type { text-decoration: line-through; color: color-mix(in srgb, var(--fg) 55%, transparent); }
+/* The shared status ball (css/status-ball.css) and the Task type icon sit in the row's icon place. */
+.agexplorer-ball { flex: none; display: grid; place-items: center; width: 15px; height: 15px; }
+.agexplorer .agfiles-name > .task-type-icon { flex: none; width: 15px; height: 15px; margin: 0; }
+/* The record reader fills the right side. */
+.agexplorer .agfiles-detail { overflow: hidden; }
+.agexplorer-record { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.agexplorer-empty { margin: auto; padding: 24px; text-align: center; }
