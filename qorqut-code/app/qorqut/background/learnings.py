@@ -29,7 +29,7 @@ class ProjectBrief:
 
     def header(self):
         config = self.row["config_json"]
-        return {"id": self.id, "name": self.row["name"], "stage": self.row["stage"],
+        return {"id": self.id, "name": self.row["name"],
                 **{key: config[key] for key in ("one_liner", "owner") if key in config}}
 
     def agents(self):
@@ -151,7 +151,7 @@ class LearningProgram:
         require_global(control.project_id)
         with control.service.database.read() as uow:
             project_row = (uow.repository("projects").get(control.project_id, required=True) if control.project_id else
-                {"id": None, "slug": "Global", "name": "Global", "stage": "", "config_json": {}})
+                {"id": None, "slug": "Global", "name": "Global", "config_json": {}})
             project = ProjectBrief(project_row, rows(uow, "agent_profiles", control.project_id),
                                 str(project_hq(control.service.paths, project_row)) if control.project_id else "")
             scan = {row['session_id']: row for row in rows(uow, 'learning_scan_state', control.project_id)}

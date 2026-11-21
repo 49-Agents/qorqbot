@@ -36,8 +36,6 @@ def catalog(extensions=()):
                 'id': Text(),
                 'slug': Text(),
                 'name': Text(),
-                'stage': Text(),
-                'timezone': Text(),
                 'revision': Integer(),
                 'created_at': Text(),
                 'updated_at': Text(),

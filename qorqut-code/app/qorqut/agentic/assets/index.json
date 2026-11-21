@@ -223,7 +223,6 @@
       "parameters": [
         "PROJECT_NAME",
         "PROJECT_ID",
-        "STAGE",
         "PROJECT_REVISION"
       ],
       "source_site": "app/qorqut/agents/context.py:compose_context"

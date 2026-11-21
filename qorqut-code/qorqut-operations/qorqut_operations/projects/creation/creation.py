@@ -27,8 +27,6 @@ SUGGESTION_LIMIT = 1000
 # What a creation freezes in its one record change, and the only keys it writes into the new project's configuration.
 VALUE_KEYS = frozenset({"project", "owner_id", "worker_ids", "directories"})
 CONFIG_KEYS = frozenset({"one_liner", "code"})
-# The inert storage defaults of a new row: no lifecycle-stage form or workflow reads them.
-STAGE, TIMEZONE = "idea", "UTC"
 
 
 def derive_slug(name: str) -> str:
@@ -167,7 +165,7 @@ class Creation:
         project_id = new_id()
         folder, hq = self.operations.project_root({"slug": slug}), self.operations.project_hq({"slug": slug})
         project = {"id": project_id, "slug": slug, "workspace": str(folder), "hq_path": str(hq), "name": name,
-                    "stage": STAGE, "timezone": TIMEZONE, "config_json": {"one_liner": summary, "code": []}}
+                    "config_json": {"one_liner": summary, "code": []}}
         builder.record("projects", project_id, None, {"project": project, "owner_id": owner["id"], "worker_ids": worker_ids,
                                                          "directories": list(LAYOUT)},
                        action=ACTION, project_id=None, namespace="global", label=name)
@@ -192,8 +190,7 @@ class Creation:
         values = plain(created[0].values)
         project = values.get("project") if set(values) == VALUE_KEYS else None
         if (not isinstance(project, dict) or SLUG.fullmatch(str(project.get("slug"))) is None
-                or set(project.get("config_json") or ()) != CONFIG_KEYS or values["directories"] != list(LAYOUT)
-                or project["stage"] != STAGE or project["timezone"] != TIMEZONE):
+                or set(project.get("config_json") or ()) != CONFIG_KEYS or values["directories"] != list(LAYOUT)):
             raise DomainError("invalid_plan", "The project differs from what preparation writes")
         slug = project["slug"]
         reference = ref("projects", project["id"], None, "global")

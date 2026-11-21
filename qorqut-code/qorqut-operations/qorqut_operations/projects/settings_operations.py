@@ -2,7 +2,7 @@
 configuration row (``projects.config_json``).
 
 The generic part is the engine's: reading the row with its revision, the replacement and the recursive patch
-(``merge_settings``), the revision check, the project name, stage, timezone, alias and registered-identity validation, the
+(``merge_settings``), the revision check, the project name, alias and registered-identity validation, the
 registration of the three operations and the plan that records the change. A project's configuration also holds host state
 (owner and workspace paths, engineering and owner-session sections) with host authority rules; those
 come in through the required ``SettingsHost``, each method called at one fixed point of the flow below. Nothing is discovered
@@ -14,7 +14,6 @@ from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from collections.abc import Mapping
 from typing import Any, Protocol
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, utc_clock
@@ -88,11 +87,9 @@ class ProjectConfigOperations:
         else:
             value = plain(args["config"])
         self.host.prepare(ctx, value, before["config_json"], args, operation, uow)
-        name, stage, zone = value.get("name", before["name"]), value.get("stage", before["stage"]), value.get("timezone", before["timezone"])
-        if not isinstance(name, str) or not name.strip() or not isinstance(stage, str) or not stage or not isinstance(zone, str):
-            raise DomainError("validation_error", "Project name, stage, and timezone must be nonempty text")
-        try: ZoneInfo(zone)
-        except (ZoneInfoNotFoundError, ValueError) as exc: raise DomainError("validation_error", "Unknown project timezone") from exc
+        name = value.get("name", before["name"])
+        if not isinstance(name, str) or not name.strip():
+            raise DomainError("validation_error", "Project name must be nonempty text")
         aliases = value.get("aliases", [])
         if (not isinstance(aliases, list) or len(aliases) > 20
                 or any(not isinstance(item, str) or not item.strip() or len(item) > 60 for item in aliases)):
@@ -101,7 +98,7 @@ class ProjectConfigOperations:
             old = before["config_json"]
             if any(value.get(key) != old.get(key) for key in PROTECTED_KEYS):
                 raise DomainError("validation_error", "Registered identity, owner, and paths are not editable project settings")
-        builder.record("projects", ctx.project_id, before, {"config_json": value, "name": name, "stage": stage, "timezone": zone})
+        builder.record("projects", ctx.project_id, before, {"config_json": value, "name": name})
         return builder.build()
 
     def validate_targets(self, ctx, plan, uow):

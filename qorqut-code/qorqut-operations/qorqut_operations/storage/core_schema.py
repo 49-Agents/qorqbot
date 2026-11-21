@@ -22,8 +22,6 @@ CORE_SCHEMA = (
     workspace TEXT NOT NULL UNIQUE,
     hq_path TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    stage TEXT NOT NULL DEFAULT '',
-    timezone TEXT NOT NULL DEFAULT 'UTC',
     config_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(config_json)),
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_at TEXT NOT NULL,

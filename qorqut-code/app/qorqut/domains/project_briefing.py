@@ -107,7 +107,7 @@ class _Briefing:
         config = project.get("config_json") or {}
         config = json.loads(config) if isinstance(config, str) else config
         result = {"project": compact({"id": project["id"], "slug": project["slug"], "name": project["name"],
-                                       "stage": project.get("stage"), "one_liner": clip(config.get("one_liner"), 200)}),
+                                       "one_liner": clip(config.get("one_liner"), 200)}),
                   "as_of": timestamp(lambda: self.now), "window_days": WINDOW_DAYS}
         for key, build in (("context", self.context), ("open_work", self.open_work), ("work_groups", self.work_groups),
                            ("processes", self.processes), ("waiting_on_owner", self.waiting_on_owner),
