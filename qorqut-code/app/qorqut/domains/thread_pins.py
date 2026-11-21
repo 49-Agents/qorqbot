@@ -24,18 +24,19 @@ from qorqut.management.identity import configured_ordubashy, installation_owner
 
 LIST_DESCRIPTION = (
     "Owner and coordinator read. Lists the threads the owner has pinned in the pinned-threads row at the top of the owner's Focus "
-    "dashboard, in the order shown. Each item has source (type, id and project_id: the record whose private thread it is; the project_id is the "
-    "Project's id, or null for a Global record), the "
-    "title shown on the pin and readable. When readable is true, title is the record's current title; when it is false you "
-    "may not read that record now, so no title is given. Pin or unpin with thread_pins_set. Changes nothing.")
+    "dashboard, in the order shown. Each item has source (type, id and project_id: the record whose private thread it is; the "
+    "project_id is the Project's id, or null for a Global record), the title shown on the pin and readable. When readable is "
+    "true, title is the record's current title; when it is false you may not read that record now, so no title is given. Pin "
+    "or unpin with thread_pins_set. Changes nothing.")
 SET_DESCRIPTION = (
     "Owner and coordinator write. Pins or unpins one thread in the pinned-threads row at the top of the owner's Focus dashboard; "
     "this changes what the owner sees there, so use it only when the owner asks you to. source names the record whose thread "
-    "it is: type (task, project, table, reference or signoff) and id; the record's project is found from its id. pinned true pins it, false unpins it; the call sets that state and repeating it changes nothing. "
-    "Pinning needs a record that exists and that you may read, and refuses otherwise; unpinning is always allowed. title is "
-    "optional (at most 200 characters; the record's own title is used when omitted). At most 50 threads can be pinned, and a "
-    "newly pinned thread goes to the end of the row. Returns source, pinned and how many threads are now pinned. This touches "
-    "only the pinned-threads row, never the owner's Focus notes.")
+    "it is: type (task, project, table, reference or signoff) and id; the record's project is found from its id. pinned true "
+    "pins it, false unpins it; the call sets that state and repeating it changes nothing. Pinning needs a record that exists "
+    "and that you may read, and refuses otherwise; unpinning is always allowed. title is optional (at most 200 characters; "
+    "the record's own title is used when omitted). At most 50 threads can be pinned, and a newly pinned thread goes to the "
+    "end of the row. Returns source, pinned and how many threads are now pinned. This touches only the pinned-threads row, "
+    "never the owner's Focus notes.")
 
 SOURCE = {"type": "object", "additionalProperties": False, "required": ["type", "id"], "properties": {
     "type": {"type": "string", "pattern": "^[a-z][a-z_]{0,39}$"},

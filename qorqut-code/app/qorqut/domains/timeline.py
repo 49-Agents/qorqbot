@@ -21,7 +21,7 @@ from dataclasses import replace
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, ref, schema, timestamp
 from qorqut_operations.contracts import DomainError, FieldChange, PreviewResource, StructuredPreview, plain
-from qorqut_operations.records.references import References, Ref
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.tasks.scope import task_namespace
 from qorqut_operations.timeline import filing, state as timeline_state
 from qorqut_operations.timeline.schema import ENTRIES, ITEM_TYPES, KINDS, QUESTIONS
@@ -31,7 +31,8 @@ from qorqut.management.identity import configured_ordubashy, installation_owner
 
 GET_DESCRIPTION = (
     "Reads the timeline of a Task, a Project or Global: what holds now, or its whole history. item names it: type (task, project "
-    "or global) and id (the Task id, the Project id, or \"global\"); the item's project is found from its id. By default it returns the state with the ids of its entries and questions "
+    "or global) and id (the Task id, the Project id, or \"global\"); the item's project is found from its id. By default it "
+    "returns the state with the ids of its entries and questions "
     "(the ids timeline_file removes, answers and drops by): the latest goal, every decision and fact added and not removed, the "
     "latest progress note and the open questions for the owner, plus the same as text and the item's revision. With history true it "
     "pages every entry oldest first (limit, cursor), removed ones marked, with the owner's quoted words and their links, and the "

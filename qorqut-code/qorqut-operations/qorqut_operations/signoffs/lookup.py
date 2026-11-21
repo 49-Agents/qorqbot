@@ -113,10 +113,12 @@ class SignoffLookup:
 
 def reference_kind(service):
     """The Signoff kind of ``records.references`` that completes a reference only for a Signoff the caller may read in
-    its review scope, by the same rule as ``SignoffLookup.view``."""
+    its review scope, by the same rule as ``SignoffLookup.view``. Without a Signoff service none is completed."""
     lookup = SignoffLookup(service)
-    return replace(KINDS["signoff"],
-                   visible=lambda ctx, uow, signoff_id, project_id: lookup.view(ctx, signoff_id, project_id, uow) is not None)
+
+    def visible(ctx, uow, signoff_id, project_id):
+        return service is not None and lookup.view(ctx, signoff_id, project_id, uow) is not None
+    return replace(KINDS["signoff"], visible=visible)
 
 
 __all__ = ["LOCATED", "SignoffLookup", "reference_kind"]

@@ -65,7 +65,7 @@ class OwnerReferenceTests(Harness):
                 given = build(self.task(self.in_alpha, project_id=stated))
                 self.assertEqual(self.completed(operation, given), given)
 
-    # -- S2 reminders ------------------------------------------------------------------------------------------------
+    # -- reminders ---------------------------------------------------------------------------------------------------
 
     def test_a_reminder_link_names_its_record_by_type_and_id(self):
         self.check_task('reminders_create', lambda link: {'text': 'Look at it', 'linked_item': link}, lambda a: a['linked_item'])
@@ -74,7 +74,7 @@ class OwnerReferenceTests(Harness):
         cleared = {'text': 'Look at it', 'linked_item': None}
         self.assertEqual(self.completed('reminders_create', cleared), cleared)
 
-    # -- S3 Focus ----------------------------------------------------------------------------------------------------
+    # -- Focus -------------------------------------------------------------------------------------------------------
 
     def test_focus_cards_and_attention_references_name_their_record_by_type_and_id(self):
         self.check_task('focus_show', lambda card: {'scope': 'global', 'consumer_id': str(uuid4()), 'expected_focus_revision': 0,
@@ -104,7 +104,7 @@ class OwnerReferenceTests(Harness):
         self.assertEqual(AttentionBoard.named({'type': 'task', 'id': 'x', 'project_id': self.alpha}),
                          {'type': 'task', 'id': 'x', 'project_id': self.alpha})
 
-    # -- S6 pinned threads -------------------------------------------------------------------------------------------
+    # -- pinned threads ----------------------------------------------------------------------------------------------
 
     def test_a_pinned_thread_names_its_record_by_type_and_id(self):
         self.check_task('thread_pins_set', lambda source: {'scope': 'global', 'source': source, 'pinned': True},
@@ -113,7 +113,7 @@ class OwnerReferenceTests(Harness):
                                                         'pinned': True})['source']
         self.assertEqual(reference, {'type': 'reference', 'id': 'card', 'project_id': None})
 
-    # -- S7 timelines ------------------------------------------------------------------------------------------------
+    # -- timelines ---------------------------------------------------------------------------------------------------
 
     def test_a_timeline_item_names_its_record_by_type_and_id(self):
         self.check_task('timeline_get', lambda item: {'scope': 'global', 'item': item}, lambda a: a['item'])
@@ -133,7 +133,7 @@ class OwnerReferenceTests(Harness):
         answer = {'scope': 'global', 'signoff_id': str(uuid4()), 'kind': 'fact', 'text': 'Yes'}
         self.assertEqual(self.completed('timeline_file_answer', answer), answer)
 
-    # -- S10 project links -------------------------------------------------------------------------------------------
+    # -- project links -----------------------------------------------------------------------------------------------
 
     def test_a_project_link_names_its_item_by_type_and_id(self):
         for operation in ('project_item_get', 'project_items_link'):
@@ -153,7 +153,7 @@ class OwnerReferenceTests(Harness):
             item = self.completed('project_item_get', {'project_id': self.alpha, 'item': {'type': kind, 'id': self.in_alpha}})['item']
             self.assertEqual(item, {'type': kind, 'id': self.in_alpha, 'project_id': None})
 
-    # -- S11 Chat ----------------------------------------------------------------------------------------------------
+    # -- Chat --------------------------------------------------------------------------------------------------------
 
     def test_a_chat_reference_finds_a_record_in_a_reachable_project_and_keeps_every_other_as_sent(self):
         ctx = replace(self.agent_ctx, global_capabilities={'read_global_context'})
@@ -171,7 +171,7 @@ class OwnerReferenceTests(Harness):
         self.assertEqual([r.get('project_id', 'none') for r in self.completed('request_user_input', many)['references']],
                          [self.alpha, 'none', self.beta])
 
-    # -- S12 private conversations -----------------------------------------------------------------------------------
+    # -- private conversations ---------------------------------------------------------------------------------------
 
     def test_a_private_conversation_source_is_completed_in_global_and_left_alone_with_a_selected_project(self):
         for operation, extra in (('owner_conversation_get', {}), ('owner_conversation_related', {}), ('owner_conversation_peers', {}),
