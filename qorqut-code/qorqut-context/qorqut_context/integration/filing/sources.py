@@ -48,11 +48,11 @@ def identity(uow, row) -> dict:
         return {"kind": "general", "key": source_path(json.loads(row["payload_json"])["path"], controlled=True),
                 "project_id": row["project_id"], "operation": row["operation"]}
     revision = uow.connection.execute(
-        "SELECT action_key, project_id, operation FROM action_revisions WHERE action_key=? AND revision=?",
+        "SELECT action_id, project_id, operation FROM action_revisions WHERE action_id=? AND revision=?",
         (row["item_id"], row["revision"])).fetchone()
     if revision is None or revision["project_id"] != row["project_id"] or revision["operation"] != row["operation"]:
         raise DomainError("validation_error", "The Action input does not match its stored revision")
-    return {"kind": "action", "key": revision["action_key"], "project_id": revision["project_id"],
+    return {"kind": "action", "key": revision["action_id"], "project_id": revision["project_id"],
             "operation": revision["operation"]}
 
 

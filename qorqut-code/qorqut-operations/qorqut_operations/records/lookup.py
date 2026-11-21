@@ -110,7 +110,7 @@ class RecordItems:
         else:
             table = next((key for key, value in self.resource_types.items() if value == kind), None)
             if table == "action_logs":
-                # Canonical action_id or legacy bare ID, authorized by membership.
+                # By action_id, authorized by membership.
                 row = linked_action(ctx, uow, identity)
                 if row: return table, row
             elif table == "agent_profiles":

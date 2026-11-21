@@ -163,8 +163,9 @@ class Application:
     def _locate(self, context, descriptor, arguments, options, uow):
         """An agent's call that selects no project runs where the record it names is, exactly as if it had selected it.
 
-        Only for agent MCP calls of a descriptor with ``locate_scope``: the dashboard and workers always select their
-        scope. The hook looks the record up within the caller's current reach (this transaction's refreshed context) and
+        Only for agent MCP calls of a descriptor with ``locate_scope`` (for every caller source when it also sets
+        ``locate_all_sources``): otherwise the dashboard and workers always select their scope. The hook looks the record
+        up within the caller's current reach (this transaction's refreshed context) and
         returns the owning namespace it found, or ``None`` to keep the caller's selection. A found project becomes
         ``options.project_id`` here, before namespace resolution, authorization, policy, the idempotency key and input
         hash, and plan preparation, so the call is the explicit one in every respect: a staged plan carries that
@@ -176,7 +177,7 @@ class Application:
         select for a record found in Global, so its hook states that scope in the arguments it returns, with namespace
         ``global``. Those arguments are then the call's own for namespace resolution, the input hash and the plan, so it
         is the explicit ``scope=global`` call in every respect too."""
-        if descriptor.locate_scope is None or context.source != "mcp":
+        if descriptor.locate_scope is None or (context.source != "mcp" and not descriptor.locate_all_sources):
             return context, arguments, options
         arguments, namespace = descriptor.locate_scope(context, arguments, uow)
         arguments = plain(arguments)

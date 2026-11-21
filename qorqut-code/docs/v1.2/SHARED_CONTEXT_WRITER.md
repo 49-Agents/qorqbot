@@ -15,7 +15,7 @@ This is a **driver and its isolated proof, not the finished Context writer**: it
 
 ## Operations: `context_filing` (source ownership)
 
-`context_filing.storage_contribution()` (owner `context-filing`, `required_tables={"context_inputs"}`) adds `context_source_bindings(source_kind, source_key, project_id, bound_by_input, bound_at)`. A GENERAL source's key is its canonical path; an Action's key is its `action_key`. The scope is the admitting input's namespace (for an Action the frozen `action_revisions` row's). Rows are insert-only. Internal call, same `system`-principal rule as `transitions`:
+`context_filing.storage_contribution()` (owner `context-filing`, `required_tables={"context_inputs"}`) adds `context_source_bindings(source_kind, source_key, project_id, bound_by_input, bound_at)`. A GENERAL source's key is its canonical path; an Action's key is its `action_id`. The scope is the admitting input's namespace (for an Action the frozen `action_revisions` row's). Rows are insert-only. Internal call, same `system`-principal rule as `transitions`:
 
 ```
 context_filing.reserve_source(uow, *, driver_id, input_id, exists) -> {kind, key, project_id, binding: "reserved" | "verified"}

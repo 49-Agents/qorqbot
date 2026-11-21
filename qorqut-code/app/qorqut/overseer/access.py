@@ -109,7 +109,7 @@ class EvidenceAccess:
                 action_id = loc.get('action_id')
                 if not action_id or (kind != 'action_message' and identity != action_id): _forbidden()
                 if kind == 'action_message':
-                    action = uow.connection.execute('SELECT id FROM action_logs WHERE action_key=? AND project_id IS ?', (action_id, project)).fetchone()
+                    action = uow.connection.execute('SELECT id FROM action_logs WHERE id=? AND project_id IS ?', (action_id, project)).fetchone()
                     if (identity != loc.get('message_id') or action is None or not uow.connection.execute(
                             "SELECT 1 FROM thread_messages WHERE project_id IS ? AND item_type='action' AND item_id=? AND id=?",
                             (project, action[0], identity)).fetchone()): _forbidden()

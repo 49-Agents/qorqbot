@@ -27,9 +27,9 @@ async function agentTimelineResolve(action, key, id) {
     const known = (state.projects || []).find(b => (b.id || b.project_id) === project.id);
     if (project.slug || known?.slug) scopes.set(project.id, project.slug || known.slug);
   }
-  if (action.legacy?.project_id) {
-    const known = (state.projects || []).find(b => (b.id || b.project_id) === action.legacy.project_id);
-    if (known?.slug) scopes.set(action.legacy.project_id, known.slug);
+  if (action.project_id) {
+    const known = (state.projects || []).find(b => (b.id || b.project_id) === action.project_id);
+    if (known?.slug) scopes.set(action.project_id, known.slug);
   }
   const matches = [];
   for (const [projectId, slug] of scopes) {

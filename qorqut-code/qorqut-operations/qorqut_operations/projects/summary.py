@@ -19,7 +19,7 @@ def project_action_counts(uow, project_id, totals, undated, series):
     Every row adds to ``totals["actions"]``; a row without a day adds to ``undated["actions"]``; a day inside ``series``
     adds to that day's ``"actions"``."""
     for row in uow.connection.execute("SELECT a.occurred_date FROM action_logs a JOIN action_projects m "
-                                      "ON m.action_key=a.action_key WHERE m.project_id=?", (project_id,)):
+                                      "ON m.action_id=a.id WHERE m.project_id=?", (project_id,)):
         totals["actions"] += 1
         if not row[0]: undated["actions"] += 1
         elif row[0] in series: series[row[0]]["actions"] += 1

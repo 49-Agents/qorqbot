@@ -97,13 +97,16 @@ class OperationDescriptor:
     # state; an operation that only reads such a row while deciding must not.
     rederived_basis: frozenset[str] = field(default_factory=frozenset)
     resolve_namespace: Callable | None = None
-    # Optional, agent MCP calls only: ``(context, arguments, uow) -> (arguments, namespace | None)``. Finds the owning
+    # Optional, agent MCP calls only unless ``locate_all_sources``: ``(context, arguments, uow) -> (arguments, namespace | None)``. Finds the owning
     # namespace of the record an argument names when the caller selected no project, before namespace resolution,
     # authorization and idempotency hashing (see ``Application._locate``). ``None`` keeps the caller's own selection; it
     # may refuse. The arguments it returns may differ from the caller's in two ways only: the identifier it looked up in
     # its stored form, and, for an operation that selects Global through an argument, that argument stating the Global
     # scope it found (the Signoff tools' ``scope``), returned with namespace ``global``. Never consulted for a prepared plan.
     locate_scope: Callable | None = None
+    # With ``locate_scope``: also run it for callers other than an agent over MCP (the dashboard and HTTP), which then
+    # have no project selected unless they name one. Default: agent MCP calls only.
+    locate_all_sources: bool = False
     # Optional current-authority check run before a saved idempotency receipt is returned: (context, arguments, result, uow).
     # It may only refuse; a replay never reapplies the mutation. Absent for operations whose receipts carry no private data.
     replay_validator: Callable | None = None

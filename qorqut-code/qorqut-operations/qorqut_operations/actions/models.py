@@ -32,10 +32,6 @@ def invalid(message, **fields):
     raise DomainError("validation_error", message, **({"field_errors": fields} if fields else {}))
 
 
-def action_key(storage, identity) -> str:
-    return "global/" + identity if storage is None else "project/" + storage + "/" + identity
-
-
 def source_identity(storage, source_key: str) -> str:
     """The stable Action id of an automatic source, so a retried confirmed source never records twice."""
     return str(uuid.uuid5(SOURCE_NAMESPACE, ("" if storage is None else storage) + ":" + source_key))
@@ -116,5 +112,5 @@ def snapshot(row, *, projects, tags, operation) -> dict:
 
 
 __all__ = ["ACTION_TEXT", "AGENT_WORD_LIMIT", "CATEGORIES", "EVIDENCE", "EVIDENCE_KEYS", "GLOBAL_AGENT_CATEGORIES", "ORIGINS",
-           "REF_KEY", "RELATED_OBJECTS", "SHARING", "TEXT_LIMIT", "action_key", "concise", "invalid", "one_line", "origin_for",
+           "REF_KEY", "RELATED_OBJECTS", "SHARING", "TEXT_LIMIT", "concise", "invalid", "one_line", "origin_for",
            "refs", "related_objects", "snapshot", "source_identity", "validate_text", "word_count"]

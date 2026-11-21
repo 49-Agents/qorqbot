@@ -115,23 +115,22 @@ class Harness(unittest.TestCase):
             return [dict(row) for row in uow.connection.execute(sql, parameters)]
 
     def actions(self):
-        return self.rows('SELECT * FROM action_logs ORDER BY created_at, action_key')
+        return self.rows('SELECT * FROM action_logs ORDER BY created_at, id')
 
     def plant(self, task, *, performer, project=None, category=None, withdrawn=0, text='Sent the investor email'):
         """An Action somebody recorded for the Task with ``actions_record``, as its stored rows."""
         identity = str(uuid4())
-        key = 'global/' + identity
         with self.db.transaction() as uow:
             uow.repository('action_logs', project_id=None).insert(dict(
-                id=identity, action_key=key, category=category or ('project-operational' if project else 'global-operational'),
+                id=identity, category=category or ('project-operational' if project else 'global-operational'),
                 action_text=text, performed_by=performer, recorded_by=self.lead, origin='agent', occurred_at=STAMP,
                 refs_json={'task': task['id']}, created_at=STAMP, updated_at=STAMP))
             if project:
-                uow.connection.execute('INSERT INTO action_projects(action_key,project_id,created_at) VALUES(?,?,?)',
-                                       (key, project, STAMP))
+                uow.connection.execute('INSERT INTO action_projects(action_id,project_id,created_at) VALUES(?,?,?)',
+                                       (identity, project, STAMP))
             if withdrawn:
-                uow.connection.execute('UPDATE action_logs SET withdrawn=1 WHERE action_key=?', (key,))
-        return key
+                uow.connection.execute('UPDATE action_logs SET withdrawn=1 WHERE id=?', (identity,))
+        return identity
 
 
 class ClosureActionTests(Harness):
@@ -142,21 +141,21 @@ class ClosureActionTests(Harness):
         [action] = self.actions()
         self.assertEqual(action['id'], closure_identity(self.alpha, task['id']))
         # Stored in Global and linked to the Task's project; the worker is both performer and recorder.
-        self.assertEqual((action['project_id'], action['action_key']), (None, 'global/' + action['id']))
+        self.assertIsNone(action['project_id'])
         self.assertEqual((action['origin'], action['category'], action['action_text'], action['withdrawn']),
                          ('automatic', 'project-operational', RESULT, 0))
         self.assertEqual((action['performed_by'], action['recorded_by']), (self.worker, self.worker))
         self.assertEqual(json.loads(action['refs_json']), {'task': task['id']})
         self.assertEqual(action['time_precision'], 'instant')
-        self.assertEqual(self.rows('SELECT project_id FROM action_projects WHERE action_key=?', action['action_key']),
+        self.assertEqual(self.rows('SELECT project_id FROM action_projects WHERE action_id=?', action['id']),
                          [{'project_id': self.alpha}])
         # Its one revision is stored and admitted to the Context queue in the same write.
-        [revision] = self.rows('SELECT * FROM action_revisions WHERE action_key=?', action['action_key'])
+        [revision] = self.rows('SELECT * FROM action_revisions WHERE action_id=?', action['id'])
         self.assertEqual((revision['revision'], revision['operation'], revision['recorded_by'], revision['performed_by']),
                          (1, 'add', self.worker, self.worker))
         self.assertEqual(json.loads(revision['provenance_json']), {'via': 'task_closure'})
         [queued] = self.rows('SELECT item_id, revision, operation, submitted_by FROM context_inputs')
-        self.assertEqual(queued, {'item_id': action['action_key'], 'revision': 1, 'operation': 'add',
+        self.assertEqual(queued, {'item_id': action['id'], 'revision': 1, 'operation': 'add',
                                   'submitted_by': self.worker})
 
     def test_a_global_task_records_a_global_operational_action(self):
@@ -223,7 +222,7 @@ class ClosureActionTests(Harness):
         self.assertEqual(action['action_text'], RESULT)
         # A withdrawn closure Action is still that Task's one closure Action.
         with self.db.transaction() as uow:
-            uow.connection.execute('UPDATE action_logs SET withdrawn=1 WHERE action_key=?', (action['action_key'],))
+            uow.connection.execute('UPDATE action_logs SET withdrawn=1 WHERE id=?', (action['id'],))
         self.ok(self.update(self.worker, task, {'status': 'working'}))
         self.ok(self.close(self.worker, task, result='Third time.'))
         self.assertEqual(len(self.actions()), 1)
@@ -338,7 +337,7 @@ class CoordinatorHintTests(Harness):
             # The worker is told nothing new, on its own closure or on a read.
             self.assertNotIn('agent_hint', closed)
             self.assertNotIn('agent_hint', self.read(self.worker, task))
-            expected = self.recorded('global/' + closure_identity(project, task['id']), RESULT, 'Scout')
+            expected = self.recorded(closure_identity(project, task['id']), RESULT, 'Scout')
             self.assertIn('Do not record it again.', expected)
             # The compact presentation of the read keeps the hint, and so does the full one.
             self.assertEqual(self.read(self.lead, task).get('agent_hint'), expected)

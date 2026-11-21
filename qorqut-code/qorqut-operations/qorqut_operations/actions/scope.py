@@ -45,19 +45,13 @@ def action_namespace(ctx, args) -> str:
 
 
 def change_namespace(ctx, args) -> str:
-    """Changing an Action happens in the Action's own owning namespace, which its canonical key names."""
-    key = args.get("action_id")
-    parts = key.split("/") if isinstance(key, str) else ()
-    if len(parts) == 3 and parts[0] == "project":
-        return "project:" + parts[1]
-    if len(parts) == 2 and parts[0] == "global":
-        return "global"
-    return action_namespace(ctx, args)
+    """Changing an Action happens in its owning namespace: the selected project, or Global when none is selected."""
+    return "project:" + ctx.project_id if ctx.project_id else "global"
 
 
-def links(uow, key) -> list[str]:
+def links(uow, action_id) -> list[str]:
     return [row[0] for row in uow.connection.execute(
-        "SELECT project_id FROM action_projects WHERE action_key=? ORDER BY project_id", (key,))]
+        "SELECT project_id FROM action_projects WHERE action_id=? ORDER BY project_id", (action_id,))]
 
 
 def visible(scope, row, row_links) -> bool:
@@ -90,7 +84,7 @@ def scope_clause(scope):
         return "1", []
     allowed = sorted(scope["projects"])
     marks = ",".join("?" for _ in allowed) or "NULL"
-    linked = f"EXISTS (SELECT 1 FROM action_projects m WHERE m.action_key=a.action_key AND m.project_id IN ({marks}))"
+    linked = f"EXISTS (SELECT 1 FROM action_projects m WHERE m.action_id=a.id AND m.project_id IN ({marks}))"
     if scope["kind"] == "project":
         return linked, allowed
     return f"(a.category='global-operational' OR (a.category='project-operational' AND {linked}))", allowed

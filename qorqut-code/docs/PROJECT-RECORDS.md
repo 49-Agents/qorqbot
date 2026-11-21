@@ -102,9 +102,8 @@ Families:
   not emitted, the cursor stays at the prior frontier and the next request examines it with a fresh budget.
 - `signoffs`: the Project's review scope (pending/answered open by default; closed history with `include_closed`);
 - `actions`: Actions whose `action_projects` membership includes the Project, plus explicit links. A Global-stored
-  Action's canonical `action_key` is its identity; a bare storage row ID is accepted only where the existing neutral
-  resolver accepts it for that Project's own project-stored legacy row, never as an alias that widens a Global
-  Action. The prepared plan pins the true storage row; replay re-resolves and refuses a retargeted alias.
+  Action is identified by its `action_id`, which never widens access to a Global Action. The prepared plan pins the
+  true storage row; replay re-resolves and refuses a retargeted item.
 - `documents`: Project notes, materials, people, topics and other readable documents through the neutral resolver,
   keeping journal, private-document and Context-exclusion rules. The authoritative journal kinds (`global_note`,
   `project_note`, `journal`) are excluded even when the owner can read the source, on owned enumeration, candidates,
@@ -137,11 +136,10 @@ a foreign Project's record) without changing ownership, copying content, grantin
 An owned record is a harmless no-op link; a self-Project link is refused. Unlink removes the explicit association
 only; the owned record remains, and the target is untouched. A caller who can read a Global-stored Action may
 explicitly link it into another Project; that adds only the association and never `action_projects` membership or
-another principal's source access. A bare project-stored row ID is accepted only in its own source scope; the
-prepared arguments are canonicalized to the Action's `action_key` and its true storage identity is pinned.
+another principal's source access. The prepared arguments name the Action by its `action_id` and its true storage identity is pinned.
 Replaying a link re-runs the Project guard, the identity
-and target resolution, the canonical target/scope check and the target's current revision before returning a cached
-result; a revoked membership, archived Project, retargeted alias or removed association refuses the replay.
+and target resolution, the target/scope check and the target's current revision before returning a cached
+result; a revoked membership, archived Project, retargeted item or removed association refuses the replay.
 
 ## Private conversation, Focus and Threads
 
@@ -175,7 +173,7 @@ retries, owned no-op, unlink revisions, candidates, private channel, rename, rem
 `app/tests/test_project_transport.py` (all six through the real root dashboard HTTP route, project-route mismatch,
 MCP `split_options`, reminder root read);
 `app/tests/test_project_replay_and_actions.py` (replay reauthorization, archived/revoked refusal, removed association,
-Action bare/canonical scope, duplicate convergence);
+Action scope, duplicate convergence);
 `app/tests/test_project_pagination.py` (beyond the old scan cap, Global scope cursor chains, equal-timestamp scoped
 ties, linked source order, filtered windows, Story/Customer container and Task hierarchy, independent related pages);
 `app/tests/test_project_families.py` (Global routine and retired routine history, owner/agent Dev reports, exact owner

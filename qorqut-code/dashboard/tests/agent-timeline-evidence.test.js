@@ -58,7 +58,7 @@ test('a globally recorded action opens a project task in its actual scope', asyn
     if (slug==='project-a') return {task:{id:'task-1',project_id:'project-id',title:'Task'}};
     throw missing();
   }});
-  const result = await t.agentTimelineResolve({legacy:{project_id:null},
+  const result = await t.agentTimelineResolve({project_id:null,
     projects:[{id:'project-id',slug:'project-a'}]}, 'task', 'task-1');
   assert.equal(result.slug,'project-a');
   assert.equal(result.projectId,'project-id');

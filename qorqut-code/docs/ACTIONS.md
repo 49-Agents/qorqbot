@@ -12,8 +12,11 @@ trail of every tool call.
 `NULL` for Global-stored rows (owner and ecosystem agents). Storage never grants
 scope. Each row has:
 
-- `action_key`: `project/<project-uuid>/<id>` or `global/<id>`, unique. The
-  public `action_id` of every `actions_*` operation.
+- `id`: a UUID, unique across all Actions. The public `action_id` of every
+  `actions_*` operation. The scope that stores the Action is `project_id`
+  beside it; the four operations that change an Action (`actions_correct`,
+  `actions_withdraw`, `actions_comment`, `actions_follow`) find that scope from
+  the id alone for a caller that selected no project.
 - `category`: `global-systems`, `global-operational`, `project-operational`, or
   `NULL` (Unclassified, owner capture only).
 - `action_text` (the result, trimmed, 1–2000 characters), `performed_by`,
@@ -24,10 +27,10 @@ scope. Each row has:
   an exact time). `created_at` is the immutable server recording instant.
 - `revision` and `updated_at` for owner edits.
 
-`action_projects(action_key, project_id)` is the scope: every
+`action_projects(action_id, project_id)` is the scope: every
 project-operational action has one or more memberships, and no other category
 has any. Project views join through memberships, so a shared action appears
-once in each linked project. Aggregates count distinct `action_key`.
+once in each linked project. Aggregates count distinct `action_id`.
 
 Triggers keep agent, automatic and legacy rows append-only and prevent any
 deletion. Identity, origin, attribution and recording time never change. Only
@@ -173,9 +176,9 @@ startup are the supported path, and no numbered migration, backfill or automatic
 
 - Daily and weekly reports, ranking and delivery are deferred until this
   foundation is reviewed and activated.
-- Story and related-item lookups accept a canonical `action_id` or a legacy bare
-  ID from the project's own storage. A Global-stored shared action can be
-  linked from each linked project and is not found elsewhere. Recording an
+- Story and related-item lookups name an Action by its `action_id`. A
+  Global-stored shared action can be linked from each linked project and is
+  not found elsewhere. Recording an
   action creates no project history event.
 - Nightly exports include Global-stored actions and all memberships in the root
   export; project exports contain project-stored rows.

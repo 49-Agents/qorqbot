@@ -39,7 +39,7 @@ SCHEMA = (
         OR (input_kind = 'general' AND item_id IS NULL AND revision IS NULL)),
     CHECK (state IN ('published','discarded') OR result_json IS NULL),
     CHECK (state != 'published' OR context_event_id IS NOT NULL),
-    FOREIGN KEY (item_id, revision) REFERENCES action_revisions(action_key, revision)
+    FOREIGN KEY (item_id, revision) REFERENCES action_revisions(action_id, revision)
 )""",
     """CREATE INDEX context_inputs_by_state ON context_inputs(state, sequence)""",
     """CREATE INDEX context_inputs_by_scope ON context_inputs(project_id, sequence)""",
@@ -49,7 +49,7 @@ SCHEMA = (
 BEFORE INSERT ON context_inputs
 WHEN NEW.input_kind = 'action' AND NOT EXISTS (
     SELECT 1 FROM action_revisions r
-    WHERE r.action_key = NEW.item_id AND r.revision = NEW.revision AND r.project_id IS NEW.project_id
+    WHERE r.action_id = NEW.item_id AND r.revision = NEW.revision AND r.project_id IS NEW.project_id
       AND r.operation = NEW.operation AND r.recorded_by = NEW.submitted_by)
 BEGIN
     SELECT RAISE(ABORT, 'An Action input must snapshot its stored revision in the same namespace');

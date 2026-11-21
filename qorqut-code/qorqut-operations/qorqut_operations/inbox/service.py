@@ -16,7 +16,7 @@ import json
 from dataclasses import replace
 from typing import Protocol
 
-from qorqut_operations.actions import action_key, one_line
+from qorqut_operations.actions import one_line
 from qorqut_operations.actions.writeback import linked_action
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import UUID, PlanBuilder, schema, timestamp, utc_clock
@@ -309,7 +309,7 @@ class InboxService:
                 identity, source = follow['item_id'], row_for(uow, table, follow['project_id'], follow['item_id'])
                 summary = source_summary(source, table)
             else:
-                identity = action_key(follow['project_id'], follow['item_id'])
+                identity = follow['item_id']
                 source = row_for(uow, 'action_logs', follow['project_id'], follow['item_id'])
                 summary = one_line(source['action_text']) if source else ''
             if source is None or not self.visible(ctx, table, identity, follow['project_id'], uow):

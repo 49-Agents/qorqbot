@@ -23,7 +23,7 @@ class Harness(TaskHarness):
         self.admitted = []
 
         def on_revision(ctx, revision, uow):
-            self.admitted.append(revision['action_key'])
+            self.admitted.append(revision['action_id'])
             return str(uuid4())
         self.actions = ActionOperations(self.app, self.tasks.note_references(), tasks=self.tasks, on_revision=on_revision)
         contribution = self.actions.contribution()
@@ -66,7 +66,7 @@ class ActionTaskLookupTests(Harness):
         self.assertEqual(self.classification(action), ('project-operational', [self.alpha]))
         self.assertEqual(action['refs'], {'task': task['id']})
         # The Action is still Global-stored, as every global recorder's is; only its link and category come from the Task.
-        self.assertEqual(action['legacy']['project_id'], None)
+        self.assertEqual(action['project_id'], None)
         self.assertEqual(self.receipts(key), ['global'])
         self.assertEqual(self.admitted, [action['action_id']])
 
@@ -245,7 +245,7 @@ class ActionTaskLookupTests(Harness):
                                    project_id=self.alpha, profile_revision=1, source='mcp')
         action = self.recorded(member, task_id=own['id'])
         self.assertEqual(self.classification(action), ('project-operational', [self.alpha]))
-        self.assertEqual(action['legacy']['project_id'], self.alpha)
+        self.assertEqual(action['project_id'], self.alpha)
         for task in (other, general):
             self.refused(self.record(member, task_id=task['id']), 'validation_error',
                          "Linked task does not exist in this action's workspace", 'task_id')

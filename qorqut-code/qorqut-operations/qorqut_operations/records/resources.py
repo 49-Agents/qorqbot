@@ -93,7 +93,7 @@ class RelatedResources:
             view = descriptor.read(ctx, {"signoff_id": identity}, InvocationOptions(), uow)["signoff"]
             row = uow.repository(kind, project_id=ctx.project_id).get(identity, required=True)
         elif kind == "action_logs":
-            # Canonical action_id or legacy bare ID, authorized by membership.
+            # By action_id, authorized by membership.
             row = linked_action(ctx, uow, identity)
             if row is None:
                 raise DomainError("not_found", "Resource does not exist")

@@ -26,7 +26,7 @@ class ActionWriteback:
         self.clock = clock
 
     def append_to_plan(self, builder, uow, *, text, tag, refs=None, operation_name=None, source_key=None, occurred_at=None):
-        """One canonical project-operational Action; a retried confirmed ``source_key`` records it once.
+        """One project-operational Action; a retried confirmed ``source_key`` records it once.
 
         ``text`` is the concise result, ``tag`` its ordinary label and ``refs`` the named evidence strings."""
         refs = refs or {}
@@ -44,7 +44,7 @@ class ActionWriteback:
             identity = models.source_identity(project_id, source_key)
             existing = uow.repository("action_logs", project_id=project_id).get(identity)
             if existing is not None:
-                return existing                      # A retried confirmed source already has its one canonical Action.
+                return existing                      # A retried confirmed source already has its one Action.
         occurrence = (local_time.recorded_time(builder.at) if not occurred_at
                       else {**local_time.recorded_time(occurred_at), "occurred_at": occurred_at})
         origin = models.origin_for(builder.ctx)
@@ -56,16 +56,12 @@ class ActionWriteback:
 def linked_action(ctx, uow, identity):
     """Resolve an Action item for the invocation's workspace, or None when it is not visible there.
 
-    ``identity`` is a canonical ``action_id``, or a bare ID in the invocation's own storage (so equal IDs in different
-    projects never collide). A project sees the Actions linked to it, wherever they are stored; a Global context
-    sees the Global-stored Actions its Action scope allows. The row keeps its true storage namespace."""
-    if identity.startswith(("global/", "project/")):
-        row = decode_row(uow.connection.execute("SELECT * FROM action_logs WHERE action_key=?", (identity,)).fetchone())
-    else:
-        row = uow.repository("action_logs", project_id=ctx.project_id).get(identity)
+    A project sees the Actions linked to it, wherever they are stored; a Global context sees the Global-stored
+    Actions its Action scope allows. The row keeps its true storage namespace."""
+    row = decode_row(uow.connection.execute("SELECT * FROM action_logs WHERE id=?", (identity,)).fetchone())
     if row is None:
         return None
-    row_links = links(uow, row["action_key"])
+    row_links = links(uow, row["id"])
     if ctx.project_id is not None:
         return row if ctx.project_id in row_links else None
     try:
@@ -76,14 +72,13 @@ def linked_action(ctx, uow, identity):
 
 
 def linked_action_items(ctx, uow, maximum=20000):
-    """Item IDs of the Actions a project can link: its own rows by bare ID, shared Global rows by action_id."""
+    """Ids of the Actions a project can link: those linked to it; a Global context's own Global rows."""
     if ctx.project_id is None:
         found = uow.connection.execute("SELECT id FROM action_logs WHERE project_id IS NULL LIMIT ?", (maximum + 1,)).fetchall()
     else:
         found = uow.connection.execute(
-            "SELECT CASE WHEN a.project_id=? THEN a.id ELSE a.action_key END FROM action_logs a "
-            "JOIN action_projects m ON m.action_key=a.action_key WHERE m.project_id=? LIMIT ?",
-            (ctx.project_id, ctx.project_id, maximum + 1)).fetchall()
+            "SELECT a.id FROM action_logs a JOIN action_projects m ON m.action_id=a.id WHERE m.project_id=? LIMIT ?",
+            (ctx.project_id, maximum + 1)).fetchall()
     if len(found) > maximum:
         raise DomainError("result_too_large", "Narrow the query period or filters")
     return [row[0] for row in found]

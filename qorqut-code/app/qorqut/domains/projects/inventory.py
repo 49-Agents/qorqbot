@@ -189,8 +189,7 @@ class Inventory:
                          created_at=row.get("created_at"), updated_at=row.get("updated_at"))
 
     def from_action(self, uow, row):
-        legacy = row.get("legacy") or {}
-        return self.base(uow, type="action", id=row["action_id"], project_id=legacy.get("project_id"),
+        return self.base(uow, type="action", id=row["action_id"], project_id=row.get("project_id"),
                          label=row.get("summary") or row.get("text") or row["action_id"],
                          revision=row.get("revision") or 1, resource_type="action_logs",
                          state="withdrawn" if row.get("withdrawn") else None, summary=row.get("text"),
@@ -249,12 +248,12 @@ class Inventory:
                 (scan, scope_kind))
         if enabled("actions") and (not wanted or wanted == "action"):
             if scan is None:
-                add("SELECT updated_at ts,'action' type,COALESCE(project_id,'') scope,action_key id,1 owned,0 linked,"
+                add("SELECT updated_at ts,'action' type,COALESCE(project_id,'') scope,id,1 owned,0 linked,"
                     "NULL link_id,NULL link_revision FROM action_logs WHERE project_id IS NULL")
             else:
-                add("SELECT a.updated_at ts,'action' type,COALESCE(a.project_id,'') scope,a.action_key id,1 owned,0 linked,"
+                add("SELECT a.updated_at ts,'action' type,COALESCE(a.project_id,'') scope,a.id id,1 owned,0 linked,"
                     "NULL link_id,NULL link_revision FROM action_logs a WHERE EXISTS "
-                    "(SELECT 1 FROM action_projects ab WHERE ab.action_key=a.action_key AND ab.project_id=?)", (scan,))
+                    "(SELECT 1 FROM action_projects ab WHERE ab.action_id=a.id AND ab.project_id=?)", (scan,))
         if enabled("documents") and (not wanted or wanted in DOCUMENT_TYPES | {"entity"}):
             placeholders = ",".join("?" for _ in SKIPPED_DOCUMENTS)
             add("SELECT updated_at ts,CASE kind WHEN 'context_topic' THEN 'topic' WHEN 'context_person' THEN 'person' "
@@ -317,7 +316,7 @@ class Inventory:
             WHEN 'signoff' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM signoffs x
                                  WHERE x.review_project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'action' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM action_logs x
-                                WHERE x.action_key=l.target_id)
+                                WHERE x.id=l.target_id)
             WHEN 'material' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM documents x
                                   WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'person' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM documents x
@@ -390,15 +389,14 @@ class Inventory:
             return self.from_signoff(uow, row)
         if kind == "action":
             # Resolve in the Action's true source scope, not the destination Project. The neutral action resolver
-            # accepts the canonical action_id or its legacy bare row id and authorizes that source read; a caller who
-            # can read a Global/shared Action may then explicitly link it without gaining membership in the target.
+            # takes the action_id and authorizes that source read; a caller who can read a Global/shared Action may
+            # then explicitly link it without gaining membership in the target.
             source_ctx, stored = self.action_storage(reader_ctx, identity, uow)
-            canonical, own_scope = stored["action_key"], stored["project_id"]
+            own_scope = stored["project_id"]
             if scope != own_scope:
                 raise DomainError("not_found", "Action does not exist in this scope")
-            row = self.read(source_ctx, "actions_get", {"action_id": canonical}, uow)["action"]
-            legacy = row.get("legacy") or {}
-            if legacy.get("project_id") != own_scope:
+            row = self.read(source_ctx, "actions_get", {"action_id": stored["id"]}, uow)["action"]
+            if row.get("project_id") != own_scope:
                 raise DomainError("not_found", "Action does not exist in this scope")
             return self.from_action(uow, row)
         if kind == "routine":
@@ -445,17 +443,11 @@ class Inventory:
         return self.from_neutral(owned_ctx, {"type": kind, "id": identity}, view, uow)
 
     def action_context(self, ctx, identity, uow):
-        """The caller refreshed into the Action's canonical source scope (Global or its stored project)."""
-        if identity.startswith("global/"):
-            scope = None
-        elif identity.startswith("project/"):
-            parts = identity.split("/")
-            if len(parts) != 3 or not parts[1]:
-                raise DomainError("not_found", "Action does not exist")
-            scope = parts[1]
-        else:
-            # A legacy bare row ID exists only inside the caller's own selected project.
-            scope = ctx.project_id
+        """The caller refreshed into the Action's source scope (Global or its stored project)."""
+        stored = uow.connection.execute("SELECT project_id FROM action_logs WHERE id=?", (identity,)).fetchone()
+        if stored is None:
+            raise DomainError("not_found", "Action does not exist")
+        scope = stored["project_id"]
         source = self.scope_context(ctx, scope)
         current = self.application.current_context(source, uow)
         if scope is not None and scope not in current.allowed_project_ids:

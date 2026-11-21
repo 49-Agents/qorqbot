@@ -149,8 +149,8 @@ def action_payload(revision: dict) -> dict:
     It is derived only from what the revision stored: nothing is read from the live Action afterwards, so a later
     correction cannot change queued evidence. A withdrawal carries no text and no related objects. ``scope`` and
     ``provenance`` are the published record context; ``action_metadata`` is model-only (see ``ACTION_METADATA``)."""
-    snapshot, operation, key = revision["snapshot_json"], revision["operation"], revision["action_key"]
-    payload = {"action_ref": key, "revision_ref": f"{key}:{revision['revision']}", "operation": operation,
+    snapshot, operation, action_id = revision["snapshot_json"], revision["operation"], revision["action_id"]
+    payload = {"action_ref": action_id, "revision_ref": f"{action_id}:{revision['revision']}", "operation": operation,
                "submitted_by": revision["recorded_by"], "tags": tag_envelope(snapshot["tag_snapshots"]),
                "related_objects": [] if operation == "remove" else snapshot["related_objects"],
                "scope": scope_of(revision["project_id"]),
@@ -177,7 +177,7 @@ def admit_action_revision(ctx, revision: dict, uow, *, evidence=None) -> str:
     ``revision`` is the decoded ``action_revisions`` row ``settle`` just read. It is admitted in the caller's open
     transaction (no transaction, hook or retry of its own), so a failure here rolls back the Action, its revision, its
     input and its events together, and a retried operation finds no earlier input to duplicate."""
-    return enqueue_action(uow, action_id=revision["action_key"], revision=revision["revision"],
+    return enqueue_action(uow, action_id=revision["action_id"], revision=revision["revision"],
                           operation=revision["operation"], payload=action_payload(revision),
                           capture_evidence=None if evidence is None else lambda stored: evidence(ctx, stored, uow))
 
@@ -192,7 +192,7 @@ def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payloa
     uow.require_write()
     if operation not in OPERATIONS or not isinstance(payload, dict):
         invalid("An Action Context input requires its exact accepted revision payload")
-    row = uow.connection.execute("SELECT * FROM action_revisions WHERE action_key=? AND revision=?",
+    row = uow.connection.execute("SELECT * FROM action_revisions WHERE action_id=? AND revision=?",
                                  (action_id, revision)).fetchone()
     if row is None:
         raise DomainError("not_found", "The accepted Action revision does not exist")

@@ -57,7 +57,7 @@ caller's own namespace only):
 
 `input` = `{id, sequence, input_kind: general|action, operation, item_id, revision, submitted_by, created_at, state,
 context_event_id, attempt, scope:{kind:global}|{kind:project,project_id}, result, error, summary}`; `summary` is
-`{path}` for general inputs and `{action_ref, revision_ref}` for Action inputs. States: `queued`, `processing`,
+`{path}` for general inputs and `{action_ref, revision_ref}` for Action inputs (`action_ref` is the Action's id, `revision_ref` is `<id>:<revision>`). States: `queued`, `processing`,
 `blocked`, `published`, `discard_requested`, `discarded`.
 
 **Internal (not operations).** `queue.enqueue_action(uow, *, action_id, revision, operation, payload) -> input_id`

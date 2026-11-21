@@ -51,11 +51,11 @@ UNRECORDED_WINDOW = timedelta(hours=48)
 # Task reads only the Actions linked to its project.
 BY_CLOSER = ("SELECT 1 FROM action_logs WHERE withdrawn=0 AND performed_by=? AND json_extract(refs_json,'$.task')=? "
              "LIMIT 1")
-RECORDED = ("SELECT a.action_key, a.action_text, COALESCE(p.display_name, r.display_name) AS performer FROM {source} "
+RECORDED = ("SELECT a.id, a.action_text, COALESCE(p.display_name, r.display_name) AS performer FROM {source} "
             "LEFT JOIN principals p ON p.id=a.performed_by LEFT JOIN principals r ON r.id=a.recorded_by "
             "WHERE {scope} AND a.withdrawn=0 AND json_extract(a.refs_json,'$.task')=? "
-            "ORDER BY a.created_at, a.action_key LIMIT 1")
-IN_PROJECT = RECORDED.format(source="action_projects m JOIN action_logs a ON a.action_key=m.action_key",
+            "ORDER BY a.created_at, a.id LIMIT 1")
+IN_PROJECT = RECORDED.format(source="action_projects m JOIN action_logs a ON a.id=m.action_id",
                              scope="m.project_id=?")
 IN_GLOBAL = RECORDED.format(source="action_logs a", scope="a.category='global-operational'")
 
@@ -127,7 +127,7 @@ class ClosureActions:
         plan = builder.build()
         apply_records(scope, plan, uow)
         settle(scope, plan, uow, on_revision=self.on_revision)
-        return action["action_key"]
+        return action["id"]
 
 
 def closed_within(closed_at, now, window) -> bool:
@@ -160,7 +160,7 @@ def coordinator_hint(runtime, ctx, task, *, clock=utc_clock):
     instructions = runtime.resolver.require_agentic_view().runtime_instructions()
     if action is None:
         return instructions.render("task-action-missing")
-    return instructions.render("task-action-recorded", ACTION_ID=action["action_key"],
+    return instructions.render("task-action-recorded", ACTION_ID=action["id"],
                                PERFORMER=action["performer"] or "an unnamed performer",
                                TEXT=models.one_line(action["action_text"]))
 

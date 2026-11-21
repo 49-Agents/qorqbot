@@ -24,7 +24,7 @@ function acPerson(action) {
 }
 function acRowHtml(action, i) {
   const refs = Object.entries(action.refs || {}).filter(([key]) => key !== "task");
-  const task = typeof action.refs?.task === "string" && action.legacy ? action.refs.task : "";
+  const task = typeof action.refs?.task === "string" ? action.refs.task : "";
   const projects = action.projects || [];
   return `<article class="ac-row${action.withdrawn ? " withdrawn" : ""}" data-ac-row="${i}">
     <div class="ac-row-main"><span class="ac-row-cat" title="${esc(action.category || "Unclassified")}">${acCategoryIcon(action.category)}</span>
