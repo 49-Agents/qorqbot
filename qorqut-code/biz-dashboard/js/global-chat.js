@@ -434,10 +434,19 @@ function mountGlobalChat(pane, agent, options = {}) {
     // A terminal agent has no managed session: no Stop block, no activity line, no question cards.
     const terminal = typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session);
     if (session && !terminal && !managedBar && sessionLine.parentNode) {
+      // Stop lives in the composer (Send turns into Stop while the agent works and nothing is typed), not on the activity line.
       managedBar = agentRuntime.createBar({label, send: runtimeSend, binding: () => liveBinding()?.binding_id || null,
-        onChange: () => { paintSession(); void load(); }, onError: showBanner});
+        onChange: () => { paintSession(); void load(); }, onError: showBanner, stopHere: false});
       sessionLine.parentNode.insertBefore(managedBar.el, sessionLine);
       cleanups.push(() => managedBar?.dispose());
+      // The model and effort pill sits at the bottom left of the composer (js/chat-model-picker.js).
+      const form = view?.elements?.composer;
+      if (form && typeof chatModelPicker !== 'undefined') {
+        const picker = chatModelPicker.mount({base, label, read: async path => coreData(await api(path)), write: async (path, body) => coreData(await post(path, body)),
+          onError: showBanner});
+        form.insertBefore(picker.el, form.querySelector('.gchat-attach, .gchat-mic, .gchat-send'));
+        cleanups.push(() => picker.dispose());
+      }
     }
     // In Ordubashy's own chat the activity line (what it is doing, Stop) sits in the focus strip, where the focus intent is.
     if (managedBar) contextStatus?.hostActivity(managedBar.line);
@@ -474,6 +483,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     view.render({
       ...patch, pending,
       composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, filesDisabled: !enabled || sending,
+        stop: !terminal && !finished && !pairedHost && viewingLive() && agentRuntime.activity(session).stop,
+        stopDisabled: !!managedBar?.stopping, stopTitle: managedBar?.stopping ? 'Stopping…' : `Stop what ${label} is doing`,
         disabledReason: enabled ? '' : unavailable(),
         sendingReason: GLOBAL_CHAT_OPENING.has(agentId) ? `Starting ${label}…` : 'Sending your message…', filesReason: opening ? `Starting ${label}…` : 'Wait until your message is sent.',
         attachments: selectedFiles().map(file => ({key: file.key, name: file.file.name})),
@@ -685,6 +696,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (pending && pending.text !== view.getDraft() && !GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
     },
     onSubmit: text => submit(text),
+    onStop: () => { if (!managedBar) return; void managedBar.stop(); paintSession(); },
     onTask: openReference,
     onReference: openReference,
     onFilePreview: ref => agentFilePreviewOpen(ref),

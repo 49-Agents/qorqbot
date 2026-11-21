@@ -679,11 +679,11 @@ function shell({session}) {
   chatView.append(sessionLine); root.append(chatView); doc.body.append(root);
   const cleanups = [], banners = [], loads = [], sent = [];
   const state = {session, finished: false};
-  const sync = new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'state', 'contextStatus',
+  const sync = new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'state', 'contextStatus', 'view',
     `let managedBar = null; let session = state.session; let finished = false;
      ${between('  const runtimeSend =', '  // The session line says what the empty')}
      return {syncManaged, bar: () => managedBar, set: value => { session = value; }, finish: () => { finished = true; }};`)(
-    runtime, 'Ada', sessionLine, () => state.session?.binding, () => {}, () => loads.push(1), t => banners.push(t), cleanups, r => r, async (url, body) => { sent.push([url, body]); return {}; }, '/chat', state, null);
+    runtime, 'Ada', sessionLine, () => state.session?.binding, () => {}, () => loads.push(1), t => banners.push(t), cleanups, r => r, async (url, body) => { sent.push([url, body]); return {}; }, '/chat', state, null, null);
   return {root, chatView, sessionLine, sync, cleanups, banners, loads, sent};
 }
 
@@ -694,7 +694,8 @@ test('a managed agent gets the Stop block above the session line', () => {
   assert.ok(bar);
   assert.equal(s.chatView.children[0], bar.el);
   assert.equal(s.chatView.children[1], s.sessionLine);
-  assert.equal(bar.el.querySelector('.mchat-stop').hidden, false);
+  // Stop is the composer's Send button while the agent works (chat-focus.test.js), never a button on this line.
+  assert.equal(bar.el.querySelector('.mchat-stop').hidden, true);
   assert.equal(bar.el.querySelector('.mchat-activity-text').textContent, 'Editing');
   assert.equal(s.cleanups.length, 1);
   // asleep: nothing to stop

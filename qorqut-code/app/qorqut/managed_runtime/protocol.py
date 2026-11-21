@@ -37,7 +37,7 @@ MAX_DECISION_BYTES = 64 * 1024
 
 OPS = ("hello", "status", "send", "lookup", "interrupt", "answer", "command", "close", "events")
 COMMANDS = ("compact", "model")
-EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
+EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,99}")
 STATUS_OK, STATUS_REJECTED, STATUS_ERROR = "ok", "rejected", "error"
 

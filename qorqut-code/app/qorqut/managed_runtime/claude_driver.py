@@ -712,6 +712,33 @@ class ClaudeSession:
             self._interrupt_requested = True
             return self._send_interrupt()
 
+    # ``claude --effort`` levels (Qorqbot's ``minimal`` is the lowest of them); a running session takes them as ``effortLevel``.
+    _EFFORT_LEVELS = {"minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
+    _MODEL_NAME = re.compile(r"^[A-Za-z0-9._:/\[\]-]{1,100}$")
+
+    def update_settings(self, model=None, effort=None):
+        """Use ``model`` and/or ``effort`` from the next model request on, without a restart: ``set_model`` and
+        ``apply_flag_settings`` ``{"effortLevel": ...}`` (checked against Claude Code 2.1.329: ``get_settings`` then reports the
+        new values as applied). False when the session is not running; ``ValueError`` for a value the CLI cannot take."""
+        if model is not None and (not isinstance(model, str) or not self._MODEL_NAME.match(model) or model.startswith("-")):
+            raise ValueError("model is not a valid model name")
+        if effort is not None and effort not in self._EFFORT_LEVELS:
+            raise ValueError("effort is not a valid effort level")
+        if model is None and effort is None:
+            raise ValueError("nothing to change")
+        with self._lock:
+            if self._state != "running":
+                return False
+            requests = ([{"subtype": "set_model", "model": model}] if model is not None else []) + (
+                [{"subtype": "apply_flag_settings", "settings": {"effortLevel": self._EFFORT_LEVELS[effort]}}] if effort is not None else [])
+            try:
+                for request in requests:
+                    self._transport.write({"type": "control_request", "request_id": self._next_request_id("settings"),
+                                           "request": request})
+            except ClaudeSessionError:
+                return False
+            return True                  # the next assistant message reports the model in use (``_on_usage``)
+
     def answer(self, request_id, decision):
         """Reply to a ``permission_request`` or ``question``. ``decision`` is True/"allow" or False/"deny", or a dict:
         ``{"behavior": "allow"|"deny", "message": ..., "interrupt": bool, "updated_input": {...}, "answers": {...},

@@ -702,6 +702,25 @@ class SendTests(DriverCase):
         session.close()
 
 
+class SettingsTests(DriverCase):
+    def test_model_and_effort_reach_a_running_session_as_control_requests(self):
+        session, recorder = self.make()
+        self.assertFalse(session.update_settings(model="sonnet"), "nothing is sent before the session runs")
+        session.start()
+        self.send(session, "hello")
+        recorder.wait("turn_finished")
+        self.assertTrue(session.update_settings(model="sonnet", effort="minimal"))
+        deadline = time.time() + 3
+        while len(self.inputs("control_request")) < 2 and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertEqual([item["request"] for item in self.inputs("control_request")],
+                         [{"subtype": "set_model", "model": "sonnet"}, {"subtype": "apply_flag_settings", "settings": {"effortLevel": "low"}}])
+        for bad in ({"model": "--evil"}, {"effort": "ultra"}, {}):
+            with self.assertRaises(ValueError):
+                session.update_settings(**bad)
+        session.close()
+
+
 class InterruptTests(DriverCase):
     def test_interrupt_on_an_idle_session_returns_at_once_and_sends_nothing(self):
         session, recorder = self.make()

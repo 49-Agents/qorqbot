@@ -35,8 +35,6 @@
 .wfpanel > .mchat-activity { flex:none; gap:8px; padding:0 16px 8px; cursor:default; }
 .wfpanel > .mchat-activity .mchat-dots { flex:none; width:20px; justify-content:center; }
 .wfpanel > .mchat-activity .mchat-stop { height:20px; min-height:0; padding:0 9px; font-weight:400; }
-/* Collapsed, the strip only shows what the agent is doing; Stop is there once it is opened. */
-.wfpanel-collapsed > .mchat-activity .mchat-stop { display:none; }
 .wfpanel .gchat-focus-intent { margin:0; padding:0 0 8px 28px; color:var(--fg-2); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
 .wfpanel-agents { padding:0 0 6px; }
 .wfpanel-agent { display:flex; align-items:flex-start; gap:8px; min-width:0; min-height:28px; padding:3px 0; font-size:12px; line-height:1.5; }
