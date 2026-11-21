@@ -12,7 +12,7 @@ import base64
 from qorqut_operations.application.plans import (IDENTITY, PAGE, TEXT, UUID, apply_records, page, page_position,
                                                    prepare_job, require_revision, rows, schema)
 from .analysis import BUCKETS, SCOPES, TAGS, LearnError, validate_edit, validate_item
-from .scope import PlanBuilder, SCOPE, namespace, require_global
+from .scope import PlanBuilder, SCOPE, learning_lookup, located, namespace, require_global
 from .shared import STATES, reasoning_projection, record_history
 from .review import LearningReview
 from .intake import snapshot as intake_snapshot
@@ -449,7 +449,8 @@ class LearningOperations(LearningReview):
 
     def register(self):
         registry = self.app.registry
-        self.register_review()
+        lookup = learning_lookup()
+        self.register_review(lookup)
         registry.register(OperationDescriptor("learnings_decide", schema({
             "learning_id": IDENTITY, "state": {"enum": ["accepted", "rejected"]},
             "owner_instruction": {"type": "string", "minLength": 1, "maxLength": 8000, "pattern": r"\S",
@@ -462,20 +463,21 @@ class LearningOperations(LearningReview):
             **SCOPE, supports_signoff=False, exposure={"mcp"},
             prepare=lambda c,a,o,u: self.prepare_decision("learnings_decide",c,a,o,u), apply=self.apply,
             validate_targets=self.validated,
-            description=instruction_text('operations-learning-applier-only-record-the-owner-s-explicit')))
+            **located(lookup, instruction_text('operations-learning-applier-only-record-the-owner-s-explicit'))))
         registry.register(OperationDescriptor("learnings_intake_status", schema({"learning_id": IDENTITY}, ("learning_id",)),
-            **SCOPE, effect_kind="read", supports_signoff=False, owner_only=True, exposure={"dashboard", "worker"}, read=self.intake_status))
+            **SCOPE, effect_kind="read", supports_signoff=False, owner_only=True, exposure={"dashboard", "worker"}, read=self.intake_status,
+            **located(lookup)))
         registry.register(OperationDescriptor("learnings_list", schema({**PAGE, "state": {"enum": list(STATES)},
             "scope": {"enum": list(SCOPES)}, "bucket": {"enum": list(BUCKETS)}, "tag": {"enum": list(TAGS)}}),
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.list))
         registry.register(OperationDescriptor("learnings_get", schema({"learning_id": IDENTITY}, ["learning_id"]),
-            **SCOPE, effect_kind="read", supports_signoff=False, read=self.get))
+            **SCOPE, effect_kind="read", supports_signoff=False, read=self.get, **located(lookup)))
         registry.register(OperationDescriptor("learnings_legacy_pending", schema({**PAGE}),
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.legacy_pending,
             description=instruction_text('operations-read-only-inventory-of-retained-procedural-bucket-delta')))
         registry.register(OperationDescriptor('learnings_keep_both', schema({'learning_id':IDENTITY}, ['learning_id']),
             **SCOPE, owner_only=True, supports_signoff=False, exposure={'dashboard'},
-            prepare=self.prepare_keep_both, apply=self.apply, validate_targets=self.factual))
+            prepare=self.prepare_keep_both, apply=self.apply, validate_targets=self.factual, **located(lookup)))
         registry.register(OperationDescriptor("learnings_extract", EXTRACT_ARGUMENTS, **SCOPE, prepare=self.prepare_extract,
             apply=self.apply, validate_targets=self.factual))
         for name, properties, required in (
@@ -485,7 +487,7 @@ class LearningOperations(LearningReview):
             registry.register(OperationDescriptor(name, schema({"learning_id": IDENTITY, **properties}, ["learning_id", *required]),
                 **SCOPE, owner_only=True, supports_signoff=False, exposure=frozenset({"dashboard", "worker"}),
                 prepare=lambda c,a,o,u,n=name: self.prepare_decision(n,c,a,o,u), apply=self.apply,
-                validate_targets=self.validated))
+                validate_targets=self.validated, **located(lookup)))
         item_schema = {"type": "object", "maxProperties": 40}
         registry.register(OperationDescriptor("learnings_record_batch", schema({
             "items": {"type": "array", "maxItems": 2000, "items": item_schema},

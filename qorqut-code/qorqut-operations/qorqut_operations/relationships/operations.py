@@ -21,6 +21,7 @@ from qorqut_operations.application.plans import (PAGE, UUID, PlanBuilder, apply_
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.items import UNAVAILABLE, ItemResolver
+from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
 from qorqut_operations.relationships.edges import (CONTEXT, ROLE, edge_values, edge_view, endpoints, related_rows)
 from qorqut_operations.relationships.ports import RelationshipPorts
 from qorqut_operations.relationships.reviews import ContextReviews
@@ -92,8 +93,14 @@ class RelationshipOperations:
             "context_graph_get": ({"item": item, "include_archived": filters["include_archived"]}, (), instruction_text('operations-read-the-project-context-map-or-one-item')),
         }
         descriptors = []
+        # An edge named by its own id runs where it is (both its endpoints stay in that one scope).
+        lookup = RecordLookup(Family("relationships", "relationship_id", "relationships_get", "Relationship",
+                                     global_gate=lambda ctx, uow: task_context(ctx, {"scope": "global"}, uow)))
+        located = lambda properties: dict(locate_scope=lookup) if "relationship_id" in properties else {}
         for name, (properties, required, description) in reads.items():
             scoped = {**GLOBAL_SCOPE, "description": description + GLOBAL_NOTE} if name in SCOPED else {"description": description}
+            if "relationship_id" in properties:
+                scoped = {**scoped, **located(properties), "description": scoped["description"] + LOCATED}
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties} if name in SCOPED else properties, required),
                 effect_kind="read", supports_signoff=False, **scoped,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
@@ -103,8 +110,9 @@ class RelationshipOperations:
             "relationships_remove": ({"relationship_id": UUID}, ("relationship_id",), instruction_text('operations-remove-only-this-relationship-using-its-expected-revision')),
         }
         for name, (properties, required, description) in writes.items():
-            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), description=description + GLOBAL_NOTE,
-                **GLOBAL_SCOPE, prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
+            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required),
+                description=description + GLOBAL_NOTE + (LOCATED if "relationship_id" in properties else ""),
+                **GLOBAL_SCOPE, **located(properties), prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_prepared))
         descriptors.append(OperationDescriptor("context_items_archive", schema({"item": item, "archived": {"type": "boolean"}}, ("item", "archived")),
             description=instruction_text('operations-archive-or-restore-an-item-without-deleting-its'),

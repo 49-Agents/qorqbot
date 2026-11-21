@@ -120,7 +120,7 @@ class ActionOperations:
             "delegation_assignment_id": {**UUID, "description": DELEGATION_DESCRIPTION}, "rationale": TEXT}, ("text",)),
             **common, description=RECORD_DESCRIPTION, prepare=self.prepare_record, apply=self.apply,
             validate_targets=self.validate_record))
-        changing = {**common, "resolve_namespace": change_namespace, "locate_scope": ActionLookup(), "locate_all_sources": True}
+        changing = {**common, "resolve_namespace": change_namespace, "locate_scope": ActionLookup()}
         descriptors.append(OperationDescriptor("actions_correct", schema({
             "action_id": ACTION_ID, "text": models.ACTION_TEXT, "category": {"anyOf": [{"enum": list(CATEGORIES)}, {"type": "null"}]},
             "project_ids": PROJECT_IDS, "real_time": {"anyOf": [local_time.REAL_TIME_SCHEMA, {"type": "null"}]}, **optional,

@@ -18,7 +18,7 @@ from qorqut_operations.application.plans import IDENTITY, schema
 from qorqut_operations.storage.repositories import decode_row
 
 from .analysis import BUCKETS, SCOPES, TAGS
-from .scope import SCOPE
+from .scope import SCOPE, located
 from .shared import STATES, agenda, content_cursor, reasoning_projection
 from . import legacy
 
@@ -300,7 +300,7 @@ class LearningReview:
                                                    "gaps": 0, "after": [selected[-1]["created_at"], selected[-1]["id"]]})
         return events, next_cursor, not more
 
-    def register_review(self):
+    def register_review(self, lookup):
         self.app.registry.register(OperationDescriptor("learnings_review_list", schema({**{"limit": {"type": "integer", "minimum": 1, "maximum": 200},
             "cursor": {"type": "string", "maxLength": 2000}},
             "states": {"type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": True, "items": {"enum": list(STATES)}},
@@ -316,4 +316,4 @@ class LearningReview:
             "history_cursor": {"type": "string", "maxLength": 4000, "description": instruction_text('review-continue-the-append-only-history-collection-at-this')}},
             ("learning_id",)),
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.review_get,
-            description=instruction_text('review-read-one-retained-learning-candidate-with-its-owner')))
+            **located(lookup, instruction_text('review-read-one-retained-learning-candidate-with-its-owner'))))

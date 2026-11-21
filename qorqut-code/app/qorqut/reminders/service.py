@@ -24,6 +24,7 @@ import time
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page_position, schema, timestamp, utc_clock
 from qorqut_operations.project_lifecycle import is_archived_project
+from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
 from qorqut_operations.contracts import DomainError, canonical_bytes, new_id, plain
 from qorqut.agents.global_scope import active_global
 from qorqut.management.identity import configured_ordubashy, is_active_installation_owner
@@ -109,12 +110,19 @@ class ReminderService:
             CANCEL: ({"reminder_id": UUID, "revision": REVISION}, ("reminder_id", "revision"),
                      instruction_text('service-stop-the-whole-reminder-or-series-and-discard')),
         }
+        # A reminder named by its id runs in its own project (its receipt and policy scope are the record's) when the caller
+        # selected none. A caller that selected a project keeps being served: a reminder is loaded by its id alone.
+        lookup = RecordLookup(Family("reminders", "reminder_id", "reminders_get", "Reminder", scope_argument=None,
+                                     refuses_elsewhere=False))
+        located = dict(locate_scope=lookup)
         for name, (fields, required, description) in write_fields.items():
-            self.app.registry.register(OperationDescriptor(name, schema(fields, required), **common, description=description,
+            self.app.registry.register(OperationDescriptor(name, schema(fields, required), **common,
+                **({**located, "description": description + LOCATED} if "reminder_id" in fields else {"description": description}),
                 replay_validator=lambda ctx, args, replay, uow, op=name: self.replay(op, ctx, args, replay, uow),
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, uow), apply=self.apply))
-        self.app.registry.register(OperationDescriptor(GET, schema({"reminder_id": UUID}, ("reminder_id",)), **common, effect_kind="read",
-            description=instruction_text('service-read-one-reminder-you-may-see-its-state'), read=self.get))
+        self.app.registry.register(OperationDescriptor(GET, schema({"reminder_id": UUID}, ("reminder_id",)), **common, **located,
+            effect_kind="read", description=instruction_text('service-read-one-reminder-you-may-see-its-state') + LOCATED,
+            read=self.get))
         self.app.registry.register(OperationDescriptor(LIST, schema({
             "recipient_id": ID, "all_recipients": {"type": "boolean"}, "all_scopes": {"type": "boolean"},
             "states": {"type": "array", "items": {"enum": list(STATES)}, "maxItems": 4, "uniqueItems": True},

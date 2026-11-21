@@ -1167,6 +1167,11 @@
       "line": 48
     },
     {
+      "id": "operations-pass-a-record-id-alone-its-project-is-found",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/records/locate.py",
+      "line": 32
+    },
+    {
       "id": "operations-pass-task-id-alone-its-project-is-found",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tasks/lookup.py",
       "line": 34

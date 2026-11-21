@@ -27,11 +27,9 @@ class ActionLookupTests(Harness):
         with self.db.read() as uow:
             return ActionLookup()(ctx, {'action_id': action_id}, uow)
 
-    def test_every_changing_operation_takes_the_hook_for_every_caller_source(self):
+    def test_every_changing_operation_takes_the_hook(self):
         for name in CHANGING:
-            descriptor = self.registry.get(name)
-            self.assertIsInstance(descriptor.locate_scope, ActionLookup, name)
-            self.assertTrue(descriptor.locate_all_sources, name)
+            self.assertIsInstance(self.registry.get(name).locate_scope, ActionLookup, name)
         for name in ('actions_get', 'actions_list', 'actions_thread_get', 'actions_record'):
             self.assertIsNone(self.registry.get(name).locate_scope, name)
 

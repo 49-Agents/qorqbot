@@ -25,6 +25,7 @@ from qorqut_operations.contracts import (DomainError, ExpectedTarget, ResourceRe
 from qorqut_operations.documents.serialization import BODY, HASH, SLUG, slugify, split_document
 from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.records.associations import TASK_IDS, link_new_resource
+from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
 from qorqut_operations.records.vocabulary import document_type
 from qorqut_operations.relationships import create_edge
 from . import project_notes
@@ -100,6 +101,31 @@ DESCRIPTIONS = {
 }
 
 
+# The operations that name one existing document by ``document_id``, each with the read operation whose authority decides where
+# the caller may read it. Moves, the Context tree's own edits and the library's ``context_get`` (its own ``scope``) are not here.
+LOCATED_DOCUMENTS = {
+    "notes_get": "notes_get", "notes_update": "notes_get", "notes_delete": "notes_get",
+    "content_get": "content_get",
+    "context_people_get": "context_people_get", "context_people_update": "context_people_get",
+    "context_people_affiliation_set": "context_people_get", "context_people_merge": "context_people_get",
+    "context_document_update": "context_get",
+}
+
+
+def document_lookups():
+    """``{operation: hook}``: one hook per read operation. A document named by its id runs in its project when the caller
+    selected none. A selected project also serves Global documents, and a note's ``target_project_id`` selects its project
+    (the rule that a project note's write names it stays as it is)."""
+    by_read, hooks = {}, {}
+    for operation, read in LOCATED_DOCUMENTS.items():
+        if read not in by_read:
+            by_read[read] = RecordLookup(Family("documents", "document_id", read, "Note" if read == "notes_get" else "Document",
+                                                scope_argument=None, global_serves_selected=True,
+                                                named_project=lambda args: args.get(TARGET)))
+        hooks[operation] = by_read[read]
+    return hooks
+
+
 def append_plan(builder, plan, operation):
     for target in plan.expected_targets:
         if target.resource in builder.targets and builder.targets[target.resource] != target:
@@ -159,7 +185,7 @@ class DocumentSources:
             registry.register(descriptor)
 
     def _descriptors(self):
-        found = {}
+        found, lookups = {}, document_lookups()
         for name, properties in READS.items():
             library = name in READ_ARGUMENTS
             shared = library or name in GLOBAL_OWNER_CONTEXT
@@ -170,7 +196,8 @@ class DocumentSources:
                 resolve_namespace=project_namespace if shared else own_namespace if agent_notes else None,
                 global_capability="read_global_context" if shared or name in GLOBAL_NOTE_OPS else None,
                 exposure=frozenset({"dashboard", "worker"}) if name.startswith("context_") and not library else frozenset({"mcp", "dashboard", "worker"}),
-                description=DESCRIPTIONS.get(name, ""),
+                description=DESCRIPTIONS.get(name, "") + (LOCATED if name in lookups else ""),
+                locate_scope=lookups.get(name),
                 owner_session=name in {"context_people_list", "context_people_get", "context_maps_get"},
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow))
         for name, (properties, required) in MUTATIONS.items():
@@ -179,16 +206,17 @@ class DocumentSources:
                 scope_kinds={"project", "agent_workspace", "global"} if name in GLOBAL_NOTE_OPS else {"project"},
                 resolve_namespace=own_namespace if name in GLOBAL_NOTE_OPS else None,
                 global_capability="read_global_context" if name in GLOBAL_NOTE_OPS else None,
-                exposure={"dashboard", "worker"} if name in DOCUMENT_AUTHORING else {"mcp", "dashboard", "worker"})
+                exposure={"dashboard", "worker"} if name in DOCUMENT_AUTHORING else {"mcp", "dashboard", "worker"},
+                locate_scope=lookups.get(name))
         return found
 
     @staticmethod
     def mutation_descriptor(name, properties, required, *, prepare, apply, validate_targets, scope_kinds, resolve_namespace,
-                            global_capability, exposure, owner_only=False, description=None):
+                            global_capability, exposure, owner_only=False, description=None, locate_scope=None):
         """The one compound document-mutation descriptor shape (the rationale argument, no Signoff exemption)."""
         return OperationDescriptor(name, schema({**properties, "rationale": TEXT}, required), effect_kind="compound",
-            description=DESCRIPTIONS.get(name, "") if description is None else description,
-            scope_kinds=scope_kinds, resolve_namespace=resolve_namespace, global_capability=global_capability,
+            description=(DESCRIPTIONS.get(name, "") if description is None else description) + (LOCATED if locate_scope else ""),
+            locate_scope=locate_scope, scope_kinds=scope_kinds, resolve_namespace=resolve_namespace, global_capability=global_capability,
             exposure=exposure, owner_only=owner_only, prepare=prepare, apply=apply, validate_targets=validate_targets)
 
     # -- shared source helpers -------------------------------------------------------------------------------------------
