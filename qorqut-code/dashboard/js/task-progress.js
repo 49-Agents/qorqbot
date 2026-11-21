@@ -160,8 +160,7 @@ async function taskProgressOpenReference(project, ref, beforeOpen) {
   }
   if (await beforeOpen?.() === false) return;
   if (ref.type === 'action') {
-    const id=ref.id.startsWith('global/') || ref.id.startsWith('project/')?ref.id:(ref.project_id?`project/${ref.project_id}/`:'global/')+ref.id;
-    const {action}=coreData(await post('/root/operations/actions_get',{action_id:id}));
+    const {action}=coreData(await post('/root/operations/actions_get',{action_id:ref.id}));
     return modal({title:'Action',stack:true,width:700,body:`<div class="work-source">${esc(action.text)}</div>`});
   }
   if (ref.type === 'signoff') return sgAttentionNavigate(project || null, ref.id);

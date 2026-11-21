@@ -27,12 +27,12 @@ def labels_of(values) -> list[str]:
     return distinct_labels(values)
 
 
-def _revision_row(builder, key, revision, operation, state, *, storage, performer, provenance):
-    values = {"project_id": storage, "action_key": key, "revision": revision, "operation": operation,
+def _revision_row(builder, action_id, revision, operation, state, *, storage, performer, provenance):
+    values = {"project_id": storage, "action_id": action_id, "revision": revision, "operation": operation,
               "snapshot_json": state, "recorded_by": builder.ctx.principal_id, "performed_by": performer,
               "provenance_json": provenance, "created_at": builder.at}
-    builder.record("action_revisions", {"action_key": key, "revision": revision}, None, values, project_id=storage,
-                   label=f"{key}:{revision}")
+    builder.record("action_revisions", {"action_id": action_id, "revision": revision}, None, values, project_id=storage,
+                   label=f"{action_id}:{revision}")
 
 
 def new_action(builder, uow, *, text, category, projects, occurrence, origin, refs=None, tags=(), related=(), performer=UNSET,
@@ -41,8 +41,7 @@ def new_action(builder, uow, *, text, category, projects, occurrence, origin, re
     storage = builder.ctx.project_id
     text = models.validate_text(text, origin)
     identity = identity or new_id()
-    key = models.action_key(storage, identity)
-    values = {"id": identity, "action_key": key, "category": category, "action_text": text, "origin": origin,
+    values = {"id": identity, "category": category, "action_text": text, "origin": origin,
               "performed_by": builder.ctx.principal_id if performer is UNSET else performer,
               "recorded_by": builder.ctx.principal_id, "occurred_at": occurrence["occurred_at"],
               "occurred_date": occurrence["real_date"], "occurred_hour": occurrence["real_hour"],
@@ -51,23 +50,23 @@ def new_action(builder, uow, *, text, category, projects, occurrence, origin, re
               "withdrawn": 0, "created_at": builder.at, "updated_at": builder.at}
     builder.record("action_logs", identity, None, values, operation_name=operation_name, label=models.one_line(text))
     for project_id in projects:
-        link = {"action_key": key, "project_id": project_id}
+        link = {"action_id": identity, "project_id": project_id}
         # A project-stored action links only its own project; Global-stored links are Global membership records.
         builder.record("action_projects", link, None, {**link, "created_at": builder.at},
                        project_id=storage if storage == project_id else None, operation_name=operation_name, label=project_id)
     labels = labels_of(tags)
     planned = plan_item_tags(builder, uow, "action", identity, storage, labels, created=True)
     state = models.snapshot(values, projects=projects, tags=planned["tags"], operation="add")
-    _revision_row(builder, key, 1, "add", state, storage=storage, performer=values["performed_by"], provenance=provenance or {})
+    _revision_row(builder, identity, 1, "add", state, storage=storage, performer=values["performed_by"], provenance=provenance or {})
     return {**values, "revision": 1}
 
 
 def change_action(builder, uow, before: dict, *, operation, changes: dict, projects=None, tags=None, provenance=None) -> dict:
     """Plan a correction (``edit``) or withdrawal (``remove``) of an existing Action as its next revision."""
-    key, storage = before["action_key"], before["project_id"]
+    identity, storage = before["id"], before["project_id"]
     if before["withdrawn"]:
         raise DomainError("invalid_transition", "Withdrawn Actions retain history; later activity requires a new Action")
-    current_links = links(uow, key)
+    current_links = links(uow, identity)
     current_labels = item_labels(uow, storage, "action", before["id"])
     after_links = current_links if projects is None else list(projects)
     after_labels = current_labels if tags is None else labels_of(tags)
@@ -85,15 +84,15 @@ def change_action(builder, uow, before: dict, *, operation, changes: dict, proje
     frozen = tag_snapshots(uow, storage, "action", before["id"]) if tags is None else plan_item_tags(
         builder, uow, "action", before["id"], storage, after_labels)["tags"]
     for project_id in sorted(set(current_links) - set(after_links)):
-        link = {"action_key": key, "project_id": project_id}
+        link = {"action_id": identity, "project_id": project_id}
         builder.record("action_projects", link, uow.repository("action_projects").get(link), {}, action="delete",
                        project_id=storage if storage == project_id else None, label=project_id)
     for project_id in [value for value in after_links if value not in current_links]:
-        link = {"action_key": key, "project_id": project_id}
+        link = {"action_id": identity, "project_id": project_id}
         builder.record("action_projects", link, None, {**link, "created_at": builder.at},
                        project_id=storage if storage == project_id else None, label=project_id)
     state = models.snapshot(row, projects=after_links, tags=frozen, operation=operation)
-    _revision_row(builder, key, before["revision"] + 1, operation, state, storage=storage, performer=before["performed_by"],
+    _revision_row(builder, identity, before["revision"] + 1, operation, state, storage=storage, performer=before["performed_by"],
                   provenance=provenance or {})
     return {**row, "revision": before["revision"] + 1}
 
@@ -110,17 +109,17 @@ def settle(ctx, plan, uow, *, on_revision) -> list[dict]:
             continue
         values = plain(change.values)
         revision = uow.repository("action_revisions", project_id=values["project_id"]).get(
-            {"action_key": values["action_key"], "revision": values["revision"]}, required=True)
+            {"action_id": values["action_id"], "revision": values["revision"]}, required=True)
         input_id = on_revision(ctx, revision, uow)
-        action = uow.connection.execute("SELECT * FROM action_logs WHERE action_key=?", (revision["action_key"],)).fetchone()
+        action = uow.connection.execute("SELECT * FROM action_logs WHERE id=?", (revision["action_id"],)).fetchone()
         item = ThreadItem(action["project_id"], "action", action["id"])
         if revision["operation"] == "add":
             auto_follow(uow, item, [action["recorded_by"]], "creator")
-        event = emit_event(uow, project_id=action["project_id"], source_type=SOURCE_TYPE, source_id=action["action_key"],
+        event = emit_event(uow, project_id=action["project_id"], source_type=SOURCE_TYPE, source_id=action["id"],
                            source_revision=revision["revision"], actor_id=ctx.principal_id,
                            event_type=EVENT_TYPES[revision["operation"]], summary=models.one_line(action["action_text"]),
                            optional=followers(uow, item))
-        settled.append({"action_key": revision["action_key"], "revision": revision["revision"], "input_id": input_id,
+        settled.append({"action_id": revision["action_id"], "revision": revision["revision"], "input_id": input_id,
                         "event_id": event})
     return settled
 

@@ -40,8 +40,8 @@ def register(registry, clock):
                 f"COALESCE(SUM({ACKNOWLEDGE_SQL}),0) FROM signoffs s "
                 "WHERE s.review_project_id=? AND s.state='pending' AND s.category!='side_chat' AND s.superseded_by_id IS NULL", (bid,)).fetchone()
             # A shared action counts once in each linked project, on its recorded local occurrence day.
-            activity = dict(uow.connection.execute("SELECT a.occurred_date,COUNT(DISTINCT a.action_key) FROM action_logs a "
-                "JOIN action_projects m ON m.action_key=a.action_key WHERE m.project_id=? AND a.occurred_date>=? "
+            activity = dict(uow.connection.execute("SELECT a.occurred_date,COUNT(DISTINCT a.id) FROM action_logs a "
+                "JOIN action_projects m ON m.action_id=a.id WHERE m.project_id=? AND a.occurred_date>=? "
                 "AND a.occurred_date<=? AND a.occurred_at<=? GROUP BY a.occurred_date", (bid, dates[0], dates[-1], timestamp(lambda: now))).fetchall())
             items.append({'project_id':bid,'slug':project['slug'],'tasks':count,'signoffs':signoffs[0]-signoffs[2],
                 'to_read':signoffs[2],'requests':signoffs[1],'activity':[{'date':date,'count':activity.get(date,0)} for date in dates]})

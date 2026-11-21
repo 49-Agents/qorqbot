@@ -26,6 +26,7 @@ import uuid
 
 from qorqut_operations import local_time
 from qorqut_operations.actions import models
+from qorqut_operations.actions.lookup import ActionLookup
 from qorqut_operations.actions.ports import require_on_revision
 from qorqut_operations.actions.schema import CATEGORIES
 from qorqut_operations.actions.scope import (action_namespace, change_namespace, classification_from_task, classify, evidence_visible,
@@ -57,7 +58,7 @@ ACTION_ENTRIES = (
     *(CatalogEntry(name, True, "records") for name in ACTION_MUTATIONS),
     CatalogEntry(ACTION_FOLLOW, False, "records"),
 )
-ACTION_ID = {"type": "string", "minLength": 1, "maxLength": 300}
+ACTION_ID = IDENTITY
 PROJECT_IDS = {"type": "array", "items": UUID, "maxItems": 50, "uniqueItems": True}
 RECORD_DESCRIPTION = (
     instruction_text('operations-record-one-atomic-completed-result-not-a-task') + models.SHARING)
@@ -121,7 +122,7 @@ class ActionOperations:
             "delegation_assignment_id": {**UUID, "description": DELEGATION_DESCRIPTION}, "rationale": TEXT}, ("text",)),
             **common, description=RECORD_DESCRIPTION, prepare=self.prepare_record, apply=self.apply,
             validate_targets=self.validate_record))
-        changing = {**common, "resolve_namespace": change_namespace}
+        changing = {**common, "resolve_namespace": change_namespace, "locate_scope": ActionLookup(), "locate_all_sources": True}
         descriptors.append(OperationDescriptor("actions_correct", schema({
             "action_id": ACTION_ID, "text": models.ACTION_TEXT, "category": {"anyOf": [{"enum": list(CATEGORIES)}, {"type": "null"}]},
             "project_ids": PROJECT_IDS, "real_time": {"anyOf": [local_time.REAL_TIME_SCHEMA, {"type": "null"}]}, **optional,
@@ -177,7 +178,7 @@ class ActionOperations:
 
     @staticmethod
     def find(uow, action_id):
-        return decode_row(uow.connection.execute("SELECT * FROM action_logs WHERE action_key=?", (action_id,)).fetchone())
+        return decode_row(uow.connection.execute("SELECT * FROM action_logs WHERE id=?", (action_id,)).fetchone())
 
     def linked_task(self, ctx, uow, args):
         """The stored Task that ``task_id`` names, or ``None`` when the record links none.
@@ -284,7 +285,7 @@ class ActionOperations:
         """The Action a correction or withdrawal changes, checked for visibility, authority and the expected revision."""
         scope = reader_scope(ctx, uow)
         row = self.find(uow, args["action_id"])
-        if row is None or not visible(scope, row, links(uow, row["action_key"])):
+        if row is None or not visible(scope, row, links(uow, row["id"])):
             raise DomainError("not_found", "Action does not exist")
         if not may_change(ctx, uow, row):
             raise DomainError("forbidden", "Only the original recorder, owner or configured coordinator can change an accessible Action in its owning scope")
@@ -296,7 +297,7 @@ class ActionOperations:
     def prepare_correct(self, ctx, args, options, uow):
         row = self.target(ctx, uow, args, options)
         builder = PlanBuilder(ctx, "actions_correct", args, "Correct action", clock=self.clock)
-        current_links = links(uow, row["action_key"])
+        current_links = links(uow, row["id"])
         category = args["category"] if "category" in args else row["category"]
         category, projects = classify(ctx, uow, category, args.get("project_ids", current_links if category == "project-operational" else []))
         changes = {"category": category}
@@ -328,12 +329,12 @@ class ActionOperations:
     def validate_change(self, ctx, plan, uow):
         scope = reader_scope(ctx, uow)
         row = self.find(uow, plan.arguments["action_id"])
-        if row is None or not visible(scope, row, links(uow, row["action_key"])) or not may_change(ctx, uow, row) or row["withdrawn"]:
+        if row is None or not visible(scope, row, links(uow, row["id"])) or not may_change(ctx, uow, row) or row["withdrawn"]:
             raise DomainError("forbidden", "The action can no longer be changed by this caller")
         if plan.operation_name == "actions_correct":
             change = next(change for change in plan.changes if change.resource.resource_type == "action_logs")
             category = plain(change.values).get("category", row["category"])
-            linked = set(links(uow, row["action_key"]))
+            linked = set(links(uow, row["id"]))
             for item in plan.changes:
                 if item.resource.resource_type == "action_projects":
                     project = json.loads(item.resource.resource_id)["project_id"]
@@ -343,8 +344,7 @@ class ActionOperations:
     def apply(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
         settled = settle(ctx, plan, uow, on_revision=self.on_revision)
-        key = settled[0]["action_key"]
-        row = self.find(uow, key)
+        row = self.find(uow, settled[0]["action_id"])
         scope = reader_scope(ctx, uow)
         return {"action": self.view(ctx, uow, row, scope), "revision": settled[0]["revision"], "context_input_id": settled[0]["input_id"],
                 **self.time_view()}
@@ -357,7 +357,7 @@ class ActionOperations:
         A project that merely reads a shared Global Action through a retained link cannot write to it."""
         scope = reader_scope(ctx, uow)
         row = self.find(uow, args["action_id"])
-        if row is None or not visible(scope, row, links(uow, row["action_key"])):
+        if row is None or not visible(scope, row, links(uow, row["id"])):
             raise DomainError("not_found", "Action does not exist")
         item = ThreadItem(row["project_id"], "action", row["id"])
         if row["project_id"] != ctx.project_id or not can_follow(uow, item, ctx.principal_id):
@@ -387,14 +387,14 @@ class ActionOperations:
             auto_follow(uow, item, [comment["recorder_id"]], "commenter")
             if comment["author_id"] != comment["recorder_id"]:
                 auto_follow(uow, item, [comment["author_id"]], "represented")
-        event = emit_event(uow, project_id=row["project_id"], source_type=SOURCE_TYPE, source_id=row["action_key"],
+        event = emit_event(uow, project_id=row["project_id"], source_type=SOURCE_TYPE, source_id=row["id"],
                            source_revision=row["revision"], actor_id=ctx.principal_id, event_type=COMMENT_EVENT,
                            summary=models.one_line(row["action_text"]), optional=followers(uow, item))
         if event is not None:
             attach_event(uow, item, [comment["id"] for comment in comments], event)
         stored = uow.connection.execute("SELECT * FROM thread_messages WHERE project_id IS ? AND id=?",
                                         (row["project_id"], comments[0]["id"])).fetchone()
-        return {"action_id": row["action_key"], "thread_id": item.thread_id,
+        return {"action_id": row["id"], "thread_id": item.thread_id,
                 "message": message_view(dict(stored), uow, self.references.message(ctx, uow))}
 
     # -- follows ---------------------------------------------------------------------------------------------------
@@ -402,7 +402,7 @@ class ActionOperations:
     def prepare_follow(self, ctx, arguments, options, uow):
         scope = reader_scope(ctx, uow)
         row = self.find(uow, arguments["action_id"])
-        if row is None or not visible(scope, row, links(uow, row["action_key"])):
+        if row is None or not visible(scope, row, links(uow, row["id"])):
             raise DomainError("not_found", "Action does not exist")
         item = ThreadItem(row["project_id"], "action", row["id"])
         if row["project_id"] != ctx.project_id or not can_follow(uow, item, ctx.principal_id):
@@ -422,7 +422,7 @@ class ActionOperations:
     def apply_follow(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
         row = self.find(uow, plan.arguments["action_id"])
-        return {"action_id": row["action_key"], **follow_state(uow, ThreadItem(row["project_id"], "action", row["id"]), ctx.principal_id)}
+        return {"action_id": row["id"], **follow_state(uow, ThreadItem(row["project_id"], "action", row["id"]), ctx.principal_id)}
 
     # -- reads -----------------------------------------------------------------------------------------------------
 
@@ -432,14 +432,14 @@ class ActionOperations:
     # Newest occurrence first. Day-only entries have unknown intra-day order: they sort after that day's timed entries,
     # by identity, never by their midnight anchor.
     ORDER_COLUMNS = ("COALESCE(a.occurred_date,'')", "CASE WHEN a.time_precision='day' THEN 0 ELSE 1 END",
-                     "CASE WHEN a.time_precision='day' THEN '' ELSE COALESCE(a.occurred_at,'') END", "a.action_key")
+                     "CASE WHEN a.time_precision='day' THEN '' ELSE COALESCE(a.occurred_at,'') END", "a.id")
 
     def query_page(self, uow, scope, args, after, limit):
         """Authorized, filtered, cursor-positioned rows in SQL, fetching at most limit+1."""
         clause, parameters = scope_clause(scope)
         where = [clause]
         if args.get("project") is not None:
-            where.append("EXISTS (SELECT 1 FROM action_projects f WHERE f.action_key=a.action_key AND f.project_id=?)")
+            where.append("EXISTS (SELECT 1 FROM action_projects f WHERE f.action_id=a.id AND f.project_id=?)")
             parameters.append(args["project"])
         if args.get("since"):
             where.append("COALESCE(a.occurred_date,'') >= ?")
@@ -500,7 +500,7 @@ class ActionOperations:
             f"SELECT id, slug, name FROM projects WHERE id IN ({marks})", identities)}
 
     def view(self, ctx, uow, row, scope, *, row_links=None, people=None, names=None):
-        row_links = links(uow, row["action_key"]) if row_links is None else row_links
+        row_links = links(uow, row["id"]) if row_links is None else row_links
         shown = [project for project in row_links if scope["kind"] == "owner" or project in scope["projects"]]
         people = people if people is not None else self.principals(uow, (row["performed_by"], row["recorded_by"]))
         names = names if names is not None else self.projects(uow, shown)
@@ -509,7 +509,7 @@ class ActionOperations:
                     "precision": row["time_precision"], "time_zone": row["time_zone"]}
         if row["time_precision"] == "instant":
             occurred["instant"] = row["occurred_at"]
-        return {"action_id": row["action_key"], "text": row["action_text"], "summary": models.one_line(row["action_text"]),
+        return {"action_id": row["id"], "text": row["action_text"], "summary": models.one_line(row["action_text"]),
                 "category": row["category"], "projects": [names.get(project, {"id": project}) for project in shown],
                 "performed_by": people.get(row["performed_by"]), "recorded_by": people.get(row["recorded_by"]),
                 # Without a known performer the recorder is shown as recorded attribution only.
@@ -520,18 +520,18 @@ class ActionOperations:
                 "tags": item_labels(uow, row["project_id"], "action", row["id"]) if disclosed else [],
                 "related_objects": row["related_objects_json"] if disclosed else [],
                 "refs": row["refs_json"] if disclosed else {},
-                "legacy": {"project_id": row["project_id"], "id": row["id"]} if disclosed else None}
+                "project_id": row["project_id"] if disclosed else None}
 
     def revision_view(self, ctx, uow, row, scope, revision):
-        stored = uow.repository("action_revisions", project_id=row["project_id"]).get({"action_key": row["action_key"], "revision": revision})
+        stored = uow.repository("action_revisions", project_id=row["project_id"]).get({"action_id": row["id"], "revision": revision})
         if stored is None:
             raise DomainError("not_found", "Action revision does not exist")
-        row_links = links(uow, row["action_key"])
+        row_links = links(uow, row["id"])
         disclosed = evidence_visible(scope, row, row_links)
         snapshot = stored["snapshot_json"]
         shown = [project for project in snapshot["project_ids"] if scope["kind"] == "owner" or project in scope["projects"]]
         people = self.principals(uow, (stored["performed_by"], stored["recorded_by"]))
-        return {"action_id": row["action_key"], "revision": stored["revision"], "operation": stored["operation"],
+        return {"action_id": row["id"], "revision": stored["revision"], "operation": stored["operation"],
                 "text": snapshot["text"], "category": snapshot["category"], "origin": snapshot["origin"], "project_ids": shown,
                 "tags": [tag["name"] for tag in snapshot["tag_snapshots"]] if disclosed else [],
                 "related_objects": snapshot["related_objects"] if disclosed else [],
@@ -545,16 +545,16 @@ class ActionOperations:
             return self.config_view(ctx, uow, scope)
         if operation == "actions_thread_get":
             row = self.find(uow, args["action_id"])
-            if row is None or not visible(scope, row, links(uow, row["action_key"])):
+            if row is None or not visible(scope, row, links(uow, row["id"])):
                 raise DomainError("not_found", "Action does not exist")
             item = ThreadItem(row["project_id"], "action", row["id"])
             history = read_messages(uow, item, args, operation, ctx.principal_id, resolve_refs=self.references.message(ctx, uow))
             people = {row["recorded_by"], row["performed_by"], *(message["created_by"] for message in history["messages"])}
-            return {"thread_id": history["thread_id"], "action_id": row["action_key"], "participants": participants(uow, people),
+            return {"thread_id": history["thread_id"], "action_id": row["id"], "participants": participants(uow, people),
                     "messages": history["messages"], "next_cursor": history["next_cursor"]}
         if operation == "actions_get":
             row = self.find(uow, args["action_id"])
-            if row is None or not visible(scope, row, links(uow, row["action_key"])):
+            if row is None or not visible(scope, row, links(uow, row["id"])):
                 raise DomainError("not_found", "Action does not exist")
             if "revision" in args:
                 return {"action": self.revision_view(ctx, uow, row, scope, args["revision"]), **self.time_view()}
@@ -569,16 +569,16 @@ class ActionOperations:
         selected = [row for row, _ in found[:limit]]
         cursor = (base64.urlsafe_b64encode(canonical_bytes({"binding": binding, "after": found[limit - 1][1]})).decode("ascii")
                   if len(found) > limit else None)
-        keys = [row["action_key"] for row in selected]
+        keys = [row["id"] for row in selected]
         all_links = {key: [] for key in keys}
         if keys:
             marks = ",".join("?" for _ in keys)
-            for row in uow.connection.execute(f"SELECT action_key, project_id FROM action_projects WHERE action_key IN ({marks}) "
+            for row in uow.connection.execute(f"SELECT action_id, project_id FROM action_projects WHERE action_id IN ({marks}) "
                                               "ORDER BY project_id", keys):
                 all_links[row[0]].append(row[1])
         people = self.principals(uow, [value for row in selected for value in (row["performed_by"], row["recorded_by"])])
         names = self.projects(uow, [project for row_links in all_links.values() for project in row_links])
-        return {"actions": [self.view(ctx, uow, row, scope, row_links=all_links[row["action_key"]], people=people, names=names)
+        return {"actions": [self.view(ctx, uow, row, scope, row_links=all_links[row["id"]], people=people, names=names)
                             for row in selected], "next_cursor": cursor, **self.time_view()}
 
     def config_view(self, ctx, uow, scope):

@@ -1242,7 +1242,7 @@ class HostScanner:
         old = after or ["", "", ""]
         for namespace in sorted(selection["namespaces"], key=_key):
             nskey, project_id = _key(namespace), namespace["project_id"]
-            statements = [("action", "action_key", "action_logs", "project_id"),
+            statements = [("action", "id", "action_logs", "project_id"),
                           ("document", "id", "documents", "project_id"),
                           ("signoff", "id", "signoffs", "review_project_id"),
                           ("task", "id", "tasks", "project_id")]
@@ -1383,7 +1383,7 @@ class HostScanner:
                 self.access.authorize_source(self._locator(namespace, "signoff_note", row[0], signoff_id=identity, note_id=row[0]))
         else:
             if kind == "action":
-                action = uow.connection.execute("SELECT id,project_id FROM action_logs WHERE action_key=?", (identity,)).fetchone()
+                action = uow.connection.execute("SELECT id,project_id FROM action_logs WHERE id=?", (identity,)).fetchone()
                 if action is None:
                     raise DomainError("evidence_unavailable", "Action is unavailable")
                 item_id, project_id = action[0], action[1]
@@ -1511,8 +1511,8 @@ class HostScanner:
                     return "unknown", []
                 originals.append(pre)
             if ref.get("type") == "action":
-                row = uow.connection.execute("SELECT recorded_by,performed_by,action_key FROM action_logs WHERE project_id IS ? AND (id=? OR action_key=?)",
-                    (namespace["project_id"], ref.get("id"), ref.get("id"))).fetchone()
+                row = uow.connection.execute("SELECT recorded_by,performed_by,id FROM action_logs WHERE project_id IS ? AND id=?",
+                    (namespace["project_id"], ref.get("id"))).fetchone()
                 if row is None:
                     return "unknown", []
                 if row[0] in self.journal.overseer_ids or row[1] in self.journal.overseer_ids:
@@ -1799,7 +1799,7 @@ class HostScanner:
                 # only the immutable revision's routing metadata to detect a hidden
                 # parent; never expose that metadata when the reader redacted it.
                 route = uow.connection.execute("SELECT json_extract(snapshot_json,'$.refs.task') FROM action_revisions "
-                                               "WHERE action_key=? AND revision=?", (identity, number)).fetchone()
+                                               "WHERE action_id=? AND revision=?", (identity, number)).fetchone()
                 if route is None:
                     link_gaps.append({"code": "action_revision_unavailable"})
                     blocked = ("action_revision_unavailable", "The Action revision is unavailable", {"revision": number})

@@ -8,14 +8,14 @@ An Action or a Signoff belongs to the Story through one of the canonical associa
 relationship naming a Story Task in either direction, an Action's ``refs_json.task`` evidence in the Action's own
 owning scope, a Signoff's typed Task expected target in the matching scope, or a typed Action/Signoff reference stored
 on one of the Story Tasks' own discussion threads. Titles, prose, Context pointers, ``related_objects`` and any other
-JSON are never parsed into links. A record found by several routes is returned once, by canonical scoped identity, with
+JSON are never parsed into links. A record found by several routes is returned once, by its id and owning scope, with
 all matching source Task IDs combined.
 
 One further association is inferred, and only for the installation owner reading a project Story: a
 project-operational Action stored in Global belongs to the Story when it is explicitly shared through
 ``action_projects`` with the requested project and its bare ``refs_json.task`` names exactly one Task among Global
-and the Action's shared projects, that one being in the requested project. The Action keeps its canonical
-``global/...`` identity and Global storage. Membership alone is never a link, and an ID that is ambiguous in those
+and the Action's shared projects, that one being in the requested project. The Action keeps its id and its
+Global storage. Membership alone is never a link, and an ID that is ambiguous in those
 namespaces links nothing; a project the Action is not shared with is no namespace for it at all. The path is
 owner-only because the Action domain withholds a Global Action's evidence from a project-scoped non-owner reader, so
 no other reader gains this inferred association.
@@ -194,9 +194,9 @@ class TaskAssociatedRecords:
         found = set()
         for chunk in _chunks(task_ids):
             for row in uow.connection.execute(
-                    f"SELECT action_key, refs_json FROM action_logs WHERE project_id IS ? "
+                    f"SELECT id, refs_json FROM action_logs WHERE project_id IS ? "
                     f"AND json_extract(refs_json, '$.task') IN ({_marks(chunk)})", [project_id, *chunk]):
-                found.add((row["action_key"], json.loads(row["refs_json"])["task"]))
+                found.add((row["id"], json.loads(row["refs_json"])["task"]))
         return found
 
     @staticmethod
@@ -209,25 +209,25 @@ class TaskAssociatedRecords:
         project explicitly linked to the Action, and that Task is in the requested project. A project the Action is
         not linked to is no namespace for it at all, so an unrelated coincidence there never blocks the link. Every
         lookup is bounded by the Story's Task IDs and the candidate Actions' links. Nothing is stored: the Action keeps
-        its canonical ``global/...`` identity and Global storage, and the ordinary item resolver still authorizes it.
+        its id and its Global storage, and the ordinary item resolver still authorizes it.
         """
         if project_id is None or not is_owner(ctx, uow):
             return set()
         candidates = {}
         for chunk in _chunks(task_ids):
             for row in uow.connection.execute(
-                    "SELECT a.action_key AS action_key, json_extract(a.refs_json, '$.task') AS task_id FROM action_logs a "
-                    "JOIN action_projects m ON m.action_key = a.action_key "
+                    "SELECT a.id AS action_id, json_extract(a.refs_json, '$.task') AS task_id FROM action_logs a "
+                    "JOIN action_projects m ON m.action_id = a.id "
                     "WHERE a.project_id IS NULL AND a.category = 'project-operational' AND m.project_id = ? "
                     f"AND json_extract(a.refs_json, '$.task') IN ({_marks(chunk)})", [project_id, *chunk]):
-                candidates[row["action_key"]] = row["task_id"]
+                candidates[row["action_id"]] = row["task_id"]
         if not candidates:
             return set()
         linked = {}
         for chunk in _chunks(candidates):
             for row in uow.connection.execute(
-                    f"SELECT action_key, project_id FROM action_projects WHERE action_key IN ({_marks(chunk)})", chunk):
-                linked.setdefault(row["action_key"], set()).add(row["project_id"])
+                    f"SELECT action_id, project_id FROM action_projects WHERE action_id IN ({_marks(chunk)})", chunk):
+                linked.setdefault(row["action_id"], set()).add(row["project_id"])
         namespaces = {None}
         for action_links in linked.values():
             namespaces |= action_links
@@ -238,11 +238,11 @@ class TaskAssociatedRecords:
                         f"SELECT id FROM tasks WHERE project_id IS ? AND id IN ({_marks(chunk)})", [namespace, *chunk]):
                     matches.setdefault(row["id"], set()).add(namespace)
         found = set()
-        for action_key, task_id in candidates.items():
+        for action_id, task_id in candidates.items():
             matching = [namespace for namespace in matches.get(task_id, ())
-                        if namespace is None or namespace in linked.get(action_key, ())]
+                        if namespace is None or namespace in linked.get(action_id, ())]
             if matching == [project_id]:
-                found.add((action_key, task_id))
+                found.add((action_id, task_id))
         return found
 
     @staticmethod
@@ -309,7 +309,7 @@ class TaskAssociatedRecords:
         return since <= when and (until is None or when < until)
 
     @staticmethod
-    def evidence(uow, action_key, revision, holds):
+    def evidence(uow, action_id, revision, holds):
         """``(created_at, accepted state)`` of the revision that began the Action's present ``holds``, else ``None``.
 
         An Action row is a projection; its immutable revisions say when its current evidence was established. The run
@@ -319,8 +319,8 @@ class TaskAssociatedRecords:
         a missing revision, proves nothing and yields ``None``."""
         expected, began = revision, None
         for row in uow.connection.execute(
-                "SELECT revision, created_at, snapshot_json FROM action_revisions WHERE action_key=? ORDER BY revision DESC",
-                (action_key,)):
+                "SELECT revision, created_at, snapshot_json FROM action_revisions WHERE action_id=? ORDER BY revision DESC",
+                (action_id,)):
             if row["revision"] != expected:
                 return None
             state = json.loads(row["snapshot_json"])
@@ -365,13 +365,13 @@ class TaskAssociatedRecords:
         for scope, tasks in by_scope.items():
             for chunk in _chunks(tasks):
                 for row in uow.connection.execute(
-                        "SELECT action_key, revision, json_extract(refs_json, '$.task') AS task_id FROM action_logs "
+                        "SELECT id, revision, json_extract(refs_json, '$.task') AS task_id FROM action_logs "
                         f"WHERE project_id IS ? AND json_extract(refs_json, '$.task') IN ({_marks(chunk)})", [scope, *chunk]):
                     task_id = row["task_id"]
-                    began = self.evidence(uow, row["action_key"], row["revision"],
+                    began = self.evidence(uow, row["id"], row["revision"],
                                           lambda state: state.get("refs", {}).get("task") == task_id)
                     if began is not None and any(self.within(began[0], *span) for span in tasks[task_id]):
-                        found.add((row["action_key"], task_id, scope))
+                        found.add((row["id"], task_id, scope))
         return found
 
     def stay_signoff_targets(self, uow, by_scope):
@@ -407,26 +407,26 @@ class TaskAssociatedRecords:
                 continue
             for chunk in _chunks(tasks):
                 for row in uow.connection.execute(
-                        "SELECT a.action_key AS action_key, a.revision AS revision, json_extract(a.refs_json, '$.task') AS task_id "
-                        "FROM action_logs a JOIN action_projects m ON m.action_key = a.action_key "
+                        "SELECT a.id AS id, a.revision AS revision, json_extract(a.refs_json, '$.task') AS task_id "
+                        "FROM action_logs a JOIN action_projects m ON m.action_id = a.id "
                         "WHERE a.project_id IS NULL AND a.category = 'project-operational' AND m.project_id = ? "
                         f"AND json_extract(a.refs_json, '$.task') IN ({_marks(chunk)})", [scope, *chunk]):
                     task_id = row["task_id"]
                     began = self.evidence(
-                        uow, row["action_key"], row["revision"],
+                        uow, row["id"], row["revision"],
                         lambda state: (state.get("category") == "project-operational" and state.get("refs", {}).get("task") == task_id
                                        and scope in state.get("project_ids", ())))
                     if began is None or not any(self.within(began[0], *span) for span in tasks[task_id]):
                         continue
                     namespaces = {None, *began[1].get("project_ids", ()), *(
                         link["project_id"] for link in uow.connection.execute(
-                            "SELECT project_id FROM action_projects WHERE action_key=?", (row["action_key"],)))}
+                            "SELECT project_id FROM action_projects WHERE action_id=?", (row["id"],)))}
                     # The Task's own lifetime is identified by its immutable creation time, read from the Task itself: after
                     # several moves no stay in the journey starts at it except the first, and that one is not last.
                     created = uow.connection.execute("SELECT created_at FROM tasks WHERE project_id IS ? AND id=?",
                                                      (stays[task_id][0][0], task_id)).fetchone()
                     if created is not None and self.lifetimes_at(uow, task_id, namespaces, began[0]) == {(scope, created["created_at"])}:
-                        found.add((row["action_key"], task_id, scope))
+                        found.add((row["id"], task_id, scope))
         return found
 
     @staticmethod
@@ -451,7 +451,7 @@ class TaskAssociatedRecords:
     def records(self, ctx, uow, sources, record_type):
         """Resolve every distinct record with the authorized item resolver and merge its matching Task IDs.
 
-        A record is named once by its canonical scoped ID. It is read in each scope its association was established in,
+        A record is named once by its ID. It is read in each scope its association was established in,
         the current scope first, with the caller's authority there; only the origins that may read it contribute their
         Story Task IDs, and a record no origin may read is left out without a trace."""
         grouped = {}
@@ -478,16 +478,11 @@ class TaskAssociatedRecords:
 
     @staticmethod
     def record(uow, origin, record_type, identity):
-        """``(canonical scoped ID, owning project ID)`` of a stored record named in ``origin``, before any authorization."""
+        """``(ID, owning project ID)`` of a stored record named in ``origin``, before any authorization."""
         if record_type == "action":
-            # Actions are named by their canonical action_id (with its global/ or project/ prefix) or, in one
-            # project, by their bare ID inside that project's own storage.
-            if identity.startswith(("global/", "project/")):
-                row = decode_row(uow.connection.execute(
-                    "SELECT action_key, project_id FROM action_logs WHERE action_key=?", (identity,)).fetchone())
-            else:
-                row = uow.repository("action_logs", project_id=origin).get(identity)
-            return (row["action_key"], row["project_id"]) if row else None
+            row = decode_row(uow.connection.execute(
+                "SELECT id, project_id FROM action_logs WHERE id=?", (identity,)).fetchone())
+            return (row["id"], row["project_id"]) if row else None
         row = uow.connection.execute("SELECT id, review_project_id FROM signoffs WHERE id=?", (identity,)).fetchone()
         # A Signoff belongs to one review scope; a record of another scope is not part of this origin's read.
         if row is None or row["review_project_id"] != origin:

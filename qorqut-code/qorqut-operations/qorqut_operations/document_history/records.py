@@ -56,7 +56,7 @@ def action_fact_event(row, *, operation):
     """The summary event for one committed Action log; its ID is the source row's."""
     return {"project_id": row["project_id"], "event_id": f"action:{row['id']}", "kind": "action.recorded",
             "actor_id": row["recorded_by"], "summary": one_line(row["action_text"]), "subject_type": "action",
-            "subject_id": row["id"], "occurred_at": row["occurred_at"], "data": {"log_id": row["id"], "action_key": row["action_key"],
+            "subject_id": row["id"], "occurred_at": row["occurred_at"], "data": {"log_id": row["id"],
             "refs": bounded(_json(row.get("refs_json"))), "operation": operation}}
 
 

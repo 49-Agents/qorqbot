@@ -32,7 +32,7 @@ CAPTURED = {
     "thread_follows": (("project_id", "item_type", "item_id"), ("insert", "update")),
     "item_tags": (("project_id", "item_type", "item_id"), ("insert", "delete")),
     "action_logs": (("project_id", "id"), ("insert", "update")),
-    "action_projects": (("project_id", "action_key"), ("insert", "delete")),
+    "action_projects": (("project_id", "action_id"), ("insert", "delete")),
     # CRM memberships carry their own capture triggers in the Domain's approved DDL (``qorqut_operations.crm``), beside
     # the guards that read the same rows; declaring them again here would build the same trigger twice and publish two
     # feed rows per change. Recorded observations are immutable and have no trigger there, so the feed attaches this one.

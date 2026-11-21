@@ -131,7 +131,7 @@ def related(service, ctx, args, uow):
             WHERE project_id IS :project AND to_type=:kind AND to_id=:id AND role='concerns'
           UNION ALL SELECT 'task',id,project_id,created_at FROM tasks
             WHERE :kind='task' AND project_id IS :project AND parent_id=:id
-          UNION ALL SELECT 'action',action_key,project_id,created_at FROM action_logs
+          UNION ALL SELECT 'action',id,project_id,created_at FROM action_logs
             WHERE project_id IS :project AND json_extract(refs_json,'$.' || :kind)=:id
           UNION ALL SELECT 'signoff',s.id,s.review_project_id,s.created_at FROM signoffs s, json_each(s.expected_targets_json) t
             WHERE s.review_project_id IS :project
@@ -145,11 +145,7 @@ def related(service, ctx, args, uow):
                OR (json_extract(c.context_json,'$.type')=:kind AND json_extract(c.context_json,'$.id')=:id
                    AND json_extract(c.context_json,'$.project_id') IS :project)
                OR (:kind='reference' AND c.id=:id)
-        ), canonical AS (
-          SELECT type,CASE WHEN type='action' AND id NOT LIKE 'global/%' AND id NOT LIKE 'project/%'
-            THEN CASE WHEN project_id IS NULL THEN 'global/' ELSE 'project/' || project_id || '/' END || id
-            ELSE id END AS id,project_id,created_at FROM candidates
-        ) SELECT type,id,project_id,min(created_at) AS created_at FROM canonical
+        ) SELECT type,id,project_id,min(created_at) AS created_at FROM candidates
           WHERE type IS NOT NULL AND id IS NOT NULL AND NOT(type=:kind AND id=:id AND project_id IS :project)
           GROUP BY type,id,project_id ORDER BY created_at DESC,type,id,project_id LIMIT :limit OFFSET :offset
         """, {'kind': kind, 'id': identity, 'project': project_id, 'limit': args.get('limit', 50) + 1,

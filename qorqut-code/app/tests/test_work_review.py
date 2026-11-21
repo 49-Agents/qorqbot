@@ -66,9 +66,9 @@ class WorkReviewTests(unittest.TestCase):
 
     def action(self, text, by, when, project=None):
         identity = new_id()
-        self.write("INSERT INTO action_logs(project_id,id,action_key,action_text,performed_by,recorded_by,origin,occurred_at,"
-                   "created_at,updated_at) VALUES(?,?,?,?,?,?,'agent',?,?,?)",
-                   (project, identity, ("project/" + project if project else "global") + "/" + identity, text, by, self.lead, when, when, when))
+        self.write("INSERT INTO action_logs(project_id,id,action_text,performed_by,recorded_by,origin,occurred_at,"
+                   "created_at,updated_at) VALUES(?,?,?,?,?,'agent',?,?,?)",
+                   (project, identity, text, by, self.lead, when, when, when))
         return identity
 
     def project(self, name, *, archived):

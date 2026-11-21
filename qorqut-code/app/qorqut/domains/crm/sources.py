@@ -76,8 +76,8 @@ def actor(uow, principal_id):
 class Target:
     """One explicitly linked record: its kind, owning scope and identity. Equal scoped targets are the same source.
 
-    An Action's identity is its canonical ``action_key`` and its scope the project that stores it (``None`` for a Global
-    Action); every other kind uses its bare identity in its own scope."""
+    An Action's scope is the project that stores it (``None`` for a Global Action); every kind's identity is its
+    own id in that scope."""
 
     kind: str
     project_id: str | None
@@ -185,7 +185,7 @@ class Sources:
         selected = self.selected(ctx, target.project_id, uow)
         view = self.items.resolve(selected, {"type": "action", "id": target.id}, uow)
         self.admit(selected, "actions_get", target.project_id, {"action_id": target.id}, uow)
-        row = uow.connection.execute("SELECT * FROM action_logs WHERE action_key=?", (target.id,)).fetchone()
+        row = uow.connection.execute("SELECT * FROM action_logs WHERE id=?", (target.id,)).fetchone()
         if row is None or row["project_id"] != target.project_id:
             raise DomainError("not_found", "Select this Action's owning scope")
         return {"label": view.get("label") or snippet(row["action_text"], 80), "row": row,
@@ -256,7 +256,7 @@ class Sources:
         prefix = f"{target.key}:revision:"
         clause, params = older(position, "created_at", "revision", prefix)
         revisions = uow.connection.execute(
-            "SELECT * FROM action_revisions WHERE action_key=? AND operation<>'add' AND created_at<=?" + clause +
+            "SELECT * FROM action_revisions WHERE action_id=? AND operation<>'add' AND created_at<=?" + clause +
             " ORDER BY created_at DESC,(? || revision) DESC LIMIT ?", (target.id, as_of, *params, prefix, limit)).fetchall()
         wording = {"edit": "Action edited: ", "remove": "Action withdrawn: "}
         for row in revisions:

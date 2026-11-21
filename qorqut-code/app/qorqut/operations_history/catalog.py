@@ -105,7 +105,6 @@ def catalog(extensions=()):
             TableExport('action_logs', {
                 'project_id': Text(nullable=True),
                 'id': Text(),
-                'action_key': Text(),
                 'category': Text(nullable=True),
                 'action_text': Text(),
                 'performed_by': Text(nullable=True),
@@ -123,18 +122,18 @@ def catalog(extensions=()):
             }, ('project_id', 'id')),
             TableExport('action_revisions', {
                 'project_id': Text(nullable=True),
-                'action_key': Text(),
+                'action_id': Text(),
                 'revision': Integer(),
                 'operation': Text(),
                 'recorded_by': Text(),
                 'performed_by': Text(nullable=True),
                 'created_at': Text(),
-            }, ('action_key', 'revision'), structured={'snapshot_json': action_snapshot()}),
+            }, ('action_id', 'revision'), structured={'snapshot_json': action_snapshot()}),
             TableExport('action_projects', {
-                'action_key': Text(),
+                'action_id': Text(),
                 'project_id': Text(),
                 'created_at': Text(),
-            }, ('action_key', 'project_id')),
+            }, ('action_id', 'project_id')),
         )),
         HistoryContribution('host.tags', exports=(
             TableExport('tags', {

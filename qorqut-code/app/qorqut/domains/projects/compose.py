@@ -180,7 +180,7 @@ class ProjectRecords:
                              if value.resource.resource_type == "action_logs"), None)
             if expected is None or (expected.resource.resource_id, expected.resource.project_id,
                                     expected.resource.namespace) != (pin["id"], pin["project_id"], pin["namespace"]):
-                raise DomainError("revision_conflict", "The action alias resolved to another target; read it again")
+                raise DomainError("revision_conflict", "The action resolved to another target; read it again")
         already, stored = owned, self.links.find(ctx, project_id, target, uow)
         if not owned:
             stored, already = self.links.link(ctx, project_id, target, uow)

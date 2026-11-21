@@ -217,21 +217,15 @@ class CRMActivityOperations:
 
     @staticmethod
     def add_reference(uow, scope, kind, identity, add):
-        """Canonical scoped target of a relationship endpoint or note reference; other kinds are not activity sources."""
+        """Scoped target of a relationship endpoint or note reference; other kinds are not activity sources."""
         if kind == "signoff":
             row = uow.connection.execute("SELECT review_project_id FROM signoffs WHERE id=?", (identity,)).fetchone()
             if row is not None:
                 add("signoff", row["review_project_id"], identity)
         elif kind == "action":
-            if identity.startswith("global/"):
-                add("action", None, identity)
-            elif identity.startswith("project/") and identity.count("/") >= 2:
-                add("action", identity.split("/", 2)[1], identity)
-            else:
-                row = uow.connection.execute("SELECT action_key,project_id FROM action_logs WHERE id=? AND project_id IS ?",
-                                             (identity, scope)).fetchone()
-                if row is not None:
-                    add("action", row["project_id"], row["action_key"])
+            row = uow.connection.execute("SELECT project_id FROM action_logs WHERE id=?", (identity,)).fetchone()
+            if row is not None:
+                add("action", row["project_id"], identity)
         elif kind in ("task", "material"):
             add(kind, scope, identity)
 

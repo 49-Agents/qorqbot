@@ -1,7 +1,7 @@
 """Storage of Actions: the canonical completed-work log, its immutable revisions and its read links.
 
-An Action lives in one owning namespace: ``project_id`` is the immutable storage scope (NULL is Global) and part of
-the canonical ``action_key``. ``action_projects`` is the v1 read-visibility relation of one shared project-operational
+An Action lives in one owning namespace: ``project_id`` is the immutable storage scope (NULL is Global) and ``id`` is
+unique across all Actions. ``action_projects`` is the v1 read-visibility relation of one shared project-operational
 Action; it names who may *read* it and never who owns or may change it. The current row is the Action's present
 projection. Every accepted change (record, correction, withdrawal) also appends one ``action_revisions`` row holding the
 exact accepted state; these rows are immutable, are what the Context queue's inputs point at, and are never removed.
@@ -23,7 +23,6 @@ SCHEMA = (
     """CREATE TABLE action_logs (
     project_id TEXT REFERENCES projects(id),
     id TEXT NOT NULL,
-    action_key TEXT NOT NULL UNIQUE,
     category TEXT CHECK (category IS NULL OR category IN ('global-systems','global-operational','project-operational')),
     action_text TEXT NOT NULL CHECK (length(trim(action_text)) > 0),
     performed_by TEXT REFERENCES principals(id),
@@ -40,23 +39,22 @@ SCHEMA = (
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    CHECK (action_key = CASE WHEN project_id IS NULL THEN 'global/' || id ELSE 'project/' || project_id || '/' || id END),
     CHECK (origin <> 'legacy' OR category = 'project-operational'),
     PRIMARY KEY (project_id, id)
 )""",
-    """CREATE UNIQUE INDEX action_logs_global_key ON action_logs(id) WHERE project_id IS NULL""",
-    """CREATE INDEX action_logs_occurrence ON action_logs(occurred_at, action_key)""",
-    """CREATE INDEX action_logs_occurred_date ON action_logs(occurred_date, action_key)""",
+    """CREATE UNIQUE INDEX action_logs_id ON action_logs(id)""",
+    """CREATE INDEX action_logs_occurrence ON action_logs(occurred_at, id)""",
+    """CREATE INDEX action_logs_occurred_date ON action_logs(occurred_date, id)""",
     """CREATE TABLE action_projects (
-    action_key TEXT NOT NULL REFERENCES action_logs(action_key),
+    action_id TEXT NOT NULL REFERENCES action_logs(id),
     project_id TEXT NOT NULL REFERENCES projects(id),
     created_at TEXT NOT NULL,
-    PRIMARY KEY (action_key, project_id)
+    PRIMARY KEY (action_id, project_id)
 )""",
-    """CREATE INDEX action_projects_project ON action_projects(project_id, action_key)""",
+    """CREATE INDEX action_projects_project ON action_projects(project_id, action_id)""",
     """CREATE TABLE action_revisions (
     project_id TEXT REFERENCES projects(id),
-    action_key TEXT NOT NULL REFERENCES action_logs(action_key),
+    action_id TEXT NOT NULL REFERENCES action_logs(id),
     revision INTEGER NOT NULL CHECK (revision >= 1),
     operation TEXT NOT NULL CHECK (operation IN ('add','edit','remove')),
     snapshot_json TEXT NOT NULL CHECK (json_valid(snapshot_json) AND json_type(snapshot_json) = 'object'),
@@ -64,13 +62,13 @@ SCHEMA = (
     performed_by TEXT REFERENCES principals(id),
     provenance_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(provenance_json)),
     created_at TEXT NOT NULL,
-    PRIMARY KEY (action_key, revision),
+    PRIMARY KEY (action_id, revision),
     CHECK ((operation = 'add') = (revision = 1))
 )""",
-    """CREATE INDEX action_revisions_scope ON action_revisions(project_id, action_key, revision)""",
+    """CREATE INDEX action_revisions_scope ON action_revisions(project_id, action_id, revision)""",
     # Identity, original attribution and the owning scope never change; a withdrawn Action is final.
     """CREATE TRIGGER action_logs_identity_guard BEFORE UPDATE ON action_logs
-WHEN NEW.project_id IS NOT OLD.project_id OR NEW.id IS NOT OLD.id OR NEW.action_key IS NOT OLD.action_key
+WHEN NEW.project_id IS NOT OLD.project_id OR NEW.id IS NOT OLD.id
     OR NEW.origin IS NOT OLD.origin OR NEW.created_at IS NOT OLD.created_at OR NEW.recorded_by IS NOT OLD.recorded_by
     OR NEW.performed_by IS NOT OLD.performed_by
 BEGIN SELECT RAISE(ABORT,'Action identity, origin, attribution and recording time are immutable'); END""",
@@ -80,15 +78,15 @@ BEGIN SELECT RAISE(ABORT,'A withdrawn Action keeps its history and accepts no la
     """CREATE TRIGGER action_logs_delete_guard BEFORE DELETE ON action_logs
 BEGIN SELECT RAISE(ABORT,'Actions are not deleted'); END""",
     """CREATE TRIGGER action_projects_insert_guard BEFORE INSERT ON action_projects
-WHEN (SELECT category FROM action_logs WHERE action_key=NEW.action_key) IS NOT 'project-operational'
-    OR (SELECT withdrawn FROM action_logs WHERE action_key=NEW.action_key) = 1
+WHEN (SELECT category FROM action_logs WHERE id=NEW.action_id) IS NOT 'project-operational'
+    OR (SELECT withdrawn FROM action_logs WHERE id=NEW.action_id) = 1
 BEGIN SELECT RAISE(ABORT,'Only a current project-operational Action has project links'); END""",
     """CREATE TRIGGER action_projects_delete_guard BEFORE DELETE ON action_projects
-WHEN (SELECT withdrawn FROM action_logs WHERE action_key=OLD.action_key) = 1
+WHEN (SELECT withdrawn FROM action_logs WHERE id=OLD.action_id) = 1
 BEGIN SELECT RAISE(ABORT,'A withdrawn Action keeps its project links'); END""",
     # A revision row records the Action's present revision in the same owning scope, and nothing rewrites it.
     """CREATE TRIGGER action_revisions_current BEFORE INSERT ON action_revisions
-WHEN NOT EXISTS (SELECT 1 FROM action_logs WHERE action_key=NEW.action_key AND project_id IS NEW.project_id
+WHEN NOT EXISTS (SELECT 1 FROM action_logs WHERE id=NEW.action_id AND project_id IS NEW.project_id
     AND revision=NEW.revision)
 BEGIN SELECT RAISE(ABORT,'An Action revision records the Action''s current revision in its owning scope'); END""",
     """CREATE TRIGGER action_revisions_immutable BEFORE UPDATE ON action_revisions
@@ -105,10 +103,10 @@ BEGIN SELECT RAISE(ABORT,'An Action follow belongs to an Action in the same owni
 
 TABLES = {
     "action_logs": TableSpec(("project_id", "id"), "project_id"),
-    "action_projects": TableSpec(("action_key", "project_id"), revision_column=None),
-    "action_revisions": TableSpec(("action_key", "revision"), "project_id", False, None),
+    "action_projects": TableSpec(("action_id", "project_id"), revision_column=None),
+    "action_revisions": TableSpec(("action_id", "revision"), "project_id", False, None),
 }
-IMMUTABLE_FIELDS = {"action_logs": frozenset({"action_key", "origin", "recorded_by", "performed_by"})}
+IMMUTABLE_FIELDS = {"action_logs": frozenset({"origin", "recorded_by", "performed_by"})}
 REQUIRED_TABLES = frozenset({"item_tags", "tasks", "thread_follows"})
 
 

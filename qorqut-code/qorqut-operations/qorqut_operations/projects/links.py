@@ -11,10 +11,9 @@ This module owns the storage (``project_item_links``) and the neutral persistenc
 * the owning scope is the Project UUID (``project_id``);
 * the target keeps its own scope (``target_project_id``, ``NULL`` for Global);
 * the target namespace is normalized and non-null (``global`` / ``project:<uuid>``), so the
-  uniqueness rule ``(project, target type, target namespace, canonical target id)`` cannot be
+  uniqueness rule ``(project, target type, target namespace, target id)`` cannot be
   bypassed by spelling the scope differently;
-* the canonical target id is supplied by the caller: Actions are canonicalized to their
-  ``action_key`` before they reach this table, so a bare and a canonical ID are one target;
+* the target id is supplied by the caller: an Action's is its plain ``id``;
 * creation is idempotent and an existing association is returned unchanged;
 * removal is an exact revision CAS of that one row and touches nothing else.
 

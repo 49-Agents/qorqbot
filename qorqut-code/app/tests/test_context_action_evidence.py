@@ -156,7 +156,7 @@ class ActionEvidenceTests(unittest.TestCase):
         payload = self.queued(result)["payload"]
         with self.db.read() as uow:
             return uow.repository("action_revisions", project_id=None).get(
-                {"action_key": payload["action_ref"], "revision": result["revision"]})
+                {"action_id": payload["action_ref"], "revision": result["revision"]})
 
     def metadata(self, result):
         return self.queued(result)["payload"]["action_metadata"]
@@ -188,7 +188,7 @@ class ActionEvidenceTests(unittest.TestCase):
         payload["action_metadata"]["evidence"] = [{"excerpt": "forged"}]
         with self.db.transaction() as uow:
             with self.assertRaises(DomainError):
-                enqueue_action(uow, action_id=revision["action_key"], revision=revision["revision"],
+                enqueue_action(uow, action_id=revision["action_id"], revision=revision["revision"],
                                operation="add", payload=payload, capture_evidence=lambda _: self.fail("read before validation"))
 
     def test_policy_denial_scope_and_private_documents_do_not_leak_content(self):

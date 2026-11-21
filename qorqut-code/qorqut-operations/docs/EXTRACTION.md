@@ -542,7 +542,7 @@ mutation with NO automatic grant. It requires the Action to be readable AND the 
 the Action's owning namespace (`ctx.project_id == action.project_id`); a read link is never a write. It records one
 `thread_messages` row (actual recorder and attributed speaker, relay as for Tasks), auto-follows the commenter and, for
 a relay, the represented speaker (`creator`/`commenter`/`represented`; an explicit unfollow stays), and emits ONE
-optional `note_added` event scoped to the owning namespace (`source_type actions`, `source_id` the action key, revision
+optional `note_added` event scoped to the owning namespace (`source_type actions`, `source_id` the action id, revision
 = the current revision) for the Action's current followers. It writes no `action_logs`/`action_revisions` row and no
 `context_inputs` row. The installation owner is refused by the retained team-channel rule (`channel_required`, use the
 private owner conversation) exactly as for other shared discussion writes. A withdrawn Action's discussion stays open
