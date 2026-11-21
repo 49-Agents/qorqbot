@@ -22,9 +22,12 @@ elsewhere. A delegated worker's call is looked up only in the one scope its assi
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.records.references import KINDS
 
 # Appended to the description of every operation that takes this hook.
 LOCATED = instruction_text('lookup-pass-signoff-id-alone-its-review-scope-is-found')
@@ -108,4 +111,12 @@ class SignoffLookup:
         return self.located(arguments, project_id)
 
 
-__all__ = ["LOCATED", "SignoffLookup"]
+def reference_kind(service):
+    """The Signoff kind of ``records.references`` that completes a reference only for a Signoff the caller may read in
+    its review scope, by the same rule as ``SignoffLookup.view``."""
+    lookup = SignoffLookup(service)
+    return replace(KINDS["signoff"],
+                   visible=lambda ctx, uow, signoff_id, project_id: lookup.view(ctx, signoff_id, project_id, uow) is not None)
+
+
+__all__ = ["LOCATED", "SignoffLookup", "reference_kind"]

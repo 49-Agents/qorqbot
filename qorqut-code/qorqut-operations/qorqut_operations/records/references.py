@@ -10,7 +10,8 @@ full reference.
   operation's own checks answer a project that does not hold the record;
 * a reference without the key gets the project that holds the record, when that project is active, in the caller's
   reach and one where the caller may use the kind's read operation: the caller could have named that project itself. An
-  owner session and a delegated worker are completed only with the project they are bound to;
+  owner session is completed only with the project it is bound to and a delegated worker only with the project of its
+  assignment;
 * in any other case (an unknown id, a record in Global, a project out of reach or archived, a kind that is not looked
   up) the reference gets ``null``, the Global scope, or stays without the key where the operation reads a missing key
   its own way (``absent="keep"``). Nothing says where a record is or whether it exists.
@@ -82,6 +83,18 @@ def _each(value, path):
         yield from _each(value[head], rest)
 
 
+def _bound(application, ctx, uow):
+    """``(bound, project_id)``: whether the caller is tied to one scope (an owner session to its project, a delegated
+    worker to its assignment's), and that scope's project."""
+    if ctx.owner_session_project_id is not None:
+        return True, ctx.owner_session_project_id
+    if ctx.delegation_assignment_id is None:
+        return False, None
+    provider = application.delegation
+    assignment = provider.assignment(uow, ctx.delegation_assignment_id) if provider is not None else None
+    return True, assignment["project_id"] if assignment else None
+
+
 class References:
     """The ``complete_references`` step of an operation: ``(application, ctx, arguments, uow) -> arguments``."""
 
@@ -118,7 +131,8 @@ class References:
             project = row[0] if row else None
         if project is None:
             return None
-        if (ctx.owner_session_project_id is not None or ctx.delegation_assignment_id is not None) and project != ctx.project_id:
+        bound, only = _bound(application, ctx, uow)
+        if bound and project != only:
             return None
         reaches = {} if reaches is None else reaches
         operation = known.read_operation if known else None

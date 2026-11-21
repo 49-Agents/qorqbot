@@ -13,7 +13,7 @@ from qorqut_operations.application.engine import Application
 from qorqut_operations.contracts import DomainError, InvocationOptions, plain
 from qorqut_operations.records.references import KINDS, Kind, Ref, References
 
-from test_task_project_lookup import Harness, STAMP
+from test_task_project_lookup import Delegation, Harness, STAMP
 
 REFERENCE = {'type': 'object'}
 SHAPES = References(
@@ -145,11 +145,18 @@ class ReferenceCompletionTests(Harness):
         self.assertEqual(self.sent({'source': {'type': 'task', 'id': self.in_alpha}})['source']['project_id'], self.alpha)
 
     def test_an_owner_session_and_a_delegated_worker_are_completed_only_with_their_bound_project(self):
-        bound = replace(self.owner_ctx, source='mcp', project_id=self.alpha, owner_session_project_id=self.alpha)
-        for identity, expected in ((self.in_alpha, self.alpha), (self.in_beta, None)):
-            with self.subTest(task=identity):
-                self.assertEqual(self.complete({'item': {'type': 'task', 'id': identity}}, ctx=bound)['item']['project_id'],
-                                 expected)
+        session = replace(self.owner_ctx, source='mcp', project_id=self.alpha, owner_session_project_id=self.alpha)
+        delegation = Delegation(self.agent, self.alpha, ('tasks_get',), (self.in_alpha, self.in_beta))
+        self.app.delegation = delegation
+        # A worker that selected nothing is still tied to its assignment's project.
+        for label, bound in (('owner session', session), ('delegated worker', delegation.context(self.agent_ctx))):
+            for identity, expected in ((self.in_alpha, self.alpha), (self.in_beta, None)):
+                with self.subTest(caller=label, task=identity):
+                    self.assertEqual(self.complete({'item': {'type': 'task', 'id': identity}}, ctx=bound)['item']['project_id'],
+                                     expected)
+        self.app.delegation = None
+        unbound = self.complete({'item': {'type': 'task', 'id': self.in_alpha}}, ctx=delegation.context(self.agent_ctx))
+        self.assertIsNone(unbound['item']['project_id'])
 
     # -- the call is the explicit one --------------------------------------------------------------------------------
 
