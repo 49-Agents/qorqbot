@@ -20,7 +20,7 @@ Do not borrow another agent's bearer credential, invent a watcher/session UUID,
 or claim to be Ordubashy. A registered role agent must complete its normal
 bootstrap and stay within its own MCP grants; the owner HTTP interface is not a
 workaround for an agent's denied operation. An external coding task does not
-need to register a fictional project agent merely to use owner-authorized HTTP.
+need to register a fictional agent merely to use owner-authorized HTTP.
 
 The installation's origin (for example `http://qorqut.example:1071`) and active release are
 instance configuration; verify them in the instance and [the operating guide](OPERATING_GUIDE.md).

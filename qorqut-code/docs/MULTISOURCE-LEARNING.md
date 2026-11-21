@@ -24,7 +24,7 @@ runs and scan state stay readable history; they are not copied or reset. Global
 has its own Learning page, owner decisions, work history and scan state. Accepted Global context enters the same filer in the
 Global workspace. The Learning Applier's authorized agenda includes Global deltas.
 See [Global chat learning](GLOBAL-CHAT-LEARNING.md) for intake and rollout details.
-No project or role membership is inferred from where source code is checked out.
+No project or role is inferred from where source code is checked out.
 
 ## Evidence and repeated work
 

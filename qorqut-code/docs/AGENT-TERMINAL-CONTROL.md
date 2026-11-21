@@ -37,9 +37,7 @@ still blocks them. The pinned package must declare the tool and stay enabled.
 Invoking a tool applies a durable queued action bound to the observed session.
 A dispatcher rechecks each target and runs it once.
 
-Targets are active global workers. Ordubashy cannot target itself. Projects have
-no resident agents, so an agent whose home is a project is historical and is
-refused.
+Targets are active global workers. Ordubashy cannot target itself.
 
 A direct owner command goes through the dashboard-only operation
 `terminal_command_issue`, which takes target selectors, an `action` (`start`,
@@ -63,9 +61,6 @@ The lifecycle tools and command issuance accept any mix of:
 
 - `target_agent_id`: one registered agent UUID.
 - `target_agent_ids`: a nonempty list of agent UUIDs.
-- `project_ids`: a nonempty list of project UUIDs. Projects have no resident
-  agents, so this adds no targets; an archived or out-of-scope project is
-  refused.
 
 Selectors form a union, deduplicated and frozen when the proposal or command is
 created. One to 100 agents must resolve. An invalid, out-of-scope or self target
@@ -135,6 +130,5 @@ are the same: `uncertain` before an effect, never replayed.
 ## Related
 
 To tell a worker something, Ordubashy uses `agents_message_send`; it arrives
-through the inbox and, in managed mode, wakes a sleeping worker. Direct messages to a project's
-Dev agent are retired. Input broadcasts are installation-owner-only; Ordubashy
+through the inbox and, in managed mode, wakes a sleeping worker. Input broadcasts are installation-owner-only; Ordubashy
 keeps inbox broadcasts.

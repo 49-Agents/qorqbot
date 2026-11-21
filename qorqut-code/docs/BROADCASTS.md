@@ -8,8 +8,8 @@ session. No task is created automatically when a delivery arrives.
 ## Operations
 
 Use `broadcast_recipients` to discover active recipient UUIDs. With project
-scope it returns that project; with authorized Global scope,
-`all_projects: true` includes authorized projects and Global recipients.
+scope it returns that project's recipients; with authorized Global scope it returns
+the Global recipients.
 Set `role_id` to filter by role. Select the returned IDs; names are not stable
 identifiers and discovery does not expand scope.
 All agents can set self-reminders. Learning Applier remains

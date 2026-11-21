@@ -41,7 +41,7 @@ through `actions_update`.
 
 | Operation | Callers | Notes |
 |---|---|---|
-| `actions_record` | owner, project agents, ecosystem agents with the grant | Mutation, idempotent by `idempotency_key`. |
+| `actions_record` | owner, agents with the grant | Mutation, idempotent by `idempotency_key`. |
 | `actions_list` | same | Newest occurrence first; `since`/`until` (stored occurrence dates), `project`, `performer`, `categories` (incl. `unclassified`), `origins`, `limit`/`cursor`. Cursors bind the caller, scope and filters. |
 | `actions_get` | same | Unauthorized and unknown actions are both `not_found`. |
 | `actions_config_get` | same | Categories, limits, allowed/default scope, project directory, configured operational time now. |
@@ -53,8 +53,9 @@ through `actions_update`.
 
 - Agents are limited to 20 words; the owner may write up to 2000 characters.
   Blank text is rejected. No task, title, tag or time is required.
-- Project agents send text only. The action is project-operational for their
-  home project and stored there; Global and other projects are forbidden.
+- An agent without `read_global_context` sends text only. The action is
+  project-operational for its selected project and stored there; Global and other
+  projects are forbidden.
 - Ecosystem agents must choose `global-operational` or `project-operational`.
   Project-operational needs `project_ids`, all currently authorized and
   active; one inaccessible project rejects the whole call and writes nothing.
@@ -68,11 +69,9 @@ through `actions_update`.
   `global-operational`; `project-operational` without `project_ids` takes the
   task's project. Values the caller passes are never changed and are authorized
   as before. A task that does not exist or is outside that reach is a
-  `validation_error` on `task_id`, with nothing disclosed. An id held in several
-  reachable scopes (reused before ids were unique) needs the one meant named in
-  `project_ids`, or `category: "global-operational"` for the Global one;
-  otherwise the call is refused listing the candidates. A project agent and a
-  delegated worker link a task of the action's own storage scope, as before. The
+  `validation_error` on `task_id`, with nothing disclosed. An agent without
+  `read_global_context` and a delegated worker link a task of the action's own
+  storage scope. The
   linked task is looked up again when a staged record is validated and applied.
 - Authorization and project state are rechecked immediately before apply.
 - Performer and recorder are the caller for its own work; no caller can name a
@@ -84,7 +83,7 @@ through `actions_update`.
   summary and the projects are within its scope. Each assignment's result is
   recorded once, and not when its worker already recorded actions.
 
-Scoped reads: a project agent sees actions linked to its home project; an
+Scoped reads: an agent without `read_global_context` sees actions linked to its selected project; an
 ecosystem agent sees global-operational actions and project-operational actions
 linked to a project it may access; the owner sees everything. A shared action
 shows only the reader's authorized memberships. Storage is not evidence

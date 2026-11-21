@@ -12,7 +12,7 @@ This is a local history service, not an editable record store, migration input, 
 
 Reuse the pinned donor's `app/qorqut_app/history/` capture, deterministic JSON export, sharding, isolated Git execution, locking, incomplete-file handling and health concepts. Move the host service into the target host; put the row-export contract in Operations.
 
-The current donor exporter lists only its foundation tables. That cannot cover retained v1 domains automatically. Its file scanner also assumes every agent lives under global `agents/{id}`. Replace both assumptions explicitly: compose trusted per-domain export definitions and obtain each allowed authored area through the registered global/project path contract.
+The current donor exporter lists only its foundation tables. That cannot cover retained v1 domains automatically. Compose trusted per-domain export definitions and obtain each allowed authored area through the registered global/project path contract.
 
 The snapshot service must not import the application registry to bypass permissions, inspect every SQL column by reflection or blindly serialize credential/configuration tables.
 
@@ -33,11 +33,11 @@ Before implementation, register every composed table under one of: exported colu
 
 “Safe fields” must become an explicit table/column and structured-payload schema, not a runtime guess or a claim that filename scanning removes secrets. Record intentional redaction/exclusion in the export manifest without copying the excluded value. The snapshot is not a full-fidelity recovery export.
 
-Private-DM scope affects Git coverage only. It does not change MCP/UI conversation visibility or give project agents a global history browsing tool. No generic agent API exposes the entire history repository. Local file modes/API restrictions do not create OS isolation between processes already sharing the same Unix account.
+Private-DM scope affects Git coverage only. It does not change MCP/UI conversation visibility or give agents a global history browsing tool. No generic agent API exposes the entire history repository. Local file modes/API restrictions do not create OS isolation between processes already sharing the same Unix account.
 
 ## Authored files
 
-Include regular authored files in the approved root/global `files/`, registered global-agent `files/`, registered project-agent `files/` and project folder areas. Capture exact bytes, including permitted binaries, and preserve execute bits. Directories and file targets come from trusted registration/path resolution, not caller tags or arbitrary absolute paths.
+Include regular authored files in the approved root/global `files/`, registered agent `files/` and project folder areas. Capture exact bytes, including permitted binaries, and preserve execute bits. Directories and file targets come from trusted registration/path resolution, not caller tags or arbitrary absolute paths.
 
 Exclude code/role repositories, Context, raw transcripts, generated provider instructions/configuration, credentials/environment files, browser profiles, caches, virtual environments, dependency trees, `.runtime`, nested repositories, symlinks and special files. Derived table/export projections should not be recaptured as if they were independently authored documents; classify them explicitly with their domain owner.
 
@@ -80,7 +80,7 @@ Git commands run with the donor's isolated environment, disabled hooks/prompts/n
 - A synthetic Task/Action/thread mutation appears once with correct scope and attribution; unchanged state makes no commit.
 - A retained-domain exporter participates in the same read snapshot, and an unclassified table is reported rather than leaked or silently forgotten.
 - Credential/token fields, private DM bodies under the selected policy, raw native transcripts and provider configuration do not appear in files, row exports or nested event payloads.
-- Registered global and project agent files are covered; code repositories, symlinks and generated files are excluded.
+- Registered agent files are covered; code repositories, symlinks and generated files are excluded.
 - Concurrent changes/read failures are incomplete and retain prior bytes without presenting them as current; later retries resolve accurately.
 - Git/ref/lock failures leave accepted SQLite work intact. Signoff/routine execution is not retried by history.
 - Existing table/document revision receipt behavior still works on isolated fixtures; no source or real system-history ref is touched.

@@ -20,12 +20,10 @@ never makes the owner the caller. The identity is rechecked at preparation, vali
 and again when an interrupted creation is recovered.
 
 The installation owner (through the dashboard, the owner HTTP route or a direct invocation), every other
-human, workers, the Learning Applier, system programs, project-home (historical)
-identities, an inactive or unconfigured Ordubashy and any profile that only stores a retired capability name
+human, workers, the Learning Applier, system programs, an inactive or unconfigured Ordubashy and any profile that only stores a retired capability name
 (`manage_ideas`, `manage_project_setup`) are refused with `forbidden` and nothing is created (no row,
-membership, folder or receipt), as is any context that still carries a project selection or a project
-home. Hiding a control is not the enforcement; the operation is. The owner keeps the normal owner
-membership of every project Ordubashy creates, with its read, edit and archive rights, and the owner's
+folder or receipt), as is any context that carries a project selection. Hiding a control is not the enforcement; the operation is. The owner reaches
+every project Ordubashy creates, with its read, edit and archive rights, and the owner's
 authority over shared service helpers is unchanged.
 
 ## Input

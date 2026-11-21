@@ -112,8 +112,7 @@ Capture and reply indexing run in the backend thread whether or not Chat is open
   with the declared type equal to the stored type and the input past its delivery claim. Everything else is an explicitly
   unverified notice with a reason. Replies are completed only by provider
 end-of-turn evidence, so narration before a tool call, tool-only records, sidechains, internal notices and owner echoes are never
-replies. The owner notification projection (`reply_notifications.py`) reads `native_replies` (`gchat:<reply id>`, project
-agents `nav_only`), private item-DM and Telegram parts and the independent attention preference are unchanged. Read state is a
+replies. The owner notification projection (`reply_notifications.py`) reads `native_replies` (`gchat:<reply id>`), private item-DM and Telegram parts and the independent attention preference are unchanged. Read state is a
 boundary on the agent's completion sequence, owner-only, monotonic and bound to an existing completion.
 
 ## Producer inventory (every existing writer into a native client's input)

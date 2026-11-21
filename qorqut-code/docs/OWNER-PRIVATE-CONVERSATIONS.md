@@ -25,7 +25,7 @@ Applies to project and Global tasks, Stories, Signoffs,
 standalone Focus References and existing Projects (`{type: "project", id: PROJECT_UUID, project_id: PROJECT_UUID}`,
 keyed as `source:<PROJECT_UUID>:project:<PROJECT_UUID>`; the Project itself has no team discussion — see
 [Project records](PROJECT-RECORDS.md)). A Project source is re-authorized through the one Project read guard on every
-read, directory projection and Focus card; a revoked membership or archived Project makes it unavailable without
+read, directory projection and Focus card; an archived Project makes it unavailable without
 deleting the stored conversation, peer bindings, messages or read positions. Signoff approval/rejection
 feedback stays a shared, formal Signoff decision note; it is never redirected
 into the private channel. Existing comments and history are unchanged; there
@@ -63,8 +63,8 @@ vocabulary as retired history: the host serves no email source.)
 - Project-scoped call: `source.project_id` must be omitted or equal to it,
   else `validation_error`.
 - Global call: `source.project_id` may name a project — re-selected the
-  same way `AttentionBoard.reply_plan` does (`ctx.select_project` plus an
-  active-membership check; outside membership is `forbidden`) — or be null
+  same way `AttentionBoard.reply_plan` does (`ctx.select_project`; a project
+  the caller cannot reach is `forbidden`) — or be null
   for a Global task/signoff or a Reference.
 - `story` is project-only. `task`, `signoff` and `table` may be project
   or Global. A `table` source (a general or CRM Table) re-authorizes

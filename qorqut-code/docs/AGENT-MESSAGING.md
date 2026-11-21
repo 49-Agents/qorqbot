@@ -18,7 +18,7 @@ and mandatory usage instructions. Explicit owner tool overrides remain effective
 An owner-directed session may use these same three operations through the
 `/mcp/owner` route, but only in the credential's bound project. The sender is
 the installation owner; the session is not an agent, does not receive an inbox
-or watcher, and cannot use Global messaging or `all_projects=true`. Bootstrap
+or watcher, and cannot use Global messaging. Bootstrap
 identifies the configured Ordubashy when that agent is active in the project.
 Object-attached owner conversations remain a separate private channel; direct
 messages are for objectless coordination and replies.
@@ -53,8 +53,8 @@ agents continue to acknowledge exact handled event IDs using their watcher UUID.
 The inbox event includes the full message, so no context-source lookup is needed.
 
 Project messages require both participants to have current access to the chosen
-project. Ordubashy selects the relevant project to contact its project agent;
-the project agent can reply in that same project. Global messages require both participants to have
+project. Ordubashy selects the project the work is about and sends in that project;
+the recipient replies in the same project. Global messages require both participants to have
 Global context access. Inactive recipients cannot receive new messages. Current
 scope revocation hides history/delivery from the affected agent; unrelated agents
 cannot read or reply to a thread. This does not provide an external public inbox.
@@ -153,23 +153,16 @@ service runtime because direct standalone storage-maintenance collection exposes
 a pre-existing circular import, also reproduced on the parent branch. Those 29
 checks passed. This change does not modify that unrelated import ordering.
 
-## Ordubashy directory
+## Agent directory
 
-Ordubashy's profile is required to include every registered project. Project
-creation extends that scope in the same transaction, and
-ordinary profile edits cannot narrow it. Its live bootstrap briefing therefore
-includes the project agent directory: one project agent per project, each
-titled Onbashy, so rows are told apart by agent and project ID. Refresh with
-`agents_message_recipients(all_projects=true, role_id="project-agent", scope="global")`.
-It also includes the Dev directory, one Dev peer per project that has adopted
-it, each titled Dev (`role_id="dev"`). Ordubashy routes implementation to Dev
-through these messages and tasks; it never controls Dev's session.
-Results include agent ID, role, project ID and slug, plus the projects checked
-so a project without an agent is visible. Use the returned project ID as the send
-operation's `project_id` option, and omit `scope="global"` for that project send.
-To read the conversation with one project agent, call `agents_messages_list` with
-`counterpart_id` set to its agent ID in that project.
-The local helper supports `--global recipients --all-projects --role-id project-agent`
+Every active agent reaches every active project. Ordubashy's live bootstrap briefing
+lists the active agents. Refresh with `agents_message_recipients(scope="global")`, or
+with the selected project's scope, and filter with `role_id` (for example
+`global-worker`). Each agent is listed once. Results include agent ID, name, role and
+the project ID and slug of the selected scope. Use the returned agent ID as
+`to_agent_id` and the returned project ID as the send operation's `project_id` option;
+omit `scope="global"` for a project send.
+To read the conversation with one agent, call `agents_messages_list` with
+`counterpart_id` set to its agent ID in the same scope.
+The local helper supports `--global recipients --role-id global-worker`
 and `history --counterpart-id <agent_id>`.
-Future projects require the usual explicit profile scope grant; discovery does
-not silently expand authority.

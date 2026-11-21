@@ -12,7 +12,7 @@ The operation returns no values, hashes, lengths, or previews of secrets. A
 configured value is not proof of valid credentials, provider readiness, or an
 agent's authority to use a service. File errors remain errors, not empty lists.
 Global access requires `read_global_context`; selected projects retain normal
-membership and agent-scope checks. Core enables metadata discovery by default,
+project-reach and agent-scope checks. Core enables metadata discovery by default,
 including existing pinned roles, while explicit role/profile denial wins.
 
 Supported operations already accept variable-name references: a daily JSON

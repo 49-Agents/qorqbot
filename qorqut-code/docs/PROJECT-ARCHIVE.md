@@ -17,13 +17,13 @@ invalidates the prepared target and requires a fresh proposal.
 
 After approval, the service records archival. Agent sessions are not tied to a
 project (every agent is a global worker running as a managed session or, in Terminals mode,
-in its own terminal), so archival stops no session or terminal and launches no replacement agent. Other projects and
+in its own terminal), so archival stops no session or terminal and launches no agent. Other projects and
 Global agents are untouched.
 
-Archived projects disappear from the active workspace menu, normal agent
-directory/scope, personal project task aggregate and attention overview. Their
-dedicated agents cannot bootstrap or invoke project operations, and their
-project routines are skipped. They no longer surface as active work. Existing conversations may retain historical references;
+Archived projects disappear from the active workspace menu, normal project
+discovery, personal project task aggregate and attention overview. Agents
+cannot bootstrap into or invoke project operations on them, and their
+project routines are skipped. They do not surface as active work. Existing conversations may retain references to them;
 the current agent context explicitly identifies the active directory as authority.
 
 SQLite retains project records and profiles. Folders
@@ -41,10 +41,9 @@ limited to projects the installation owner still owns.
 The installation owner restores from Global with `POST /api/root/project-restore`
 (`project_id`, `expected_revision`, `idempotency_key`), which runs the owner-only
 `project_restore` operation without a Signoff. Restore returns the
-project's resources to the active project menu. No agent is created, reactivated or
-prepared; historical agent profiles stay inactive, and every active global agent reaches
-the restored project again through derived access. A prepared restore that carries a
-roster change is invalid and must be prepared again. No session starts. The result is
+project's resources to the active project menu. No agent is created or prepared,
+and every active global agent reaches
+the restored project again through derived access. No session starts. The result is
 `{project_id, restored}`.
 
 Archive and restore need the project-archive migration of the installed schema and the

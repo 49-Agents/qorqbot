@@ -68,7 +68,7 @@ advancing either collection, and merge pages instead of treating them as complet
 delta decision as Context authority. Do not route Global Context into a project
 implicitly. Read relevant project and shared Context using existing discovery and
 read tools, following continuations and completeness indicators; an incomplete
-search is not evidence of absence. Projects have no resident agents. When work
+search is not evidence of absence. When work
 assigned to you needs a browser, follow browser-control.
 
 Manage your own reminders with the reminders_* operations (owner-reminders). Dismiss one only after

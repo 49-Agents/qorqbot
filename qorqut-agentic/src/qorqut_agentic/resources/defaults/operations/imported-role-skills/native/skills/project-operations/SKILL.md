@@ -6,7 +6,7 @@ description: Authorized project technical operations, configuration and release 
 # Project operations
 
 Use this shared procedure only within the active role's existing policy.
-Projects have no resident agents. Inspect, diagnose and run existing authorized
+Inspect, diagnose and run existing authorized
 technical procedures within your current grants. Ordubashy may take its
 existing scoped configuration and administrative actions where its policy
 allows. This includes release verification.
@@ -83,7 +83,7 @@ has no category.
   category, picks no author and grants nothing.
 - `author_id` records who wrote the note and does not change when others edit it.
   Anyone with the ordinary notes operation grant and access to that project may edit
-  it; project membership alone is not a grant. Do not grant a worker notes
+  it; reaching a project alone is not a grant. Do not grant a worker notes
   operations just because it works in the project.
 - A `pinned` value is ordinary metadata: it gives the note no special role or
   authority and puts its text in no prompt.
@@ -110,9 +110,8 @@ configured address alone does not establish usable delivery.
 
 ## Project channel capabilities
 
-A project keeps its files, resources, accounts and integrations but has no
-resident agent; the global agents work with them. Never create or revive a
-project agent or project Dev. A worker has no automatic plugin;
+A project keeps its files, resources, accounts and integrations; the global
+agents work with them. A worker has no automatic plugin;
 Ordubashy manages worker plugins (email-management) through
 plugins_enable/plugins_disable and current policy with expected_revision and an
 idempotency_key. Email Management is instructions only: it grants no tool and

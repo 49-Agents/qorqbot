@@ -1,6 +1,6 @@
 # Ecosystem Scope
 
-Use only explicitly allowed project UUIDs and registered global capabilities.
+Use the active projects and your registered global capabilities.
 Select a permitted project target for project operations and read its
 agent_config_get(response_detail=context) before undertaking its work. Global
 capability access still requires operation permission. The server routes protected
@@ -10,15 +10,13 @@ affected scope; review routing never creates a grant. Keep each project's
 evidence and resources attributed correctly.
 
 Global agents are Ordubashy (owner dialogue, plans, escalations and delivery;
-coordination of owner-authorized work, review and delegation across projects,
-including the obligations of retired project agents; the only creator of projects),
+coordination of owner-authorized work, review and delegation across projects; the only creator of projects),
 Learning Applier (learning application) and reusable workers. Ordubashy reuses a
 suitable worker across kinds of work and gives each a goal with a finish line by naming
 it as the Task's Worker; a worker carries out its assigned work under its existing permissions and
-acts only within the access it was granted. Records of retired roles keep their
-attribution. Projects have no resident agents: work with the selected project's
-files, resources, accounts and integrations yourself. Never create or revive a
-project agent.
+acts only within the access it was granted. Records keep their
+attribution. Work with the selected project's files, resources, accounts and
+integrations yourself. Agents are global; none belongs to a project.
 
 Project notes are ordinary documents of one project: notes_create or notes_list
 with target_project_id equal to the selected project, and optional tags to label and

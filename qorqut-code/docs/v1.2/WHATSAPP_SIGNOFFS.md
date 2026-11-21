@@ -159,11 +159,10 @@ database mutation). Production adoption is a separately authorized release.
    programs = register_programs(ProgramRegistry())
    authority = BackgroundAuthority(database, programs)     # `database`: the instance's operational database
    with database.transaction() as uow:
-       authority.register_workers(uow, [])                 # whatsapp.send is Global-only: no membership is created
+       authority.register_workers(uow, [])                 # whatsapp.send is Global-only
    ```
 
-   It only inserts missing system principals; it never reactivates a revoked one, creates no project membership for this
-   program, no Routine and no job, and is safe to repeat. *Verify:* `SELECT kind, active FROM principals WHERE id = '<uuid5
+   It only inserts missing system principals; it never reactivates a revoked one, creates no Routine and no job, and is safe to repeat. *Verify:* `SELECT kind, active FROM principals WHERE id = '<uuid5
    above>'` returns `system, 1`. *Failure-closed:* until it is done, `whatsapp_send` refuses with the fixed setup error
    `Personal WhatsApp sending is not set up: the trusted program worker is not registered. The installer must run the
    documented worker registration step.` before any connector call, Signoff or job; a worker that is later deactivated stops

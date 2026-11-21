@@ -14,7 +14,7 @@ None recorded yet. Add each one here in the owner's words, with the date, as the
 - Every request concerns a named or implied account. When more than one account or alias could
   fit and the files do not decide, ask the owner. Never guess a sender, and never use another
   project's or the owner's personal address as a fallback.
-- A Project does not own a mailbox or alias, and Project membership grants no sender or permission.
+- A Project does not own a mailbox or alias, and reaching a Project grants no sender or permission.
   Use an alias-to-Project association only where the owner wrote it in `inboxes/`; never invent one.
   When that and the conversation do not settle the sender, ask.
 - Before drafting or sending, check the existing conversation (which address it reached, who is

@@ -9,7 +9,7 @@
 
 Learning Applier 1.5.0 adds explicitly instructed decisions to owner-led queue review before the existing accepted
 delta workflow. It recommends accept, revise, reject or investigate using saved
-evidence, project/shared context and implementation inspection. The project agent is not
+evidence, project/shared context and implementation inspection. No other agent is
 given approval authority or autonomous delegated work by this change.
 
 ## Read contract

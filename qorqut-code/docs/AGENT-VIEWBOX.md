@@ -6,8 +6,7 @@
 > Viewbox board, so agents were putting files where the owner could not see them. Boards already placed stay stored
 > and readable through the owner-only board read. The rest of this page describes the feature as it was.
 
-A Viewbox tab in every registered agent's right-hand pane (Global agents, project agents, and project agents
-selected on Global). The agent places links; the owner opens them beside the session.
+A Viewbox tab in every registered agent's right-hand pane (every Global agent). The agent places links; the owner opens them beside the session.
 
 ## Tool
 
@@ -52,7 +51,7 @@ mark viewed. Dismissals persist per owner and agent in `runtime/dashboard-prefer
 At most 200 dismissals are kept per agent; beyond that the oldest placements no longer on the board are forgotten (a
 replaced placement never returns, so none can reappear).
 
-Unread placements from active Global and project agents appear newest-first in the owner's attention queue,
+Unread placements from active agents appear newest-first in the owner's attention queue,
 bounded to each agent's latest 30 links. Opening a placement in Viewbox (or using Open in new tab) acknowledges
 its `attention_id` through the existing owner queue endpoint. Listing the board does not acknowledge it.
 The read state persists in owner dashboard preferences; repinning the same link creates a new attention ID,

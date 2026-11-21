@@ -217,8 +217,7 @@ so; remove it yourself and start again.
 with its operations history and database (every directory 0700, every file 0600; nothing group- or world-readable), one human owner principal and the installation row,
 the packaged shared instructions, the `ordubashy`, `global-worker` and `learning-applier` role sources published
 through the catalog, exactly two registered agents, Ordubashy and the Learning Applier, with Ordubashy as the
-management coordinator, and the system worker principals for the registered background programs. No project
-worker membership, project, conversation, routine, job, provider connection or native product agent is created,
+management coordinator, and the system worker principals for the registered background programs. No project, conversation, routine, job, provider connection or native product agent is created,
 and nothing is contacted.
 
 **The operations-root Git repository** is created last, and only here. The table-history and nightly-history

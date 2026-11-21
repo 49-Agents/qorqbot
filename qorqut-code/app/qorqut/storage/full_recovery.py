@@ -134,16 +134,16 @@ def _contained_git_path(value: str, *, base: Path, root_git: Path, description: 
 
 
 def _validate_linked_gitdir(git_file: Path, root_git: Path) -> None:
-    line = _git_metadata_line(git_file, description=instruction_text('full-recovery-registered-hq-git-metadata'))
+    line = _git_metadata_line(git_file, description=instruction_text('full-recovery-registered-project-git-metadata'))
     if not line.startswith("gitdir: "):
         raise DomainError("backup_incomplete", "Registered project Git metadata is invalid")
     gitdir = _contained_git_path(line.removeprefix("gitdir: "), base=git_file.parent,
-                                 root_git=root_git, description=instruction_text('full-recovery-registered-hq-git-directory'))
+                                 root_git=root_git, description=instruction_text('full-recovery-registered-project-git-directory'))
     common = gitdir / "commondir"
     if common.exists() or common.is_symlink():
         common_dir = _contained_git_path(
-            _git_metadata_line(common, description=instruction_text('full-recovery-registered-hq-git-common-directory')), base=gitdir,
-            root_git=root_git, description=instruction_text('full-recovery-registered-hq-git-common-directory'))
+            _git_metadata_line(common, description=instruction_text('full-recovery-registered-project-git-common-directory')), base=gitdir,
+            root_git=root_git, description=instruction_text('full-recovery-registered-project-git-common-directory'))
         if common_dir != root_git:
             raise DomainError("backup_incomplete", "Registered project Git common directory is not the installation Git directory")
 

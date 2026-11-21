@@ -57,7 +57,7 @@ report completion is reported `"outcome": "uncertain"` with the current state an
 Only the configured Ordubashy (and the installation owner, outside MCP) may manage. Every other agent is refused; a worker
 with an `allow` override is still refused, and an explicit `deny` override on Ordubashy is honored. The agents that are
 connected are Ordubashy and every *active permanent global worker*, including workers created later; the Learning Applier,
-inactive workers and project agents are not.
+inactive workers are not.
 
 ## The managed headless browser
 

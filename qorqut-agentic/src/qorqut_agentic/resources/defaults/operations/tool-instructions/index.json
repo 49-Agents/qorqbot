@@ -637,24 +637,24 @@
       "line": 122
     },
     {
-      "id": "full-recovery-registered-hq-git-metadata",
+      "id": "full-recovery-registered-project-git-metadata",
       "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
-      "line": 135
+      "line": 137
     },
     {
-      "id": "full-recovery-registered-hq-git-directory",
+      "id": "full-recovery-registered-project-git-directory",
       "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
-      "line": 139
+      "line": 141
     },
     {
-      "id": "full-recovery-registered-hq-git-common-directory",
+      "id": "full-recovery-registered-project-git-common-directory",
       "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
-      "line": 143
+      "line": 145
     },
     {
-      "id": "full-recovery-registered-hq-git-common-directory",
+      "id": "full-recovery-registered-project-git-common-directory",
       "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
-      "line": 144
+      "line": 146
     },
     {
       "id": "recovery-admin-local-encrypted-recovery-administration-client",
@@ -1020,16 +1020,6 @@
       "id": "journal-when-the-owner-asks-return-the-complete-current",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/journal.py",
       "line": 32
-    },
-    {
-      "id": "broadcasts-accepted-for-existing-callers-it-adds-no-per",
-      "source": "qorqut-code/qorqut-operations/qorqut_operations/inbox/broadcasts.py",
-      "line": 256
-    },
-    {
-      "id": "messages-default-inbox-terminal-targeted-retired-project-dev-agents",
-      "source": "qorqut-code/qorqut-operations/qorqut_operations/inbox/messages.py",
-      "line": 69
     },
     {
       "id": "messages-send-a-durable-internal-message-to-a-scoped",

@@ -14,8 +14,8 @@ Returning a draft is separate from approval to execute an action.
 `signoffs_input_create` takes a stable `request_key`, a `form`, optional
 `attention`, optional `scope: global`, and the usual mutation idempotency key.
 Global input requires registered ecosystem scope and `read_global_context` as
-well as the operation grant. Project agents cannot choose a different project
-or route their request into Global. Human input creation follows current owner
+well as the operation grant. An agent without `read_global_context` cannot choose a different project
+or route its request into Global. Human input creation follows current owner
 mutation policy. Creation does not need an approval to ask a question.
 
 ```json

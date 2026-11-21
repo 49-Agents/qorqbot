@@ -5,7 +5,7 @@ coordinator, or deployment.
 
 ## Management without impersonation
 
-Project agents use `management_message_send` for durable management requests.
+Agents other than Ordubashy use `management_message_send` for durable management requests.
 An owner explicitly selects the installation's active Ordubashy with
 `management_coordinator_set`. The service routes to this exact principal; it
 never chooses a similarly named agent or gives it the owner's identity.
@@ -17,7 +17,7 @@ lifecycle. Current project reach, scope and operation policy remain
 authoritative. Scope revocation removes access to the corresponding records.
 
 New ordinary question forms default to `response_policy=management_allowed`.
-An eligible project-agent question automatically enters management intake when
+An eligible agent question automatically enters management intake when
 the exact coordinator is configured and in scope. An offline but configured
 coordinator can receive durable requests; the UI reports observed availability
 separately. Missing/inactive configuration is explicit and never implies a reply.
@@ -188,7 +188,7 @@ with `agents_update` and `changes={"runtime":"codex"}` or `{"runtime":"claude-co
 the agent identity and records stay the same in both directions.
 
 Focused isolated coverage exercises authoritative migrations, management delivery
-and delegated answers through real HTTP/MCP, policy/membership revocation, exact
+and delegated answers through real HTTP/MCP, policy revocation, exact
 inbox receipts, native no-loop durability, concurrent finding claims, task links,
 verified closure, per-agent recovery, spool commit failure and fault storms.
 The native fixture uses the installed CLI with only loopback fake providers.

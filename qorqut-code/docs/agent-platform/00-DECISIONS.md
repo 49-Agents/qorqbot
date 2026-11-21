@@ -11,7 +11,7 @@ implemented behavior; historical implementation plans do not override current po
 | --- | --- |
 | Scope | The Qorqut application and its project workspaces. Personal/global Claude configuration is outside the application. |
 | Agent runtime | Agents are Claude Code or Codex sessions in mirrored terminals. Preserve the existing terminal/tmux experience and the ability to start plain `claude` in a prepared agent folder. |
-| Background work | DeepSeek is for background routines, learning extraction, filing, and related processing. It is never an alternative project-agent runtime. |
+| Background work | DeepSeek is for background routines, learning extraction, filing, and related processing. It is never an alternative agent runtime. |
 | Deprecated harness | `project-harness` is retired and absent from the active checkout. Preserve its archived source/history; no active runtime may depend on it. |
 | Shared service | One shared MCP service for all agents and plugins, on the Qorqut host or reached over Tailscale. No MCP process per agent or per plugin. |
 | Human interface | Humans use the dashboard or talk to agents. There is no requirement to retain human-facing project CLIs. |

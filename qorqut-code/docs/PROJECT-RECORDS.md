@@ -9,12 +9,12 @@ change. It does not create, rename, archive or delete a Project.
 
 The six operations belong to the installation owner and the exact active configured Ordubashy
 (`installation.management_coordinator_id`, `kind='agent'`, `status='active'`, role `ordubashy`). One nonrecursive
-Project read guard protects every route: it refreshes the caller's current identity, checks Project reach (active
-membership or supported active global reach), refuses an archived Project unless `include_archived` is explicitly
+Project read guard protects every route: it refreshes the caller's current identity, checks Project reach (the installation
+owner or an active global agent), refuses an archived Project unless `include_archived` is explicitly
 requested, and applies the ordinary `project_record_get` policy including explicit deny in that Project's own scope.
 The same guard authorizes `project_record_get`, the inventory and candidates, typed Project resolution and
 fingerprints, Focus source/reference projection, the private Project source and directory view, and every Project
-target read in a link. An ordinary member, another agent, a historical identity or a delegated worker is refused even
+target read in a link. Another human, another agent or a delegated worker is refused even
 when it can read the raw `projects` row; a denied record never emits its title, count or association.
 
 From the root route name the Project and pass `scope: "global"`; the engine switches this invocation to the Project's
@@ -139,7 +139,7 @@ explicitly link it into another Project; that adds only the association and neve
 another principal's source access. The prepared arguments name the Action by its `action_id` and its true storage identity is pinned.
 Replaying a link re-runs the Project guard, the identity
 and target resolution, the target/scope check and the target's current revision before returning a cached
-result; a revoked membership, archived Project, retargeted item or removed association refuses the replay.
+result; an archived Project, retargeted item or removed association refuses the replay.
 
 ## Private conversation, Focus and Threads
 

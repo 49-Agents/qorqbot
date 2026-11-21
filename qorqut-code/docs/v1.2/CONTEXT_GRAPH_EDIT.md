@@ -68,11 +68,9 @@ of the old `_authorized` (now `GraphEditAuthority._role`). Nothing is added.
 * A human must be the actual current installation owner (the owner keeps full authority over every namespace).
 * An agent needs an active registration, a supported role (`INSTRUCT_ROLES`) and a current allow in the admission namespace *and* in
   the namespace of every target and endpoint (`policy.refresh_context` for that namespace, then `Application.authorize` with
-  `namespace=`). A project agent therefore cannot change a Global, unknown-owned or foreign-project object, or point an edge at
+  `namespace=`). An agent working in a project therefore cannot change a Global, unknown-owned or foreign-project object, or point an edge at
   one. The Global namespace stays restricted to the coordinator role (`ordubashy`); having a Global agent kind or the shared
   graph-read capability is not enough, and an explicit deny override wins everywhere.
-* A project agent invoked with no selected project is resolved to its home project by the retained resolver; it is never in the
-  Global namespace, and a Global-owned object is refused for it.
 
 ## The driver gate
 
@@ -180,7 +178,7 @@ new records with one randomly allocated ID, which an assignment's `record_ids` c
 policy, application, `context_edit`, Operations queue, `context_filing`, `context_graph_edits`, the host driver wired with the
 authority port, real Git Context and the accepted library `Pipeline`) with a model runner that fails the test if called. The role
 sources come from the committed role prerequisite when `QORQUT_TEST_ROLES_SOURCE` names an export of it. The two stand-ins above
-are the only schema stand-ins. The cases cover the owner and allowed project agent, replay, read-only preparation, forbidden
+are the only schema stand-ins. The cases cover the owner and an allowed agent, replay, read-only preparation, forbidden
 roles / non-owner human, ownership (Global, unknown, malformed, foreign, support from another project), old/new/newly created
 endpoints, broader agents with and without grants and an explicit deny, revocation of a grant / registration / ownership after
 enqueue, restoration, a stale base and queue order, missing wiring, spoofing of the reserved path and metadata, missing and

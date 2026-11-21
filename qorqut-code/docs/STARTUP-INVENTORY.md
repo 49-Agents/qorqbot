@@ -8,8 +8,8 @@ Signoffs include current requested proposals and outcomes, including historical
 terminal states. Revisions and pending inbox events expose changes without claiming
 a new persisted “since last session” baseline.
 
-Project agents load their project queue. Global agents traverse Global and their
-currently authorized project scopes, preserving each record's project ID. All
+An agent with a selected project loads that project's queue. In Global it traverses Global and
+the active projects, preserving each record's project ID. All
 task/Signoff reads use canonical operation authorization and pagination. Inbox
 summaries use the existing recipient/source visibility checks. No foreign-agent
 inbox, global grant expansion, watcher claim, acknowledgement or source mutation

@@ -686,9 +686,8 @@ workflow_roles, materials, archive, navigation, review_edits)` are the complete 
 `tools/check_installed_wheel.py` runs four scripts from the installed wheel, with no `qorqut` importable:
 
 * the foundation probe,
-* the Signoff and registered-program slice. Its proposer is an active global agent (a supported role, an ecosystem scope,
-  no home project): its project access is the active project directory, exactly as the engine requires
-  of every agent. A project-home agent is refused with `forbidden` ("Only active global agents may invoke operations"). The slice asserts the Signoff, stale and forbidden
+* the Signoff and registered-program slice. Its proposer is an active global agent (a supported role and an ecosystem scope): its project access is the active project directory, exactly as the engine requires
+  of every agent. The slice asserts the Signoff, stale and forbidden
   decisions, single application, replay, principal attribution, routine and golden digest,
 * the neutral-item/relationship slice, which uses no protected-edge check,
 * a `create_directory_tree` slice: the installed `storage.directories` module publishes an empty layout once through the

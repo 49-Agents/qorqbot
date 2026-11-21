@@ -58,7 +58,7 @@ these sources, so the capture never produces a second event.
 
 ## Checks
 
-`tests/test_host_operational_contracts.py` (4 cases, one composed host with two projects, two project agents and a
+`tests/test_host_operational_contracts.py` (4 cases, one composed host with two projects, two agents and a
 registered coordinator): the default denial of the new mutations, an explicit override enabling correction and its
 revocation before a Signoff-staged correction is applied (the approval answers `stale_signoff`, the proposal is
 `conflicted`, no revision or Context input appears); the queued create/correction/withdrawal payloads handed to the exact
