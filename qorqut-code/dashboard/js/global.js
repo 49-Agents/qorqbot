@@ -48,7 +48,7 @@ async function selectGlobal(tab = ls('global-tab') || 'agents') {
     state.scope = 'global'; state.project = null; state.agent = null; state.ctx = null;
     clearEtagCache();
     tLastProject = null; tGen++; rtGeneration++; rtProject = null;
-    state.agents = []; state.tasks = [];
+    state.tasks = [];
     if (typeof sgProjectChanged === 'function') sgProjectChanged();
   }
   return goGlobalTab(tab);

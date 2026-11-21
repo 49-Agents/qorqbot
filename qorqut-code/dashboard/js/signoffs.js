@@ -972,14 +972,11 @@ function sgCreateView(options) {
         const projectPortrait = project ? taskProjectLabel(project.name || project.slug)
           : s.review_project_id == null ? taskProjectLabel('Global', true)
           : taskProjectLabel(projectName(s.review_project_id));
-        const agentName = (project?.agents || []).find(name => name.toLowerCase() === proposer.toLowerCase());
-        // Global proposers such as Ordubashy are not in the project's agent list.
-        const agent = state.agents.find(a => a.agent_id === s.proposer_agent_id || a.principal_id === s.proposer_principal_id)
-          || globalAgentProfile(s.proposer_agent_id) || globalAgentProfile(s.proposer_principal_id);
+        const agent = globalAgentProfile(s.proposer_agent_id) || globalAgentProfile(s.proposer_principal_id);
         if (!agent && s.proposer_agent_id && !globalAgentProfiles.length && !sg.globalProfilesRequested) {
           sg.globalProfilesRequested = true; loadGlobalAgentProfiles().then(render).catch(() => {});
         }
-        const appearance = {...(project?.agent_meta?.[agentName] || {}), ...(agent || {})};
+        const appearance = {...(agent || {})};
         const proposerPortrait = identityAvatar(s.proposer_agent_id ? 'agent' : s.proposer_principal_id === owner() ? 'founder' : 'unknown', proposer, appearance, proposer + initiator, true);
         html(row.querySelector(".sg-rowmeta"), options.inline ? `<span class="sg-inline-kind">${sgIsDraftReview(s) ? "Draft review" : sgIsAcknowledge(s) ? "For your attention" : "Signoff"}</span>${projectPortrait}` : `${projectPortrait}${proposerPortrait}`);
         row.dataset.input = s.input ? "1" : "";

@@ -265,7 +265,7 @@ class AuthorizationTest(SharedProfileTest):
         super().setUp()
         del self.manager._authorize
         names = {ATLAS: "Zed", SCOUT: "Scout", LATER: "Able"}                       # the lead agent is first whatever its name
-        rows = [{"agent_id": agent, "display_name": names[agent], "home_project_id": None, "slug": None}
+        rows = [{"agent_id": agent, "display_name": names[agent], "slug": None}
                 for agent in (ATLAS, SCOUT, LATER)]
         self.runtime.database = SimpleNamespace(read=lambda: nullcontext(SimpleNamespace(connection=SimpleNamespace(
             execute=lambda *_a: SimpleNamespace(fetchall=lambda: rows)))))

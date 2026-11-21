@@ -146,8 +146,8 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
             raise DomainError("missing_context", f"Missing registered mandatory context: {key}")
         return sources[key]
 
-    # Only a supported global is rendered; a project-home or retired-role identity is history, never shown as a global.
-    if profile.scope.kind != "ecosystem" or profile.scope.project_id is not None or role.id not in SUPPORTED_GLOBAL_ROLES:
+    # Only a supported global is rendered; a retired-role identity is history, never shown as a global.
+    if profile.scope.kind != "ecosystem" or role.id not in SUPPORTED_GLOBAL_ROLES:
         raise DomainError("invalid_profile", "Mandatory context renders only a supported global agent with ecosystem scope")
     identity = (render(agentic_view, "host", "app/qorqut/agentic/assets/identity.md", DISPLAY_NAME=str(profile.data['display_name']), NAME=str(profile.data['name']), AGENT_ID=str(profile.agent_id), ROLE_ID=str(role.id), ROLE_VERSION=str(role.version), OWNER_NAME=str(owner_name), ASSIGNMENT=str(profile.data['assignment_brief']), PROFILE_REVISION=str(profile.revision), CONFIGURATION=str(effective_config_id)))
     identity += render(agentic_view, "host", "app/qorqut/agentic/assets/scope.md", PROJECT_COUNT=str(len(allowed_projects)))

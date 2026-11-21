@@ -213,7 +213,6 @@ implementation or `ABSENT`. A `None` for an optional port is also an `AssemblyEr
 | | `email_context(row, uow)` | same | `_dto` of input requests | mapping or `None` |
 | `management` (optional) | `managed_input_sql` | `management.service.MANAGED_INPUT_SQL` | `signoffs_list`, `notifications._rows` | fixed SQL over `s` |
 | | `coordinator(uow)` | `ManagementService._coordinator` | delegated answers (raises `management_unavailable`) | principal id |
-| | `auto_route_input(ctx, row, uow)` | `ManagementService.auto_route_input` | input creation, same transaction | `None` |
 | | `routing_for(uow, signoff_id)` | direct `management_routing` query | delegated answers | row mapping or `None` |
 | `focus` (optional) | `fields` | `inbox.attention.FIELDS` | `signoffs_input_create` schema | property schema |
 | | `creation_access(application, ctx, focus, uow)` / `present_created(application, ctx, focus, source, uow)` | `inbox.attention.*` | input creation prepare / apply | `None` |
@@ -259,7 +258,7 @@ and `signoff_notification_schedule` have **no** repository spec, exactly as in v
 them with direct SQL on the unit's connection, and `change_sequences` is read and advanced by the engine's own SQL.
 They are engine-owned tables (DDL, indexes and triggers here) that are not reachable through `uow.repository(...)`.
 
-* Indexes kept: `agent_profile_active_names`, `agent_profiles_one_active_role_per_home`, `signoffs_category_queue`,
+* Indexes kept: `agent_profile_active_names`, `signoffs_category_queue`,
   `signoffs_execution_job`, `signoffs_open_request_key`, `signoffs_queue`, `signoffs_updates`,
   `signoffs_working_attention`, `signoff_notes_thread`, `signoff_notifications_owner`, `jobs_project_kind_created`,
   `jobs_ready`, `routine_runs_project_started`, `routine_runs_namespace_started`, `routine_runs_state_started`.
@@ -290,7 +289,7 @@ Declared through `StorageContribution(required_tables=…)` and checked at freez
 
 Behind ports (not required of the engine, required of the host's port implementation): `OwnerTaskAttention` → v1 read
 `project_configs` (`tasks` config), `tasks`, `relationships` (assignee role) and the snooze predicate;
-`ManagementQueries` → `management_routing` (+ the `inbox_events` write of `auto_route_input`); `PlatformActions`,
+`ManagementQueries` → `management_routing`; `PlatformActions`,
 `EmailDecisions`, `FocusAttention`, `PeerIdentities` → the platform-action, email, Focus/attention and agent-roster
 (`agents.global_peers`) state of the host. The engine's other SQL reads only engine-owned tables.
 

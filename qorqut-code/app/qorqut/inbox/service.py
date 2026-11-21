@@ -205,10 +205,7 @@ class InboxService(OperationsInboxService):
             profile = uow.connection.execute('SELECT * FROM agent_profiles WHERE agent_id=?', (agent_id,)).fetchone()
             if not profile:
                 raise DomainError('not_found', 'Agent is unavailable')
-            member = uow.connection.execute('SELECT is_owner,active FROM project_memberships WHERE project_id=? AND principal_id=?',
-                (profile['home_project_id'], owner.principal_id)).fetchone()
-            if owner.principal_kind != 'human' or not (
-                installation and installation['owner_principal_id'] == owner.principal_id or member and member['is_owner'] and member['active']):
+            if owner.principal_kind != 'human' or not (installation and installation['owner_principal_id'] == owner.principal_id):
                 raise DomainError('forbidden', 'Only this agent’s owner may inspect its inbox')
         return self.resolver.invocation_context(Principal(agent_id, 'agent'))
 

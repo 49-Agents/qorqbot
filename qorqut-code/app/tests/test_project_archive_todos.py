@@ -1,7 +1,7 @@
 """An approved project archive takes the project's Tasks off the Todo boards in the same write."""
 from types import SimpleNamespace as NS
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from qorqut_operations.projects import archive
 from qorqut_operations.projects.archive import ProjectArchive
@@ -20,14 +20,13 @@ class ArchiveTodoTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
 
     def test_boards_are_released_after_the_project_is_archived(self):
-        service = ProjectArchive(NS(), reset_terminals=lambda *_: self.calls.append('terminals'),
-                                  release_todos=lambda *arguments: self.calls.append(('todos', *arguments)))
+        service = ProjectArchive(NS(), release_todos=lambda *arguments: self.calls.append(('todos', *arguments)))
         result = service.apply(self.ctx, self.plan, self.uow)
-        self.assertEqual(self.calls, ['terminals', 'archived', ('todos', self.uow, 'project', 'owner')])
+        self.assertEqual(self.calls, ['archived', ('todos', self.uow, 'project', 'owner')])
         self.assertEqual(result, {'project_id': 'project', 'archived': True, 'revision': 2})
 
     def test_host_without_todo_boards_still_archives(self):
-        service = ProjectArchive(NS(), reset_terminals=Mock())
+        service = ProjectArchive(NS())
         self.assertEqual(service.apply(self.ctx, self.plan, self.uow)['archived'], True)
         self.assertEqual(self.calls, ['archived'])
 

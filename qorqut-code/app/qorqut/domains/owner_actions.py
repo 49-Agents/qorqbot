@@ -40,7 +40,7 @@ class OwnerActions:
             prepare=self.prepare, apply=self.apply, validate_targets=self.guard))
 
     def guard(self, ctx, plan, uow):
-        if (ctx.principal_kind != "agent" or ctx.home_project_id is not None
+        if (ctx.principal_kind != "agent"
                 or ctx.role_artifact_ref is None or ctx.role_artifact_ref.id != "ordubashy"
                 or not ctx.project_id or ctx.project_id not in ctx.allowed_project_ids):
             raise DomainError("forbidden", "Only scoped Global Ordubashy can propose delegated owner actions")

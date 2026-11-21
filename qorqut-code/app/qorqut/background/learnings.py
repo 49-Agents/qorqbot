@@ -73,7 +73,7 @@ class LearningProgram:
         if self.transcripts is None:
             raise DomainError("operation_unavailable", "Project transcript adapter is not configured")
         count, total, sessions = 0, 0, set()
-        for source in self.transcripts(control.project_id, agent_id):
+        for source in self.transcripts(agent_id):
             control.check()
             if not isinstance(source, dict):
                 raise DomainError("invalid_transcript", "Transcript adapter must return registered snapshots")
@@ -91,11 +91,11 @@ class LearningProgram:
             if value["agent_id"] in exclude:
                 continue
             with control.service.database.read() as uow:
-                profile = uow.repository("agent_profiles", project_id=control.project_id).get(value["agent_id"])
+                profile = uow.repository("agent_profiles").get(value["agent_id"])
                 if profile is None:
                     raise DomainError("forbidden", "Transcript agent is outside the selected workspace")
                 role = profile['profile_json'].get('role', {}).get('id')
-                if control.project_id is None and role == 'learning-applier':
+                if role == 'learning-applier':
                     if agent_id:
                         raise DomainError('forbidden', 'Learning Applier chats are excluded from automatic learning')
                     continue
@@ -152,7 +152,7 @@ class LearningProgram:
         with control.service.database.read() as uow:
             project_row = (uow.repository("projects").get(control.project_id, required=True) if control.project_id else
                 {"id": None, "slug": "Global", "name": "Global", "config_json": {}})
-            project = ProjectBrief(project_row, rows(uow, "agent_profiles", control.project_id),
+            project = ProjectBrief(project_row, uow.repository("agent_profiles").list(limit=200),
                                 str(project_hq(control.service.paths, project_row)) if control.project_id else "")
             scan = {row['session_id']: row for row in rows(uow, 'learning_scan_state', control.project_id)}
             seen = {key: row['transcript_hash'] for key, row in scan.items() if sources.counted(row['state_json'], args.get('retry_failed'))}

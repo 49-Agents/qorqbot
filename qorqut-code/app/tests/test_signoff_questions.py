@@ -236,7 +236,7 @@ class QuestionSubmissionTests(unittest.TestCase):
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': worker, 'kind': 'agent', 'display_name': 'Example worker'})
             uow.repository('agent_profiles', project_id=None).insert({'agent_id': worker, 'principal_id': worker,
-                'namespace': 'ecosystem', 'name': 'example-worker', 'workspace': 'example-worker',
+                'name': 'example-worker', 'workspace': 'example-worker',
                 'profile_json': {'status': 'active', 'role': {'id': 'global-worker'},
                                  'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}})
         ctx = replace(self.ctx, principal=Principal(worker, 'agent'), source='mcp', profile_revision=1)

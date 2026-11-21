@@ -214,7 +214,7 @@ After review and deployment of compatible core/dashboard sources:
 3. Obtain the installation owner's current invocation context in an authorized
    review project and the published role ref. Call
    `qorqut.bootstrap.learning_applier.prepare_learning_applier(runtime,
-   owner_context, role_ref=..., allowed_project_ids=[...], endpoint=...,
+   owner_context, role_ref=..., endpoint=...,
    claude_version=...)`. This uses existing profile creation and preparation.
    It creates one root profile, or prepares an exactly matching existing profile;
    differing pins, scope or overrides require explicit configuration review.

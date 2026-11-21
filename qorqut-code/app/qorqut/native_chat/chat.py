@@ -179,8 +179,7 @@ class NativeChat:
     # ----- authorization ---------------------------------------------------------------------------------------------
 
     def _target(self, uow, principal_id: str, agent_id: str) -> dict:
-        """Any active supported global agent: its exact saved profile row, never a name or navigation pin. A project-home
-        identity is historical and never a Chat target, whatever its stored status."""
+        """Any active supported global agent: its exact saved profile row, never a name or navigation pin."""
         principal = uow.repository("principals").get(principal_id)
         if not principal or principal["kind"] != "human" or not principal["active"] or installation_owner(uow) != principal_id:
             raise DomainError("forbidden", "Agent chat is for the installation owner")

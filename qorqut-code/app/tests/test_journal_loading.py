@@ -27,8 +27,7 @@ class JournalLoadingTests(unittest.TestCase):
             global_capabilities={'read_global_context'})
         cls.store = DocumentStore(cls.database, operations_root=cls.root,
             document_root=lambda project, path: cls.root)
-        cls.sources = DocumentSources(cls.store, SourceLibrary(cls.store),
-            agent_workspace=lambda *a: cls.root, scope_root=lambda *a: cls.root)
+        cls.sources = DocumentSources(cls.store, SourceLibrary(cls.store))
         cls.filing_calls = []
 
         def filing(uow, context, upload):
@@ -165,7 +164,7 @@ class JournalLoadingTests(unittest.TestCase):
         with self.database.transaction() as uow:
             uow.repository('principals').insert({'id': agent_id, 'kind': 'agent', 'display_name': 'Helper'})
             uow.repository('agent_profiles', project_id=None).insert({'agent_id': agent_id, 'principal_id': agent_id,
-                'home_project_id': None, 'namespace': 'ecosystem', 'name': 'Helper', 'workspace': str(self.root / agent_id),
+                'name': 'Helper', 'workspace': str(self.root / agent_id),
                 'status': 'active', 'profile_json': {}})
             existing = self.add_document(uow, 'agent_note', {'title': 'Old'}, owning_agent_id=agent_id)
         with self.database.read() as uow:

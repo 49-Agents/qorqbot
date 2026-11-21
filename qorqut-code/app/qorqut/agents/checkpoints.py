@@ -19,11 +19,9 @@ from qorqut_agentic.behavior.completion import REVIEW
 def native_checkpoint(runtime, agent_id, session_id, registration_id=None):
     """Read only the registered session's protected native observation."""
     with runtime.database.read() as uow:
-        profile = uow.connection.execute('SELECT p.home_project_id,b.slug FROM agent_profiles p '
-            'LEFT JOIN projects b ON b.id=p.home_project_id WHERE p.agent_id=?',(agent_id,)).fetchone()
-        if not profile:
+        if not uow.connection.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?',(agent_id,)).fetchone():
             return None
-    workspace = agent_workspace_of(runtime.paths, agent_id, profile['home_project_id'], profile['slug'])
+    workspace = agent_workspace_of(runtime.paths, agent_id)
     path = workspace / '.qorqut/activity' / (str(uuid.UUID(session_id)) + '.json')
     try:
         if not safe_path(path) or not path.is_file() or path.stat().st_size > 8192:

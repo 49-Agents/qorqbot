@@ -39,10 +39,6 @@ that application validation.
 
 ## Owner HTTP
 
-GET /api/project/{slug}/agents/{agent_id}/config authenticates the selected project
-owner, calls AgentOperations.owner_config(ctx, agent_id), and returns the
-canonical envelope with data: {effective_config: ...}.
-
 POST /api/project/{slug}/agents/{agent_id}/permissions invokes permissions_set with
 arguments {agent_id, overrides} and InvocationOptions(expected_revision,
 idempotency_key). The override map replaces the old map; omitted keys inherit.

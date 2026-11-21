@@ -59,11 +59,8 @@ def load(ctx, uow):
             if (set(finding) != set(contract.FINDING_KEYS) or finding['agent_id'] not in cohort
                     or not isinstance(finding['check_key'], str) or not 1 <= len(finding['check_key']) <= 512):
                 invalid()
-        for agent in cohort:
-            profile = uow.connection.execute('SELECT a.home_project_id,a.status,p.active FROM agent_profiles a '
-                'JOIN principals p ON p.id=a.agent_id WHERE a.agent_id=?', (agent,)).fetchone()
-            if not profile or profile['home_project_id'] is None or profile['status'] != 'retired' or profile['active'] != 0:
-                invalid()
+        if cohort:
+            invalid()
     except (KeyError, TypeError, ValueError):
         invalid()
     return value

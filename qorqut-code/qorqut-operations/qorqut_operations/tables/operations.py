@@ -47,8 +47,6 @@ def table_context(ctx, args, uow):
     """The Global namespace has no project; only the owner and active ecosystem agents may enter it."""
     if table_namespace(ctx, args) != "global":
         return ctx
-    if ctx.home_project_id is not None:
-        raise DomainError("forbidden", "Project agents cannot access Global tables")
     if ctx.principal_kind == "human":
         installation = uow.repository("installation").get("service")
         allowed = installation and installation["owner_principal_id"] == ctx.principal_id

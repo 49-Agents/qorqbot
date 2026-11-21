@@ -118,7 +118,7 @@ class UserInput:
 
     def agent(self, ctx, identity, uow):
         """A registered agent whose browser tab Chat shows, through the existing ``agents_get`` read authorization: the caller must be allowed
-        that read, and a Global agent needs the Global capabilities while a project-home agent is outside Global. An unknown id,
+        that read, and an agent needs the Global capabilities. An unknown id,
         a human principal or a profile the caller may not read is an ``UNAVAILABLE`` error."""
         authorize_item_read(self.app, ctx, "agents_get", uow)
         self.runtime.agents._access(ctx, uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (identity,)).fetchone())

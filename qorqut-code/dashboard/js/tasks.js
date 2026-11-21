@@ -243,12 +243,10 @@ function tWhoKind(o) {
 
 // the dot: dashed ring unassigned, a plain dot for an agent, cream for the owner (may carry
 // their initial), gray for anyone else
-function tWhoDot(o, slug = state.project) {
+function tWhoDot(o) {
   const kind = o?.startsWith('human:') ? 'founder' : o?.startsWith('agent:') ? 'agent' : 'unknown';
-  const name = tShort(o), project = tProjectBySlug(slug);
-  const key = Object.keys(project.agent_meta || {}).find(key => key.toLowerCase() === name.toLowerCase());
-  const agent = slug === state.project && (state.agents || []).find(a => a.name?.toLowerCase() === name.toLowerCase());
-  return identityAvatar(kind, name, agent || project.agent_meta?.[key] || {}, name);
+  const name = tShort(o);
+  return identityAvatar(kind, name, {}, name);
 }
 function tAssigneeLabel(o, project = state.project) {
   if (!o) return 'Unassigned';
@@ -258,17 +256,16 @@ function tAssigneeLabel(o, project = state.project) {
 }
 function tAssigneeAvatars(task) {
   const owners = tAssignees(task);
-  return `<span class="task-assignee-column">${owners.slice(0, 2).map(actor => `<button type="button" class="task-assignee-avatar" data-task-assignees title="Assigned to ${esc(tAssigneeLabel(actor,tSlug(task)))}">${tWhoDot(actor, tSlug(task))}</button>`).join('')}${owners.length > 2 ? `<button type="button" class="task-assignee-avatar task-assignee-more" data-task-assignees title="${tWhoTip(task)}">+${owners.length - 2}</button>` : ''}</span>`;
+  return `<span class="task-assignee-column">${owners.slice(0, 2).map(actor => `<button type="button" class="task-assignee-avatar" data-task-assignees title="Assigned to ${esc(tAssigneeLabel(actor,tSlug(task)))}">${tWhoDot(actor)}</button>`).join('')}${owners.length > 2 ? `<button type="button" class="task-assignee-avatar task-assignee-more" data-task-assignees title="${tWhoTip(task)}">+${owners.length - 2}</button>` : ''}</span>`;
 }
 function tAssignerAvatars(task) {
   const project = {...tProjectBySlug(tSlug(task)), ...tProject(task)};
   const actors = task.created_by ? [{id: task.created_by, name: task.created_by_name, kind: task.created_by_kind}] : [];
   return `<span class="task-assigner-column" aria-label="Created by">${(actors.length ? actors : [{name:'Unknown creator'}]).map(actor => {
     const name = actor.name || globalAgentProfile(actor.id)?.display_name || 'Unknown creator';
-    const agentName = Object.keys(project.agent_meta || {}).find(agent => agent.toLowerCase() === name.toLowerCase());
-    const agent = globalAgentProfile(actor.id) || (state.agents || []).find(agent => ((actor.id && (agent.principal_id === actor.id || agent.agent_id === actor.id)) || (name && (agent.display_name === name || agent.name?.toLowerCase() === name.toLowerCase()))) && tSlug(task) === state.project);
-    const kind = actor.kind === 'agent' || agent || agentName ? 'agent' : actor.kind === 'human' || name === project.owner ? 'founder' : 'unknown';
-    return identityAvatar(kind, name, agent || project.agent_meta?.[agentName] || {}, name === 'Unknown creator' ? name : `Created by ${name || 'unknown'}`, true);
+    const agent = globalAgentProfile(actor.id);
+    const kind = actor.kind === 'agent' || agent ? 'agent' : actor.kind === 'human' || name === project.owner ? 'founder' : 'unknown';
+    return identityAvatar(kind, name, agent || {}, name === 'Unknown creator' ? name : `Created by ${name || 'unknown'}`, true);
   }).join('')}</span>`;
 }
 

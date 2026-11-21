@@ -74,14 +74,13 @@ class TerminalControl:
         self.stop_event, self.thread = Event(), None
 
     def message_target(self, ctx, identity, uow):
-        """Recorded direct messages targeted a project Dev. Projects have no resident agents, and a
-        project-home identity is never dispatched to whatever its stored status; inbox delivery remains."""
+        """Direct messages are refused for every caller; inbox delivery carries them."""
         if ctx.principal_kind == 'human':
             self.owner(ctx, uow)
         raise DomainError('forbidden', 'Direct messages targeted retired project Dev agents; use inbox delivery')
 
     def queue_message(self, ctx, message, uow):
-        """Direct messages to a project Dev are retired: the target check refuses every caller."""
+        """The target check refuses every caller."""
         self.message_target(ctx, message['recipient_id'], uow)
 
     def owner(self, ctx, uow):
@@ -102,9 +101,8 @@ class TerminalControl:
         row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND status='active'", (identity,)).fetchone()
         if not row or identity == ctx.principal_id:
             raise DomainError('forbidden', 'Select another active registered agent')
-        # A project-home identity is historical and never controlled or dispatched to, whatever its stored status.
-        if row['home_project_id'] is not None or active_global(uow.connection, identity) is None:
-            raise DomainError('forbidden', 'Select an active global agent; project-home identities are historical')
+        if active_global(uow.connection, identity) is None:
+            raise DomainError('forbidden', 'Select an active global agent')
         if control:
             # Every prepare, apply and queued dispatch rechecks the current actor.
             require_protected_control(uow, ctx.principal_id, ctx.principal_kind, [identity], allow_coordinators=True)
@@ -284,7 +282,7 @@ class TerminalControl:
             binding = self.binding(row)
             if self.in_terminal_mode():
                 terminal_actions.validate(self, action, binding['terminal'])
-            builder.expect(ref('agent_profiles', row['agent_id'], row['home_project_id']), row)
+            builder.expect(ref('agent_profiles', row['agent_id'], None), row)
             targets.append({'target_id':row['agent_id'], 'binding':binding})
             builder.effects.append(f"{action.capitalize()} {row['name']} ({row['agent_id']})")
         if command and targets != command['targets_json']:

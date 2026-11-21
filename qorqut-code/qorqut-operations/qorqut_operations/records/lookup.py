@@ -7,10 +7,9 @@ at the original read-check points, and ``fingerprint`` first performs that same 
 explicit; nothing here constructs or reaches the Task service, and published shared Context readability grants none of
 these private operational reads.
 
-An ``agent`` item is a descriptive endpoint, not an assignment. A global's profile has no home and is read in Global and in
-any active selected project; it is current only as an active supported global. A project-home profile is history, read
-only in its original project. Retired, inactive, unsupported-role, malformed and project-home profiles resolve as
-archived, so the ``include_archived`` contract keeps them out of normal lists.
+An ``agent`` item is a descriptive endpoint, not an assignment. A profile is read in Global and in any active selected
+project; it is current only as an active supported global. Retired, inactive, unsupported-role and malformed profiles
+resolve as archived, so the ``include_archived`` contract keeps them out of normal lists.
 
 The host contributes the records and rules of its own integrations through ``LookupHost``: every method is required and
 is called at one fixed point of the flow below. Nothing is discovered by attribute or module."""
@@ -64,13 +63,10 @@ class LookupHost(Protocol):
 
 
 def agent_row(ctx, uow, identity):
-    """The stored profile an ``agent`` item names in this scope: the project's own historical row, else a global's row
-    (no home) in Global or an active selected project. A project-home row is never read outside its project."""
-    if ctx.project_id is not None:
-        row = uow.repository("agent_profiles", project_id=ctx.project_id).get(identity)
-        if row is not None or ctx.project_id not in active_project_ids(uow.connection):
-            return row
-    return uow.repository("agent_profiles", project_id=None).get(identity)
+    """The stored profile an ``agent`` item names in Global or in an active selected project."""
+    if ctx.project_id is not None and ctx.project_id not in active_project_ids(uow.connection):
+        return None
+    return uow.repository("agent_profiles").get(identity)
 
 
 def stored_profile(row):
@@ -139,12 +135,11 @@ class RecordItems:
             if table == "action_logs":
                 # The action's true storage identity; a Global-stored action is a read-only Global reference.
                 builder.expect(ref(table, row["id"], row["project_id"], None if row["project_id"] else "global"), row)
-            elif table == "agent_profiles" and row["home_project_id"] is None:
+            elif table == "agent_profiles":
                 # A global's principal and profile; inside a project plan the profile is a read-only ecosystem pin.
                 builder.expect(ref("principals", item["id"], None), uow.repository("principals").get(item["id"]))
                 builder.expect(ref(table, item["id"], None, "ecosystem" if ctx.project_id else None), row)
             else:
-                # A project-home profile keeps its original home pin.
                 builder.expect(ref(table, item["id"], None if table == "principals" else ctx.project_id), row)
         metadata = row.get("metadata_json", {})
         material = classification(row, table)
@@ -171,24 +166,16 @@ class RecordItems:
                                  after, limit):
         """Bounded identity/sort metadata for the core ``agent`` contribution of a Project inventory.
 
-        Only identifiers, their actual home scope and the profile's source timestamp are selected. The ordinary
+        Only identifiers, their scope and the profile's source timestamp are selected. The ordinary
         authorized ``resolve`` remains the only way this identity becomes an item; selecting metadata grants nothing.
         """
         if kind != "agent":
             raise DomainError("operation_unavailable", f"Project inventory metadata is unavailable for {kind}")
         limit = max(1, min(int(limit), 100))
-        scope = source_project_id
-        if scope is None:
-            owned = "SELECT agent_id id,home_project_id project_id,updated_at ts FROM agent_profiles " \
-                    "WHERE home_project_id IS NULL"
-            values = []
-        else:
-            # A Global agent is readable inside an active project by the ordinary agent lookup; retain that existing
-            # canonical project scope while enumerating only this source's own and Global profiles.
-            owned = "SELECT agent_id id,? project_id,updated_at ts FROM agent_profiles " \
-                    "WHERE home_project_id IS ? OR home_project_id IS NULL"
-            values = [scope, scope]
-        sql = owned
+        # A Global agent is readable inside an active project by the ordinary agent lookup; it keeps the source's
+        # canonical project scope, or none for the Global source.
+        sql = "SELECT agent_id id,? project_id,updated_at ts FROM agent_profiles"
+        values = [source_project_id]
         if include_links:
             sql += (" UNION ALL SELECT l.target_id id,l.target_project_id project_id,"
                     "COALESCE(a.updated_at,a.created_at) ts FROM project_item_links l "

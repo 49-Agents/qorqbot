@@ -159,8 +159,7 @@ class _Briefing:
                  read=f"context_items_get(item={dict(type=item['type'], id=item['id'])}); then the owning domain's get tool", limit=5500)
 
     def build(self):
-        scope = {"scope": "global"} if not self.ctx.project_id else {}
-        team = self.read("agents_list", scope).get("agents", [])
+        team = [] if self.ctx.project_id else self.read("agents_list").get("agents", [])
         for agent in team:
             self.add("Team", agent.get("display_name", "Agent"), select(agent,
                 ("agent_id", "name", "display_name", "role", "assignment_brief", "status")),

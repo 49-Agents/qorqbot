@@ -58,10 +58,10 @@ class ProjectProgress:
         # Count each recipient delivery, including system events and acknowledged messages.
         # Private owner conversations keep their own store; their deliveries are
         # never counted as project inbox traffic in any projection.
-        for row in uow.connection.execute('SELECT a.home_project_id,e.project_id,e.created_at FROM inbox_deliveries d '
+        for row in uow.connection.execute('SELECT e.project_id,e.created_at FROM inbox_deliveries d '
                 'JOIN agent_profiles a ON a.agent_id=d.agent_id JOIN inbox_events e ON e.id=d.event_id '
                 "WHERE e.source_type<>'owner_conversations'"):
-            if row[0] in scopes and row[1] in scopes: count('inbox_messages', row[2])
+            if row[0] in scopes: count('inbox_messages', row[1])
         for row in uow.connection.execute("SELECT project_id,candidate_id,MIN(created_at) FROM learning_history "
                 "WHERE json_extract(after_json,'$.state')='accepted' GROUP BY project_id,candidate_id"):
             if row[0] in scopes: count('learnings_accepted', row[2])

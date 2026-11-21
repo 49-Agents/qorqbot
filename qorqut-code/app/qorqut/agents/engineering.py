@@ -17,7 +17,7 @@ def has_ordubashy_settings_authority(ctx, uow):
 
     No agent membership row is consulted: global project access is derived.
     """
-    return not (ctx.principal_kind != "agent" or ctx.home_project_id is not None
+    return not (ctx.principal_kind != "agent"
             or ctx.role_artifact_ref is None or ctx.role_artifact_ref.id != "ordubashy"
             or not ctx.project_id or ctx.project_id not in ctx.allowed_project_ids)
 

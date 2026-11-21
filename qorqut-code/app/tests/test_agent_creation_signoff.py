@@ -39,10 +39,10 @@ class AgentCreationSignoffTests(unittest.TestCase):
         connection.row_factory = sqlite3.Row
         connection.executescript('''
             CREATE TABLE principals (id TEXT, kind TEXT, active INTEGER);
-            CREATE TABLE agent_profiles (agent_id TEXT, home_project_id TEXT, status TEXT, profile_json TEXT);''')
+            CREATE TABLE agent_profiles (agent_id TEXT, status TEXT, profile_json TEXT);''')
         for name, status in (('a', 'active'), ('b', 'active'), ('c', 'inactive'), ('d', 'active')):
             connection.execute('INSERT INTO principals VALUES(?,?,1)', (name, 'agent'))
-            connection.execute('INSERT INTO agent_profiles VALUES(?,NULL,?,?)', (name, status, name))
+            connection.execute('INSERT INTO agent_profiles VALUES(?,?,?)', (name, status, name))
         roles = {'a': 'global-worker', 'b': 'global-worker', 'd': 'ordubashy'}
         with patch('qorqut.agents.global_scope.global_profile_data',
                    side_effect=lambda row: {'role': {'id': roles[row['agent_id']]}}):

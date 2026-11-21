@@ -101,8 +101,8 @@ class Broadcasts:
         project = uow.repository("projects").get(target) if target else None
         values = []
         for row in uow.connection.execute(
-                "SELECT a.agent_id,a.name,a.home_project_id,a.status,a.profile_json,p.kind,p.active FROM agent_profiles a "
-                "JOIN principals p ON p.id=a.agent_id WHERE a.status='active' AND a.home_project_id IS NULL ORDER BY a.name,a.agent_id"):
+                "SELECT a.agent_id,a.name,a.status,a.profile_json,p.kind,p.active FROM agent_profiles a "
+                "JOIN principals p ON p.id=a.agent_id WHERE a.status='active' ORDER BY a.name,a.agent_id"):
             profile = self.global_profile_data(row)
             if profile is None: continue
             role = profile["role"]["id"]

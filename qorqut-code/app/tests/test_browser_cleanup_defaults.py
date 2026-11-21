@@ -47,7 +47,7 @@ class DefaultsTest(unittest.TestCase):
             self.principal(uow, identity, "agent")
             profile = {"status": status, "scope": {"kind": "ecosystem"}, "role": {"id": role}, "runtime": runtime}
             uow.repository("agent_profiles", project_id=None).insert({"agent_id": identity, "principal_id": identity,
-                "namespace": "ecosystem", "name": identity, "workspace": "/synthetic/" + identity,
+                "name": identity, "workspace": "/synthetic/" + identity,
                 "status": status, "profile_json": [] if malformed else profile,
                 "created_at": timing.stamp(self.now), "updated_at": timing.stamp(self.now)})
         return identity

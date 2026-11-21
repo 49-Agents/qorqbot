@@ -89,8 +89,8 @@ def authorize(self, ctx, kind, identity, loc, project, uow):
         _forbidden()
     if kind == 'telegram_owner_input' and loc.get('agent_id') != rows[0]['agent_id']: _forbidden()
     self._agent(ctx, rows[0]['agent_id'], uow)
-    profile = uow.connection.execute('SELECT home_project_id FROM agent_profiles WHERE agent_id=?', (rows[0]['agent_id'],)).fetchone()
-    if profile is None or profile[0] != project: _forbidden()
+    profile = uow.connection.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (rows[0]['agent_id'],)).fetchone()
+    if profile is None or project is not None: _forbidden()
 
 def evidence(self, uow, *, agent, provider, conversation, row, entry, owner_id, archive, receipt, namespace, gaps):
     original_sources = []

@@ -270,7 +270,7 @@ class SignoffSourceTests(unittest.TestCase):
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': worker, 'kind': 'agent', 'display_name': 'Example worker'})
             uow.repository('agent_profiles', project_id=None).insert({'agent_id': worker, 'principal_id': worker,
-                'namespace': 'ecosystem', 'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
+                'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
             task = uow.repository('tasks', project_id=self.project).get('work')
             uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_project_id,task_id,task_created_at,'
                 'created_at) VALUES(?,?,?,?,?,?)', (new_id(), worker, self.project, 'work', task['created_at'], task['created_at']))
@@ -300,7 +300,7 @@ class SignoffSourceTests(unittest.TestCase):
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': worker, 'kind': 'agent', 'display_name': 'Example worker'})
             uow.repository('agent_profiles', project_id=None).insert({'agent_id': worker, 'principal_id': worker,
-                'namespace': 'ecosystem', 'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
+                'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
             task = uow.repository('tasks', project_id=None).get('work')
             uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_id,task_created_at,created_at) VALUES(?,?,?,?,?)',
                                    (new_id(), worker, 'work', task['created_at'], task['created_at']))
@@ -328,7 +328,7 @@ class SignoffSourceTests(unittest.TestCase):
             for identity, role in ((worker, 'global-worker'), (peer, 'global-worker'), (coordinator, 'ordubashy')):
                 uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': role})
                 uow.repository('agent_profiles', project_id=None).insert({'agent_id': identity, 'principal_id': identity,
-                    'namespace': 'ecosystem', 'name': identity, 'workspace': identity, 'profile_json': {'status': 'active',
+                    'name': identity, 'workspace': identity, 'profile_json': {'status': 'active',
                         'role': {'id': role}, 'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}})
             uow.connection.execute("UPDATE installation SET management_coordinator_id=? WHERE id='service'", (coordinator,))
 

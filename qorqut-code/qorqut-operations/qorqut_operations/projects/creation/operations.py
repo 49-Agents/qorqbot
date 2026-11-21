@@ -63,7 +63,7 @@ class ProjectCreationOperations:
 
         There is no owner path, no forwarding and no direct-apply bypass: the identity is resolved from the installation's
         configured Ordubashy and its stored active profile each time, never from the transport, a name or a role label."""
-        if ctx.project_id is not None or ctx.home_project_id is not None:
+        if ctx.project_id is not None:
             raise DomainError("forbidden", "Project creation is a Global operation; do not select a project")
         if ctx.principal_kind == "agent" and self.creator_actor(uow, ctx.principal_id) is not None:
             return

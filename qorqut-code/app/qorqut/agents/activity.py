@@ -100,19 +100,16 @@ class AgentActivity:
                 'SELECT b.id FROM projects b JOIN project_memberships m ON m.project_id=b.id '
                 'WHERE b.archived_at IS NULL AND m.principal_id=? AND m.active=1', (ctx.principal_id,))]}
         if ctx.principal_kind == 'agent':
-            # An agent's reach is the shared active-global contract within this invocation, never a membership or a
-            # project home; any other agent identity has no scope at all.
+            # An agent's reach is the shared active-global contract within this invocation, never a membership; any other agent identity has no scope at all.
             scopes = set(effective_project_ids(uow.connection, ctx.principal_id) & ctx.allowed_project_ids)
             if active_global(uow.connection, ctx.principal_id) is not None and 'read_global_context' in ctx.global_capabilities:
                 scopes.add(None)
             return scopes
         allowed = set(ctx.allowed_project_ids)
-        if ctx.home_project_id:
-            allowed.add(ctx.home_project_id)
         scopes = {r[0] for r in uow.connection.execute(
             'SELECT b.id FROM projects b JOIN project_memberships m ON m.project_id=b.id '
             'WHERE b.archived_at IS NULL AND m.principal_id=? AND m.active=1', (ctx.principal_id,)) if r[0] in allowed}
-        if ctx.home_project_id is None and 'read_global_context' in ctx.global_capabilities:
+        if 'read_global_context' in ctx.global_capabilities:
             scopes.add(None)
         return scopes
 
@@ -250,10 +247,10 @@ class AgentActivity:
     def sample(self):
         from qorqut.bootstrap.activity_hook import safe_path, owner_alive, write_state
         with self.app.database.read() as u:
-            rows=u.connection.execute('SELECT s.*,a.home_project_id,b.slug AS project_slug,w.work_reviewed_at AS assignment_reviewed_at '
-                'FROM agent_activity s JOIN agent_profiles a ON a.agent_id=s.agent_id LEFT JOIN projects b ON b.id=a.home_project_id '
+            rows=u.connection.execute('SELECT s.*,w.work_reviewed_at AS assignment_reviewed_at '
+                'FROM agent_activity s JOIN agent_profiles a ON a.agent_id=s.agent_id '
                 'LEFT JOIN agent_current_work w ON w.agent_id=s.agent_id '
-                "WHERE a.status='active' AND (b.id IS NULL OR b.archived_at IS NULL)").fetchall()
+                "WHERE a.status='active'").fetchall()
         if sys.platform == 'darwin':
             from qorqut import process_info
             boot=process_info.boot_id();namespace=process_info.namespace_id()
@@ -265,7 +262,7 @@ class AgentActivity:
         namespace_pids=None
         now=timestamp(self.clock)
         for row in rows:
-            workspace=agent_workspace_of(self.runtime.paths,row['agent_id'],row['home_project_id'],row['project_slug'])
+            workspace=agent_workspace_of(self.runtime.paths,row['agent_id'])
             path=workspace/'.qorqut/activity'/(row['session_id']+'.json')
             try:
                 if not safe_path(path) or not path.is_file() or path.stat().st_size>8192: continue
@@ -593,19 +590,19 @@ class AgentActivity:
         candidates = []
         # The current agents are the active supported globals (the native eligibility predicate). A permitted project
         # view lists them with only that project's work; it never gives them a project residence.
-        for raw in uow.connection.execute('SELECT a.agent_id,a.name,a.profile_json,a.home_project_id,a.status,p.kind,p.active '
+        for raw in uow.connection.execute('SELECT a.agent_id,a.name,a.profile_json,a.status,p.kind,p.active '
                 'FROM agent_profiles a JOIN principals p ON p.id=a.agent_id '
-                "WHERE a.status='active' AND a.home_project_id IS NULL ORDER BY a.name,a.agent_id") if scopes else ():
+                "WHERE a.status='active' ORDER BY a.name,a.agent_id") if scopes else ():
             profile = global_profile_data(raw)
             requested_agent = ctx.principal_id if session_filter else args.get('agent_id', raw['agent_id'])
             if profile is None or requested_agent != raw['agent_id']:
                 continue
             if args.get('role_id',profile['role']['id']) != profile['role']['id']:
                 continue
-            candidates.append({'agent_id':raw['agent_id'],'name':raw['name'],'home_project_id':None,'slug':None,
-                'project_name':None,'id':raw['agent_id'],'display_name':profile.get('display_name'),'role_id':profile['role']['id']})
+            candidates.append({'agent_id':raw['agent_id'],'name':raw['name'],
+                'id':raw['agent_id'],'display_name':profile.get('display_name'),'role_id':profile['role']['id']})
         selected,cursor = page(candidates,{'limit':100,**args,'principal_id':ctx.principal_id,'scopes':sorted(s or '' for s in scopes)},
-            ctx.project_id,'agents_activity_list',key=lambda r:(r['slug'] or '',r['name'],r['agent_id']),reverse=False)
+            ctx.project_id,'agents_activity_list',key=lambda r:(r['name'],r['agent_id']),reverse=False)
         now = self.clock()
         access={'cache':{},'scopes':scopes}
         workers = {row['agent_id'] for row in selected if is_worker(uow.connection, row['agent_id'])}
@@ -657,7 +654,7 @@ class AgentActivity:
                 # (or Ordubashy's start) does. ``state`` says so, ``availability`` names the three cases for every agent.
                 state = availability
             agent = {'agent_id':row['agent_id'],'name':row['name'],'display_name':row['display_name'],'role_id':row['role_id'],
-                'project_id':row['home_project_id'],'project_slug':row['slug'],'project_name':row['project_name'] or 'Global',
+                'project_id':None,'project_slug':None,'project_name':'Global',
                 'state':state,'last_seen_at':max((x['last_seen_at'] for x in sessions if x['last_seen_at']),default=None),'sessions':sessions,
                 'inbox': nudge, 'availability': availability}
             if row['agent_id'] in workers:

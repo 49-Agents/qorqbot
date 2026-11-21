@@ -29,7 +29,7 @@ from qorqut_context.integration.filing.filing import ContextFiling
 from qorqut_context.integration.filing.operations import FilingOperations
 from qorqut_context.integration.filing.publication import ContextPublication
 
-from qorqut.composition.locations import agent_workspace, document_root, scope_root
+from qorqut.composition.locations import document_root
 from qorqut.management.identity import configured_ordubashy
 from .project_config import ProjectConfigOperations
 from .shared_instructions import SharedInstructions
@@ -46,10 +46,7 @@ class DocumentOperations:
         self.publication = ContextPublication(self.filing)
         # The scoped library presents a raw upload with the same current-source filing the unscoped reads attach.
         self.library = SourceLibrary(self.store, present=self.publication.present_item)
-        self.sources = DocumentSources(self.store, self.library,
-            agent_workspace=lambda agent_id, project=None: agent_workspace(paths, agent_id, project),
-            scope_root=lambda project=None: scope_root(paths, project), clock=clock,
-            present=self.publication.present_view)
+        self.sources = DocumentSources(self.store, self.library, clock=clock, present=self.publication.present_view)
         self.filing_operations = FilingOperations(self.sources, self.filing,
             global_upload_agent=lambda uow: configured_ordubashy(uow))
         self.project_config = ProjectConfigOperations(paths, clock=clock)

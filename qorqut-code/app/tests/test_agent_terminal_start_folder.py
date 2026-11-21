@@ -115,8 +115,7 @@ class Fixture(unittest.TestCase):
         self.process_cwd = mock.patch("qorqut.process_info.cwd", cwd)
         self.process_cwd.start()
         self.addCleanup(self.process_cwd.stop)
-        self.row = row or {"agent_id": "ordubashy", "home_project_id": None,
-                           "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": "ordubashy"}})}
+        self.row = row or {"agent_id": "ordubashy", "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": "ordubashy"}})}
         return backend
 
     def start(self, backend, expected=None):
@@ -250,8 +249,7 @@ class StartFolderTest(Fixture):
     # -- Dev keeps its owner-project launch -----------------------------------------------------------------------------
 
     def test_dev_still_launches_from_wherever_its_terminal_is(self):
-        dev = {"agent_id": "dev", "home_project_id": None,
-               "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": DEV_ROLE}})}
+        dev = {"agent_id": "dev", "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": DEV_ROLE}})}
         backend = self.backend([SHELL], [self.project], row=dev)
         self.assertEqual(self.start(backend), "Startup command submitted; readiness/work is not confirmed")
         self.assertEqual(self.broker.typed, ["claude"])

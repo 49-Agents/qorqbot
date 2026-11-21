@@ -165,33 +165,6 @@ class ManagementService:
             builder.expect(ref('management_routing',existing['id'],None),dict(existing))
         return builder.build()
 
-    def auto_route_input(self, ctx, row, uow):
-        form = row['preview_json'].get('input', {})
-        if (ctx.principal_kind!='agent' or not ctx.home_project_id or form.get('kind') != 'question'
-                or form.get('response_policy','owner_only') != 'management_allowed' or not row.get('review_project_id')):
-            return
-        try:
-            coordinator = self._coordinator(uow)
-        except DomainError:
-            return
-        if ctx.principal_id==coordinator:
-            return
-        # Binding must include the requester's project; offline presence is fine.
-        if self.inbox is not None:
-            try: self.inbox.messages.peer(ctx,coordinator,uow)
-            except DomainError: return
-        now = timestamp(self.clock)
-        inserted = uow.connection.execute('''INSERT OR IGNORE INTO management_routing
-            (id,source_type,source_id,project_id,coordinator_id,attention_destination,
-             management_allowed,created_by,created_at,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)''', (new_id(), 'signoffs', row['id'], row['review_project_id'], coordinator,
-             'management', 1, row['proposer_principal_id'], now, now)).rowcount
-        if inserted and self.inbox is not None:
-            event = uow.connection.execute('INSERT INTO inbox_events(project_id,source_type,source_id,actor_id,event_type,summary,created_at) '
-                'VALUES(?,?,?,?,?,?,?)',(row['review_project_id'],'signoffs',row['id'],ctx.principal_id,
-                'management_requested','Management input requested',now)).lastrowid
-            uow.connection.execute('INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)',(coordinator,event))
-
     def apply_route(self, ctx, plan, uow):
         args = plain(plan.arguments)
         self.prepare_route(ctx,args,None,uow)  # Recheck actor, response policy and routing CAS at apply.

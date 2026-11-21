@@ -7,14 +7,12 @@ import secrets
 import subprocess
 
 from qorqut.bootstrap.client import path_has_symlink
-from qorqut.composition.locations import agent_workspace, project_hq
+from qorqut.composition.locations import project_hq
 from qorqut_operations.contracts import DomainError
-from qorqut_operations.application.plans import rows
 from qorqut_operations.storage import safe_io
 
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 IDENTITY_KEYS = frozenset({"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"})
-SESSION_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.jsonl$")
 # What one capture's archive read can expected-fail with; anything else (cancellation, timeout, service stop, storage or
 # programming faults) is not a property of that capture and propagates.
 SOURCE_READ_ERRORS = frozenset({"payload_too_large", "not_found", "operation_unavailable"})
@@ -133,9 +131,8 @@ class LocalFiles:
             if current.project_id is not None:
                 raise DomainError("forbidden", "Browser surfaces require the installation owner")
             row = uow.connection.execute("SELECT a.profile_json FROM agent_profiles a JOIN principals p ON p.id=a.agent_id "
-                "WHERE a.agent_id=? AND a.home_project_id IS NULL AND a.status='active' AND p.active=1 AND p.kind='agent'",
+                "WHERE a.agent_id=? AND a.status='active' AND p.active=1 AND p.kind='agent'",
                 (agent_id,)).fetchone()
-            # A retired project agent's registration never reaches its old bindings.
             if row is None or not browser_surfaces.global_profile(row["profile_json"]):
                 raise DomainError("not_found", "Active registered Global agent was not found")
             desktop_allowed = configured_ordubashy(uow) == agent_id
@@ -189,61 +186,28 @@ class LocalFiles:
             safe_io.atomic_write(path, data, mode=0o600, enforce_mode=True)
         return self.environment_settings(context)
 
-    def agent_workspace(self, project_id, agent_id):
-        with self.runtime.database.read() as uow:
-            uow.repository("agent_profiles", project_id=project_id).get(agent_id, required=True)
-            project = None if project_id is None else uow.repository("projects").get(project_id, required=True)
-        # The registered identity and home scope select the workspace; the stored column never does.
-        path = agent_workspace(self.runtime.paths, agent_id, project)
-        if path_has_symlink(path):
-            raise DomainError("invalid_configuration", "Registered agent workspace is unavailable")
-        return path
+    def transcripts(self, agent_id=None):
+        return list(self.iter_transcripts(agent_id))
 
-    def session_names(self, project_id, agent_id):
-        """The agent's captured conversations, newest first, as the names the agent pane lists them under."""
-        self.agent_workspace(project_id, agent_id)
-        return [row["name"] for row in self.runtime.native_chat.transcripts.listing(agent_id)]
-
-    def session_bytes(self, project_id, agent_id, filename):
-        if not isinstance(filename, str) or not SESSION_FILE.fullmatch(filename):
-            raise DomainError("validation_error", "Invalid registered session filename")
-        self.agent_workspace(project_id, agent_id)
-        return self.runtime.native_chat.transcripts.read(agent_id, filename)
-
-    def session_events(self, project_id, agent_id, filename):
-        events = []
-        for line in self.session_bytes(project_id, agent_id, filename).splitlines():
-            try:
-                value = json.loads(line)
-                if isinstance(value, dict):
-                    events.append(value)
-            except (ValueError, UnicodeError):
-                continue
-        return events
-
-    def transcripts(self, project_id, agent_id=None):
-        return list(self.iter_transcripts(project_id, agent_id))
-
-    def iter_transcripts(self, project_id, agent_id=None):
+    def iter_transcripts(self, agent_id=None):
         """Captured conversations for the learning programs, read from the native transcript archive.
 
         A capture whose archive read or decoding expected-fails is yielded as a record carrying its registered identity and a
         ``source_failure`` (code, reason, provider, receipt) instead of ``content`` and ``transcript_hash``."""
         archive = self.runtime.native_chat.transcripts
         with self.runtime.database.read() as uow:
-            repository = uow.repository("agent_profiles", project_id=project_id)
+            repository = uow.repository("agent_profiles")
             agents = [repository.get(agent_id, required=True)] if agent_id else (
-                repository.list(filters={"status": "active"}) if project_id else
-                sorted(rows(uow, 'agent_profiles', None), key=lambda row: (row['created_at'], row['agent_id'])))
+                sorted(repository.list(limit=200), key=lambda row: (row['created_at'], row['agent_id'])))
         for agent in agents:
             if agent_id and agent["agent_id"] != agent_id:
                 continue
-            if project_id is None and agent['profile_json'].get('role', {}).get('id') == 'learning-applier':
+            if agent['profile_json'].get('role', {}).get('id') == 'learning-applier':
                 if agent_id:
                     raise DomainError('forbidden', 'Learning Applier chats are excluded from automatic learning')
                 continue
             captures = archive.listing(agent["agent_id"])
-            for capture in captures if project_id is None else captures[:20]:
+            for capture in captures:
                 # A capture that cannot be read or decoded is offered as a tagged failure with its registered identity and
                 # no content or hash, so the pass can go on to the agent's later captures.
                 try:

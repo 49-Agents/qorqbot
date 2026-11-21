@@ -135,10 +135,10 @@ def owner_view(runtime, change=None, agent_id=None, environ=None) -> dict:
     if change is not None and saved["granted"]:
         with runtime.database.read() as uow:
             rows = [row["agent_id"] for row in uow.connection.execute(
-                "SELECT agent_id FROM agent_profiles WHERE home_project_id IS NULL AND status='active'")
+                "SELECT agent_id FROM agent_profiles WHERE status='active'")
                 if active_global(uow.connection, row["agent_id"]) is not None]
         for identity in rows:
-            results[identity] = ensure(runtime.paths.runtime, agent_workspace(runtime.paths, identity, None), environ)
+            results[identity] = ensure(runtime.paths.runtime, agent_workspace(runtime.paths, identity), environ)
     return {**saved, "clients": clients(environ), **({"recorded": results} if results else {})}
 
 

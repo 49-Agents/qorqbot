@@ -361,11 +361,9 @@ class NativeBindingAdapter:
 
     def terminal_session(self, agent_id, profile):
         """The agent's tmux session name, through the terminal service and the broker of its execution (Terminals mode)."""
-        with self.runtime.database.read() as uow:
-            project = uow.repository('projects').get(profile['home_project_id']) if profile['home_project_id'] else None
         terminals = self.runtime.terminals
-        execution = terminals.execution(project)
-        _, session, _ = terminals.binding(project, profile, execution.broker)
+        execution = terminals.execution(None)
+        _, session, _ = terminals.binding(profile, execution.broker)
         return execution, session
 
     def verify_terminal(self, profile, agent_id, registration_id, session_id):

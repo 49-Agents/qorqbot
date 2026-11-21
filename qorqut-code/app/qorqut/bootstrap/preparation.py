@@ -6,7 +6,7 @@ from qorqut.agents import role_workflow
 from qorqut.agents import cleanup_workflow
 from qorqut.agents.operational_delegation import supports_durable_delegation_version
 from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, SUPPORTED_GLOBAL_ROLES
-from qorqut.composition.locations import agent_workspace, project_code, project_hq
+from qorqut.composition.locations import project_code, project_hq
 
 from dataclasses import dataclass
 import hashlib
@@ -419,17 +419,14 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         # Always-loaded skills are injected only for the configured Ordubashy.
         from qorqut.management.identity import configured_ordubashy
         always_skills = ordubashy and configured_ordubashy(uow) == data["agent_id"]
-        # Every active project in the agent's derived scope; no home or membership is assumed.
-        projects = [row for row in uow.connection.execute(
-            "SELECT id,slug FROM projects WHERE archived_at IS NULL ORDER BY id")
-            if row["id"] in data["scope"].get("allowed_project_ids", ())]
+        # Every active project; no membership is assumed.
+        projects = uow.connection.execute("SELECT id,slug FROM projects WHERE archived_at IS NULL ORDER BY id").fetchall()
         for project in projects:
             code_root = _project_code_root(resolver, data, project)
             if code_root is not None:
                 code_roots.append(code_root)
             hq = project_hq(resolver.paths, project)
             protected += [hq / part for part in ("project.yaml", "CLAUDE.md", "context", "tasks", "log")]
-            protected += [agent_workspace(resolver.paths, row[0], project) for row in uow.connection.execute("SELECT agent_id FROM agent_profiles WHERE home_project_id=? AND agent_id<>?", (project["id"], data["agent_id"]))]
             read_roots += [hq / part for part in ("context", "analytics", "assets")]
     local = {"hooks": {
         "SessionStart": [{"matcher": "startup|resume|clear|compact|fork", "hooks": [{"type": "command", "command": command, "timeout": 240}]}],

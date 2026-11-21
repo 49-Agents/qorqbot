@@ -59,8 +59,8 @@ class PlanFixture(Fixture):
         with self.db.transaction() as uow:
             uow.repository('principals').insert(dict(id=self.other, kind='agent', display_name='Other', active=1,
                                                      created_at=STAMP, updated_at=STAMP))
-            uow.connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,namespace,name,workspace,profile_json,'
-                                   "created_at,updated_at) VALUES(?,?,'ecosystem',?,?,?,?,?)",
+            uow.connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,name,workspace,profile_json,'
+                                   "created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                                    (self.other, self.other, 'other-worker', '/' + self.other, profile('global-worker'), STAMP, STAMP))
 
     def delegate(self, task, worker=None, **extra):

@@ -88,12 +88,11 @@ class Harness(unittest.TestCase):
             uow.repository('principals').insert(dict(id=self.agent, kind='agent', display_name='Ordubashy', active=1,
                                                      created_at=STAMP, updated_at=STAMP))
             uow.repository('agent_profiles', project_id=None).insert(dict(
-                agent_id=self.agent, principal_id=self.agent, home_project_id=None, namespace='ecosystem',
+                agent_id=self.agent, principal_id=self.agent,
                 name='ordubashy', workspace=WORKSPACE, status='active', created_at=STAMP, updated_at=STAMP,
                 profile_json={'name': 'ordubashy', 'status': 'active', 'runtime': 'claude-code',
                               'role': {'id': ORDUBASHY_ROLE},
-                              'scope': {'kind': 'ecosystem', 'allowed_project_ids': [],
-                                        'global_capabilities': sorted(READS)}}))
+                              'scope': {'kind': 'ecosystem', 'global_capabilities': sorted(READS)}}))
             uow.repository('installation').insert(dict(id='service', installation_id=str(uuid4()),
                 owner_principal_id=self.owner, management_coordinator_id=self.agent, created_at=STAMP, updated_at=STAMP))
             for project, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta'), (self.gamma, 'Gamma')):

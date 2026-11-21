@@ -36,8 +36,6 @@ class ActionWriteback:
         project_id = builder.ctx.project_id
         if project_id is None:
             raise DomainError("scope_required", "Activity entries belong to a selected project")
-        if builder.ctx.home_project_id is not None and project_id != builder.ctx.home_project_id:
-            raise DomainError("forbidden", "Project agents record actions only for their home project")
         if refs.get("task"):
             task = uow.repository("tasks", project_id=project_id).get(refs["task"], required=True)
             builder.expect(ref("tasks", task["id"], project_id), task)

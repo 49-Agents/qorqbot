@@ -45,8 +45,6 @@ def catalog(extensions=()):
             TableExport('agent_profiles', {
                 'agent_id': Text(),
                 'principal_id': Text(),
-                'home_project_id': Text(nullable=True),
-                'namespace': Text(),
                 'name': Text(),
                 'status': Text(),
                 'revision': Integer(),

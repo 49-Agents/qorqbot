@@ -37,7 +37,7 @@ class Fixture(unittest.TestCase):
         self.connection = sqlite3.connect(":memory:")
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("CREATE TABLE projects (id TEXT, slug TEXT, archived_at TEXT)")
-        self.connection.execute("CREATE TABLE agent_profiles (agent_id TEXT, home_project_id TEXT)")
+        self.connection.execute("CREATE TABLE agent_profiles (agent_id TEXT)")
 
         @contextmanager
         def read():

@@ -49,15 +49,6 @@ const AICONS = {
   wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
 };
 const aicon = (name, colorHex, sizePx) => `<svg class="ai" width="${sizePx}" height="${sizePx}" viewBox="0 0 24 24" fill="none" stroke="${colorHex}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${AICONS[name]}</svg>`;
-// A project agent without a chosen icon wears its project's letter, like the project avatar.
-const agentWearsProject = m => m?.icon === 'project' || ((m?.role?.id || m?.kind) === 'project-agent' && !m?.icon);
-function agentProjectLetter(m) {
-  const id = m?.project_id || m?.scope?.project_id, slug = m?.project_slug;
-  const s = typeof state === 'undefined' ? {projects: []} : state;  // partial script contexts
-  const b = s.projects.find(x => (id && (x.id || x.project_id) === id) || (slug && x.slug === slug))
-    || (!id && !slug && s.scope !== 'global' ? s.projects.find(x => x.slug === s.project) : null);
-  return String(m?.project_name || b?.name || b?.slug || '·').charAt(0).toUpperCase();
-}
 // Qorqbot's original mascot geometry, reused from its dark SVG. Its face is white for every user,
 // with black eyes and mustache; role colors are presentation only and saved agent identity and
 // icon settings are untouched.
@@ -140,7 +131,6 @@ const agentGlyph = (m, size) => {
   if (roleId === 'global-worker') return tinySpiritGlyph(m, size);
   const mascotColor=qorqbotAgentColor(m);
   if(mascotColor)return qorqbotAgentGlyph(mascotColor,size,qorqbotAgentVariant(m));
-  if (agentWearsProject(m)) return `<svg class="ai" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><text x="12" y="12" dy=".36em" text-anchor="middle" font-size="15" font-weight="600" fill="currentColor">${esc(agentProjectLetter(m))}</text></svg>`;
   const icon = m?.icon || null;
   return aicon(AICONS[icon] ? icon : 'bot', 'currentColor', size);
 };
@@ -202,7 +192,7 @@ let tab0 = ls("tab");
 if (tab0 === "agents") tab0 = "tasks";
 const contextTab0 = {tables: "_tables"}[tab0];
 if (contextTab0) tab0 = "context";
-const state = { scope: "project", globalTab: "agents", project: null, projects: [], tab: TABS[tab0] ? tab0 : "tasks", agent: null, agents: [], ctx: contextTab0 || null };
+const state = { scope: "project", globalTab: "agents", project: null, projects: [], tab: TABS[tab0] ? tab0 : "tasks", agent: null, ctx: contextTab0 || null };
 // Per-URL {etag, body} cache for GET reads (Stage 2 PR4): a matching
 // If-None-Match lets the server return 304 without redoing the read, so an
 // unchanged pane costs a small header round trip instead of a full body.

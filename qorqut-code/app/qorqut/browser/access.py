@@ -658,13 +658,11 @@ class BrowserAccess:
         if browser_key.startswith("configured:"):
             from qorqut.bootstrap import browser
             with self.runtime.database.read() as uow:
-                profile = uow.connection.execute("SELECT p.home_project_id,b.slug FROM agent_profiles p "
-                                                 "LEFT JOIN projects b ON b.id=p.home_project_id WHERE p.agent_id=?",
+                profile = uow.connection.execute("SELECT 1 FROM agent_profiles WHERE agent_id=?",
                                                  (parent_principal_id,)).fetchone()
             if profile is None:
                 raise DomainError("operation_unavailable", "The configured browser workspace is unavailable")
-            workspace = agent_workspace_of(self.runtime.paths, parent_principal_id, profile["home_project_id"],
-                                           profile["slug"])
+            workspace = agent_workspace_of(self.runtime.paths, parent_principal_id)
             try:
                 endpoint, executable = browser.load_target(workspace)
             except browser.BrowserNotConfigured:

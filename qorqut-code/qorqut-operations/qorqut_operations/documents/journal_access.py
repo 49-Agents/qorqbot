@@ -25,7 +25,7 @@ def require_writer(ctx, uow, operation):
     from qorqut_operations.global_agents import is_coordinator
     if (operation in JOURNAL_WRITES and ctx.principal_kind == 'agent'
             and is_coordinator(uow.connection, ctx.principal_id)
-            and ctx.project_id is None and ctx.home_project_id is None and not ctx.delegation_assignment_id):
+            and ctx.project_id is None and not ctx.delegation_assignment_id):
         return
     require_owner(ctx, uow)
 

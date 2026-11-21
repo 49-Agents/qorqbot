@@ -1,14 +1,13 @@
 """Registered rows resolved to target locations through the one ``InstancePaths``.
 
-A project is located by its registered ``slug``, which is its folder; a global or project agent by its registered
+A project is located by its registered ``slug``, which is its folder; an agent by its registered
 agent identity. The stored ``workspace``/``hq_path`` columns, display names, tags and role names never select a
 location, and no probing of an older root happens here. Every function only derives and validates a path (symlinks
 of existing parts are refused by ``InstancePaths``); nothing is created.
 
 Document files keep their path relative to the document root of their scope: a project's ``hq`` (project notes,
-research, assets) or, for the files of a registered agent, the scope root that holds ``agents/{agent-id}``; a global
-document is relative to ``operations``. The path's first segment alone decides between the two project roots, so a
-document can never be resolved outside the scope the plan was issued for."""
+research, assets); a global document is relative to ``operations``, so a document can never be resolved outside the
+scope the plan was issued for."""
 
 from __future__ import annotations
 
@@ -17,8 +16,6 @@ from pathlib import Path, PurePosixPath
 from qorqut_operations.contracts import DomainError
 
 from qorqut.instance_paths import GRAPH_DIRECTORY, PROJECTS_DIRECTORY, InstancePathError, InstancePaths
-
-AGENTS_SEGMENT = "agents"
 
 
 def _selected(paths, call, *arguments, **options):
@@ -49,15 +46,9 @@ def project_code(paths, project) -> Path:
     return _selected(paths, lambda: paths.project_code(project_folder(project)))
 
 
-def agent_workspace(paths, agent_id, project=None) -> Path:
-    """The registered agent's workspace; ``project`` is its home project row, or ``None`` for a global agent."""
-    folder = None if project is None else project_folder(project)
-    return _selected(paths, lambda: paths.agent_workspace(agent_id, project_folder=folder))
-
-
-def scope_root(paths, project=None) -> Path:
-    """The directory holding ``agents/``: the project root, or ``operations`` for Global material."""
-    return paths.operations if project is None else project_root(paths, project)
+def agent_workspace(paths, agent_id) -> Path:
+    """The registered agent's workspace below ``operations/agents``."""
+    return _selected(paths, lambda: paths.agent_workspace(agent_id))
 
 
 def reserve_graph_root(project, relative_path) -> None:
@@ -70,11 +61,8 @@ def reserve_graph_root(project, relative_path) -> None:
 
 
 def document_root(paths, project, relative_path) -> Path:
-    """The root a registered document path is relative to, chosen only by the path's first segment."""
+    """The root a registered document path is relative to: ``operations`` for Global, else the project's ``hq``."""
     reserve_graph_root(project, relative_path)
-    parts = PurePosixPath(relative_path).parts
-    if parts and parts[0] == AGENTS_SEGMENT:
-        return scope_root(paths, project)
     return paths.operations if project is None else project_hq(paths, project)
 
 
@@ -91,22 +79,14 @@ def document_location(paths, project, relative_path) -> str:
     return relative_to_operations(paths, document_root(paths, project, relative_path) / relative_path)
 
 
-def project_document_prefixes(paths, project):
-    """``(hq prefix, scope prefix)``: the operations-relative roots a project's document paths can resolve under."""
-    return (relative_to_operations(paths, project_hq(paths, project)),
-            relative_to_operations(paths, project_root(paths, project)))
-
-
 def document_path_at(paths, project, location):
     """The registered document path of an operations-relative location in a project, or ``None`` outside it.
 
-    Inverse of ``document_location``: ``agents/...`` below the project root, anything else below its ``hq``."""
-    hq, scope = project_document_prefixes(paths, project)
-    if location.startswith(scope + "/" + AGENTS_SEGMENT + "/"):
-        return location[len(scope) + 1:]
+    Inverse of ``document_location``: a location below the project's ``hq``."""
+    hq = relative_to_operations(paths, project_hq(paths, project))
     if location.startswith(hq + "/"):
         rest = location[len(hq) + 1:]
-        return None if rest.split("/", 1)[0] == AGENTS_SEGMENT else rest
+        return None if rest.split("/", 1)[0] == "agents" else rest
     return None
 
 
@@ -116,6 +96,6 @@ def document_path_at_global(paths, location):
     return None if first in {PROJECTS_DIRECTORY, ".runtime", GRAPH_DIRECTORY} else location
 
 
-def agent_workspace_of(paths, agent_id, home_project_id, slug) -> Path:
-    """The workspace of a registered agent from its row's home project id and that project's slug."""
-    return agent_workspace(paths, agent_id, None if home_project_id is None else {"slug": slug})
+def agent_workspace_of(paths, agent_id) -> Path:
+    """The workspace of a registered agent."""
+    return agent_workspace(paths, agent_id)

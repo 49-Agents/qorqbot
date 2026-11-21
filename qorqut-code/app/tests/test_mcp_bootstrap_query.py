@@ -5,7 +5,6 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from qorqut.agents.resolver import AgentConfigResolver
 from qorqut_operations.contracts import DomainError, Principal
@@ -58,7 +57,7 @@ class BootstrapQueryTests(unittest.TestCase):
         self.db.commit()
         profile = SimpleNamespace(
             data={'role': ROLE, 'plugins': [], 'tool_policy': {'overrides': {}}},
-            scope=SimpleNamespace(kind='ecosystem', project_id=None, projects=frozenset({PROJECT}),
+            scope=SimpleNamespace(kind='ecosystem',
                                   global_capabilities=('read_global_context',)))
         self.proposed = (profile, {'workspace': str(self.root / 'workspace')})
         resolver = AgentConfigResolver.__new__(AgentConfigResolver)
@@ -71,9 +70,6 @@ class BootstrapQueryTests(unittest.TestCase):
             yield SimpleNamespace(connection=self.db)
         resolver.database = SimpleNamespace(read=read)
         self.resolver = resolver
-        patcher = patch('qorqut.agents.resolver.with_effective_scope', lambda profile, connection: profile)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def document(self, ident, metadata, project=None, path=None):
         self.db.execute('INSERT INTO documents (id, project_id, namespace, path, content_hash, metadata_json) VALUES (?,?,?,?,?,?)',

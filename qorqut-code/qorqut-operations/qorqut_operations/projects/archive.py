@@ -1,6 +1,6 @@
 """Owner-reviewed archive and owner restore of project resources; nothing is deleted.
 
-Projects have no resident agents. Restore returns only the project: historical
+Restore returns only the project: historical
 agent identities stay inactive, and the supported globals reach it again through
 their derived scope without profile or membership writes.
 """
@@ -32,17 +32,12 @@ POLICY_RULES = PolicyRules(before_override=(archive_approval_rule,))
 
 
 class ProjectArchive:
-    """``reset_terminals(project_row, agent_rows)`` is the host's terminal reset. It is optional at construction because the
-    real terminal service is built after the domains and assigned to ``reset_terminals`` then, never supplied by a caller;
-    until it is set, an approved archive is refused with ``operation_unavailable``.
-
-    ``release_todos(uow, project_id, actor_id)`` is the host's Todo boards, assigned the same way. It runs inside the
-    archive's own write and takes the project's Tasks off every agent's board, so no board keeps pointing at work
+    """``release_todos(uow, project_id, actor_id)`` is the host's Todo boards, assigned after construction. It runs inside
+    the archive's own write and takes the project's Tasks off every agent's board, so no board keeps pointing at work
     that is no longer current. A host without Todo boards leaves it unset."""
 
-    def __init__(self, application, *, reset_terminals=None, release_todos=None):
+    def __init__(self, application, *, release_todos=None):
         self.application = application
-        self.reset_terminals = reset_terminals
         self.release_todos = release_todos
 
     def register(self, registry):
@@ -74,18 +69,12 @@ class ProjectArchive:
         return {"items": [{"project_id": row["id"], "slug": row["slug"], "name": row["name"], "revision": row["revision"],
                            "archived_at": row["archived_at"]} for row in rows]}
 
-    @staticmethod
-    def agents(uow, project_id):
-        return [dict(row) for row in uow.connection.execute(
-            "SELECT agent_id,name,workspace,revision,home_project_id FROM agent_profiles "
-            "WHERE home_project_id=? ORDER BY agent_id", (project_id,))]
-
     def snapshot(self, ctx, resource, uow):
-        return {"content_hash": canonical_hash(self.agents(uow, resource.resource_id))}
+        return {"content_hash": canonical_hash([])}
 
     @staticmethod
     def guard(ctx, plan, uow):
-        if ctx.project_id is not None or ctx.home_project_id is not None:
+        if ctx.project_id is not None:
             raise DomainError("forbidden", "Project archival is proposed and reviewed in Global")
         installation = uow.repository("installation").get("service", required=True)
         if ctx.principal_kind == "human":
@@ -117,12 +106,10 @@ class ProjectArchive:
         builder.record("projects", before["id"], before,
             {"archived_at": builder.at, "archived_by": ctx.principal_id}, project_id=None, namespace="global", label=before["name"])
         target = ResourceRef("project_archive_agents", before["id"], None, "global")
-        agents = self.agents(uow, before["id"])
-        builder.targets[target] = ExpectedTarget(target, exists=True, content_hash=canonical_hash(agents))
+        builder.targets[target] = ExpectedTarget(target, exists=True, content_hash=canonical_hash([]))
         builder.policy_effect(target, OPERATION, "Reset this project's registered terminal sessions")
         builder.effects.extend([
             "Remove " + before["name"] + " (" + before["slug"] + ") from the active project menu, agent directory and normal project discovery.",
-            "Reset project terminal sessions, stopping their running agents: " + (", ".join(row["name"] for row in agents) or "none registered") + ".",
             "Take this project's tasks off every agent's Todo board. Restoring the project does not put them back.",
             "Retain project records and files. No domain, mailbox or external-service changes."])
         plan = builder.build()
@@ -131,12 +118,7 @@ class ProjectArchive:
 
     def apply(self, ctx, plan, uow):
         self.guard(ctx, plan, uow)
-        if self.reset_terminals is None:
-            raise DomainError("operation_unavailable", "Project terminal reset is not installed")
         project = uow.repository("projects").get(plan.arguments["project_id"], required=True)
-        # Called only by the exact approved application. Database CAS prevents
-        # project/profile changes during this bounded, idempotent terminal reset.
-        self.reset_terminals(project, self.agents(uow, project["id"]))
         apply_records(ctx, plan, uow)
         if self.release_todos is not None:
             self.release_todos(uow, project["id"], ctx.principal_id)
@@ -148,7 +130,7 @@ class ProjectArchive:
         return self.application.invoke(ctx, RESTORE, arguments, options)
 
     def prepare_restore(self, ctx, args, options, uow):
-        if ctx.project_id is not None or ctx.home_project_id is not None or ctx.principal_kind != "human":
+        if ctx.project_id is not None or ctx.principal_kind != "human":
             raise DomainError("forbidden", "Project restore is an owner action in Global")
         before = uow.repository("projects").get(args["project_id"], required=True)
         require_revision(before, options.expected_revision)

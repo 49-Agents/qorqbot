@@ -127,9 +127,6 @@ class HostManagement:
     def coordinator(self, uow):
         return self.domains.management._coordinator(uow)
 
-    def auto_route_input(self, context, row, uow):
-        return self.domains.management.auto_route_input(context, row, uow)
-
     @staticmethod
     def routing_for(uow, signoff_id):
         return uow.connection.execute("SELECT * FROM management_routing WHERE source_type='signoffs' AND source_id=?",

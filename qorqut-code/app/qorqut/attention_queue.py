@@ -91,7 +91,7 @@ def queue(runtime, ctx, change=None):
             SELECT v.*, a.profile_json, ROW_NUMBER() OVER (
                 PARTITION BY v.agent_id ORDER BY v.placement_sequence DESC) AS board_rank
             FROM agent_viewbox_items v JOIN agent_profiles a ON a.agent_id=v.agent_id
-            WHERE a.status='active' AND a.home_project_id IS NULL
+            WHERE a.status='active'
         ) WHERE board_rank<=?""", (BOARD_LIMIT,)).fetchall()
         current = {agent: active_global(uow.connection, agent) is not None for agent in {row['agent_id'] for row in placements}}
         for row in (row for row in placements if current[row['agent_id']]):

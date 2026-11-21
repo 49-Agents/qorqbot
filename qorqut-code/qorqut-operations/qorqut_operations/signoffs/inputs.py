@@ -288,8 +288,6 @@ class InputRequests:
                 scoped = replace(ctx, project_id=change.resource.project_id, review_project_id=change.resource.project_id)
                 self.service.reports.check(scoped, values['report_task'], uow)
                 self.service.reports.link(ctx, identity, values['report_task'], uow)
-            if self.service.ports.management is not ABSENT:
-                self.service.ports.management.auto_route_input(ctx, row, uow)
         elif change.action == 'input_cancel':
             row = self.service._update(row, {'state': 'cancelled'}, uow)
         if 'attention' in values:

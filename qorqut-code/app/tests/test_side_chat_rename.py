@@ -62,7 +62,7 @@ def build_runtime(tmp_path):
             'owner_principal_id': owner, 'management_coordinator_id': coordinator})
         for identity, role in ((coordinator, 'ordubashy'), (worker, 'global-worker')):
             uow.repository('agent_profiles', project_id=None).insert({'agent_id': identity, 'principal_id': identity,
-                'namespace': 'ecosystem', 'name': role, 'workspace': str(tmp_path / role), 'status': 'active',
+                'name': role, 'workspace': str(tmp_path / role), 'status': 'active',
                 'profile_json': {'name': role, 'status': 'active', 'role': {'id': role}, 'runtime': 'claude-code',
                     'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}})
     # Every report belongs to a Task. The Task engine is not part of this fixture, so ``tasks_get`` is its read of a Global
