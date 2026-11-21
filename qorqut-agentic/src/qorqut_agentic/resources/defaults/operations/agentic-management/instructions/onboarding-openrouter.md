@@ -34,18 +34,13 @@ it, do not ask again in this run.
 
 ## If the owner wants it
 
-You cannot create the account or the key for them: the owner signs in on
-OpenRouter's own page. Tell them, in a few lines:
+Tell them, in a few lines:
 
 1. Open Settings, Connections and find OpenRouter under Extensions.
 2. Press Connect. OpenRouter opens in the same tab; sign in or create an
    account there, set a spending limit if you like, and approve.
 3. The dashboard comes back connected. If you already have an OpenRouter key,
    press Paste a key instead.
-
-Never ask for the key, a password or a code in Chat, and do not repeat one that
-is pasted there. Do not open OpenRouter in your own browser or sign up for the
-owner.
 
 When the owner says they are done, call `openrouter_status` again. Report
 `connected` only when the tool says so. If it is still `not_set_up`, say so in
