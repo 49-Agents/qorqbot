@@ -1,8 +1,9 @@
 """Typed references, scoped identities and the recorded-source contract of the CRM domain.
 
 A public reference names its record by type and id; ``project_id`` (null is the Global scope) is the record's project,
-found from the id when it is not stated and never derived from a display name. Recorded sources are data. Nothing here fetches a URL, opens a path or contacts a
-provider; a URL is only checked to be a plain http(s) link without embedded credentials.
+found from the id when it is not stated and never derived from a display name. Recorded sources are data. Nothing here
+fetches a URL, opens a path or contacts a provider; a URL is only checked to be a plain http(s) link without embedded
+credentials.
 """
 
 from __future__ import annotations

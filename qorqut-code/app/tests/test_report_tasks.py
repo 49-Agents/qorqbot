@@ -1,4 +1,5 @@
 """A read-and-acknowledge report may belong to a Task, and that link is not the Task's wait on the owner."""
+from dataclasses import replace
 import unittest
 
 from qorqut_operations.contracts import new_id, plain
@@ -68,7 +69,6 @@ class ReportTaskTests(unittest.TestCase):
     def test_the_task_and_the_report_share_a_scope(self):
         ctx = self.coordinator()
         self.refused(self.post(ctx, report_task={'id': 'project-work', 'project_id': self.project}), 'validation_error')
-        from dataclasses import replace
         project = replace(ctx, project_id=self.project, review_project_id=self.project)
         self.refused(self.post(project, scope='project', report_task=self.GLOBAL), 'validation_error')
         signoff = self.posted(project, scope='project', report_task={'id': 'project-work', 'project_id': self.project})
@@ -139,7 +139,6 @@ class ReportTaskTests(unittest.TestCase):
     # -- the Task is named by its id ----------------------------------------------------------------------------------
 
     def test_a_task_without_a_project_gets_the_project_that_holds_it(self):
-        from dataclasses import replace
         ctx = self.coordinator()
         stated = self.posted(ctx, report_task=self.GLOBAL)
         bare = self.posted(ctx, key='bare', report_task={'id': 'work'})
@@ -159,7 +158,6 @@ class ReportTaskTests(unittest.TestCase):
         self.refused(self.post(ctx, key='stated', report_task={'id': 'work', 'project_id': self.project}), 'validation_error')
 
     def test_a_task_outside_the_reach_is_answered_like_an_unknown_id(self):
-        from dataclasses import replace
         ctx = self.coordinator()
         outside = replace(ctx, allowed_project_ids=frozenset())
         unknown = self.post(outside, report_task={'id': 'nothing'})
