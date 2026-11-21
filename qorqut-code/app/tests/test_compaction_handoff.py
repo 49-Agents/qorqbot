@@ -70,11 +70,11 @@ class HandoffCase(Fixture):
         with self.db.read() as uow:
             return self.tool.opening(self.ctx(self.lead), uow, tail=tail)
 
-    def open(self):
-        """Start the next conversation from the waiting handoff, as the host does."""
+    def open(self, **ids):
+        """Start the next conversation from the waiting handoff, as the host does (``closed`` and ``session`` name the two)."""
         opening = self.opening()
         with self.db.transaction() as uow:
-            self.tool.opened(uow, opening['id'], opening['unanswered'])
+            self.tool.opened(uow, opening['id'], opening['unanswered'], **ids)
         return opening['text']
 
     def seen(self, task_id, business=None):
@@ -256,6 +256,36 @@ class CompactionHandoffTests(HandoffCase):
         self.now += timedelta(hours=5)
         # The message never got a status, so the next handoff still answers for it.
         self.assertEqual([(message['text'], message['open']['status']) for message in self.form()], [('Pay the creators today.', 'remaining')])
+
+    def test_an_opened_handoff_names_the_closed_and_the_fresh_conversation_and_the_fresh_one_leads_back_to_the_closed(self):
+        def compact(**ids):
+            with self.db.transaction() as uow:
+                self.tool.ask(self.ctx(self.lead), uow)
+            self.open(**ids)
+            self.now += timedelta(hours=1)
+
+        def continued(conversation, who=None):
+            with self.db.read() as uow:
+                return self.tool.continued(uow, who or self.lead, conversation)
+
+        compact(closed='first', session='second')
+        compact(closed='second', session='third')
+        first, second = self.rows()
+        self.assertEqual(first['opened_json'], {'unanswered': [], 'closed': 'first', 'session': 'second'})
+        self.assertEqual(continued('second'), {'conversation_id': 'first', 'at': first['opened_at']})
+        self.assertEqual(continued('third'), {'conversation_id': 'second', 'at': second['opened_at']})
+        self.assertIsNone(continued('first'))                   # no compaction opened it
+        self.assertIsNone(continued('elsewhere'))
+        self.assertIsNone(continued('second', self.worker))     # another agent's conversation of that id
+        # A row that names no conversation, or the same one twice, leads nowhere.
+        compact()
+        compact(closed='fourth', session='fourth')
+        compact(closed='', session='fifth')
+        self.assertEqual(self.rows()[2]['opened_json'], {'unanswered': [], 'closed': None, 'session': None})
+        self.assertEqual([continued(conversation) for conversation in (None, 'fourth', 'fifth')], [None, None, None])
+        # The newest row decides when two name the same fresh conversation.
+        compact(closed='other', session='third')
+        self.assertEqual(continued('third'), {'conversation_id': 'other', 'at': self.rows()[-1]['opened_at']})
 
     def test_the_opening_names_the_rules_the_agent_proposed_and_the_owner_has_not_decided(self):
         with self.db.transaction() as uow:

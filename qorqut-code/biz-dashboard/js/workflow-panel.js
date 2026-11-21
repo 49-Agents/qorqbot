@@ -173,7 +173,7 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
   };
 }
 
-// Global's timeline above Ordubashy's main chat: what holds now across the installation, read-only. Reads the owner view
+// Global's timeline above Ordubashy's main chat: the current state across the installation, read-only. Reads the owner view
 // of the Global item (never more than once every 20 seconds); an empty timeline shows nothing.
 const TIMELINE_GLOBAL_ITEM = {type: 'global', id: 'global', business_id: null};
 const timelineGlobalRead = (extra = {}) => post('/root/operations/timeline_view', {scope: 'global', item: TIMELINE_GLOBAL_ITEM, ...extra}).then(coreData);

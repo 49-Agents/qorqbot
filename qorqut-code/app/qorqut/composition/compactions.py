@@ -5,7 +5,8 @@ files one unasked (``agent``). ``request_json`` holds what was known when it was
 conversation). ``listed_from`` and ``listed_until`` bound the owner's messages the handoff answers for.
 ``filing_json`` is the handoff as filed, with the Task each note was written to. ``opened_at`` is when the fresh
 conversation was started from it, and ``opened_json`` what that conversation was given that the filing did not settle:
-the ids of the listed messages it gave no status.
+the ids of the listed messages it gave no status. ``opened_json`` also names the conversation that was closed (``closed``)
+and the fresh one (``session``), which is how Chat finds the conversation before a compaction.
 
 The owner's words are not stored here: a filing names each message by its id, and the text is read from its own place
 whenever it is shown. Host bookkeeping: never exported to history.

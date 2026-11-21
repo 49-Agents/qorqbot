@@ -66,7 +66,7 @@ const onboarding = (() => {
       // terminals-end
     },
     {id: 'browser-setup', chapter: 'connect', tab: 'settings', title: 'agent browser',
-      body: 'It sets itself up. This card shows when it’s ready, or how to fix it if not. Websites Ordubashy connects for you are listed with it.',
+      body: 'It sets itself up, and Ordubashy fixes it if something goes wrong. This card shows when it’s ready. Websites Ordubashy connects for you are listed with it.',
       target: () => document.querySelector('[data-cx-browser-area]')},
     // The tour ends where the first conversation starts, so his questions never arrive behind the tour.
     {id: 'chat', chapter: 'connect', title: 'say hello', hello: true,

@@ -214,7 +214,11 @@ class NativeCompactionTests(HandoffCase):
         self.step(1.0)
         row, = self.rows()
         self.assertTrue(row['opened_at'])
-        self.assertEqual(row['opened_json'], {'unanswered': []})
+        # The row names the conversation that was closed and the fresh one, so the fresh one leads back to the closed.
+        self.assertEqual(row['opened_json'], {'unanswered': [], 'closed': OLD, 'session': NEW})
+        with self.db.read() as uow:
+            self.assertEqual(self.tool.continued(uow, self.lead, NEW), {'conversation_id': OLD, 'at': row['opened_at']})
+            self.assertIsNone(self.tool.continued(uow, self.lead, OLD))
         self.assertIs(self.controller._flow, None)
         # The fresh conversation is small again: nothing more is asked of it.
         self.step()
@@ -362,6 +366,10 @@ class NativeCompactionTests(HandoffCase):
         self.step(compaction.RETRY_SECONDS)
         self.assertEqual((len(self.opener.replaced), self.controller._flow, self.rows()[0]['opened_at']), (3, None, None))
         self.assertEqual(self.managed.closed, ['graceful'])         # the conversation was closed once; nothing ran after it
+        # Nothing was opened, so no conversation is recorded as closed or as the fresh one.
+        self.assertIsNone(self.rows()[0]['opened_json'])
+        with self.db.read() as uow:
+            self.assertIsNone(self.tool.continued(uow, self.lead, NEW))
 
     def test_an_open_that_only_resumed_the_closed_conversation_is_not_recorded_as_replaced(self):
         self.say('Pay the creators today.', 10)
@@ -371,11 +379,12 @@ class NativeCompactionTests(HandoffCase):
         self.session.end_turn()
         self.opener.session = OLD                          # what came up is the old conversation, resumed
         self.step(1.0)
-        self.assertEqual(self.rows()[0]['opened_at'], None)
+        self.assertEqual((self.rows()[0]['opened_at'], self.rows()[0]['opened_json']), (None, None))
         self.opener.session = NEW
         self.step(compaction.RETRY_SECONDS)
         self.step(1.0)
         self.assertEqual((len(self.opener.replaced), bool(self.rows()[0]['opened_at'])), (2, True))
+        self.assertEqual(self.rows()[0]['opened_json'], {'unanswered': [], 'closed': OLD, 'session': NEW})
 
     def test_an_agent_the_owner_turned_off_is_not_opened_again(self):
         self.say('Pay the creators today.', 10)
