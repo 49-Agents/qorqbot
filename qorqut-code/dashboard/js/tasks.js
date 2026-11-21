@@ -243,7 +243,7 @@ function tWhoKind(o) {
 
 // the dot: dashed ring unassigned, a plain dot for an agent, cream for the owner (may carry
 // their initial), gray for anyone else
-function tWhoDot(o, slug = state.project) {
+function tWhoDot(o) {
   const kind = o?.startsWith('human:') ? 'founder' : o?.startsWith('agent:') ? 'agent' : 'unknown';
   const name = tShort(o);
   return identityAvatar(kind, name, {}, name);
@@ -256,7 +256,7 @@ function tAssigneeLabel(o, project = state.project) {
 }
 function tAssigneeAvatars(task) {
   const owners = tAssignees(task);
-  return `<span class="task-assignee-column">${owners.slice(0, 2).map(actor => `<button type="button" class="task-assignee-avatar" data-task-assignees title="Assigned to ${esc(tAssigneeLabel(actor,tSlug(task)))}">${tWhoDot(actor, tSlug(task))}</button>`).join('')}${owners.length > 2 ? `<button type="button" class="task-assignee-avatar task-assignee-more" data-task-assignees title="${tWhoTip(task)}">+${owners.length - 2}</button>` : ''}</span>`;
+  return `<span class="task-assignee-column">${owners.slice(0, 2).map(actor => `<button type="button" class="task-assignee-avatar" data-task-assignees title="Assigned to ${esc(tAssigneeLabel(actor,tSlug(task)))}">${tWhoDot(actor)}</button>`).join('')}${owners.length > 2 ? `<button type="button" class="task-assignee-avatar task-assignee-more" data-task-assignees title="${tWhoTip(task)}">+${owners.length - 2}</button>` : ''}</span>`;
 }
 function tAssignerAvatars(task) {
   const project = {...tProjectBySlug(tSlug(task)), ...tProject(task)};

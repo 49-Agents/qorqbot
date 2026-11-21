@@ -274,8 +274,7 @@ def read_agents(paths):
         connection.row_factory = sqlite3.Row
         connection.execute('PRAGMA query_only=ON')
         rows = connection.execute(
-            'SELECT p.agent_id, p.name, p.home_project_id, p.status, p.profile_json, b.slug AS slug '
-            'FROM agent_profiles p LEFT JOIN projects b ON b.id=p.home_project_id ORDER BY p.name, p.agent_id').fetchall()
+            'SELECT agent_id, name, status, profile_json FROM agent_profiles ORDER BY name, agent_id').fetchall()
         try:
             owners = {row['agent_id']: row for row in connection.execute(
                 'SELECT agent_id, consumer_id, binding_json, generation, desired_state FROM native_session_owners')}
@@ -295,13 +294,11 @@ def read_agents(paths):
             except (TypeError, ValueError):
                 binding = {}
         runtime = profile.get('runtime') if isinstance(profile, dict) else None
-        is_global = row['home_project_id'] is None
-        slug = 'global' if is_global else (row['slug'] or '')
         agents.append({
-            'agent_id': row['agent_id'], 'name': row['name'], 'status': row['status'], 'scope': slug,
+            'agent_id': row['agent_id'], 'name': row['name'], 'status': row['status'], 'scope': 'global',
             'profile_runtime': runtime if isinstance(runtime, str) else None,
-            'session': tmux_name(session_name('global', '_' + row['agent_id']) if is_global else session_name(slug, row['name'])),
-            'workspace': str(agent_workspace_of(paths, row['agent_id'], row['home_project_id'], row['slug'])),
+            'session': tmux_name(session_name('global', '_' + row['agent_id'])),
+            'workspace': str(agent_workspace_of(paths, row['agent_id'])),
             'db_conversation': owner['consumer_id'] if owner is not None else None,
             'db_client': {'claude-code': 'claude', 'codex': 'codex'}.get(binding.get('runtime') if isinstance(binding, dict) else None),
             'desired_state': owner['desired_state'] if owner is not None else None})
