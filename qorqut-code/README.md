@@ -27,7 +27,7 @@ qorqut-code/
   tools/                      committed export, environment preparation and native distribution tools
   qorqut-operations/          Operations engine component
   qorqut-context/             shared Context engine component
-  dashboard/              owner dashboard component
+  dashboard/                  owner dashboard component
   docs/  README.md  FOUNDATION.md  DOMAIN-APIS.md
 ```
 

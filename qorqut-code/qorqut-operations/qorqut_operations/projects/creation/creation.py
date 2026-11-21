@@ -118,7 +118,7 @@ class Creation:
     def require_no_variant(self, slug, uow):
         """Keep the case-insensitive reservation after preparation: a sibling that appeared since refuses every later phase.
 
-        Only the other spellings are examined. The exact destination is the project of the file effect and the plan's
+        Only the other spellings are examined. The exact destination is left to the file effect and the plan's
         targets, which recognize this creation's own published directory by its receipt and refuse any other."""
         if self.variants(slug):
             raise self.taken(slug, uow)

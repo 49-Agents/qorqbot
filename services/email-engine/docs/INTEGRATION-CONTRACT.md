@@ -98,7 +98,7 @@ so the reply-stop guard's pre-send check always has a real window to act in
 before any provider call. Validation failures are `400 invalid_intent` /
 `invalid_message` (with a `fields` list) / `invalid_intent_request` depending
 on which layer rejected it (envelope schema, wrapped-message schema, or
-cross-field project rule such as an out-of-scope mailbox or a mismatched
+cross-field domain rule such as an out-of-scope mailbox or a mismatched
 `expires_at`).
 
 ### Idempotency and conflicts

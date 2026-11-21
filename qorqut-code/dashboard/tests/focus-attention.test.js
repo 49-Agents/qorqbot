@@ -16,10 +16,10 @@ test('record notifications mount the exact thread in Focus and protect sends', a
     setTimeout:()=>0, clearTimeout(){}, Event:class {}, primaryAgent:()=>true};
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reply-notifications.js'),'utf8')+'\nthis.subject=replyNotifications;',context);
-  await context.subject.open({kind:'thread',agent_id:'agent-1',agent_name:'A',project:'project',source:{type:'task',id:'task-1',project_id:'project-1'}});
+  await context.subject.open({kind:'thread',agent_id:'agent-1',agent_name:'A',project:'acme',source:{type:'task',id:'task-1',project_id:'project-1'}});
   assert.equal(spec.agentId,'agent-1');
   const dispose=spec.mount({}, {setBeforeLeave(fn){guard=fn;}});
-  assert.deepEqual({...source},{type:'task',id:'task-1',project:'project',project_id:'project-1'});
+  assert.deepEqual({...source},{type:'task',id:'task-1',project:'acme',project_id:'project-1'});
   assert.equal(expanded,true);
   assert.equal(await guard(),true);
   conversation.state.sending=true;

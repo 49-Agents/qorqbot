@@ -7,7 +7,7 @@ or submodule initialization. The directories retain package boundaries and indep
 qorqut-code/                   host application
   qorqut-operations/           Operations engine
   qorqut-context/              shared Context engine
-  dashboard/               owner dashboard
+  dashboard/                   owner dashboard
   extensions/                  Google Calendar, optional Telegram and WhatsApp
 qorqut-agentic/                agentic engine and bundled role resources
 extensions/qorqut-fastmail/    optional Fastmail connector

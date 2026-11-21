@@ -122,7 +122,7 @@ Core coverage lives in `test_context_relationships.py`, `test_context_reviews.py
 `test_filing_materials.py`, and the existing task, document, Story and email tests.
 These exercise permissions, concurrency, upgrade preservation, archive/restore,
 verbatim extraction and protected authored content. `test_filer_provider.py` is
-an opt-in real-provider check using synthetic inputs, not project correspondence.
+an opt-in real-provider check using synthetic inputs, not real correspondence.
 
 Dashboard graph tests exercise topology, layout and navigation. The isolated
 `test_relationships_browser.js` workflow covers shared decisions, lost-response

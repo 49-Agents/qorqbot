@@ -17,7 +17,7 @@ async function fixture(run) {
     for (const file of ['app.css', 'css/chat-view.css']) await page.addStyleTag({path: path.join(root, file)});
     await page.evaluate(() => {
       window.esc = value => String(value ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
-      window.state = {projects: [{id: 'project', slug: 'project'}]};
+      window.state = {projects: [{id: 'acme', slug: 'acme'}]};
       window.coreData = response => response.data;
       window.pendingReads = [];
       window.opened = [];
@@ -77,12 +77,12 @@ test('ordinary task and table references paint immediately and ignore stale read
 
 test('task references with the same ID in different projects remain distinct', {skip: !available}, async () => {
   await fixture(async page => {
-    await page.evaluate(() => render({...entry(reference('same', 'task', 'project')), typedReferences: [reference('same')]}));
+    await page.evaluate(() => render({...entry(reference('same', 'task', 'acme')), typedReferences: [reference('same')]}));
     assert.equal(await page.locator('.gchat-log button').count(), 2);
     assert.equal(await page.locator('.gchat-log button:empty').count(), 0);
     await page.waitForFunction(() => pendingReads.length === 2);
     assert.deepEqual(await page.evaluate(() => pendingReads.map(read => read.url).sort()),
-      ['/project/project/operations/tasks_get', '/root/operations/tasks_get']);
+      ['/project/acme/operations/tasks_get', '/root/operations/tasks_get']);
   });
 });
 

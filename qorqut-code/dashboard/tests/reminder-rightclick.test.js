@@ -6,7 +6,7 @@ test('right-click surfaces coalesce an occurrence and retain uncertain request f
   let resolveWrite, rejectWrite, serial=0, refreshes=0, opened=0; const writes=[], listeners={}, timers=new Map(); let timerId=0;
   const reminder={reminder_id:'r',recipient_id:'owner',project_id:'b',revision:7,state:'due',occurrence_id:'one',text:'Repeat',recurrence:{schedule:'0 9 * * *'}};
   const context={document:{addEventListener(){},dispatchEvent(){},createElement:()=>new Node()},window:{addEventListener(){}},Event:class{},embeddedAgentPane:true,
-    state:{session:{principal_id:'owner'},projects:[{id:'b',slug:'project'}]},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),
+    state:{session:{principal_id:'owner'},projects:[{id:'b',slug:'acme'}]},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),
     post:(url,args)=>{writes.push({url,args:{...args}});return new Promise((resolve,reject)=>{resolveWrite=resolve;rejectWrite=reject;});},coreData:x=>x,newRequestId:()=>`key-${++serial}`,
     api:async()=>({items:[]}),remindersOpenDetail:()=>{opened++},esc:String,URLSearchParams,Date,Intl,accessLost:()=>false,
     setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId},clearTimeout:id=>timers.delete(id),requestAnimationFrame(){},$ :()=>box,agentGlyph:()=>''};
@@ -21,7 +21,7 @@ test('right-click surfaces coalesce an occurrence and retain uncertain request f
   const toast=box.children[1], chip={dataset:{reminderKey:'r'},closest(s){return s==='[data-reminder-key]' || s==='[data-reminder-key],[data-signoff-key]'?this:null}};
   const event={target:chip,currentTarget:host,preventDefault(){this.prevented=true}};
   listeners.contextmenu(event);toast.listeners.contextmenu({preventDefault(){}});listeners.contextmenu(event);await tick();
-  assert.equal(event.prevented,true);assert.equal(writes.length,1);assert.equal(writes[0].url,'/project/project/operations/reminders_dismiss');assert.deepEqual(writes[0].args,{reminder_id:'r',revision:7,occurrence_id:'one',idempotency_key:'key-1'});
+  assert.equal(event.prevented,true);assert.equal(writes.length,1);assert.equal(writes[0].url,'/project/acme/operations/reminders_dismiss');assert.deepEqual(writes[0].args,{reminder_id:'r',revision:7,occurrence_id:'one',idempotency_key:'key-1'});
   rejectWrite(new Error('lost response'));await tick();assert.equal(context.attempts.size,1);assert.equal(box.children.includes(toast),true);
   await assert.rejects(context.dismissDue(reminder),/unconfirmed/);assert.equal(writes.length,1);
   const retry=context.submit([...context.attempts.values()][0]);await tick();assert.deepEqual(writes[1],writes[0]);resolveWrite({reminder:{...reminder,state:'scheduled',occurrence_id:null}});await retry;

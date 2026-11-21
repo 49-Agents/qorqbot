@@ -10,7 +10,7 @@ async function fixture(){
  await page.setContent('<main style="display:flex;height:780px"><section style="width:45%"><textarea aria-label="Main chat draft"></textarea></section><aside class="agfocus" style="width:55%;display:flex;flex-direction:column"><section class="agfocus-surface" hidden><header class="agfocus-surface-bar"><button data-surface-close>Back</button><span class="agfocus-surface-title"></span></header><div class="agfocus-surface-body"></div></section><div class="agfocus-layout">Focus list</div></aside></main>');
  for(const file of ['app.css','css/agent-focus.css','css/conversation.css','css/chat-view.css','css/signoffs.css'])await page.addStyleTag({path:path.join(root,file)});
  await page.evaluate(()=>{
-  window.$=(selector,host=document)=>host.querySelector(selector);window.state={scope:'global',globalTab:'agents',projects:[{id:'p',slug:'project'}]};
+  window.$=(selector,host=document)=>host.querySelector(selector);window.state={scope:'global',globalTab:'agents',projects:[{id:'p',slug:'acme'}]};
   window.coreData=value=>value;window.uiFailure=e=>e.message;window.newRequestId=(()=>{let n=0;return()=>String(++n);})();window.toast=()=>{};
   window.modal=()=>{throw Error('Side chat must not open a modal');};window.calls=[];window.hold=null;window.failCreate=false;
   window.renameReceipts=new Map();window.failRename=false;window.holdRename=false;
@@ -64,7 +64,7 @@ browserTest('Focus conversation preserves drafts, stops hidden polling, and clos
   await page.evaluate(()=>sideChatOpen({id:'two',title:'Other question'}));assert.equal(await page.getByRole('textbox',{name:'Side chat message'}).inputValue(),'');
   await page.evaluate(()=>sideChatOpen({id:'one',title:'Project question',source:{type:'signoff',id:'one',project_id:'p'}}));assert.equal(await page.getByRole('textbox',{name:'Side chat message'}).inputValue(),'Unsent reply');
   await page.getByRole('button',{name:'Close side chat',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.agfocus-surface').hidden);
-  const closed=await page.evaluate(()=>calls.filter(c=>c.url.endsWith('/side_chats_close')));assert.equal(closed.length,1);assert.equal(closed[0].url,'/project/project/operations/side_chats_close');assert.equal(closed[0].body.signoff_id,'one');assert.deepEqual(errors,[]);
+  const closed=await page.evaluate(()=>calls.filter(c=>c.url.endsWith('/side_chats_close')));assert.equal(closed.length,1);assert.equal(closed[0].url,'/project/acme/operations/side_chats_close');assert.equal(closed[0].body.signoff_id,'one');assert.deepEqual(errors,[]);
  }finally{await browser.close();}
 });
 browserTest('pending sends and question edits block leaving inline; detached creates do not displace newer content',async()=>{
@@ -134,7 +134,7 @@ browserTest('a lost project rename response keeps the draft and reuses the recei
   await page.evaluate(()=>finishRename());await page.waitForFunction(()=>document.querySelector('.agfocus-surface').hidden);
   const renames=await page.evaluate(()=>calls.filter(c=>c.url.endsWith('/side_chats_rename')));
   assert.equal(renames.length,2);assert.deepEqual(renames[0].body,renames[1].body);
-  assert.equal(renames[0].url,'/project/project/operations/side_chats_rename');assert.equal(renames[0].body.scope,'project');
+  assert.equal(renames[0].url,'/project/acme/operations/side_chats_rename');assert.equal(renames[0].body.scope,'project');
   await page.evaluate(()=>sideChatOpen(chatItem));assert.equal(await page.locator('.side-chat-title-button').innerText(),'Project plans');
   assert.deepEqual(errors,[]);
  }finally{await browser.close();}
@@ -165,7 +165,7 @@ browserTest('a Signoff a reply references is the main Chat\'s Signoff card, not 
   await page.evaluate(()=>sideChatOpen({id:'one',title:'First chat',source:{type:'signoff',id:'one',project_id:null}}));
   await page.locator('.side-chat-thread .gchat-signoff-reference').first().waitFor();
   // Both Signoffs in the reply are cards inside that reply, the project one with its project; nothing is named "signoff".
-  assert.deepEqual(await page.evaluate(()=>mounted.sort()),['f1:global','f2:project']);
+  assert.deepEqual(await page.evaluate(()=>mounted.sort()),['f1:global','f2:acme']);
   assert.equal(await page.locator('.side-chat-thread .gchat-signoff-reference').count(),2);
   assert.equal(await page.locator('.side-chat-thread button.gchat-reference',{hasText:/^signoff$/}).count(),0);
   // The side chat keeps its titled button; an unlabelled reference gets a readable name; the owner's own reference stays a button.

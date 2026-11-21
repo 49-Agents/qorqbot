@@ -103,7 +103,7 @@ class ActionTaskLookupTests(Harness):
                      'Only project-operational actions name projects', 'project_ids')
         action = self.recorded(task_id=general['id'], category='project-operational', project_ids=[self.alpha])
         self.assertEqual(self.classification(action), ('project-operational', [self.alpha]))
-        # A Global Task cannot supply the project a project-operational Action needs.
+        # A project-operational Action needs a project, and a Global Task cannot supply one.
         self.refused(self.record(task_id=general['id'], category='project-operational'), 'validation_error',
                      'Project-operational actions need at least one project', 'project_ids')
 

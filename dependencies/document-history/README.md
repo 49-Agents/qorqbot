@@ -12,7 +12,7 @@ SQLite connection the host already owns:
 
 The two record types share one package but are separate tables and APIs. An
 event records an action that already succeeded; it is not a command, work
-queue, approval or replayable project model. The package is a library, not a
+queue, approval or replayable domain model. The package is a library, not a
 plugin, service or adapter. Version 0.2.0 includes the trusted import call used
 by the Qorqut integration (the host and qorqut-context consume it through exact
 Git commit pins).

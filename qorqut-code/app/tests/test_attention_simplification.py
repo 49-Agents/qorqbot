@@ -208,12 +208,12 @@ class AttentionTests(unittest.TestCase):
     def test_archiving_a_project_takes_its_tasks_off_every_board(self):
         for agent in ('first', 'second'):
             self.agent(agent)
-        entries = (('m1', 'first', 'project', 'one'), ('m2', 'first', 'project', 'two'), ('m3', 'first', 'other', 'one'),
-                   ('m4', 'first', None, 'one'), ('m5', 'second', 'project', 'one'))
+        entries = (('m1', 'first', 'acme', 'one'), ('m2', 'first', 'acme', 'two'), ('m3', 'first', 'other', 'one'),
+                   ('m4', 'first', None, 'one'), ('m5', 'second', 'acme', 'one'))
         for identifier, agent, project, task in entries:
             self.conn.execute('INSERT INTO attention_memberships(id,agent_id,task_project_id,task_id,task_created_at,'
                               'created_at) VALUES(?,?,?,?,?,?)', (identifier, agent, project, task, EARLIER, EARLIER))
-        work = json.dumps({'type': 'task', 'id': 'one', 'project_id': 'project'})
+        work = json.dumps({'type': 'task', 'id': 'one', 'project_id': 'acme'})
         self.conn.execute("UPDATE agent_attention SET work_task_json=? WHERE agent_id='first'", (work,))
         self.conn.execute("UPDATE agent_attention SET work_task_json=? WHERE agent_id='second'",
                           (json.dumps({'type': 'task', 'id': 'one', 'project_id': 'other'}),))
@@ -221,20 +221,20 @@ class AttentionTests(unittest.TestCase):
                           "workflow_name,updated_at) VALUES('first','run','session-first',?,'ref','Example',?)", (work, EARLIER))
         before = {row['agent_id']: row['revision'] for row in self.conn.execute('SELECT * FROM agent_attention')}
         with self.database.transaction() as uow:
-            self.assertEqual(self.attention.release_project(uow, 'project', 'owner'), 3)
+            self.assertEqual(self.attention.release_project(uow, 'acme', 'owner'), 3)
         left = [row[0] for row in self.conn.execute('SELECT id FROM attention_memberships ORDER BY id')]
         self.assertEqual(left, ['m3', 'm4'])
         history = [tuple(row) for row in self.conn.execute('SELECT membership_id,agent_id,task_project_id,task_id,actor_id,'
             'event_type,rationale FROM attention_membership_events ORDER BY membership_id')]
-        self.assertEqual(history, [(identifier, agent, 'project', task, 'owner', 'removed', 'Project archived')
-                                   for identifier, agent, project, task in entries if project == 'project'])
+        self.assertEqual(history, [(identifier, agent, 'acme', task, 'owner', 'removed', 'Project archived')
+                                   for identifier, agent, project, task in entries if project == 'acme'])
         first, second = (self.attention.state(NS(connection=self.conn), agent) for agent in ('first', 'second'))
         self.assertEqual((first['focus_json'], first['work_task_json']), (None, None))     # its focus was on that project
         self.assertIsNotNone(second['focus_json'])                                         # a focus elsewhere is kept
         self.assertTrue(all(state['revision'] > before[state['agent_id']] for state in (first, second)))
         self.assertIsNotNone(self.conn.execute("SELECT detached_at FROM attention_workflows WHERE run_id='run'").fetchone()[0])
         with self.database.transaction() as uow:
-            self.assertEqual(self.attention.release_project(uow, 'project', 'owner'), 0)   # nothing left to remove
+            self.assertEqual(self.attention.release_project(uow, 'acme', 'owner'), 0)   # nothing left to remove
 
     def test_registration_and_native_consumer_checks_still_precede_work(self):
         self.agent('first')
@@ -346,16 +346,16 @@ class AttentionTests(unittest.TestCase):
             self.assertEqual(self.conn.total_changes, before)       # a board that is gone has no clock to advance
 
     def test_a_task_written_as_paused_clears_a_plain_focus_on_it(self):
-        task = {'type': 'task', 'id': 'one', 'project_id': 'project'}
+        task = {'type': 'task', 'id': 'one', 'project_id': 'acme'}
         for agent in ('first', 'second', 'third'):
             self.agent(agent)
         self.conn.execute("UPDATE agent_attention SET focus_json=?,work_task_json=? WHERE agent_id='first'",
                           (json.dumps(task), json.dumps(task)))
         self.conn.execute("UPDATE agent_attention SET focus_json=?,work_task_json=? WHERE agent_id='second'",
                           (json.dumps({'type': 'workflow', 'id': 'run', 'project_id': None}), json.dumps(task)))
-        other = json.dumps({'type': 'task', 'id': 'two', 'project_id': 'project'})
+        other = json.dumps({'type': 'task', 'id': 'two', 'project_id': 'acme'})
         self.conn.execute("UPDATE agent_attention SET focus_json=?,work_task_json=? WHERE agent_id='third'", (other, other))
-        row = {'id': 'one', 'project_id': 'project', 'created_at': EARLIER, 'worker_ids_json': '[]', 'archived': 0}
+        row = {'id': 'one', 'project_id': 'acme', 'created_at': EARLIER, 'worker_ids_json': '[]', 'archived': 0}
         uow = NS(connection=self.conn)
         focus = lambda agent: self.attention.state(uow, agent)['focus_json']
         with self.database.transaction() as uow:
@@ -371,7 +371,7 @@ class AttentionTests(unittest.TestCase):
         self.assertEqual(focus('third')['id'], 'two')                    # a focus on another Task is untouched
 
     def test_a_paused_task_cannot_take_a_plain_task_focus(self):
-        task = {'type': 'task', 'id': 'one', 'project_id': 'project'}
+        task = {'type': 'task', 'id': 'one', 'project_id': 'acme'}
         self.agent('first')
         attention = self.attention
         ctx = NS(principal_kind='agent', principal_id='first')

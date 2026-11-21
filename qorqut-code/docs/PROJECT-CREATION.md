@@ -2,8 +2,7 @@
 
 `project_create` creates one empty local project at the owner's request. A project is a named
 container for work: Tasks, documents, tables, assets, routines and its own Settings. Creating one
-does not set anything else up. The operation keeps its stable identifier `project_create`; the
-interface calls the result a project.
+does not set anything else up.
 
 Ideas, `ideas_*`, `manage_ideas`, the project setup checklist and `manage_project_setup` are
 retired.

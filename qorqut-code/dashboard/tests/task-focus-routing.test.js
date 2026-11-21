@@ -6,8 +6,8 @@ const helper=tasks.slice(start,end);
 const workspace=read('agent-workspace'),a=workspace.indexOf('async function agentOpenRecordReference('),b=workspace.indexOf('\n}',a)+2;
 const reference=workspace.slice(a,b);
 function harness(embedded=false){
- const calls=[],errors=[],project={id:'p1',slug:'project'};
- const ctx={state:{scope:'global',globalTab:'agents',project:'project',projects:[project]},embeddedAgentPane:embedded,parent:{agentOpenRecordReference:async ref=>{calls.push(ref);return true;}},
+ const calls=[],errors=[],project={id:'p1',slug:'acme'};
+ const ctx={state:{scope:'global',globalTab:'agents',project:'acme',projects:[project]},embeddedAgentPane:embedded,parent:{agentOpenRecordReference:async ref=>{calls.push(ref);return true;}},
   loadGlobalAgentProfiles:async()=>[{agent_id:'ord',role:{id:'ordubashy'}}],globalRosterAgent:()=>true,selectGlobal:async()=>{},globalAgentsNavigate:async(id,{view})=>{ctx._agpad.view=view;return true;},
   _agpad:{agentId:'ord',view:'focus'},agfocusOpenRecord:async(p,ref)=>{calls.push(ref);return true;},toast:m=>errors.push(m)};
  vm.createContext(ctx);vm.runInContext(reference+'\n'+helper,ctx);return {ctx,calls,errors};
@@ -15,9 +15,9 @@ function harness(embedded=false){
 function plain(v){return JSON.parse(JSON.stringify(v));}
 for(const embedded of [false,true])test(`project and Global details route canonical references (${embedded?'embedded':'normal'})`,async()=>{
  const {ctx,calls}=harness(embedded);
- assert.equal(await ctx.tDetail({id:'x',title:'Project task',project:{id:'p1',slug:'project'}}),true);
+ assert.equal(await ctx.tDetail({id:'x',title:'Project task',project:{id:'p1',slug:'acme'}}),true);
  assert.equal(await ctx.tDetail({id:'y',title:'Global task',project_id:null}),true);
- assert.deepEqual(plain(calls),[{type:'task',id:'x',project_id:'p1',project_slug:'project',label:'Project task',task_type:null},
+ assert.deepEqual(plain(calls),[{type:'task',id:'x',project_id:'p1',project_slug:'acme',label:'Project task',task_type:null},
   {type:'task',id:'y',project_id:null,project_slug:null,label:'Global task',task_type:null}]);
 });
 test('unknown or conflicting project identity cannot fall back to Global',async()=>{
@@ -29,19 +29,19 @@ test('unknown or conflicting project identity cannot fall back to Global',async(
 });
 test('progress references preserve scope and beforeOpen refusal',async()=>{
  const {ctx,calls}=harness();vm.runInContext(read('task-progress'),ctx);
- assert.equal(await ctx.taskProgressOpenReference('project',{type:'task',id:'x'},async()=>false),undefined);assert.equal(calls.length,0);
- assert.equal(await ctx.taskProgressOpenReference('project',{type:'task',id:'x'},async()=>true),true);
+ assert.equal(await ctx.taskProgressOpenReference('acme',{type:'task',id:'x'},async()=>false),undefined);assert.equal(calls.length,0);
+ assert.equal(await ctx.taskProgressOpenReference('acme',{type:'task',id:'x'},async()=>true),true);
  assert.equal(await ctx.taskProgressOpenReference(null,{type:'task',id:'y'},async()=>true),true);
- assert.deepEqual(plain(calls).map(c=>[c.id,c.project_id,c.project_slug]),[['x','p1','project'],['y',null,null]]);
+ assert.deepEqual(plain(calls).map(c=>[c.id,c.project_id,c.project_slug]),[['x','p1','acme'],['y',null,null]]);
 });
 test('work links preserve canonical scope through the shared task opener',async()=>{
  const {ctx,calls}=harness();ctx.modal=()=>{throw Error('unexpected overlay');};
  const s=read('work-groups'),a=s.indexOf('async function workOpenLink('),b=s.indexOf('// An unsaved creation form',a);
  const c=s.indexOf('async function taskLinkOpen('),d=s.indexOf('// The shared chain-link glyph',c);
  vm.runInContext(s.slice(a,b)+'\n'+s.slice(c,d),ctx);
- await ctx.workOpenLink({project:'project',error:e=>{throw e;}},{resource_type:'tasks',resource_id:'x'});
+ await ctx.workOpenLink({project:'acme',error:e=>{throw e;}},{resource_type:'tasks',resource_id:'x'});
  await ctx.workOpenLink({project:null,error:e=>{throw e;}},{resource_type:'tasks',resource_id:'y'});
- await ctx.taskLinkOpen({task_id:'z',project_id:'p1',project_slug:'project'});
+ await ctx.taskLinkOpen({task_id:'z',project_id:'p1',project_slug:'acme'});
  await ctx.taskLinkOpen({task_id:'old-global'});
  assert.deepEqual(plain(calls).map(c=>[c.id,c.project_id]),[['x','p1'],['y',null],['z','p1'],['old-global',null]]);
 });
@@ -89,7 +89,7 @@ test('native Chat task references use the shared thread opener and ignore stale 
  const source=read('global-chat'),start=source.indexOf('async function globalChatOpenFocusReference('),end=source.indexOf('function globalChatAccept(',start);
  vm.runInContext(source.slice(start,end),ctx);
  ctx.agentOpenRecordReference=async ref=>{opens.push(plain(ref));return true;};
- const ref={type:'task',id:'task1',project_id:'p1',project_slug:'project'};
+ const ref={type:'task',id:'task1',project_id:'p1',project_slug:'acme'};
  assert.equal(await ctx.globalChatOpenFocusReference(ref,{pane:ctx._agpad,agentId:'ord'}),true);
  assert.deepEqual(opens,[ref]);
  assert.equal(await ctx.globalChatOpenFocusReference(ref,{pane:ctx._agpad,agentId:'other'}),false);
@@ -106,7 +106,7 @@ test('task references inside a paired record also use the normal thread opener',
  ctx.agentOpenRecordReference=async ref=>{opens.push(plain(ref));return true;};
  const source=read('agent-focus'),start=source.indexOf('async function agfocusOpenPairedReference('),end=source.indexOf('// Unread state',start);
  vm.runInContext(source.slice(start,end),ctx);
- const ref={type:'task',id:'task1',project_id:'p1',project_slug:'project'};
+ const ref={type:'task',id:'task1',project_id:'p1',project_slug:'acme'};
  assert.equal(await ctx.agfocusOpenPairedReference(ctx._agpad,ref),true);
  assert.deepEqual(opens,[ref]);
 });

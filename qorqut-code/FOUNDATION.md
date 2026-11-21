@@ -3,7 +3,7 @@
 This is the foundation contract of the shared service. The contract types, application engine and storage
 live in the Operations engine (`qorqut_operations`, in the `qorqut-operations` repository); the host composes
 them.
-Database initialization, authentication, concrete project handlers, background
+Database initialization, authentication, concrete domain handlers, background
 admission, policy/signoff installation, and transport startup are separate
 composition steps. No module performs live imports or initializes a database at
 import time. There is no CLI application-logic adapter.

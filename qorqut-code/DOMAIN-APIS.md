@@ -1,4 +1,4 @@
-# Project Domain Integration
+# Domain Integration
 
 `register_project_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None, filing=None, graph_edits=None, queue=None)` composes the retained domains with Operations and shared Context. Read the exact current signature in [domain composition](app/qorqut/domains/__init__.py); optional integration arguments evolve there. `paths` is explicit `InstancePaths`, not a projects-root string. The `ProjectDomains` dataclass includes Tasks, Actions, tags, queue, shared Context, neutral items and retained domain services. Stories and the former Requests domain are not members.
 `job_programs` is the shared `ProgramRegistry`, not an ad hoc task map.
@@ -146,18 +146,6 @@ wraps it in one `<text>` block without parsing dashes, dividers or bold tokens.
 A metadata-only `notes_update` on a Journal record adopts that format and kind
 without changing any source file bytes. Normal subsequent edits preserve the
 format and use the regular revision/hash checks.
-
-To adopt current entries across all registered projects, inspect first, then
-apply the same explicit migration command with `--apply`:
-
-```sh
-python -I -m qorqut.migration.journal_notes --root /path/to/projects --workspace /path/to/workspace
-```
-
-The migration uses the installation owner's normal application policy, checks
-current revisions/hashes, privately backs up every original file and record,
-verifies byte identity afterward, and is safe to rerun. It does not start a
-service or background jobs. There is no startup migration or implicit import.
 
 ## Call And Meeting Uploads
 

@@ -12,7 +12,7 @@ companion contracts for storage, permissions and context delivery.
 flowchart TB
     Claude[Claude Code sessions in mirrored terminals] --> MCP[MCP interface]
     Owner[Owner in the dashboard] --> HTTP[Dashboard HTTP interface]
-    MCP --> Operations[Shared project operations]
+    MCP --> Operations[Shared domain operations]
     HTTP --> Operations
     Jobs[Existing background jobs] --> Operations
     Operations --> Policy[Identity, scope and operation policy]
@@ -25,7 +25,7 @@ flowchart TB
     Storage --> Versions[Nightly exports/versioning and separate backups]
 ```
 
-MCP is a transport, not the application's project logic or storage layer. The
+MCP is a transport, not the application's domain logic or storage layer. The
 dashboard and MCP adapters reach the same operation implementations and
 permission checks. Long-running background work may use managed subprocesses,
 but there is one shared service and no MCP server or model runner per agent.

@@ -61,7 +61,7 @@ does not replay every missed interval.
 
 Use `broadcasts_list` and `broadcasts_get` for saved definitions and per
 recipient delivery results. The sender, an authorized project owner, or
-Ordubashy, or the owning project's project agent may use `broadcasts_update`, `broadcasts_pause`,
+Ordubashy, or the owning project's agent may use `broadcasts_update`, `broadcasts_pause`,
 `broadcasts_resume`, and `broadcasts_cancel` within current scope. Mutations
 against an existing record require its current `revision` as
 `expected_revision`; stale revisions fail rather than overwrite newer work.

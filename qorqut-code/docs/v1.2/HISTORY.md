@@ -27,7 +27,7 @@ Before implementation, register every composed table under one of: exported colu
 | Inbox/subscriptions | Export the selected ordinary work/delivery state needed to explain operational history, without provider input secrets or private-message bodies leaking through event payloads |
 | Signoffs | Export safe identity, lifecycle, revision and outcome summaries; exact prepared payloads/file bytes/recovery claims remain in the authoritative protected store |
 | Routines and runs | Export definitions/results through explicit safe fields; preserve IDs/definitions and states without copying arbitrary environment, secret arguments or opaque provider payloads |
-| Other retained project records | Domain-owned explicit column/export contracts, reusing existing public-export rules where applicable |
+| Other retained domain records | Domain-owned explicit column/export contracts, reusing existing public-export rules where applicable |
 | Private owner/agent DMs | Excluded from additional operational Git snapshots, preserving v1 (owner decision, October 13, 2026). Private conversations retain their authoritative storage; do not expose messages indirectly through events |
 | Native Chat, raw transcripts, session bindings, credentials, tokens, exact execution/idempotency receipts and raw job state | Excluded from this Git snapshot; retained by their existing authoritative/archive owners |
 

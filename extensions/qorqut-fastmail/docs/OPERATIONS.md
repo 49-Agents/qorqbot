@@ -50,7 +50,7 @@ changed. Composing operations (`draft_create`, `draft_update`, `send`, `reply`, 
 - `identity_id` must be an identity of the account and its email must equal `from_address` (case-insensitive); otherwise
   `sender_identity_denied` / `sender_identity_mismatch` before anything is queued. An identity with an automatic Bcc or Reply-To
   is refused, as the engine would refuse it.
-- No sender is ever inferred from a Project, folder or project. The engine re-verifies the identity when it applies the action.
+- No sender is ever inferred from a Project or folder. The engine re-verifies the identity when it applies the action.
 - Limits: ≤50 recipients per field, ≤10 attachments, ≤1 MiB base64 of inline attachment data in total, body ≤50 000 characters.
 
 Sending returns `signoff_required` with the pending Signoff identity. It creates no job and sends nothing yet. The frozen

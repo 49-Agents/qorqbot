@@ -1,4 +1,4 @@
-"""Project operations implemented against the shared application contracts."""
+"""Domain operations implemented against the shared application contracts."""
 
 from dataclasses import dataclass
 from .dev_tickets import DevTickets
@@ -80,11 +80,11 @@ def no_additional_asset_references(row, ctx, uow):
 
 def register_project_domains(registry, application, paths, *, agent_resolver, queue, on_revision, catalog=None, clock=utc_clock,
                               job_programs=None, filing=None, graph_edits=None, extensions=NO_EXTENSIONS):
-    """Register every project domain. ``queue`` is the composed Context queue and ``on_revision`` the one Action revision
+    """Register every domain. ``queue`` is the composed Context queue and ``on_revision`` the one Action revision
     admission (``ContextComposition.on_revision``) that ``ActionOperations``, the surviving Action writer, settles through;
     both are required."""
     if queue is None:
-        raise TypeError("The project domains need the composed Context queue (ContextComposition.queue)")
+        raise TypeError("The domains need the composed Context queue (ContextComposition.queue)")
     tables = TableOperations(application.database, paths.operations, lambda project: project_hq(paths, project), clock=clock, job_programs=job_programs)
     activity = ActionWriteback(clock=clock)
     documents = DocumentOperations(application.database, paths, clock=clock, job_programs=job_programs, filing=filing)

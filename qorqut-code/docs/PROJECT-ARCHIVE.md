@@ -2,7 +2,7 @@
 
 Ask Ordubashy to archive a project by name. It proposes
 `project_archive` in Global with the project UUID, current `expected_revision`
-and a rationale. The project UUID is the project's id; its current revision is the `revision` that
+and a rationale. The UUID is the project's id; its current revision is the `revision` that
 `project_config_get` returns for that selected project.
 
 For this Global-only operation, MCP preserves the declared `project_id` as the

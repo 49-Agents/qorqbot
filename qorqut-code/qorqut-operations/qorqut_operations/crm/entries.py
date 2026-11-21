@@ -290,7 +290,7 @@ class Entries:
 
     def task_arguments(self, ctx, args):
         """The ``tasks_create`` arguments of a new entry: a Customer (person) unless another Task type is chosen."""
-        # A row is a record of its Table, so a second row with the same name is the Table's project, not a duplicate Task.
+        # A row is a record of its Table, so a second row with the same name is the Table's concern, not a duplicate Task.
         create = {"task_type": "customer", "allow_duplicate": True, **args["create"]}
         if ctx.principal_kind == "agent" and create["task_type"] == "task":
             # A work Task per row fills every work view with records and leaves each row's state in two places.

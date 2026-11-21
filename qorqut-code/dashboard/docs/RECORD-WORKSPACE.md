@@ -94,7 +94,7 @@ The History switch lists every entry oldest first. A removed entry is struck thr
 ## Chat behavior
 
 Chat is mounted exactly once per stack entry and is reused across tab switches. Drafts
-are keyed by canonical source (`type:project-or-project:id`), so the same record shares a
+are keyed by canonical source (`type:project-or-global:id`), so the same record shares a
 draft across Focus selections. The private source is the canonical record scope, not
 the Global projection that hosts the pane.
 

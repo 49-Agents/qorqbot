@@ -1,9 +1,9 @@
 # qorqbot
-**proactive agent for project work**
+**proactive agent for business work**
 
-![Qorqbot: a provider-agnostic project agent with chat, agents, and a work panel](docs/images/qorqbot-overview.png)
+![Qorqbot: a provider-agnostic business agent with chat, agents, and a work panel](docs/images/qorqbot-overview.png)
 
-Qorqbot is a provider-agnostic proactive agent for project workflows and complex, long-running tasks.
+Qorqbot is a provider-agnostic proactive agent for business workflows and complex, long-running tasks.
 
 Early access. Built and used daily to run real operations.
 
@@ -17,7 +17,7 @@ It works around your existing agent harness, adding shared context, operational 
 
 ## Carries work forward in the background
 
-Qorqbot carries project workflows and complex, long-running tasks forward in the background.
+Qorqbot carries business workflows and complex, long-running tasks forward in the background.
 
 Its operational layer provides an interface for you and the agent to work with clients, CRMs, tables, and communications.
 
