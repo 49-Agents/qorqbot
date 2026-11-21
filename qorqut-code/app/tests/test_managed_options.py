@@ -386,8 +386,8 @@ class ManagerLaunch(base.ManagerFixture):
         self.assertEqual((env["CLAUDE_CONFIG_DIR"], env["HOME"], env["TMPDIR"]), ("/Volumes/work/claude", "/Users/owner", "/from/settings"))
 
     def test_every_supported_role_opens_alike(self):
-        # Ordubashy, a global worker, the learning applier: the manager no longer asks the role. What differs is the prepared
-        # workspace: an ecosystem scope is prepared to bypass, any other scope to deny (and the allowed tools on the command line).
+        # Ordubashy, a global worker, the learning applier: the manager does not ask the role. What differs is what the prepared
+        # workspace says: bypass, or deny (and the allowed tools on the command line).
         for role, mode_text, expected in (("ordubashy", "bypassPermissions", "bypass"), ("global-worker", "dontAsk", "deny"),
                                           ("learning-applier", "dontAsk", "deny")):
             with self.subTest(role=role):

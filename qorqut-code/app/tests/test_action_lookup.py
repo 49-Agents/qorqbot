@@ -12,13 +12,13 @@ CHANGING = ('actions_correct', 'actions_withdraw', 'actions_comment', 'actions_f
 
 
 class ActionLookupTests(Harness):
-    def member(self, project):
+    def working_in(self, project):
         return InvocationContext(Principal(self.agent, 'agent'), allowed_project_ids={self.alpha, self.beta},
                                  project_id=project, profile_revision=1, source='mcp')
 
     def stored_in(self, project):
-        """A project-operational Action stored in ``project`` and linked to it, recorded by a member of that project."""
-        return self.recorded(self.member(project))['action_id']
+        """A project-operational Action stored in ``project`` and linked to it, recorded by the agent while working in that project."""
+        return self.recorded(self.working_in(project))['action_id']
 
     def shared(self, *projects):
         return self.recorded(category='project-operational', project_ids=list(projects))['action_id']
@@ -50,7 +50,7 @@ class ActionLookupTests(Harness):
 
     def test_the_selected_project_stands(self):
         in_alpha = self.stored_in(self.alpha)
-        arguments, namespace = self.located(self.member(self.beta), in_alpha)
+        arguments, namespace = self.located(self.working_in(self.beta), in_alpha)
         self.assertEqual((arguments, namespace), ({'action_id': in_alpha}, None))
 
     def test_an_action_the_caller_cannot_see_is_not_found_without_detail(self):

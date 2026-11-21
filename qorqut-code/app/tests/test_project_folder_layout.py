@@ -179,7 +179,7 @@ class CreatedProject(unittest.TestCase):
             creation.prepare(builder, {"name": "Alpha"}, uow)
         project = recorded[0][3]["project"]
         self.assertEqual(project["workspace"], str(root / "alpha"))
-        self.assertNotIn("hq_path", project)
+        self.assertEqual(set(project), {"id", "slug", "workspace", "name", "config_json"})
         self.assertEqual(recorded[0][3]["directories"], [])
         self.assertEqual(checked_values(builder.changes[0].values), ())
         self.assertEqual(builder.previews[0].fields[0].after, ("projects/alpha",))

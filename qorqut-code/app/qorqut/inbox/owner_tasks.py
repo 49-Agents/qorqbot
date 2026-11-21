@@ -14,8 +14,8 @@ ALL_SCOPES = object()
 
 
 def tasks(uow, *, project=ALL_SCOPES, identity=None):
-    # The installation identity is authoritative, not an assignee display name
-    # or every project member marked owner. Match final committed assignment.
+    # The installation identity is authoritative, not an assignee display name.
+    # Match final committed assignment.
     where, args = [], []
     if project is not ALL_SCOPES:
         where.append('t.project_id IS ?')

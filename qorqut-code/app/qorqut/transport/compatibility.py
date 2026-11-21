@@ -177,7 +177,7 @@ class DashboardCompatibility:
         candidates = self.assignees(context)
         matches = [row for row in candidates if value == row["id"] or value == row["kind"] + ":" + (row.get("name") or row["display_name"])]
         if len(matches) != 1:
-            raise DomainError("invalid_assignee", "Select one active member of this project")
+            raise DomainError("invalid_assignee", "Select one active assignee of this project")
         return matches[0]["id"]
 
     def task_view(self, context, task, *, members=None):

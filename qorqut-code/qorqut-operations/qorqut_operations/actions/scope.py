@@ -23,7 +23,7 @@ def is_owner(ctx, uow) -> bool:
 def reader_scope(ctx, uow) -> dict:
     """Which memberships a read may see; storage namespace never grants scope."""
     if ctx.project_id is not None:
-        # A project-selected invocation (a project member, or a global agent working in that project) sees that
+        # A project-selected invocation (the owner or a global agent working in that project) sees that
         # project only.
         return {"kind": "project", "projects": frozenset({ctx.project_id}), "global_storage": False}
     if ctx.principal_kind == "human":
@@ -32,7 +32,7 @@ def reader_scope(ctx, uow) -> dict:
         return {"kind": "owner", "projects": frozenset(ctx.allowed_project_ids), "global_storage": True}
     if ctx.principal_kind == "agent" and "read_global_context" in ctx.global_capabilities:
         return {"kind": "ecosystem", "projects": frozenset(ctx.allowed_project_ids), "global_storage": True}
-    raise DomainError("forbidden", "Actions require an owner, a project member or an authorized global agent")
+    raise DomainError("forbidden", "Actions require the owner, a selected project or an authorized global agent")
 
 
 def action_namespace(ctx, args) -> str:
