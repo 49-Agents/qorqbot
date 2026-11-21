@@ -164,6 +164,27 @@ jobs:
             sign=(--identity "$SIGN_IDENTITY" --notary-profile qorqbot-notary)
           fi
           python qorqut-code/tools/distribution/macos_app/build_dmg.py --archive "$RELEASE_WORK/package/qorqbot-${QORQBOT_BUILD_VERSION}-macos14-arm64.tar.gz" --output "$RELEASE_WORK/dmg" "${sign[@]}"
+      - name: Print Apple's notarization log when notarization fails
+        if: failure() && inputs.version != '' && inputs.notarize
+        continue-on-error: true
+        run: |
+          # Apple says why it rejected a disk image only in this log; build_dmg.py does not print it.
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          test -f "$keychain" || { echo "No signing keychain, so there is no submission to look up."; exit 0; }
+          notary="$RUNNER_TEMP/notary"
+          mkdir -p "$notary"
+          xcrun notarytool history --keychain-profile qorqbot-notary --keychain "$keychain" --output-format json > "$notary/history.json"
+          cat > "$notary/pick.py" <<'PY'
+          import json, sys
+          rows = [r for r in json.load(open(sys.argv[1])).get('history', []) if r.get('name') == sys.argv[2]]
+          rows.sort(key=lambda r: r.get('createdDate', ''), reverse=True)
+          print(rows[0]['id'] if rows else '')
+          PY
+          submission="$(python3 "$notary/pick.py" "$notary/history.json" "Qorqbot-${QORQBOT_BUILD_VERSION}-macos14-arm64.dmg")"
+          test -n "$submission" || { echo "Apple lists no submission for this disk image."; exit 0; }
+          echo "Apple submission: $submission"
+          xcrun notarytool log "$submission" --keychain-profile qorqbot-notary --keychain "$keychain" "$notary/notary-log.json"
+          cat "$notary/notary-log.json"
       - name: Check the notarization ticket and Gatekeeper
         if: inputs.version != '' && inputs.notarize
         run: |
@@ -206,6 +227,7 @@ jobs:
           retention-days: 7
           path: |
             ${{ runner.temp }}/qorqbot-mac/*.json
+            ${{ runner.temp }}/notary/*.json
             ${{ runner.temp }}/qorqbot-mac/prepared/logs/*.log
             /tmp/qm-${{ github.run_id }}-${{ github.run_attempt }}/*.json
             /tmp/qm-${{ github.run_id }}-${{ github.run_attempt }}/*.log
