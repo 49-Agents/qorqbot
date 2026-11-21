@@ -72,7 +72,7 @@ def sample(name, properties, required=(), scopes=('project', 'global')):
 
 class Harness(unittest.TestCase):
     """The real Project record operations and ``agentic_access`` on one application, with the owner, the configured
-    Ordubashy and three Projects: the agent reaches Alpha and Beta, and its native access covers Alpha only."""
+    Ordubashy and three Projects: the agent's context reaches Alpha and Beta."""
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -110,7 +110,7 @@ class Harness(unittest.TestCase):
         ProjectRecords(self.app, items).register(self.registry)
         self.selections = []
         profile = NS(agent_id=self.agent, revision=1,
-                     scope=NS(projects=frozenset({self.alpha}), global_capabilities=frozenset()))
+                     scope=NS(kind='ecosystem', global_capabilities=frozenset()))
 
         def selection(profile, **context):
             self.selections.append(context)
@@ -286,8 +286,10 @@ class MCPTests(Harness):
         self.assertEqual(self.options, [None])
         self.assertEqual(self.policy.scopes, [('agentic_access', None)])
 
-    def test_agentic_access_refuses_a_project_outside_native_access_itself(self):
-        for project in (self.beta, self.gamma):
+    def test_agentic_access_refuses_an_archived_or_unknown_project_itself(self):
+        with self.db.transaction() as uow:
+            uow.connection.execute('UPDATE projects SET archived_at=? WHERE id=?', (STAMP, self.gamma))
+        for project in (self.gamma, str(uuid4())):
             with self.subTest(project=project):
                 result = self.access(project_id=project)
                 self.assertEqual((result['error']['code'], result['error']['message']),
