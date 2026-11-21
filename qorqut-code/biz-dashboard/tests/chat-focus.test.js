@@ -98,7 +98,7 @@ browserTest('focus strip is the top of the composer and never loads a Todo list'
   }finally{await browser.close();}
 });
 
-browserTest('while Ordubashy works, the activity line and Stop take the intent line in the focus strip',async()=>{
+browserTest('while Ordubashy works, the activity line takes the intent line and Send becomes Stop while nothing is typed',async()=>{
   const {browser,page,errors}=await fixture();
   try {
     await page.evaluate(()=>{managed={open:true,phase:'working',activity:'Writing a reply',turn_started_at:null,can_stop:true,pending:[]};stream.dispatchEvent(new MessageEvent('chat',{data:JSON.stringify({kind:'changed',cursor:1})}));});
@@ -113,17 +113,25 @@ browserTest('while Ordubashy works, the activity line and Stop take the intent l
     // The activity text starts where the focus text starts.
     const label=await page.locator('.gchat-focus-label').boundingBox(),text=await line.locator('.mchat-activity-text').boundingBox();
     assert.ok(Math.abs(label.x-text.x)<1.5,`${label.x} ${text.x}`);
-    // Stop stops the agent and does not fold the strip; it stays reachable with the strip folded.
-    await line.locator('.mchat-stop').click();
+    // The strip carries no Stop of its own: with nothing typed, Send is Stop; typing turns it back into Send.
+    assert.equal(await line.locator('.mchat-stop').isVisible(),false);
+    const send=page.locator('.gchat-send');
+    assert.equal(await send.getAttribute('aria-label'),'Stop');
+    await page.locator('.gchat-composer textarea').fill('One more thing');
+    assert.equal(await send.getAttribute('aria-label'),'Send');
+    await page.locator('.gchat-composer textarea').fill('');
+    assert.equal(await send.getAttribute('aria-label'),'Stop');
+    // Stop stops the agent, sends no message and does not fold the strip.
+    await send.click();
+    await page.waitForFunction(()=>posts.some(url=>url.endsWith('/interrupt')));
     assert.equal(await page.evaluate(()=>posts.filter(url=>url.endsWith('/interrupt')).length),1);
+    assert.equal(await page.evaluate(()=>posts.filter(url=>url.endsWith('/messages')).length),0);
     assert.equal(await page.locator('.wfpanel-head').getAttribute('aria-expanded'),'true');
-    await page.locator('.gchat-focus-label').click();
-    assert.equal(await line.locator('.mchat-stop').isVisible(),true);
-    await page.locator('.gchat-focus-label').click();
-    // Done working: the intent is back.
+    // Done working: the intent is back and the button is Send again.
     await page.evaluate(()=>{managed={...managed,phase:'idle',activity:''};working=false;stream.dispatchEvent(new MessageEvent('chat',{data:JSON.stringify({kind:'changed',cursor:2})}));});
     await page.locator('.gchat-focus-intent').waitFor({state:'visible'});
     assert.equal(await line.isVisible(),false);
+    assert.equal(await send.getAttribute('aria-label'),'Send');
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
 });

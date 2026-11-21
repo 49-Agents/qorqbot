@@ -2,6 +2,8 @@
 
 ``GET  /api/root/agents/<id>/chat/options``   -> the view
 ``POST /api/root/agents/<id>/chat/options``   ``{client?, model?, effort?}`` (``null`` clears one) -> the same view
+``GET  /api/root/agents/<id>/chat/models``    -> ``{client, models}`` the models and efforts the agent's client reports
+                                                (``managed_runtime.model_catalog``); ``models`` is ``[]`` when it could not be asked
 
 The view is ``{client, model, effort, effective_client, clients: {claude: {ready}, codex: {ready}}, session_open}``: ``client``,
 ``model`` and ``effort`` are what is stored (``null`` = not set), ``effective_client`` is the client an open would use now
@@ -14,8 +16,9 @@ start passes the stored model and effort too), ``session_open`` is false (no hos
 
 The routes are registered in ``http.py``, which refuses any request carrying an ``Authorization`` header before it gets here. The
 owner guard is the one of every other Chat route (``chat._target``: the installation owner, an active registered agent). A change
-of ``client`` while the session is open is refused ``session_open``; model and effort may change at any time and apply from the
-next session start. Nothing here starts or stops a session. The storage and rules are ``managed_runtime/options.py``.
+of ``client`` while the session is open is refused ``session_open``; model and effort may change at any time. A model or effort
+that is set (not cleared) is also handed to an open session at once (the host's ``model`` command), so it applies from the next
+message; the view's ``applied`` says whether that happened. A cleared value applies from the next session start. Nothing here starts or stops a session. The storage and rules are ``managed_runtime/options.py``.
 """
 
 from __future__ import annotations
@@ -53,7 +56,7 @@ def _label(profile: dict) -> str:
         return ""
 
 
-def _view(chat, runtime, profile: dict, agent_id: str, *, ready=None) -> dict:
+def _view(chat, runtime, profile: dict, agent_id: str, *, ready=None, applied=False) -> dict:
     ready = ready or stored.ready_function()
     options = stored.read(runtime.paths, agent_id)
     effective = stored.effective_client(runtime.paths, agent_id, profile, ready)
@@ -62,7 +65,8 @@ def _view(chat, runtime, profile: dict, agent_id: str, *, ready=None) -> dict:
     return {**options.public(), "effective_client": effective, "model_fits": models.fits(effective, options.model),
             "clients": {name: {"ready": bool(ready(name))} for name in ("claude", "codex")},
             "suggestions": {name: list(models.SUGGESTIONS[name]) for name in ("claude", "codex")},
-            "session_open": False if mode.is_terminal(runtime.paths) else _session_open(getattr(chat, "managed", None), agent_id)}
+            "session_open": False if mode.is_terminal(runtime.paths) else _session_open(getattr(chat, "managed", None), agent_id),
+            "applied": applied}
 
 
 def view(chat, runtime, principal_id: str, agent_id: str, *, ready=None) -> dict:
@@ -119,4 +123,30 @@ def change(chat, runtime, principal_id: str, agent_id: str, body, *, ready=None)
             raise DomainError(error.code, str(error)) from None
         except (OSError, ValueError):
             raise DomainError("operation_unavailable", "The options could not be saved") from None
-    return _view(chat, runtime, profile, agent_id, ready=ready)
+        applied = _apply_live(managed, agent_id, body.get("model"), body.get("effort"))
+    return _view(chat, runtime, profile, agent_id, ready=ready, applied=applied)
+
+
+def _apply_live(managed, agent_id: str, model, effort) -> bool:
+    """Hand a newly set model and/or effort to the agent's open session (the host's ``model`` command). False when no session is
+    open, nothing was set, or the session did not take it: the stored value then applies at the next start."""
+    if managed is None or (model is None and effort is None):
+        return False
+    try:
+        host = managed.handle(agent_id)
+        if host is None:
+            return False
+        reply = host.client.command("model", model=model, effort=effort)
+    except Exception:  # noqa: BLE001 - the stored value still applies at the next start
+        return False
+    return isinstance(reply, dict) and reply.get("status") == "ok" and bool(reply.get("accepted"))
+
+
+def models_view(chat, runtime, principal_id: str, agent_id: str, *, ready=None, catalog=None) -> dict:
+    """The models and efforts the agent's client reports. ``client`` is the client an open would use now."""
+    from qorqut.managed_runtime import model_catalog
+    profile = _guard(chat, principal_id, agent_id)
+    ready = ready or stored.ready_function()
+    client = stored.effective_client(runtime.paths, agent_id, profile, ready)
+    found = (catalog or model_catalog.catalog)(client) if client else None
+    return {"client": client, "models": (found or {}).get("models") or []}

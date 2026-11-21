@@ -62,7 +62,7 @@ const row=id=>[...hosts.list.querySelectorAll('.sg-row')].find(node=>node.datase
     await wait(300);
     if(location.hash==='#shot') {hosts.card.hidden=true;row('report').querySelector('.sg-rowhead').click();return;}
     out.ownGroup=JSON.stringify(rows('toread'))==='["report"]' && JSON.stringify(rows('waiting'))==='["question"]' && !q('list','.sg-toread').hidden
-      && q('list','.sg-toread h2').textContent==='To read';
+      && q('list','.sg-toread h2').textContent==='For your attention';
     row('report').querySelector('.sg-rowhead').click();await wait(200);
     const card=row('report');
     out.markdown=card.querySelectorAll('.sg-report .gc-heading').length===2 && card.querySelectorAll('.sg-report li').length===2

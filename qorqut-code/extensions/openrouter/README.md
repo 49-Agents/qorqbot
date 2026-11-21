@@ -30,8 +30,7 @@ started again.
 OpenRouter can only send the browser back to a dashboard opened on this computer (`localhost`, `127.0.0.1`) or served over
 https. On any other address Connect is refused with that explanation and the owner presses **Paste a key** instead.
 
-An account cannot be created on the owner's behalf: OpenRouter has no API for it, and agents are told not to sign up for the
-owner. The key is checked with OpenRouter, then kept in the private file `config/openrouter-key` of the instance (mode 0600).
+The key is checked with OpenRouter, then kept in the private file `config/openrouter-key` of the instance (mode 0600).
 It is never returned to the dashboard or an agent.
 
 ## Voice input

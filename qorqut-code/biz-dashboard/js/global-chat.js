@@ -104,7 +104,7 @@ const GLOBAL_CHAT_REFUSAL_TEXT = {
   session_closed: 'Not running. Send the message again to start it.',
   driver_unavailable: 'Couldn’t start. Check in Settings that Claude Code or Codex is connected, then send again.',
 };
-const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', bootstrap_recovery: 'Session recovery', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
+const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', bootstrap_recovery: 'Session recovery', context_compacted: 'Context compacted', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
 const GLOBAL_CHAT_INPUT_STATE = {
   waiting: 'Waiting',
   submitting: 'Sending…',
@@ -114,7 +114,8 @@ const GLOBAL_CHAT_INPUT_STATE = {
   undelivered: 'Not delivered',
 };
 // The expanded text of an inbox nudge or session recovery is system-generated and technical: the timeline shows only its compact marker.
-const globalChatMarkerOnly = type => type === 'inbox_nudge' || type === 'bootstrap_recovery';
+// `context_compacted` is no backend input: it is Chat's own marker where a conversation continues an earlier one (`compactionMarker`).
+const globalChatMarkerOnly = type => type === 'inbox_nudge' || type === 'bootstrap_recovery' || type === 'context_compacted';
 const globalChatNoticeLabel = system => !system ? 'System notice'
   : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || 'System notice'
   : 'Unverified notice';
@@ -188,6 +189,9 @@ function mountAgentView(pane, agent, opts = {}) {
 function mountGlobalChat(pane, agent, options = {}) {
   const agentId = agent.agent_id, base = globalChatBase(agentId), label = agent.display_name || agent.name || 'Agent';
   const entries = new Map();                     // entry id -> entry
+  // Earlier conversations loaded above this one, oldest first: {conversation, entries: Map, older}. View-only: a compaction closed each of
+  // them, and nothing here sends to, acknowledges or matches against them.
+  const earlier = [];
   let session = null, conversation = null, inputs = [], older = null, shown, clears = 0, shownInputs = [];
   let cursor = 0, lastRead = 0, composerScope = null, hasLocal = false;
   let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
@@ -298,9 +302,17 @@ function mountGlobalChat(pane, agent, options = {}) {
       return {...presentEntry(first), text: '', notice: {label: 'Activity', verified: true, markerOnly: true, activity: {nudgeCount, recipients}}};
     });
   }
-  const orderedEntries = () => groupActivity([...entries.values()].sort((a, b) => a.position - b.position));
+  // A conversation opened by a compaction continues an earlier one: once it is loaded to its own top, a compact marker stands there.
+  const compactionMarker = part => part.conversation?.continues && part.older == null ? [{id: `compacted:${globalChatKey(part.conversation)}`, speaker: 'notice', text: '',
+    timestamp: part.conversation.continues.at, system: {verified: true, input_type: 'context_compacted'}}] : [];
+  // Each conversation in its own position order, the oldest conversation first: a position is only comparable inside one conversation.
+  const orderedEntries = (parts = [{entries}]) => groupActivity(parts.flatMap(part => [...compactionMarker(part), ...[...part.entries.values()].sort((a, b) => a.position - b.position)]));
   const newestPosition = () => { let top = -1; for (const entry of entries.values()) top = Math.max(top, entry.position); return top; };
   const viewedKey = () => globalChatKey(conversation);
+  // Everything loaded, oldest first: the earlier conversations, then the one Chat follows. Only the first can load more: its next older
+  // page, or at its own top the conversation it continues.
+  const loadedParts = () => [...earlier, {conversation, entries, older}];
+  const olderAbove = () => { const top = loadedParts()[0]; return top.older != null || !!top.conversation?.continues; };
   // The live session's exact binding; a conversation is sendable only when it is the one displayed.
   const liveBinding = () => session?.binding || null;
   const viewingLive = () => !!liveBinding() && globalChatKey(liveBinding()) === viewedKey();
@@ -441,10 +453,19 @@ function mountGlobalChat(pane, agent, options = {}) {
     // A terminal agent has no managed session: no Stop block, no activity line, no question cards.
     const terminal = typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session);
     if (session && !terminal && !managedBar && sessionLine.parentNode) {
+      // Stop lives in the composer (Send turns into Stop while the agent works and nothing is typed), not on the activity line.
       managedBar = agentRuntime.createBar({label, send: runtimeSend, binding: () => liveBinding()?.binding_id || null,
-        onChange: () => { paintSession(); void load(); }, onError: showBanner});
+        onChange: () => { paintSession(); void load(); }, onError: showBanner, stopHere: false});
       sessionLine.parentNode.insertBefore(managedBar.el, sessionLine);
       cleanups.push(() => managedBar?.dispose());
+      // The model and effort pill sits at the bottom left of the composer (js/chat-model-picker.js).
+      const form = view?.elements?.composer;
+      if (form && typeof chatModelPicker !== 'undefined') {
+        const picker = chatModelPicker.mount({base, label, read: async path => coreData(await api(path)), write: async (path, body) => coreData(await post(path, body)),
+          onError: showBanner});
+        form.insertBefore(picker.el, form.querySelector('.gchat-attach, .gchat-mic, .gchat-send'));
+        cleanups.push(() => picker.dispose());
+      }
     }
     // In Ordubashy's own chat the activity line (what it is doing, Stop) sits in the focus strip, where the focus intent is.
     if (managedBar) contextStatus?.hostActivity(managedBar.line);
@@ -481,18 +502,20 @@ function mountGlobalChat(pane, agent, options = {}) {
     view.render({
       ...patch, pending,
       composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, filesDisabled: !enabled || sending,
+        stop: !terminal && !finished && !pairedHost && viewingLive() && agentRuntime.activity(session).stop,
+        stopDisabled: !!managedBar?.stopping, stopTitle: managedBar?.stopping ? 'Stopping…' : `Stop what ${label} is doing`,
         disabledReason: enabled ? '' : unavailable(),
         sendingReason: GLOBAL_CHAT_OPENING.has(agentId) ? `Starting ${label}…` : 'Sending your message…', filesReason: opening ? `Starting ${label}…` : 'Wait until your message is sent.',
         attachments: selectedFiles().map(file => ({key: file.key, name: file.file.name})),
         placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : unavailable()},
-      older: {visible: older != null, disabled: olderBusy},
+      older: {visible: olderAbove(), disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
     if (pinned && !view.isAtBottom()) view.scrollToBottom();
     // Load the slash command catalog as soon as the running CLI is known, so "/" lists commands at once.
     if (session?.provider) commandCatalog();
   }
-  const paintEntries = scroll => paint({entries: orderedEntries()}, scroll);
+  const paintEntries = scroll => paint({entries: orderedEntries(loadedParts())}, scroll);
   const paintInputs = () => paint();
   const paintSession = () => paint();
   const showBanner = text => { bannerText = text || ''; reconnecting = false; view.render({banner: {text: bannerText}}); };
@@ -504,7 +527,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     saveDraft(); composerScope = null; view.setDraft('');
     reading = 0; clearTimeout(readTimer);
     session = null; conversation = null; inputs = []; older = null; shown = undefined;
-    clears++; entries.clear();
+    clears++; entries.clear(); earlier.length = 0;
     paint({entries: []});
   }
 
@@ -692,6 +715,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (pending && pending.text !== view.getDraft() && !GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
     },
     onSubmit: text => submit(text),
+    onStop: () => { if (!managedBar) return; void managedBar.stop(); paintSession(); },
     onTask: openReference,
     onReference: openReference,
     onFilePreview: ref => agentFilePreviewOpen(ref),
@@ -747,7 +771,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       // A page that starts after everything held (a long gap while away) cannot be joined to it: start from that page.
       const gap = data.older != null && page.length && page[0].position > newestPosition() && entries.size > 0;
       const fresh = reset || shown === undefined || id !== shown || gap;
-      if (fresh) { clears++; entries.clear(); older = data.older; }
+      if (fresh) { clears++; entries.clear(); earlier.length = 0; older = data.older; }
       shown = id; session = data.session; conversation = data.conversation;
       inputs = data.inputs || []; lastRead = Math.max(fresh && reset ? 0 : lastRead, data.last_read_sequence || 0);
       cursor = fresh && reset ? data.cursor || 0 : Math.max(cursor, data.cursor || 0);
@@ -765,16 +789,25 @@ function mountGlobalChat(pane, agent, options = {}) {
     }
   }
   async function loadOlder() {
-    // Only history responses advance this cursor, so no page is skipped.
-    const before = older, mine = generation, requested = viewedKey(), epoch = clears, target = conversation;
-    if (before == null || !target || olderBusy) return;
+    // Only history responses advance a conversation's cursor, so no page is skipped. The oldest loaded conversation is the one that
+    // grows: by its next older page, or at its own top by the newest page of the conversation it continues (a view-only read).
+    const part = earlier[0] || null, target = part ? part.conversation : conversation, before = part ? part.older : older;
+    const mine = generation, requested = viewedKey(), epoch = clears, previous = before == null ? target?.continues || null : null;
+    if ((before == null && !previous) || !target || olderBusy) return;
     olderBusy = true; paint();
     try {
-      const data = coreData(await api(`${base}/history?before=${before}&limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(target)}`, {signal: reads.signal}));
+      const data = coreData(await api(previous ? `${base}?limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(previous)}`
+        : `${base}/history?before=${before}&limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(target)}`, {signal: reads.signal}));
       // Applied only to the exact provider/conversation it asked for, even if the live conversation changed on its own.
       if (!live() || mine !== generation || epoch !== clears || viewedKey() !== requested) return;
-      (data.entries || []).forEach(entry => { if (!entries.has(entry.id)) entries.set(entry.id, entry); });
-      older = data.older ?? null;
+      if (previous) {
+        if (globalChatKey(data.conversation) !== globalChatKey(previous)) return;
+        earlier.unshift({conversation: data.conversation, entries: new Map((data.entries || []).map(entry => [entry.id, entry])), older: data.older ?? null});
+      } else {
+        const held = part ? part.entries : entries;
+        (data.entries || []).forEach(entry => { if (!held.has(entry.id)) held.set(entry.id, entry); });
+        if (part) part.older = data.older ?? null; else older = data.older ?? null;
+      }
       paintEntries('prepend');
     } catch (problem) { if (live()) showBanner("Couldn't load. Retry"); }
     finally { olderBusy = false; if (live()) paint(); }

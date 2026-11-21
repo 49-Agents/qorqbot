@@ -429,9 +429,24 @@ class CompactionHandoff:
         return {"id": waiting["id"], "text": "\n\n".join(parts),
                 "unanswered": [message["id"] for message in listed if message["id"] not in entries]}
 
-    def opened(self, uow, identity, unanswered=()):
-        """Record that the fresh conversation was started from this row. The caller owns the write transaction."""
-        uow.repository(TABLE).update(identity, {"opened_at": stamp(self.clock()), "opened_json": {"unanswered": list(unanswered)}})
+    def opened(self, uow, identity, unanswered=(), *, closed=None, session=None):
+        """Record that the fresh conversation was started from this row: ``closed`` is the id of the conversation that was
+        closed and ``session`` the id of the fresh one, which is what ``continued`` reads. The caller owns the write
+        transaction."""
+        uow.repository(TABLE).update(identity, {"opened_at": stamp(self.clock()), "opened_json": {
+            "unanswered": list(unanswered), "closed": closed, "session": session}})
+
+    @staticmethod
+    def continued(uow, agent_id, conversation_id):
+        """The conversation that was closed to open ``conversation_id`` for this agent: ``{conversation_id, at}`` with when
+        the fresh one was opened, or None when no compaction opened it. Read from the newest opened row that names both; a
+        row opened without the ids names neither."""
+        found = uow.connection.execute(
+            f"SELECT json_extract(opened_json,'$.closed') AS closed, opened_at FROM {TABLE} WHERE agent_id=? "
+            "AND opened_at IS NOT NULL AND json_extract(opened_json,'$.session')=? AND json_type(opened_json,'$.closed')='text' "
+            "AND json_extract(opened_json,'$.closed') NOT IN ('', ?) ORDER BY opened_at DESC, id DESC LIMIT 1",
+            (agent_id, conversation_id, conversation_id)).fetchone()
+        return {"conversation_id": found["closed"], "at": found["opened_at"]} if found else None
 
     @staticmethod
     def quoted(message, entry, *, pending=True):

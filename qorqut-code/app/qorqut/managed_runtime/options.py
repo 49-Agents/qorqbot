@@ -30,7 +30,7 @@ from . import clients, state as layout
 OPTIONS_FILE = "options.json"
 SCHEMA_VERSION = 1
 FIELDS = ("client", "model", "effort")
-EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
+EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 MAX_TEXT = 100
 OPTIONS_LIMIT = 4096
 _MODEL = re.compile(r"^[A-Za-z0-9._:/\[\]-]{1,%d}$" % MAX_TEXT)

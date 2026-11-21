@@ -88,7 +88,7 @@ class OptionsFile(base.Fixture):
                 self.assertEqual(options.write(self.paths, AGENT, model=model).model, model)
         for effort in options.EFFORTS:
             self.assertEqual(options.write(self.paths, AGENT, effort=effort).effort, effort)
-        self.assertEqual(options.EFFORTS, ("minimal", "low", "medium", "high", "xhigh", "max"))
+        self.assertEqual(options.EFFORTS, ("minimal", "low", "medium", "high", "xhigh", "max", "ultra"))
 
     def test_a_rejected_change_leaves_what_was_stored(self):
         options.write(self.paths, AGENT, model="opus")
@@ -514,7 +514,7 @@ class Routes(base.Fixture):
         self.assertEqual(response.json()["data"], {
             "client": None, "model": None, "effort": None, "effective_client": "claude", "model_fits": True,
             "clients": {"claude": {"ready": True}, "codex": {"ready": False}},
-            "suggestions": {"claude": ["opus", "sonnet", "haiku"], "codex": ["gpt-6-luna"]}, "session_open": False})
+            "suggestions": {"claude": ["opus", "sonnet", "haiku"], "codex": ["gpt-6-luna"]}, "session_open": False, "applied": False})
         self.assertFalse((self.paths.runtime / "managed-agents").exists(), "a read writes nothing")
 
     def test_a_change_is_stored_and_the_view_returned(self):
@@ -545,6 +545,34 @@ class Routes(base.Fixture):
         self.assertEqual(self.post({"client": None}).status_code, 200, "clearing what resolves to the same client")
         self.chat.managed.open = False
         self.assertEqual(self.post({"client": "codex"}).json()["data"]["client"], "codex")
+
+    def test_a_set_model_or_effort_reaches_an_open_session_at_once(self):
+        sent = []
+        host = SimpleNamespace(state="ready", client=SimpleNamespace(command=lambda name, **values: (
+            sent.append((name, values)), {"status": "ok", "accepted": True})[1]))
+        self.chat.managed.handle = lambda agent_id: host
+        data = self.post({"model": "sonnet", "effort": "high"}).json()["data"]
+        self.assertTrue(data["applied"])
+        self.assertEqual(sent, [("model", {"model": "sonnet", "effort": "high"})])
+        self.assertFalse(self.post({"model": None}).json()["data"]["applied"], "a cleared value waits for the next start")
+        self.assertEqual(len(sent), 1)
+        host.client.command = lambda name, **values: {"status": "rejected", "reason": "session_closed"}
+        self.assertFalse(self.post({"effort": "low"}).json()["data"]["applied"])
+        self.assertEqual(options.read(self.paths, AGENT).effort, "low", "stored whatever the session did")
+        self.chat.managed.handle = lambda agent_id: None
+        self.assertFalse(self.post({"effort": "max"}).json()["data"]["applied"], "no session open")
+
+    def test_the_models_route_lists_what_the_agents_client_reports(self):
+        from qorqut.managed_runtime import model_catalog
+        asked = []
+        listing = {"client": "claude", "models": [{"id": "opus", "label": "Opus 5.5", "description": "", "efforts": ["low", "high"],
+                                                  "default_effort": None, "default": False, "older": False}]}
+        with mock.patch.object(model_catalog, "catalog", lambda client: (asked.append(client), listing)[1]):
+            data = self.client.get(f"/api/root/agents/{AGENT}/chat/models").json()["data"]
+        self.assertEqual((data["client"], data["models"]), ("claude", listing["models"]))
+        self.assertEqual(asked, ["claude"])
+        with mock.patch.object(model_catalog, "catalog", lambda client: None):
+            self.assertEqual(self.client.get(f"/api/root/agents/{AGENT}/chat/models").json()["data"]["models"], [])
 
     def test_a_host_that_cannot_be_verified_counts_as_open(self):
         def broken(agent_id):

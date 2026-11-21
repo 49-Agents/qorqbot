@@ -28,6 +28,11 @@ entries:
     description: Offer the owner voice input in Chat and help them connect their own OpenRouter account for it.
     when_to_use: During the voice-input step of the get-set-up workflow.
     path: instructions/onboarding-openrouter.md
+  - id: set-up-voice-input
+    kind: skill
+    description: Turn on voice input (speech to text in Chat) for the owner with their own OpenRouter account, check it, or fix it.
+    when_to_use: Ordubashy only. Whenever the owner asks to set up, turn on, check or fix voice input, speech to text, the Chat microphone or OpenRouter, and in the voice-input step of the get-set-up workflow.
+    path: skills/set-up-voice-input/SKILL.md
   - id: get-set-up
     kind: workflow
     description: Ordubashy learns the basics about the owner, connects their tools and offers voice input in one short conversation.

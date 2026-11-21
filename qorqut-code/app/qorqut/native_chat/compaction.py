@@ -432,7 +432,7 @@ class CompactionController:
         if outcome[0] == "opened":
             with self._write() as uow:
                 self.runtime.application.ensure_writes_open(uow)
-                self.handoff.opened(uow, flow["row"], flow["opening"]["unanswered"])
+                self.handoff.opened(uow, flow["row"], flow["opening"]["unanswered"], closed=flow["session"], session=outcome[1])
             LOG.info("The conversation of %s was replaced by %s", flow["agent_id"], outcome[1])
             self._flow = None
         elif outcome[1] in ("agent_off", "no_handoff") or flow["tries"] >= OPEN_TRIES:

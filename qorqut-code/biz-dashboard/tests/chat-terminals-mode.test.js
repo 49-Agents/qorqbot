@@ -122,9 +122,9 @@ test('no Stop block and no question cards for a terminal agent', () => {
     const calls = {bars: 0};
     const fakeRuntime = {createBar: () => { calls.bars++; return {el: {}, update() {}, dispose() {}}; }};
     const sessionLine = {parentNode: {insertBefore() {}}};
-    new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'contextStatus', 'agentTerminalView', 'session',
+    new Function('agentRuntime', 'label', 'sessionLine', 'liveBinding', 'paintSession', 'load', 'showBanner', 'cleanups', 'coreData', 'post', 'base', 'contextStatus', 'agentTerminalView', 'session', 'view',
       `let managedBar = null; let finished = false; ${sync}; syncManaged();`)(
-      fakeRuntime, 'Ada', sessionLine, () => null, () => {}, () => {}, () => {}, [], r => r, async () => ({}), '/chat', null, terminalView, session);
+      fakeRuntime, 'Ada', sessionLine, () => null, () => {}, () => {}, () => {}, [], r => r, async () => ({}), '/chat', null, terminalView, session, null);
     return calls;
   };
   const t = run(terminal());

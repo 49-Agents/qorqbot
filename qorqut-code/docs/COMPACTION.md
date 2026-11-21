@@ -57,7 +57,8 @@ waits. One row of `compactions` is its whole durable state.
    can open the agent in between and resume the closed conversation. The
    opening is written after the close, so an owner message that reached the
    closing conversation is in it.
-5. **Record.** The row gets `opened_at`.
+5. **Record.** The row gets `opened_at` and the ids of the closed and the fresh
+   conversation.
 
 The replacement is not an input source. It never opens an agent the owner
 turned off, never turns one on or off, and a failure is neither paced nor
@@ -111,11 +112,26 @@ until one marks it `done`.
 (`reason`, `requested_at`, `request_json` with the context size and the
 conversation), the period it answers for, the filing (`filing_json`), and when
 the next conversation was opened from it (`opened_at`, and the messages that got
-no status in `opened_json`). It holds message ids, not the owner's text, and it
-is excluded from the general operational history.
+no status in `opened_json`). `opened_json` also holds the id of the conversation
+that was closed (`closed`) and the id of the fresh one (`session`). It holds
+message ids, not the owner's text, and it is excluded from the general
+operational history.
 
 The table is added by the offline `python -m qorqut.migration.upgrade` transform
 `compactions`.
+
+## In Chat
+
+A conversation that a compaction opened has a "Context compacted" marker at its
+top. "Load older messages" there continues into the conversation before it, so
+the owner reads across a compaction without choosing another conversation. The
+request and the opening stay hidden.
+
+The Chat state names the earlier conversation in `conversation.continues`
+(`docs/v1.2/NATIVE_CHAT_DTO.md`). `CompactionHandoff.continued` reads it from the
+row's `closed` and `session`. It is named only when the earlier conversation was
+captured for the same agent and client. A replacement that failed records
+neither id.
 
 ## Turning it on
 
