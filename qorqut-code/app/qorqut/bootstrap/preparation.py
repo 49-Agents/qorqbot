@@ -36,7 +36,6 @@ from .tool_permissions import (VERSION as TOOL_CONFIGURATION_VERSION, fingerprin
 MINIMUM_CLAUDE_VERSION = agent_cli_install.MINIMUM_VERSIONS["claude"]
 MINIMUM_CODEX_VERSION = agent_cli_install.MINIMUM_VERSIONS["codex"]
 RUNTIMES = ("claude-code", "codex")
-LEGACY_PLUGINS = {"project-agents-manager@bazarlyk", "project-agents-marketing@bazarlyk"}
 # External MCP connections come only from installed extensions (resolver.native_connections); a registered role may
 # declare one by name, and any name that no installed extension provides is refused (see external_connections). A
 # previously prepared entry stays managed (see previous_connections) and is removed on the next authorized preparation.
@@ -642,15 +641,6 @@ def inspect_projection(workspace: Path, projection: dict, *, runtime="claude-cod
                     drift.append(child.relative_to(workspace).as_posix())
             if path.name not in projection.get("selected_skills", {}) and not core_generated_skill(path.name):
                 drift.append(path.relative_to(workspace).as_posix())
-    for name in ((".claude/settings.json", ".claude/settings.local.json") if runtime == "claude-code" else ()):
-        if path_has_symlink(workspace / name):
-            continue
-        try:
-            settings = json.loads(safe_io.read_bytes(workspace / name))
-        except (ValueError, OSError):
-            continue
-        if any(settings.get("enabledPlugins", {}).get(plugin) for plugin in LEGACY_PLUGINS):
-            drift.append("legacy_role_plugin_enabled")
     return sorted(set(drift))
 
 

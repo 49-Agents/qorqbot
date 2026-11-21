@@ -16,7 +16,7 @@ report it and ask.
 
 One Fastmail account can host many aliases, and an alias is an identity of that account. Which alias
 suits which Project is the owner's recorded guidance in `inboxes/`: use it, and never invent an
-association. No Project, folder or project implies a sender. Every `fastmail_*` call names the
+association. No Project, folder or company implies a sender. Every `fastmail_*` call names the
 account (`account_id`, as reported by `fastmail_capabilities_get`).
 
 ## Reading and organizing

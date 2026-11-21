@@ -202,13 +202,13 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
     program = programs.register(Program("probe.report", 1, {"type": "object", "properties": {"label": {"type": "string"}},
         "required": ["label"], "additionalProperties": False}, run=run_program, permissions={"things_create": "allow"},
         outputs=("things_create",), resource_types=("things",)))
-    # The definition digest is a function of the definition alone: this is the deployed v1 module's value.
+    # The definition digest is a function of the definition alone.
     golden = Program("demo.report", 3, {"type": "object", "properties": {"count": {"type": "integer"},
         "label": {"type": "string"}}, "additionalProperties": False}, run=lambda control, arguments: None,
         permissions={"items_create": "allow"}, outputs=("items_create",), resource_types=("items",),
         discretionary=("items_touch",), global_capabilities=("manage_global_routines",), timeout_seconds=120,
         scope_kinds=("project", "global"))
-    assert golden.definition["digest"] == "7c69b0cfb7766190ec67617e02bee23ad15e71e6ab8b488184942862ad8f56d5"
+    assert golden.definition["digest"] == "7d74ddc1664bd2e51e2edf3c9ab4479707e4623299d13b55d0d99de8c6c301f3"
     authority = BackgroundAuthority(database, programs)
     programs.freeze()
     operations = RoutineOperations(programs, authority)

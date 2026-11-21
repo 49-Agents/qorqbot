@@ -12,7 +12,7 @@ entries:
     with actions_record, in at most 20 words, with the correct scope and installation
     timezone.
   path: native/skills/action-recording/SKILL.md
-- id: asset-580b179fb8f7f2085bdb
+- id: asset-2223b612d21e4d40539d
   kind: skill
   description: Authorized project technical operations, configuration and release
     verification. Software, site/UI design, landing-page, script, test, CI and IaC
@@ -23,7 +23,7 @@ entries:
     development is the owner's by default; an agent builds only on the owner's direct
     instruction.
   path: native/skills/project-operations/SKILL.md
-- id: asset-4ce12da680f2bb107eda
+- id: asset-3008532c3190c91f6813
   kind: skill
   description: Create and maintain project-shared tables, and transform original CSV
     or spreadsheet uploads into structured records.

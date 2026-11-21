@@ -125,8 +125,7 @@ connect an account, and approval of a plugin change never approves message conte
 A standard capability ceiling is usable only when the exact role, project,
 account and plugin delegation are explicitly configured and verified.
 Check the operation schema and readiness before presenting a capability as
-available. Before assigning provisioning or repair work, inspect the scoped
-`project_readiness_get` result with `verify_provider=true` when available.
+available.
 Preparation projects the approved profile into the registered folder; editing
 agent.yaml, a plugin cache or native skill files never changes identity, scope
 or policy. A pending Signoff is not an applied change.
