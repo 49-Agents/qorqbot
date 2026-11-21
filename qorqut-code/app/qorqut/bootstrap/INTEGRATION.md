@@ -177,7 +177,7 @@ this exact session, binding and generation; old lock files do not establish an o
 the old conversation until recovery has been verified.
 
 Project creation is the Global `project_create` operation (the configured Ordubashy is its only caller), not a bootstrap
-step: it registers the project and makes the empty `projects/<slug>/hq` and `code` folders. It
+step: it registers the project and makes the empty `projects/<slug>` folder. It
 creates and prepares no agent, document, Task, routine or external registration: projects have no resident
 agents, and the global agents reach a new project at once with no profile write. There is no
 seed CLI or template scaffold. Existing preparation preserves current pins and authored content.
@@ -187,7 +187,7 @@ foundation, ecosystem-agent, ecosystem in namespace global; product, icp, brand,
 positioning in the project UUID namespace. Global paths are relative
 to the operations root and sit under files/instructions/ (operations/context-graph is
 reserved for the published Context graph; Global context/ documents are a separate authored tree); project paths are relative to the
-registered hq. Core
+registered project folder. Core
 pillars require one structurally parsed Agent Brief section. Existing folders
 and external file changes require explicit migration/reconciliation.
 

@@ -64,7 +64,7 @@ class Harness(unittest.TestCase):
                 owner_principal_id=self.owner, management_coordinator_id=self.lead, created_at=STAMP, updated_at=STAMP))
             for project, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta')):
                 uow.repository('projects').insert({'id': project, 'slug': name.lower(), 'name': name,
-                                                     'workspace': name.lower(), 'hq_path': name.lower() + '/hq'})
+                                                     'workspace': name.lower()})
         projects = frozenset({self.alpha, self.beta})
         self.contexts = {self.owner: InvocationContext(Principal(self.owner, 'human'), allowed_project_ids=projects,
                                                        global_capabilities={'read_global_context'}, source='dashboard')}

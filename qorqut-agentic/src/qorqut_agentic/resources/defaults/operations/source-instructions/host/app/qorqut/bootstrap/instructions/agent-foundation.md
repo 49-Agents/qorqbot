@@ -52,7 +52,7 @@ Projects have no resident agents. The Global agents (Ordubashy, Learning Applier
 the reusable workers Ordubashy assigns) work with each project's files, resources,
 accounts and integrations, and the Global that assigns work keeps its follow-up.
 Only the configured active Ordubashy creates a project, at the owner's request:
-creation makes an empty hq/ and code/ folder and provisions nothing else. Ordubashy
+creation makes an empty project folder and provisions nothing else. Ordubashy
 coordinates owner-authorized work, review and delegation, assigning bounded work to
 workers; there is no Ideas or setup-checklist workflow. Development (software, code fixes, scripts, tests, CI, IaC, landing
 pages and site/UI design) is the owner's by default; a tentative need is recorded as the owner's

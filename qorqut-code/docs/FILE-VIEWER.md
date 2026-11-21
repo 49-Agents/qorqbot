@@ -26,13 +26,13 @@ selector is allowed; anything else, unknown, duplicate or empty keys included, i
 
 | Form | Meaning |
 |---|---|
-| `/files/view?path=projects/widget/hq/notes/report.md` | A regular file by its path relative to this instance's operations root (slashes may be percent-encoded). Always the **current** contents. |
+| `/files/view?path=projects/widget/notes/report.md` | A regular file by its path relative to this instance's operations root (slashes may be percent-encoded). Always the **current** contents. |
 | `/files/view?document_id=<uuid>&project_id=<uuid>` | A registered document in that project, current contents at its present location. Omit `project_id` for a Global document. Survives moves. |
 | `…&version=N` | With `document_id` only: one saved version (`N` is a positive integer). |
 
 This instance's operations root (`operations/`, resolved from the explicit instance paths, not hardcoded) is the file
-scope. A project note is `projects/<slug>/hq/...` and a global agent file `agents/<agent>/...`; the first folder is part
-of the path, and a path that starts at the project slug (`<slug>/hq/...`) is a different, usually missing, file: nothing
+scope. A project note is `projects/<slug>/...` and a global agent file `agents/<agent>/...`; the first folder is part
+of the path, and a path that starts at the project slug (`<slug>/...`) is a different, usually missing, file: nothing
 redirects, prefixes or searches for it. Rejected before any file access: NUL and control characters, `..` segments, absolute paths outside the root, URL schemes,
 and malformed or double-encoded escapes (`%2e`, `%2f`, `%5c`, `%00` left after decoding).
 
@@ -63,7 +63,7 @@ operation. Republishing roles is not needed: the tool appears in MCP `tools/list
 The shared orientation guidance (`agents/context.py`) tells agents to deliver prompts and research
 as a file or managed note, call `files_link`, and paste the Markdown it returns unchanged, never a hand-built URL. For a
 path, they pass the file's actual absolute path when they know it, or a path relative to the operations root that keeps
-its `projects/<slug>/hq/...` or `agents/<agent>/...` prefix. They should create no task only to carry a document.
+its `projects/<slug>/...` or `agents/<agent>/...` prefix. They should create no task only to carry a document.
 
 ## Authorization
 
@@ -121,8 +121,7 @@ Project rows match active authorized registry records by folder slug. Their desc
 the current project record. Icon badges show nonarchived, unfinished records of type `task`, including
 snoozed tasks and all assignees, and pending owner-visible signoffs (excluding superseded, side-chat
 and management-routed inputs). Unknown/inactive folders have unavailable counts. Subprojects show
-`—` because project ancestry is not recorded. `hq`, `code` and agent folders remain physical folders;
-this explorer performs no layout migration. All reads use the existing tokenless owner-only boundary.
+`—` because project ancestry is not recorded. Folders inside a project remain physical folders. All reads use the existing tokenless owner-only boundary.
 
 ## Bounds and file safety
 

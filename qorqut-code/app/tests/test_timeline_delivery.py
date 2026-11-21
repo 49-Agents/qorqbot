@@ -49,7 +49,7 @@ class DeliveryTests(Fixture):
         self.project = str(uuid4())
         with self.db.transaction() as uow:
             uow.repository('projects').insert({'id': self.project, 'name': 'Example project', 'slug': 'example',
-                                                 'workspace': 'example', 'hq_path': 'hq'})
+                                                 'workspace': 'example'})
         self.clock = ['2026-11-13T14:02:00.000000Z']
         for target, value in (('qorqut.domains.timeline.timestamp', lambda: DAY),
                               ('qorqut.domains.timeline_delivery.timestamp', lambda: self.clock[0])):

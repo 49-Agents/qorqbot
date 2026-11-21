@@ -41,7 +41,7 @@ def normalize_path(value, roots, *, directory=False):
     """An operations-root-relative POSIX path from an absolute path under ``roots`` or a relative path.
 
     ``roots`` are the accepted spellings of this instance's operations root, so a relative path keeps its first
-    segment (``projects/<slug>/hq/...`` or ``agents/<agent>/...``). The
+    segment (``projects/<slug>/...`` or ``agents/<agent>/...``). The
     result has no empty, ``.`` or ``..`` segments; traversal is rejected, never
     resolved. With ``directory=True``, empty selects the root and trailing
     slashes are accepted. Whether the path exists, or is a symlink, is not decided here.

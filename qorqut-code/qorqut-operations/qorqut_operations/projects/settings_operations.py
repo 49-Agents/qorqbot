@@ -31,7 +31,7 @@ DESCRIPTIONS = {
 }
 OPERATIONS = ("project_config_get", *MUTATIONS)
 # The registered identity and paths a settings change may not edit.
-PROTECTED_KEYS = ("id", "slug", "workspace", "hq_path", "owner_principal_id")
+PROTECTED_KEYS = ("id", "slug", "workspace", "owner_principal_id")
 
 
 class SettingsHost(Protocol):

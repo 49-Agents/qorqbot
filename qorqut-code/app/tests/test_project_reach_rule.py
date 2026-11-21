@@ -34,8 +34,7 @@ class ProjectReachRuleTests(unittest.TestCase):
             uow.repository('installation').insert(dict(id='service', installation_id=str(uuid4()), owner_principal_id=self.owner,
                                                        created_at=STAMP, updated_at=STAMP))
             for identity, slug in ((self.active, 'active'), (self.archived, 'closed')):
-                uow.repository('projects').insert({'id': identity, 'slug': slug, 'name': slug, 'workspace': '/' + slug,
-                                                   'hq_path': '/' + slug + '/hq'})
+                uow.repository('projects').insert({'id': identity, 'slug': slug, 'name': slug, 'workspace': '/' + slug})
             uow.connection.execute('UPDATE projects SET archived_at=? WHERE id=?', (STAMP, self.archived))
             self.worker = self.authority.register_workers(uow)[0]
         self.policy = PolicyResolver(OperationRegistry(()), rules=PolicyRules(), worker_profiles=self.authority.worker_profiles)

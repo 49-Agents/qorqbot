@@ -54,20 +54,20 @@ class GlobalAgentFiles:
 
 
 @dataclass(frozen=True)
-class ProjectHeadquarters:
-    """One registered project's headquarters notes and documents (``operations/projects/{project}/hq``)."""
+class ProjectFolder:
+    """One registered project's folder: its notes and documents (``operations/projects/{project}``)."""
 
     project: str
     excluded: tuple[str, ...] = ()
-    kind = "project_hq"
+    kind = "project_folder"
 
     @property
     def identifiers(self):
         return (self.project,)
 
 
-Area = Union[GlobalFiles, GlobalAgentFiles, ProjectHeadquarters]
-AREA_TYPES = (GlobalFiles, GlobalAgentFiles, ProjectHeadquarters)
+Area = Union[GlobalFiles, GlobalAgentFiles, ProjectFolder]
+AREA_TYPES = (GlobalFiles, GlobalAgentFiles, ProjectFolder)
 AreaProvider = Callable[[Any], Iterable[Area]]
 
 
@@ -123,7 +123,7 @@ def validate(raw: Iterable[Any], safe_segment: Callable[[str], object]) -> tuple
     seen: dict[str, str] = {}
     for area in areas:
         if type(area) not in AREA_TYPES:
-            raise invalid("Areas are GlobalFiles, GlobalAgentFiles or ProjectHeadquarters values")
+            raise invalid("Areas are GlobalFiles, GlobalAgentFiles or ProjectFolder values")
         for identifier in area.identifiers:
             if not isinstance(identifier, str) or not safe_segment(identifier):
                 raise invalid("An area names a registered ID or slug that is not one safe path segment", kind=area.kind)

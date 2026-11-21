@@ -31,7 +31,7 @@ class HandoffCase(Fixture):
         self.project = str(uuid4())
         with self.db.transaction() as uow:
             uow.repository('projects').insert({'id': self.project, 'name': 'Example project', 'slug': 'example',
-                                                 'workspace': 'example', 'hq_path': 'hq'})
+                                                 'workspace': 'example'})
         runtime = NS(application=self.app, registry=self.registry, domains=NS(tasks=self.tasks),
                      owner_inputs=NS(addressed=self.addressed))
         self.tool = CompactionHandoff(runtime, clock=lambda: self.now).register()

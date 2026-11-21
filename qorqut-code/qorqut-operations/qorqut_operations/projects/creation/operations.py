@@ -23,8 +23,8 @@ SLUG = {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
 # The project's Description: short, optional, and empty is allowed.
 SUMMARY = {"type": "string", "maxLength": 2000}
 PROJECT = schema({"id": {"type": "string"}, "slug": {"type": "string"}, "name": {"type": "string"}, "summary": {"type": "string"},
-                  "workspace_path": {"type": "string"}, "hq_path": {"type": "string"}},
-                 ["id", "slug", "name", "summary", "workspace_path", "hq_path"])
+                  "workspace_path": {"type": "string"}},
+                 ["id", "slug", "name", "summary", "workspace_path"])
 OUTPUT = schema({"project": PROJECT, "project_id": {"type": "string"}, "slug": {"type": "string"}}, ["project", "project_id", "slug"])
 VERSION = 2
 DESCRIPTION = (
@@ -35,17 +35,17 @@ class ProjectCreationOperations:
     """The ``project_create`` operation over explicit host facts; it reads no installation paths of its own.
 
     ``operations_root`` is the installation's operations directory and ``staging_root`` its private project-folder staging
-    area; ``project_root(row)`` and ``project_hq(row)`` are the host's validating location functions for a registered
+    area; ``project_root(row)`` is the host's validating location function for a registered
     project row (``{"slug": ...}``), ``relative_path(path)`` the operations-relative form of an absolute location, and
     ``projects_directory`` the projects directory's name. The functions are called at each validation point, never cached.
     ``creator_actor(uow, identity)`` returns the creator's role when ``identity`` is the one identity allowed to create
     projects, else ``None``; it is required and is consulted afresh on every phase."""
 
-    def __init__(self, application, *, operations_root, staging_root, project_root, project_hq, relative_path,
+    def __init__(self, application, *, operations_root, staging_root, project_root, relative_path,
                  projects_directory, creator_actor):
         self.application = application
         self.operations_root, self.staging_root = operations_root, staging_root
-        self.project_root, self.project_hq, self.relative_path = project_root, project_hq, relative_path
+        self.project_root, self.relative_path = project_root, relative_path
         self.projects_directory, self.creator_actor = projects_directory, creator_actor
         self.creation = Creation(self)
 

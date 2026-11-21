@@ -73,8 +73,8 @@ class WorkReviewTests(unittest.TestCase):
 
     def project(self, name, *, archived):
         identity = new_id()
-        self.write("INSERT INTO projects(id,slug,workspace,hq_path,name,created_at,updated_at,archived_at) VALUES(?,?,?,?,?,?,?,?)",
-                   (identity, name, "/workspaces/" + name, "/hq/" + name, name, BEFORE, BEFORE, BEFORE if archived else None))
+        self.write("INSERT INTO projects(id,slug,workspace,name,created_at,updated_at,archived_at) VALUES(?,?,?,?,?,?,?)",
+                   (identity, name, "/workspaces/" + name, name, BEFORE, BEFORE, BEFORE if archived else None))
         return identity
 
     def read(self, args=None, *, ctx=None):

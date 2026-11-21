@@ -114,9 +114,9 @@ def cells_checked(cells, columns):
 
 
 class TableOperations:
-    def __init__(self, database, operations_root, project_hq, *, clock=utc_clock, job_programs=None):
+    def __init__(self, database, operations_root, project_root, *, clock=utc_clock, job_programs=None):
         self.database, self.clock, self.job_programs = database, clock, job_programs
-        self.history = TableHistory(database, operations_root, project_hq)
+        self.history = TableHistory(database, operations_root, project_root)
         self.crm = None
 
     def bind_crm(self, crm):

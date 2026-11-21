@@ -6,7 +6,7 @@ from qorqut.agents import role_workflow
 from qorqut.agents import cleanup_workflow
 from qorqut.agents.operational_delegation import supports_durable_delegation_version
 from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, SUPPORTED_GLOBAL_ROLES
-from qorqut.composition.locations import project_code, project_hq
+from qorqut.composition.locations import project_code, project_root
 
 from dataclasses import dataclass
 import hashlib
@@ -202,13 +202,13 @@ def _coordinator_workspace(resolver) -> Path | None:
 
 
 def _project_code_root(resolver, data, project) -> Path | None:
-    """Validate a project code tree; every global may carry out explicitly assigned code work."""
+    """The project's existing code tree, or ``None`` when it has none; every global may carry out explicitly assigned code work."""
     if data["scope"]["kind"] != "ecosystem":
         return None
     code = project_code(resolver.paths, project)
     if path_has_symlink(code) or (code.exists() and not code.is_dir()):
         raise DomainError("preparation_error", "Project code directory must be a local directory inside its registered workspace")
-    return code
+    return code if code.exists() else None
 
 
 def skill_projection(resolver, data) -> tuple[dict, dict]:
@@ -425,9 +425,9 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             code_root = _project_code_root(resolver, data, project)
             if code_root is not None:
                 code_roots.append(code_root)
-            hq = project_hq(resolver.paths, project)
-            protected += [hq / part for part in ("project.yaml", "CLAUDE.md", "context", "tasks", "log")]
-            read_roots += [hq / part for part in ("context", "analytics", "assets")]
+            folder = project_root(resolver.paths, project)
+            protected += [folder / part for part in ("project.yaml", "CLAUDE.md", "context", "tasks", "log")]
+            read_roots += [folder / part for part in ("context", "analytics", "assets")]
     local = {"hooks": {
         "SessionStart": [{"matcher": "startup|resume|clear|compact|fork", "hooks": [{"type": "command", "command": command, "timeout": 240}]}],
         "UserPromptSubmit": [{"hooks": [{"type": "command", "command": command, "timeout": 240}]}]},
@@ -762,11 +762,6 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
                 if previous and not previous["revoked_at"]:
                     uow.repository("credentials").update(previous_credential_id, {"revoked_at": utc_now()}, expected_revision=previous["revision"])
     safe_io.mkdir(workspace)
-    for path in projection.metadata.get("project_code_roots", []):
-        code_root = Path(path)
-        if path_has_symlink(code_root):
-            raise DomainError("projection_conflict", "Project code directory cannot follow symlinks")
-        safe_io.mkdir(code_root)
     for directory in ("notes", "work", ".qorqut/delivery"):
         safe_io.mkdir(workspace / directory)
     for name in old.get("files", {}):

@@ -81,8 +81,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-probe-") as directory:
     database = Database(Path(directory) / "probe.sqlite3", assembly=assembly).initialize_target()
     with database.transaction() as uow:
         uow.repository("principals").insert({"id": HUMAN, "kind": "human"})
-        uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w",
-                                             "hq_path": directory + "/w/hq"})
+        uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w"})
         uow.repository("installation").insert({"id": "service", "installation_id": "11111111-1111-4111-8111-111111111111",
                                                  "owner_principal_id": HUMAN})
     def prepare(ctx, args, options, uow):
@@ -226,8 +225,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
     with database.transaction() as uow:
         uow.repository("principals").insert({"id": HUMAN, "kind": "human", "display_name": "Owner"})
         uow.repository("principals").insert({"id": AGENT, "kind": "agent", "display_name": "Proposer"})
-        uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w",
-                                             "hq_path": directory + "/w/hq"})
+        uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w"})
         uow.repository("installation").insert({"id": "service", "installation_id": INSTALLATION, "owner_principal_id": HUMAN})
         uow.connection.execute("INSERT INTO agent_profiles(agent_id, principal_id, name, "
             "workspace, profile_json, created_at, updated_at) VALUES (?,?,?,?,?, 'now', 'now')",
@@ -370,8 +368,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-neutral-") as directory:
     database = Database(Path(directory) / "neutral.sqlite3", assembly=assembly).initialize_target()
     with database.transaction() as uow:
         uow.repository("principals").insert({"id": HUMAN, "kind": "human", "display_name": "Owner"})
-        uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w",
-                                             "hq_path": directory + "/w/hq"})
+        uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w"})
         uow.repository("installation").insert({"id": "service", "installation_id": "11111111-1111-4111-8111-111111111111",
                                                  "owner_principal_id": HUMAN})
         for table, identity in (("notes", "n1"), ("tasks", "k1")):
@@ -468,7 +465,7 @@ from qorqut_operations.storage import (AssemblyBuilder, Database, DIRECTORY_ACTI
 from qorqut_operations.storage.executor import PreparedFileExecutor
 
 assert "site-packages" in Path(directories.__file__).resolve().parts, directories.__file__
-HUMAN, TYPE, LAYOUT = "00000000-0000-4000-8000-000000000001", "project_directories", ("code", "hq")
+HUMAN, TYPE, LAYOUT = "00000000-0000-4000-8000-000000000001", "project_directories", ("notes", "assets")
 
 class History:
     def capture_receipt(self, uow, receipt, plan): pass
@@ -520,7 +517,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-directory-") as directory:
     made = app.invoke(caller, "projects_make", {"slug": "alpha"}, {"idempotency_key": "one"})
     assert made.status == "ok", made
     alpha = operations / "projects" / "alpha"
-    assert tree(alpha) == ["code", "hq"] and not any(staging.iterdir()), tree(alpha)
+    assert tree(alpha) == ["assets", "notes"] and not any(staging.iterdir()), tree(alpha)
     identity = alpha.stat().st_ino
     # The same key replays the saved result; another key for the now occupied name conflicts and adopts nothing.
     assert app.invoke(caller, "projects_make", {"slug": "alpha"}, {"idempotency_key": "one"}).data == made.data
@@ -528,8 +525,8 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-directory-") as directory:
     assert occupied.status == "error" and occupied.error["code"] == "revision_conflict", occupied
     assert alpha.stat().st_ino == identity
     # An identical empty tree made by someone else carries the same layout hash and is still never adopted.
-    (operations / "projects" / "beta" / "code").mkdir(parents=True)
-    (operations / "projects" / "beta" / "hq").mkdir()
+    (operations / "projects" / "beta" / "notes").mkdir(parents=True)
+    (operations / "projects" / "beta" / "assets").mkdir()
     theirs = app.invoke(caller, "projects_make", {"slug": "beta"}, {"idempotency_key": "three"})
     assert theirs.status == "error" and theirs.error["code"] == "revision_conflict", theirs
     with database.read() as uow:

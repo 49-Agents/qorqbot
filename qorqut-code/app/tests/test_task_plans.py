@@ -870,8 +870,7 @@ class CheckTests(PlanFixture):
         alpha, beta = str(uuid4()), str(uuid4())
         with self.db.transaction() as uow:
             for identity, slug in ((alpha, 'alpha'), (beta, 'beta')):
-                uow.repository('projects').insert({'id': identity, 'name': slug, 'slug': slug, 'workspace': slug,
-                                                     'hq_path': slug + '/hq'})
+                uow.repository('projects').insert({'id': identity, 'name': slug, 'slug': slug, 'workspace': slug})
 
         def call(who, project, operation, arguments, task=None):
             ctx = replace(self.ctx(who), project_id=project, review_project_id=project,
@@ -965,7 +964,7 @@ class CheckTests(PlanFixture):
         # Elsewhere under the operations root the answer is the same whether or not a file is there.
         answers = set()
         for path in (f'agents/{self.other}/theirs.txt', f'agents/{self.other}/missing.txt', 'notes.txt', 'missing.txt',
-                     'projects/alpha/hq/plan.md', own):
+                     'projects/alpha/plan.md', own):
             message = self.refused(self.step(self.worker, 'done', task, step_id='s1', evidence={'path': path}),
                                    'is not in either')['message']
             answers.add(message.replace(path, '<path>'))
@@ -981,14 +980,14 @@ class CheckTests(PlanFixture):
     def test_a_file_of_the_tasks_project_counts(self):
         alpha, beta, call = self.projects()
         for slug in ('alpha', 'beta'):
-            (self.files / 'projects' / slug / 'hq').mkdir(parents=True)
-            (self.files / 'projects' / slug / 'hq' / 'offer.md').write_text('The offer.')
+            (self.files / 'projects' / slug).mkdir(parents=True)
+            (self.files / 'projects' / slug / 'offer.md').write_text('The offer.')
         task = plain(self.ok(call(self.lead, alpha, 'tasks_create', {'title': 'In alpha'})))['task']
         self.ok(call(self.lead, alpha, 'tasks_delegate', {'worker_id': self.worker, 'plan': [
             {'text': 'Write the offer', 'check': {'kind': 'file'}}, 'Report']}, task))
         done = lambda path: call(self.worker, alpha, 'tasks_step_done', {'step_id': 's1', 'evidence': {'path': path}}, task)
-        self.refused(done('projects/beta/hq/offer.md'), 'is not in either')
-        self.ok(done('projects/alpha/hq/offer.md'))
+        self.refused(done('projects/beta/offer.md'), 'is not in either')
+        self.ok(done('projects/alpha/offer.md'))
 
     def test_a_checked_step_keeps_the_order_and_can_be_skipped(self):
         asked = self.question()

@@ -81,8 +81,7 @@ class ClaudeDispatchIntegration(unittest.TestCase):
             with database.transaction() as uow:
                 uow.repository('principals').insert({'id': parent, 'kind': 'agent', 'display_name': 'Coordinator',
                     'active': 1, 'created_at': stamp, 'updated_at': stamp})
-                uow.repository('projects').insert({'id': project, 'slug': 'sample', 'workspace': str(root),
-                    'hq_path': str(root), 'name': 'Sample', 'created_at': stamp, 'updated_at': stamp})
+                uow.repository('projects').insert({'id': project, 'slug': 'sample', 'workspace': str(root), 'name': 'Sample', 'created_at': stamp, 'updated_at': stamp})
                 uow.repository('agent_profiles', project_id=None).insert({'agent_id': parent, 'principal_id': parent,
                     'name': 'Coordinator', 'workspace': str(workspace),
                     'profile_json': {'runtime': 'claude-code', 'role': {'id': 'ordubashy'},

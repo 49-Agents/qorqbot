@@ -37,7 +37,7 @@ Private-DM scope affects Git coverage only. It does not change MCP/UI conversati
 
 ## Authored files
 
-Include regular authored files in the approved root/global `files/`, registered global-agent `files/`, registered project-agent `files/` and project `hq/` areas. Capture exact bytes, including permitted binaries, and preserve execute bits. Directories and file targets come from trusted registration/path resolution, not caller tags or arbitrary absolute paths.
+Include regular authored files in the approved root/global `files/`, registered global-agent `files/`, registered project-agent `files/` and project folder areas. Capture exact bytes, including permitted binaries, and preserve execute bits. Directories and file targets come from trusted registration/path resolution, not caller tags or arbitrary absolute paths.
 
 Exclude code/role repositories, Context, raw transcripts, generated provider instructions/configuration, credentials/environment files, browser profiles, caches, virtual environments, dependency trees, `.runtime`, nested repositories, symlinks and special files. Derived table/export projections should not be recaptured as if they were independently authored documents; classify them explicitly with their domain owner.
 

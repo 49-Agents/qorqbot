@@ -44,9 +44,9 @@ repository. This is path validation, not protection against a same-user race.
 ### Areas (the trusted provider)
 
 `areas(uow)` is called inside the export read unit and returns values of exactly three kinds: `GlobalFiles`,
-`GlobalAgentFiles(agent_id)` and `ProjectHeadquarters(project)`. They carry exact
+`GlobalAgentFiles(agent_id)` and `ProjectFolder(project)`. They carry exact
 registered IDs/slugs; the host resolves them through `InstancePaths` (`files`, `agent_files(agent)`,
-`project_hq(slug)`) after the unit closed. Anything else, an ID/slug that is not one
+`project_root(slug)`) after the unit closed. Anything else, an ID/slug that is not one
 `SEGMENT` path segment, a duplicate (also case-folded), or overlapping resolved folders fails with `history_areas_invalid`
 before any file is captured. Nothing scans folders, reads tags or infers registrations. A resolved folder whose existing path
 crosses a symlink is reported as an excluded `symlink` area and none of it is read. Each value may carry
@@ -58,7 +58,7 @@ normalized relative POSIX path. Those subtrees are skipped (`generated_projectio
 `database/manifest.json` (the export manifest: format, schema identity, coverage, per-table key/columns/structured
 schemas/omitted column names, classified exclusions), `database/<table>.jsonl` or `database/<table>/<hex>.jsonl` for sharded
 tables (canonical JSON lines in key order; the shard is the declared fixed hash-prefix of the stable key), and the authored
-files at their operations-relative paths under `files/`, `agents/{id}/files/`, `projects/{slug}/hq/` and
+files at their operations-relative paths under `files/`, `agents/{id}/files/`, `projects/{slug}/` and
 `projects/{slug}/agents/{id}/files/` with exact bytes and the owner-execute bit. No clock value enters any file, so identical
 state produces identical bytes. Not captured: Context, generated instructions/provider configuration, native archives and
 transcripts, `.runtime`, project `code/`, role/source repositories, unregistered folders and the SQLite file. The donor's name
@@ -138,7 +138,7 @@ worker generation, so a restart's initial pass is never delayed by it. `start`, 
 - The observer's first pass runs at `start()`; `stop()` abandons a pending (not running) pass because the next start's first pass
   recovers it; the same observer restarts only after a stop that reported `stopped=True` (see Restart above).
 - A symlinked area folder is reported as an excluded `symlink` area labelled `kind:identifiers` (for example
-  `project_hq:acme`) rather than failing the whole snapshot; a symlinked `.runtime`, repository or operations root is refused.
+  `project_folder:acme`) rather than failing the whole snapshot; a symlinked `.runtime`, repository or operations root is refused.
 
 ## Focused checks run
 
@@ -147,7 +147,7 @@ ref. Host tests import the sibling Operations worktree of this same branch throu
 
 - `app/tests/test_operations_history.py` (22): inert construction; explicit private local initialization and refusal of
   directory/plain-repository/file/symlink/remote locations untouched; replaced runtime root refused before and during an
-  operation; one read unit shared by rows and areas and closed before Git; global, global-agent, project-agent and project-HQ
+  operation; one read unit shared by rows and areas and closed before Git; global, global-agent, project-agent and project-folder
   files included and Context/transcripts/generated instructions/provider configuration/runtime/code/roles/unregistered
   folders/other-project paths absent; safe selected rows with the private direct-message row, secrets and nested event data
   absent from every Git object; unchanged snapshot makes no commit; change, execute bit, row change in one shard file and

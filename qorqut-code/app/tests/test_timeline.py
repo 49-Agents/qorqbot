@@ -28,7 +28,7 @@ class TimelineTests(Fixture):
         self.current = frozenset({self.project_id})
         with self.db.transaction() as uow:
             uow.repository('projects').insert({'id': self.project_id, 'name': 'Example project', 'slug': 'example',
-                                                 'workspace': 'example', 'hq_path': 'hq'})
+                                                 'workspace': 'example'})
         self.work = self.task(self.lead, 'Pay creators')
         self.item = {'type': 'task', 'id': self.work['id'], 'project_id': None}
         self.project = {'type': 'project', 'id': self.project_id, 'project_id': self.project_id}

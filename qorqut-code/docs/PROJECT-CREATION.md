@@ -60,7 +60,7 @@ proven staging tree.
 One plan creates, atomically from the caller's view:
 
 - the project row with `config_json = {one_liner, code: []}`;
-- the empty folders `projects/{slug}/hq` and `projects/{slug}/code`, made with the Operations
+- the empty folder `projects/{slug}`, made with the Operations
   `create_directory_tree` file effect (a receipt-bound private staging area published with a
   no-replace rename and recognized afterwards only by its recorded inode identity; see
   Operations `docs/DIRECTORY_EFFECT.md`). A folder that appears after preparation refuses the apply;
@@ -72,7 +72,7 @@ global agent reaches the new project at once. A later explicit request may add a
 
 ## Result
 
-`{project: {id, slug, name, summary, workspace_path, hq_path}, project_id, slug}`.
+`{project: {id, slug, name, summary, workspace_path}, project_id, slug}`.
 
 ## Initial instructions and the absence of a template
 

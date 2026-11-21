@@ -1,7 +1,7 @@
 """Exact local project creation: one registered row and an empty project folder, and nothing else.
 
 Creation is a global aggregate: the new project does not exist at preparation time. Its frozen change holds the selected
-identity, slug, metadata, owner and the directory layout (``hq/`` and ``code/``, both empty). The folder is
+identity, slug, metadata, owner and the empty project folder. The folder is
 made by the Operations ``create_directory_tree`` file effect (a receipt-bound private staging area published with no-replace
 semantics, and recognized afterwards only by its recorded inode identity), then the row commits in the normal final
 transaction. Creation writes no document, Task, routine, checklist, agent, Context input or external registration, starts no
@@ -20,7 +20,7 @@ from qorqut_operations.storage.directory_layout import ACTION as DIRECTORY_ACTIO
 ACTION = "create_project"
 DIRECTORIES = "project_creation_directories"
 NAMES = "project_creation_names"
-LAYOUT = ("code", "hq")
+LAYOUT = ()
 SLUG = re.compile(r"[a-z][a-z0-9-]{0,63}")
 FALLBACK_SLUG = "project"
 SUGGESTION_LIMIT = 1000
@@ -51,7 +51,7 @@ def numbered(slug: str, number: int) -> str:
 class Creation:
     """The creation rules over the facts the operations object was constructed with (see ``ProjectCreationOperations``).
 
-    ``operations.project_root(row)``, ``project_hq(row)`` and ``relative_path(path)`` are the host's own validating path
+    ``operations.project_root(row)`` and ``relative_path(path)`` are the host's own validating path
     functions; they are called at every point the rules need a location and their results are never kept."""
 
     def __init__(self, operations):
@@ -145,8 +145,8 @@ class Creation:
         folder_ref = ResourceRef(DIRECTORIES, slug, None, "global")
         builder.targets[folder_ref] = ExpectedTarget(folder_ref, exists=False)
         project_id = new_id()
-        folder, hq = self.operations.project_root({"slug": slug}), self.operations.project_hq({"slug": slug})
-        project = {"id": project_id, "slug": slug, "workspace": str(folder), "hq_path": str(hq), "name": name,
+        folder = self.operations.project_root({"slug": slug})
+        project = {"id": project_id, "slug": slug, "workspace": str(folder), "name": name,
                     "config_json": {"one_liner": summary, "code": []}}
         builder.record("projects", project_id, None, {"project": project, "owner_id": owner["id"],
                                                          "directories": list(LAYOUT)},
@@ -155,9 +155,9 @@ class Creation:
         projects = self.operations.projects_directory
         shown = PreviewResource(DIRECTORIES, slug, f"{projects}/{slug}")
         builder.resources.append(shown)
-        builder.previews.append(StructuredPreview(shown, (FieldChange("folders", None, [f"{projects}/{slug}/{path}" for path in LAYOUT]),)))
+        builder.previews.append(StructuredPreview(shown, (FieldChange("folders", None, [f"{projects}/{slug}"]),)))
         builder.effects.append("Creates only this new project and the empty folder "
-                               f"{projects}/{slug} with hq/ and code/. "
+                               f"{projects}/{slug}. "
                                "It creates no agents, documents, Tasks, routines, Context inputs, external accounts, domains, "
                                "repositories or sessions. Every active global agent reaches the new project at once.")
         return builder.build()
@@ -179,8 +179,7 @@ class Creation:
         if (created[0].resource != reference or folders[0].resource != ResourceRef(DIRECTORIES, slug, None, "global")
                 or tuple(checked_values(folders[0].values)) != LAYOUT):
             raise DomainError("invalid_plan", "The project folder differs from the project")
-        if (project["workspace"] != str(self.operations.project_root({"slug": slug}))
-                or project["hq_path"] != str(self.operations.project_hq({"slug": slug}))):
+        if project["workspace"] != str(self.operations.project_root({"slug": slug})):
             raise DomainError("revision_conflict", "The project location changed after preparation")
         owner = uow.repository("principals").get(values["owner_id"])
         installation = uow.repository("installation").get("service", required=True)
@@ -197,6 +196,5 @@ class Creation:
         project = values["project"]
         uow.repository("projects").insert(project)
         return {"project": {"id": project["id"], "slug": project["slug"], "name": project["name"],
-                             "summary": project["config_json"]["one_liner"], "workspace_path": project["workspace"],
-                             "hq_path": project["hq_path"]},
+                             "summary": project["config_json"]["one_liner"], "workspace_path": project["workspace"]},
                 "project_id": project["id"], "slug": project["slug"]}

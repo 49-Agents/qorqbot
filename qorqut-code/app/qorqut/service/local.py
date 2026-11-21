@@ -7,7 +7,7 @@ import secrets
 import subprocess
 
 from qorqut.bootstrap.client import path_has_symlink
-from qorqut.composition.locations import project_hq
+from qorqut.composition.locations import project_root
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.storage import safe_io
@@ -27,7 +27,7 @@ class LocalFiles:
         if row is None:
             with self.runtime.database.read() as uow:
                 row = uow.repository("projects").get(project_id, required=True)
-        path = project_hq(self.runtime.paths, row)
+        path = project_root(self.runtime.paths, row)
         if path_has_symlink(path):
             raise DomainError("invalid_configuration", "Registered project path is unavailable")
         return path

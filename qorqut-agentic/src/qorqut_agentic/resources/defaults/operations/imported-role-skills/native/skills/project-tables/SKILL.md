@@ -80,5 +80,5 @@ using them.
 Each successful mutation captures one snapshot; the existing background worker
 commits every revision separately to Git. `tables_history` reports saved commit
 IDs and pending versions. A failed commit does not discard the data or snapshot;
-use `tables_history_retry`. Files under `hq/tables/` are generated projections:
+use `tables_history_retry`. Files under the project folder's `tables/` are generated projections:
 use MCP to edit tables, not those JSON files. No agent waking is involved.

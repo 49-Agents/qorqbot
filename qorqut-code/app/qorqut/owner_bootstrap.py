@@ -28,6 +28,7 @@ it never saw.
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from qorqut.agents.global_scope import reaches_project
+from qorqut.composition.locations import project_code, project_root
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.application.plans import schema
@@ -50,8 +51,8 @@ OWNER_FALLBACK = "the installation owner"
 class OwnerSessionBootstrap:
     """Assembles the orientation from the current project and document stores."""
 
-    def __init__(self, documents, context_home=None, context_status=None):
-        self.documents = documents
+    def __init__(self, documents, paths, context_home=None, context_status=None):
+        self.documents, self.paths = documents, paths
         # Optional published-Context providers: ``context_home(project_id) -> Markdown or None`` (the graph is shared,
         # so the text does not depend on the project) and ``context_status() -> {"status", "revision", "reason"}``.
         self.context_home = context_home
@@ -124,7 +125,8 @@ class OwnerSessionBootstrap:
         if not repositories:
             missing.append({"source": "engineering.repositories", "reason": "none_registered",
                             "detail": "No code repositories are registered in the project configuration"})
-        return {"code_root": project["workspace"].rstrip("/") + "/code", "workspace": project["workspace"],
+        code = project_code(self.paths, project)
+        return {"code_root": str(code) if code.is_dir() else None, "workspace": str(project_root(self.paths, project)),
                 "authority": authority, "repositories": repositories,
                 "note": "Owner/Ordubashy-managed; absent targets are unconfigured. No credential values are"
                         " included here; read Settings variable names through the ordinary operations."}

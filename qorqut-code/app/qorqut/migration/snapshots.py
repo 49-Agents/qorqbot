@@ -95,21 +95,15 @@ class SourceManifest:
                     or any(char not in "0123456789abcdef" for char in item["sha256"])):
                 raise AuthorityError("snapshot_invalid", "Invalid or duplicate source manifest entry.")
             names.add(name)
-        projects, shapes = set(), set()
+        projects = set()
         for project in data["projects"]:
             if not isinstance(project, dict) or not isinstance(project.get("slug"), str):
                 raise AuthorityError("snapshot_invalid", "Invalid project discovery metadata.")
             slug = project["slug"]
-            hq = _relative(project.get("hq"))
-            # Two recognized archive shapes: an offline v1 source archive (<slug>/hq) and a target-instance archive
-            # (projects/<slug>/hq). Neither is translated into the other here, and one archive uses one shape.
-            shape = {(slug, "hq"): "source", ("projects", slug, "hq"): "target"}.get(hq.parts)
-            if shape is None or slug in projects:
+            # The one recognized shape: the project's folder, ``projects/<slug>``.
+            if _relative(project.get("root")).parts != ("projects", slug) or slug in projects:
                 raise AuthorityError("snapshot_invalid", "Duplicate or invalid project discovery metadata.")
             projects.add(slug)
-            shapes.add(shape)
-        if len(shapes) > 1:
-            raise AuthorityError("snapshot_invalid", "Project discovery metadata mixes source and target path shapes.")
         data["files"].sort(key=lambda item: item["path"])
         object.__setattr__(self, "data", freeze(data))
 
@@ -125,22 +119,23 @@ class SourceManifest:
         return plain(self.data)
 
 
-def inventory_sources(projects_root: str | Path) -> SourceManifest:
-    """Inspect only shared authored data and discovered project hq trees."""
-    root = Path(projects_root).resolve(strict=True)
+def inventory_sources(operations_root: str | Path) -> SourceManifest:
+    """Inspect only shared authored data and discovered project folders."""
+    root = Path(operations_root).resolve(strict=True)
     projects, paths, repositories = [], [], {}
-    for entry in sorted(root.iterdir(), key=lambda path: path.name):
+    projects_directory = root / "projects"
+    entries = sorted(projects_directory.iterdir(), key=lambda path: path.name) if projects_directory.is_dir() else []
+    for entry in entries:
         if entry.name.startswith(".") or not entry.is_dir():
             continue
-        hq = entry / "hq"
-        if not (hq / "project.yaml").is_file():
+        if not (entry / "project.yaml").is_file():
             continue
-        if entry.is_symlink() or hq.is_symlink():
+        if entry.is_symlink():
             raise AuthorityError("source_symlink", "Project discovery cannot follow a symbolic link.")
-        projects.append({"slug": entry.name, "hq": hq.relative_to(root).as_posix()})
-        # hq/browser held a removed per-project browser's live profile: private runtime state, never migration input.
-        paths.extend(_regular_files(hq, top_skip=frozenset({"browser"})))
-        repositories[hq.relative_to(root).as_posix()] = _git_head(hq)
+        projects.append({"slug": entry.name, "root": entry.relative_to(root).as_posix()})
+        # A browser folder is private runtime state and a code folder holds source checkouts: neither is inventoried.
+        paths.extend(_regular_files(entry, top_skip=frozenset({"browser", "code"})))
+        repositories[entry.relative_to(root).as_posix()] = _git_head(entry)
     for name in ROOT_ENTRIES:
         paths.extend(_regular_files(root / name))
     repositories["."] = _git_head(root)

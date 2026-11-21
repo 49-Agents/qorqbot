@@ -29,7 +29,7 @@ class UniqueRecordIdTests(unittest.TestCase):
                                                        owner_principal_id=self.owner, created_at=STAMP, updated_at=STAMP))
             for project, slug in ((self.alpha, 'alpha'), (self.beta, 'beta')):
                 uow.repository('projects').insert({'id': project, 'name': slug.title(), 'slug': slug,
-                                                     'workspace': slug, 'hq_path': 'hq-' + slug})
+                                                     'workspace': slug})
 
     def insert(self, statement, parameters):
         with self.db.transaction() as uow:

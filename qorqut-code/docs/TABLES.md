@@ -106,7 +106,7 @@ repository. The publisher never initializes a repository or changes the owner's 
 index or staged work. A fresh instance gets that repository from the explicit initializer
 ([Installation](INSTALLATION.md), Stage 4): the neutral branch `qorqut-instance` holding one
 empty bootstrap commit, which table publication leaves in place; the service does not repair
-an existing instance that lacks it. `hq/tables/<table-id>.json` is a generated current-state
+an existing instance that lacks it. `projects/<slug>/tables/<table-id>.json` is a generated current-state
 projection, not an input to edits; a Global table's is `files/tables/<table-id>.json`
 under the operations root. No automatic push runs per edit.
 
@@ -123,7 +123,7 @@ the projects Git repository separately to retain already-published past versions
 ## Original Uploads
 
 The dashboard accepts a file through Tables > Data uploads or the Uploads pane.
-Original bytes, filename and notes are preserved under `hq/data-uploads/` (20 MiB
+Original bytes, filename and notes are preserved under `data-uploads/` in the project folder (20 MiB
 per file). Uploading does not invoke a model, execute code or guess a table schema.
 The owner can download the original, link Stories, and see tables using it.
 
@@ -139,9 +139,9 @@ openpyxl is a test dependency, not a service parser.
 The table, table-history, asset and data-upload operations live in the `qorqut_operations.tables` and
 `qorqut_operations.assets` packages; this host composes them and owns no copy of them.
 
-- `TableOperations(database, operations_root, project_hq, *, clock, job_programs)` and
-  `TableHistory(database, operations_root, project_hq, *, runner)` take the operations-root Git directory and the
-  trusted `project_hq(project_row)` callable (the host passes `lambda project: project_hq(paths, project)`)
+- `TableOperations(database, operations_root, project_root, *, clock, job_programs)` and
+  `TableHistory(database, operations_root, project_root, *, runner)` take the operations-root Git directory and the
+  trusted `project_root(project_row)` callable (the host passes `lambda project: project_root(paths, project)`)
   explicitly; the package imports nothing from this host. The job programs `tables.version` and
   `tables.global-version` run `TableHistory.run`.
 - `DataUploadOperations(store)` and `AssetOperations(store, *, additional_references)` receive the host's source

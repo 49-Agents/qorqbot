@@ -137,7 +137,7 @@ def project_metadata(runtime, scope, slugs):
             result[row["slug"]] = {"id": row["id"], "name": row["name"],
                 "description": description if isinstance(description, str) else "",
                 "open_tasks": tasks.get(row["id"], 0), "signoffs": pending.get(row["id"], 0),
-                # Project ancestry is not recorded. hq/code/agents are folders, not subprojects.
+                # Project ancestry is not recorded. Folders inside a project are not subprojects.
                 "subprojects": None}
     return result
 
