@@ -37,7 +37,7 @@ The pin button in either header saves that thread to the Focus row. Opening a pi
 
 ## Reports and pins by Ordubashy
 
-A report (a read-and-acknowledge Signoff) has no conversation of its own: it belongs to a Task (`report_task`), and one Task can hold many reports. Opening a report in Focus shows it on the right and opens its Task's thread in the Chat area. **Open thread** and the pin button on a report act on that Task's thread, and the report has no Chat tab or comment box. An older report with no Task has no thread. Daily reports all belong to Ordubashy's standing "Daily report" Task.
+A report (a read-and-acknowledge Signoff) has no conversation of its own: it may belong to a Task (`report_task`), and one Task can hold many reports. Opening a report in Focus shows it on the right and opens its Task's thread in the Chat area. **Open thread** and the pin button on a report act on that Task's thread, and the report has no Chat tab or comment box. A report with no Task has no thread. Daily reports all belong to Ordubashy's standing "Daily report" Task.
 
 Ordubashy can list, pin and unpin threads in the owner's pinned-threads row (`thread_pins_list`, `thread_pins_set`), only when the owner asks. Only the owner and the configured coordinator in person may call them. A pin needs a record the caller may read, and is stored under the record's canonical identity in the owner's own pin file. A change emits the `thread_pins` change kind, and the dashboard rereads the row.
 

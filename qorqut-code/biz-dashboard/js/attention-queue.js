@@ -143,7 +143,7 @@ const attentionQueue=(()=>{
     message:'M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4-.9L3 21l1.9-5.5a9 9 0 0 1-.9-4A8.5 8.5 0 0 1 12.5 3H13a8.5 8.5 0 0 1 8 8v.5Z',
     email:'M3 5h18v14H3zM3 5l9 7 9-7',
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
-    read:'M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7',
+    read:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
     request:'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z',
   };
   // Something to read and acknowledge: a queue row says so itself, a listed Signoff by its form.
@@ -167,7 +167,7 @@ const attentionQueue=(()=>{
     ? signoffIcon(item)
     : item.kind==='viewbox' ? '<span class="attention-viewbox" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H6v18h12V7zM14 3v5h4M9 12h6M9 16h6"/></svg></span>'
     : typeof identityAvatar==='function' ? identityAvatar('agent',item.agent_name,{agent_id:item.agent_id,...(typeof globalAgentProfile==='function'?globalAgentProfile(item.agent_id):null),...item.presentation}) : '<span aria-hidden="true">✉</span>';
-  const label=item=>item.kind==='signoff'?(toRead(item)?'Read · ':askKind(item)==='question'?'Question · ':askKind(item)==='request'?'Request · ':'Review · ')+item.title:item.agent_name+' · '+item.text;
+  const label=item=>item.kind==='signoff'?(toRead(item)?'Attention · ':askKind(item)==='question'?'Question · ':askKind(item)==='request'?'Request · ':'Review · ')+item.title:item.agent_name+' · '+item.text;
   const button=item=>`<button type="button" class="attention-chip" data-attention-key="${esc(item.id)}" title="${esc(label(item))}\nRight-click to dismiss" aria-label="${esc(label(item))}">${icon(item)}<span class="attention-label">${esc(item.kind==='signoff'?item.title:item.text)}</span></button>`;
   function paint(host){
     if(!host.isConnected){mounts.delete(host);return;}
