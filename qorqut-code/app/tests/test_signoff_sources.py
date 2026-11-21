@@ -4,12 +4,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace as NS
 import json
-import sqlite3
 import unittest
 
 from qorqut_operations.application.engine import Application
 from qorqut_operations.application.registry import OperationRegistry
-from qorqut_operations.contracts import DomainError, InvocationContext, Principal, PolicyDecision, new_id, plain
+from qorqut_operations.contracts import InvocationContext, Principal, PolicyDecision, new_id, plain
 from qorqut_operations.items import ItemContribution, ItemResolver
 from qorqut_operations.signoffs import ABSENT, SignoffPorts
 from qorqut_operations.signoffs.service import SignoffService
@@ -19,7 +18,6 @@ from qorqut_operations.tasks import TaskOperations, TaskPorts
 from qorqut.composition.assembly import host_assembly
 from qorqut.inbox.private_conversations import PrivateConversations
 from qorqut.inbox.thread_views import related
-from qorqut.migration import signoff_sources as migration
 from qorqut.service.changes import ChangeFeed
 from qorqut.signoffs.ports import HostExecution, HostPeers, HostTasks, HostReferences, HostInputSources
 
@@ -379,21 +377,6 @@ class SignoffSourceTests(unittest.TestCase):
             'link_id': created['link']['id'], 'expected_link_revision': 1, 'idempotency_key': new_id()})
         result = self.app.invoke(self.ctx, 'signoffs_source_unlink', args, options)
         self.assertEqual(result.status, 'ok', result.error)
-
-
-class MigrationTests(unittest.TestCase):
-    def test_exact_additive_migration_and_repeat(self):
-        with TemporaryDirectory() as directory:
-            predecessor, target = migration.compositions()
-            db = Database(Path(directory) / 'old.sqlite', assembly=predecessor).initialize_target()
-            db.close()
-            with sqlite3.connect(db.path, isolation_level=None) as connection:
-                self.assertEqual(migration.inspect(connection)['store'], 'predecessor')
-                self.assertEqual(migration.apply(connection)['schema'], 'added')
-                self.assertEqual(migration.apply(connection)['schema'], 'already_current')
-                connection.execute('CREATE TABLE unexpected(id TEXT)')
-                with self.assertRaises(DomainError):
-                    migration.apply(connection)
 
 
 if __name__ == '__main__':

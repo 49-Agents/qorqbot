@@ -4,13 +4,11 @@ A transform adds its own objects or, where it says so, changes the definition
 of an existing one; a state of the chain differs from the one before it by
 exactly that.
 
-Each transform under ``qorqut.migration`` recognises a store that lacks only its
-own change. That is exact for a store one transform behind. A store two
-transforms behind matches neither module's predecessor, so no single module of
-one build can start on it. This command keeps the transforms in the order their
-changes were released and derives every state between them from this build's
-own composition, with the later transforms taken out. A store at any state of
-that chain is recognised and walked to the build's target.
+The transforms are kept in the order their changes are released. This command
+derives every state between them from this build's own composition, with the
+later transforms taken out, so a store at any state of the chain is recognised
+and walked to the build's target. The chain is empty while the stores in use
+match the build's target; its only state is then ``base``.
 
 Run ``python -m qorqut.migration.upgrade COMMAND --instance-root ROOT`` with the
 target component selection and optional --extensions-config.
@@ -49,8 +47,6 @@ from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 from qorqut.composition.assembly import HostComposition, host_contributions
 from qorqut.extensions import NO_EXTENSIONS
-from qorqut.migration import (compactions, native_transport_managed, owner_turns, private_message_refs, queue_indexes, record_moves, report_tasks,
-                              side_chat_titles, signoff_side_chat, signoff_sources, timeline, timeline_deliveries)
 from qorqut.service.changes import ChangeFeed
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import InstanceOwnership
@@ -58,8 +54,7 @@ from qorqut.service.ownership import InstanceOwnership
 # Release order, oldest first. A new schema transform is appended here; it provides NAME, OBJECTS (what it adds),
 # strip(contribution), forward(connection, objects), backward(connection) and held_rows(connection). One that changes
 # the definition of an existing object also names it in CHANGED.
-TRANSFORMS = (signoff_sources, queue_indexes, signoff_side_chat, side_chat_titles, owner_turns, private_message_refs,
-              report_tasks, timeline, timeline_deliveries, record_moves, native_transport_managed, compactions)
+TRANSFORMS = ()
 BASE = 'base'
 STATES = (BASE, *(transform.NAME for transform in TRANSFORMS))
 

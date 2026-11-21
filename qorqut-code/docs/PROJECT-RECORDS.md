@@ -160,7 +160,7 @@ it is a Focus source (and reference target) through the existing schemas, guarde
 the post-commit catalog has entries for the six operations and `owner_reminders_list`; the item kinds and sources are
 additive, so an extension cannot replace `project`.
 
-## Storage and conversion
+## Storage
 
 `project_item_links` is owned by Operations (`qorqut_operations.projects.links`) and contributed by the host
 assembly. Columns: `id`, `project_id` (Project UUID), `target_type`, `target_id`, `target_project_id` (nullable
@@ -168,19 +168,6 @@ Global), normalized non-null `target_namespace`, `revision`, `created_by`, `crea
 `(project_id, target_type, target_namespace, target_id)`. Creation is idempotent under the unique key; removal is an
 exact revision CAS. Private conversation content stays out of operational Git exports; the link table is exported
 only under the existing non-private allowlist (`host.project_links` history contribution, `PROJECT_TABLES`).
-
-`app/qorqut/migration/project_sources.py` is the narrow, explicitly callable offline conversion. It requires an
-explicit existing target path and takes the before and after composed `Assembly` as arguments; the test fixture uses
-the immutable pre-feature host `ceb46263` with Operations `6ff63572` and Context `8ba00f6b` and verifies the before
-Assembly's exact target digest (`a8e1f553…`) and 509-object inventory (`be828d9f…`), not a reverse-derived fixture
-alone. `_check_scope` proves the schema difference is exactly the `owner_conversations` source CHECK widening plus
-the new `project_item_links` table and its indexes; any other rebuilt table, index or trigger is refused. The
-conversion rebuilds `owner_conversations` with the widened CHECK, creates the link table and its indexes, rewrites
-the target identity digest, and verifies the after inventory, foreign keys, and byte-identical private evidence:
-multiple conversations, message sequence gaps, peer bindings, unread positions, deliveries, change sequences and
-unrelated rows. The whole conversion is one transaction and rolls back on any difference; a clean post-upgrade
-validation must pass. Startup, services, release workers and deployment never invoke it; later integration work
-qualifies the combined artifact.
 
 Focused coverage:
 `app/tests/test_project_records.py` (authority and denied callers, inventory union, cross-scope links and idempotent
@@ -201,5 +188,4 @@ distinct-timestamp cursor, journal boundary);
 `app/tests/test_manager_project_extension_edges.py` (the Manager's 205-record continuation/order/budget extension
 probes, plus the synthetic extension link/source-time and core-agent metadata regressions);
 `app/tests/test_project_extension_items.py` (an installed extension item kind);
-`app/tests/test_migration_project_sources.py` (before/after conversion, immutable pre-feature evidence, refusal,
-rollback). Engine persistence: `qorqut-operations/tests/test_project_links.py`.
+Engine persistence: `qorqut-operations/tests/test_project_links.py`.

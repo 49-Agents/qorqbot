@@ -117,9 +117,6 @@ that was closed (`closed`) and the id of the fresh one (`session`). It holds
 message ids, not the owner's text, and it is excluded from the general
 operational history.
 
-The table is added by the offline `python -m qorqut.migration.upgrade` transform
-`compactions`.
-
 ## In Chat
 
 A conversation that a compaction opened has a "Context compacted" marker at its

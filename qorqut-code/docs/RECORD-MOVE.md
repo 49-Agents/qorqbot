@@ -75,9 +75,6 @@ that blocks the move instead.
 `qorqut_operations.storage.record_moves.moved_location`. The two scope guards that refuse a Table's discussion entry or
 CRM membership changing project accept exactly the Tables an armed move names (`relocation_permits(..., 'table:<id>')`).
 
-## Install
+## Tests
 
-The store needs the `record_moves` transform of the ordered offline upgrade (`python -m qorqut.migration.upgrade`): it
-adds the two audits and replaces the two guards. Reverting restores both guards and drops the audits, and requires explicit
-permission to discard recorded moves. Tests: `app/tests/test_table_move.py`, `app/tests/test_note_move.py`,
-`app/tests/test_task_move_history.py`, `app/tests/test_migration_upgrade.py`.
+`app/tests/test_table_move.py`, `app/tests/test_note_move.py`, `app/tests/test_task_move_history.py`.

@@ -100,11 +100,4 @@ The proposal stays in `signoffs.preview_json`; returned content is also sealed
 in its immutable decision. No provider credential, transport binding or send
 job is created by this feature.
 
-Fresh instances use the composed target schema. Existing instances require the
-explicit offline `qorqut.migration.draft_reviews` command with the intended
-component and extension selection. `inspect` is read-only. `apply` takes the
-exclusive instance lock, requires the exact predecessor or target fingerprint,
-adds only the table/triggers, verifies schema and foreign keys, and advances the
-target identity atomically. Repeating apply is a verified no-op. Foreign or
-partially changed schemas are refused. It never runs during service startup;
-deployment and migration require their own release authorization.
+The table and its triggers are part of the composed target schema. Service startup never alters an existing schema.

@@ -143,7 +143,7 @@ and sends nothing; tests compare every table's row count and `PRAGMA data_versio
 The focused host suites are `test_crm_host_policy.py`, `test_crm_host_composition.py`, `test_crm_host_activity.py`,
 `test_crm_host_activity_boundaries.py` (discussion boundary, delegated record boundary, actors, Global route),
 `test_crm_host_activity_scale.py` (no source/discovery/version ceilings, stable local resume, cursor validation),
-`test_crm_host_surfaces.py` and `test_crm_host_upgrade.py` (see [CRM-UPGRADE.md](CRM-UPGRADE.md)). These pass with the
+`test_crm_host_surfaces.py`. These pass with the
 integrated `qorqut_operations.crm` package and its real schema, readers and handlers. The fallback in
 `tests/crm_domain_double.py` is inactive when that package is present. Tests that simulate an event disappearing between
 pages explicitly wrap `local_activity`; ordinary reads and cursor progression use the real Domain.

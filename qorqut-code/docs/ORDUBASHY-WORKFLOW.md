@@ -83,6 +83,6 @@ Formal Signoff approvals and activation of standing instruction changes keep the
 
 Fresh Ordubashy profiles include `manage_ecosystem_agents`, which is required in addition to the role's tool grants to create and manage permanent workers. Existing installations must explicitly adopt the updated Agentic packages, role revision and profile capability; preserve their local instruction edits and policy overrides.
 
-The attribution side table changes the composed schema. Existing databases require the explicit offline copy upgrade described in [CRM upgrade](CRM-UPGRADE.md); ordinary startup never alters a database. Frozen predecessor inventories cover the current public extension combinations. The upgrade retains old messages, records, Todo memberships, counters and files. Legacy messages display as authored by their original sender.
+The attribution side table is part of the composed schema; ordinary startup never alters a database. Messages without an attribution row display as authored by their original sender.
 
 This source change does not deploy or alter a running installation.

@@ -29,13 +29,6 @@ The owner attention queue returns open side chats in last-message order. Its whi
 cursors for replies, existing proposal-version view markers for Signoffs, and occurrence/revision markers for reminders.
 Reading changes no decision or reminder state. Hidden or prefetched Signoff details do not count as read.
 
-Existing installations need the offline ordered upgrade before running this schema, while the service is stopped:
-`python -m qorqut.migration.upgrade inspect|apply --instance-root ROOT` with the installation's component selection and
-`--extensions-config`. Its `signoff_side_chat` step widens the stored category rule in place, keeps every row, index and
-trigger. The following `side_chat_titles` step adds editable names while retaining the original titles. Both bring a
-store that is also behind on earlier steps up in the same transaction. Reverting past `side_chat_titles` refuses to
-discard saved display names without `--discard-rows`; conversations and original names remain. It never runs at startup.
-
 ## Assembly
 
 `qorqut.service.runtime.build_runtime` composes, in this order:

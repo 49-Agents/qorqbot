@@ -36,22 +36,6 @@ notice for explicit reconciliation. No question is guessed or retroactively inve
 moves with their own revision. Existing Signoff events notify the proposer and eligible linked Task workers/coordinator;
 private answer text is not copied into shared task notes.
 
-Existing installations require the explicit offline schema upgrade under the normal exclusive instance lock:
-
-```sh
-python -m qorqut.migration.signoff_sources inspect --instance-root INSTANCE_ROOT
-python -m qorqut.migration.signoff_sources apply --instance-root INSTANCE_ROOT
-```
-
-Pass the installation's component selections and `--extensions-config` where applicable. The command accepts only the
-exact predecessor or target composition, adds the binding table/index/triggers atomically, and is repeatable. Normal
-startup does not migrate or reconcile data. This implementation does not deploy or modify a running installation.
-
-A release that carries later schema transforms as well (the application queue indexes, for one) composes a predecessor
-this command no longer matches on a store that lacks both. Use `python -m qorqut.migration.upgrade inspect|apply` with
-the same arguments there: it applies this transform and every later one in release order, in one transaction, and its
-`revert --to base` walks them back.
-
 Coverage includes atomic creation, retries, standalone/multiple questions, cancellation, exact unlinking, cross-scope
 identity, visibility/authorization failures, task-status filters, preserved approval bindings, schema recognition and
 independent frontend version handling. The remainder of this document records the investigation that preceded the work.
@@ -354,7 +338,6 @@ parent/child propagation: link each affected task deliberately.
 | UI state and rendering | `task-state.js`, `tasks.js`, `project-tasks.js`, `global-tasks.js`, `attention-board.js`, `agent-focus.js`, `conversation.js`, `signoffs.js`. Include list paint signatures and task-type status hiding. |
 | Refresh and cache dependencies | Host `service/changes.py`, `transport/http.py`, `transport/compatibility.py`, and the dashboard subscribers for task/Signoff refresh. Binding writes and cross-scope responses must invalidate the same derived input projection. |
 | Move to project | Operations `tasks/relocation.py` and host `domains/tasks/relocation.py`: extend preview tokens/dependency inventory and either carry the binding with checked scopes or report a precise blocker. |
-| Migration | Follow the explicit inspected-predecessor/target and instance-lock pattern in [`migration/task_needs_input.py`](../app/qorqut/migration/task_needs_input.py). It is an example, not the migration to reuse for this new schema. |
 | Agent instructions | [`role-workflow.md`](../../qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app/qorqut/agentic/assets/role-workflow.md), [`thread-replies.md`](../../qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app/qorqut/agentic/assets/thread-replies.md), [`agents/skills/role/SKILL.md`](../../qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/host/app/qorqut/agents/skills/role/SKILL.md), and the owner-input/owner-focus default packages named below. |
 | Operator/developer docs | Update this plan and [`SIGNOFF-INPUT-NOTIFICATIONS.md`](SIGNOFF-INPUT-NOTIFICATIONS.md), including its stale response-delivery description. |
 
