@@ -33,7 +33,7 @@ CAPABILITIES = (
 
 def orientation_tail(available_operations):
     paths = list(COMMON_ORIENTATION)
-    if "business_briefing" in available_operations:
+    if "project_briefing" in available_operations:
         paths.append("project-briefing")
     return (*paths, "capability-handoffs")
 

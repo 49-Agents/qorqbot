@@ -1,6 +1,6 @@
 """Task records, configuration, discussion, assignment and follows: the v1 operations on the new Task model.
 
-Every operation keeps its v1 name, namespace rule (one owning business, or Global for the owner and granted global
+Every operation keeps its v1 name, namespace rule (one owning project, or Global for the owner and granted global
 agents), prepare/apply authority, revision checks and idempotency. What changed is the model underneath: five fixed
 states, one shared ``snoozed_until``, a parent Task, labels from the shared catalog, and a single discussion writer
 (``thread_messages``) for comments, summaries, typed references and the system entries that describe a change. Events
@@ -20,7 +20,7 @@ from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UUID, PlanBuilder, apply_records, newest_page, page, ref,
                                                  require_revision, rows, schema, timestamp, utc_clock)
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
-from qorqut_operations.business_lifecycle import active_business_ids
+from qorqut_operations.project_lifecycle import active_project_ids
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.conversations import SUMMARY, participants
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, can_follow, follow_state
@@ -63,7 +63,7 @@ TASK_ENTRIES = (
 )
 
 ASSIGNEES = {"type": "array", "items": UUID, "maxItems": 100}
-SCOPE = {"scope": {"enum": ["business", "global"]}}
+SCOPE = {"scope": {"enum": ["project", "global"]}}
 TASK_FIELDS = {
     "task_type": {"enum": list(TYPES), "description": instruction_text('operations-task-for-an-actionable-step-story-for-an')},
     "overview": {"type": "string", "maxLength": 20000, "description": instruction_text('operations-maintained-current-summary-and-next-steps-history-stays')},
@@ -121,23 +121,23 @@ class TaskOperations:
     def missing(self, ctx, uow, task_id) -> DomainError:
         """The refusal for a Task absent from the selected scope: a plain ``not_found``, or ``record_moved`` when the Task
         was relocated and this caller may read it where it is now (nothing is disclosed otherwise, and nothing is written)."""
-        location = moved_location(uow, ctx.business_id, task_id)
+        location = moved_location(uow, ctx.project_id, task_id)
         if location is not None:
             try:
-                links.resolve(self, ctx, {"business_id": location, "task_id": task_id}, uow)
-                project = uow.repository("businesses").get(location)
+                links.resolve(self, ctx, {"project_id": location, "task_id": task_id}, uow)
+                project = uow.repository("projects").get(location)
             except DomainError:
                 project = None
             if project is not None:
                 return DomainError("record_moved", "This Task moved to another project",
                                    details={"destination": {"id": project["id"], "name": project.get("name", project["slug"]),
                                                             "slug": project["slug"]},
-                                            "task": {"type": "task", "id": task_id, "business_id": location}})
+                                            "task": {"type": "task", "id": task_id, "project_id": location}})
         return DomainError("not_found", "Task does not exist in this scope")
 
     def require(self, ctx, uow, task_id):
         """The Task of the selected scope, or the ``missing`` refusal."""
-        row = uow.repository("tasks", business_id=ctx.business_id).get(task_id)
+        row = uow.repository("tasks", project_id=ctx.project_id).get(task_id)
         if row is None:
             raise self.missing(ctx, uow, task_id)
         return row
@@ -149,7 +149,7 @@ class TaskOperations:
 
     def descriptors(self):
         refs = self.note_references().schema
-        common = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
+        common = dict(scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
                       project_result=project_result,
                       resolve_namespace=task_namespace,
                       description=instruction_text('operations-manage-tasks-in-the-selected-project-or-use'))
@@ -223,22 +223,22 @@ class TaskOperations:
     @staticmethod
     def configuration(ctx, uow):
         """``(config, row)``: the fixed states, the catalog reference and the scope's custom field definitions."""
-        row = uow.repository("business_configs", business_id=ctx.business_id).get("tasks")
+        row = uow.repository("project_configs", project_id=ctx.project_id).get("tasks")
         return full_config(stored_fields(plain(row["config_json"]) if row else DEFAULT_CONFIG)), row
 
     # -- eligibility and graph -------------------------------------------------------------------------------------
 
     @staticmethod
     def graph(ctx, uow):
-        graph = {task["id"]: set() for task in rows(uow, "tasks", ctx.business_id)}
-        for blocker in related_rows(uow, ctx.business_id, role="blocked_by"):
+        graph = {task["id"]: set() for task in rows(uow, "tasks", ctx.project_id)}
+        for blocker in related_rows(uow, ctx.project_id, role="blocked_by"):
             if blocker["from_type"] == blocker["to_type"] == "task" and blocker["from_id"] in graph:
                 graph[blocker["from_id"]].add(blocker["to_id"])
         return graph
 
     @staticmethod
     def parents(ctx, uow):
-        return {task["id"]: task["parent_id"] for task in rows(uow, "tasks", ctx.business_id)}
+        return {task["id"]: task["parent_id"] for task in rows(uow, "tasks", ctx.project_id)}
 
     def assignee(self, ctx, identity, uow, builder=None, *, worker=False):
         if worker and self.ports.assignees.worker_excluded(ctx, identity, uow):
@@ -247,9 +247,9 @@ class TaskOperations:
             self.ports.assignees.protect(ctx, identity, uow)
         if not worker and self.ports.assignees.owner_directed(ctx, identity, uow):
             raise DomainError("invalid_assignee", "Only the owner can assign work to Learning Applier")
-        if ctx.business_id is None:
+        if ctx.project_id is None:
             actor = uow.repository("principals").get(identity)
-            profile = uow.repository("agent_profiles", business_id=None).get(identity)
+            profile = uow.repository("agent_profiles", project_id=None).get(identity)
             installation = uow.repository("installation").get("service")
             allowed = actor and actor["active"] and (
                 (actor["kind"] == "human" and installation and installation["owner_principal_id"] == identity)
@@ -263,15 +263,15 @@ class TaskOperations:
             return
         actor = uow.repository("principals").get(identity)
         if actor and actor["kind"] == "agent":
-            # Only an active global agent takes new work, in every active business without a membership row; its principal
+            # Only an active global agent takes new work, in every active project without a membership row; its principal
             # and profile are the facts this assignment depends on, so a retirement or deactivation before application
-            # invalidates it. A business-home profile is history and never a new assignee.
-            if not is_global_agent(uow.connection, identity) or ctx.business_id not in active_business_ids(uow.connection):
+            # invalidates it. A project-home profile is history and never a new assignee.
+            if not is_global_agent(uow.connection, identity) or ctx.project_id not in active_project_ids(uow.connection):
                 raise DomainError("invalid_assignee", "Agent assignees must be active global agents")
             if builder:
                 builder.expect(ref("principals", identity, None), actor)
                 builder.expect(ref("agent_profiles", identity, None, "ecosystem"),
-                               uow.repository("agent_profiles", business_id=None).get(identity))
+                               uow.repository("agent_profiles", project_id=None).get(identity))
             return
         if worker:
             installation = uow.repository("installation").get("service")
@@ -279,12 +279,12 @@ class TaskOperations:
                 raise DomainError("invalid_worker", "Only the installation owner or eligible agents may be Workers")
             if builder:
                 builder.expect(ref("installation", "service", None), installation)
-        member = uow.repository("business_memberships", business_id=ctx.business_id).get(identity)
+        member = uow.repository("project_memberships", project_id=ctx.project_id).get(identity)
         if not member or not member["active"] or not actor or not actor["active"] or actor["kind"] != "human":
             raise DomainError("invalid_assignee", "Assignee must be an active global agent or human member of this project")
         if builder:
-            builder.expect(ref("business_memberships", identity, ctx.business_id), member)
-            builder.expect(ref("principals", identity, ctx.business_id), actor)
+            builder.expect(ref("project_memberships", identity, ctx.project_id), member)
+            builder.expect(ref("principals", identity, ctx.project_id), actor)
 
     # -- note references -------------------------------------------------------------------------------------------
 
@@ -332,8 +332,8 @@ class TaskOperations:
     def detail(self, ctx, task, uow, fields, now, *, notes=True, notes_page=None):
         """One Task's full view; ``details`` builds the same view for a page of Tasks at once."""
         view = task_views(ctx, [task], uow, now)[0]
-        business_id, task_id = task["business_id"], task["id"]
-        item = ThreadItem(business_id, "task", task_id)
+        project_id, task_id = task["project_id"], task["id"]
+        item = ThreadItem(project_id, "task", task_id)
         view["notes"], view["notes_next_cursor"] = [], None
         notes_page = notes_page or {}
         limit = notes_page.get("notes_limit", 7)
@@ -366,14 +366,14 @@ class TaskOperations:
         configuration, config_row = self.configuration(ctx, uow)
         if operation == "tasks_config_get":
             return {"config": configuration, "revision": config_row["revision"] if config_row else None,
-                    "customer_states": customers.read(uow, ctx.business_id)[0]}
+                    "customer_states": customers.read(uow, ctx.project_id)[0]}
         if operation in {"assignees_list", "workers_list"}:
             return self.assignees_list(ctx, uow, workers=operation == "workers_list")
-        repository = uow.repository("tasks", business_id=ctx.business_id)
+        repository = uow.repository("tasks", project_id=ctx.project_id)
         now = timestamp(self.clock)
         if operation in {"tasks_thread_get", "tasks_notes_list"}:
             self.require(ctx, uow, arguments["task_id"])
-            item = ThreadItem(ctx.business_id, "task", arguments["task_id"])
+            item = ThreadItem(ctx.project_id, "task", arguments["task_id"])
             if operation == "tasks_notes_list":
                 history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow),
                                         kinds=("comment",), audience=arguments.get("audience"))
@@ -382,7 +382,7 @@ class TaskOperations:
             history = read_messages(uow, item, arguments, operation, ctx.principal_id, resolve_refs=self.message_refs(ctx, uow),
                                     audience=arguments.get("audience"))
             task = self.require(ctx, uow, arguments["task_id"])
-            people = {task["created_by"], *(note["created_by"] for note in history["messages"]), *events.assigned(uow, ctx.business_id, task["id"])}
+            people = {task["created_by"], *(note["created_by"] for note in history["messages"]), *events.assigned(uow, ctx.project_id, task["id"])}
             return {"thread_id": history["thread_id"], "participants": participants(uow, people), "notes": history["messages"],
                     "next_cursor": history["next_cursor"], **({"hidden": history["hidden"]} if "hidden" in history else {})}
         if operation == "tasks_get":
@@ -407,13 +407,13 @@ class TaskOperations:
         An owner session's catalog leaves ``tasks_associated_records`` out, so it is never reached this way either. The
         advertised follow-up is the exact call that continues the page, with the scope this read ran in."""
         descriptor = self.application.registry.get("tasks_associated_records")
-        scope = {**({"business_id": ctx.business_id} if ctx.business_id else {}),
+        scope = {**({"project_id": ctx.project_id} if ctx.project_id else {}),
                  **({"scope": arguments["scope"]} if "scope" in arguments else {})}
         found = {}
         for name in arguments["include"]:
             record_type = name[:-1]
             try:
-                if ctx.owner_session_business_id is not None:
+                if ctx.owner_session_project_id is not None:
                     raise DomainError("forbidden", "This operation is not in the owner-session catalog")
                 self.application.authorize(ctx, descriptor, (), uow, namespace=task_namespace(ctx, {}))
                 page_ = self.associated.read(ctx, {"task_id": task["id"], "record_type": record_type, "limit": 20}, uow)
@@ -432,23 +432,23 @@ class TaskOperations:
     def assignees_list(self, ctx, uow, *, workers=False):
         directed = self.ports.assignees.worker_excluded if workers else self.ports.assignees.owner_directed
         result_key = "workers" if workers else "assignees"
-        # Active global agents are candidates in Global and in every active business, without membership rows.
+        # Active global agents are candidates in Global and in every active project, without membership rows.
         global_agents = set(global_agent_ids(uow.connection))
-        if ctx.business_id is None:
+        if ctx.project_id is None:
             found = uow.connection.execute(
                 "SELECT p.id,p.kind,p.display_name,a.name FROM principals p LEFT JOIN agent_profiles a ON a.agent_id=p.id WHERE p.active=1 "
                 "AND ((p.kind='human' AND p.id=(SELECT owner_principal_id FROM installation WHERE id='service')) OR p.kind='agent') "
                 "ORDER BY p.kind,p.display_name,p.id")
             return {result_key: [{**dict(row), "is_owner": row["kind"] == "human"} for row in found
                                   if (row["kind"] == "human" or row["id"] in global_agents) and not directed(ctx, row["id"], uow)]}
-        if ctx.business_id not in active_business_ids(uow.connection):
+        if ctx.project_id not in active_project_ids(uow.connection):
             global_agents = set()
         installation = uow.repository("installation").get("service")
         owner = installation["owner_principal_id"] if installation else None
         found = uow.connection.execute(
             "SELECT p.id,p.kind,p.display_name,a.name,m.is_owner,m.active AS member FROM principals p "
-            "LEFT JOIN business_memberships m ON m.principal_id=p.id AND m.business_id=? LEFT JOIN agent_profiles a ON a.agent_id=p.id "
-            "WHERE p.active=1 AND p.kind IN ('agent','human') ORDER BY p.kind,p.display_name,p.id", (ctx.business_id,))
+            "LEFT JOIN project_memberships m ON m.principal_id=p.id AND m.project_id=? LEFT JOIN agent_profiles a ON a.agent_id=p.id "
+            "WHERE p.active=1 AND p.kind IN ('agent','human') ORDER BY p.kind,p.display_name,p.id", (ctx.project_id,))
         return {result_key: [{"id": row["id"], "kind": row["kind"], "display_name": row["display_name"], "name": row["name"],
                                "is_owner": row["kind"] == "human" and (row["id"] == owner if workers else bool(row["is_owner"]))} for row in found
                               if (row["id"] in global_agents or (row["kind"] == "human" and row["member"]
@@ -464,7 +464,7 @@ class TaskOperations:
             parameters.append(now)
         if "assignee_id" in arguments:
             assignee = arguments["assignee_id"]
-            clauses.append(("" if assignee else "NOT ") + "EXISTS (SELECT 1 FROM relationships r WHERE r.business_id IS tasks.business_id "
+            clauses.append(("" if assignee else "NOT ") + "EXISTS (SELECT 1 FROM relationships r WHERE r.project_id IS tasks.project_id "
                            "AND r.from_type='task' AND r.from_id=tasks.id AND r.role='assigned_to'" + (" AND r.to_id=?" if assignee else "") + ")")
             if assignee:
                 parameters.append(assignee)
@@ -487,31 +487,31 @@ class TaskOperations:
             clauses.append("""json_extract(fields_json, '$."$task".email_conversation_id') IS ?""")
             parameters.append(arguments["email_conversation_id"])
         for label in distinct_labels(arguments.get("tags") or ()):
-            clauses.append("EXISTS (SELECT 1 FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.business_id IS tasks.business_id "
+            clauses.append("EXISTS (SELECT 1 FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.project_id IS tasks.project_id "
                            "AND i.item_type='task' AND i.item_id=tasks.id AND t.label_key=?)")
             parameters.append(label_key(label))
         if arguments.get("search"):
             # Title, id, overview, status line, next step and comments, case-insensitively.
             text = " || ' ' || ".join(["title", "id", *(attribute.format(name, "") for name in ("overview", "status_line", "next_step"))])
             clauses.append(f"(instr(qorqut_casefold({text}), ?) > 0 OR EXISTS (SELECT 1 FROM thread_messages m "
-                           "WHERE m.business_id IS tasks.business_id AND m.item_type='task' AND m.item_id=tasks.id AND m.kind='comment' "
+                           "WHERE m.project_id IS tasks.project_id AND m.item_type='task' AND m.item_id=tasks.id AND m.kind='comment' "
                            "AND instr(qorqut_casefold(m.body), ?) > 0))")
             parameters += [arguments["search"].casefold()] * 2
         if "blocked" in arguments:
             # A blocker counts while it exists and is not closed (its stored status, as ``unresolved_blockers`` reads it).
             clauses.append(("" if arguments["blocked"] else "NOT ") + "EXISTS (SELECT 1 FROM relationships r JOIN tasks b "
-                           "ON b.business_id IS r.business_id AND b.id=r.to_id WHERE r.business_id IS tasks.business_id "
+                           "ON b.project_id IS r.project_id AND b.id=r.to_id WHERE r.project_id IS tasks.project_id "
                            "AND r.from_type='task' AND r.from_id=tasks.id AND r.to_type='task' AND r.role='blocked_by' "
                            "AND b.status NOT IN ('done','cancelled'))")
         where = " AND ".join(clauses)
         if states == list(STATES):
             # No status filter: the Signoff projection cannot change which Tasks match, so SQL reads only the page.
-            selected, cursor = newest_page(uow, "tasks", ctx.business_id, arguments, "tasks_list", where=where, parameters=parameters)
+            selected, cursor = newest_page(uow, "tasks", ctx.project_id, arguments, "tasks_list", where=where, parameters=parameters)
         else:
-            tasks = rows(uow, "tasks", ctx.business_id, where=where, parameters=parameters)
+            tasks = rows(uow, "tasks", ctx.project_id, where=where, parameters=parameters)
             # Status is a projection of explicit pending Signoffs; filter before paging, in one batch.
             tasks = [task for task in self.project_input(ctx, tasks, uow) if task['status'] in states]
-            selected, cursor = page(tasks, arguments, ctx.business_id, "tasks_list")
+            selected, cursor = page(tasks, arguments, ctx.project_id, "tasks_list")
         return {"tasks": self.details(ctx, selected, uow, now), "next_cursor": cursor}
 
     # -- writes ----------------------------------------------------------------------------------------------------
@@ -522,17 +522,17 @@ class TaskOperations:
         ctx = task_context(ctx, arguments, uow)
         builder = PlanBuilder(ctx, operation, arguments, operation.replace("_", " ").title(), clock=self.clock,
                               namespace=task_namespace(ctx, arguments),
-                              affected_scope={"kind": "business", "business_id": ctx.business_id} if ctx.business_id else {"kind": "global"})
+                              affected_scope={"kind": "project", "project_id": ctx.project_id} if ctx.project_id else {"kind": "global"})
         configuration, config_row = self.configuration(ctx, uow)
         fields = configuration["fields"]
-        builder.expect(ref("business_configs", "tasks", ctx.business_id), config_row)
+        builder.expect(ref("project_configs", "tasks", ctx.project_id), config_row)
         if operation == "tasks_config_update":
             return self.prepare_config(ctx, arguments, options, uow, builder, config_row)
         creating = operation == "tasks_create"
         # A new Task's id is generated unless the caller names one; either way no other Task, in any scope, may have it
         # (see ``tasks.identity``). ``validate_prepared`` checks again in the applying transaction.
         identity = (arguments.get("id") or new_task_id(uow.connection)) if creating else arguments["task_id"]
-        before = uow.repository("tasks", business_id=ctx.business_id).get(identity)
+        before = uow.repository("tasks", project_id=ctx.project_id).get(identity)
         if creating and before is not None:
             raise DomainError("revision_conflict", "Task identity already exists", current_revision=before["revision"])
         if creating and "id" in arguments and taken(uow.connection, identity):
@@ -599,7 +599,7 @@ class TaskOperations:
                 current["snoozed_until"] = requested
                 if requested is not None:
                     current["snooze_generation"] += 1
-        states, states_row = customers.read(uow, ctx.business_id) if "customer_state" in edits else ([], None)
+        states, states_row = customers.read(uow, ctx.project_id) if "customer_state" in edits else ([], None)
         apply_attributes(current, edits, states)
         if before and self.plan_guard is not None and attributes(current)["plan"] != attributes(before)["plan"]:
             self.plan_guard(ctx, before, uow)
@@ -617,10 +617,10 @@ class TaskOperations:
             parents[identity] = None
         validate_parent(identity, current["parent_id"], parents)
         if current["parent_id"] and (before or {}).get("parent_id") != current["parent_id"]:
-            builder.expect(ref("tasks", current["parent_id"], ctx.business_id),
-                           uow.repository("tasks", business_id=ctx.business_id).get(current["parent_id"], required=True))
+            builder.expect(ref("tasks", current["parent_id"], ctx.project_id),
+                           uow.repository("tasks", project_id=ctx.project_id).get(current["parent_id"], required=True))
         closing = lifecycle.check(ctx, uow, arguments, before, current,
-                                  blocked_by=blockers if blockers is not None else events.blockers(uow, ctx.business_id, identity))
+                                  blocked_by=blockers if blockers is not None else events.blockers(uow, ctx.project_id, identity))
         if creating and current["kind"] == "owner_request":
             installation = uow.repository("installation").get("service")
             if not installation or not assignees or installation["owner_principal_id"] not in assignees:
@@ -630,8 +630,8 @@ class TaskOperations:
         label = customers.introduced(attributes(before or {})["customer_state"], attributes(current)["customer_state"])
         if label is not None:
             customers.append(builder, states_row, states, label)
-        values = {key: value for key, value in current.items() if key not in {"business_id", "revision"}}
-        resource = ref("tasks", identity, ctx.business_id)
+        values = {key: value for key, value in current.items() if key not in {"project_id", "revision"}}
+        resource = ref("tasks", identity, ctx.project_id)
         mark = len(builder.changes)
         if before:
             values = {key: value for key, value in values.items() if key not in {"created_at", "created_by"} and before.get(key) != value}
@@ -646,15 +646,15 @@ class TaskOperations:
         if before and before["status"] not in CLOSED_STATES and current["status"] in CLOSED_STATES and operation != "tasks_complete":
             builder.policy_effect(resource, "tasks_complete", "Completes the task through a terminal state")
         if labels is not None:
-            plan_item_tags(builder, uow, "task", identity, ctx.business_id, distinct_labels(labels), created=creating)
+            plan_item_tags(builder, uow, "task", identity, ctx.project_id, distinct_labels(labels), created=creating)
         if blockers is not None:
             graph = self.graph(ctx, uow)
             if creating:
                 graph[identity] = set()
             validate_dependencies(identity, blockers, graph)
             for blocker_id in blockers:
-                builder.expect(ref("tasks", blocker_id, ctx.business_id),
-                               uow.repository("tasks", business_id=ctx.business_id).get(blocker_id, required=True))
+                builder.expect(ref("tasks", blocker_id, ctx.project_id),
+                               uow.repository("tasks", project_id=ctx.project_id).get(blocker_id, required=True))
             self.replace_edges(builder, uow, identity, "blocked_by", [{"type": "task", "id": blocker} for blocker in blockers])
         self.plan_comment(ctx, uow, builder, operation, arguments, identity, team_note=team_note)
         if before:
@@ -682,16 +682,16 @@ class TaskOperations:
     def prepare_config(self, ctx, arguments, options, uow, builder, config_row):
         require_revision(config_row, options.expected_revision)
         fields = validate_config(arguments["config"])
-        for task in rows(uow, "tasks", ctx.business_id):
+        for task in rows(uow, "tasks", ctx.project_id):
             validate_task(task, fields)
-            builder.expect(ref("tasks", task["id"], ctx.business_id), task)
+            builder.expect(ref("tasks", task["id"], ctx.project_id), task)
         stored = {"v": 1, "fields": fields}
-        builder.record("business_configs", "tasks", config_row, {"config_json": stored} if config_row else {"domain": "tasks", "config_json": stored})
+        builder.record("project_configs", "tasks", config_row, {"config_json": stored} if config_row else {"domain": "tasks", "config_json": stored})
         return builder.build()
 
     def plan_comment(self, ctx, uow, builder, operation, arguments, identity, *, team_note=True):
         """The one discussion write of an operation: its comment, summary and typed references, with attribution."""
-        plan_comment(ctx, uow, builder, ThreadItem(ctx.business_id, "task", identity),
+        plan_comment(ctx, uow, builder, ThreadItem(ctx.project_id, "task", identity),
                      note=arguments.get({"tasks_comment": "text", "tasks_delegate": "brief"}.get(operation, "note"))
                      or (arguments.get("result") if operation == "tasks_complete" else None),
                      summary=arguments.get("summary"), refs=arguments.get("note_refs", []), relay=arguments.get("relay"),
@@ -709,8 +709,8 @@ class TaskOperations:
         fields = configuration["fields"]
         if plan.operation_name == "tasks_config_update":
             proposed = plain(next(change.values["config_json"] for change in plan.changes
-                                  if change.resource.resource_type == "business_configs" and change.resource.resource_id == "tasks"))
-            for task in rows(uow, "tasks", ctx.business_id):
+                                  if change.resource.resource_type == "project_configs" and change.resource.resource_id == "tasks"))
+            for task in rows(uow, "tasks", ctx.project_id):
                 validate_task(task, proposed["fields"])
             return
         task_id = self.planned_task(plan)
@@ -721,7 +721,7 @@ class TaskOperations:
             if plan.arguments.get("id"):
                 raise in_use()
             raise DomainError("revision_conflict", "The new Task's id was taken meanwhile; prepare the change again", retryable=True)
-        current = uow.repository("tasks", business_id=ctx.business_id).get(task_id) or {}
+        current = uow.repository("tasks", project_id=ctx.project_id).get(task_id) or {}
         proposed = {**current, **plain(task_change.values)} if task_change else current
         validate_task(proposed, fields, current)
         worker_changes = plan.arguments.get("worker_ids") if plan.operation_name == "tasks_create" else plan.arguments.get("changes", {}).get("worker_ids")
@@ -730,7 +730,7 @@ class TaskOperations:
         if worker_changes is not None:
             for worker_id in worker_changes:
                 self.assignee(ctx, worker_id, uow, worker=True)
-        customers.check(plan, uow, ctx.business_id, attributes(current)["customer_state"], attributes(proposed)["customer_state"])
+        customers.check(plan, uow, ctx.project_id, attributes(current)["customer_state"], attributes(proposed)["customer_state"])
         link_edit = plan.arguments.get("changes", {}).get("related_task")
         if link_edit is not None:
             links.resolve(self, ctx, link_edit, uow)
@@ -744,7 +744,7 @@ class TaskOperations:
         blockers = set(graph[task_id])
         for change in plan.changes:
             if change.resource.resource_type == "relationships":
-                edge = (uow.repository("relationships", business_id=ctx.business_id).get(change.resource.resource_id)
+                edge = (uow.repository("relationships", project_id=ctx.project_id).get(change.resource.resource_id)
                         if change.action == "delete" else change.values)
                 if edge["role"] == "assigned_to" and change.action != "delete":
                     self.assignee(ctx, edge["to_id"], uow)
@@ -761,7 +761,7 @@ class TaskOperations:
     @staticmethod
     def replace_edges(builder, uow, task_id, role, targets):
         source = {"type": "task", "id": task_id}
-        existing = related_rows(uow, builder.ctx.business_id, source=source, role=role)
+        existing = related_rows(uow, builder.ctx.project_id, source=source, role=role)
         wanted = {(target["type"], target["id"]) for target in targets}
         old = {(edge["to_type"], edge["to_id"]) for edge in existing}
         for edge in existing:
@@ -780,33 +780,33 @@ class TaskOperations:
             configuration, row = self.configuration(ctx, uow)
             return {"config": configuration, "revision": row["revision"]}
         identity = self.planned_task(plan)
-        before = events.state(uow, ctx.business_id, identity)
+        before = events.state(uow, ctx.project_id, identity)
         # Tasks closed along with this one (``children: close``): each keeps its own thread entry and host hook; the one
         # event of the operation is the parent's.
-        carried = {change.resource.resource_id: events.state(uow, ctx.business_id, change.resource.resource_id)
+        carried = {change.resource.resource_id: events.state(uow, ctx.project_id, change.resource.resource_id)
                    for change in plan.changes if change.resource.resource_type == "tasks" and change.action == "update"
                    and change.resource.resource_id != identity}
         apply_records(ctx, plan, uow)
-        after = events.state(uow, ctx.business_id, identity)
+        after = events.state(uow, ctx.project_id, identity)
         self.announce(ctx, uow, plan, before, after, [plain(change.values) for change in messages])
         for child_id, earlier in carried.items():
-            later = events.state(uow, ctx.business_id, child_id)
-            events.record_change(uow, ctx.business_id, earlier, later, ctx.principal_id)
+            later = events.state(uow, ctx.project_id, child_id)
+            events.record_change(uow, ctx.project_id, earlier, later, ctx.principal_id)
             if self.on_change is not None:
                 self.on_change(ctx, uow, earlier, later, carried=True)
         for item in plan.arguments.get("note_refs", ()):
             if item["type"] == "dev_ticket":
-                self.ports.incidents.link_task(uow, item["id"], ctx.business_id, identity, ctx.principal_id, timestamp(self.clock))
-        return self.read("tasks_get", ctx, {"task_id": identity, **({"scope": "global"} if ctx.business_id is None else {})}, uow)
+                self.ports.incidents.link_task(uow, item["id"], ctx.project_id, identity, ctx.principal_id, timestamp(self.clock))
+        return self.read("tasks_get", ctx, {"task_id": identity, **({"scope": "global"} if ctx.project_id is None else {})}, uow)
 
     def announce(self, ctx, uow, plan, before, after, comments):
         """Follows, the thread's system entry and the one event of an operation, derived from the committed difference."""
-        item = ThreadItem(ctx.business_id, "task", after["row"]["id"])
+        item = ThreadItem(ctx.project_id, "task", after["row"]["id"])
         row = after["row"]
         named = sorted(set(events.workers(after)) - set(events.workers(before)))
         if named and self.ports.boards is not None:
             # Before the event is routed, so a board the host fills here is already a recipient of this change.
-            self.ports.boards.workers_named(ctx, {"type": "task", "id": row["id"], "business_id": ctx.business_id},
+            self.ports.boards.workers_named(ctx, {"type": "task", "id": row["id"], "project_id": ctx.project_id},
                                             row, named, uow)
         auto_follow(uow, item, [row["created_by"]] if before is None else [], "creator")
         auto_follow(uow, item, [value for value in after["assignees"]], "assignee")
@@ -816,11 +816,11 @@ class TaskOperations:
                 auto_follow(uow, item, [comment["author_id"]], "represented")
         written = [comment["id"] for comment in comments]
         if before is not None:
-            entry = events.record_change(uow, ctx.business_id, before, after, ctx.principal_id)
+            entry = events.record_change(uow, ctx.project_id, before, after, ctx.principal_id)
             written = ([entry] if entry else []) + written
         kinds = events.event_kinds(before, after, commented=bool(comments))
         if kinds:
-            events.announce(uow, self.ports.routing, ctx.business_id, row, ctx.principal_id, kinds,
+            events.announce(uow, self.ports.routing, ctx.project_id, row, ctx.principal_id, kinds,
                             responsibility=bool({"created", "updated", "assignment_changed"} & set(kinds)),
                             targets=events.assignment_targets(uow, before, after), messages=written,
                             change=events.change(before, after))
@@ -836,15 +836,15 @@ class TaskOperations:
     def prepare_follow(self, ctx, arguments, options, uow):
         ctx = task_context(ctx, arguments, uow)
         task = self.require(ctx, uow, arguments["task_id"])
-        item = ThreadItem(ctx.business_id, "task", task["id"])
+        item = ThreadItem(ctx.project_id, "task", task["id"])
         if not can_follow(uow, item, ctx.principal_id):
             raise DomainError("forbidden", "Only an active participant of this namespace can follow its items")
         builder = PlanBuilder(ctx, "tasks_follow", arguments, "Follow task" if arguments["following"] else "Unfollow task", clock=self.clock,
                               namespace=task_namespace(ctx, arguments),
-                              affected_scope={"kind": "business", "business_id": ctx.business_id} if ctx.business_id else {"kind": "global"})
-        builder.expect(ref("tasks", task["id"], ctx.business_id), task)
+                              affected_scope={"kind": "project", "project_id": ctx.project_id} if ctx.project_id else {"kind": "global"})
+        builder.expect(ref("tasks", task["id"], ctx.project_id), task)
         key = {"item_type": "task", "item_id": task["id"], "principal_id": ctx.principal_id}
-        existing = uow.repository("thread_follows", business_id=ctx.business_id).get(key)
+        existing = uow.repository("thread_follows", project_id=ctx.project_id).get(key)
         values = {"following": int(arguments["following"]), "explicit": 1, "reason": "explicit", "updated_at": builder.at}
         if existing:
             builder.record("thread_follows", key, existing, values, label="follow")
@@ -856,7 +856,7 @@ class TaskOperations:
     def apply_follow(self, ctx, plan, uow):
         ctx = task_context(ctx, plan.arguments, uow)
         apply_records(ctx, plan, uow)
-        state = follow_state(uow, ThreadItem(ctx.business_id, "task", plan.arguments["task_id"]), ctx.principal_id)
+        state = follow_state(uow, ThreadItem(ctx.project_id, "task", plan.arguments["task_id"]), ctx.principal_id)
         return {"task_id": plan.arguments["task_id"], **state}
 
 

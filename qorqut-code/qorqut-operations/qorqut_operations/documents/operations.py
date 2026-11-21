@@ -26,8 +26,8 @@ from qorqut_operations.documents.serialization import BODY, HASH, SLUG, slugify,
 from qorqut_operations.records.associations import TASK_IDS, link_new_resource
 from qorqut_operations.records.vocabulary import document_type
 from qorqut_operations.relationships import create_edge
-from . import business_notes
-from .business_notes import KIND as BUSINESS_NOTE, TARGET, require_target
+from . import project_notes
+from .project_notes import KIND as PROJECT_NOTE, TARGET, require_target
 from .evidence import MATERIAL_TYPES
 from .journal_access import JOURNAL_KINDS, entries as journal_entries, require_owner
 from .library import READ_ARGUMENTS, SourceLibrary
@@ -59,7 +59,7 @@ DOCUMENT_AUTHORING = frozenset({
     "context_people_create", "context_people_update", "context_people_merge", "context_people_affiliation_set",
     "context_topics_create", "context_topics_move", "context_notes_create", "context_notes_move", "context_document_update",
 })
-NOTE_KINDS = {"business_note", "agent_note", "journal", "global_note", BUSINESS_NOTE}
+NOTE_KINDS = {"project_note", "agent_note", "journal", "global_note", PROJECT_NOTE}
 CONTEXT_KINDS = {"context_topic", "context_note", "context_person", "context_upload", "context_dump", "context_map", "context", "pillar", "email_message", "content"}
 DOCUMENT_UPDATE_KINDS = {"context", "pillar", "context_note", "context_topic", "context_person", "context_map", "context_upload", "context_dump", "content"}
 
@@ -90,9 +90,9 @@ DESCRIPTIONS = {
     "context_list": instruction_text('operations-browse-scoped-context-metadata-with-pagination-without-loading'),
     "context_search": instruction_text('operations-search-context-with-bounded-excerpts-check-complete-and'),
     "context_get": instruction_text('operations-read-a-context-document-by-id-heading-or'),
-    "notes_list": instruction_text('operations-list-your-own-notes-with-target-business-id'),
+    "notes_list": instruction_text('operations-list-your-own-notes-with-target-project-id'),
     "notes_delete": instruction_text('operations-archive-a-note-while-preserving-its-contents-and'),
-    "notes_create": instruction_text('operations-create-your-private-note-with-target-business-id'),
+    "notes_create": instruction_text('operations-create-your-private-note-with-target-project-id'),
     "notes_update": instruction_text('operations-edit-a-note-with-expected-revision-a-project'),
     "context_people_affiliation_set": instruction_text('operations-set-a-person-internal-external-classification-using-current'),
     "context_people_update": instruction_text('operations-edit-person-details-including-contact-email-phone-notes'),
@@ -110,15 +110,15 @@ def append_plan(builder, plan, operation):
     builder.effects.extend(plan.preview["effects"])
 
 
-def business_namespace(ctx, args):
-    return "business:" + ctx.business_id if ctx.business_id else "global"
+def project_namespace(ctx, args):
+    return "project:" + ctx.project_id if ctx.project_id else "global"
 
 
 def own_namespace(ctx, args):
     """The namespace of an agent's own documents (a selected Project note target wins), or the selected scope."""
     if args.get(TARGET):
-        return "business:" + args[TARGET]
-    return "agent:" + ctx.agent_id if ctx.agent_id and ctx.home_business_id is None else "business:" + ctx.business_id if ctx.business_id else "global"
+        return "project:" + args[TARGET]
+    return "agent:" + ctx.agent_id if ctx.agent_id and ctx.home_project_id is None else "project:" + ctx.project_id if ctx.project_id else "global"
 
 
 def identity_view(view, row, ctx, uow):
@@ -129,7 +129,7 @@ def identity_view(view, row, ctx, uow):
 class DocumentSources:
     """The one source service: store, library and the operational source operations.
 
-    ``agent_workspace(agent_id, business=None)`` and ``scope_root(business=None)`` are the host's existing location functions
+    ``agent_workspace(agent_id, project=None)`` and ``scope_root(project=None)`` are the host's existing location functions
     bound to its paths; they place an agent's own note files. ``present(view, row, ctx, uow)`` is the publication adapter's
     composition of one unscoped read (identity for a source-only caller). ``item_resolver`` is the host's optional record
     resolver of a new resource's Task associations."""
@@ -168,8 +168,8 @@ class DocumentSources:
             agent_notes = name.startswith("notes_")
             required = ("document_id",) if "document_id" in properties else (("query",) if name == "context_search" else ())
             found[name] = OperationDescriptor(name, schema(properties, required), effect_kind="read", supports_signoff=False,
-                scope_kinds={"business", "agent_workspace", "global"} if name in GLOBAL_NOTE_OPS else {"business", "global"} if shared else {"business"},
-                resolve_namespace=business_namespace if shared else own_namespace if agent_notes else None,
+                scope_kinds={"project", "agent_workspace", "global"} if name in GLOBAL_NOTE_OPS else {"project", "global"} if shared else {"project"},
+                resolve_namespace=project_namespace if shared else own_namespace if agent_notes else None,
                 global_capability="read_global_context" if shared or name in GLOBAL_NOTE_OPS else None,
                 exposure=frozenset({"dashboard", "worker"}) if name.startswith("context_") and not library else frozenset({"mcp", "dashboard", "worker"}),
                 description=DESCRIPTIONS.get(name, ""),
@@ -178,7 +178,7 @@ class DocumentSources:
         for name, (properties, required) in MUTATIONS.items():
             found[name] = self.mutation_descriptor(name, properties, required, prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_targets,
-                scope_kinds={"business", "agent_workspace", "global"} if name in GLOBAL_NOTE_OPS else {"business"},
+                scope_kinds={"project", "agent_workspace", "global"} if name in GLOBAL_NOTE_OPS else {"project"},
                 resolve_namespace=own_namespace if name in GLOBAL_NOTE_OPS else None,
                 global_capability="read_global_context" if name in GLOBAL_NOTE_OPS else None,
                 exposure={"dashboard", "worker"} if name in DOCUMENT_AUTHORING else {"mcp", "dashboard", "worker"})
@@ -204,9 +204,9 @@ class DocumentSources:
         identity = identity or ctx.agent_id
         if identity is None:
             raise DomainError("validation_error", "An agent selector is required for a plan")
-        profile = uow.repository("agent_profiles", business_id=ctx.business_id).get(identity)
+        profile = uow.repository("agent_profiles", project_id=ctx.project_id).get(identity)
         if profile is None and identity == ctx.agent_id:
-            profile = uow.repository("agent_profiles", business_id=None).get(identity)
+            profile = uow.repository("agent_profiles", project_id=None).get(identity)
         if profile is None or profile["status"] != "active":
             raise DomainError("not_found", "Active teammate not found")
         if write and ctx.principal_kind == "agent" and identity != ctx.agent_id:
@@ -215,14 +215,14 @@ class DocumentSources:
 
     def agent_prefix(self, profile, uow):
         """The registered agent's identity directory in its scope root, relative to that root; never its name."""
-        business_id = profile["home_business_id"]
-        business = None if business_id is None else uow.repository("businesses").get(business_id, required=True)
-        workspace = self._agent_workspace(profile["agent_id"], business)
-        return str(workspace.relative_to(self._scope_root(business))), business_id
+        project_id = profile["home_project_id"]
+        project = None if project_id is None else uow.repository("projects").get(project_id, required=True)
+        workspace = self._agent_workspace(profile["agent_id"], project)
+        return str(workspace.relative_to(self._scope_root(project))), project_id
 
     @staticmethod
     def check_global_notes(operation, ctx, args, uow, operations=GLOBAL_NOTE_OPS):
-        if operation not in operations or ctx.business_id is not None or ctx.agent_id:
+        if operation not in operations or ctx.project_id is not None or ctx.agent_id:
             return
         owner = uow.repository("installation").get("service")
         if not owner or ctx.principal_kind != "human" or owner["owner_principal_id"] != ctx.principal_id:
@@ -232,30 +232,30 @@ class DocumentSources:
 
     @staticmethod
     def note_target(ctx, args, row):
-        if row["kind"] == BUSINESS_NOTE:
-            require_target(ctx, args, row["business_id"])
+        if row["kind"] == PROJECT_NOTE:
+            require_target(ctx, args, row["project_id"])
         elif TARGET in args:
-            raise DomainError("validation_error", "target_business_id applies only to business-owned notes")
+            raise DomainError("validation_error", "target_project_id applies only to project-owned notes")
 
     def builder(self, operation, ctx, args, *, namespace=None):
         """The plan builder of one document operation. The namespace follows the operation's scope unless the caller (a host
         workflow with its own scope rule) names it."""
         if namespace is None:
-            namespace = ("global" if ctx.business_id is None and operation.startswith("context_")
-                         else own_namespace(ctx, args) if operation.startswith("notes_") else "business:" + ctx.business_id)
-        scope = {"kind": "global"} if namespace == "global" else ({"kind": "agent_workspace", "agent_id": ctx.agent_id} if namespace.startswith("agent:") else {"kind": "business", "business_id": ctx.business_id})
+            namespace = ("global" if ctx.project_id is None and operation.startswith("context_")
+                         else own_namespace(ctx, args) if operation.startswith("notes_") else "project:" + ctx.project_id)
+        scope = {"kind": "global"} if namespace == "global" else ({"kind": "agent_workspace", "agent_id": ctx.agent_id} if namespace.startswith("agent:") else {"kind": "project", "project_id": ctx.project_id})
         return PlanBuilder(ctx, operation, args, operation.replace("_", " ").title(), clock=self.clock, namespace=namespace, affected_scope=scope)
 
     def finalize(self, builder, uow, operation, args):
         """Associate a Project document created by this plan with its Tasks and maintain the flat file inventory."""
         ctx = builder.ctx
-        if ctx.business_id is not None and operation in {"notes_create", "notes_upload", "context_upload"}:
+        if ctx.project_id is not None and operation in {"notes_create", "notes_upload", "context_upload"}:
             for change in tuple(builder.changes):
                 if change.resource.resource_type == "documents" and change.action == "insert":
                     row = change.values
-                    if change.resource.business_id != ctx.business_id and args.get("task_ids"):
+                    if change.resource.project_id != ctx.project_id and args.get("task_ids"):
                         raise DomainError("forbidden", "Tasks relate documents in their own project")
-                    if row["kind"] not in {"business_note", "agent_note", "context_upload", BUSINESS_NOTE}:
+                    if row["kind"] not in {"project_note", "agent_note", "context_upload", PROJECT_NOTE}:
                         continue
                     link_new_resource(builder, uow, "documents", change.resource.resource_id, args.get("task_ids", ()),
                         inherit_from=args.get("document_id") if operation == "notes_upload" else None,
@@ -281,12 +281,12 @@ class DocumentSources:
             metadata.update({key: value for key, value in edits.items() if key != "body"}, updated=builder.at)
         if args.get("body", edits.get("body", old_body)) != old_body: metadata["content_owner"] = ctx.principal_id
         if "summary" in edits: metadata["summary_owner"] = ctx.principal_id
-        if row["kind"] == BUSINESS_NOTE:
+        if row["kind"] == PROJECT_NOTE:
             # The author is the registered attribution, never edited frontmatter.
             metadata["author_id"] = row["metadata_json"].get("author_id")
-        self.store.write(builder, uow, kind="business_note" if row["kind"] == "journal" else row["kind"], before=row, body=args.get("body", edits.get("body", old_body)),
+        self.store.write(builder, uow, kind="project_note" if row["kind"] == "journal" else row["kind"], before=row, body=args.get("body", edits.get("body", old_body)),
             metadata=metadata, data=original if migrating_journal else None,
-            business_id=row["business_id"], namespace=namespace,
+            project_id=row["project_id"], namespace=namespace,
             expected_revision=options.expected_revision, expected_content_hash=args.get("expected_content_hash"))
 
     # -- reads -----------------------------------------------------------------------------------------------------------
@@ -299,22 +299,22 @@ class DocumentSources:
             kinds = {"notes_get": NOTE_KINDS,
                 "content_get": {"content", "context_note"}, "context_people_get": {"context_person"}}.get(operation)
             row = self.store.get(ctx, args["document_id"], uow, kinds=kinds)
-            if operation in GLOBAL_NOTE_OPS and (row["kind"] == "global_note" or ctx.business_id is None and not ctx.agent_id):
+            if operation in GLOBAL_NOTE_OPS and (row["kind"] == "global_note" or ctx.project_id is None and not ctx.agent_id):
                 if (row["kind"] not in JOURNAL_KINDS | {"agent_note"} or ctx.agent_id
-                        or (row["kind"] == "global_note" and ctx.business_id is not None)):
+                        or (row["kind"] == "global_note" and ctx.project_id is not None)):
                     raise DomainError("not_found", "Note is outside the selected scope")
             if operation.startswith("context_") and row["kind"] not in CONTEXT_KINDS:
                 raise DomainError("validation_error", "Not a registered context document")
             return {"document": self.present(self.store.view(row, uow), row, ctx, uow)}
-        kinds = {"notes_list": {"agent_note", "business_note", "journal", "global_note"},
+        kinds = {"notes_list": {"agent_note", "project_note", "journal", "global_note"},
             "content_list": {"content", "context_note"}, "context_people_list": {"context_person"},
             "context_maps_get": {"context_map"}}.get(operation, CONTEXT_KINDS)
         targeted_notes = operation == "notes_list" and TARGET in args
-        if operation == "notes_list" and not targeted_notes and ctx.business_id and not ctx.agent_id and not args.get("agent_id"):
-            raise DomainError("validation_error", "Project notes require target_business_id")
+        if operation == "notes_list" and not targeted_notes and ctx.project_id and not ctx.agent_id and not args.get("agent_id"):
+            raise DomainError("validation_error", "Project notes require target_project_id")
         if targeted_notes:
             found = self._project_notes(ctx, args, uow)
-        elif operation == "notes_list" and ctx.business_id is None and not ctx.agent_id and not args.get("agent_id"):
+        elif operation == "notes_list" and ctx.project_id is None and not ctx.agent_id and not args.get("agent_id"):
             require_owner(ctx, uow)
             found = journal_entries(uow)
         else:
@@ -325,17 +325,17 @@ class DocumentSources:
             agent = args.get("agent_id", ctx.agent_id)
             if agent:
                 profile = self.active_agent(ctx, uow, agent)
-                if profile["home_business_id"] != ctx.business_id:
-                    found = rows(uow, "documents", profile["home_business_id"])
+                if profile["home_project_id"] != ctx.project_id:
+                    found = rows(uow, "documents", profile["home_project_id"])
                     found = [row for row in found if row["kind"] == "agent_note"]
                     # Global agents keep private notes in their Global home. A
-                    # selected business is an attribution filter, not a storage
+                    # selected project is an attribution filter, not a storage
                     # or access scope for those notes.
-                    if ctx.business_id is not None and profile["home_business_id"] is None:
+                    if ctx.project_id is not None and profile["home_project_id"] is None:
                         found = [row for row in found
-                                 if row["metadata_json"].get("related_business_id") == ctx.business_id]
+                                 if row["metadata_json"].get("related_project_id") == ctx.project_id]
                 found = [row for row in found if row["owning_agent_id"] == agent]
-            if ctx.business_id is None and not agent:
+            if ctx.project_id is None and not agent:
                 # The owner's journal lists personal notes, not agent working notes.
                 found = [row for row in found if row["kind"] in JOURNAL_KINDS]
         if operation == "notes_list" and "tag" in args:
@@ -349,38 +349,38 @@ class DocumentSources:
         if args.get("query"):
             needle = args["query"].casefold()
             found = [row for row in found if needle in (str(row["metadata_json"]) + " " + self.store.view(row, uow)["body"]).casefold()]
-        selected, cursor = page(found, args, ctx.business_id, operation)
+        selected, cursor = page(found, args, ctx.project_id, operation)
         return {"items": [self.present(self.store.view(row, uow), row, ctx, uow) for row in selected], "next_cursor": cursor}
 
     def _project_notes(self, ctx, args, uow):
-        """The selected project's own notes; private and related-business notes never qualify."""
+        """The selected project's own notes; private and related-project notes never qualify."""
         if args.get("agent_id"):
-            raise DomainError("validation_error", "target_business_id lists project notes; omit agent_id")
-        if ctx.business_id is None:
+            raise DomainError("validation_error", "target_project_id lists project notes; omit agent_id")
+        if ctx.project_id is None:
             raise DomainError("scope_required", "Select the project whose notes to list")
-        if args[TARGET] != ctx.business_id:
-            raise DomainError("forbidden", "target_business_id differs from the selected project")
-        return self.store.collection(ctx, uow, kinds={BUSINESS_NOTE})
+        if args[TARGET] != ctx.project_id:
+            raise DomainError("forbidden", "target_project_id differs from the selected project")
+        return self.store.collection(ctx, uow, kinds={PROJECT_NOTE})
 
     # -- plans -----------------------------------------------------------------------------------------------------------
 
-    def _create_business_note(self, builder, uow, args):
+    def _create_project_note(self, builder, uow, args):
         ctx = builder.ctx
-        business_id = require_target(ctx, args, ctx.business_id)
+        project_id = require_target(ctx, args, ctx.project_id)
         if args.get("target_agent_id"):
-            raise DomainError("validation_error", "Business-owned notes have no agent owner")
+            raise DomainError("validation_error", "Project-owned notes have no agent owner")
         metadata = {"title": args["title"], "date": args.get("date", builder.at[:10]),
                     "author_id": ctx.principal_id, "pinned": bool(args.get("pinned", False))}
         if "tags" in args:
             metadata["tags"] = list(args["tags"])
-        path = self.store.free_path(uow, business_id, "notes", builder.at[:10] + "-" + slugify(args["title"]), builder=builder)
-        self.store.write(builder, uow, kind=BUSINESS_NOTE, path=path, body=args["body"], metadata=metadata, business_id=business_id)
+        path = self.store.free_path(uow, project_id, "notes", builder.at[:10] + "-" + slugify(args["title"]), builder=builder)
+        self.store.write(builder, uow, kind=PROJECT_NOTE, path=path, body=args["body"], metadata=metadata, project_id=project_id)
 
     def _topic(self, builder, uow, args, *, operation_name=None):
         tree = CONTEXT_TREE
         parent = self.store.get(builder.ctx, args["parent_id"], uow, kinds={"context_topic"}) if args.get("parent_id") else None
         if parent:
-            builder.expect(ref("documents", parent["id"], builder.ctx.business_id), parent)
+            builder.expect(ref("documents", parent["id"], builder.ctx.project_id), parent)
         prefix = str(PurePosixPath(parent["path"]).parent) if parent else tree
         path = str(PurePosixPath(prefix) / args["slug"] / "_topic.md")
         if len(PurePosixPath(path).parts) - 2 > TOPIC_DEPTH:
@@ -399,7 +399,7 @@ class DocumentSources:
         name = args["name"].strip()
         if not name: raise DomainError("validation_error", "Person name cannot be blank")
         metadata = {key: value for key, value in args.items() if key in PERSON}
-        path = self.store.free_path(uow, builder.ctx.business_id, "context/_people", slugify(name), builder=builder)
+        path = self.store.free_path(uow, builder.ctx.project_id, "context/_people", slugify(name), builder=builder)
         metadata.update(person_slug=PurePosixPath(path).stem, title=name, tree="context")
         metadata.setdefault("affiliation", "external")
         if "summary" in args: metadata["summary_owner"] = builder.ctx.principal_id
@@ -407,22 +407,22 @@ class DocumentSources:
 
     def _note(self, builder, uow, args, *, topic=None, people=None, prepared_people=(), source_refs=None, operation_name=None, kind="context_note"):
         topic = topic or self.store.get(builder.ctx, args["topic_id"], uow, kinds={"context_topic"})
-        builder.expect(ref("documents", topic["id"], builder.ctx.business_id), topic) if topic.get("revision") else None
+        builder.expect(ref("documents", topic["id"], builder.ctx.project_id), topic) if topic.get("revision") else None
         people = people if people is not None else args.get("people_ids", [])
         for identity in people:
             row = self.store.get(builder.ctx, identity, uow, kinds={"context_person"})
-            builder.expect(ref("documents", identity, builder.ctx.business_id), row)
+            builder.expect(ref("documents", identity, builder.ctx.project_id), row)
         if len(args.get("summary", "").split()) > 30: raise DomainError("validation_error", "Context note summaries are limited to 30 words")
         if args.get("part"):
             numerator, denominator = map(int, args["part"].split("/"))
             if numerator > denominator: raise DomainError("validation_error", "Note part cannot exceed its total")
         for also_id in args.get("also_topic_ids", []):
             also = self.store.get(builder.ctx, also_id, uow, kinds={"context_topic"})
-            builder.expect(ref("documents", also_id, builder.ctx.business_id), also)
+            builder.expect(ref("documents", also_id, builder.ctx.project_id), also)
         metadata = {key: value for key, value in args.items() if key in {"title", "tags", "summary", "part", "also_topic_ids", "kind", "url", "material_type", "source_spans", "origin", "occurred_on"}}
         metadata.update(tree=CONTEXT_TREE, topic_id=topic["id"], people=[*people, *prepared_people],
                         date=builder.at[:10], by=builder.ctx.principal_id)
-        path = self.store.free_path(uow, builder.ctx.business_id, str(PurePosixPath(topic["path"]).parent), builder.at[:10] + "-" + slugify(args["title"]), builder=builder)
+        path = self.store.free_path(uow, builder.ctx.project_id, str(PurePosixPath(topic["path"]).parent), builder.at[:10] + "-" + slugify(args["title"]), builder=builder)
         body = args["body"]
         origins = list(source_refs or [])
         identity = self.store.write(builder, uow, kind=kind, path=path, body=body, metadata=metadata, source_refs=origins,
@@ -439,8 +439,8 @@ class DocumentSources:
                 create_edge(builder, source, {"type": document_type(original), "id": original["id"]}, "extracted_from", operation_name=operation_name)
             elif origin["resource_type"] in {"signoffs", "tasks", "action_logs"}:
                 resource = origin["resource_type"]
-                original = uow.repository(resource, business_id=builder.ctx.business_id).get(origin["resource_id"], required=True)
-                builder.expect(ref(resource, original["id"], builder.ctx.business_id), original)
+                original = uow.repository(resource, project_id=builder.ctx.project_id).get(origin["resource_id"], required=True)
+                builder.expect(ref(resource, original["id"], builder.ctx.project_id), original)
                 create_edge(builder, source, {"type": {"signoffs": "signoff", "tasks": "task", "action_logs": "action"}[resource], "id": original["id"]}, "extracted_from", operation_name=operation_name)
         return identity
 
@@ -451,34 +451,34 @@ class DocumentSources:
             args = {"document_id": args["document_id"], "changes": {"affiliation": args["affiliation"]}}
             operation = "context_people_update"
         if operation == "notes_create" and TARGET in args:
-            self._create_business_note(builder, uow, args)
+            self._create_project_note(builder, uow, args)
         elif operation == "notes_create":
             metadata = {key: value for key, value in args.items() if key not in {"body", "rationale", "task_ids"}}
             metadata.update(created=builder.at, updated=builder.at, by=ctx.principal_id)
             if ctx.agent_id:
-                raise DomainError("forbidden", "Agents no longer create private notes; use a project note with target_business_id")
+                raise DomainError("forbidden", "Agents no longer create private notes; use a project note with target_project_id")
             require_owner(ctx, uow)
-            if ctx.business_id is not None:
+            if ctx.project_id is not None:
                 raise DomainError("scope_required", "Create personal entries in the Global journal")
             prefix, kind, namespace = "notes", "global_note", "global"
-            business_id, agent_id = ctx.business_id, None
+            project_id, agent_id = ctx.project_id, None
             metadata["ordubashy_visible"] = True
-            if kind in {"business_note", "global_note"}: metadata["date"] = args.get("date", builder.at[:10])
-            path = self.store.free_path(uow, business_id, prefix, builder.at[:10] + "-" + slugify(args["title"]), builder=builder)
+            if kind in {"project_note", "global_note"}: metadata["date"] = args.get("date", builder.at[:10])
+            path = self.store.free_path(uow, project_id, prefix, builder.at[:10] + "-" + slugify(args["title"]), builder=builder)
             self.store.write(builder, uow, kind=kind, path=path, body=args["body"], metadata=metadata,
-                             agent_id=agent_id, business_id=business_id, namespace=namespace)
+                             agent_id=agent_id, project_id=project_id, namespace=namespace)
         elif operation in {"notes_update", "notes_delete", "context_document_update"}:
             kinds = {"notes_update": NOTE_KINDS, "notes_delete": NOTE_KINDS,
                 "context_document_update": DOCUMENT_UPDATE_KINDS}[operation]
             row = self.store.get(ctx, args["document_id"], uow, kinds=kinds, write=True)
             self.note_target(ctx, args, row)
-            if operation in GLOBAL_NOTE_OPS and (row["kind"] == "global_note" or ctx.business_id is None and not ctx.agent_id):
+            if operation in GLOBAL_NOTE_OPS and (row["kind"] == "global_note" or ctx.project_id is None and not ctx.agent_id):
                 if (row["kind"] not in JOURNAL_KINDS | {"agent_note"} or ctx.agent_id
-                        or (row["kind"] == "global_note" and ctx.business_id is not None)):
+                        or (row["kind"] == "global_note" and ctx.project_id is not None)):
                     raise DomainError("not_found", "Note is outside the selected scope")
-            if operation == "context_document_update" and row["business_id"] != ctx.business_id:
+            if operation == "context_document_update" and row["project_id"] != ctx.project_id:
                 raise DomainError("forbidden", "Shared project context must belong to the selected project")
-            namespace = builder.namespace if row["business_id"] is None else None
+            namespace = builder.namespace if row["project_id"] is None else None
             self.edit_document(builder, uow, row, args, options, namespace=namespace)
         elif operation == "context_topics_create":
             self._topic(builder, uow, args)
@@ -489,8 +489,8 @@ class DocumentSources:
         elif operation == "context_notes_move":
             row = self.store.get(ctx, args["document_id"], uow, kinds={"context_note"})
             topic = self.store.get(ctx, args["topic_id"], uow, kinds={"context_topic"})
-            builder.expect(ref("documents", topic["id"], ctx.business_id), topic)
-            path = self.store.free_path(uow, ctx.business_id, str(PurePosixPath(topic["path"]).parent), PurePosixPath(row["path"]).stem, builder=builder)
+            builder.expect(ref("documents", topic["id"], ctx.project_id), topic)
+            path = self.store.free_path(uow, ctx.project_id, str(PurePosixPath(topic["path"]).parent), PurePosixPath(row["path"]).stem, builder=builder)
             self.store.write(builder, uow, kind=row["kind"], before=row, path=path,
                 metadata={**row["metadata_json"], "topic_id": topic["id"]}, expected_revision=options.expected_revision, expected_content_hash=args.get("expected_content_hash"))
             replace_targets(builder, uow, {"type": "material", "id": row["id"]}, "part_of", "topic", [topic["id"]])
@@ -499,15 +499,15 @@ class DocumentSources:
         elif operation == "context_people_update":
             validate_person_changes(ctx, args["changes"])
             principal = uow.repository("principals").get(args["document_id"])
-            member = uow.repository("business_memberships", business_id=ctx.business_id).get(args["document_id"]) if principal else None
+            member = uow.repository("project_memberships", project_id=ctx.project_id).get(args["document_id"]) if principal else None
             if principal and principal["kind"] == "human" and member and member["active"]:
                 if set(args["changes"]) - {"affiliation", "contact", "summary"}:
                     raise DomainError("validation_error", "Human account details support affiliation, contact and summary only")
                 require_revision(member, options.expected_revision)
                 values = {**member.get("person_json", {}), **args["changes"]}
                 if "contact" in args["changes"]:
-                    values["contact"] = {**person_details(principal, uow, business_id=ctx.business_id)["contact"], **args["changes"]["contact"]}
-                resource = builder.record("business_memberships", principal["id"], member, {"person_json": values}, label=principal["display_name"])
+                    values["contact"] = {**person_details(principal, uow, project_id=ctx.project_id)["contact"], **args["changes"]["contact"]}
+                resource = builder.record("project_memberships", principal["id"], member, {"person_json": values}, label=principal["display_name"])
                 if "affiliation" in args["changes"]:
                     affiliation_effect(builder, resource)
                 return builder.build()
@@ -530,16 +530,16 @@ class DocumentSources:
         if resource.resource_id != CONTEXT_TREE:
             raise DomainError("invalid_plan", "Unknown context index tree")
         tree = CONTEXT_TREE
-        sources = [row for row in rows(uow, "documents", resource.business_id)
+        sources = [row for row in rows(uow, "documents", resource.project_id)
                    if row["path"].startswith(tree + "/") and row["path"] != tree + "/INDEX.md"]
         return {"content_hash": canonical_hash(sorted((row["id"], row["revision"]) for row in sources))}
 
     def add_indexes(self, builder, uow):
         """Maintain a flat file inventory, not a second relationship hierarchy."""
         changed = [change for change in builder.changes if change.resource.resource_type == "documents"
-                   and change.resource.business_id is not None]
+                   and change.resource.project_id is not None]
         if not changed: return
-        current = {row["id"]: row for row in rows(uow, "documents", builder.ctx.business_id)}
+        current = {row["id"]: row for row in rows(uow, "documents", builder.ctx.project_id)}
         projected = {identity: plain(row) for identity, row in current.items()}
         touched = False
         for change in changed:
@@ -550,7 +550,7 @@ class DocumentSources:
             else: projected[change.resource.resource_id] = {**before, **plain(change.values)}
         if touched:
             tree = CONTEXT_TREE
-            source = ResourceRef("document_index_sources", tree, builder.ctx.business_id)
+            source = ResourceRef("document_index_sources", tree, builder.ctx.project_id)
             builder.targets[source] = ExpectedTarget(source, content_hash=self.index_snapshot(builder.ctx, source, uow)["content_hash"])
             relevant = [row for row in projected.values() if not row.get("archived") and row.get("path", "").startswith(tree + "/") and row["path"] != tree + "/INDEX.md"]
             topics = sorted((row for row in relevant if row.get("kind") == "context_topic"), key=lambda row: row["path"])
@@ -578,7 +578,7 @@ class DocumentSources:
             existing = next((row for row in current.values() if row["path"] == tree + "/INDEX.md"), None)
             if existing and existing["kind"] != "context_index":
                 raise DomainError("invalid_configuration", "Context index must be registered as a generated context_index document")
-            identity = existing["id"] if existing else str(uuid5(UUIDValue(builder.ctx.business_id), "document:" + tree + "/INDEX.md"))
+            identity = existing["id"] if existing else str(uuid5(UUIDValue(builder.ctx.project_id), "document:" + tree + "/INDEX.md"))
             self.store.write(builder, uow, kind="context_index", before=existing, identity=identity, path=tree + "/INDEX.md", body=body,
                 metadata={"title": tree + " index", "tree": tree, "generated": True}, expected_revision=existing["revision"] if existing else None)
 
@@ -589,7 +589,7 @@ class DocumentSources:
         old = PurePosixPath(row["path"]).parent
         parent = self.store.get(builder.ctx, args["parent_id"], uow, kinds={"context_topic"}) if args.get("parent_id") else None
         if parent:
-            builder.expect(ref("documents", parent["id"], builder.ctx.business_id), parent)
+            builder.expect(ref("documents", parent["id"], builder.ctx.project_id), parent)
         target = (PurePosixPath(parent["path"]).parent if parent else PurePosixPath(tree)) / args["slug"]
         if target == old or target.is_relative_to(old):
             raise DomainError("validation_error", "Topic cannot move into itself or a descendant")
@@ -618,7 +618,7 @@ class DocumentSources:
         body = keep_body.rstrip() + "\n\n### Merged From " + drop["metadata_json"].get("name", drop["id"]) + "\n\n" + drop_body
         self.store.write(builder, uow, kind="context_person", before=keep, body=body, metadata=metadata, expected_revision=keep["revision"])
         self.store.archive(builder, uow, drop, expected_revision=drop["revision"])
-        for edge in rows(uow, "relationships", builder.ctx.business_id,
+        for edge in rows(uow, "relationships", builder.ctx.project_id,
                 where="(from_type='person' AND from_id=?) OR (to_type='person' AND to_id=?)", parameters=(drop["id"], drop["id"])):
             values = {prefix + "_id": keep["id"] for prefix in ("from", "to") if edge[prefix + "_type"] == "person" and edge[prefix + "_id"] == drop["id"]}
             builder.record("relationships", edge["id"], edge, {**values, "updated_at": builder.at})
@@ -630,10 +630,10 @@ class DocumentSources:
         for change in plan.changes:
             if change.resource.resource_type != "documents":
                 continue
-            current = uow.repository("documents", business_id=change.resource.business_id).get(change.resource.resource_id)
+            current = uow.repository("documents", project_id=change.resource.project_id).get(change.resource.resource_id)
             if change.values.get("kind") in JOURNAL_KINDS or current and current["kind"] in JOURNAL_KINDS:
                 require_owner(ctx, uow)
-            business_notes.require_project_access(ctx, current, change.values.get("kind"), change.resource.business_id)
+            project_notes.require_project_access(ctx, current, change.values.get("kind"), change.resource.project_id)
 
     def validate_targets(self, ctx, plan, uow, *, global_note_operations=GLOBAL_NOTE_OPS):
         self.check_global_notes(plan.operation_name, ctx, plan.arguments, uow, global_note_operations)
@@ -641,7 +641,7 @@ class DocumentSources:
         if plan.operation_name == "context_people_merge":
             expected = {target.resource.resource_id for target in plan.expected_targets if target.resource.resource_type == "relationships"}
             identity = plan.arguments["merge_id"]
-            for edge in rows(uow, "relationships", ctx.business_id,
+            for edge in rows(uow, "relationships", ctx.project_id,
                     where="(from_type='person' AND from_id=?) OR (to_type='person' AND to_id=?)", parameters=(identity, identity)):
                 if edge["id"] not in expected:
                     raise DomainError("revision_conflict", "A new person reference appeared after preparation")
@@ -657,14 +657,14 @@ class DocumentSources:
         documents = []
         for change in changed:
             if change.action not in {"delete", "policy_effect"}:
-                row = uow.repository("documents", business_id=change.resource.business_id).get(change.resource.resource_id, required=True)
+                row = uow.repository("documents", project_id=change.resource.project_id).get(change.resource.resource_id, required=True)
                 # File receipts keep rows unavailable until this exact transaction finishes.
                 document = {**{key: value for key, value in row.items() if key not in {"metadata_json", "source_refs_json", "owning_agent_id"}},
                     **classification(row), "metadata": row["metadata_json"], "source_refs": row["source_refs_json"], "agent_id": row["owning_agent_id"], "availability": "ready"}
                 if row["kind"] == "agent_note":
-                    related_business = self.store.related_business(row, uow)
-                    if related_business is not None:
-                        document["related_business"] = related_business
+                    related_project = self.store.related_project(row, uow)
+                    if related_project is not None:
+                        document["related_project"] = related_project
                 documents.append(document)
         visible = [document for document in documents if document["kind"] != "context_index"]
         requested_id = plan.arguments.get("document_id", plan.arguments.get("upload_id"))
@@ -674,8 +674,8 @@ class DocumentSources:
 
     def apply(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
-        if plan.operation_name in {"context_people_update", "context_people_affiliation_set"} and any(c.resource.resource_type == "business_memberships" for c in plan.changes):
+        if plan.operation_name in {"context_people_update", "context_people_affiliation_set"} and any(c.resource.resource_type == "project_memberships" for c in plan.changes):
             row = uow.repository("principals").get(plan.arguments["document_id"], required=True)
-            return {"person": person_details(row, uow, business_id=ctx.business_id)}
+            return {"person": person_details(row, uow, project_id=ctx.project_id)}
         self.refresh(plan, uow)
         return self.result(ctx, plan, uow)

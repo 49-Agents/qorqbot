@@ -275,13 +275,13 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
 
     async def tables_view(request):
         """Owner's standalone read-only table page. The shell holds no data; it reads through the owner API."""
-        allowed, query = {"table_id", "business_id"}, request.query_params
+        allowed, query = {"table_id", "project_id"}, request.query_params
         keys = [key for key, _ in query.multi_items()]
         valid = (len(keys) == len(set(keys)) and set(keys) <= allowed and "table_id" in keys
                  and all(UUID_SELECTOR.fullmatch(query[key]) for key in keys))
         if not valid:
             return JSONResponse({"status": "error", "error": {"code": "invalid_request",
-                "message": "Use /tables/view?table_id=<UUID> with an optional business_id=<UUID>."}},
+                "message": "Use /tables/view?table_id=<UUID> with an optional project_id=<UUID>."}},
                 status_code=400, headers={"Cache-Control": "no-store"})
         return FileResponse(dashboard_root / "tables-view.html", headers={"Cache-Control": "no-store"})
 

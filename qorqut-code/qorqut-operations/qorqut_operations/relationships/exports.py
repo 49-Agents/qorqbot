@@ -10,7 +10,7 @@ from qorqut_operations.history_exports import Integer, TableExport, Text
 
 EDGE_EXPORTS = (
     TableExport('relationships', {
-        'business_id': Text(nullable=True),
+        'project_id': Text(nullable=True),
         'id': Text(),
         'from_type': Text(),
         'from_id': Text(),
@@ -22,12 +22,12 @@ EDGE_EXPORTS = (
         'created_at': Text(),
         'updated_at': Text(),
         'created_by': Text(nullable=True),
-    }, ('business_id', 'id')),
+    }, ('project_id', 'id')),
 )
 
 REVIEW_EXPORTS = (
     TableExport('context_reviews', {
-        'business_id': Text(),
+        'project_id': Text(),
         'id': Text(),
         'relationship_id': Text(),
         'item_type': Text(),
@@ -41,9 +41,9 @@ REVIEW_EXPORTS = (
         'actor_id': Text(),
         'prepared_at': Text(),
         'created_at': Text(),
-    }, ('business_id', 'id')),
+    }, ('project_id', 'id')),
     TableExport('context_review_states', {
-        'business_id': Text(),
+        'project_id': Text(),
         'relationship_id': Text(),
         'item_type': Text(),
         'item_id': Text(),
@@ -51,5 +51,5 @@ REVIEW_EXPORTS = (
         'revision': Integer(),
         'created_at': Text(),
         'updated_at': Text(),
-    }, ('business_id', 'relationship_id', 'item_type', 'item_id')),
+    }, ('project_id', 'relationship_id', 'item_type', 'item_id')),
 )

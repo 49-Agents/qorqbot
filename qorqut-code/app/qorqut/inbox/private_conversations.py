@@ -21,7 +21,7 @@ from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, 
 from qorqut_operations.conversations import SUMMARY, author, normalize_summary, participants
 from qorqut_operations.discussion.threads import RELAY, attribution, read_attribution, save_attribution
 from qorqut_operations.signoffs.notes import note_refs_schema
-from qorqut.agents.global_scope import active_business_participant
+from qorqut.agents.global_scope import active_project_participant
 from qorqut.management.identity import installation_owner, private_participants
 
 AUDIENCE = 'owner_ordubashy'
@@ -29,9 +29,9 @@ EVENT_SOURCE = 'owner_conversations'
 EVENT_SUMMARY = 'Private message from the owner'
 SOURCE = schema({'type': {'enum': ['task', 'signoff', 'reference', 'project', 'table']},
                  'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
-                 'business_id': {'type': ['string', 'null']}}, ('type', 'id'))
+                 'project_id': {'type': ['string', 'null']}}, ('type', 'id'))
 # `agent_id` and `peer_role` only restate the one Ordubashy channel; any other value is refused (see `participants`).
-FIELDS = {'agent_id': {'type': 'string', 'format': 'uuid'}, 'peer_role': {'enum': ['ordubashy']}, 'scope': {'enum': ['business', 'global']}, 'source': SOURCE}
+FIELDS = {'agent_id': {'type': 'string', 'format': 'uuid'}, 'peer_role': {'enum': ['ordubashy']}, 'scope': {'enum': ['project', 'global']}, 'source': SOURCE}
 # Every refusal that means "this coordinator cannot read that source now".
 # `context_refresh_required` belongs here: one stale card must not abort the
 # whole inbox page that lists it. `record_moved` is a Task that left this scope: its old-scope channel is unavailable
@@ -40,9 +40,9 @@ UNAVAILABLE = {'forbidden', 'not_found', 'policy_denied', 'validation_error', 'o
                'management_unavailable', 'busy', 'document_unavailable', 'context_refresh_required', 'record_moved'}
 
 
-def source_key(kind, business_id, identity):
+def source_key(kind, project_id, identity):
     """Stable per-object key of the one owner–Ordubashy channel. A Reference keeps its card key through edits."""
-    return 'reference:' + identity if kind == 'reference' else 'source:' + (business_id or 'global') + ':' + kind + ':' + identity
+    return 'reference:' + identity if kind == 'reference' else 'source:' + (project_id or 'global') + ':' + kind + ':' + identity
 
 
 def conversation_row(uow, key):
@@ -77,7 +77,7 @@ def private_index(ctx, bindings, uow):
     registered Ordubashy reads counts alone and every other caller reads nothing. Only the null-peer Ordubashy channel is
     counted: a retired per-worker row never contributes a count or an unread marker.
     """
-    canonical = {source_key(b['type'], b.get('business_id'), b['id']) for b in bindings}
+    canonical = {source_key(b['type'], b.get('project_id'), b['id']) for b in bindings}
     if not canonical:
         return {}
     owner = installation_owner(uow)
@@ -101,7 +101,7 @@ def private_index(ctx, bindings, uow):
 
 def private_state(ctx, binding, uow):
     """Focus counters for one card binding. Reading them writes nothing."""
-    key = source_key(binding['type'], binding.get('business_id'), binding['id'])
+    key = source_key(binding['type'], binding.get('project_id'), binding['id'])
     return private_index(ctx, [binding], uow).get(key, dict(EMPTY_STATE))
 
 
@@ -123,9 +123,9 @@ class PrivateConversations:
 
     def register(self, registry=None):
         registry = registry or self.app.registry
-        common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
+        common = dict(supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
             global_capability='read_global_context',
-            resolve_namespace=lambda c, a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''))
+            resolve_namespace=lambda c, a: 'global' if a.get('scope') == 'global' else 'project:' + (c.project_id or ''))
         registry.register(OperationDescriptor('owner_conversation_peers', schema(FIELDS, ('source',)),
             **common, owner_only=True, exposure=frozenset({'dashboard', 'worker'}), effect_kind='read',
             read=lambda c, a, o, u: self.peers(c, a, u),
@@ -141,7 +141,7 @@ class PrivateConversations:
             description=instruction_text('private-conversations-send-one-private-message-to-the-owner')))
         registry.register(OperationDescriptor('owner_conversation_mark_read', schema({**FIELDS,
             'sequence': {'type': 'integer', 'minimum': 0}}, ('source', 'sequence')),
-            supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
+            supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
             global_capability='read_global_context', owner_only=True,
             exposure=frozenset({'dashboard', 'worker'}),
             resolve_namespace=common['resolve_namespace'], prepare=self.prepare_mark, apply=self.apply_mark,
@@ -177,7 +177,7 @@ class PrivateConversations:
         """``refs`` checked (strict) or displayed for ``ctx`` in the source's scope, as a Signoff note's references."""
         if not refs or self.references is None:
             return []
-        selected = self.select(self.app.current_context(ctx, uow), source['business_id'], uow)
+        selected = self.select(self.app.current_context(ctx, uow), source['project_id'], uow)
         return self.references.references(selected, list(refs), uow, strict=strict)
 
     # ----- identity and canonical binding -------------------------------------
@@ -203,68 +203,68 @@ class PrivateConversations:
         raise DomainError('forbidden', 'Private conversations belong to the owner and Ordubashy')
 
     def key(self, source):
-        return source_key(source['type'], source['business_id'], source['id'])
+        return source_key(source['type'], source['project_id'], source['id'])
 
-    def effective_business(self, ctx, source):
-        """Business-scoped calls bind their own business; Global may name one."""
-        kind, named = source['type'], source.get('business_id')
-        if ctx.business_id is None:
-            business = named
+    def effective_project(self, ctx, source):
+        """Project-scoped calls bind their own project; Global may name one."""
+        kind, named = source['type'], source.get('project_id')
+        if ctx.project_id is None:
+            project = named
         else:
-            if 'business_id' in source and named != ctx.business_id:
+            if 'project_id' in source and named != ctx.project_id:
                 raise DomainError('validation_error', 'Source project must match the selected project')
-            business = ctx.business_id
-        if kind == 'reference' and business is not None:
+            project = ctx.project_id
+        if kind == 'reference' and project is not None:
             raise DomainError('validation_error', 'Focus References are Global; do not name a project')
         if kind == 'project' and (named is None or named != source['id']):
             # The canonical Project reference names the actual Project UUID as its own scope; a missing/null scope is
             # never inferred from the route.
             raise DomainError('validation_error', 'A project source must name the project as its own scope')
-        return business
+        return project
 
-    def select(self, ctx, business_id, uow):
+    def select(self, ctx, project_id, uow):
         from dataclasses import replace
-        selected = ctx.select_business(business_id) if business_id is not None else replace(ctx, business_id=None)
-        selected = replace(selected, review_business_id=business_id)
-        if business_id is not None and not self.business_participant(ctx, business_id, uow):
+        selected = ctx.select_project(project_id) if project_id is not None else replace(ctx, project_id=None)
+        selected = replace(selected, review_project_id=project_id)
+        if project_id is not None and not self.project_participant(ctx, project_id, uow):
             raise DomainError('forbidden', 'Private conversation source is outside an active project membership')
         return self.app.current_context(selected, uow)
 
     @staticmethod
-    def business_participant(ctx, business_id, uow):
+    def project_participant(ctx, project_id, uow):
         """Read now, in this unit of work: an agent through the effective scope of an active supported global (no
-        membership row, no business home, an active business); a person or system principal through its active
-        membership of the active business. Reach alone never selects a peer channel."""
+        membership row, no project home, an active project); a person or system principal through its active
+        membership of the active project. Reach alone never selects a peer channel."""
         if ctx.principal_kind == 'agent':
-            return active_business_participant(uow.connection, business_id, ctx.principal_id)
+            return active_project_participant(uow.connection, project_id, ctx.principal_id)
         return bool(uow.connection.execute(
-            'SELECT 1 FROM business_memberships m JOIN businesses b ON b.id=m.business_id '
-            'WHERE m.principal_id=? AND m.business_id=? AND m.active=1 AND b.archived_at IS NULL',
-            (ctx.principal_id, business_id)).fetchone())
+            'SELECT 1 FROM project_memberships m JOIN projects b ON b.id=m.project_id '
+            'WHERE m.principal_id=? AND m.project_id=? AND m.active=1 AND b.archived_at IS NULL',
+            (ctx.principal_id, project_id)).fetchone())
 
     def namespace(self, ctx):
-        return 'business:' + ctx.business_id if ctx.business_id else 'global'
+        return 'project:' + ctx.project_id if ctx.project_id else 'global'
 
     def source_check(self, selected, kind, identity, uow):
         """Authorize the caller's canonical read of the bound object."""
         if kind == 'task':
             from qorqut_operations.tasks.scope import task_context
-            scoped = task_context(selected, {'scope': 'global'} if selected.business_id is None else {}, uow)
+            scoped = task_context(selected, {'scope': 'global'} if selected.project_id is None else {}, uow)
             self.app.authorize(scoped, self.app.registry.get('tasks_get'), (), uow, namespace=self.namespace(scoped))
-            if not uow.repository('tasks', business_id=scoped.business_id).get(identity):
+            if not uow.repository('tasks', project_id=scoped.project_id).get(identity):
                 # Like every other Task read, a Task that moved answers record_moved for a caller who may read it where it is now.
                 raise self.domains.tasks.missing(scoped, uow, identity)
             return
         if kind == 'table':
             # A general and a CRM Table are one source kind; the private channel never reads or posts to the team thread.
             from qorqut_operations.tables.operations import table_context
-            scoped = table_context(selected, {'scope': 'global'} if selected.business_id is None else {}, uow)
+            scoped = table_context(selected, {'scope': 'global'} if selected.project_id is None else {}, uow)
             self.app.authorize(scoped, self.app.registry.get('tables_get'), (), uow, namespace=self.namespace(scoped))
-            if not uow.repository('data_tables', business_id=scoped.business_id).get(identity):
+            if not uow.repository('data_tables', project_id=scoped.project_id).get(identity):
                 raise DomainError('not_found', 'Table does not exist in this scope')
             return
         if kind == 'project':
-            if identity != selected.business_id:
+            if identity != selected.project_id:
                 raise DomainError('validation_error', 'A project source must name the project as its own scope')
             from qorqut.domains.projects import access as project_access
             project_access.guard(selected, self.app, uow, project_id=identity, operation='project_record_get')
@@ -276,7 +276,7 @@ class PrivateConversations:
             scoped = service._context(selected, uow)
             self.app.authorize(scoped, self.app.registry.get('signoffs_get'), (), uow, namespace=self.namespace(scoped))
             row = service._row(scoped, identity, uow)
-            if row['review_business_id'] != scoped.business_id:
+            if row['review_project_id'] != scoped.project_id:
                 raise DomainError('not_found', 'Select this signoff’s owning review scope')
             return
         if kind != 'reference':
@@ -296,10 +296,10 @@ class PrivateConversations:
         ctx = self.app.current_context(ctx, uow)
         role = self.role(ctx, uow, args)
         source = plain(args['source'])
-        business = self.effective_business(ctx, source)
-        selected = self.select(ctx, business, uow)
+        project = self.effective_project(ctx, source)
+        selected = self.select(ctx, project, uow)
         self.source_check(selected, source['type'], source['id'], uow)
-        return role, {'type': source['type'], 'id': source['id'], 'business_id': business}
+        return role, {'type': source['type'], 'id': source['id'], 'project_id': project}
 
     def readable(self, ctx, conversation_id, uow):
         """True when Ordubashy can still read this Ordubashy-channel conversation; a retired peer's is never readable."""
@@ -311,7 +311,7 @@ class PrivateConversations:
         if not coordinator or ctx.principal_kind != 'agent' or ctx.principal_id != coordinator:
             return False
         try:
-            selected = self.select(self.app.current_context(ctx, uow), row['business_id'], uow)
+            selected = self.select(self.app.current_context(ctx, uow), row['project_id'], uow)
             # Inbox visibility must not promise a read that the effective
             # private-read policy denies. Keep the event's canonical source
             # authorization below as a separate requirement.
@@ -348,9 +348,9 @@ class PrivateConversations:
         if ctx.principal_kind != 'human' or ctx.principal_id != owner:
             raise DomainError('forbidden', 'Only the owner can list the private channel')
         source = dict(args['source'])
-        business = self.effective_business(ctx, source)
-        source['business_id'] = business
-        selected = self.select(ctx, business, uow)
+        project = self.effective_project(ctx, source)
+        source['project_id'] = project
+        selected = self.select(ctx, project, uow)
         self.source_check(selected, source['type'], source['id'], uow)
         if not coordinator or not self.channel_available(ctx, source, uow):
             return {'peers': []}
@@ -359,7 +359,7 @@ class PrivateConversations:
         if row is None:
             return {'peers': []}
         profile = json.loads(row['profile_json'])
-        stored = conversation_row(uow, source_key(source['type'], business, source['id']))
+        stored = conversation_row(uow, source_key(source['type'], project, source['id']))
         return {'peers': [{'agent_id': coordinator, 'name': profile.get('display_name') or profile.get('name') or coordinator,
                            'role': profile['role'], 'channel': 'private',
                            'unread': bool(stored and has_unread(uow, stored['id'], read_cursor(uow, stored['id'], owner)))}]}
@@ -392,7 +392,7 @@ class PrivateConversations:
 
     def plan(self, ctx, operation, args, title, peer=None):
         return PlanBuilder(ctx, operation, args, title, namespace=self.namespace(ctx),
-            affected_scope={**({'kind': 'business', 'business_id': ctx.business_id} if ctx.business_id
+            affected_scope={**({'kind': 'project', 'project_id': ctx.project_id} if ctx.project_id
                 else {'kind': 'global'}), 'conversation_peer_id': peer}).build()
 
     def prepare(self, ctx, args, options, uow):
@@ -434,9 +434,9 @@ class PrivateConversations:
         now = timestamp(self.clock)
         # Concurrent first sends converge on the one row this key already owns.
         uow.connection.execute('INSERT OR IGNORE INTO owner_conversations'
-            '(id,source_key,business_id,source_type,source_id,audience,revision,latest_sequence,created_at,updated_at,peer_agent_id)'
+            '(id,source_key,project_id,source_type,source_id,audience,revision,latest_sequence,created_at,updated_at,peer_agent_id)'
             ' VALUES(?,?,?,?,?,?,1,0,?,?,NULL)',
-            (new_id(), key, source['business_id'], source['type'], source['id'], AUDIENCE, now, now))
+            (new_id(), key, source['project_id'], source['type'], source['id'], AUDIENCE, now, now))
         row = conversation_row(uow, key)
         if row is None:
             raise DomainError('revision_conflict', 'Private conversation is bound to another channel; read it again')
@@ -478,9 +478,9 @@ class PrivateConversations:
         if not coordinator:
             return
         event = uow.connection.execute('INSERT INTO inbox_events'
-            '(business_id,source_type,source_id,source_revision,actor_id,event_type,summary,visibility_json,created_at)'
+            '(project_id,source_type,source_id,source_revision,actor_id,event_type,summary,visibility_json,created_at)'
             ' VALUES(?,?,?,?,?,?,?,?,?)',
-            (source['business_id'], EVENT_SOURCE, row['id'], row['revision'] + 1, ctx.principal_id,
+            (source['project_id'], EVENT_SOURCE, row['id'], row['revision'] + 1, ctx.principal_id,
              'private_message', EVENT_SUMMARY, json.dumps({'source': source}), now)).lastrowid
         uow.connection.execute('INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)', (coordinator, event))
 

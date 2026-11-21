@@ -147,7 +147,7 @@ def run(prepared, scratch):
         check(b"Current synthetic software ownership rule." in (workspace / "AGENTS.md").read_bytes(), "Explicit reprepare failed")
         created = runtime.application.invoke(owner, "agents_create", {"role": receipt["role_pins"]["global-worker"],
             "plugins": [], "name": "synthetic-worker", "display_name": "Synthetic Worker", "assignment_brief": "Synthetic verification only",
-            "runtime": "codex", "scope": {"kind": "ecosystem", "allowed_business_ids": [], "global_capabilities": ["read_global_context"]}}, InvocationOptions(idempotency_key="rehearsal-worker"))
+            "runtime": "codex", "scope": {"kind": "ecosystem", "allowed_project_ids": [], "global_capabilities": ["read_global_context"]}}, InvocationOptions(idempotency_key="rehearsal-worker"))
         check(created.status == "ok", created.to_dict())
         worker = Principal(created.data["agent_id"], "agent")
         synthetic_token = token_root / (worker.id + ".token")

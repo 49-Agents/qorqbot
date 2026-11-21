@@ -24,7 +24,7 @@ access is the active project directory, never a membership row, exactly as the e
 
 The build needs ``setuptools`` and ``wheel`` available to ``pip`` (pip fetches them into the isolated build
 environment) and a package index for ``jsonschema``, ``markdown-it-py`` and ``PyYAML``. The fourth runtime dependency,
-the first-party ``qorqut-business-docs-versioning==0.2.0`` document-history library, is not on an index: give a directory
+the first-party ``qorqut-docs-versioning==0.2.0`` document-history library, is not on an index: give a directory
 holding its built wheel as the second argument (or ``QORQUT_FIRST_PARTY_WHEELS``) and the install uses it as a find-links
 location. The first script also proves the installed wheel brings both document libraries and still loads no host,
 Context, Paper or content module.
@@ -56,9 +56,9 @@ location = Path(qorqut_operations.__file__).resolve()
 assert "site-packages" in location.parts, location
 assert not any(name == "qorqut" or name.startswith("qorqut.") for name in sys.modules)
 # The source-document and exact-history packages import their two document libraries; both come with the wheel.
-import markdown_it, qorqut_business_docs_versioning
+import markdown_it, qorqut_docs_versioning
 import qorqut_operations.document_history.reads, qorqut_operations.documents.library
-assert "site-packages" in Path(qorqut_business_docs_versioning.__file__).resolve().parts
+assert "site-packages" in Path(qorqut_docs_versioning.__file__).resolve().parts
 assert not any(name.partition(".")[0] in {"qorqut", "qorqut_context", "qorqut_paper", "qorqut_content"} for name in sys.modules)
 
 class History:
@@ -70,20 +70,20 @@ class Hooks:
     def record_applied(self, uow, plan, table, before, after, *, actor_id=None): pass
 
 assembly = (AssemblyBuilder(target_name="wheel-probe", target_version=1)
-    .add(StorageContribution("probe", {"things": TableSpec(("business_id", "id"), "business_id")}, schema=(
-        "CREATE TABLE things (business_id TEXT NOT NULL REFERENCES businesses(id), id TEXT NOT NULL, title TEXT NOT NULL, "
-        "revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (business_id, id))",)))
+    .add(StorageContribution("probe", {"things": TableSpec(("project_id", "id"), "project_id")}, schema=(
+        "CREATE TABLE things (project_id TEXT NOT NULL REFERENCES projects(id), id TEXT NOT NULL, title TEXT NOT NULL, "
+        "revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (project_id, id))",)))
     .add(FileEffectContribution("probe", receipt_history=History()))
     .add(RecordEffectContribution("probe", Hooks())).freeze())
 
-HUMAN, BUSINESS = "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"
+HUMAN, PROJECT = "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"
 with tempfile.TemporaryDirectory(prefix="qops-wheel-probe-") as directory:
     database = Database(Path(directory) / "probe.sqlite3", assembly=assembly).initialize_target()
     with database.transaction() as uow:
         uow.repository("principals").insert({"id": HUMAN, "kind": "human"})
-        uow.repository("businesses").insert({"id": BUSINESS, "slug": "p", "name": "p", "workspace": directory + "/w",
+        uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w",
                                              "hq_path": directory + "/w/hq"})
-        uow.repository("business_memberships", business_id=BUSINESS).insert({"principal_id": HUMAN, "is_owner": True})
+        uow.repository("project_memberships", project_id=PROJECT).insert({"principal_id": HUMAN, "is_owner": True})
     def prepare(ctx, args, options, uow):
         builder = PlanBuilder(ctx, "things_create", args, "Create")
         builder.record("things", args["id"], None, {"id": args["id"], "title": args["title"]})
@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-probe-") as directory:
         def resolve(self, ctx, operation, targets, uow): return PolicyDecision("allow", "probe")
     app = Application(database, compose_catalog([CatalogContribution("probe", descriptors=(descriptor,))]).registry,
                       policy=Allow())
-    context = InvocationContext(Principal(HUMAN, "human"), business_id=BUSINESS, allowed_business_ids=frozenset({BUSINESS}),
+    context = InvocationContext(Principal(HUMAN, "human"), project_id=PROJECT, allowed_project_ids=frozenset({PROJECT}),
                                 source="dashboard")
     first = app.invoke(context, "things_create", {"id": "a", "title": "A"}, {"idempotency_key": "k"})
     again = app.invoke(context, "things_create", {"id": "a", "title": "A"}, {"idempotency_key": "k"})
@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-probe-") as directory:
     assert changed.error["code"] == "idempotency_conflict", changed
     database.close()
     reopened = Database(Path(directory) / "probe.sqlite3", assembly=assembly).open_existing()
-    with reopened.read(business_id=BUSINESS) as uow:
+    with reopened.read(project_id=PROJECT) as uow:
         assert [row["id"] for row in uow.repository("things").list()] == ["a"]
     reopened.close()
 assert not any(name == "qorqut" or name.startswith("qorqut.") for name in sys.modules)
@@ -124,7 +124,7 @@ from qorqut_operations.application import (Application, CatalogContribution, Cat
 from qorqut_operations.application.plans import PlanBuilder, apply_records
 from qorqut_operations.background import BackgroundAuthority, BackgroundService, Program, ProgramRegistry, ProgramResult
 from qorqut_operations.contracts import InvocationContext, Principal
-from qorqut_operations.global_agents import effective_business_ids
+from qorqut_operations.global_agents import effective_project_ids
 from qorqut_operations.policy import AgentPolicyBasis, PolicyResolver, PolicyRules
 from qorqut_operations.roles import GLOBAL_WORKER_ROLE
 from qorqut_operations.routines import RoutineOperations
@@ -133,7 +133,7 @@ from qorqut_operations.storage import (AssemblyBuilder, Database, FileEffectCont
                                        RecordEffectContribution, StorageContribution, TableSpec)
 from qorqut_operations.storage.admission import RecoveryAdmission
 
-HUMAN, BUSINESS, AGENT = (f"00000000-0000-4000-8000-00000000000{n}" for n in (1, 2, 4))
+HUMAN, PROJECT, AGENT = (f"00000000-0000-4000-8000-00000000000{n}" for n in (1, 2, 4))
 INSTALLATION = "11111111-1111-4111-8111-111111111111"
 
 class History:
@@ -150,26 +150,26 @@ class Execution:
 class Peers:
     def configured_ordubashy(self, uow): return None
 class Tasks:
-    def open_assigned_count(self, uow, business_id, principal_id, now): return 0
+    def open_assigned_count(self, uow, project_id, principal_id, now): return 0
 class References:
     targets = {"thing": ReferenceTarget("things_get", "thing_id")}
-    def task_namespace(self, ctx, args): return "business:" + (ctx.business_id or "")
+    def task_namespace(self, ctx, args): return "project:" + (ctx.project_id or "")
 class Agents:
     # A current global agent: no home project, and every project active in this transaction is in its scope.
     def refresh_invocation_context(self, ctx, uow):
         row = uow.connection.execute("SELECT revision FROM agent_profiles WHERE agent_id=?", (ctx.principal_id,)).fetchone()
-        return replace(ctx, home_business_id=None, profile_revision=row[0],
-                       allowed_business_ids=effective_business_ids(uow.connection, ctx.principal_id))
+        return replace(ctx, home_project_id=None, profile_revision=row[0],
+                       allowed_project_ids=effective_project_ids(uow.connection, ctx.principal_id))
     def policy_basis(self, ctx, uow):
         return AgentPolicyBasis({"things_create": "signoff"}, {}, {"id": GLOBAL_WORKER_ROLE, "version": "1"}, 1)
     def plugin_declares(self, ctx, basis, descriptor, uow): return True
 
-THINGS = ("CREATE TABLE things (business_id TEXT NOT NULL REFERENCES businesses(id), id TEXT NOT NULL, "
+THINGS = ("CREATE TABLE things (project_id TEXT NOT NULL REFERENCES projects(id), id TEXT NOT NULL, "
           "title TEXT NOT NULL, created_by TEXT, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, "
-          "updated_at TEXT NOT NULL, PRIMARY KEY (business_id, id))")
-DOCUMENTS = ("CREATE TABLE documents (business_id TEXT NOT NULL REFERENCES businesses(id), id TEXT NOT NULL, "
+          "updated_at TEXT NOT NULL, PRIMARY KEY (project_id, id))")
+DOCUMENTS = ("CREATE TABLE documents (project_id TEXT NOT NULL REFERENCES projects(id), id TEXT NOT NULL, "
              "kind TEXT NOT NULL, path TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, "
-             "updated_at TEXT NOT NULL, PRIMARY KEY (business_id, id))")
+             "updated_at TEXT NOT NULL, PRIMARY KEY (project_id, id))")
 INBOX = ("CREATE TABLE inbox_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL, "
          "action TEXT NOT NULL, actor_id TEXT, before_json TEXT, after_json TEXT)")
 
@@ -185,8 +185,8 @@ def run_program(control, arguments):
 with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
     root = Path(directory)
     assembly = (AssemblyBuilder(target_name="wheel-slice", target_version=1)
-        .add(StorageContribution("probe", {"things": TableSpec(("business_id", "id"), "business_id"),
-            "documents": TableSpec(("business_id", "id"), "business_id"),
+        .add(StorageContribution("probe", {"things": TableSpec(("project_id", "id"), "project_id"),
+            "documents": TableSpec(("project_id", "id"), "project_id"),
             "inbox_changes": TableSpec(("id",), mutable=False, revision_column=None)},
             schema=(THINGS, DOCUMENTS, INBOX)))
         .add(StorageContribution("signoffs-needs", required_tables=signoffs.SIGNOFF_REQUIRED_TABLES))
@@ -207,7 +207,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
         "label": {"type": "string"}}, "additionalProperties": False}, run=lambda control, arguments: None,
         permissions={"items_create": "allow"}, outputs=("items_create",), resource_types=("items",),
         discretionary=("items_touch",), global_capabilities=("manage_global_routines",), timeout_seconds=120,
-        scope_kinds=("business", "global"))
+        scope_kinds=("project", "global"))
     assert golden.definition["digest"] == "7c69b0cfb7766190ec67617e02bee23ad15e71e6ab8b488184942862ad8f56d5"
     authority = BackgroundAuthority(database, programs)
     programs.freeze()
@@ -225,22 +225,22 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
     with database.transaction() as uow:
         uow.repository("principals").insert({"id": HUMAN, "kind": "human", "display_name": "Owner"})
         uow.repository("principals").insert({"id": AGENT, "kind": "agent", "display_name": "Proposer"})
-        uow.repository("businesses").insert({"id": BUSINESS, "slug": "p", "name": "p", "workspace": directory + "/w",
+        uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w",
                                              "hq_path": directory + "/w/hq"})
-        uow.repository("business_memberships", business_id=BUSINESS).insert({"principal_id": HUMAN, "is_owner": True})
+        uow.repository("project_memberships", project_id=PROJECT).insert({"principal_id": HUMAN, "is_owner": True})
         uow.repository("installation").insert({"id": "service", "installation_id": INSTALLATION, "owner_principal_id": HUMAN})
-        uow.connection.execute("INSERT INTO agent_profiles(agent_id, principal_id, home_business_id, namespace, name, "
+        uow.connection.execute("INSERT INTO agent_profiles(agent_id, principal_id, home_project_id, namespace, name, "
             "workspace, profile_json, created_at, updated_at) VALUES (?,?,NULL,'ecosystem',?,?,?, 'now', 'now')",
             (AGENT, AGENT, "proposer", directory + "/agent",
              json.dumps({"status": "active", "role": {"id": GLOBAL_WORKER_ROLE}, "scope": {"kind": "ecosystem"}})))
-        workers = authority.register_workers(uow, [BUSINESS])
+        workers = authority.register_workers(uow, [PROJECT])
 
     # Signoff slice: a restricted global agent selects the project and stages, the owner approves the reviewed binding,
     # the engine applies once.
-    agent = InvocationContext(Principal(AGENT, "agent"), business_id=BUSINESS,
-        allowed_business_ids=frozenset({BUSINESS}), profile_revision=1, source="mcp")
-    owner = InvocationContext(Principal(HUMAN, "human"), business_id=BUSINESS,
-        allowed_business_ids=frozenset({BUSINESS}), source="dashboard")
+    agent = InvocationContext(Principal(AGENT, "agent"), project_id=PROJECT,
+        allowed_project_ids=frozenset({PROJECT}), profile_revision=1, source="mcp")
+    owner = InvocationContext(Principal(HUMAN, "human"), project_id=PROJECT,
+        allowed_project_ids=frozenset({PROJECT}), source="dashboard")
     staged = app.invoke(agent, "things_create", {"id": "a", "title": "A"}, {"idempotency_key": "stage"})
     assert staged.status == "signoff_required", staged
     reference = staged.signoff
@@ -253,7 +253,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
     approved = service.review(owner, reference["id"], decision="approve", proposal_revision=1,
         payload_hash=reference["payload_hash"], expected_status_revision=1, idempotency_key="approve")
     assert approved.status == "accepted", approved
-    with database.read(business_id=BUSINESS) as uow:
+    with database.read(project_id=PROJECT) as uow:
         assert uow.repository("things").list() == []         # approval alone applies nothing
     assert service.run_one(reference["id"])["state"] == "applied" and service.run_one(reference["id"]) is None
     replay = service.review(owner, reference["id"], decision="approve", proposal_revision=1,
@@ -262,7 +262,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
 
     # Registered-program slice: a manual routine run executes the program; its frozen output is applied by its worker.
     created = app.invoke(owner, "routines_create", {"definition": {"name": "Probe", "schedule": "0 3 * * *",
-        "timezone": "UTC", "status": "active", "program": "probe.report", "arguments": {"label": "L"}, "target": "business"}},
+        "timezone": "UTC", "status": "active", "program": "probe.report", "arguments": {"label": "L"}, "target": "project"}},
         {"idempotency_key": "routine"})
     assert created.status == "ok", created
     routine = next(row for row in created.data["records"] if "job_kind" in row)
@@ -272,7 +272,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-slice-") as directory:
     background_service = BackgroundService(app, programs, authority, locks=locks)
     outcome = background_service.run_one()
     assert outcome["state"] == "succeeded" and background_service.run_one() is None, outcome
-    with database.read(business_id=BUSINESS) as uow:
+    with database.read(project_id=PROJECT) as uow:
         things = {row["id"]: row for row in uow.repository("things").list()}
     assert sorted(things) == ["a", "from-program"], things
     assert things["a"]["created_by"] == AGENT and things["from-program"]["created_by"] in workers
@@ -294,10 +294,10 @@ from qorqut_operations.items import ItemContribution, ItemResolver, authorize_it
 from qorqut_operations.relationships import RelationshipOperations, RelationshipPorts, ReviewEdit
 from qorqut_operations.storage import AssemblyBuilder, Database, FileEffectContribution, RecordEffectContribution, StorageContribution, TableSpec
 
-HUMAN, BUSINESS = "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"
-TABLE = ("CREATE TABLE {t} (business_id TEXT NOT NULL REFERENCES businesses(id), id TEXT NOT NULL, title TEXT NOT NULL, "
+HUMAN, PROJECT = "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"
+TABLE = ("CREATE TABLE {t} (project_id TEXT NOT NULL REFERENCES projects(id), id TEXT NOT NULL, title TEXT NOT NULL, "
          "body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, "
-         "updated_at TEXT NOT NULL, PRIMARY KEY (business_id, id))")
+         "updated_at TEXT NOT NULL, PRIMARY KEY (project_id, id))")
 
 class History:
     def capture_receipt(self, uow, receipt, plan): pass
@@ -316,15 +316,15 @@ class Lookup:
     def __init__(self, application, kind, table, read):
         self.application, self.kind, self.table, self.read = application, kind, table, read
     def resource(self, ctx, item, uow):
-        row = uow.repository(self.table, business_id=ctx.business_id).get(item["id"]) if item["type"] == self.kind else None
+        row = uow.repository(self.table, project_id=ctx.project_id).get(item["id"]) if item["type"] == self.kind else None
         if row is None:
-            raise DomainError("not_found", "Context item does not exist in this business")
+            raise DomainError("not_found", "Context item does not exist in this project")
         return self.table, row
     def resolve(self, ctx, item, uow, builder=None, *, allow_busy=False):
         table, row = self.resource(ctx, item, uow)
         authorize_item_read(self.application, ctx, self.read, uow)
         if builder:
-            builder.expect(ref(table, item["id"], ctx.business_id), row)
+            builder.expect(ref(table, item["id"], ctx.project_id), row)
         return {"label": row["title"], **item, "revision": item_revision(row), "resource_type": table,
                 "resource_id": item["id"], "subtype": self.kind, "material_type": None, "tags": [], "archived": False,
                 "raw_source": False, "summary": row["body"][:40], "created_at": row["created_at"], "updated_at": row["updated_at"]}
@@ -339,7 +339,7 @@ class Lookup:
 class Candidates:
     def candidates(self, ctx, uow, kind=None):
         return [{"type": k, "id": row["id"]} for k, table in (("note", "notes"), ("task", "tasks")) if not kind or kind == k
-                for row in uow.repository(table, business_id=ctx.business_id).list()]
+                for row in uow.repository(table, project_id=ctx.project_id).list()]
 
 class Unused:
     # Required ports this slice never reaches: they refuse rather than assume a default.
@@ -354,7 +354,7 @@ class Unused:
     def read(ctx, args, uow): return {"counts": {}}
 
 def note_update(ctx, args, options, uow):
-    row = uow.repository("notes", business_id=ctx.business_id).get(args["note_id"], required=True)
+    row = uow.repository("notes", project_id=ctx.project_id).get(args["note_id"], required=True)
     require_revision(row, options.expected_revision)
     builder = PlanBuilder(ctx, "notes_update", args, "Update note")
     builder.record("notes", row["id"], row, {**plain(args["changes"]), "updated_at": builder.at})
@@ -362,19 +362,19 @@ def note_update(ctx, args, options, uow):
 
 with tempfile.TemporaryDirectory(prefix="qops-wheel-neutral-") as directory:
     assembly = (AssemblyBuilder(target_name="wheel-neutral", target_version=1)
-        .add(StorageContribution("probe", {"notes": TableSpec(("business_id", "id"), "business_id"),
-                                           "tasks": TableSpec(("business_id", "id"), "business_id")},
+        .add(StorageContribution("probe", {"notes": TableSpec(("project_id", "id"), "project_id"),
+                                           "tasks": TableSpec(("project_id", "id"), "project_id")},
                                  schema=(TABLE.format(t="notes"), TABLE.format(t="tasks"))))
         .add(FileEffectContribution("probe", receipt_history=History()))
         .add(RecordEffectContribution("probe", Hooks())).freeze())
     database = Database(Path(directory) / "neutral.sqlite3", assembly=assembly).initialize_target()
     with database.transaction() as uow:
         uow.repository("principals").insert({"id": HUMAN, "kind": "human", "display_name": "Owner"})
-        uow.repository("businesses").insert({"id": BUSINESS, "slug": "p", "name": "p", "workspace": directory + "/w",
+        uow.repository("projects").insert({"id": PROJECT, "slug": "p", "name": "p", "workspace": directory + "/w",
                                              "hq_path": directory + "/w/hq"})
-        uow.repository("business_memberships", business_id=BUSINESS).insert({"principal_id": HUMAN, "is_owner": True})
+        uow.repository("project_memberships", project_id=PROJECT).insert({"principal_id": HUMAN, "is_owner": True})
         for table, identity in (("notes", "n1"), ("tasks", "k1")):
-            uow.repository(table, business_id=BUSINESS).insert({"id": identity, "title": identity.upper(), "body": "body"})
+            uow.repository(table, project_id=PROJECT).insert({"id": identity, "title": identity.upper(), "body": "body"})
 
     # The Application owns the one open registry; the resolver and operations are built over it, then it is frozen.
     registry, policy = OperationRegistry(), Policy()
@@ -403,7 +403,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-neutral-") as directory:
             registry.register(descriptor)
     registry.freeze()
 
-    owner = InvocationContext(Principal(HUMAN, "human"), business_id=BUSINESS, allowed_business_ids=frozenset({BUSINESS}),
+    owner = InvocationContext(Principal(HUMAN, "human"), project_id=PROJECT, allowed_project_ids=frozenset({PROJECT}),
                               source="dashboard")
     note, task = {"type": "note", "id": "n1"}, {"type": "task", "id": "k1"}
     link = {"source": note, "target": task, "role": "related_to", "context": "evidence"}
@@ -431,7 +431,7 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-neutral-") as directory:
                                                          "arguments": {"note_id": "n1", "changes": {"body": "Edited"}}}}
     reviewed = app.invoke(owner, "context_review", review, {"idempotency_key": "review", "expected_revision": 1})
     assert reviewed.status == "ok", reviewed
-    with database.read(business_id=BUSINESS) as uow:
+    with database.read(project_id=PROJECT) as uow:
         assert uow.repository("notes").get("n1")["body"] == "Edited" and uow.repository("notes").get("n1")["revision"] == 2
         (stored,) = uow.repository("context_reviews").list()
         assert stored["created_at"] and stored["result"] == "incorporated" and stored["actor_id"] == HUMAN
@@ -507,8 +507,8 @@ with tempfile.TemporaryDirectory(prefix="qops-wheel-directory-") as directory:
     registry.register(OperationDescriptor("projects_make", {"type": "object", "required": ["slug"],
         "properties": {"slug": {"type": "string"}}}, effect_kind="files", prepare=prepare,
         apply=lambda ctx, plan, uow: {"slug": plan.arguments["slug"]}, scope_kinds=frozenset({"global"}),
-        global_capability="coordinate_businesses"))
-    caller = InvocationContext(Principal(HUMAN, "human"), source="dashboard", global_capabilities=frozenset({"coordinate_businesses"}))
+        global_capability="coordinate_projects"))
+    caller = InvocationContext(Principal(HUMAN, "human"), source="dashboard", global_capabilities=frozenset({"coordinate_projects"}))
     applier = FileApplier(database, target, locks=LockPaths.under(root / "locks"))
     app = Application(database, registry, policy=Allow(),
                       file_executor=PreparedFileExecutor(database, applier, context_loader=lambda plan, uow: caller))

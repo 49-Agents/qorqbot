@@ -56,17 +56,17 @@ caller's own namespace only):
   discarded at once. One pending control per input.
 
 `input` = `{id, sequence, input_kind: general|action, operation, item_id, revision, submitted_by, created_at, state,
-context_event_id, attempt, scope:{kind:global}|{kind:business,business_id}, result, error, summary}`; `summary` is
+context_event_id, attempt, scope:{kind:global}|{kind:project,project_id}, result, error, summary}`; `summary` is
 `{path}` for general inputs and `{action_ref, revision_ref}` for Action inputs. States: `queued`, `processing`,
 `blocked`, `published`, `discard_requested`, `discarded`.
 
 **Internal (not operations).** `queue.enqueue_action(uow, *, action_id, revision, operation, payload) -> input_id`
 runs after the immutable revision exists and before commit; a trigger requires the stored revision, the owning
 namespace, the operation and the submitter to match, and the payload is a snapshot (`queue.action_payload`: action and
-revision refs, operation, submitter, `tags` as `{id,name,business_id}` snapshots, related Context objects, scope,
+revision refs, operation, submitter, `tags` as `{id,name,project_id}` snapshots, related Context objects, scope,
 provenance, text unless removed). `scope` and `provenance` are the published record context; evidence refs and other
-business data are not in it. New Action inputs preserve the immutable revision's
-`occurred` (UTC anchor, local date/hour, precision and timezone), `refs`, `business_ids`,
+project data are not in it. New Action inputs preserve the immutable revision's
+`occurred` (UTC anchor, local date/hour, precision and timezone), `refs`, `project_ids`,
 `recorded_at` and `withdrawn` in a separate payload member, `action_metadata` (version 1). These are evidence, never
 authority or additional graph relationships. The exact base envelope is validated against the stored revision before
 enrichment. The composed `on_revision` reader may then add `action_metadata.evidence`: at most one explicitly referenced
@@ -85,11 +85,11 @@ The evidence read holds the Action writer's write transaction, so it is bounded:
 own relations, and a document is read through `SourceLibrary.excerpt` (one lookup per selected namespace, the current
 bytes and their hash, no heading parse) rather than the registered `context_get` read, which loads the whole library
 and parses the whole document.
-Each available observation carries its owning business, source revision, content hash (Task title/overview/status
+Each available observation carries its owning project, source revision, content hash (Task title/overview/status
 or complete document bytes), observation time and truncation flag. Title and excerpt limits are 1000 and 4000 UTF-8
 bytes per source. Missing, denied, ambiguous or stale references get the same generic unavailable result; supplied
 reference IDs remain intact. Namespace-local Task IDs prefer the Action's owning scope, then a unique match among
-its associated businesses and Global within the caller's grants. No comments, external URLs or models are read.
+its associated projects and Global within the caller's grants. No comments, external URLs or models are read.
 Removals do not capture fresh excerpts. The queue freezes observations once: processing, retry and recovery use those
 same bytes, and existing queued or published filings are not rewritten. An input queued before `action_metadata`
 existed has none and submits exactly as before.
@@ -106,13 +106,13 @@ hand-offs. `record_preflight_failure` blocks the oldest input directly when Cont
 
 One more storage contribution, `context_filing.storage_contribution()` (owner `context-filing`, requires `context_inputs`;
 compose it after `context_queue`), holds the table `context_source_bindings(source_kind general|action, source_key,
-business_id NULL=Global, bound_by_input, bound_at)`. A source's key is its canonical GENERAL path or the accepted Action's
+project_id NULL=Global, bound_by_input, bound_at)`. A source's key is its canonical GENERAL path or the accepted Action's
 key; its scope is the namespace of the input that first added it (for an Action, the namespace of its frozen
 `action_revisions` row, never the live Action). Rows are insert-only (update and delete abort) and an insert must name an
 admitting input of the same kind and namespace. No registered operation reads or writes the table and no public input
 (metadata, `origin_ref`, text, a document or job reference) is read as authority.
 
-`context_filing.reserve_source(uow, *, driver_id, input_id, exists) -> {kind, key, business_id, binding: reserved|verified}`
+`context_filing.reserve_source(uow, *, driver_id, input_id, exists) -> {kind, key, project_id, binding: reserved|verified}`
 is internal like `transitions` (`driver_id` must be an active `system` principal) and is called by the backend driver in the
 same write transaction that starts the attempt. A bound source is available only to its own scope
 (`source_scope_conflict`; the message names no scope). An unbound source is bound only by an `add` of a source that does not
@@ -140,7 +140,7 @@ documents.
   completion outbox. The receipt id is derived from the filing; the outcome columns are immutable; `applied` is final.
 
 `context_filing.admit(builder, uow, *, kind, source_id, filing_id, job_id, document, event_metadata, retracts=None,
-max_content_bytes=None, business_id) -> Admission` is what a filing adapter calls from its own `prepare`, after it prepared
+max_content_bytes=None, project_id) -> Admission` is what a filing adapter calls from its own `prepare`, after it prepared
 the registered job for this filing in the same builder. It prepares the version, the filing and the queue input as three
 records of the adapter's plan, so a source can never be accepted without its job and queue entry (or the reverse). The
 authority is the plan: the prepared job must be the program for this filing; a caller's path, filing id, job id or `system`
@@ -203,10 +203,10 @@ or table of record facts; the engine imports no Context library and never interp
 `context_graph_edits(input_id PK + deferred FK -> context_inputs, reserved_event_id UNIQUE, plan_digest, expected_revision,
 plan_json, attribution_json, targets_json)`. The input stays `input_kind="general"`, operation `add`, with the canonical plan
 text as its payload content at `foundation/edits/{reserved_event_id}.txt`, the fixed metadata `{kind: graph_edit, title:
-"Explicit graph edit", origin: controlled_caller}`, the original `submitted_by` and no other field. Its immutable `business_id`
+"Explicit graph edit", origin: controlled_caller}`, the original `submitted_by` and no other field. Its immutable `project_id`
 is the selected owning namespace; nothing is authority here (not the path, the metadata, tags, nor a stored decision).
 
-* `context_graph_edits.admit(builder, uow, *, plan, content, plan_digest, reserved_event_id, attribution, targets, business_id,
+* `context_graph_edits.admit(builder, uow, *, plan, content, plan_digest, reserved_event_id, attribution, targets, project_id,
   max_content_bytes=None) -> Admission(input_id, reserved_event_id, plan_digest, expected_revision)` prepares the binding first and
   its input second as two records of the host adapter's plan (one transaction; the deferred FK closes the pair). It refuses text that
   is not exactly the JSON plan, a digest that is not the SHA-256 of the text's UTF-8 bytes, a base that is not the plan's
@@ -261,13 +261,13 @@ equals the documented marker. Cumulative snapshots replace, never add.
 ### Storage (`storage_contribution()`, owner `context-usage`, requires `context_inputs` and `context_input_attempts`)
 
 * `context_usage_calls`: one row per library `call_id` (primary key, `CHECK call_id = attempt_id || ':' || stage`), with
-  `business_id` (NULL is Global, always copied from the queue input), `input_id`, `context_event_id`, `attempt_id`,
+  `project_id` (NULL is Global, always copied from the queue input), `input_id`, `context_event_id`, `attempt_id`,
   `library_attempt_sequence`, `stage`, `state`, `started_at`, `finished_at`, `configured_*`, `observed_provider/model`,
   `native_thread_id/turn_id`, the five token counters (NULL unknown), `cost_usd` (canonical decimal text, at most 40
   characters, so it sums exactly), `usage_source/scope/updates`, `ignored_updates`, `bootstrap_call_id`, `error_type/message`,
   `recorded_at`, `updated_at`. `CHECK`s hold the closed vocabularies, the state/finish/error consistency and that a native
   scope names both a thread and a turn. No prompt, source, tool-payload or credential column exists.
-* `context_usage_sync`: one row per (`input_id`, `context_event_id`): `business_id`, `status`
+* `context_usage_sync`: one row per (`input_id`, `context_event_id`): `project_id`, `status`
   (`partial|ready|unavailable`), bounded `error_code/message` (both or neither; `ready` has none, `unavailable` has one) and
   `checked_at`.
 * Triggers: a call or sync row must carry its input's namespace and a Context event a queue attempt of that input
@@ -320,7 +320,7 @@ unavailable checkout fails the checks rather than skipping them.
 
 * Host work: the collector (bounded traversal of `usage_receipts` pages, per-input serialization, `record_scan` bookkeeping),
   the owner-only cost views and adapters, catalog/operation exposure and the final composition of the contribution.
-* Query helpers have no business/Global filter (rows carry `business_id`); costs are limited to non-negative values of at most
+* Query helpers have no project/Global filter (rows carry `project_id`); costs are limited to non-negative values of at most
   1e9 with at most 40 decimal characters (stored and rendered money is the exact coefficient and exponent, independent of
   the ambient decimal context; the aggregate subtotal is not limited to 40 characters); a terminal row is final, so any differing terminal observation is a conflict, and an
   out-of-order terminal with fewer updates is reported stale.

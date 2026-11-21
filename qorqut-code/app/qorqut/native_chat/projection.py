@@ -284,7 +284,7 @@ class Entry:
     turn_end: bool = False
     receipts: tuple[str, ...] = ()  # message IDs a successful ``agents_message_send`` result named (a notice without text)
     # A ``request_user_input`` presentation: ``text`` is its message and these are its identity-only references, each
-    # ``(type, id, business_id)`` in order. ``None`` for every other entry; an empty tuple is a message with no references.
+    # ``(type, id, project_id)`` in order. ``None`` for every other entry; an empty tuple is a message with no references.
     references: tuple[user_input.Key, ...] | None = None
     command: bool = False  # a slash command the user typed (``/compact``): shown as a user entry, but it asks the agent nothing
 

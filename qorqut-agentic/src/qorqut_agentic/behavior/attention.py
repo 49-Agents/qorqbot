@@ -27,7 +27,7 @@ def describe(ref, task, projection):
     """Scoped identity, title, actual status and Workers of one Task; ``user_needed`` is separate from the status."""
     shown = [{'id': worker['id'], 'name': clip(worker.get('name') or worker.get('display_name'), WORKER_NAME)}
              for worker in projection['workers'][:WORKERS]]
-    return {'id': ref['id'], 'business_id': ref['business_id'], 'title': clip(task['title'], TITLE),
+    return {'id': ref['id'], 'project_id': ref['project_id'], 'title': clip(task['title'], TITLE),
             'status': task['status'], 'workers': shown, 'workers_omitted': len(projection['worker_ids']) - len(shown),
             'user_needed': bool(projection['user_needed'])}
 

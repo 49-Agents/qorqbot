@@ -6,7 +6,7 @@ from qorqut.agents import role_workflow
 from qorqut.agents import cleanup_workflow
 from qorqut.agents.operational_delegation import supports_durable_delegation_version
 from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, SUPPORTED_GLOBAL_ROLES
-from qorqut.composition.locations import agent_workspace, business_code, business_hq
+from qorqut.composition.locations import agent_workspace, project_code, project_hq
 
 from dataclasses import dataclass
 import hashlib
@@ -36,7 +36,7 @@ from .tool_permissions import (VERSION as TOOL_CONFIGURATION_VERSION, fingerprin
 MINIMUM_CLAUDE_VERSION = agent_cli_install.MINIMUM_VERSIONS["claude"]
 MINIMUM_CODEX_VERSION = agent_cli_install.MINIMUM_VERSIONS["codex"]
 RUNTIMES = ("claude-code", "codex")
-LEGACY_PLUGINS = {"biz-agents-manager@bazarlyk", "biz-agents-marketing@bazarlyk"}
+LEGACY_PLUGINS = {"project-agents-manager@bazarlyk", "project-agents-marketing@bazarlyk"}
 # External MCP connections come only from installed extensions (resolver.native_connections); a registered role may
 # declare one by name, and any name that no installed extension provides is refused (see external_connections). A
 # previously prepared entry stays managed (see previous_connections) and is removed on the next authorized preparation.
@@ -202,11 +202,11 @@ def _coordinator_workspace(resolver) -> Path | None:
     return Path(row[0]) if row else None
 
 
-def _business_code_root(resolver, data, business) -> Path | None:
-    """Validate a business code tree; every global may carry out explicitly assigned code work."""
+def _project_code_root(resolver, data, project) -> Path | None:
+    """Validate a project code tree; every global may carry out explicitly assigned code work."""
     if data["scope"]["kind"] != "ecosystem":
         return None
-    code = business_code(resolver.paths, business)
+    code = project_code(resolver.paths, project)
     if path_has_symlink(code) or (code.exists() and not code.is_dir()):
         raise DomainError("preparation_error", "Project code directory must be a local directory inside its registered workspace")
     return code
@@ -420,17 +420,17 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         # Always-loaded skills are injected only for the configured Ordubashy.
         from qorqut.management.identity import configured_ordubashy
         always_skills = ordubashy and configured_ordubashy(uow) == data["agent_id"]
-        # Every active business in the agent's derived scope; no home or membership is assumed.
-        businesses = [row for row in uow.connection.execute(
-            "SELECT id,slug FROM businesses WHERE archived_at IS NULL ORDER BY id")
-            if row["id"] in data["scope"].get("allowed_business_ids", ())]
-        for business in businesses:
-            code_root = _business_code_root(resolver, data, business)
+        # Every active project in the agent's derived scope; no home or membership is assumed.
+        projects = [row for row in uow.connection.execute(
+            "SELECT id,slug FROM projects WHERE archived_at IS NULL ORDER BY id")
+            if row["id"] in data["scope"].get("allowed_project_ids", ())]
+        for project in projects:
+            code_root = _project_code_root(resolver, data, project)
             if code_root is not None:
                 code_roots.append(code_root)
-            hq = business_hq(resolver.paths, business)
-            protected += [hq / part for part in ("business.yaml", "CLAUDE.md", "context", "tasks", "log")]
-            protected += [agent_workspace(resolver.paths, row[0], business) for row in uow.connection.execute("SELECT agent_id FROM agent_profiles WHERE home_business_id=? AND agent_id<>?", (business["id"], data["agent_id"]))]
+            hq = project_hq(resolver.paths, project)
+            protected += [hq / part for part in ("project.yaml", "CLAUDE.md", "context", "tasks", "log")]
+            protected += [agent_workspace(resolver.paths, row[0], project) for row in uow.connection.execute("SELECT agent_id FROM agent_profiles WHERE home_project_id=? AND agent_id<>?", (project["id"], data["agent_id"]))]
             read_roots += [hq / part for part in ("context", "analytics", "assets")]
     local = {"hooks": {
         "SessionStart": [{"matcher": "startup|resume|clear|compact|fork", "hooks": [{"type": "command", "command": command, "timeout": 240}]}],
@@ -597,7 +597,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
                 'qorqut.bootstrap.browser_entry', '--workspace', str(workspace))) + ' "$@"\n').encode()
     metadata = {"schema_version": 1, "helper_runtime":{"executable":stable_helper or executable,"stable":bool(stable_helper)}, "codex_permission_mode": codex_permission_mode or "scoped",
                 "native_guidance_digest": data["native_guidance_digest"],
-                "business_code_roots": [str(path) for path in code_roots],
+                "project_code_roots": [str(path) for path in code_roots],
                 "files": {name: content_hash(body) for name, body in sorted(files.items())},
                 "selected_skills": selected,
                 "external_connections": connections,
@@ -775,7 +775,7 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
                 if previous and not previous["revoked_at"]:
                     uow.repository("credentials").update(previous_credential_id, {"revoked_at": utc_now()}, expected_revision=previous["revision"])
     safe_io.mkdir(workspace)
-    for path in projection.metadata.get("business_code_roots", []):
+    for path in projection.metadata.get("project_code_roots", []):
         code_root = Path(path)
         if path_has_symlink(code_root):
             raise DomainError("projection_conflict", "Project code directory cannot follow symlinks")

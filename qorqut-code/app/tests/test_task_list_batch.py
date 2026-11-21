@@ -21,34 +21,34 @@ from qorqut_operations.tasks.workers import project_workers
 
 from tests import test_task_change_records as records
 
-ADDED = ("business_name", "assignees", "blockers")
+ADDED = ("project_name", "assignees", "blockers")
 
 
 def legacy_view(ctx, task, uow, now):
-    business_id, task_id = task["business_id"], task["id"]
-    item = ThreadItem(business_id, "task", task_id)
+    project_id, task_id = task["project_id"], task["id"]
+    item = ThreadItem(project_id, "task", task_id)
     creator = uow.repository("principals").get(task.get("created_by")) if task.get("created_by") else None
-    scope = uow.repository("tasks", business_id=business_id)
-    blockers = events.blockers(uow, business_id, task_id)
+    scope = uow.repository("tasks", project_id=project_id)
+    blockers = events.blockers(uow, project_id, task_id)
     unresolved = [scope.get(blocker)["id"] for blocker in blockers
                   if (scope.get(blocker) or {"status": "done"})["status"] not in CLOSED_STATES]
     blocks = [row[0] for row in uow.connection.execute(
-        "SELECT DISTINCT t.id FROM relationships r JOIN tasks t ON t.business_id IS r.business_id AND t.id=r.from_id "
-        "WHERE r.business_id IS ? AND r.from_type='task' AND r.to_type='task' AND r.to_id=? AND r.role='blocked_by' "
-        "AND t.status NOT IN ('done','cancelled') ORDER BY t.id", (business_id, task_id))]
+        "SELECT DISTINCT t.id FROM relationships r JOIN tasks t ON t.project_id IS r.project_id AND t.id=r.from_id "
+        "WHERE r.project_id IS ? AND r.from_type='task' AND r.to_type='task' AND r.to_id=? AND r.role='blocked_by' "
+        "AND t.status NOT IN ('done','cancelled') ORDER BY t.id", (project_id, task_id))]
     parent = scope.get(task["parent_id"]) if task.get("parent_id") else None
     children = [dict(row) for row in uow.connection.execute(
-        "SELECT id,title,status FROM tasks WHERE business_id IS ? AND parent_id=? ORDER BY created_at,id LIMIT 51", (business_id, task_id))]
+        "SELECT id,title,status FROM tasks WHERE project_id IS ? AND parent_id=? ORDER BY created_at,id LIMIT 51", (project_id, task_id))]
     follow = follow_state(uow, item, ctx.principal_id)
     return public_task({
         **{key: value for key, value in task.items() if key not in {"fields_json", "worker_ids_json", "snoozed_until", "snooze_generation"}},
         **snooze_view(task, now),
         "created_by_name": creator.get("display_name", "") if creator else "",
         "created_by_kind": creator.get("kind", "") if creator else "",
-        "tags": item_labels(uow, business_id, "task", task_id), "fields": custom_fields(task), **attributes(task),
+        "tags": item_labels(uow, project_id, "task", task_id), "fields": custom_fields(task), **attributes(task),
         "thread_id": item.thread_id, "note_count": message_count(uow, item),
         **project_workers(uow, task),
-        "assignee_ids": events.assigned(uow, business_id, task_id), "archived": bool(task.get("archived")),
+        "assignee_ids": events.assigned(uow, project_id, task_id), "archived": bool(task.get("archived")),
         "blocked_by": blockers, "unresolved_blockers": sorted(set(unresolved)), "blocks": blocks,
         "parent": {key: parent[key] for key in ("id", "title", "status")} if parent else None,
         "children": children[:50], "children_has_more": len(children) > 50,
@@ -74,14 +74,14 @@ def legacy_list(ctx, arguments, uow, now):
     states = [name for name in STATES if (not arguments.get("statuses") or name in arguments["statuses"])
               and (arguments.get("include_closed", True) or name not in CLOSED_STATES)
               and (arguments.get("include_paused", True) or name not in PAUSED_STATES)]
-    tasks = rows(uow, "tasks", ctx.business_id, where=" AND ".join(clauses), parameters=parameters)
+    tasks = rows(uow, "tasks", ctx.project_id, where=" AND ".join(clauses), parameters=parameters)
     if "task_type" in arguments:
         tasks = [task for task in tasks if attributes(task)["task_type"] == arguments["task_type"]]
     if "email_conversation_id" in arguments:
         tasks = [task for task in tasks if attributes(task)["email_conversation_id"] == arguments["email_conversation_id"]]
     if arguments.get("tags"):
         wanted = distinct_labels(arguments["tags"])
-        labels = labels_by_item(uow, ctx.business_id, "task")
+        labels = labels_by_item(uow, ctx.project_id, "task")
         tasks = [task for task in tasks if matches(labels.get(task["id"], ()), wanted)]
     if arguments.get("search"):
         tasks = [task for task in tasks if arguments["search"].casefold() in (task["title"] + " " + task["id"]).casefold()]
@@ -89,7 +89,7 @@ def legacy_list(ctx, arguments, uow, now):
     detailed = [legacy_view(ctx, task, uow, now) for task in tasks]
     if "blocked" in arguments:
         detailed = [task for task in detailed if bool(task["unresolved_blockers"]) == arguments["blocked"]]
-    selected, cursor = page(detailed, arguments, ctx.business_id, "tasks_list")
+    selected, cursor = page(detailed, arguments, ctx.project_id, "tasks_list")
     return {"tasks": selected, "next_cursor": cursor}
 
 
@@ -171,7 +171,7 @@ class TaskListBatchTests(unittest.TestCase):
         made = self.build()
         listed = {task['id']: task for task in self.ok('tasks_list', {'limit': 200, 'snooze_filter': 'all'})['tasks']}
         blocked = listed[made['blocked']['id']]
-        self.assertEqual(blocked['business_name'], 'Global')
+        self.assertEqual(blocked['project_name'], 'Global')
         self.assertEqual(blocked['assignees'], [{'id': self.agent, 'kind': 'agent', 'name': 'Scout'}])
         self.assertEqual(blocked['blockers'], [{'id': made['open_blocker']['id'], 'title': 'Sign contract', 'status': 'open'}])
         single = self.ok('tasks_get', {'task_id': made['blocked']['id']})['task']
@@ -205,7 +205,7 @@ class TaskListBatchTests(unittest.TestCase):
         overview = TaskOverview(NS(clock=self.tasks.clock, project_input=lambda ctx, tasks, uow: tasks), NS(authorize=lambda *a, **k: None))
         with self.db.read() as uow:
             holders = overview.holders(self.worker, {}, uow, None, uow.repository('principals').get(self.owner))['holders']
-        self.assertEqual({task['business_name'] for group in holders for task in group['tasks']}, {'Global'})
+        self.assertEqual({task['project_name'] for group in holders for task in group['tasks']}, {'Global'})
 
     def test_page_reads_do_not_grow_with_rows(self):
         for n in range(30):

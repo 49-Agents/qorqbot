@@ -1,4 +1,4 @@
-"""Business-folder synchronization and the approved-send lifecycle."""
+"""Project-folder synchronization and the approved-send lifecycle."""
 
 import hashlib
 import json
@@ -117,7 +117,7 @@ class EmailService:
 
     def sync(self):
         if not self.settings.mailboxes:
-            # An account-only deployment has no business folder to cache; the /fastmail account API reads the provider directly.
+            # An account-only deployment has no project folder to cache; the /fastmail account API reads the provider directly.
             return {"state": "idle", "errors": []}
         if not self.sync_lock.acquire(blocking=False):
             return {"state": "running"}
@@ -138,14 +138,14 @@ class EmailService:
                     owned = {item["id"]: item for item in data["items"] if self.provider.owner(item) == mailbox}
                     items = [owned.get(identity, {"id": identity, "@removed": {}}) for identity in sorted(touched)]
                     self.store.sync_page(mailbox.ref, mailbox.folder_id, items, data["cursor"], complete=data["complete"])
-                # Advance only after all business caches commit; replay is harmless if interrupted.
+                # Advance only after all project caches commit; replay is harmless if interrupted.
                 self.store.sync_page(ACCOUNT_CURSOR, "all", [], data["cursor"], complete=data["complete"])
                 cursor = data["cursor"]
                 if data["complete"]:
                     for mailbox in self.settings.mailboxes:
                         self.store.mailbox_status(mailbox.ref, "synced")
                         # Reply-stop guard: record any newly correlated reply before returning.
-                        self.store.correlate_replies(mailbox.ref, mailbox.business_id)
+                        self.store.correlate_replies(mailbox.ref, mailbox.project_id)
                     return {"state": "synced", "errors": []}
             return {"state": "syncing", "errors": []}
         except ProviderError as exc:
@@ -184,14 +184,14 @@ class EmailService:
         if intent is not None:
             if intent["category"] != "cold_outreach":
                 return None
-            owner, contact, business = (intent["workflow_owner"], intent["stop_contact_key"],
-                intent["stop_business_id"])
+            owner, contact, project = (intent["workflow_owner"], intent["stop_contact_key"],
+                intent["stop_project_id"])
         else:
             label = message.cold_outreach_label()
             if label is None:
                 return None
-            owner, contact, business = label
-        if not self.store.stop_exists(contact, business):
+            owner, contact, project = label
+        if not self.store.stop_exists(contact, project):
             return None
         return {"workflow_owner": owner, "intent_id": intent["intent_id"] if intent is not None else None}
 
@@ -201,7 +201,7 @@ class EmailService:
         if intent is None:
             return False
         client = next((item for item in self.settings.integrations if item.client_id == intent["client_id"]), None)
-        return client is None or not routes.submit_permitted(self, client, message.mailbox, message.business_id,
+        return client is None or not routes.submit_permitted(self, client, message.mailbox, message.project_id,
             message.sender_ref)
 
     def start_send(self, mailbox, message, row, sender, *, scheduled=False):
@@ -317,12 +317,12 @@ class EmailService:
         return "waiting"
 
     @staticmethod
-    def business_copy_status(row, *, stage=None, exc=None):
+    def project_copy_status(row, *, stage=None, exc=None):
         if row["state"] == "sent":
             return "linked"
         if row["state"] in {"failed", "canceled"}:
             return "blocked"
-        if exc is not None and stage == "business_copy":
+        if exc is not None and stage == "project_copy":
             return "pending" if EmailService.transient_error(exc) else "blocked"
         return "pending"
 
@@ -365,7 +365,7 @@ class EmailService:
                 + timedelta(seconds=delay)).isoformat()
         diagnostics = {
             "submission_status": self.submission_status(row, result, stage=stage, exc=exc),
-            "business_copy_status": self.business_copy_status(row, stage=stage, exc=exc),
+            "project_copy_status": self.project_copy_status(row, stage=stage, exc=exc),
             "correlation": self.correlation(row, result),
             "last_check_at": checked_at,
             "check_count": count,
@@ -469,7 +469,7 @@ class EmailService:
                         result["reconciliation"] = prior
                     row = self.store.save_send(row["request_id"], row["state"], result=result)
             if submission and submission.get("undoStatus") == "final":
-                stage = "business_copy"
+                stage = "project_copy"
                 message = provider.get_message(mailbox, row["draft_id"])
                 row = self.store.save_send(row["request_id"], "sent", result={
                     "message_id": message["id"], "internet_message_id": message.get("internetMessageId"),
@@ -535,19 +535,19 @@ class EmailService:
         See docs/INTEGRATION-CONTRACT.md "Resolved ambiguities"."""
         correlation = submission.correlation
         message_payload = submission.message
-        business_id = message_payload.get("business_id") if isinstance(message_payload, dict) else None
+        project_id = message_payload.get("project_id") if isinstance(message_payload, dict) else None
         if correlation.workflow_owner not in (None, client.workflow_owner):
             raise ValueError("correlation.workflow_owner must match the integration client")
-        if correlation.business_id not in (None, business_id):
-            raise ValueError("correlation.business_id must match message.business_id")
-        if correlation.stop_key.business_id != business_id:
-            raise ValueError("correlation.stop_key.business_id must match message.business_id")
+        if correlation.project_id not in (None, project_id):
+            raise ValueError("correlation.project_id must match message.project_id")
+        if correlation.stop_key.project_id != project_id:
+            raise ValueError("correlation.stop_key.project_id must match message.project_id")
         if not isinstance(message_payload, dict):
             raise ValueError("Mailbox is outside this integration client's scope")
-        if (message_payload.get("mailbox") in client.allowed_mailboxes and client.business_ids
-                and business_id not in client.business_ids):
-            raise ValueError("Business is outside this integration client's scope")
-        if not routes.submit_permitted(self, client, message_payload.get("mailbox"), business_id,
+        if (message_payload.get("mailbox") in client.allowed_mailboxes and client.project_ids
+                and project_id not in client.project_ids):
+            raise ValueError("Project is outside this integration client's scope")
+        if not routes.submit_permitted(self, client, message_payload.get("mailbox"), project_id,
                 message_payload.get("sender_ref")):
             raise ValueError("Mailbox is outside this integration client's scope")
         request_id = intent_request_id(client.client_id, submission.intent_id)
@@ -569,16 +569,16 @@ class EmailService:
                 if existing_intent["payload_digest"] != payload_digest:
                     raise IntentConflict("Intent already recorded with different content")
                 return self.intent_receipt(existing_intent, self.store.send(existing_intent["request_id"]))
-            # Fail fast on an unresolvable sender/business combination rather than
+            # Fail fast on an unresolvable sender/project combination rather than
             # leaving a doomed row queued for the background pass to discover.
             self.settings.sender(mailbox, message)
             intent_row, _ = self.store.begin_integration_intent(client_id=client.client_id,
                 intent_id=submission.intent_id, request_id=request_id, payload_digest=payload_digest,
-                workflow_owner=client.workflow_owner, business_id=message.business_id, mailbox=message.mailbox,
+                workflow_owner=client.workflow_owner, project_id=message.project_id, mailbox=message.mailbox,
                 category=submission.category, campaign_id=correlation.campaign_id,
                 enrollment_id=correlation.enrollment_id, step_index=correlation.step_index,
                 manifest_digest=correlation.manifest_digest, stop_contact_key=correlation.stop_key.contact_key,
-                stop_business_id=correlation.stop_key.business_id, correlation=correlation.model_dump())
+                stop_project_id=correlation.stop_key.project_id, correlation=correlation.model_dump())
             row, _ = self.store.begin_send(message, queued=True)
             return self.intent_receipt(intent_row, row)
 
@@ -613,11 +613,11 @@ class EmailService:
             "workflow_owner": destination}, sort_keys=True).encode()).hexdigest()
         result = {"thread_or_message_id": thread_or_message_id, "workflow_owner": destination,
             "client_id": client.client_id, "ownership": "transferred"}
-        mailboxes, business_ids = routes.handoff_scope(self, client)
+        mailboxes, project_ids = routes.handoff_scope(self, client)
         row, _ = self.store.begin_handoff(thread_or_message_id, request.idempotency_key,
             client_id=client.client_id, source_owner=client.workflow_owner, destination_owner=destination,
             payload_digest=payload_digest, result=result, mailboxes=mailboxes,
-            business_ids=business_ids)
+            project_ids=project_ids)
         if row["payload_digest"] != payload_digest:
             raise IntentConflict("Handoff already recorded with different content")
         return {"thread_or_message_id": row["thread_or_message_id"], "idempotency_key": row["idempotency_key"],

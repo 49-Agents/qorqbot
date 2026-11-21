@@ -40,7 +40,7 @@ ELIDE_FALSE_KEYS = frozenset({"closed", "paused", "archived", "snoozed", "has_mo
     "inbox_owner", "work_stale", "is_owner", "title_truncated"})
 # Table cell values are data, and attention flags are read-before-write state
 # that agents send back complete; neither is a presentation default. A null
-# business_id inside source means "Global object" and is not a default either.
+# project_id inside source means "Global object" and is not a default either.
 ELIDE_PRESERVED_KEYS = frozenset({
     # These are authored or arbitrary user-data sections. Their empty, false,
     # zero and null values are meaningful and must not be treated as platform
@@ -58,10 +58,10 @@ TOOL_NAMES_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItem
 SECTIONS_SCHEMA = {"type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": True,
     "items": {"type": "string", "minLength": 1, "maxLength": 120},
     "description": instruction_text('mcp-presentation-context-only-return-exactly-these-sections-of')}
-TASK_FIELDS = ("id", "business_id", "business_name", "revision", "title", "status", "work_status", "input_needed", "input_requests", "input_version", "input_request_missing", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "assignees", "blocked_by", "blockers",
+TASK_FIELDS = ("id", "project_id", "project_name", "revision", "title", "status", "work_status", "input_needed", "input_requests", "input_version", "input_request_missing", "due", "follow_up", "snoozed_until", "snoozed", "assignee_ids", "assignees", "blocked_by", "blockers",
     "unresolved_blockers", "blocks", "parent", "kind", "closed", "paused", "archived", "tags", "created_by", "updated_at",
     "worker_ids", "status_line", "next_step", "stalled")
-SIGNOFF_FIELDS = ("id", "review_business_id", "review_scope", "proposal_revision", "payload_hash", "status_revision",
+SIGNOFF_FIELDS = ("id", "review_project_id", "review_scope", "proposal_revision", "payload_hash", "status_revision",
     "state", "decision_state", "actionable", "execution_state", "category", "input_kind", "operation_name", "operation_version",
     "title", "report_task", "proposer_principal_id", "proposer_agent_id", "proposer_display_name",
     "initiated_by_principal_id", "initiated_by_display_name", "attention", "job_id",
@@ -75,21 +75,21 @@ SIGNOFF_INDEX_FIELDS = ("id", "review_scope", "proposal_revision", "status_revis
     "proposer_agent_id", "proposer_display_name", "initiated_by_display_name",
     "attention", "job_id", "outcome", "created_at", "updated_at", "supersedes_id", "superseded_by_id")
 INBOX_EVENT_FIELDS = ("id", "source_type", "source_id", "event_type", "summary", "created_at",
-    "business_id", "business_slug", "actor_name", "message", "source", "entries")
+    "project_id", "project_slug", "actor_name", "message", "source", "entries")
 # A reminder event's compact pointer: the identities the reminder operations take back, the due time, the explicit urgency and
 # the recipient-authorized link. The text is already the event summary.
-REMINDER_POINTER_FIELDS = ("reminder_id", "occurrence_id", "revision", "due_at", "time_critical", "business_id")
-REMINDER_LINK_FIELDS = ("type", "id", "business_id")
+REMINDER_POINTER_FIELDS = ("reminder_id", "occurrence_id", "revision", "due_at", "time_critical", "project_id")
+REMINDER_LINK_FIELDS = ("type", "id", "project_id")
 REMINDER_VALUE_LIMIT = 200
 MESSAGE_ITEM_FIELDS = ("id", "event_id", "thread_id", "reply_to", "sender_id", "sender_name",
     "recipient_id", "recipient_name", "current_sender_id", "current_sender_name", "current_recipient_id",
     "current_recipient_name", "counterpart_id", "body", "summary", "created_at", "acknowledged_at", "outcome",
     "delegation_attribution", "author_id", "recorder_id", "recorder_name", "attribution", "terminal_delivery", "read_only", "retirement_backlog")
-ACTIVITY_AGENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug",
+ACTIVITY_AGENT_FIELDS = ("agent_id", "name", "role_id", "project_id", "project_slug",
     "state", "last_seen_at", "sessions", "inbox", "current_work")
 ACTIVITY_SESSION_FIELDS = ("session_id", "runtime", "state", "last_seen_at", "work_revision",
     "items", "item_keys", "items_complete", "items_replacement_safe", "checkpoint", "inbox_owner", "work_stale")
-RECIPIENT_FIELDS = ("agent_id", "name", "role_id", "business_id", "business_slug", "group")
+RECIPIENT_FIELDS = ("agent_id", "name", "role_id", "project_id", "project_slug", "group")
 TABLE_ROW_FIELDS = ("id", "position", "revision", "cells")
 TASK_NOTE_FIELDS = ("id", "body", "created_by_name", "author_id", "recorder_id", "recorder_name", "attribution", "created_at", "refs",
                     "audience")
@@ -492,7 +492,7 @@ def _activity_work_item(item):
         return item
     # Keep attribution, task identity and the actionable state. Expanded
     # blocker records remain available from the existing detailed read.
-    return select(item, ("business_id", "business_slug", "task_id", "title", "task_status",
+    return select(item, ("project_id", "project_slug", "task_id", "title", "task_status",
         "summary", "blocked", "blocked_reason"))
 
 
@@ -502,8 +502,8 @@ def _activity_summary(data):
         if not isinstance(agent, dict):
             agents.append(agent)
             continue
-        row = select(agent, ("agent_id", "name", "role_id", "business_id",
-            "business_slug", "state", "last_seen_at", "inbox"))
+        row = select(agent, ("agent_id", "name", "role_id", "project_id",
+            "project_slug", "state", "last_seen_at", "inbox"))
         if isinstance(agent.get("current_work"), dict):
             # A worker's one shared assignment is small and authoritative; only its expanded blocker records are left out.
             work = agent["current_work"]
@@ -562,7 +562,7 @@ def _activity_summary(data):
 
 def _config_summary(config):
     result = select(config, ("schema_version", "agent_id", "profile_revision", "name", "display_name",
-        "status", "runtime", "business_id", "business_revision", "configuration_revision",
+        "status", "runtime", "project_id", "project_revision", "configuration_revision",
         "context_refresh_required", "scope"))
     if isinstance(config.get("role"), dict):
         result["role"] = select(config["role"], ("id", "version"))
@@ -609,7 +609,7 @@ def _preserved_keys(name, detail):
     if detail == "summary" and name == "agents_activity_list":
         preserved.update({"items", "checkpoint_findings", "context", "reference", "scope"})
         preserved.update({"next_cursor", "next_offset", "has_more"})
-        preserved.add("business_id")
+        preserved.add("project_id")
     if detail == "summary" and name == "agent_config_get":
         preserved.update({"scope", "readiness"})
     return frozenset(preserved)
@@ -706,8 +706,8 @@ def present(name, value, detail="compact", *, tool_names=None, sections=None, ar
         config = data["effective_config"]
         # effective_config_id always equals configuration_revision; one spelling.
         summary = select(config, ("schema_version", "agent_id", "profile_revision", "name", "display_name",
-            "status", "runtime", "role", "scope", "assignment_brief", "workspace", "business_id",
-            "business_revision", "configuration_revision", "context_refresh_required", "plugins"))
+            "status", "runtime", "role", "scope", "assignment_brief", "workspace", "project_id",
+            "project_revision", "configuration_revision", "context_refresh_required", "plugins"))
         tools = config.get("tools", [])
         summary["tool_counts"] = dict(Counter(tool["effective_mode"] for tool in tools))
         summary["tool_inventory_omitted"] = True

@@ -39,7 +39,7 @@ The launcher reads `.qorqut/browser.json` in that exact agent workspace. For Ord
 {
   "schema_version": 1,
   "cdp_endpoint": "http://127.0.0.1:9225",
-  "runtime_dir": "/absolute/path/to/deployed/biz-core/tools/browser"
+  "runtime_dir": "/absolute/path/to/deployed/core/tools/browser"
 }
 ```
 
@@ -285,14 +285,14 @@ command ran in: the caller's, or a worker's when Ordubashy has selected that wor
 open (or a bound tab that has closed) it exits 1 with `{"reason": "..."}` telling the agent to open the page first; in a managed
 desktop, which is no agent's browser, it exits 1 and says to use a `browser` reference.
 
-`request_user_input` takes the reference as `{"type": "tab", "id": "<agent uuid>:<tab id>"}` with `business_id` absent or
+`request_user_input` takes the reference as `{"type": "tab", "id": "<agent uuid>:<tab id>"}` with `project_id` absent or
 null (`qorqut/native_chat/references.py`). Naming a tab grants no control and no authorization:
 
 - **When the tool is called** the agent must be one the caller may read (as for an `agent` reference) and the tab must be
   listed by that agent's browser now; anything else (unknown agent, browser stopped or not answering, tab closed) is the
   tool's usual "reference is not available".
 - **When Chat is read** the same check is made again for each page of Chat, with the browser's tabs listed once per agent
-  however many of its tabs the page names. The owner's card is `{type, id, business_id: null, label, available, agent_id,
+  however many of its tabs the page names. The owner's card is `{type, id, project_id: null, label, available, agent_id,
   tab_id, agent_label}`; `label` is the page's title (at most 200 characters, else the address's host, else "Tab"). A tab that
   is gone shows the "Unavailable tab" placeholder. The title is the page's own text and is only ever shown as text.
 - **Viewing** is the owner's alone and goes through the existing live-view route (`browser/live.py`); a reference neither
@@ -302,8 +302,8 @@ Checked by `tests/test_browser_tab_reference.py`, `tests/test_chat_references.py
 
 ## Projects have no browsers
 
-A Project has no browser, proxy, profile or isolated desktop: `business_config_*` accepts no `browser` section
-(a section an older installation stored is kept inert and nothing reads it), and `browser_turn` takes no `business_id`.
+A Project has no browser, proxy, profile or isolated desktop: `project_config_*` accepts no `browser` section
+(a section an older installation stored is kept inert and nothing reads it), and `browser_turn` takes no `project_id`.
 Every browser is Global. An agent uses its own configured browser (see above and [browser management](BROWSER-MANAGEMENT.md)),
 and the configured Ordubashy may name one of the managed Global desktops by id ([browser desktops](BROWSER-DESKTOPS.md)).
 Naming a browser grants nothing: control is the ordinary `browser_turn` permission plus the selected browser-control skill,

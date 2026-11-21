@@ -18,17 +18,17 @@ from qorqut_operations.storage.specs import TableSpec
 
 TABLE = 'signoff_report_tasks'
 REPORT_TASK = schema({'id': {'type': 'string', 'minLength': 1, 'maxLength': 300},
-    'business_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('id', 'business_id'))
+    'project_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('id', 'project_id'))
 SCHEMA = (
     '''CREATE TABLE signoff_report_tasks (
  signoff_id TEXT PRIMARY KEY REFERENCES signoffs(id),
  task_id TEXT NOT NULL CHECK(length(task_id) BETWEEN 1 AND 300),
- task_business_id TEXT REFERENCES businesses(id),
+ task_project_id TEXT REFERENCES projects(id),
  revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>=1),
  created_by TEXT NOT NULL REFERENCES principals(id),
  created_at TEXT NOT NULL
 )''',
-    'CREATE INDEX signoff_report_tasks_task ON signoff_report_tasks(task_id,task_business_id)',
+    'CREATE INDEX signoff_report_tasks_task ON signoff_report_tasks(task_id,task_project_id)',
     # Reuse the Signoff clock: attaching or moving a report's Task is a change a Signoff reader must see.
     *('CREATE TRIGGER signoff_report_tasks_' + event + ' AFTER ' + event.upper() + ' ON signoff_report_tasks '
       "BEGIN UPDATE change_sequences SET value=value+1 WHERE name='signoffs'; END" for event in ('insert', 'delete', 'update')),
@@ -45,17 +45,17 @@ class ReportTasks:
 
     def check(self, ctx, task, uow):
         """Refuse a Task the caller may not read, or one outside the report's scope. ``ctx`` is already in the report's scope."""
-        if task['business_id'] != ctx.business_id:
+        if task['project_id'] != ctx.project_id:
             raise DomainError('validation_error', 'A Global report belongs to a Global Task and a project report to a Task of the same '
                 'project; post the report in the Task\'s own scope')
         app = self.service.app
-        namespace = 'business:' + ctx.business_id if ctx.business_id else 'global'
+        namespace = 'project:' + ctx.project_id if ctx.project_id else 'global'
         descriptor = app.registry.get('tasks_get')
         try:
             # The ordinary authorized Task read: whoever may not read the Task cannot attach a report to it. A closed Task is fine.
             app.authorize(ctx, descriptor, (), uow, namespace=namespace)
-            read = descriptor.read(replace(ctx, business_id=task['business_id'], review_business_id=task['business_id']),
-                {'task_id': task['id'], 'scope': 'business' if task['business_id'] else 'global'}, None, uow)
+            read = descriptor.read(replace(ctx, project_id=task['project_id'], review_project_id=task['project_id']),
+                {'task_id': task['id'], 'scope': 'project' if task['project_id'] else 'global'}, None, uow)
         except DomainError as error:
             if error.code in {'forbidden', 'policy_denied', 'not_found', 'invalid_principal', 'record_moved'}:
                 raise DomainError('validation_error', 'That Task does not exist or you may not read it; name an existing Task of this scope') from None
@@ -67,11 +67,11 @@ class ReportTasks:
         return dict(row) if row else None
 
     def link(self, ctx, signoff_id, task, uow):
-        uow.connection.execute(f'INSERT INTO {TABLE}(signoff_id,task_id,task_business_id,created_by,created_at) VALUES(?,?,?,?,?)',
-            (signoff_id, task['id'], task['business_id'], ctx.principal_id, self.service.clock()))
+        uow.connection.execute(f'INSERT INTO {TABLE}(signoff_id,task_id,task_project_id,created_by,created_at) VALUES(?,?,?,?,?)',
+            (signoff_id, task['id'], task['project_id'], ctx.principal_id, self.service.clock()))
 
     def view(self, row, uow):
-        """``{type, id, business_id, title}`` of a report's Task; None for a report without one.
+        """``{type, id, project_id, title}`` of a report's Task; None for a report without one.
 
         The title is shown while the Task is still in the report's own scope, where the reader of the report already works; a
         Task that has since moved elsewhere, or been removed, shows no title, and its own read decides who may open it."""
@@ -79,8 +79,8 @@ class ReportTasks:
         if not link:
             return None
         title = None
-        if link['task_business_id'] == row['review_business_id']:
-            task = uow.connection.execute('SELECT title FROM tasks WHERE business_id IS ? AND id=?',
-                (link['task_business_id'], link['task_id'])).fetchone()
+        if link['task_project_id'] == row['review_project_id']:
+            task = uow.connection.execute('SELECT title FROM tasks WHERE project_id IS ? AND id=?',
+                (link['task_project_id'], link['task_id'])).fetchone()
             title = task['title'] if task else None
-        return {'type': 'task', 'id': link['task_id'], 'business_id': link['task_business_id'], 'title': title}
+        return {'type': 'task', 'id': link['task_id'], 'project_id': link['task_project_id'], 'title': title}

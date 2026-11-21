@@ -1,4 +1,4 @@
-"""Owner-facing derived Chat for any registered agent, global or business.
+"""Owner-facing derived Chat for any registered agent, global or project.
 
 Chat is a projection. It never launches, resumes or stops an agent, and opening it or switching agents starts nothing:
 (the one exception, in managed mode, is an owner message to an agent with no session open: sending it starts that agent's
@@ -9,7 +9,7 @@ reaches only the session its pin names)
 * "read" is a boundary on the agent's per-agent completion sequence, owned by the installation owner.
 
 Every method re-validates, in its own transaction, that the caller is the installation owner, that the agent is an active
-registered profile and, for a business agent, that its business is live and the owner holds it.
+registered profile and, for a project agent, that its project is live and the owner holds it.
 """
 
 from __future__ import annotations
@@ -179,7 +179,7 @@ class NativeChat:
     # ----- authorization ---------------------------------------------------------------------------------------------
 
     def _target(self, uow, principal_id: str, agent_id: str) -> dict:
-        """Any active supported global agent: its exact saved profile row, never a name or navigation pin. A business-home
+        """Any active supported global agent: its exact saved profile row, never a name or navigation pin. A project-home
         identity is historical and never a Chat target, whatever its stored status."""
         principal = uow.repository("principals").get(principal_id)
         if not principal or principal["kind"] != "human" or not principal["active"] or installation_owner(uow) != principal_id:

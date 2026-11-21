@@ -47,7 +47,7 @@ def target_fingerprint(profile):
     data = profile["profile_json"]
     data = json.loads(data) if isinstance(data, str) else data
     data = data if isinstance(data, dict) else {}
-    return canonical_hash({"agent": profile["agent_id"], "home": profile["home_business_id"], "namespace": profile["namespace"],
+    return canonical_hash({"agent": profile["agent_id"], "home": profile["home_project_id"], "namespace": profile["namespace"],
                            "workspace": profile["workspace"], "role": (data.get("role") or {}).get("id"),
                            "runtime": data.get("runtime")})
 

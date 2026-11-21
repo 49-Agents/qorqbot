@@ -15,7 +15,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from qorqut import agent_cli_launch
 from qorqut.bootstrap.preparation import prepare_agent
 from qorqut.bootstrap.preparation import installed_versions
-from qorqut.composition.locations import agent_workspace, business_hq
+from qorqut.composition.locations import agent_workspace, project_hq
 from qorqut_operations.contracts import DomainError, Principal
 from qorqut.agents.global_scope import active_global
 from qorqut.management.identity import require_protected_control
@@ -28,7 +28,7 @@ WORKSPACE_TERMINAL_SLOTS = ("2", "3")
 
 @dataclass(frozen=True)
 class TerminalExecution:
-    """Immutable execution target selected for one business terminal request."""
+    """Immutable execution target selected for one project terminal request."""
 
     broker: object
     endpoint: str
@@ -54,7 +54,7 @@ class TerminalService:
         self.shell = [shell, "-i"]
         if Path(shell).name not in {"bash", "sh", "dash", "zsh", "fish"}:
             raise ValueError("Terminals start an interactive shell only")
-        self.environment = environment or (lambda business: {})
+        self.environment = environment or (lambda project: {})
         self.global_environment = global_environment or (lambda: {})
         self.agent_environment = agent_environment
         self.version_provider = version_provider or installed_versions
@@ -76,19 +76,19 @@ class TerminalService:
         if not mode.is_terminal(paths):
             raise DomainError("terminal_mode_off", "Agents run as managed sessions on this installation.")
 
-    def _host_environment(self, profile, business):
+    def _host_environment(self, profile, project):
         if profile is not None and self.agent_environment:
-            return self.agent_environment(business, profile)
-        return self.environment(business) if business else self.global_environment()
+            return self.agent_environment(project, profile)
+        return self.environment(project) if project else self.global_environment()
 
     def _host_execution(self):
         return TerminalExecution(self.broker, self.service_url, None, self.version_provider, self._host_environment)
 
-    def execution(self, business):
-        """Select the business backend; an absent result retains legacy host execution."""
-        if business is None or self.execution_provider is None:
+    def execution(self, project):
+        """Select the project backend; an absent result retains legacy host execution."""
+        if project is None or self.execution_provider is None:
             return self._host_execution()
-        selected = self.execution_provider(business)
+        selected = self.execution_provider(project)
         if selected is None:
             return self._host_execution()
         if not isinstance(selected, TerminalExecution) or selected.broker is None:
@@ -114,19 +114,19 @@ class TerminalService:
         self.runtime.require_authority()
         with self.runtime.database.read() as uow:
             current = self.runtime.application.current_context(context, uow)
-            if current.business_id is None:
+            if current.project_id is None:
                 installation = uow.repository("installation").get("service")
                 if current.principal_kind != "human" or not installation or installation["owner_principal_id"] != current.principal_id:
                     raise DomainError("forbidden", "Global terminals require the installation owner")
                 return
-            membership = uow.repository("business_memberships", business_id=current.business_id).get(current.principal_id)
+            membership = uow.repository("project_memberships", project_id=current.project_id).get(current.principal_id)
             if current.principal_kind != "human" or not membership or not membership["active"] or not membership["is_owner"]:
                 raise DomainError("forbidden", "Terminal access requires the current project owner")
 
     def agent(self, context, selector):
         self.owner(context)
         with self.runtime.database.read() as uow:
-            row = uow.connection.execute("SELECT * FROM agent_profiles WHERE home_business_id IS ? AND (agent_id=? OR name=?) AND status='active'", (context.business_id, selector, selector)).fetchone()
+            row = uow.connection.execute("SELECT * FROM agent_profiles WHERE home_project_id IS ? AND (agent_id=? OR name=?) AND status='active'", (context.project_id, selector, selector)).fetchone()
             if row is None:
                 raise DomainError("not_found", "Registered active agent was not found in this workspace")
             current = self.runtime.application.current_context(context, uow)
@@ -134,22 +134,22 @@ class TerminalService:
             profile, indexed = self.runtime.resolver.profile(Principal(row["agent_id"], "agent"), connection=uow.connection)
             return profile, indexed
 
-    def binding(self, business, row, broker=None):
+    def binding(self, project, row, broker=None):
         broker = self.broker if broker is None else broker
         # The registered identity and home scope select the workspace; the stored column and the name never do.
-        workspace = agent_workspace(self.runtime.paths, row["agent_id"], business)
-        if business is None:
-            if row["home_business_id"] is not None:
+        workspace = agent_workspace(self.runtime.paths, row["agent_id"], project)
+        if project is None:
+            if row["home_project_id"] is not None:
                 raise DomainError("registration_conflict", "Global terminal workspace must belong to a Global agent")
-            # An extra underscore cannot occur in a business agent's validated name.
+            # An extra underscore cannot occur in a project agent's validated name.
             session = broker.session_name("global", "_" + row["agent_id"])
             return str(self.runtime.root) + "\0global\0" + row["agent_id"], session, str(workspace)
-        if row["home_business_id"] != business["id"]:
+        if row["home_project_id"] != project["id"]:
             raise DomainError("registration_conflict", "Terminal workspace is not registered under this project")
-        hq = business_hq(self.runtime.paths, business)
+        hq = project_hq(self.runtime.paths, project)
         # Session names stay derived from the registered agent name, as before.
         stable_name = row["name"]
-        return str(hq) + "\0" + stable_name, broker.session_name(business["slug"], stable_name), str(workspace)
+        return str(hq) + "\0" + stable_name, broker.session_name(project["slug"], stable_name), str(workspace)
 
     def workspace_binding(self, context, slot=1):
         """Bind an owner utility shell to the Qorqut workspace; slot 1 keeps the original session."""
@@ -168,27 +168,27 @@ class TerminalService:
             raise DomainError("validation_error", "Terminal dimensions must be 20-500 columns and 5-250 rows")
         return cols, rows
 
-    def open(self, context, business, selector, *, cols=120, rows=32, execution=None, reconnect=False):
+    def open(self, context, project, selector, *, cols=120, rows=32, execution=None, reconnect=False):
         from contextlib import nullcontext
         self.require_terminals()
         admission = self.runtime.application.writer_admission
         with admission.writer() if admission is not None else nullcontext():
-            return self._open_admitted(context, business, selector, cols=cols, rows=rows, execution=execution, reconnect=reconnect)
+            return self._open_admitted(context, project, selector, cols=cols, rows=rows, execution=execution, reconnect=reconnect)
 
-    def _open_admitted(self, context, business, selector, *, cols, rows, execution, reconnect):
+    def _open_admitted(self, context, project, selector, *, cols, rows, execution, reconnect):
         profile, row = self.agent(context, selector)
-        execution = execution or self.execution(business)
+        execution = execution or self.execution(project)
         broker = execution.broker
         if broker is None or not broker.tmux_available():
             raise DomainError("operation_unavailable", "Registered agent terminals require the tmux mirror backend")
-        key, session, cwd = self.binding(business, row, broker)
+        key, session, cwd = self.binding(project, row, broker)
         # Viewing an existing session is an attach, not a fresh agent launch.
         # Authorization, registration binding and execution selection above still
         # run on every request; preparation remains mandatory for new sessions.
         if reconnect and broker.session_alive(session):
             return broker.get_or_start(key, broker.attach_cmd(session), cwd, cols=cols, rows=rows), profile, row
         self._prepare(execution, profile.agent_id)
-        env = dict(execution.environment_resolver(profile, business))
+        env = dict(execution.environment_resolver(profile, project))
         if execution.target_identity is not None:
             # Bind once to the prepared agent, independently of later code cwd.
             # Settings cannot substitute another agent's registration path.
@@ -228,22 +228,22 @@ class TerminalService:
         self.broker.ensure_session(session, self.shell, cwd, env=env, cols=cols, rows=rows)
         return self.broker.get_or_start(key, self.broker.attach_cmd(session), cwd, cols=cols, rows=rows)
 
-    def listing(self, context, business):
+    def listing(self, context, project):
         self.owner(context)
-        execution = self.execution(business)
+        execution = self.execution(project)
         broker = execution.broker
         if broker is None or not broker.tmux_available():
             return []
         with self.runtime.database.read() as uow:
-            # Only active supported globals have terminals; a business-home identity is historical and never listed.
+            # Only active supported globals have terminals; a project-home identity is historical and never listed.
             agents = [row for row in uow.connection.execute(
-                "SELECT * FROM agent_profiles WHERE home_business_id IS NULL AND status='active' ORDER BY name").fetchall()
-                if context.business_id is None and active_global(uow.connection, row["agent_id"]) is not None]
-        sessions = set(broker.list_sessions(broker.session_prefix(business["slug"] if business else "global")))
+                "SELECT * FROM agent_profiles WHERE home_project_id IS NULL AND status='active' ORDER BY name").fetchall()
+                if context.project_id is None and active_global(uow.connection, row["agent_id"]) is not None]
+        sessions = set(broker.list_sessions(broker.session_prefix(project["slug"] if project else "global")))
         return [{"agent": row["name"], "agent_id": row["agent_id"], "done": False}
-                for row in agents if self.binding(business, row, broker)[1] in sessions]
+                for row in agents if self.binding(project, row, broker)[1] in sessions]
 
-    def input_existing(self, business_id, agent_id, data, key=None):
+    def input_existing(self, project_id, agent_id, data, key=None):
         """Trusted broadcast port: only an already-attached mirror is writable.
 
         It intentionally has no owner check because the dispatcher has already
@@ -256,19 +256,19 @@ class TerminalService:
         if not mode.is_terminal(self._paths()):
             return {"state": "unavailable", "detail": "Agents run as managed sessions on this installation"}
         with self.runtime.database.read() as uow:
-            business = uow.repository("businesses").get(business_id) if business_id else None
-            row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND home_business_id IS ? AND status='active'",
-                (agent_id, business_id)).fetchone()
-            # A business-home identity is never dispatched to, whatever its stored status.
-            if row is None or row["home_business_id"] is not None or active_global(uow.connection, agent_id) is None:
+            project = uow.repository("projects").get(project_id) if project_id else None
+            row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND home_project_id IS ? AND status='active'",
+                (agent_id, project_id)).fetchone()
+            # A project-home identity is never dispatched to, whatever its stored status.
+            if row is None or row["home_project_id"] is not None or active_global(uow.connection, agent_id) is None:
                 return {"state": "unavailable", "detail": "Agent is unavailable"}
-        execution = self.execution(business)
+        execution = self.execution(project)
         if execution.target_identity is None and execution.broker is self.broker and key is not None:
             return self._native_input(agent_id, data, key)
         broker = execution.broker
         if broker is None or not broker.tmux_available():
             return {"state": "unavailable", "detail": "Terminal backend is unavailable"}
-        key, session, _ = self.binding(business, row, broker)
+        key, session, _ = self.binding(project, row, broker)
         terminal = broker.get(key)
         if terminal is None or getattr(terminal, "done", False) or not broker.session_alive(session):
             return {"state": "unavailable", "detail": "No live terminal mirror is attached"}
@@ -286,7 +286,7 @@ class TerminalService:
         native = getattr(self.runtime, "native_chat", None)
         return native.attachment if native is not None else None
 
-    def reconnect_selected(self, context, business, selector, execution, revision, *, cols=120, rows=32):
+    def reconnect_selected(self, context, project, selector, execution, revision, *, cols=120, rows=32):
         """The owner's explicit reconnect of this agent's Terminal to its selected native conversation.
 
         The one mutation behind the attachment view: reads and stream reconnects never come here. A registered shell is made
@@ -307,7 +307,7 @@ class TerminalService:
             return view
         if view["action"] != "reconnect":
             raise DomainError("invalid_transition", view["detail"] or "The terminal cannot be reconnected")
-        self.open(context, business, selector, cols=cols, rows=rows, execution=execution)
+        self.open(context, project, selector, cols=cols, rows=rows, execution=execution)
         return service.reconnect(row["agent_id"], revision)
 
     def _native_input(self, agent_id, data, key):
@@ -337,8 +337,8 @@ class TerminalService:
             kwargs["interpreter_validator"] = execution.interpreter_validator
         self.preparation(self.runtime.resolver, Principal(agent_id, "agent"), **kwargs)
 
-    def reset_business_for_archive(self, business, agents):
-        """Trusted approved archive effect: clear only this business's sessions.
+    def reset_project_for_archive(self, project, agents):
+        """Trusted approved archive effect: clear only this project's sessions.
 
         Unlike opening a terminal, this never prepares an agent or launches a
         replacement model. Missing sessions are already reset, including retries. A managed installation, or one
@@ -346,24 +346,24 @@ class TerminalService:
         """
         if not mode.is_terminal(self._paths()):
             return
-        broker = self.execution(business).broker
+        broker = self.execution(project).broker
         if broker is None or not broker.tmux_available():
             return
-        sessions = set(broker.list_sessions(broker.session_prefix(business["slug"])))
+        sessions = set(broker.list_sessions(broker.session_prefix(project["slug"])))
         for row in agents:
-            key, session, _ = self.binding(business, row, broker)
+            key, session, _ = self.binding(project, row, broker)
             if session in sessions and not broker.kill_session(session):
                 # Another client may have closed it concurrently. Confirm absence.
-                if session in broker.list_sessions(broker.session_prefix(business["slug"])):
+                if session in broker.list_sessions(broker.session_prefix(project["slug"])):
                     raise DomainError("operation_failed", "A project terminal could not be reset", retryable=True)
             broker.stop(key)
 
-    async def route(self, request, context, business, tail):
+    async def route(self, request, context, project, tail):
         self.require_terminals()
         if tail == ["terminals"] and request.method == "GET":
-            return JSONResponse(await anyio.to_thread.run_sync(lambda: self.listing(context, business)))
+            return JSONResponse(await anyio.to_thread.run_sync(lambda: self.listing(context, project)))
         # Owner shells: workspace-terminal/<action> is slot 1; slots 2 and 3 add their number.
-        workspace_terminal = business is None and tail[:1] == ["workspace-terminal"] and (
+        workspace_terminal = project is None and tail[:1] == ["workspace-terminal"] and (
             len(tail) == 2 or len(tail) == 3 and tail[1] in WORKSPACE_TERMINAL_SLOTS)
         agent_terminal = len(tail) == 3 and tail[0] == "terminal"
         if not workspace_terminal and not agent_terminal:
@@ -376,10 +376,10 @@ class TerminalService:
             broker = self.broker
         else:
             profile, row = await anyio.to_thread.run_sync(check_target)
-            execution = await anyio.to_thread.run_sync(lambda: self.execution(business))
+            execution = await anyio.to_thread.run_sync(lambda: self.execution(project))
             broker = execution.broker
-        open_target = (lambda: (self.open_workspace(context, slot=slot), None, None)) if workspace_terminal else (lambda: self.open(context, business, selector, execution=execution, reconnect=action == "stream"))
-        binding_target = (lambda: self.workspace_binding(context, slot)) if workspace_terminal else (lambda: self.binding(business, row, broker))
+        open_target = (lambda: (self.open_workspace(context, slot=slot), None, None)) if workspace_terminal else (lambda: self.open(context, project, selector, execution=execution, reconnect=action == "stream"))
+        binding_target = (lambda: self.workspace_binding(context, slot)) if workspace_terminal else (lambda: self.binding(project, row, broker))
         if agent_terminal and action == "attachment" and request.method == "GET":
             service = self.attachment()
             if service is None:
@@ -415,7 +415,7 @@ class TerminalService:
                             if service is not None:
                                 await anyio.to_thread.run_sync(lambda: service.check_input(row["agent_id"], claimed))
                             if not workspace_terminal and self.execution_provider is not None:
-                                selected = await anyio.to_thread.run_sync(lambda: self.execution(business))
+                                selected = await anyio.to_thread.run_sync(lambda: self.execution(project))
                                 if not self._same_execution(execution, selected):
                                     yield b"event: done\ndata: {}\n\n"
                                     return
@@ -459,7 +459,7 @@ class TerminalService:
         if workspace_terminal:
             await anyio.to_thread.run_sync(lambda: self.owner(context))
             profile, row = None, None
-        # For business actions, authorization and execution selection were
+        # For project actions, authorization and execution selection were
         # completed above so every action in this request shares one identity.
         if broker is None:
             raise DomainError("operation_unavailable", "Terminal backend is unavailable")
@@ -469,7 +469,7 @@ class TerminalService:
                 raise DomainError("validation_error", "revision is required")
             cols, rows = self.size(body)
             view = await anyio.to_thread.run_sync(lambda: self.reconnect_selected(
-                context, business, selector, execution, body["revision"], cols=cols, rows=rows))
+                context, project, selector, execution, body["revision"], cols=cols, rows=rows))
             return JSONResponse({"ok": True, "attachment": view}, headers={"Cache-Control": "no-store"})
         if action == "start":
             cols, rows = self.size(body)
@@ -477,7 +477,7 @@ class TerminalService:
                 terminal = await anyio.to_thread.run_sync(lambda: self.open_workspace(context, slot=slot, cols=cols, rows=rows))
                 target = {"workspace": cwd}
             else:
-                terminal, _, _ = await anyio.to_thread.run_sync(lambda: self.open(context, business, selector,
+                terminal, _, _ = await anyio.to_thread.run_sync(lambda: self.open(context, project, selector,
                     cols=cols, rows=rows, execution=execution))
                 target = {"agent": profile.data["name"]}
             return JSONResponse({"ok": True, **target, "cols": terminal.cols, "rows": terminal.rows, "done": False})

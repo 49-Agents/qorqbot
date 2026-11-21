@@ -8,12 +8,12 @@ from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 
-def invoke(url, business, operation, arguments):
+def invoke(url, project, operation, arguments):
     base = url.rstrip('/')
     parsed = urlsplit(base)
     if parsed.scheme not in {'http', 'https'} or not parsed.netloc or parsed.path or parsed.query or parsed.fragment or parsed.username:
         raise ValueError('URL must be a service origin, such as http://127.0.0.1:1049')
-    path = '/api/biz/' + quote(business, safe='') if business else '/api/root'
+    path = '/api/project/' + quote(project, safe='') if project else '/api/root'
     request = Request(base + path + '/operations/' + operation, data=json.dumps(arguments).encode(),
         headers={'Content-Type': 'application/json', 'Origin': base}, method='POST')
     with urlopen(request, timeout=30) as result:
@@ -24,11 +24,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', default='http://127.0.0.1:1049')
     scope = parser.add_mutually_exclusive_group(required=True)
-    scope.add_argument('--business', help='Project slug')
+    scope.add_argument('--project', help='Project slug')
     scope.add_argument('--global', dest='global_scope', action='store_true')
     commands = parser.add_subparsers(dest='command', required=True)
     recipients = commands.add_parser('recipients')
-    recipients.add_argument('--all-businesses', action='store_true')
+    recipients.add_argument('--all-projects', action='store_true')
     recipients.add_argument('--role-id')
     send = commands.add_parser('send')
     send.add_argument('--to', dest='to_agent_id')
@@ -56,11 +56,11 @@ def main(argv=None):
         if args.counterpart_id: body['counterpart_id'] = args.counterpart_id
         operation = 'agents_messages_list'
     else:
-        body = {'all_businesses': args.all_businesses}
+        body = {'all_projects': args.all_projects}
         if args.role_id: body['role_id'] = args.role_id
         operation = 'agents_message_recipients'
     try:
-        result = invoke(args.url, args.business, operation, body)
+        result = invoke(args.url, args.project, operation, body)
     except HTTPError as error:
         try: result = json.load(error)
         except ValueError: result = {'status': 'error', 'error': {'message': 'HTTP request failed', 'status': error.code}}

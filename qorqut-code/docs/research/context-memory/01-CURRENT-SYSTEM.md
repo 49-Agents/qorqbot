@@ -46,7 +46,7 @@ All [C], from `CTX/schema.py` and `qorqut-context/CORE_CONTRACTS.md`.
 | Catalogs | attribute names and values in use | `graph/catalogs/` | Suggestions, not closed sets. |
 
 - IDs are random five-character strings in one namespace, never reused.
-- There is one graph for the whole installation. Business or Global scope exists only as event metadata
+- There is one graph for the whole installation. Project or Global scope exists only as event metadata
   (`record_context`), so reads return the same content whoever asks (`INT/reading/operations.py`,
   `INT/reading/text.py:5-7`).
 - There is no entity-type schema and no alias machinery. A grep for "alias" over the engine's Python returns
@@ -62,7 +62,7 @@ All [C], from `CTX/schema.py` and `qorqut-context/CORE_CONTRACTS.md`.
 | `notes_upload`, `journal_upload_to_filer` | No. |
 | `context_instruct` (focused, attributed correction) | No. |
 | Accepted learning (owner accepts a Learning in the context bucket) | Automatic once the owner accepts. |
-| Business creation (founding brief) | Automatic [D]. |
+| Project creation (founding brief) | Automatic [D]. |
 | Accepted Actions (`actions_record`, 20 words at most) | Agents are instructed to record completed work. |
 | `context_edit` (deterministic or owner-supervised graph edit) | No. |
 | Answers to Context questions | No answer operation exists. Needs a manual supervised edit [D]. |
@@ -74,7 +74,7 @@ What happens to something the owner says in chat (re-checked):
   (`AG/operations/runtime-instructions/messages/operational-intake.md`). It asks for two things: requests,
   decisions and commitments go on their work item, and "a clear new personal fact about the user goes to the
   canonical personal context node".
-- Facts about the business, its people, customers, suppliers or terms are not covered by that reminder. They
+- Facts about the project, its people, customers, suppliers or terms are not covered by that reminder. They
   reach the graph only if an agent decides to call `context_upload` or `context_instruct`.
 - Only two roles hold those grants: Ordubashy and Learning Applier (`role.yaml:147-148`, `role.yaml:41-42`).
   Every other agent must relay through the inbox.
@@ -170,7 +170,7 @@ Two further properties matter:
 
 - After compaction the agent gets the static bundle, Context Home and its saved handoff again. Anything that was
   only in the chat is gone unless the agent saved it [C].
-- Working memory is private per agent and per scope, with no inheritance from a business to Global. A fact one
+- Working memory is private per agent and per scope, with no inheritance from a project to Global. A fact one
   worker learned does not appear in another agent's prompt [C/D].
 - Nothing writes working memory automatically. The instruction is "Save meaningful progress during work" [C].
 - Cross-agent sharing happens only through the shared graph, tasks, notes and the inbox.

@@ -15,7 +15,7 @@ from qorqut.transport import mcp
 from test_single_source import Fixture
 
 DAY = '2026-11-13T10:00:00.000000Z'
-GLOBAL = {'type': 'global', 'id': 'global', 'business_id': None}
+GLOBAL = {'type': 'global', 'id': 'global', 'project_id': None}
 FIRST, SECOND = str(uuid4()), str(uuid4())
 
 
@@ -46,9 +46,9 @@ class DeliveryTests(Fixture):
         super().setUp()
         Timeline(NS(application=self.app, registry=self.registry)).register()
         self.delivery = TimelineDelivery(NS(database=self.db))
-        self.business = str(uuid4())
+        self.project = str(uuid4())
         with self.db.transaction() as uow:
-            uow.repository('businesses').insert({'id': self.business, 'name': 'Example project', 'slug': 'example',
+            uow.repository('projects').insert({'id': self.project, 'name': 'Example project', 'slug': 'example',
                                                  'workspace': 'example', 'hq_path': 'hq'})
         self.clock = ['2026-11-13T14:02:00.000000Z']
         for target, value in (('qorqut.domains.timeline.timestamp', lambda: DAY),
@@ -65,7 +65,7 @@ class DeliveryTests(Fixture):
         self.addCleanup(patcher.stop)
 
     def ctx(self, who):
-        return replace(super().ctx(who), allowed_business_ids=frozenset({self.business}))
+        return replace(super().ctx(who), allowed_project_ids=frozenset({self.project}))
 
     def conversation(self, session=FIRST):
         self.headers.values = {'x-qorqut-native-session': session} if session else {}
@@ -76,7 +76,7 @@ class DeliveryTests(Fixture):
             {'idempotency_key': str(uuid4())}))
 
     def item(self, task):
-        return {'type': 'task', 'id': task['id'], 'business_id': None}
+        return {'type': 'task', 'id': task['id'], 'project_id': None}
 
     def tasks_get(self, task_id):
         """The agent route's tasks_get call as the model receives it (the result data)."""
@@ -102,7 +102,7 @@ class DeliveryTests(Fixture):
             return [tuple(row) for row in uow.connection.execute(sql, values).fetchall()]
 
     def recorded(self):
-        return self.rows('SELECT conversation_id, item_type, business_id, revision FROM timeline_deliveries ORDER BY item_type, item_id')
+        return self.rows('SELECT conversation_id, item_type, project_id, revision FROM timeline_deliveries ORDER BY item_type, item_id')
 
     # -- what a Task read carries ---------------------------------------------------------------------------------
 
@@ -168,9 +168,9 @@ class DeliveryTests(Fixture):
         self.assertEqual(self.chain(task['id']), 'Global\n\nTask "Pay creators" — nothing holds now (revision 2)')
 
     def test_a_project_task_carries_the_project_level_between_global_and_the_task(self):
-        project = {'type': 'project', 'id': self.business, 'business_id': self.business}
+        project = {'type': 'project', 'id': self.project, 'project_id': self.project}
         self.file(project, 'decision', 'Reusable cards for every shop.')
-        levels = self.delivery.levels({'id': 'x', 'business_id': self.business, 'parent_id': None, 'title': 'Cards'}, self.read_uow())
+        levels = self.delivery.levels({'id': 'x', 'project_id': self.project, 'parent_id': None, 'title': 'Cards'}, self.read_uow())
         self.assertEqual([(item['type'], title) for item, title in levels],
                          [('global', None), ('project', 'Example project'), ('task', 'Cards')])
 
@@ -416,9 +416,9 @@ class DeliveryTests(Fixture):
         self.assertIn('The payment hold on creator Nadia was cleared by the owner on 13 Nov.', self.chain(sibling['id']))
 
     def test_replay_a_reusable_card_decision_filed_on_a_project_survives_a_compaction(self):
-        project = {'type': 'project', 'id': self.business, 'business_id': self.business}
+        project = {'type': 'project', 'id': self.project, 'project_id': self.project}
         self.file(project, 'decision', 'Shop cards are reusable across seasons.')
-        task = {'id': 'cards', 'business_id': self.business, 'parent_id': None, 'title': 'Design cards'}
+        task = {'id': 'cards', 'project_id': self.project, 'parent_id': None, 'title': 'Design cards'}
         sent = self.delivery.chain(self.worker, FIRST, task)
         self.assertIn('Shop cards are reusable across seasons.', sent)
         self.assertIn('Project "Example project": unchanged since 14:02', self.delivery.chain(self.worker, FIRST, task))

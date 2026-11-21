@@ -34,11 +34,11 @@ class SignoffNotes:
 
     def descriptors(self):
         NOTE_REFS = note_refs_schema(self.service.ports.references.targets)
-        fields = {'scope': {'enum': ['business','global']}, 'signoff_id': {'type':'string','minLength':1,'maxLength':200}}
+        fields = {'scope': {'enum': ['project','global']}, 'signoff_id': {'type':'string','minLength':1,'maxLength':200}}
         # Both name one Signoff: its review scope is found from the id when the caller selects none.
-        common = dict(supports_signoff=False, scope_kinds=frozenset({'business','global'}),
+        common = dict(supports_signoff=False, scope_kinds=frozenset({'project','global'}),
             locate_scope=self.service.lookup, description=LOCATED,
-            global_capability='read_global_context', resolve_namespace=lambda c,a:'global' if a.get('scope')=='global' else 'business:'+(c.business_id or ''))
+            global_capability='read_global_context', resolve_namespace=lambda c,a:'global' if a.get('scope')=='global' else 'project:'+(c.project_id or ''))
         return (OperationDescriptor('signoffs_notes_list', schema({**fields,
             'before': {'type':'integer','minimum':1}, 'limit': {'type':'integer','minimum':1,'maximum':100}}, ('signoff_id',)),
             **common, effect_kind='read', read=lambda c,a,o,u:self.read(c,a,u)),
@@ -48,11 +48,11 @@ class SignoffNotes:
 
     def context(self, ctx, args, uow):
         if args.get('scope') == 'global':
-            ctx = replace(ctx,business_id=None,review_business_id=None)
+            ctx = replace(ctx,project_id=None,review_project_id=None)
         ctx = self.service._context(ctx,uow)
-        self.app.authorize(ctx,self.app.registry.get('signoffs_get'),(),uow,namespace='business:'+ctx.business_id if ctx.business_id else 'global')
+        self.app.authorize(ctx,self.app.registry.get('signoffs_get'),(),uow,namespace='project:'+ctx.project_id if ctx.project_id else 'global')
         row = self.service._row(ctx,args['signoff_id'],uow)
-        if row['review_business_id'] != ctx.business_id:
+        if row['review_project_id'] != ctx.project_id:
             raise DomainError('not_found','Select this signoff’s owning review scope')
         return ctx,row
 
@@ -85,7 +85,7 @@ class SignoffNotes:
         self.references(ctx,args.get('refs',[]),uow)
         attribution(ctx, uow, args.get('relay'))
         return PlanBuilder(ctx,'signoffs_comment',args,'Comment on signoff',
-            namespace='business:'+ctx.business_id if ctx.business_id else 'global').build()
+            namespace='project:'+ctx.project_id if ctx.project_id else 'global').build()
 
     def apply(self, ctx, plan, uow):
         args=plain(plan.arguments)
@@ -105,11 +105,11 @@ class SignoffNotes:
                 kind=reference['type']
                 target=self.service.ports.references.targets[kind]
                 descriptor=self.app.registry.get(target.operation)
-                self.app.authorize(ctx,descriptor,(),uow,namespace='business:'+ctx.business_id if ctx.business_id else 'global')
+                self.app.authorize(ctx,descriptor,(),uow,namespace='project:'+ctx.project_id if ctx.project_id else 'global')
                 args={target.argument:reference['id']}
                 descriptor.read(ctx,args,None,uow)
                 # A displayed Task reference always names the place it was read in; the stored note stays as written.
-                result.append({**reference, **HistoricalReferences.place(uow, ctx.business_id)} if kind=='task' and not strict else dict(reference))
+                result.append({**reference, **HistoricalReferences.place(uow, ctx.project_id)} if kind=='task' and not strict else dict(reference))
             except DomainError as error:
                 if strict: raise
                 result.append(self.relocated(reference,error,uow) or {'type':reference['type'],'id':reference['id'],'unavailable':True})
@@ -123,7 +123,7 @@ class SignoffNotes:
         raised for a caller authorized at the destination, so nothing is disclosed to anyone else."""
         if error.code!='record_moved' or reference.get('type')!='task': return None
         task=(error.details or {}).get('task') or {}
-        project=uow.repository('businesses').get(task.get('business_id')) if task.get('business_id') else None
+        project=uow.repository('projects').get(task.get('project_id')) if task.get('project_id') else None
         if project is None: return None
         return {**reference,**HistoricalReferences.place(uow,project['id'])}
 
@@ -139,7 +139,7 @@ class SignoffNotes:
         note.update(read_attribution(uow, 'signoff', note['id'], ctx.principal_id))
         # Existing source subscriptions and responsible recipients handle delivery.
         uow.connection.execute('''INSERT INTO inbox_changes(source_type,action,before_json,after_json,actor_id)
-            VALUES('signoff_notes','insert',NULL,?,?)''',(json.dumps({**note,'business_id':row['review_business_id']}),ctx.principal_id))
+            VALUES('signoff_notes','insert',NULL,?,?)''',(json.dumps({**note,'project_id':row['review_project_id']}),ctx.principal_id))
         return note
 
     def decision_message(self, ctx, row, text, uow, *, rejecting=False, summary=None):

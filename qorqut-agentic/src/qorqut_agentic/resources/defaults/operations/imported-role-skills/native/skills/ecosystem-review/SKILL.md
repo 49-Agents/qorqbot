@@ -122,7 +122,7 @@ not authorize a replacement proposal or external action.
 ## Approval-backed owner work
 
 Authorized project settings use the current
-project operations procedure and business_config_update policy. Do not turn
+project operations procedure and project_config_update policy. Do not turn
 routine configuration work into an owner approval request, and do not treat
 configuration authority as permission to build software; development is the
 owner's unless the owner directly instructs you.

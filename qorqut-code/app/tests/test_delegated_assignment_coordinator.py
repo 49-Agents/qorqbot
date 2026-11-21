@@ -28,17 +28,17 @@ class CoordinatorControlsAssignments(unittest.TestCase):
             uow.repository('principals').insert({'id': self.owner, 'kind': 'human', 'display_name': 'Owner'})
             for identity in (self.coordinator, self.parent, self.other):
                 uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': 'Agent'})
-                uow.repository('agent_profiles', business_id=None).insert({
+                uow.repository('agent_profiles', project_id=None).insert({
                     'agent_id': identity, 'principal_id': identity, 'namespace': 'ecosystem', 'name': identity,
                     'workspace': str(root / identity), 'status': 'active',
                     'profile_json': {'name': identity, 'status': 'active', 'runtime': 'claude-code',
                         'role': {'id': 'ordubashy' if identity == self.coordinator else 'global-worker'},
-                        'scope': {'kind': 'ecosystem', 'allowed_business_ids': [],
+                        'scope': {'kind': 'ecosystem', 'allowed_project_ids': [],
                                   'global_capabilities': ['manage_delegated_assignments']}}})
             uow.repository('installation').insert({'id': 'service', 'installation_id': new_id(),
                 'owner_principal_id': self.owner, 'management_coordinator_id': self.coordinator})
-            self.assignment = self.store.create(uow, parent_principal_id=self.parent, business_id=None,
-                scope={'kind': 'global', 'allowed_business_ids': [], 'record_ids': {}, 'source_ids': {}},
+            self.assignment = self.store.create(uow, parent_principal_id=self.parent, project_id=None,
+                scope={'kind': 'global', 'allowed_project_ids': [], 'record_ids': {}, 'source_ids': {}},
                 objective='Stale work', plan={'steps': ['wait']}, allowed_operations=[])
 
     def context(self, identity):

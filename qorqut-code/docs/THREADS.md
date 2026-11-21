@@ -6,8 +6,8 @@ Ordubashy's pane has a permanent Threads tab immediately before Focus. Focus kee
 
 Selecting a compact navigation row opens the existing private conversation in the left chat area. The right list contains only the title, latest-message preview, timestamp and unread dot; selection never expands a second detail list. On narrow layouts the conversation appears within the pane. Drafts use the same source-keyed conversation state as Focus. A successful send refreshes the directory; background reads run at the pane polling interval.
 
-A Project (an existing `businesses` row, keyed by its UUID) is a supported private source and appears here only after
-its first real owner/coordinator message. Its canonical source names the same UUID in `id` and `business_id`; it
+A Project (an existing `projects` row, keyed by its UUID) is a supported private source and appears here only after
+its first real owner/coordinator message. Its canonical source names the same UUID in `id` and `project_id`; it
 carries the real Project name, has no team-note source, and its `owner_conversation_related` page uses the same
 bounded, guarded Project inventory identity with an independent `offset`/`limit` page (see
 [Project records](PROJECT-RECORDS.md))

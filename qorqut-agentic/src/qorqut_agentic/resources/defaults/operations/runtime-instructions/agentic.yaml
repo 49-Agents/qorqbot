@@ -471,7 +471,7 @@
       "kind": "instruction",
       "path": "messages/project-briefing-evidence.md",
       "description": "project briefing evidence",
-      "when_to_use": "domains/business_briefing.py"
+      "when_to_use": "domains/project_briefing.py"
     },
     {
       "id": "retirement-inbox-history",

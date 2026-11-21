@@ -50,7 +50,7 @@ def filing_for_job(uow, job_id: str):
 
 def _job(uow, job_id: str):
     return uow.connection.execute(
-        "SELECT id, business_id, kind, state, principal_id, initiated_by_principal_id, definition_ref_json, result_json, error_json "
+        "SELECT id, project_id, kind, state, principal_id, initiated_by_principal_id, definition_ref_json, result_json, error_json "
         "FROM jobs WHERE id=?", (job_id,)).fetchone()
 
 
@@ -69,7 +69,7 @@ def authorize(uow, ctx, receipt_id: str) -> dict:
     if bound is None or job is None or bound["job_id"] != ctx.job_id or stored["job_id"] != ctx.job_id:
         raise DomainError("forbidden", "This completion receipt belongs to another job")
     definition = json.loads(job["definition_ref_json"])
-    if (job["business_id"] != bound["business_id"] or job["kind"] != bound["program_id"]
+    if (job["project_id"] != bound["project_id"] or job["kind"] != bound["program_id"]
             or job["principal_id"] != ctx.principal_id or bound["worker_id"] != ctx.principal_id
             or job["initiated_by_principal_id"] != ctx.initiated_by_principal_id
             or definition.get("digest") != bound["definition_digest"] or definition.get("version") != bound["program_version"]):
@@ -77,9 +77,9 @@ def authorize(uow, ctx, receipt_id: str) -> dict:
     if job["state"] not in APPLY_STATES:
         raise DomainError("forbidden", "Only a running, applying or waiting claimed job can apply its completion")
     worker = uow.connection.execute(
-        "SELECT p.kind, p.active, m.active AS member FROM principals p LEFT JOIN business_memberships m "
-        "ON m.principal_id = p.id AND m.business_id IS ? WHERE p.id=?", (bound["business_id"], ctx.principal_id)).fetchone()
-    if worker is None or worker["kind"] != "system" or not worker["active"] or (bound["business_id"] and not worker["member"]):
+        "SELECT p.kind, p.active, m.active AS member FROM principals p LEFT JOIN project_memberships m "
+        "ON m.principal_id = p.id AND m.project_id IS ? WHERE p.id=?", (bound["project_id"], ctx.principal_id)).fetchone()
+    if worker is None or worker["kind"] != "system" or not worker["active"] or (bound["project_id"] and not worker["member"]):
         raise DomainError("forbidden", "The registered worker is not active for this scope")
     return {"receipt": stored, "filing": bound, "job": job}
 
@@ -88,10 +88,10 @@ def applied_marker(builder, uow, stored: dict, application: dict) -> None:
     """Mark the receipt applied in the caller's prepared plan (the host adds its bookkeeping to the same plan)."""
     if stored["state"] == "applied":
         raise DomainError("invalid_transition", "This completion was already applied")
-    before = uow.repository("context_completions", business_id=stored["business_id"]).get(stored["id"], required=True)
+    before = uow.repository("context_completions", project_id=stored["project_id"]).get(stored["id"], required=True)
     builder.record("context_completions", stored["id"], before, {"state": "applied", "application_json": application,
                                                                  "resolved_at": builder.at},
-                   business_id=stored["business_id"], label="Context completion")
+                   project_id=stored["project_id"], label="Context completion")
 
 
 def mark_conflict(uow, *, driver_id: str, receipt_id: str, error: dict) -> dict:
@@ -134,7 +134,7 @@ def verify_pending(uow, *, driver_id: str, programs) -> list[dict]:
             reason = "The registered program definition changed since this filing was accepted; its job cannot apply the completion"
         else:
             definition = json.loads(job["definition_ref_json"])
-            if (job["business_id"] != bound["business_id"] or job["kind"] != bound["program_id"]
+            if (job["project_id"] != bound["project_id"] or job["kind"] != bound["program_id"]
                     or job["principal_id"] != bound["worker_id"] or definition.get("digest") != bound["definition_digest"]):
                 reason = "The bound job no longer matches the filing"
         if reason and stored["state"] == "pending":
@@ -262,9 +262,9 @@ def reconcile_stopped(uow, *, driver_id: str, outcomes) -> list[dict]:
         if unstarted:
             result = json.dumps({"outcome": "discarded", **evidence, "mechanical": False}, sort_keys=True)
             uow.connection.execute(
-                "INSERT INTO context_input_controls(id,business_id,input_id,intent,expected_state,requested_by,requested_at,status,"
+                "INSERT INTO context_input_controls(id,project_id,input_id,intent,expected_state,requested_by,requested_at,status,"
                 "resolved_at,result_json) VALUES (?,?,?,'discard','queued',?,?,'applied',?,?)",
-                (control_id, stopped["business_id"], row, driver_id, at, at, result))
+                (control_id, stopped["project_id"], row, driver_id, at, at, result))
             uow.connection.execute("UPDATE context_inputs SET state='discarded', result_json=? WHERE id=?", (result, row))
             outcomes.record(uow, dict(uow.connection.execute("SELECT * FROM context_inputs WHERE id=?", (row,)).fetchone()))
             handled.append({"input_id": row, "filing_id": stopped["filing_id"], "state": "discarded"})
@@ -276,9 +276,9 @@ def reconcile_stopped(uow, *, driver_id: str, outcomes) -> list[dict]:
                     (at, json.dumps({"outcome": "superseded_by_cancellation", "superseded_by": control_id,
                                      "request_evidence": evidence}, sort_keys=True), pending["id"]))
             uow.connection.execute(
-                "INSERT INTO context_input_controls(id,business_id,input_id,intent,expected_state,requested_by,requested_at,status,"
+                "INSERT INTO context_input_controls(id,project_id,input_id,intent,expected_state,requested_by,requested_at,status,"
                 "result_json) VALUES (?,?,?,'discard','blocked',?,?,'pending',?)",
-                (control_id, stopped["business_id"], row, driver_id, at, json.dumps({"request_evidence": evidence}, sort_keys=True)))
+                (control_id, stopped["project_id"], row, driver_id, at, json.dumps({"request_evidence": evidence}, sort_keys=True)))
             uow.connection.execute("UPDATE context_inputs SET state='discard_requested' WHERE id=?", (row,))
             handled.append({"input_id": row, "filing_id": stopped["filing_id"], "state": "discard_requested"})
     return handled

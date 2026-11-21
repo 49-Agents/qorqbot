@@ -22,14 +22,14 @@ entries:
     verification. Software, site/UI design, landing-page, script, test, CI and IaC
     development is the owner's by default; an agent builds only on the owner's direct
     instruction.
-  path: native/skills/business-operations/SKILL.md
+  path: native/skills/project-operations/SKILL.md
 - id: asset-4ce12da680f2bb107eda
   kind: skill
   description: Create and maintain project-shared tables, and transform original CSV
     or spreadsheet uploads into structured records.
   when_to_use: Create and maintain project-shared tables, and transform original CSV
     or spreadsheet uploads into structured records.
-  path: native/skills/business-tables/SKILL.md
+  path: native/skills/project-tables/SKILL.md
 - id: asset-cf11f76cb7384beadca4
   kind: skill
   description: Use the owner's native Qorqut Calendar - list calendars, read, create,
@@ -127,12 +127,12 @@ entries:
 - id: asset-99bf41d25a6be7f04e67
   kind: skill
   description: Create a Project, the container for Tasks, assets, documents, tables,
-    code and routines, with business_create when the owner asks you for or agrees
+    code and routines, with project_create when the owner asks you for or agrees
     to a new one. Only the configured Ordubashy creates projects. It takes a name,
     an optional Description and a folder slug and makes only the record and empty
     hq/ and code/ folders, with no agents, setup, services or documents.
   when_to_use: Create a Project, the container for Tasks, assets, documents, tables,
-    code and routines, with business_create when the owner asks you for or agrees
+    code and routines, with project_create when the owner asks you for or agrees
     to a new one. Only the configured Ordubashy creates projects. It takes a name,
     an optional Description and a folder slug and makes only the record and empty
     hq/ and code/ folders, with no agents, setup, services or documents.

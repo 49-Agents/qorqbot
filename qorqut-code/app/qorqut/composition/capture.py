@@ -4,7 +4,7 @@ The dashboard's change feed learns about writes from ``inbox_changes`` rows that
 ``service/changes.py``). In v1 those triggers sat on the host-owned ``tasks``, ``task_notes``, ``action_logs`` and
 ``action_log_labels`` tables. The engine now owns the Task, thread, tag and Action tables, so the host attaches the same kind of
 capture here, after the engine's storage and as its own owner, instead of the engine knowing the host's feed. Each trigger
-records only the scope (``business_id``) and the identity the feed groups by; no row text or private payload is copied.
+records only the scope (``project_id``) and the identity the feed groups by; no row text or private payload is copied.
 Immutable tables (thread messages, Action revisions) capture inserts only."""
 
 from __future__ import annotations
@@ -23,16 +23,16 @@ def _crm(table: str):
 
 # table -> (columns captured as the row identity, events captured)
 CAPTURED = {
-    "signoff_source_links": (("id", "source_type", "source_id", "source_business_id", "signoff_id"), ("insert", "update", "delete")),
-    "signoff_report_tasks": (("signoff_id", "task_id", "task_business_id"), ("insert", "update", "delete")),
-    "timeline_entries": (("business_id", "item_type", "item_id"), ("insert", "update")),
-    "timeline_questions": (("business_id", "item_type", "item_id"), ("insert", "update")),
-    "tasks": (("business_id", "id"), ("insert", "update", "delete")),
-    "thread_messages": (("business_id", "item_type", "item_id"), ("insert",)),
-    "thread_follows": (("business_id", "item_type", "item_id"), ("insert", "update")),
-    "item_tags": (("business_id", "item_type", "item_id"), ("insert", "delete")),
-    "action_logs": (("business_id", "id"), ("insert", "update")),
-    "action_businesses": (("business_id", "action_key"), ("insert", "delete")),
+    "signoff_source_links": (("id", "source_type", "source_id", "source_project_id", "signoff_id"), ("insert", "update", "delete")),
+    "signoff_report_tasks": (("signoff_id", "task_id", "task_project_id"), ("insert", "update", "delete")),
+    "timeline_entries": (("project_id", "item_type", "item_id"), ("insert", "update")),
+    "timeline_questions": (("project_id", "item_type", "item_id"), ("insert", "update")),
+    "tasks": (("project_id", "id"), ("insert", "update", "delete")),
+    "thread_messages": (("project_id", "item_type", "item_id"), ("insert",)),
+    "thread_follows": (("project_id", "item_type", "item_id"), ("insert", "update")),
+    "item_tags": (("project_id", "item_type", "item_id"), ("insert", "delete")),
+    "action_logs": (("project_id", "id"), ("insert", "update")),
+    "action_projects": (("project_id", "action_key"), ("insert", "delete")),
     # CRM memberships carry their own capture triggers in the Domain's approved DDL (``qorqut_operations.crm``), beside
     # the guards that read the same rows; declaring them again here would build the same trigger twice and publish two
     # feed rows per change. Recorded observations are immutable and have no trigger there, so the feed attaches this one.

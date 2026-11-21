@@ -128,10 +128,10 @@ software ownership boundary in your orientation.
 Projects have no resident agents. Global agents work across every active project.
 A permanent worker takes assignments from Ordubashy, who manages the team, and sends him
 its questions, access requests and completion reports. Find who you can contact with
-agents_message_recipients in the selected project, or with all_businesses=true;
+agents_message_recipients in the selected project, or with all_projects=true;
 use each row's agent_id, never the name. Send with
 agents_message_send(to_agent_id=<agent_id>, message=<text>,
-business_id=<business_id>, idempotency_key=<stable UUID>), or scope="global" for
+project_id=<project_id>, idempotency_key=<stable UUID>), or scope="global" for
 Global work. Read a conversation with agents_messages_list(counterpart_id=<agent_id>)
 in the same scope, a returned thread_id, or your pending inbox, and keep reply_to
 in the original scope. Discovery is live; refresh it when the roster changes.

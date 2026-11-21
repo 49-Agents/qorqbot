@@ -16,19 +16,19 @@ request_user_input(message="Please sign in to the bank in the browser below, the
 request_user_input(message="This captcha needs you: solve it in the tab below, then reply here.",
                    references=[{"type": "tab", "id": "<reference from the tab-reference command>"}])
 request_user_input(message="Two decisions are ready for you.",
-                   references=[{"type": "signoff", "id": "<signoff uuid>", "business_id": "<project uuid>"},
+                   references=[{"type": "signoff", "id": "<signoff uuid>", "project_id": "<project uuid>"},
                                {"type": "task", "id": "<task id>"}])
 request_user_input(message="Here is the cold outreach project.",
-                   references=[{"type": "project", "id": "<project uuid>", "business_id": "<same project uuid>"}])
+                   references=[{"type": "project", "id": "<project uuid>", "project_id": "<same project uuid>"}])
 ```
 
 - `message`: plain text, at most 4000 characters. Say what you need; the cards are not a substitute.
 - `references`: at most 8, shown in order, exact duplicates once. Each is only
-  `{type, id, business_id}`: no URL, label or other field.
+  `{type, id, project_id}`: no URL, label or other field.
   - `task` and `signoff`: the Task's id (a short code for new Tasks, a UUID or other text for
-    older ones) or the Signoff's UUID, read first so the id is exact. `business_id` is the
+    older ones) or the Signoff's UUID, read first so the id is exact. `project_id` is the
     owning project, omitted (or null) for a Global record.
-  - `project`: the Project's UUID as both `id` and `business_id`. The card opens the
+  - `project`: the Project's UUID as both `id` and `project_id`. The card opens the
     project in the dashboard.
   - `browser`: the exact configured browser `id` from `browser_turn` `action=list`, only
     `{type, id}`; there is no project selector.
@@ -42,7 +42,7 @@ request_user_input(message="Here is the cold outreach project.",
   has no written link, so a file, a folder or another record is never a substitute.
 - The card asks nothing and waits for nothing, so it is not one of the owner's questions:
   showing records this way is allowed even when the owner wants questions only as Signoffs.
-- An unknown, deleted or unreadable record, a wrong `business_id` or a malformed field is
+- An unknown, deleted or unreadable record, a wrong `project_id` or a malformed field is
   refused and nothing is shown. Never guess an id.
 - The owner sees current records: a Task's title and state, a Signoff decided in its own card,
   a browser as a live view. The reference decides nothing: use `signoffs_input_create`
@@ -59,7 +59,7 @@ returns no URL or endpoint.
 browser_turn(action="acquire", protocol="handles", browser_id="<id from action=list>")
 ```
 
-- Without `browser_id` you get your own configured browser, as before. Pass no `business_id`:
+- Without `browser_id` you get your own configured browser, as before. Pass no `project_id`:
   project context is not a browser selector.
 - `browser_id` is accepted only on `acquire` with `protocol="handles"`. The returned
   handle is bound to that exact browser: `command`, `status`, `artifact` and `release`

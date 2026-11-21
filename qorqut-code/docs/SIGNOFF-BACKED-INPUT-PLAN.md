@@ -5,9 +5,9 @@ Status: implemented in `codex/signoff-input-implementation`; deployment and live
 ## Implemented behavior
 
 Collect explicit owner questions, clarifications, missing information and access requests through an owner-only Signoff.
-`signoffs_input_create` accepts an optional `source: {type, id, business_id}` and creates the question and dependency
+`signoffs_input_create` accepts an optional `source: {type, id, project_id}` and creates the question and dependency
 atomically. The source may be a Task, Table, Project or standalone Focus Reference. Both endpoints keep their own
-scope: `business_id` is an explicit project UUID or `null` for Global. Omit `source` for a standalone request.
+scope: `project_id` is an explicit project UUID or `null` for Global. Omit `source` for a standalone request.
 Source-linked forms default to `owner_only` and reject `management_allowed`; internal delegated questions keep their
 existing behavior. An input answer never authorizes a separate action.
 
@@ -124,7 +124,7 @@ code without depending on changing line numbers.
 | Existing scoped metadata | [`tasks/links.py`](../qorqut-operations/qorqut_operations/tasks/links.py), [`tasks/types.py`](../qorqut-operations/qorqut_operations/tasks/types.py) | `$task_links` demonstrates explicit cross-scope references and per-endpoint authorization. It is Task-to-Task metadata, not a ready-made Signoff dependency store. |
 | Task read/write | [`tasks/operations.py`](../qorqut-operations/qorqut_operations/tasks/operations.py): `detail`, `read`, `prepare`; [`tasks/schema.py`](../qorqut-operations/qorqut_operations/tasks/schema.py) | `needs_input` is presently a freely writable state. Reads and SQL filters use that saved value. |
 | Thread contents | [`inbox/thread_views.py`](../app/qorqut/inbox/thread_views.py): `task_context`, `related`; [`inbox/private_conversations.py`](../app/qorqut/inbox/private_conversations.py) | Reuse typed source identities and the one private source conversation; no new thread or message store is needed. |
-| Embedded Signoffs | [`conversation.js`](../biz-dashboard/js/conversation.js): `conversationRelatedRecords`, `conversationRecordEntry`, `conversationTimeline`; [`signoffs.js`](../biz-dashboard/js/signoffs.js): `sgChatMount` | The same actionable Signoff card is already used in native Chat and record threads. |
+| Embedded Signoffs | [`conversation.js`](../dashboard/js/conversation.js): `conversationRelatedRecords`, `conversationRecordEntry`, `conversationTimeline`; [`signoffs.js`](../dashboard/js/signoffs.js): `sgChatMount` | The same actionable Signoff card is already used in native Chat and record threads. |
 | Response delivery | [`inbox/events.py`](../qorqut-operations/qorqut_operations/inbox/events.py): `EventFinalizer.targets`; [`host inbox/events.py`](../app/qorqut/inbox/events.py): `HostEventRouting` | `decision_json` changes emit `response_submitted` to the proposer. Host routing supplies additional recipients in some cases. |
 | Scope and privacy | [`signoffs/service.py`](../qorqut-operations/qorqut_operations/signoffs/service.py): `_context`, `_visibility`, `_row`; [`records/resources.py`](../qorqut-operations/qorqut_operations/records/resources.py) | A readable Task is not permission to read its linked Signoff. Preserve Signoff policy, private-operation narrowing and exact review scope. |
 | Focus | [`host signoffs/ports.py`](../app/qorqut/signoffs/ports.py): `HostFocus`; [`signoffs/inputs.py`](../qorqut-operations/qorqut_operations/signoffs/inputs.py) | Input creation already supports atomic optional Focus presentation. Focus archiving is presentation, not an answer or dependency link. |
@@ -150,7 +150,7 @@ new collection widgets is separate work.
 `response_policy: management_allowed`; `draft_review` explicitly forces
 `owner_only`.
 [`management/service.py`](../app/qorqut/management/service.py),
-`auto_route_input`, can route eligible business-agent questions to the
+`auto_route_input`, can route eligible project-agent questions to the
 coordinator. This feature must remain distinct from owner-only questions. Set
 owner-only policy for the new owner-input path rather than silently changing
 all existing management questions.
@@ -205,7 +205,7 @@ input projection. The existing Signoff remains the only owner-response record.
 ### 1. Store explicit source bindings separately
 
 Use a small association table with its own revision/lifecycle, connecting a
-Signoff ID to the existing typed source identity (`type`, `id`, `business_id`).
+Signoff ID to the existing typed source identity (`type`, `id`, `project_id`).
 Store contextual association separately from a dependency on the response,
 either as a constrained relation kind in this table or as existing `concerns`
 links where those already work. Only the explicit dependency drives the
@@ -351,7 +351,7 @@ parent/child propagation: link each affected task deliberately.
 | Decisions and replacements | `signoffs/service.py` (`_update`, `stage`, `respond`); `signoffs/inputs.py`; existing inbox event finalizer and host routing. |
 | Task projections and queries | `tasks/operations.py`, `tasks/overview.py`, `tasks/associated.py`; host `agents/attention.py`, especially `task_summary`, ranking, reassessment and removal policy. |
 | Thread projection | `inbox/thread_views.py` (`task_context`, `related`) and `inbox/private_conversations.py` source resolution. |
-| UI state and rendering | `task-state.js`, `tasks.js`, `business-tasks.js`, `global-tasks.js`, `attention-board.js`, `agent-focus.js`, `conversation.js`, `signoffs.js`. Include list paint signatures and task-type status hiding. |
+| UI state and rendering | `task-state.js`, `tasks.js`, `project-tasks.js`, `global-tasks.js`, `attention-board.js`, `agent-focus.js`, `conversation.js`, `signoffs.js`. Include list paint signatures and task-type status hiding. |
 | Refresh and cache dependencies | Host `service/changes.py`, `transport/http.py`, `transport/compatibility.py`, and the dashboard subscribers for task/Signoff refresh. Binding writes and cross-scope responses must invalidate the same derived input projection. |
 | Move to project | Operations `tasks/relocation.py` and host `domains/tasks/relocation.py`: extend preview tokens/dependency inventory and either carry the binding with checked scopes or report a precise blocker. |
 | Migration | Follow the explicit inspected-predecessor/target and instance-lock pattern in [`migration/task_needs_input.py`](../app/qorqut/migration/task_needs_input.py). It is an example, not the migration to reuse for this new schema. |

@@ -532,7 +532,7 @@ class AgentBrowserManager:
         from qorqut.browser.operations import AGENT_BROWSER_MANAGE
         application = self.runtime.application
         with self.runtime.database.read() as uow:
-            context = application.policy.context_for(principal_id, business_id=None, review_business_id=None, uow=uow)
+            context = application.policy.context_for(principal_id, project_id=None, review_project_id=None, uow=uow)
             if owner_control:
                 if not is_active_installation_owner(uow, context.principal_id, context.principal_kind):
                     raise DomainError("forbidden", "Only the installation owner can set up the agent browser")
@@ -541,8 +541,8 @@ class AgentBrowserManager:
                 if context.principal_kind != "agent" or context.principal_id != configured_ordubashy(uow):
                     raise DomainError("forbidden", "Only the installation owner or Ordubashy can manage the browser")
             rows = uow.connection.execute(
-                "SELECT a.agent_id,p.display_name,a.home_business_id,b.slug FROM agent_profiles a "
-                "JOIN principals p ON p.id=a.agent_id LEFT JOIN businesses b ON b.id=a.home_business_id "
+                "SELECT a.agent_id,p.display_name,a.home_project_id,b.slug FROM agent_profiles a "
+                "JOIN principals p ON p.id=a.agent_id LEFT JOIN projects b ON b.id=a.home_project_id "
                 "WHERE a.status='active' AND p.active=1 ORDER BY a.agent_id").fetchall()
             agents = []
             for row in rows:
@@ -550,7 +550,7 @@ class AgentBrowserManager:
                 if data and data["role"]["id"] in {ORDUBASHY_ROLE, GLOBAL_WORKER_ROLE}:
                     agents.append(SimpleNamespace(
                         agent_id=row["agent_id"], name=row["display_name"], lead=data["role"]["id"] == ORDUBASHY_ROLE,
-                        workspace=agent_workspace_of(self.paths, row["agent_id"], row["home_business_id"], row["slug"])))
+                        workspace=agent_workspace_of(self.paths, row["agent_id"], row["home_project_id"], row["slug"])))
         return sorted(agents, key=lambda agent: (not agent.lead, agent.name))
 
     # -- inspection --------------------------------------------------------------------------------------------------------
@@ -995,11 +995,11 @@ class AgentBrowserManager:
                 continue
         with self.runtime.database.read() as uow:
             profiles = uow.connection.execute(
-                "SELECT p.agent_id,p.home_business_id,b.slug FROM agent_profiles p "
-                "LEFT JOIN businesses b ON b.id=p.home_business_id").fetchall()
+                "SELECT p.agent_id,p.home_project_id,b.slug FROM agent_profiles p "
+                "LEFT JOIN projects b ON b.id=p.home_project_id").fetchall()
         for row in profiles:
             try:
-                used.add(_port(browser.read_target(agent_workspace_of(self.paths, row["agent_id"], row["home_business_id"],
+                used.add(_port(browser.read_target(agent_workspace_of(self.paths, row["agent_id"], row["home_project_id"],
                                                                       row["slug"]))[0]))
             except (browser.BrowserError, ValueError, OSError, IndexError):
                 continue

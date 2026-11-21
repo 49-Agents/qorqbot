@@ -49,7 +49,7 @@ TRANSFORM = "v1.3-shared-reminders-1"
 LEGACY_KIND = "owner_reminder"
 IN_FLIGHT = ("dispatching", "uncertain")
 MAX_REPORTED = 20
-COLUMNS = ("id", "revision", "business_id", "creator_id", "authority_principal_id", "recipient_id", "text", "linked_item_json",
+COLUMNS = ("id", "revision", "project_id", "creator_id", "authority_principal_id", "recipient_id", "text", "linked_item_json",
            "time_critical", "schedule", "timezone", "state", "generation", "next_at", "snoozed_until", "due_at",
            "current_occurrence_id", "defer_until", "created_at", "updated_at")
 
@@ -105,8 +105,8 @@ def convert(connection, row, owner):
     if owner is None:
         raise DomainError("invalid_installation", "No installation owner is registered")
     namespace = row["source_key"].split("/", 1)[0]
-    business = None if namespace == "global" else namespace.removeprefix("business:") if namespace.startswith("business:") else ""
-    if business == "" or (business is not None and not connection.execute("SELECT 1 FROM businesses WHERE id=?", (business,)).fetchone()):
+    project = None if namespace == "global" else namespace.removeprefix("project:") if namespace.startswith("project:") else ""
+    if project == "" or (project is not None and not connection.execute("SELECT 1 FROM projects WHERE id=?", (project,)).fetchone()):
         raise DomainError("invalid_scope", "The legacy reminder scope is unknown")
     if not row["agent_id"] or not connection.execute("SELECT 1 FROM principals WHERE id=?", (row["agent_id"],)).fetchone():
         raise DomainError("invalid_creator", "The legacy reminder creator is unknown")
@@ -117,7 +117,7 @@ def convert(connection, row, owner):
     if not 1 <= len(text) <= 240:
         raise DomainError("invalid_text", "The legacy reminder text is outside the reminder limits")
     at = timing.stamp(timing.parse_at(row["part"]))
-    return {"id": row["id"], "revision": row["revision"], "business_id": business, "creator_id": row["agent_id"],
+    return {"id": row["id"], "revision": row["revision"], "project_id": project, "creator_id": row["agent_id"],
             "authority_principal_id": row["agent_id"], "recipient_id": owner, "text": text, "linked_item_json": None, "time_critical": 0, "schedule": None, "timezone": None,
             "state": "scheduled", "generation": 1, "next_at": at, "snoozed_until": None, "due_at": None,
             "current_occurrence_id": None, "defer_until": None, "created_at": row["created_at"], "updated_at": row["updated_at"]}

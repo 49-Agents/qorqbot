@@ -34,7 +34,7 @@ from collections import Counter
 POLICY = "qorqbot-native-runtime-v1"
 
 # Default native-core components. Anything else must be an explicitly excluded family or it needs a reviewed decision.
-CORE_COMPONENTS = ("qorqut-code", "qorqut-operations", "qorqut-context", "biz-dashboard", "qorqut-agentic",
+CORE_COMPONENTS = ("qorqut-code", "qorqut-operations", "qorqut-context", "dashboard", "qorqut-agentic",
                    "document-history", "email-management")
 # Components that never ship in the default payload. Matched by name token so a renamed checkout of one is still recognised.
 EXCLUDED_FAMILIES = (
@@ -67,7 +67,7 @@ HOST_EXCLUDES = (
     "tools", "docs/release", "docs/distribution", "docs/v1.2", "docs/INSTALLED-TOOLING.md",
     "app/scripts", "app/tools/release_worker", "app/tools/check_installed_host.py", "app/tools/installed_host_probe.py",
     "app/tools/rehearse_agentic_install.py", "app/tools/prepare_agentic_helper_manifest.py",
-    "app/tools/browser/build_runtime.py", "app/tools/business_sandbox/native_smoke.py",
+    "app/tools/browser/build_runtime.py", "app/tools/project_sandbox/native_smoke.py",
 )
 HOST_OPTIONAL_EXTENSIONS = ("extensions/fastmail", "extensions/telegram", "extensions/whatsapp")
 RUNTIME_INIT = b'"""Shared runtime/session helpers; release execution is not included in the download."""\n'
@@ -85,14 +85,14 @@ REQUIRED_RUNTIME_ASSETS = {
                               "qorqut-code/app/package-sources.json", "qorqut-code/app/service-constraints.txt"),
     "native-helpers": ("qorqut-code/app/qorqut/bootstrap/browser_init.cjs", "qorqut-code/app/tools/browser/desktop_session.py",
                        "qorqut-code/app/tools/browser/run-agent-browser", "qorqut-code/app/tools/browser/package.json",
-                       "qorqut-code/biz-dashboard/index.html", "qorqut-code/biz-dashboard/pty_broker.py"),
+                       "qorqut-code/dashboard/index.html", "qorqut-code/dashboard/pty_broker.py"),
     # The legacy Terminals mode: its broker, the terminal view and its owner-facing switch, and the terminal emulator's licence.
-    "legacy-terminals": ("qorqut-code/biz-dashboard/js/terminal.js", "qorqut-code/biz-dashboard/js/xterm.js",
-                         "qorqut-code/biz-dashboard/css/xterm.css", "qorqut-code/biz-dashboard/js/agent-start.js",
-                         "qorqut-code/biz-dashboard/js/agent-mode.js", "qorqut-code/biz-dashboard/css/agent-mode.css",
-                         "qorqut-code/biz-dashboard/js/agent-trust-row.js", "qorqut-code/biz-dashboard/js/agent-terminal-view.js",
-                         "qorqut-code/biz-dashboard/css/legacy-terminals.css",
-                         "qorqut-code/biz-dashboard/LICENSES/xterm-MIT.txt", "qorqut-code/biz-dashboard/THIRD-PARTY-NOTICES.md"),
+    "legacy-terminals": ("qorqut-code/dashboard/js/terminal.js", "qorqut-code/dashboard/js/xterm.js",
+                         "qorqut-code/dashboard/css/xterm.css", "qorqut-code/dashboard/js/agent-start.js",
+                         "qorqut-code/dashboard/js/agent-mode.js", "qorqut-code/dashboard/css/agent-mode.css",
+                         "qorqut-code/dashboard/js/agent-trust-row.js", "qorqut-code/dashboard/js/agent-terminal-view.js",
+                         "qorqut-code/dashboard/css/legacy-terminals.css",
+                         "qorqut-code/dashboard/LICENSES/xterm-MIT.txt", "qorqut-code/dashboard/THIRD-PARTY-NOTICES.md"),
     "core-instructions": ("qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/imported-roles",
                           "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml", "qorqut-code/app/qorqut/release_worker/lifetime.py"),
     "google-calendar": ("qorqut-code/extensions/google-calendar/pyproject.toml",),
@@ -207,7 +207,7 @@ def exclusion(component, local):
             return "build-deployment-tools"
         if local.startswith(RELEASE_PACKAGE) and local[len(RELEASE_PACKAGE):] not in RELEASE_HELPERS:
             return "release-executor"
-    if component in {"biz-dashboard", "qorqut-operations"} and parts[0] == "tools":
+    if component in {"dashboard", "qorqut-operations"} and parts[0] == "tools":
         return "build-tools"
     return None
 
@@ -465,7 +465,7 @@ def payload_group(relative, packaged=False):
     group = _group_of(name.stem if name.suffix else name.name)
     if group is None:
         return None
-    asset = "biz-dashboard" in parts and bool(set(parts) & DASHBOARD_ASSET_DIRS)
+    asset = "dashboard" in parts and bool(set(parts) & DASHBOARD_ASSET_DIRS)
     if name.suffix in CODE_SUFFIXES or name.name in {"go.mod", "go.sum"} or packaged or asset or "providers" in parts[:-1]:
         return group
     return None

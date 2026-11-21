@@ -6,7 +6,7 @@ owner sees for a Global agent's own browsers and Desktop, or for a managed
 Global desktop. It grants no automation rights, and it never carries cookies,
 profile data, passwords, CDP endpoints or executable hooks. Schema 2 is the only
 accepted document; an older registry is converted by the explicit v1.2
-migration, never here. Projects have no browsers: a ``businesses`` section an
+migration, never here. Projects have no browsers: a ``projects`` section an
 older file still carries is ignored, and the surfaces it names are dropped.
 """
 
@@ -78,12 +78,12 @@ def _identity(value, what):
     return value
 
 
-def _legacy_project_surfaces(businesses):
-    """The surface IDs an older file's ``businesses`` section names; they are never offered as Global surfaces."""
-    if not isinstance(businesses, dict) or len(businesses) > MAX_LEGACY_PROJECTS:
+def _legacy_project_surfaces(projects):
+    """The surface IDs an older file's ``projects`` section names; they are never offered as Global surfaces."""
+    if not isinstance(projects, dict) or len(projects) > MAX_LEGACY_PROJECTS:
         raise _invalid("the legacy projects section must be a bounded object")
     named = set()
-    for binding in businesses.values():
+    for binding in projects.values():
         if not isinstance(binding, dict) or not isinstance(binding.get("browser"), str):
             raise _invalid("the legacy projects section is malformed")
         named.add(binding["browser"])
@@ -93,7 +93,7 @@ def _legacy_project_surfaces(businesses):
 def parse(value):
     """Validate one complete schema-2 document; any defect rejects all of it."""
     if (not isinstance(value, dict) or not {"schema_version", "surfaces", "agents"} <= set(value)
-            or set(value) - {"schema_version", "surfaces", "agents", "businesses"}
+            or set(value) - {"schema_version", "surfaces", "agents", "projects"}
             or value["schema_version"] != SCHEMA_VERSION):
         raise _invalid("expected schema_version 2 with surfaces and agents; "
                        "an older registry must be converted by the explicit migration")
@@ -101,7 +101,7 @@ def parse(value):
     if (not isinstance(surfaces, dict) or len(surfaces) > MAX_SURFACES or not isinstance(agents, dict)
             or len(agents) > MAX_AGENTS):
         raise _invalid("surfaces and agents must be bounded objects")
-    dropped = _legacy_project_surfaces(value["businesses"]) if "businesses" in value else set()
+    dropped = _legacy_project_surfaces(value["projects"]) if "projects" in value else set()
     parsed = {}
     for identity, entry in surfaces.items():
         if not isinstance(identity, str) or not SURFACE_ID.fullmatch(identity):
@@ -164,7 +164,7 @@ def agent_surfaces(registry, agent_id, *, desktop_allowed, fallback_desktop_url=
 
 
 def global_profile(profile):
-    """A stored profile of one of the supported Global roles with ecosystem scope; retired business roles never qualify."""
+    """A stored profile of one of the supported Global roles with ecosystem scope; retired project roles never qualify."""
     data = json.loads(profile) if isinstance(profile, str) else profile
     return (isinstance(data, dict) and (data.get("scope") or {}).get("kind") == "ecosystem"
             and (data.get("role") or {}).get("id") in GLOBAL_ROLES)

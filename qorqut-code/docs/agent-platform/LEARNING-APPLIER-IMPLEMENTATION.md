@@ -19,25 +19,25 @@ based on `915cd3f`, template on `eb13150`, and root context on `328b426`.
 
 `agent-roles/roles/learning-applier/role.yaml` selects a single role and
 its learning-application skill/reference. No plugin or Ordubashy dependency.
-New profiles use ecosystem scope with explicit allowed business IDs and these
+New profiles use ecosystem scope with explicit allowed project IDs and these
 global capabilities: read_global_context, manage_shared_instructions,
 publish_roles and publish_plugins. A profile is prepared under
-`<businesses-root>/agents/learning-applier`, outside the business dashboard roster.
+`<projects-root>/agents/learning-applier`, outside the project dashboard roster.
 The owner subsequently selected the Global dashboard's Agents tab as its entry
 point. Global → Agents lists registered active root profiles and opens the same
-tmux shell mirror used by business agents. The owner types `claude` to begin or
+tmux shell mirror used by project agents. The owner types `claude` to begin or
 `claude --continue` to resume. Selecting an agent never starts Claude automatically.
 The prepared folder and global role remain the same. No application routine,
-business-agent migration, or role publication is needed for this entry point.
+project-agent migration, or role publication is needed for this entry point.
 
 `GET /api/root/agents` delegates to `agents_list` with explicit `scope: global`;
-ordinary calls still require a selected business. Global reads require the
-registered `read_global_context` capability and cannot borrow a business context.
+ordinary calls still require a selected project. Global reads require the
+registered `read_global_context` capability and cannot borrow a project context.
 Root terminal list, stream, input, resize, start and stop routes require the
 current installation owner. Terminal identity is bound to the registered root
-profile and workspace, separate from every business session even for equal names.
-They use no business environment. Exact-session transcript saving is enabled by
-default for global and business agents in each agent's own `sessions/` folder;
+profile and workspace, separate from every project session even for equal names.
+They use no project environment. Exact-session transcript saving is enabled by
+default for global and project agents in each agent's own `sessions/` folder;
 global transcript processing remains out of scope. Streams
 recheck owner/profile access and navigation disconnects only the mirror.
 
@@ -66,8 +66,8 @@ Existing-agent adoption is outside this change.
 
 | Operation | Scope and result |
 |---|---|
-| learnings_work_list | Selected business, or all permitted businesses for an unselected global agent; defaults to accepted/in-progress deltas |
-| learnings_work_get | Explicit source business and learning_id; item, notes, targets, bounded history |
+| learnings_work_list | Selected project, or all permitted projects for an unselected global agent; defaults to accepted/in-progress deltas |
+| learnings_work_get | Explicit source project and learning_id; item, notes, targets, bounded history |
 | learnings_work_start | accepted → in-progress |
 | learnings_work_defer | in-progress → accepted, retaining notes and targets |
 | learnings_work_done | in-progress → implemented; outcome changed or already-covered; nonempty final agent_note required |
@@ -103,7 +103,7 @@ attestation; the skill requires Git verification before reporting success.
 The normal Learning queue hides implemented items and context with a committed
 handoff. Work history pagination returns compact previews for large historical
 values, marked truncated and hash-bound; full before/after snapshots remain in
-SQLite and business exports. Extraction-run transcript cores are not loaded by
+SQLite and project exports. Extraction-run transcript cores are not loaded by
 work_get. Large current items return item_complete=false and next_content_cursor;
 pass that token as content_cursor to read bounded JSON chunks of the complete
 item. Those cursors reject candidate changes. Historical extraction evidence is
@@ -144,8 +144,8 @@ claim identifies the original receipt. A second acceptance cannot create another
 intake. The owner can use the Learning card's Resume handoff control, including
 for previously accepted catch-up/reclassified context, backed by:
 
-- GET `/api/biz/{slug}/learnings/{id}/intake`
-- POST `/api/biz/{slug}/learnings/{id}/intake/retry` with `{}`
+- GET `/api/project/{slug}/learnings/{id}/intake`
+- POST `/api/project/{slug}/learnings/{id}/intake/retry` with `{}`
 
 The retry authorizes the owner, then the shared executor reconstructs the original
 principal and frozen invocation and revalidates current authority/bytes. It does
@@ -170,9 +170,9 @@ An agent cannot select a legacy projection argument to bypass the bounds.
 | context_search | query plus filters; ranked excerpts, next_cursor, refresh_cursor, complete, reasons and coverage |
 | context_get | document_id, optional heading or start_line/end_line, max_chars/cursor; bounded body and hash-bound continuation |
 
-Choose scope business, shared or all. The default is business when one is
-selected and shared for a global agent without a selected business. Shared reads
-require read_global_context. Business reads always select one permitted business.
+Choose scope project, shared or all. The default is project when one is
+selected and shared for a global agent without a selected project. Shared reads
+require read_global_context. Project reads always select one permitted project.
 Private Notes, agent plans/notes, raw email messages, arbitrary paths and
 transcripts are excluded. Submitted/filed context snapshots are library sources.
 
@@ -212,9 +212,9 @@ After review and deployment of compatible core/dashboard sources:
    Apply the reviewed ecosystem scope instruction through the registered
    shared_instructions_update operation with its current revision/hash.
 3. Obtain the installation owner's current invocation context in an authorized
-   review business and the published role ref. Call
+   review project and the published role ref. Call
    `qorqut.bootstrap.learning_applier.prepare_learning_applier(runtime,
-   owner_context, role_ref=..., allowed_business_ids=[...], endpoint=...,
+   owner_context, role_ref=..., allowed_project_ids=[...], endpoint=...,
    claude_version=...)`. This uses existing profile creation and preparation.
    It creates one root profile, or prepares an exactly matching existing profile;
    differing pins, scope or overrides require explicit configuration review.
@@ -255,8 +255,8 @@ their counts should not be added together as a unique-test total.
 - Python compilation and Git whitespace/conflict checks passed.
 
 The standalone MCP test prepares one root agent twice without duplication, reads
-an agenda across two explicitly authorized businesses (including identical local
-learning IDs), checks pagination and business selection, completes one delta
+an agenda across two explicitly authorized projects (including identical local
+learning IDs), checks pagination and project selection, completes one delta
 without affecting the other, excludes private Notes from context search, and
 verifies unavailable-tool discovery and invocation denial. Migration from schema
 8 preserves existing decisions/evidence, creates no jobs or synthetic history,

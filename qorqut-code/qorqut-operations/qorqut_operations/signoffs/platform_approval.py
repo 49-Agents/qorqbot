@@ -32,7 +32,7 @@ class PlatformApproval(Rejection):
 
     def target(self, ctx, args, uow):
         row = super().target(ctx, args, uow)
-        if row['review_business_id'] is None or row['category'] != 'platform_action':
+        if row['review_project_id'] is None or row['category'] != 'platform_action':
             raise DomainError('forbidden', 'Delegated approval requires an eligible project platform action')
         submission = self.service.ports.require('platform', PLATFORM_UNAVAILABLE).view(row, uow)['submission']
         if ((submission['plugin_id'], submission['tool']) not in self.allowed
@@ -45,8 +45,8 @@ class PlatformApproval(Rejection):
         row = self.target(ctx, args, uow)
         self.service._validate(row, uow)
         builder = PlanBuilder(ctx, self.operation, args, self.title,
-            namespace='business:' + ctx.business_id,
-            affected_scope={'kind': 'business', 'business_id': ctx.business_id})
+            namespace='project:' + ctx.project_id,
+            affected_scope={'kind': 'project', 'project_id': ctx.project_id})
         builder.record('signoffs', row['id'], row, {}, action='approve')
         return builder.build()
 

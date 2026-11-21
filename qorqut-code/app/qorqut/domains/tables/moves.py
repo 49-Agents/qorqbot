@@ -32,22 +32,22 @@ COUNTS = (*CORE_COUNTS, "private_messages", "focus_cards", "input_links")
 VISIBILITY = ("Ordinary access to these tables follows the destination project's rules once they are moved. Links whose other "
               "end stays behind are kept in this project as history; moving grants no one membership and no new access.")
 
-SELECTION = {"source_business_id": {**UUID, "description": instruction_text("moves-the-project-the-tables-are-in-now")},
+SELECTION = {"source_project_id": {**UUID, "description": instruction_text("moves-the-project-the-tables-are-in-now")},
              "destination_project_id": {**UUID, "description": instruction_text("moves-the-active-destination-project-never-inferred")},
              "table_ids": {"type": "array", "items": UUID, "minItems": 1, "maxItems": MAXIMUM_TABLES, "uniqueItems": True,
                            "description": instruction_text("moves-tables-to-move-with-their-rows-history")}}
-REQUIRED = ("source_business_id", "destination_project_id", "table_ids")
+REQUIRED = ("source_project_id", "destination_project_id", "table_ids")
 
 
 def move_namespace(ctx, args):
-    """The source's own namespace; a business route must agree with ``source_business_id``."""
-    source = args.get("source_business_id")
-    if ctx.business_id is not None and ctx.business_id != source:
-        raise DomainError("validation_error", "source_business_id must match the selected project")
+    """The source's own namespace; a project route must agree with ``source_project_id``."""
+    source = args.get("source_project_id")
+    if ctx.project_id is not None and ctx.project_id != source:
+        raise DomainError("validation_error", "source_project_id must match the selected project")
     return namespace(source)
 
 
-COMMON = dict(supports_signoff=False, scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
+COMMON = dict(supports_signoff=False, scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
               resolve_namespace=move_namespace)
 
 
@@ -67,7 +67,7 @@ class TableMoves:
 
     def register(self, registry=None):
         registry = registry or self.application.registry
-        required = ("source_business_id", "destination_project_id", self.KEY)
+        required = ("source_project_id", "destination_project_id", self.KEY)
         registry.register(OperationDescriptor(self.PREVIEW, schema(self.SELECTION, required), **COMMON, effect_kind="read",
             read=lambda ctx, args, options, uow: self.preview(ctx, args, uow), description=instruction_text(self.DESCRIPTIONS[0])))
         registry.register(OperationDescriptor(self.MOVE, schema({**self.SELECTION, "preview_token": {"type": "string", "minLength": 1,
@@ -79,10 +79,10 @@ class TableMoves:
 
     # -- authority -------------------------------------------------------------------------------------------------
 
-    def decide(self, ctx, uow, business_id, operations):
-        scoped = replace(ctx, business_id=business_id, review_business_id=business_id)
+    def decide(self, ctx, uow, project_id, operations):
+        scoped = replace(ctx, project_id=project_id, review_project_id=project_id)
         for name in operations:
-            decision = self.application.authorize(scoped, self.application.registry.get(name), (), uow, namespace=namespace(business_id))
+            decision = self.application.authorize(scoped, self.application.registry.get(name), (), uow, namespace=namespace(project_id))
             if decision.mode != "allow":
                 raise DomainError("policy_denied", f"This move needs a {self.NOUN} permission that is not granted without approval")
         return scoped
@@ -90,15 +90,15 @@ class TableMoves:
     def source(self, ctx, args, uow):
         current = self.application.current_context(ctx, uow)
         access.role(current, uow)
-        source = args["source_business_id"]
-        if not access.business_participant(current, source, uow):
+        source = args["source_project_id"]
+        if not access.project_participant(current, source, uow):
             raise DomainError("not_found", "Source project does not exist or is outside your current access")
-        if uow.repository("businesses").get(source)["archived_at"] is not None:
-            raise DomainError("business_archived", "The source project is archived")
+        if uow.repository("projects").get(source)["archived_at"] is not None:
+            raise DomainError("project_archived", "The source project is archived")
         return self.decide(current, uow, source, self.SOURCE_OPERATIONS), current
 
     def destination(self, current, destination, uow):
-        row = access.business_row(current, destination, uow)
+        row = access.project_row(current, destination, uow)
         self.decide(current, uow, destination, self.DESTINATION_OPERATIONS)
         return row
 
@@ -111,18 +111,18 @@ class TableMoves:
     def inspect(self, ctx, args, uow):
         selected, current = self.source(ctx, args, uow)
         target = self.destination(current, args["destination_project_id"], uow)
-        inspection = self.relocation.inspect(selected, uow, args["source_business_id"], args["destination_project_id"], args[self.KEY])
+        inspection = self.relocation.inspect(selected, uow, args["source_project_id"], args["destination_project_id"], args[self.KEY])
         return selected, target, inspection
 
     def preview(self, ctx, args, uow):
         if self.documents is not None:
             self.documents.sweep(uow)  # retire the source files of committed moves
         selected, target, inspection = self.inspect(ctx, args, uow)
-        source = args["source_business_id"]
+        source = args["source_project_id"]
         counts = {name: inspection.counts.get(name, 0) for name in self.COUNTS}
         return {"preview": {
             "token": inspection.fingerprint(selected.principal_id),
-            "source": {"business_id": source, "name": uow.repository("businesses").get(source)["name"]},
+            "source": {"project_id": source, "name": uow.repository("projects").get(source)["name"]},
             "destination": self.project(target), self.NOUN: self.listed(inspection), "counts": counts,
             "visibility": {"summary": self.VISIBILITY}, "blockers": inspection.blockers, "can_move": inspection.can_move}}
 
@@ -138,17 +138,17 @@ class TableMoves:
             raise DomainError("revision_conflict", "The selection changed after the preview; preview it again")
         if not inspection.can_move:
             raise DomainError("move_blocked", "The move is blocked", details={"blockers": inspection.blockers})
-        source = args["source_business_id"]
+        source = args["source_project_id"]
         builder = PlanBuilder(selected, self.MOVE, args, f"Move {self.NOUN} to project", namespace=namespace(source), clock=self.clock)
-        builder.expect(ref("businesses", target["id"], None), target)
-        builder.expect(ref("businesses", source, None), uow.repository("businesses").get(source))
+        builder.expect(ref("projects", target["id"], None), target)
+        builder.expect(ref("projects", source, None), uow.repository("projects").get(source))
         self.expect(builder, inspection, source, uow)
         return builder.build()
 
     @staticmethod
     def expect(builder, inspection, source, uow):
         for identity in inspection.move.ids:
-            builder.expect(ref("data_tables", identity, source), uow.repository("data_tables", business_id=source).get(identity))
+            builder.expect(ref("data_tables", identity, source), uow.repository("data_tables", project_id=source).get(identity))
 
     def apply(self, ctx, plan, uow):
         args = plan.arguments
@@ -160,7 +160,7 @@ class TableMoves:
         return {"move_id": move_id, "destination": self.project(target), "moved": result["moved"], "counts": counts}
 
     def relocate(self, selected, uow, args, move_id, at):
-        return self.relocation.apply(selected, uow, args["source_business_id"], args["destination_project_id"], args[self.KEY],
+        return self.relocation.apply(selected, uow, args["source_project_id"], args["destination_project_id"], args[self.KEY],
                                      args["preview_token"], move_id=move_id, at=at)
 
     def replay(self, ctx, args, saved, uow):

@@ -21,7 +21,7 @@ files, resources, accounts and integrations yourself. Never create or revive a
 project agent.
 
 Project notes are ordinary documents of one project: notes_create or notes_list
-with target_business_id equal to the selected project, and optional tags to label and
+with target_project_id equal to the selected project, and optional tags to label and
 filter them. Writing one needs the notes permission you were granted, inside a project
 you may reach; a tag grants nothing.
 

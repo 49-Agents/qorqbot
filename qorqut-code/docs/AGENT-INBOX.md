@@ -57,7 +57,7 @@ request's `after`. The maximum page size is 100. Acknowledgement accepts exact
 acknowledgement preserves its first timestamp and outcome. Later arrivals are
 not cleared by an earlier batch.
 
-Subscriptions use `source_type`, `source_id` and the selected business (or
+Subscriptions use `source_type`, `source_id` and the selected project (or
 authorized Global scope). Supported types are `stories`, `tasks`, `signoffs` and
 `documents`. Repeating subscription creation updates
 the same subscription. `include_related` is supported only for Stories: it
@@ -76,7 +76,7 @@ actions. Existing operation policies and signoff requirements remain in force.
 ### Ordubashy follows the owner's tasks
 
 Active ecosystem Ordubashy agents automatically follow tasks assigned to the
-registered installation owner, restricted to their current business memberships,
+registered installation owner, restricted to their current project memberships,
 scope and task-read permissions. This is a derived rule over authoritative task
 assignments, not persisted manual subscriptions or a new polling job. It covers
 existing and future tasks, including completed/archived tasks while assigned;
@@ -164,7 +164,7 @@ permission; it does not provide arbitrary access to that agent's documents.
 
 Archived documents remain readable and produce an update. If a source record
 is physically deleted, its deletion notice remains acknowledgeable while the
-agent retains the applicable business scope and read permission. The notice
+agent retains the applicable project scope and read permission. The notice
 contains its reference and short summary, not the deleted content.
 
 ## Activation boundary
@@ -188,7 +188,7 @@ the dashboard through its normal wrapper. Managed agent sessions, and agent term
 ## Owner live Claude acceptance
 
 Run after the release is deployed and a test agent is pinned/prepared. Use a
-temporary business and records so testing does not trigger production work.
+temporary project and records so testing does not trigger production work.
 The implementer runs isolated automated tests; **you run real Claude**.
 
 Open that agent's Chat and send:
@@ -235,7 +235,7 @@ Check these cases:
    check, and reject old reads/acknowledgements. Replaying the old startup or
    letting the new lease expire must not let the old session reclaim it.
 8. **UI navigation.** Open a pending item and a subscription from the pane.
-   Verify the exact source and business open. Switch agents during refresh;
+   Verify the exact source and project open. Switch agents during refresh;
    the previous agent's results must never appear in the new pane.
 
 9. **Monitor renewal.** Leave the session open beyond 30 minutes. On expiry,

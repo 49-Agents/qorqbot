@@ -111,16 +111,16 @@ _SOURCE_TYPE = __import__('re').compile(r'[a-z][a-z_]{0,39}')
 
 def _thread_source(value):
     """A thread's canonical source identity: type, id and owning Project (None for Global)."""
-    if not isinstance(value, dict) or set(value) != {'type', 'id', 'business_id'}:
+    if not isinstance(value, dict) or set(value) != {'type', 'id', 'project_id'}:
         return None
-    kind, identity, business = value['type'], value['id'], value['business_id']
+    kind, identity, project = value['type'], value['id'], value['project_id']
     if not isinstance(kind, str) or not _SOURCE_TYPE.fullmatch(kind):
         return None
     if not isinstance(identity, str) or not 1 <= len(identity) <= 200:
         return None
-    if business is not None and (not isinstance(business, str) or not 1 <= len(business) <= 200):
+    if project is not None and (not isinstance(project, str) or not 1 <= len(project) <= 200):
         return None
-    return {'type': kind, 'id': identity, 'business_id': business}
+    return {'type': kind, 'id': identity, 'project_id': project}
 
 
 def thread_pins(runtime_directory, owner_id, change=None):
@@ -149,7 +149,7 @@ def thread_pins(runtime_directory, owner_id, change=None):
                 raise DomainError('validation_error', 'Supply a source, a title and a pinned boolean')
             source, title = _thread_source(change['source']), change['title']
             if source is None:
-                raise DomainError('validation_error', 'Supply a source with a type, an id and a business_id')
+                raise DomainError('validation_error', 'Supply a source with a type, an id and a project_id')
             if not isinstance(title, str) or len(title) > 200:
                 raise DomainError('validation_error', 'A pinned thread title is at most 200 characters')
             items = [item for item in items if item['source'] != source]

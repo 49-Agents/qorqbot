@@ -31,13 +31,13 @@ class IsolatedPartTests(unittest.TestCase):
         with self.assertLogs(nudges.LOG, 'WARNING') as logs:
             first = isolated(self.uow, 'First duty', lambda: self.write('first'))
             second = isolated(self.uow, 'Second duty',
-                              lambda: self.write('second', DomainError('business_archived', 'Archived')))
+                              lambda: self.write('second', DomainError('project_archived', 'Archived')))
             third = isolated(self.uow, 'Third duty', lambda: self.write('third', RuntimeError('unexpected')))
             fourth = isolated(self.uow, 'Fourth duty', lambda: self.write('fourth'))
         self.assertEqual((first, second, third, fourth), (True, False, False, True))
         self.assertEqual(self.parts(), ['first', 'fourth'])
         self.assertEqual([record.getMessage() for record in logs.records],
-                         ['Second duty failed and was skipped: business_archived',
+                         ['Second duty failed and was skipped: project_archived',
                           'Third duty failed and was skipped: RuntimeError'])
 
     def test_failure_that_ends_the_pass_is_still_raised(self):
@@ -52,7 +52,7 @@ class FailureLogTests(unittest.TestCase):
     def test_repeating_failure_is_reported_when_it_starts_changes_persists_and_clears(self):
         now = [0.0]
         failures = FailureLog(clock=lambda: now[0])
-        error = DomainError('business_archived', 'Archived')
+        error = DomainError('project_archived', 'Archived')
         with self.assertLogs(nudges.LOG, 'WARNING') as logs:
             failures.passed('Board')                                    # nothing was failing: nothing to report
             for _ in range(50):
@@ -64,8 +64,8 @@ class FailureLogTests(unittest.TestCase):
             failures.passed('Board')
             failures.passed('Board')
         self.assertEqual([record.getMessage() for record in logs.records],
-                         ['Board failed and was skipped: business_archived',
-                          'Board is still failing: business_archived (50 more passes)',
+                         ['Board failed and was skipped: project_archived',
+                          'Board is still failing: project_archived (50 more passes)',
                           'Board failed and was skipped: not_found',
                           'Board recovered'])
 
@@ -94,14 +94,14 @@ class BackendPassTests(unittest.TestCase):
         def send_due(profile):
             reminded.append(profile['agent_id'])
             if profile['agent_id'] == 'second':
-                raise DomainError('business_archived', 'Archived')
+                raise DomainError('project_archived', 'Archived')
         backend = self.backend(send_due)
         with self.assertLogs(nudges.LOG, 'WARNING') as logs:
             self.run_pass(backend)
         self.assertEqual(reminded, ['first', 'second', 'third'])
         self.assertEqual([call.args[0]['agent_id'] for call in backend.step.call_args_list], ['first', 'second', 'third'])
         self.assertEqual([record.getMessage() for record in logs.records],
-                         ['Attention reminder for second failed and was skipped: business_archived'])
+                         ['Attention reminder for second failed and was skipped: project_archived'])
 
     def test_one_agent_whose_inbox_nudge_fails_does_not_end_the_pass_for_the_rest(self):
         backend = self.backend(lambda _profile: None)

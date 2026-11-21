@@ -173,12 +173,12 @@ class AttentionRuntime:
         from qorqut.management.identity import configured_ordubashy
         coordinator = configured_ordubashy(uow)
         work_ref = state.get('work_task_json')
-        snapshot = {'focus': {key: focus.get(key) for key in ('type', 'id', 'business_id')} if focus else None,
+        snapshot = {'focus': {key: focus.get(key) for key in ('type', 'id', 'project_id')} if focus else None,
                     'focused_for': _age(state.get('focus_started_at'), self._now()) if focus else None,
                     'work': None, 'intent': None, 'next_step': None, 'plan_step': None, 'candidates': None, 'more': False,
                     'team': None}
         try:
-            ctx = self.runtime.application.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
+            ctx = self.runtime.application.policy.context_for(agent_id, project_id=None, review_project_id=None, uow=uow)
         except DomainError:
             return snapshot
 
@@ -206,8 +206,8 @@ class AttentionRuntime:
                 snapshot['plan_step'] = self._plan_step(task)
         candidates = []
         for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=? ORDER BY created_at,id', (agent_id,)):
-            ref = {'type': 'task', 'id': row['task_id'], 'business_id': row['task_business_id']}
-            if isinstance(work_ref, dict) and (ref['id'], ref['business_id']) == (work_ref.get('id'), work_ref.get('business_id')):
+            ref = {'type': 'task', 'id': row['task_id'], 'project_id': row['task_project_id']}
+            if isinstance(work_ref, dict) and (ref['id'], ref['project_id']) == (work_ref.get('id'), work_ref.get('project_id')):
                 continue
             task = member(ref, row['task_created_at'])
             # Filter on lifecycle first; Workers are projected only for tasks that will be shown.
@@ -326,15 +326,15 @@ class AttentionRuntime:
                 self.runtime.application.ensure_writes_open(uow)
                 registered = uow.connection.execute('SELECT 1 FROM agent_activity WHERE agent_id=? AND session_id=? '
                     'AND registration_id=?', (agent_id, claim['claim_consumer_id'], registration_id)).fetchone()
-                profile = uow.connection.execute('SELECT p.home_business_id,b.slug FROM agent_profiles p '
-                    'LEFT JOIN businesses b ON b.id=p.home_business_id WHERE p.agent_id=?', (agent_id,)).fetchone()
+                profile = uow.connection.execute('SELECT p.home_project_id,b.slug FROM agent_profiles p '
+                    'LEFT JOIN projects b ON b.id=p.home_project_id WHERE p.agent_id=?', (agent_id,)).fetchone()
                 row = uow.connection.execute('SELECT agent_id FROM attention_reminders WHERE id=?', (claim['id'],)).fetchone()
                 if not registered or not profile or not row or row['agent_id'] != agent_id:
                     return False
                 # Both components are canonical UUIDs, so the client cannot choose a path.
                 from uuid import UUID
                 occurrence, token = str(UUID(claim['id'])), str(UUID(claim['claim_token']))
-                workspace = agent_workspace_of(self.runtime.paths, agent_id, profile['home_business_id'], profile['slug'])
+                workspace = agent_workspace_of(self.runtime.paths, agent_id, profile['home_project_id'], profile['slug'])
                 path = Path(workspace) / '.qorqut' / 'attention-receipts' / (occurrence + '-' + token + '.json')
                 if not safe_path(path) or not path.is_file() or path.stat().st_mode & 0o077 or path.stat().st_size > 4096:
                     return False

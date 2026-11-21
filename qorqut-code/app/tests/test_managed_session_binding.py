@@ -178,8 +178,8 @@ class VocabularyTests(unittest.TestCase):
 # ----- the profile carries no execution mode ----------------------------------------------------------------------------------
 
 class ProfileTests(unittest.TestCase):
-    ROW = {"agent_id": AGENT, "name": "n", "workspace": "/stored", "profile_json": "{}", "revision": 1, "home_business_id": None,
-           "business_slug": None, "profile_status": "active", "principal_kind": "agent", "principal_active": 1}
+    ROW = {"agent_id": AGENT, "name": "n", "workspace": "/stored", "profile_json": "{}", "revision": 1, "home_project_id": None,
+           "project_slug": None, "profile_status": "active", "principal_kind": "agent", "principal_active": 1}
 
     def test_a_profile_has_no_execution_and_nothing_reads_a_mode(self):
         with mock.patch("qorqut.composition.locations.agent_workspace_of", return_value=Path("/ws")):

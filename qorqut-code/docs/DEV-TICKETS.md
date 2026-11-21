@@ -10,7 +10,7 @@ Agents call `dev_tickets_create(title, details?, kind?)` in their current scope.
 Only title is required; kind defaults to `bug` and also accepts `feature`,
 `tooling`, and `workflow`. Available context is sufficient; agents should not
 investigate just to file. The service captures the authenticated reporter,
-selected business (if any), and timestamps. Reuse the same idempotency key after
+selected project (if any), and timestamps. Reuse the same idempotency key after
 an interrupted call. The receipt contains only ticket ID, status, revision, and
 queue. Filing does not start work, wake developers or promise a delivery date.
 
@@ -21,9 +21,9 @@ bootstrap and MCP discovery after deployment.
 
 Agent-facing lifecycle tools are scoped separately from the owner queue:
 
-- `dev_tickets_agent_list` returns the caller's reports. The business agent also sees open
-  and closed reports for its selected business; Ordubashy sees reports for its
-  authorized businesses and Global when that capability is granted.
+- `dev_tickets_agent_list` returns the caller's reports. The project agent also sees open
+  and closed reports for its selected project; Ordubashy sees reports for its
+  authorized projects and Global when that capability is granted.
 - `dev_tickets_get(ticket_id, history_limit?, history_offset?)` returns one
   authorized report and a bounded page of its durable follow-up/resolution
   history. The default page is 50 events (maximum 100); use the returned
@@ -37,17 +37,17 @@ Agent-facing lifecycle tools are scoped separately from the owner queue:
   history. When the reporter is an active agent, one ordinary inbox message
   carries the resolution evidence; it does not create a second queue.
 
-These reads never expose reports from another business to ordinary agents. A
+These reads never expose reports from another project to ordinary agents. A
 successful unrelated job or a claimed fix is not resolution evidence by itself.
 No role artifact publication, GitHub integration, new UI, background job or
-business task routing change is needed.
+project task routing change is needed.
 
 ## Reviewing reports
 
 The authoritative table is `dev_tickets` in the installation's operational
 database. It is covered by normal SQLite backups and Global maintenance exports. No separate database or log is
 created in the source repository. Reports remain available after their source
-business is archived. Report text is agent-supplied evidence, not authorization
+project is archived. Report text is agent-supplied evidence, not authorization
 to change code, execute a command or deploy.
 
 Use the existing trusted owner API of your installation (`<installation origin>`):

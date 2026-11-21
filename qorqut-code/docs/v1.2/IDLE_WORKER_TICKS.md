@@ -28,7 +28,7 @@ queued stops logging a failed tick every second. Queued work still meets the che
 ## Checks
 
 `app/tests/test_host_terminal_idle_tick.py` builds a synthetic host instance (`build_instance`) with a registered Ordubashy that
-holds the terminal-control plugin and one business agent, and a recording terminal stand-in; no tmux, native session or provider
+holds the terminal-control plugin and one project agent, and a recording terminal stand-in; no tmux, native session or provider
 is involved. It covers: an empty queue takes no write unit and reports no work; an action queued after an idle tick runs on the
 next one with exactly the claim and receipt units, is durably `uncertain` when the effect begins and no unit is held during it; a
 revoked permission blocks the effect; a changed binding blocks it; one unauthorized target fails its whole batch before any
@@ -39,7 +39,7 @@ concurrent ticks run a queued action once.
 QORQUT_TEST_WORKSPACE_ROOT=<workspace> QORQUT_TEST_ROLE_ROOT=<role tree> python -m pytest -q tests/test_host_terminal_idle_tick.py
 ```
 
-The test needs the pinned `qorqut-business-docs-versioning` and a role source whose default tool policies match this
+The test needs the pinned `qorqut-docs-versioning` and a role source whose default tool policies match this
 host's operations.
 
 ## Effect

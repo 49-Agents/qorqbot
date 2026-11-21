@@ -6,7 +6,7 @@ operations that take a ``task_id`` (see ``Application._locate``). It looks the i
 reach - its allowed active projects, and Global when it may use Global Tasks at all (never for an owner session) - and,
 in each, only where its ``tasks_get`` authority lets it read Tasks:
 
-* no project selected (no ``business_id``, no ``scope``): one match runs the operation in that scope, exactly as if it had
+* no project selected (no ``project_id``, no ``scope``): one match runs the operation in that scope, exactly as if it had
   been selected; several (an id reused before ids were unique) are refused with ``validation_error`` listing them;
 * a project selected: the selection stands. A Task that is not there but in one other reachable scope is refused with
   ``not_found`` saying where; a Task moved out of the selected scope keeps the operation's own ``record_moved`` answer;
@@ -42,45 +42,45 @@ class Reach:
 
     def __init__(self, tasks, ctx, uow):
         self.tasks, self.ctx, self.uow = tasks, ctx, uow
-        allowed = sorted(ctx.allowed_business_ids)
+        allowed = sorted(ctx.allowed_project_ids)
         rows = uow.connection.execute(
-            f"SELECT id, name, slug FROM businesses WHERE archived_at IS NULL AND id IN ({','.join('?' * len(allowed))})",
+            f"SELECT id, name, slug FROM projects WHERE archived_at IS NULL AND id IN ({','.join('?' * len(allowed))})",
             allowed).fetchall() if allowed else ()
         self.names = {row["id"]: row["name"] or row["slug"] for row in rows}
-        self.global_tasks = ctx.owner_session_business_id is None and global_tasks_allowed(ctx, uow)
+        self.global_tasks = ctx.owner_session_project_id is None and global_tasks_allowed(ctx, uow)
         self.readable = {}
 
     def rows(self, test, values, limit):
         """Task rows matching ``test`` in reachable scopes, Global first, at most ``limit``."""
         scopes, params = [], []
         if self.names:
-            scopes.append(f"business_id IN ({','.join('?' * len(self.names))})")
+            scopes.append(f"project_id IN ({','.join('?' * len(self.names))})")
             params.extend(self.names)
         if self.global_tasks:
-            scopes.append("business_id IS NULL")
+            scopes.append("project_id IS NULL")
         if not scopes:
             return []
         found = self.uow.connection.execute(
-            f"SELECT business_id, id, title FROM tasks WHERE {test} AND ({' OR '.join(scopes)}) "
-            "ORDER BY business_id IS NOT NULL, business_id, id LIMIT ?", (*values, *params, limit)).fetchall()
+            f"SELECT project_id, id, title FROM tasks WHERE {test} AND ({' OR '.join(scopes)}) "
+            "ORDER BY project_id IS NOT NULL, project_id, id LIMIT ?", (*values, *params, limit)).fetchall()
         return [dict(row) for row in found]
 
-    def can_read(self, business_id):
-        if business_id not in self.readable:
+    def can_read(self, project_id):
+        if project_id not in self.readable:
             app = self.tasks.application
             descriptor = app.registry.get("tasks_get")
-            selected = replace(self.ctx, business_id=business_id, review_business_id=business_id)
-            arguments = {"scope": "business" if business_id else "global"}
+            selected = replace(self.ctx, project_id=project_id, review_project_id=project_id)
+            arguments = {"scope": "project" if project_id else "global"}
             try:
                 app.authorize(selected, descriptor, (), self.uow, namespace=app.namespace(selected, descriptor, arguments))
-                self.readable[business_id] = True
+                self.readable[project_id] = True
             except DomainError:
-                self.readable[business_id] = False
-        return self.readable[business_id]
+                self.readable[project_id] = False
+        return self.readable[project_id]
 
     def view(self, row, *, identity=False):
-        return {**({"id": row["id"]} if identity else {}), "business_id": row["business_id"],
-                "business_name": self.names[row["business_id"]] if row["business_id"] else "Global", "title": row["title"]}
+        return {**({"id": row["id"]} if identity else {}), "project_id": row["project_id"],
+                "project_name": self.names[row["project_id"]] if row["project_id"] else "Global", "title": row["title"]}
 
 
 class TaskLookup:
@@ -98,16 +98,16 @@ class TaskLookup:
         if ctx.delegation_assignment_id is not None:
             return self.delegated(ctx, arguments, task_id, uow)
         reach = Reach(self.tasks, ctx, uow)
-        if ctx.business_id is not None or "scope" in arguments:
+        if ctx.project_id is not None or "scope" in arguments:
             return self.selected(ctx, arguments, task_id, reach, uow), None
         found, task_id = self.exact(reach, task_id)
         arguments = {**arguments, "task_id": task_id}
         if len(found) == 1:
-            return arguments, namespace(found[0]["business_id"])
+            return arguments, namespace(found[0]["project_id"])
         if found:
             raise DomainError(
-                "validation_error", "This task id is in more than one project; call again with the business_id of the one "
-                "you mean (scope=global for Global)", field_errors={"business_id": "required: the task id is in more than one project"},
+                "validation_error", "This task id is in more than one project; call again with the project_id of the one "
+                "you mean (scope=global for Global)", field_errors={"project_id": "required: the task id is in more than one project"},
                 details={"task_id": task_id, "candidates": [reach.view(row) for row in found[:CANDIDATES]]})
         self.suggest(reach, task_id)
         return arguments, None
@@ -116,38 +116,38 @@ class TaskLookup:
         """A delegated worker that selects no scope works in its assignment's project when the Task is there; nothing else
         is searched, so the worker learns nothing about other scopes and the assignment's own scope check still decides."""
         provider = self.tasks.application.delegation
-        if ctx.business_id is not None or "scope" in arguments or provider is None:
+        if ctx.project_id is not None or "scope" in arguments or provider is None:
             return arguments, None
         assignment = provider.assignment(uow, ctx.delegation_assignment_id)
-        business_id = assignment["business_id"] if assignment else None
-        if business_id is None:
+        project_id = assignment["project_id"] if assignment else None
+        if project_id is None:
             return arguments, None
         for candidate in dict.fromkeys((task_id, task_id.lower())):
-            if uow.connection.execute("SELECT 1 FROM tasks WHERE business_id=? AND id=?", (business_id, candidate)).fetchone():
-                return {**arguments, "task_id": candidate}, namespace(business_id)
+            if uow.connection.execute("SELECT 1 FROM tasks WHERE project_id=? AND id=?", (project_id, candidate)).fetchone():
+                return {**arguments, "task_id": candidate}, namespace(project_id)
         return arguments, None
 
     def selected(self, ctx, arguments, task_id, reach, uow):
         """The caller's own selection stands; a Task that is not there is refused saying where it is, when it can be told."""
         if task_namespace(ctx, arguments) == "global":
             here = None
-        elif ctx.business_id is None:
-            return arguments  # scope=business without a project: the operation refuses it.
+        elif ctx.project_id is None:
+            return arguments  # scope=project without a project: the operation refuses it.
         else:
-            here = ctx.business_id
+            here = ctx.project_id
         for candidate in dict.fromkeys((task_id, task_id.lower())):
-            if uow.connection.execute("SELECT 1 FROM tasks WHERE business_id IS ? AND id=?", (here, candidate)).fetchone():
+            if uow.connection.execute("SELECT 1 FROM tasks WHERE project_id IS ? AND id=?", (here, candidate)).fetchone():
                 return {**arguments, "task_id": candidate}
         if moved_location(uow, here, task_id) is not None:
             return arguments  # The operation answers record_moved, to a caller who may read it where it is now.
         found, task_id = self.exact(reach, task_id)
         if len(found) == 1:
-            raise DomainError("not_found", f"Task is not in the selected scope; it is in {reach.view(found[0])['business_name']}. "
-                              "Call again without business_id and scope, or select that scope",
+            raise DomainError("not_found", f"Task is not in the selected scope; it is in {reach.view(found[0])['project_name']}. "
+                              "Call again without project_id and scope, or select that scope",
                               details={"task": reach.view(found[0], identity=True)})
         if found:
             raise DomainError("not_found", "Task is not in the selected scope; its id is in more than one other project. "
-                              "Call again with the business_id of the one you mean",
+                              "Call again with the project_id of the one you mean",
                               details={"task_id": task_id, "candidates": [reach.view(row) for row in found[:CANDIDATES]]})
         self.suggest(reach, task_id)
         return arguments
@@ -165,7 +165,7 @@ class TaskLookup:
     def exact(reach, task_id):
         """The readable rows with exactly this id, else with it in lower case, and the id they have."""
         for candidate in dict.fromkeys((task_id, task_id.lower())):
-            found = [row for row in reach.rows("id = ?", (candidate,), PREFIX_ROWS) if reach.can_read(row["business_id"])]
+            found = [row for row in reach.rows("id = ?", (candidate,), PREFIX_ROWS) if reach.can_read(row["project_id"])]
             if found:
                 return found, candidate
         return [], task_id
@@ -177,7 +177,7 @@ class TaskLookup:
         if not SHORT_ID.fullmatch(prefix):
             return
         rows = reach.rows("id GLOB ?", (prefix + "*",), PREFIX_ROWS)
-        found = [row for row in rows if reach.can_read(row["business_id"])]
+        found = [row for row in rows if reach.can_read(row["project_id"])]
         if len(rows) < PREFIX_ROWS and len(found) == 1:
             raise DomainError("not_found", "Task does not exist in this scope. The id given is only the start of a task id: "
                               "call again with the full id in details.did_you_mean",

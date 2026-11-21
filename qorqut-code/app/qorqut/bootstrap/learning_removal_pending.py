@@ -42,21 +42,21 @@ def prove_input_request(target, connection, signoff_id):
             descriptor = target.runtime.application.registry.get("signoffs_input_create")
             args = descriptor.validate(plain(plan.arguments))
             form = validate_form(args["form"])
-            business = row["review_business_id"]
-            scope = {"kind": "business", "business_id": business} if business else {"kind": "global"}
-            namespace = "business:" + business if business else "global"
+            project = row["review_project_id"]
+            scope = {"kind": "project", "project_id": project} if project else {"kind": "global"}
+            namespace = "project:" + project if project else "global"
             UUID(signoff_id)
             if (row["operation_name"] != descriptor.name or row["operation_version"] != descriptor.version
                     or plan.operation_name != descriptor.name or plan.operation_version != descriptor.version
                     or plan.principal_id != row["proposer_principal_id"]
                     or plan.proposer_agent_id != row["proposer_agent_id"]
                     or plan.initiated_by_principal_id != row["initiated_by_principal_id"]
-                    or plan.review_business_id != business or row["review_scope_kind"] != scope["kind"]
+                    or plan.review_project_id != project or row["review_scope_kind"] != scope["kind"]
                     or plan.target_namespace != namespace or plain(plan.affected_scope) != scope
                     or plain(plan.policy_binding) != row["policy_binding_json"]
                     or row["affected_scope_json"] != scope or row["request_key"] != args["request_key"]
-                    or (args.get("scope") == "global" and business is not None)
-                    or (args.get("scope") == "business" and business is None)
+                    or (args.get("scope") == "global" and project is not None)
+                    or (args.get("scope") == "project" and project is None)
                     or row["preview_json"] != {"title": form["title"], "explanation": form["explanation"], "input": form}
                     or row["expected_targets_json"] != [] or row["superseded_by_id"] is not None
                     or _references(plan.to_dict()) or len(plan.changes) != 1 or len(plan.expected_targets) != 1):
@@ -67,7 +67,7 @@ def prove_input_request(target, connection, signoff_id):
                       "attention": normalize_attention(args.get("attention", {}))}
             if (change.kind != "record" or change.action != "input_create" or change.operation_name is not None
                     or resource.resource_type != "signoffs" or resource.resource_id != signoff_id
-                    or resource.business_id != business or resource.namespace is not None
+                    or resource.project_id != project or resource.namespace is not None
                     or plain(change.values) != values or expected.resource != resource or expected.exists
                     or expected.revision is not None or expected.content_hash is not None):
                 raise ValueError("question effect mismatch")
@@ -109,16 +109,16 @@ def prove_receipt(target, connection, receipt_id: str) -> None:
         if not isinstance(invocation, dict) or not isinstance(invocation.get("input_hash"), str):
             raise DomainError("unverified_pending_plan", "The saved receipt has no durable invocation binding")
         plan = PreparedFileExecutor._plan(row, invocation["input_hash"])
-        business = (plan.target_namespace.removeprefix("business:")
-                    if plan.target_namespace.startswith("business:") else None)
+        project = (plan.target_namespace.removeprefix("project:")
+                    if plan.target_namespace.startswith("project:") else None)
         context = application.policy.context_for(
-            plan.principal_id, business_id=business, review_business_id=plan.review_business_id,
+            plan.principal_id, project_id=project, review_project_id=plan.review_project_id,
             initiated_by_principal_id=plan.initiated_by_principal_id, job_id=plan.policy_binding.get("job_id"), uow=uow)
         descriptor = application.registry.get(plan.operation_name)
         options = InvocationOptions.from_mapping(invocation["options"])
         expected_hash = canonical_hash({"operation": descriptor.name, "version": descriptor.version,
-            "arguments": plain(plan.arguments), "options": {**plain(options), "business_id": business,
-            "review_business_id": plan.review_business_id, "idempotency_key": None}})
+            "arguments": plain(plan.arguments), "options": {**plain(options), "project_id": project,
+            "review_project_id": plan.review_project_id, "idempotency_key": None}})
         if (not options.idempotency_key or invocation.get("idempotency_key") != options.idempotency_key
                 or PreparedFileExecutor._id(context, plan.target_namespace, descriptor.name, options) != receipt_id
                 or invocation["input_hash"] != expected_hash):

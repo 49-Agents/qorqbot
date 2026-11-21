@@ -123,8 +123,8 @@ class QuestionAuthority:
 
     def check(self, ctx, uow):
         current = self.current(ctx, uow)
-        if current.business_id or current.home_business_id:
-            raise DomainError("forbidden", "Context questions are Global; no business can be selected")
+        if current.project_id or current.home_project_id:
+            raise DomainError("forbidden", "Context questions are Global; no project can be selected")
         if current.principal_kind == "human":
             owner = uow.repository("installation").get("service") or {}
             if owner.get("owner_principal_id") != current.principal_id:

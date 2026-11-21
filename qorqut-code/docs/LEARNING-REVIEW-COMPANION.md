@@ -9,14 +9,14 @@
 
 Learning Applier 1.5.0 adds explicitly instructed decisions to owner-led queue review before the existing accepted
 delta workflow. It recommends accept, revise, reject or investigate using saved
-evidence, business/shared context and implementation inspection. The business agent is not
+evidence, project/shared context and implementation inspection. The project agent is not
 given approval authority or autonomous delegated work by this change.
 
 ## Read contract
 
 - `learnings_review_list` returns compact summaries of context and delta items,
-  defaulting to open. With no business selected it aggregates only authorized
-  businesses plus Global when `read_global_context` is granted. Filed context
+  defaulting to open. With no project selected it aggregates only authorized
+  projects plus Global when `read_global_context` is granted. Filed context
   and automatically collapsed candidates are excluded. State, bucket, tag and
   scope filters and scope-bound pagination follow the work agenda conventions.
 - `learnings_review_get` reads the candidate in its original selected scope,
@@ -33,9 +33,9 @@ given approval authority or autonomous delegated work by this change.
 
 Frozen extraction cores are filtered snapshots, not full original transcripts.
 The response explicitly distinguishes them. The reviewer must inspect the exact
-authorized business-owned copy through available native access when necessary,
+authorized project-owned copy through available native access when necessary,
 or flag the gap and ask for evidence. No personal CLI-history access, arbitrary
-file read endpoint or cross-business source lookup is added.
+file read endpoint or cross-project source lookup is added.
 
 ## Decision boundary
 
@@ -63,13 +63,13 @@ The current item retains the existing decision DTO; audit detail lives in histor
 No HTTP-owner impersonation, SQLite writes by the agent, or automatic acceptance
 from model confidence is authorized.
 
-After the owner acts, re-read the candidate. Accepted business and Global context follow
+After the owner acts, re-read the candidate. Accepted project and Global context follow
 existing atomic filing; do not duplicate its upload. This frozen snapshot is an
 intrinsic effect of `learnings_decide`, not a general `context_upload` grant.
 Failed intake retains its durable receipt and can resume using the identical
 call/key or the owner's existing intake recovery path, with original agent
 authority rechecked. Filing stays in the originating workspace; Global does not
-mean a qualification-free rule for every business. Accepted deltas use the
+mean a qualification-free rule for every project. Accepted deltas use the
 existing revision-bound work tools. Learning Applier chats are not automatically
 processed for learning; lessons from those conversations remain manual.
 Acceptance does not itself authorize merge, deployment or package adoption.
@@ -105,7 +105,7 @@ same owner-led conversation; nothing else changes about how items are reviewed. 
 
 ## Rollout and verification
 
-Merge both biz-core and agent-roles changes, deploy the core, publish the immutable
+Merge both core and agent-roles changes, deploy the core, publish the immutable
 Learning Applier 1.5.0 package, then explicitly repin/reprepare the intended
 profile preserving its scope, overrides and assignment. Source changes alone
 do not alter live pins, sessions or extraction routines. No schema migration is
@@ -118,7 +118,7 @@ Focused tests: `tests/test_learning_decisions.py`, `tests/test_policy.py`, `test
 `tests/test_learning_issue_reenrollment.py`, `tests/test_learning_work_reasoning.py`, `tests/test_learning_issue_bridge.py`
 and `tests/test_learning_issue_acceptance.py`. Use a test package-source map pointing to the
 companion role worktree.
-No live provider or business mutations are needed. Role source policy tests use
+No live provider or project mutations are needed. Role source policy tests use
 `python -m unittest discover -s tests` in agent-roles.
 
 Conversational quality remains a separate owner-led trial. Use the role evaluation scenarios;

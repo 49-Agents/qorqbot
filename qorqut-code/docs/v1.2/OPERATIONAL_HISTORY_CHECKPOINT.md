@@ -44,9 +44,9 @@ repository. This is path validation, not protection against a same-user race.
 ### Areas (the trusted provider)
 
 `areas(uow)` is called inside the export read unit and returns values of exactly four kinds: `GlobalFiles`,
-`GlobalAgentFiles(agent_id)`, `BusinessAgentFiles(business, agent_id)` and `BusinessHeadquarters(business)`. They carry exact
+`GlobalAgentFiles(agent_id)`, `ProjectAgentFiles(project, agent_id)` and `ProjectHeadquarters(project)`. They carry exact
 registered IDs/slugs; the host resolves them through `InstancePaths` (`files`, `agent_files(agent)`,
-`agent_files(agent, business_folder=slug)`, `business_hq(slug)`) after the unit closed. Anything else, an ID/slug that is not one
+`agent_files(agent, project_folder=slug)`, `project_hq(slug)`) after the unit closed. Anything else, an ID/slug that is not one
 `SEGMENT` path segment, a duplicate (also case-folded), or overlapping resolved folders fails with `history_areas_invalid`
 before any file is captured. Nothing scans folders, reads tags or infers registrations. A resolved folder whose existing path
 crosses a symlink is reported as an excluded `symlink` area and none of it is read. Each value may carry
@@ -58,10 +58,10 @@ normalized relative POSIX path. Those subtrees are skipped (`generated_projectio
 `database/manifest.json` (the export manifest: format, schema identity, coverage, per-table key/columns/structured
 schemas/omitted column names, classified exclusions), `database/<table>.jsonl` or `database/<table>/<hex>.jsonl` for sharded
 tables (canonical JSON lines in key order; the shard is the declared fixed hash-prefix of the stable key), and the authored
-files at their operations-relative paths under `files/`, `agents/{id}/files/`, `businesses/{slug}/hq/` and
-`businesses/{slug}/agents/{id}/files/` with exact bytes and the owner-execute bit. No clock value enters any file, so identical
+files at their operations-relative paths under `files/`, `agents/{id}/files/`, `projects/{slug}/hq/` and
+`projects/{slug}/agents/{id}/files/` with exact bytes and the owner-execute bit. No clock value enters any file, so identical
 state produces identical bytes. Not captured: Context, generated instructions/provider configuration, native archives and
-transcripts, `.runtime`, business `code/`, role/source repositories, unregistered folders and the SQLite file. The donor's name
+transcripts, `.runtime`, project `code/`, role/source repositories, unregistered folders and the SQLite file. The donor's name
 and header exclusions remain (symlinks, special files, nested Git or bare repositories, virtualenvs, caches, `node_modules`,
 `.runtime`, provider configuration, `.env*`, credential and key names, PEM/PuTTY headers); they are heuristics, not a secret
 scanner.
@@ -138,7 +138,7 @@ worker generation, so a restart's initial pass is never delayed by it. `start`, 
 - The observer's first pass runs at `start()`; `stop()` abandons a pending (not running) pass because the next start's first pass
   recovers it; the same observer restarts only after a stop that reported `stopped=True` (see Restart above).
 - A symlinked area folder is reported as an excluded `symlink` area labelled `kind:identifiers` (for example
-  `business_hq:acme`) rather than failing the whole snapshot; a symlinked `.runtime`, repository or operations root is refused.
+  `project_hq:acme`) rather than failing the whole snapshot; a symlinked `.runtime`, repository or operations root is refused.
 
 ## Focused checks run
 
@@ -147,12 +147,12 @@ ref. Host tests import the sibling Operations worktree of this same branch throu
 
 - `app/tests/test_operations_history.py` (22): inert construction; explicit private local initialization and refusal of
   directory/plain-repository/file/symlink/remote locations untouched; replaced runtime root refused before and during an
-  operation; one read unit shared by rows and areas and closed before Git; global, global-agent, business-agent and business-HQ
+  operation; one read unit shared by rows and areas and closed before Git; global, global-agent, project-agent and project-HQ
   files included and Context/transcripts/generated instructions/provider configuration/runtime/code/roles/unregistered
-  folders/other-business paths absent; safe selected rows with the private direct-message row, secrets and nested event data
+  folders/other-project paths absent; safe selected rows with the private direct-message row, secrets and nested event data
   absent from every Git object; unchanged snapshot makes no commit; change, execute bit, row change in one shard file and
   confirmed deletion with old commits intact; incomplete coverage for unclassified tables and `complete` only when classified;
-  boundary exclusions (nested Git, virtualenvs, caches, env/credential/key names and headers, symlinks, FIFOs, linked business
+  boundary exclusions (nested Git, virtualenvs, caches, env/credential/key names and headers, symlinks, FIFOs, linked project
   folder) and linked agent-folder created later; exact bytes of binary/large/non-UTF-8 files and hostile Git environment/hook
   ineffective; changed-during-capture and unreadable-directory carry-forward and later resolution; stat-cache restored-times
   case; excluded subtrees skipped and not resurrected through an unreadable parent; Git failure with preserved
@@ -185,7 +185,7 @@ temporary directory); the snapshot and installed-composition files were not reru
 - Final per-domain export definitions and classifications for every composed table (including engine-owned tables) with owner
   review of secret and private payload fields; until then every real table is "missing coverage" and a real snapshot would be
   `complete=false`.
-- The real registration area provider (global agents, business agents, business slugs from the composed registrations) and the
+- The real registration area provider (global agents, project agents, project slugs from the composed registrations) and the
   decision which generated projections each domain excludes.
 - Host lifecycle: construct and call `initialize()` explicitly, start/stop the observer in the ordered service owner, and feed
   `notify_commit()` from the post-commit half of the change publisher; surface `status()` in health. None of that exists yet.

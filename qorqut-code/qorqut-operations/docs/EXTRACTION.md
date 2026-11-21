@@ -13,7 +13,7 @@ and `ActionOperations` is the one Action writer the host composes; `ActionWriteb
 | v1 (`qorqut/…`) | Here (`qorqut_operations/…`) | Change |
 |---|---|---|
 | `contracts.py` | `contracts.py` | verbatim |
-| `local_time.py`, `business_lifecycle.py` | same names | import path only |
+| `local_time.py`, `project_lifecycle.py` | same names | import path only |
 | `application/registry.py`, `batches.py` | `application/registry.py`, `batches.py` | `batches` verbatim; registry adds `freeze()` and closes `declare`/`register` once frozen |
 | `application/engine.py` | `application/engine.py`, `delegation.py`, `review.py` | see "Engine changes" |
 | `application/ports.py` | `application/ports.py` | adds `DelegationProvider` (the former `SignoffStager.authorize_mail_control` was removed in v1.32) |
@@ -65,10 +65,10 @@ Requiring `manage_delegated_assignments` in the engine's delegation check is pre
   assembly (a name and at least two distinct resource types; malformed values, non-typed values and two rules for one operation
   are refused when the `Application` is built; the empty default exempts nothing). It is the only addition to the delegated
   checks: every other delegated check (live binding, parent, assignment, generation, lease, role and capabilities, the
-  operation allowance, the owner/external exclusions and the business boundaries) runs first and is unchanged. A prepared change
+  operation allowance, the owner/external exclusions and the project boundaries) runs first and is unchanged. A prepared change
   qualifies for the record-ID membership exemption only when the actual descriptor name equals the group's operation and the
   whole expected-target list is exactly one typed `ExpectedTarget` per declared resource type, each expected absent with no
-  revision or hash, all sharing one canonical new UUID, in the admission's own business (or Global) scope, with a resource
+  revision or hash, all sharing one canonical new UUID, in the admission's own project (or Global) scope, with a resource
   namespace that is absent or exactly the canonical admission namespace. Existing rows, extra, duplicate or mismatched targets,
   bare `ResourceRef` values, another operation or another scope keep the assignment's record boundary. The targets stay in the
   prepared plan, so `check_targets` (expected absence) and the apply transaction still guard them.
@@ -76,7 +76,7 @@ Requiring `manage_delegated_assignments` in the engine's delegation check is pre
   trusted composition and checked exactly as before; the unlisted case still fails with `invalid_plan`. The host
   registers these three:
   `({"routines_run","routines_stop"}, {"jobs","routine_runs"})`,
-  `({"agents_create","agents_update","agents_deactivate"}, {"business_memberships"})`, and
+  `({"agents_create","agents_update","agents_deactivate"}, {"project_memberships"})`, and
   `({"notes_update","notes_delete"}, bound_resources={"documents": BoundResource("document_id"),
   "managed_document_files": BoundResource("document_id","document_id")}, principal_kinds={"human"}, allow_delegated=False)`.
   A bound resource whose argument is absent never matches (v1 compared `None == None` for a composite ID).
@@ -200,7 +200,7 @@ implementation or `ABSENT`. A `None` for an optional port is also an `AssemblyEr
 | | `execution_state(row, uow=None)` | `proposals.execution_state` | `_dto` | one of those names |
 | | `execution_sql("s")` | `proposals.execution_sql` | `signoffs_list` filter | fixed SQL over alias `s`, only embedded |
 | `peers` (required) | `configured_ordubashy(uow)` | `management.identity` | `authorize_mail_control`, `_validate` | coordinator principal id or `None` |
-| `tasks` (required) | `open_assigned_count(uow, business_id, principal_id, now)` | `tasks.models.DEFAULT_CONFIG` + `tasks.snooze.ACTIVE_SQL` inline SQL | `notifications.overview` | `int` |
+| `tasks` (required) | `open_assigned_count(uow, project_id, principal_id, now)` | `tasks.models.DEFAULT_CONFIG` + `tasks.snooze.ACTIVE_SQL` inline SQL | `notifications.overview` | `int` |
 | `references` (required) | `targets` (`{kind: ReferenceTarget(operation, argument)}`) | `tasks.operations.NOTE_REFS` and the kind table | note schema; `notes.references` (engine authorizes the read op, then calls its read handler) | ordered mapping |
 | | `task_namespace(ctx, args)` | `tasks.operations.task_namespace` | delegated answer namespace | namespace string |
 | `platform` (optional) | `staging_values(ctx, plan, old, uow)` | `platform_actions` staging | `stage`, before the row insert | `{"id", "execution_job_id"}` |
@@ -243,15 +243,15 @@ authority, rewrite a prepared plan, or replace the visibility predicate.
 
 ### Ownership of tables, indexes, triggers and hooks
 
-Engine-owned (`storage/core_schema.py`, maintained directly): `principals`, `businesses`,
-`business_memberships`, `installation`, `agent_profiles`, `signoffs`, `signoff_notes`, `signoff_attention`,
+Engine-owned (`storage/core_schema.py`, maintained directly): `principals`, `projects`,
+`project_memberships`, `installation`, `agent_profiles`, `signoffs`, `signoff_notes`, `signoff_attention`,
 `signoff_notifications`, `signoff_notification_schedule`, `idempotency_receipts`, `apply_receipts`, `resource_claims`,
 `maintenance_state`, `change_sequences` (seed `signoffs`), `jobs`, `routines`, `routine_runs`, `routine_slots`.
 Newly engine-owned here: `signoff_notes`, `signoff_attention`, `signoff_notifications`,
 `signoff_notification_schedule`, `jobs`, `routines`, `routine_runs`, `routine_slots`.
 
 Repository specs (`storage/specs.py` `CORE_TABLES`, with the v1 keys, scope and revision columns) exist for the tables
-v1 also had specs for: `installation`, `principals`, `businesses`, `business_memberships`, `agent_profiles`, `signoffs`,
+v1 also had specs for: `installation`, `principals`, `projects`, `project_memberships`, `agent_profiles`, `signoffs`,
 `idempotency_receipts`, `apply_receipts`, `resource_claims`, `maintenance_state`, `routines`, `routine_runs`,
 `routine_slots`, `jobs` (and, with "Neutral items and relationships" below, `relationships`, `context_reviews`,
 `context_review_states`). The four Signoff adjunct tables `signoff_notes`, `signoff_attention`, `signoff_notifications`
@@ -261,21 +261,21 @@ They are engine-owned tables (DDL, indexes and triggers here) that are not reach
 
 * Indexes kept: `agent_profile_active_names`, `agent_profiles_one_active_role_per_home`, `signoffs_category_queue`,
   `signoffs_execution_job`, `signoffs_open_request_key`, `signoffs_queue`, `signoffs_updates`,
-  `signoffs_working_attention`, `signoff_notes_thread`, `signoff_notifications_owner`, `jobs_business_kind_created`,
-  `jobs_ready`, `routine_runs_business_started`, `routine_runs_namespace_started`, `routine_runs_state_started`.
+  `signoffs_working_attention`, `signoff_notes_thread`, `signoff_notifications_owner`, `jobs_project_kind_created`,
+  `jobs_ready`, `routine_runs_project_started`, `routine_runs_namespace_started`, `routine_runs_state_started`.
 * Triggers kept: `signoffs_immutable_payload|platform_binding|request_key|response`, `idempotency_receipts_no_update`,
   `apply_receipts_immutable_payload`, `signoff_notes_no_delete|no_update`, `jobs_immutable_bindings|dispatch_intent|
   external_receipt|outputs`.
 * **Left to host contributions, exactly one owner each** (omitted from `core_schema.py`; the engine neither creates
   nor assumes them): triggers `inbox_capture_signoffs_insert|update|delete` and
   `inbox_capture_signoff_attention_insert|update|delete` (change-feed/inbox capture contribution),
-  `email_history_signoff_insert|update` (email-history contribution), and index `jobs_business_kind_upload`
+  `email_history_signoff_insert|update` (email-history contribution), and index `jobs_project_kind_upload`
   (Context contribution: it keys Context uploads in `jobs`).
 * Hooks: no new engine hooks. The Signoff service is the `Application.signoffs` stager; `FileExecutor.recover_pending`
   and the `JobObserver`/controller ports above are constructor-injected; host `ReceiptHistory`/`ResourceLifecycle`
   contributions are unchanged. Operation tags written for the host change feed: `signoffs_notification_tick|dismiss|
   snooze`, `jobs_routines_tick`, `jobs_run`.
-* Newly owned `jobs` immutability: `storage/specs.py` `CORE_IMMUTABLE_FIELDS["jobs"]` = `business_id`,
+* Newly owned `jobs` immutability: `storage/specs.py` `CORE_IMMUTABLE_FIELDS["jobs"]` = `project_id`,
   `target_namespace`, `kind`, `principal_id`, `initiated_by_principal_id`, `arguments_json`, `definition_ref_json`,
   `dedupe_key`.
 
@@ -285,11 +285,11 @@ Declared through `StorageContribution(required_tables=…)` and checked at freez
 
 * `signoffs.storage_contribution()` → `inbox_changes` (`source_type`, `action`, `actor_id`, `before_json`,
   `after_json`; insert-only from `notes.append`, which feeds the host change feed with `signoff_notes` events).
-* `background.storage_contribution()` → `documents` (`id`, `kind`, `business_id`; read by `BackgroundAuthority.validate_plan`
+* `background.storage_contribution()` → `documents` (`id`, `kind`, `project_id`; read by `BackgroundAuthority.validate_plan`
   to keep automatic work off mandatory instruction documents).
 
 Behind ports (not required of the engine, required of the host's port implementation): `OwnerTaskAttention` → v1 read
-`business_configs` (`tasks` config), `tasks`, `relationships` (assignee role) and the snooze predicate;
+`project_configs` (`tasks` config), `tasks`, `relationships` (assignee role) and the snooze predicate;
 `ManagementQueries` → `management_routing` (+ the `inbox_events` write of `auto_route_input`); `PlatformActions`,
 `EmailDecisions`, `FocusAttention`, `PeerIdentities` → the platform-action, email, Focus/attention and agent-roster
 (`agents.global_peers`) state of the host. The engine's other SQL reads only engine-owned tables.
@@ -299,13 +299,13 @@ Behind ports (not required of the engine, required of the host's port implementa
 * Role ids (`roles.py`, plus inline `'ordubashy'` in `signoffs/inputs.py`, `rejection.py`, the agent-visibility SQL in
   `signoffs/service.py`): `ordubashy` (plus the global `global-worker` and `learning-applier` ids); runtime `'codex'` and
   scope `'ecosystem'` in the Ordubashy visibility SQL (the former `account_email_%`/`email_%` operation-prefix clause was removed in v1.32).
-* Standing authority and operation set in `signoffs/service.py`: `business_archive` attention in `stage`. The engine
+* Standing authority and operation set in `signoffs/service.py`: `project_archive` attention in `stage`. The engine
   issues no standing authority (the v1 `ordubashy_mail_control` and `MAIL_OPERATIONS` were removed in v1.32). A proposal
-  that records any authority (the removed `marketing_business_execution` or `ordubashy_mail_control`) is refused as
+  that records any authority (the removed `marketing_project_execution` or `ordubashy_mail_control`) is refused as
   `forbidden` and never executed; capability names `read_global_context`, `manage_global_routines`.
 * `routines/operations.py`: `learnings.extract` / `learnings.extract_global` (supersession-mode owner rule);
-  no department ids or labels exist. The former `learnings.extract` each-business target that also included
-  the Global workspace is removed (an each-business routine never includes the Global workspace): an each-business routine targets businesses only and a root routine
+  no department ids or labels exist. The former `learnings.extract` each-project target that also included
+  the Global workspace is removed (an each-project routine never includes the Global workspace): an each-project routine targets projects only and a root routine
   targets Global only, and the scheduler refuses a saved target the program's scope kinds do not support.
 * `background/authority.py`: protected document kinds `pillar`, `shared_instruction(s)`, `mandatory_brief`,
   `agent_instructions`; `signoffs/notifications.py`: `America/New_York` 08:00 summary and hourly urgent cadence;
@@ -369,7 +369,7 @@ access: registering a kind grants none, enumeration grants none, a port cannot r
   port, or an `Application` without its policy is an `AssemblyError`. Exposes `application`, `contributions`, the
   ordered `kinds`, `item_schema` (the item JSON schema derived from the registered kinds; a fresh copy per call),
   `authorize(ctx, operation, uow)`, `resource`, `resolve`, `relationship_item`, `fingerprint` and `candidates`. An
-  unregistered kind is `not_found` ("Context item does not exist in this business"), as for a missing item.
+  unregistered kind is `not_found` ("Context item does not exist in this project"), as for a missing item.
 * `authorize_item_read(application, ctx, operation, uow)`, `UNAVAILABLE` (v1's set of lookup failures that mean "not
   available to this caller now": skipped in lists, the graph and review status, every other error propagates) and
   `item_revision(row)` (`revision`, else `status_revision`, else `record_revision`, else 1).
@@ -391,7 +391,7 @@ access: registering a kind grants none, enumeration grants none, a port cannot r
   `workflow_roles` (`role -> dedicated tool text`, a subset of `roles`) and `review_edits` are copied into read-only
   mappings. The ports are `MaterialClassification` (`filters`, `material_types`, `tags`, `matches`, `prepare`,
   `apply`: the existing Material mutation), `ItemArchive` (`prepare`, `apply`), `ContextNavigation.read(ctx, args,
-  uow)`. v1 also had a business-setup `ProtectedEdges` port; it was removed with business setup (see below), so no stored
+  uow)`. v1 also had a project-setup `ProtectedEdges` port; it was removed with project setup (see below), so no stored
   edge is protected by its role name and the ordinary revision, workflow-role and policy checks are the whole contract.
 * `ReviewEdit(item_kind, argument, resource_type=None, apply_through_domain=False)`: one operation a review may
   compose, keyed by operation name. `argument` must equal the reviewed item's id, `item_kind` (or, when it is `None`,
@@ -422,10 +422,10 @@ and the installed-wheel slice compose it exactly this way.
 Engine-owned in `storage/core_schema.py` with the v1 DDL (regenerated by the tool, which reproduced the previous file
 before it was extended):
 
-* `relationships` (PK `(business_id, id)`; `business_id` nullable for Global edges; `created_by` → `principals`).
-  Its `CHECK` is the v1 one with the retired group item type replaced by Tasks (see "Ordinary parent Tasks"): `business_id IS
-  NOT NULL` permits every Business row outright (the constraint restricts no Business shape). A Global row
-  (`business_id IS NULL`) must match one of: a `task` target with `concerns` (anything related to a group Task), a
+* `relationships` (PK `(project_id, id)`; `project_id` nullable for Global edges; `created_by` → `principals`).
+  Its `CHECK` is the v1 one with the retired group item type replaced by Tasks (see "Ordinary parent Tasks"): `project_id IS
+  NOT NULL` permits every Project row outright (the constraint restricts no Project shape). A Global row
+  (`project_id IS NULL`) must match one of: a `task` target with `concerns` (anything related to a group Task), a
   `task` source with `concerns`; a `task` source with `assigned_to` an `agent` or `person`, or `blocked_by` a `task`;
   or a `material`, `topic` or `person` source with `part_of` a `topic`, `concerns` or `mentions` a `topic` or `person`,
   or `extracted_from` a `material`. Hierarchy is the Task's `parent_id`, never a `part_of` edge, and a Global agent
@@ -433,14 +433,14 @@ before it was extended):
   (material/topic/person) shapes as well as Task vocabulary. This is the one engine definition that differs from the
   deployed v1 final schema; `derive_host_schema.py` names that revision and checks the exact replacement.
 * `context_reviews` (append-only; `mutable=False`, no revision column) and `context_review_states` (one mutable row
-  per `(business_id, relationship_id, item_type, item_id)`, FK to `relationships ON DELETE CASCADE` and to
+  per `(project_id, relationship_id, item_type, item_id)`, FK to `relationships ON DELETE CASCADE` and to
   `context_reviews`). Removing a relationship therefore removes its review state and keeps the decisions.
 * Indexes kept: `relationships_from`, `relationships_global_key`, `relationships_memory_observe`,
   `relationships_role`, `relationships_to`, `context_reviews_history`. Triggers kept: `context_reviews_no_update`,
   `context_reviews_no_delete`.
-* Specs (`storage/specs.py`): `relationships` `(("business_id","id"), "business_id")`, `context_reviews`
-  `(("business_id","id"), "business_id", False, None)`, `context_review_states`
-  `(("business_id","relationship_id","item_type","item_id"), "business_id")`: the v1 lines.
+* Specs (`storage/specs.py`): `relationships` `(("project_id","id"), "project_id")`, `context_reviews`
+  `(("project_id","id"), "project_id", False, None)`, `context_review_states`
+  `(("project_id","relationship_id","item_type","item_id"), "project_id")`: the v1 lines.
 * **Capture/history hooks that stay with the host** (omitted from `core_schema.py`; exactly one owner each):
   triggers `inbox_capture_relationships_insert|update|delete` (change-feed capture of `relationships`; they call the
   `inbox_actor` helper the engine already registers). The engine records no shared-history event for review decisions
@@ -486,7 +486,7 @@ package's `storage_contribution()` and one `*Operations(...).contribution()` cat
 | `tags` | `tags`, `item_tags`; `tags_list`, `tags_create` | `TagOperations(clock=)` |
 | `discussion` | `inbox_events`, `inbox_deliveries`, `inbox_subscriptions`, `thread_messages`, `thread_follows`; `emit_event`, `auto_follow`, `set_follow`, relay/attribution, system entries | functions only (no operations) |
 | `tasks` | `tasks`, `task_completions`, `task_snooze_wakes`, `task_moves`; `tasks_list/get/thread_get/notes_list/config_get/overview`, `assignees_list`, `tasks_create/update/assign/comment/complete/config_update/follow` | `TaskOperations(application, ItemResolver, TaskPorts, clock=)`; `TaskOperations.reconcile_snoozes(uow, now=, limit=)`; `TaskOperations.note_references()` |
-| `actions` | `action_logs`, `action_businesses`, `action_revisions`; `actions_list/get/config_get/thread_get/record/correct/withdraw/comment/follow`; writer `new_action`/`change_action`/`settle` | `ActionOperations(application, references, *, tasks, on_revision, clock=)` where `references` is `tasks.note_references()` and `tasks` is the Task service, whose `lookup` finds the Task an Action links (build the Task service first) |
+| `actions` | `action_logs`, `action_projects`, `action_revisions`; `actions_list/get/config_get/thread_get/record/correct/withdraw/comment/follow`; writer `new_action`/`change_action`/`settle` | `ActionOperations(application, references, *, tasks, on_revision, clock=)` where `references` is `tasks.note_references()` and `tasks` is the Task service, whose `lookup` finds the Task an Action links (build the Task service first) |
 
 The engine imports no host module. What a host must supply comes in as `TaskPorts` (assignee rules,
 Focus, incident link, note references, owner-work routing) and the neutral `ItemResolver`.
@@ -518,28 +518,28 @@ channel rules, contact/peer rules (ports), configured fields. `tasks_follow` is 
 
 ### Actions
 
-An Action has one owning storage namespace (a business, or Global) fixed at creation. `action_businesses` are
+An Action has one owning storage namespace (a project, or Global) fixed at creation. `action_projects` are
 read-visibility links only. Every record, correction and withdrawal is an immutable `action_revisions` row
 (1 = `add`, then `edit`/`remove`); the current `action_logs` row is a projection. Correction and withdrawal belong to
 the original recorder in the owning scope, or the owner, plus the normal per-operation grant; withdrawal is final.
 Writers call `new_action`/`change_action` on a `PlanBuilder`, then `apply_records` and **`settle(ctx, plan, uow, *, on_revision)`**:
 `settle` hands the exact stored revision to the required `on_revision` callable (Context's queue admission in a Context host) and announces, inside the applying transaction.
 
-**Tag envelope.** Each revision freezes `snapshot_json.tag_snapshots = [{id, name, business_id}]`, sorted by
+**Tag envelope.** Each revision freezes `snapshot_json.tag_snapshots = [{id, name, project_id}]`, sorted by
 (`name` casefolded, `id`): `id` is the stable catalog id, `name` the catalog's immutable display label, and
-`business_id` is ALWAYS null (ordinary tags are shared labels; no business tag is synthesized and the owning scope is
+`project_id` is ALWAYS null (ordinary tags are shared labels; no project tag is synthesized and the owning scope is
 never inferred from a tag). The queued payload's `tags` is exactly that list, so it satisfies Context
-`input_modes.tag_snapshots` (`{id,name,business_id}` exactly) and never consults today's catalog or tag associations.
+`input_modes.tag_snapshots` (`{id,name,project_id}` exactly) and never consults today's catalog or tag associations.
 Label-list DTOs are derived from the frozen snapshot (`actions_get {revision}`) or the live tags (current reads).
-`tags.tag_snapshots(uow, business_id, item_type, item_id)` reads an item's current snapshots; `plan_item_tags(...)`
+`tags.tag_snapshots(uow, project_id, item_type, item_id)` reads an item's current snapshots; `plan_item_tags(...)`
 returns the resulting `tags` snapshots for the plan being built.
 
 **Discussion.** `actions_thread_get {action_id, limit?, cursor?}` -> `{thread_id, action_id, participants, messages,
-next_cursor}` is authorized exactly like `actions_get` (reader scope, retained business read links; unauthorized or
+next_cursor}` is authorized exactly like `actions_get` (reader scope, retained project read links; unauthorized or
 unknown = `not_found`), reads the one `thread_messages` table (`item_type='action'`) and never follows anything.
 `actions_comment {action_id, text, summary?, note_refs?, relay?, rationale?}` is a policy-gated, Signoff-capable
 mutation with NO automatic grant. It requires the Action to be readable AND the caller to be an active participant of
-the Action's owning namespace (`ctx.business_id == action.business_id`); a read link is never a write. It records one
+the Action's owning namespace (`ctx.project_id == action.project_id`); a read link is never a write. It records one
 `thread_messages` row (actual recorder and attributed speaker, relay as for Tasks), auto-follows the commenter and, for
 a relay, the represented speaker (`creator`/`commenter`/`represented`; an explicit unfollow stays), and emits ONE
 optional `note_added` event scoped to the owning namespace (`source_type actions`, `source_id` the action key, revision
@@ -560,9 +560,9 @@ imports Context.
 ### Host inputs
 
 * Compose the `storage_contribution()`s in the order above before `signoffs`, with the listed `required_tables`
-  satisfied by host tables (`businesses`, `principals`, `business_configs`, the item tables). Context's four contributions are
+  satisfied by host tables (`projects`, `principals`, `project_configs`, the item tables). Context's four contributions are
   spliced after `actions` by the host.
-* The required `business_configs` table holds two Task domains the engine itself writes: `tasks` (field definitions, via
+* The required `project_configs` table holds two Task domains the engine itself writes: `tasks` (field definitions, via
   `tasks_config_update`) and `task_customer_states` (the scoped Customer-state vocabulary, appended inside the Task plan that
   introduces a label; see the README's "Customers"). Neither needs a schema change or a new operation.
 * Provide `TaskPorts`, an `ItemResolver`, a delegation provider on the `Application`, and the registration of
@@ -572,12 +572,12 @@ imports Context.
   somebody else is assigned). Each responsible principal is classified from the principal registry, not from the edge
   type. Agents get a required `snooze_expired` inbox delivery through the event writer's eligibility filter. Human
   responsibility is not an inbox row and ALWAYS goes through the typed port
-  `Routing.snooze_routes(uow, business_id, task, human_ids) -> agent ids` (declared and validated in `TaskPorts`;
+  `Routing.snooze_routes(uow, project_id, task, human_ids) -> agent ids` (declared and validated in `TaskPorts`;
   `Routing.routes` keeps its ordinary-event semantics), creator fallback included. The host answers with the Focus
   coordinator and the owner-work coordinators when the installation owner is among `human_ids` and applies its other
   mandatory routes; optional related-work/follower routes are not reminder responsibility. The result is filtered to agents
   eligible in the Task's scope by the event writer. A wake nobody is eligible for is still recorded (one per
-  business/task/generation), a done/cancelled Task is never woken, and a wake never starts work.
+  project/task/generation), a done/cancelled Task is never woken, and a wake never starts work.
 * Retire the replaced host tables/triggers (`tasks`, `task_notes`, `task_changes`, `task_completions`, `action_*`,
   `inbox_*`, `inbox_capture_*`, `task_first_done_*`) in the generated host DDL; callers move to the engine operations.
 * Platform writebacks that record Actions call `new_action` then `settle` with the composition's one `on_revision`.
@@ -592,7 +592,7 @@ thread, children are Tasks with `parent_id`, and any other association is an ord
 * `storage/core_schema.py`: the Global `CHECK` of `relationships` names Tasks where v1 named the retired group type
   (see "relationships" above); nothing else in the core schema changed.
 * `tasks.Campaigns` was a required `TaskPorts` member here; v1.3 removes it (see "Retired product surface").
-* `team_channel`: the owner's business Task discussion exception stays (`tasks_comment`, `focus_reply`); the retired
+* `team_channel`: the owner's project Task discussion exception stays (`tasks_comment`, `focus_reply`); the retired
   group note operation is no longer named.
 * Action evidence: the `story` evidence key is `task`.
 
@@ -615,14 +615,14 @@ A Task keeps its identity when it changes owning scope. `tasks/relocation.py` (`
   rewrite wrote to `inbox_changes` are removed again: relocation announces nothing.
 * `RelocationAdapter` objects supply the references only the host owns (their counts, blockers, fingerprint material and
   application run in the same guard and transaction).
-* `task_moves` is the append-only audit. `moved_location(uow, business_id, task_id)` replays it to find where the Task a stale
+* `task_moves` is the append-only audit. `moved_location(uow, project_id, task_id)` replays it to find where the Task a stale
   scoped reference named is now - bounded, unambiguous (a Task is identified across moves by id and creation time), current
   rows first. Global is a real place a Task leaves (`None` is the scope, not "no answer"), so a Global -> Project -> Project
   journey resolves from either old scope. `TaskOperations` answers a read or write against the old scope with `record_moved`
   (`details.destination`, `details.task`) only to a caller who may read the destination; otherwise `not_found`. A pending inbox
   event recorded under the old scope is delivered if the recipient may read the Task where it is now.
 * Historical references. A note stores `{type, id}` relative to the scope it was written in and never changes. The nullable
-  `thread_messages.reference_namespace` (`global` or `business:<id>`) keeps that scope once the note's Task has moved: the
+  `thread_messages.reference_namespace` (`global` or `project:<id>`) keeps that scope once the note's Task has moved: the
   first relocation pins the exact old namespace (a later one keeps it, and a note written after a move is pinned to its own
   scope by the next one); `NULL` means the note still lives where it was written. The immutable-message trigger lets only a
   guarded relocation fill a `NULL` pin with the exact old namespace of that row; nothing else can set, change or clear it.
@@ -630,12 +630,12 @@ A Task keeps its identity when it changes owning scope. `tasks/relocation.py` (`
   `SignoffNotes.references(strict=False)` for Signoff and Focus notes) is read-only and opt-in: a record at the exact original
   scope wins; for a Task that is gone from there the relocation resolver names its current scope and the caller's own read
   authorization on that exact target decides whether any label or place is shown. A readable reference of a scope-qualified
-  kind (Task, topic, material, table) always carries `business_id` (an explicit `null` is Global), `business_slug` and
-  `business_name`, also when it resolved in the reader's own scope; other kinds carry them only outside it and an unavailable
+  kind (Task, topic, material, table) always carries `project_id` (an explicit `null` is Global), `project_slug` and
+  `project_name`, also when it resolved in the reader's own scope; other kinds carry them only outside it and an unavailable
   reference none. `HistoricalReferences.target` gives consumers that open the Task themselves (the host's CRM linked activity)
   the same answer: the pinned origin while a Task with that exact identity is there, else the authorized current place, else
   `ABSENT`. A destination record that only shares the bare id is never the target. Writes and strict validation never follow a moved target.
-  `journey_spans(uow, business_id, task_id)` gives the stays of one Task (by id and creation time) with their times; CRM
+  `journey_spans(uow, project_id, task_id)` gives the stays of one Task (by id and creation time) with their times; CRM
   activity uses it to find the membership developments, whose immutable payload names the scope the record had, without
   borrowing an unrelated Task's that reuses the id.
 * Not moved, by decision: a Task with an Email binding, a relationship that would cross the move (including `blocked_by`), a
@@ -644,22 +644,22 @@ A Task keeps its identity when it changes owning scope. `tasks/relocation.py` (`
 
 ## Global work relationships
 
-Deployed Stories grouped and linked work in a business or in Global under `read_global_context`. Ordinary parent Tasks keep
+Deployed Stories grouped and linked work in a project or in Global under `read_global_context`. Ordinary parent Tasks keep
 that: exactly eight neutral operations now resolve their owning namespace like a Task operation does.
 
 * `relationship_roles_list`, `relationships_list`, `relationships_get`, `relationships_create`, `relationships_update`,
   `relationships_remove`, `context_items_list` and `context_items_get` take the optional `scope` input
-  (`business` | `global`) and declare `scope_kinds={business, global}`, `global_capability="read_global_context"` and
+  (`project` | `global`) and declare `scope_kinds={project, global}`, `global_capability="read_global_context"` and
   `resolve_namespace=tasks.scope.task_namespace`. Their handlers (read, prepare, validate-prepared, apply) first call
   `tasks.scope.task_context`, the Task check: a Global call needs the installation owner or an active ecosystem agent
-  holding the capability, and a business-restricted agent is refused. There is no second permission evaluator.
-* A Global call runs with `business_id=None`: reads and writes use the Global partition only, a business row never becomes
+  holding the capability, and a project-restricted agent is refused. There is no second permission evaluator.
+* A Global call runs with `project_id=None`: reads and writes use the Global partition only, a project row never becomes
   visible by supplying its id, the plan's namespace and affected scope are Global, and both endpoints are re-resolved in
-  that one namespace (the host's lookups already honor an unselected business), so a cross-business endpoint is
+  that one namespace (the host's lookups already honor an unselected project), so a cross-project endpoint is
   `not_found`. The relationships `CHECK` still restricts a Global edge to a Task `concerns` link.
 * Unchanged: the per-operation policy and revision checks, prepared Signoff and fresh target validation, canonical
   conversation identities, and every other relationship operation (`context_navigation_get`, `context_graph_get`,
-  `context_items_archive`, `materials_update`, the review operations), which stay business-only and have no `scope`.
+  `context_items_archive`, `materials_update`, the review operations), which stay project-only and have no `scope`.
 
 ## Context model-call usage ledger
 
@@ -667,7 +667,7 @@ Moved to Context (`qorqut_context.integration.usage`, owner `context-usage`); se
 
 ## Setup ports removed (project transition)
 
-Business setup is gone from the product, so the two ports that existed only to serve it are gone from the engine; they
+Project setup is gone from the product, so the two ports that existed only to serve it are gone from the engine; they
 are removed, not made optional or inert, and nothing replaces them:
 
 * `tasks.SetupGuards` and the `setup` member of `TaskPorts`: the Task prepare-time and apply-time guard, the
@@ -712,7 +712,7 @@ flag-gated, and nothing replaces them in the engine:
   normalized key, no aliasing. Capabilities, permissions, UUID identity and worker scopes are unchanged and nothing
   derives authority from a tag.
 * **Specialist role rules.** `roles.py` keeps `global-worker`, `learning-applier` and `ordubashy`; the supported global
-  roles are exactly those three. The `marketing_business_execution` standing authority, `MARKETING_PLATFORM_TOOLS`,
+  roles are exactly those three. The `marketing_project_execution` standing authority, `MARKETING_PLATFORM_TOOLS`,
   `proposer_department`, `_marketing_platform_eligible`, `standing_authority_current`, the `marketing_peer` peer lookup
   and the `PlatformActions.enqueue_binding` member (only that rule called it) are removed. `ordubashy_mail_control`
   is the only standing authority; a stored proposal that records any other authority is refused as `forbidden` and

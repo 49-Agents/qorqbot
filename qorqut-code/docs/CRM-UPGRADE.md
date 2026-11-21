@@ -90,7 +90,7 @@ What differs from the CRM store, and nothing else:
   triggers;
 - one **added column**, the nullable `thread_messages.reference_namespace`, which is why `thread_messages` is listed as a
   rebuilt table. It is `NULL` on every carried row ("never needed a pin"); the first guarded relocation of a Task fills it
-  with the exact old namespace (`global` or `business:<UUID>`) so the immutable note keeps the scope its references were
+  with the exact old namespace (`global` or `project:<UUID>`) so the immutable note keeps the scope its references were
   written in;
 - five **rewritten triggers**, each narrowed to recognize the one armed relocation and still refusing every ordinary or
   raw write: `tasks_scope_identity`, `task_snooze_wakes_immutable`, `thread_messages_immutable_update`,

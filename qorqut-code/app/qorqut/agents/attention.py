@@ -21,8 +21,8 @@ from qorqut_operations.tasks.events import STEP_EVENTS
 from qorqut.management.identity import configured_ordubashy, is_active_installation_owner
 
 ID = {'type': 'string', 'minLength': 1, 'maxLength': 200}
-REF = schema({'type': ID, 'id': ID, 'business_id': {'type': ['string', 'null']}}, ('type', 'id', 'business_id'))
-TASK = schema({'type': {'const': 'task'}, 'id': ID, 'business_id': {'type': ['string', 'null']}}, ('type', 'id', 'business_id'))
+REF = schema({'type': ID, 'id': ID, 'project_id': {'type': ['string', 'null']}}, ('type', 'id', 'project_id'))
+TASK = schema({'type': {'const': 'task'}, 'id': ID, 'project_id': {'type': ['string', 'null']}}, ('type', 'id', 'project_id'))
 REV = {'type': 'integer', 'minimum': 0}
 OPEN_WORK_LIMIT = 50
 # Delegated work the coordinator's reminder calls quiet, and how many such Tasks it lists.
@@ -30,18 +30,18 @@ STALLED_AFTER = timedelta(minutes=10)
 STALLED_LIMIT = 10
 # How many delegated Tasks' plans one reminder reads from the workflow store, longest untouched first.
 PLAN_READ_LIMIT = 30
-OPEN_WORK = ("SELECT t.business_id,t.id,t.title,t.status,t.created_at,t.updated_at,t.due,t.snoozed_until,t.worker_ids_json,"
+OPEN_WORK = ("SELECT t.project_id,t.id,t.title,t.status,t.created_at,t.updated_at,t.due,t.snoozed_until,t.worker_ids_json,"
              "t.fields_json "
              "FROM tasks t WHERE t.archived=0 AND t.status NOT IN ('done','cancelled') "
              "AND coalesce(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')='task' "
-             "AND NOT EXISTS (SELECT 1 FROM businesses b WHERE b.id=t.business_id AND b.archived_at IS NOT NULL) "
-             "AND NOT EXISTS (SELECT 1 FROM crm_entries e WHERE e.record_task_id=t.id AND e.record_business_id IS t.business_id "
+             "AND NOT EXISTS (SELECT 1 FROM projects b WHERE b.id=t.project_id AND b.archived_at IS NOT NULL) "
+             "AND NOT EXISTS (SELECT 1 FROM crm_entries e WHERE e.record_task_id=t.id AND e.record_project_id IS t.project_id "
              "AND e.removed=0) ORDER BY t.updated_at, t.id")
 CLOCK_FIELDS = frozenset({'board_mode', 'board_due_at', 'focus_due_at', 'last_agent_activity_at', 'last_owner_message_at', 'reminder_sequence'})
-# ``business_archived``: a Task in an archived project is retained but is not current work, so it is left out like
+# ``project_archived``: a Task in an archived project is retained but is not current work, so it is left out like
 # any other Task the agent can no longer read instead of failing the whole read.
 UNREADABLE = frozenset({'forbidden', 'policy_denied', 'invalid_policy', 'not_found', 'operation_unavailable',
-                        'business_archived'})
+                        'project_archived'})
 
 
 def board_agent(uow, agent_id):
@@ -117,11 +117,11 @@ def on_boards(row):
 PAUSED = frozenset({'waiting', 'blocked', 'needs_input'})
 
 
-def task_recipients(uow, business_id, task, actor_id):
+def task_recipients(uow, project_id, task, actor_id):
     """Current board membership is a routing reason, never a source grant."""
     rows = uow.connection.execute(
-        'SELECT DISTINCT agent_id FROM attention_memberships WHERE task_business_id IS ? AND task_id=? AND task_created_at=?',
-        (business_id, task['id'], task['created_at']))
+        'SELECT DISTINCT agent_id FROM attention_memberships WHERE task_project_id IS ? AND task_id=? AND task_created_at=?',
+        (project_id, task['id'], task['created_at']))
     return {row[0] for row in rows if row[0] != actor_id and board_agent(uow, row[0])}
 
 
@@ -175,7 +175,7 @@ class Attention:
 
     def context(self, ctx, args, uow):
         """The acting principal and the board this invocation selects; the actor is never assumed to be its target."""
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         agent = self.board_target(ctx, args, uow)
         if ctx.principal_kind == 'agent':
             if ctx.delegation_assignment_id is not None:
@@ -217,7 +217,7 @@ class Attention:
         """The board agent's own invocation context when a manager acts on another agent's board."""
         if ctx.principal_kind == 'agent' and ctx.principal_id == agent:
             return ctx
-        return self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow)
+        return self.app.policy.context_for(agent, project_id=None, review_project_id=None, uow=uow)
 
     def board_task(self, ctx, agent, ref, uow, **options):
         """Read one Task under the caller's authority and, for another board, the board agent's authority too."""
@@ -252,17 +252,17 @@ class Attention:
         uow.connection.execute('UPDATE agent_attention SET '+','.join(k+'=?' for k in changes)+' WHERE agent_id=?', [*changes.values(), agent_id])
 
     def membership_event(self, uow, agent, membership_id, ref, created_at, actor, kind, now, *, owner_requested=False, rationale=''):
-        uow.connection.execute('INSERT INTO attention_membership_events(id,agent_id,membership_id,task_business_id,task_id,task_created_at,actor_id,event_type,owner_requested,rationale,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-            (new_id(), agent, membership_id, ref['business_id'], ref['id'], created_at, actor, kind, int(owner_requested), rationale, now))
+        uow.connection.execute('INSERT INTO attention_membership_events(id,agent_id,membership_id,task_project_id,task_id,task_created_at,actor_id,event_type,owner_requested,rationale,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+            (new_id(), agent, membership_id, ref['project_id'], ref['id'], created_at, actor, kind, int(owner_requested), rationale, now))
 
-    def release_project(self, uow, business_id, actor_id):
+    def release_project(self, uow, project_id, actor_id):
         """Take an archived project's Tasks off every Todo board; returns how many entries were removed.
 
         Runs inside the approved archive's own write. Each entry leaves the history record an ordinary removal does,
         a workflow working on the Task is detached and a focus on it is cleared. No inbox event is sent, because an
         archived project is not current work. The Tasks are retained; restoring the project does not re-add them."""
-        rows = uow.connection.execute('SELECT * FROM attention_memberships WHERE task_business_id=? ORDER BY agent_id,id',
-                                      (business_id,)).fetchall()
+        rows = uow.connection.execute('SELECT * FROM attention_memberships WHERE task_project_id=? ORDER BY agent_id,id',
+                                      (project_id,)).fetchall()
         return self.release(uow, rows, actor_id, 'Project archived')
 
     def follow_task(self, uow, before, after, actor_id):
@@ -274,12 +274,12 @@ class Attention:
         acted on, so an entry made before boards followed the Task stays until the Task's workers next change. The agents
         concerned are told by the Task's own event, which is addressed before this runs."""
         row = after['row']
-        ref = {'type': 'task', 'id': row['id'], 'business_id': row['business_id']}
+        ref = {'type': 'task', 'id': row['id'], 'project_id': row['project_id']}
         held = task_workers(row) if on_boards(row) else set()
         had = task_workers(before['row']) if before is not None and on_boards(before['row']) else set()
         entries = [dict(entry) for entry in uow.connection.execute(
-            'SELECT * FROM attention_memberships WHERE task_business_id IS ? AND task_id=? ORDER BY agent_id,id',
-            (ref['business_id'], ref['id']))]
+            'SELECT * FROM attention_memberships WHERE task_project_id IS ? AND task_id=? ORDER BY agent_id,id',
+            (ref['project_id'], ref['id']))]
         if not on_boards(row):
             removed = self.release(uow, entries, actor_id, 'Task archived' if row.get('archived') else 'Task closed')
         else:
@@ -301,7 +301,7 @@ class Attention:
         pause and detach rules."""
         agents = [row[0] for row in uow.connection.execute(
             "SELECT agent_id FROM agent_attention WHERE json_extract(work_task_json,'$.id')=? "
-            "AND json_extract(work_task_json,'$.business_id') IS ? ORDER BY agent_id", (ref['id'], ref['business_id']))]
+            "AND json_extract(work_task_json,'$.project_id') IS ? ORDER BY agent_id", (ref['id'], ref['project_id']))]
         for agent in agents:
             state = self.state(uow, agent)
             if state['focus_json'] == state['work_task_json'] == ref:
@@ -311,8 +311,8 @@ class Attention:
         """Write one board entry with its history record; returns the entry id."""
         self.ensure(uow, agent)
         membership_id = new_id()
-        uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,created_at) '
-                               'VALUES(?,?,?,?,?,?)', (membership_id, agent, ref['business_id'], ref['id'], created_at, now))
+        uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_project_id,task_id,task_created_at,created_at) '
+                               'VALUES(?,?,?,?,?,?)', (membership_id, agent, ref['project_id'], ref['id'], created_at, now))
         self.membership_event(uow, agent, membership_id, ref, created_at, actor_id, 'added', now)
         uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?', (now, agent))
         return membership_id
@@ -320,11 +320,11 @@ class Attention:
     def write_task(self, ctx, uow, ref, revision, changes):
         """One Task write made for a board operation, through the Task engine: its rules, thread entry, event and the
         board entries that follow from it are the engine's, exactly as for ``tasks_update``."""
-        selected = self.app.current_context(replace(ctx, business_id=ref['business_id'], review_business_id=ref['business_id']), uow)
-        arguments = {'task_id': ref['id'], 'changes': changes, **({'scope': 'global'} if ref['business_id'] is None else {})}
+        selected = self.app.current_context(replace(ctx, project_id=ref['project_id'], review_project_id=ref['project_id']), uow)
+        arguments = {'task_id': ref['id'], 'changes': changes, **({'scope': 'global'} if ref['project_id'] is None else {})}
         descriptor = self.app.registry.get('tasks_update')
-        if ref['business_id'] is not None: descriptor = replace(descriptor, global_capability=None)
-        self.app.authorize(selected, descriptor, (), uow, namespace='business:'+ref['business_id'] if ref['business_id'] else 'global')
+        if ref['project_id'] is not None: descriptor = replace(descriptor, global_capability=None)
+        self.app.authorize(selected, descriptor, (), uow, namespace='project:'+ref['project_id'] if ref['project_id'] else 'global')
         plan = descriptor.prepare(selected, arguments, InvocationOptions(expected_revision=revision), uow)
         return descriptor.apply(selected, plan, uow)['task']
 
@@ -339,13 +339,13 @@ class Attention:
         now = timestamp(self.clock)
         for row in rows:
             agent = row['agent_id']
-            ref = {'type': 'task', 'id': row['task_id'], 'business_id': row['task_business_id']}
+            ref = {'type': 'task', 'id': row['task_id'], 'project_id': row['task_project_id']}
             self.membership_event(uow, agent, row['id'], ref, row['task_created_at'], actor_id, 'removed', now,
                                   rationale=rationale)
             uow.connection.execute('DELETE FROM attention_memberships WHERE id=?', (row['id'],))
             uow.connection.execute("UPDATE attention_workflows SET detached_at=?,updated_at=?,revision=revision+1 "
                 "WHERE agent_id=? AND detached_at IS NULL AND json_extract(work_task_json,'$.id')=? "
-                "AND json_extract(work_task_json,'$.business_id') IS ?", (now, now, agent, ref['id'], ref['business_id']))
+                "AND json_extract(work_task_json,'$.project_id') IS ?", (now, now, agent, ref['id'], ref['project_id']))
             if self.state(uow, agent)['work_task_json'] == ref:
                 self.clear_focus(uow, agent, 'membership_removed')
             uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?', (now, agent))
@@ -372,7 +372,7 @@ class Attention:
         if not targets:
             return []
         try:
-            actor = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+            actor = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
             self.app.authorize(actor, self.app.registry.get('attention_add'), (), uow, namespace='global')
         except DomainError as error:
             if error.code not in UNREADABLE: raise
@@ -380,15 +380,15 @@ class Attention:
         now, filled = timestamp(self.clock), []
         for agent in targets:
             try:
-                self.task(self.app.policy.context_for(agent, business_id=None, review_business_id=None, uow=uow),
+                self.task(self.app.policy.context_for(agent, project_id=None, review_project_id=None, uow=uow),
                           ref, uow, lifecycle_only=True)
             except DomainError as error:
                 if error.code not in UNREADABLE: raise
                 continue
             self.ensure(uow, agent)
             membership_id = new_id()
-            uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,created_at) VALUES(?,?,?,?,?,?)',
-                (membership_id, agent, ref['business_id'], ref['id'], task['created_at'], now))
+            uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_project_id,task_id,task_created_at,created_at) VALUES(?,?,?,?,?,?)',
+                (membership_id, agent, ref['project_id'], ref['id'], task['created_at'], now))
             self.membership_event(uow, agent, membership_id, ref, task['created_at'], ctx.principal_id, 'added', now,
                                   rationale='Named as Worker')
             uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?', (now, agent))
@@ -396,8 +396,8 @@ class Attention:
         return filled
 
     def task_membership(self, uow, agent_id, task_ref):
-        row = uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=? AND task_business_id IS ? AND task_id=?',
-            (agent_id, task_ref['business_id'], task_ref['id'])).fetchone()
+        row = uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=? AND task_project_id IS ? AND task_id=?',
+            (agent_id, task_ref['project_id'], task_ref['id'])).fetchone()
         return dict(row) if row else None
 
     def authorized_task(self, uow, ctx, agent_id, task_ref):
@@ -443,15 +443,15 @@ class Attention:
     def task(self, ctx, ref, uow, *, lifecycle_only=False, notes=True):
         # Board callers use board_task to check both actor and target. A plain
         # source read must not implicitly add a third principal's permissions.
-        selected = self.app.current_context(replace(ctx, business_id=ref['business_id'], review_business_id=ref['business_id']), uow)
+        selected = self.app.current_context(replace(ctx, project_id=ref['project_id'], review_project_id=ref['project_id']), uow)
         descriptor = self.app.registry.get('tasks_get')
-        if ref['business_id'] is not None: descriptor = replace(descriptor, global_capability=None)
-        self.app.authorize(selected, descriptor, (), uow, namespace='business:'+ref['business_id'] if ref['business_id'] else 'global')
-        args = {'task_id': ref['id'], **({'scope': 'global'} if ref['business_id'] is None else {}), **({} if notes else {'notes_limit': 0})}
+        if ref['project_id'] is not None: descriptor = replace(descriptor, global_capability=None)
+        self.app.authorize(selected, descriptor, (), uow, namespace='project:'+ref['project_id'] if ref['project_id'] else 'global')
+        args = {'task_id': ref['id'], **({'scope': 'global'} if ref['project_id'] is None else {}), **({} if notes else {'notes_limit': 0})}
         if lifecycle_only:
             from qorqut_operations.tasks.scope import task_context
             selected = task_context(selected, args, uow)
-            task = uow.repository('tasks', business_id=selected.business_id).get(ref['id'])
+            task = uow.repository('tasks', project_id=selected.project_id).get(ref['id'])
             if task is None:
                 raise DomainError('not_found', 'Task is unavailable')
             return task
@@ -460,7 +460,7 @@ class Attention:
     def resolve(self, ctx, agent, ref, uow):
         if ref['type'] == 'workflow':
             row = uow.connection.execute('SELECT * FROM attention_workflows WHERE agent_id=? AND run_id=?', (agent, ref['id'])).fetchone()
-            if ref['business_id'] is not None or not row or row['detached_at'] or row['paused']:
+            if ref['project_id'] is not None or not row or row['detached_at'] or row['paused']:
                 raise DomainError('not_found', 'Workflow association is unavailable')
             self.task(ctx, json.loads(row['work_task_json']), uow, lifecycle_only=True)
             return {**ref, 'label': row['workflow_name']}
@@ -470,23 +470,23 @@ class Attention:
         # Timer checks run inside write transactions. Do not hydrate task threads,
         # relationships and worker projections just to inspect lifecycle state.
         from qorqut_operations.tasks.scope import task_context
-        try: ctx = self.app.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
+        try: ctx = self.app.policy.context_for(agent_id, project_id=None, review_project_id=None, uow=uow)
         except DomainError: return 'empty'
         scopes = {}
         tasks = []
         coordinator = configured_ordubashy(uow)
         for row in uow.connection.execute('SELECT * FROM attention_memberships WHERE agent_id=?', (agent_id,)):
-            business_id = row['task_business_id']
+            project_id = row['task_project_id']
             try:
-                if business_id not in scopes:
-                    scopes[business_id] = None
-                    selected = self.app.current_context(replace(ctx, business_id=business_id, review_business_id=business_id), uow)
+                if project_id not in scopes:
+                    scopes[project_id] = None
+                    selected = self.app.current_context(replace(ctx, project_id=project_id, review_project_id=project_id), uow)
                     descriptor = self.app.registry.get('tasks_get')
-                    if business_id is not None: descriptor = replace(descriptor, global_capability=None)
-                    self.app.authorize(selected, descriptor, (), uow, namespace='business:'+business_id if business_id else 'global')
-                    selected = task_context(selected, {'scope': 'global'} if business_id is None else {}, uow)
-                    scopes[business_id] = uow.repository('tasks', business_id=selected.business_id)
-                repository = scopes[business_id]
+                    if project_id is not None: descriptor = replace(descriptor, global_capability=None)
+                    self.app.authorize(selected, descriptor, (), uow, namespace='project:'+project_id if project_id else 'global')
+                    selected = task_context(selected, {'scope': 'global'} if project_id is None else {}, uow)
+                    scopes[project_id] = uow.repository('tasks', project_id=selected.project_id)
+                repository = scopes[project_id]
                 if repository is None:
                     continue
                 task = repository.get(row['task_id'])
@@ -543,7 +543,7 @@ class Attention:
         if not self.state(uow, agent_id)['focus_json'] or payload.get('time_critical') is True: return True
         link = payload.get('linked_item')
         if not isinstance(link, dict) or not link.get('type') or not link.get('id'): return False
-        return self.related_event(uow, agent_id, {'source_type': link['type'], 'source_id': link['id'], 'business_id': link.get('business_id')})
+        return self.related_event(uow, agent_id, {'source_type': link['type'], 'source_id': link['id'], 'project_id': link.get('project_id')})
 
     def related_event(self, uow, agent_id, event):
         event = dict(event)
@@ -572,14 +572,14 @@ class Attention:
             row = uow.connection.execute('SELECT related_refs_json FROM attention_workflows WHERE agent_id=? AND run_id=?', (agent_id,focus['id'])).fetchone()
             if row: refs.extend(json.loads(row[0]))
         if event.get('source_type') == 'operational_assignments':
-            row = uow.connection.execute('SELECT business_id,scope_json,links_json FROM operational_assignments WHERE id=? AND parent_principal_id=?', (event.get('source_id'),agent_id)).fetchone()
+            row = uow.connection.execute('SELECT project_id,scope_json,links_json FROM operational_assignments WHERE id=? AND parent_principal_id=?', (event.get('source_id'),agent_id)).fetchone()
             if row:
                 links = json.loads(row['links_json'])
                 scope = json.loads(row['scope_json'])
                 def matches(ref):
                     return (ref and ref['type'] == 'task' and ref['id'] in links.get('tasks', []) and
-                        (ref['business_id'] == row['business_id'] or
-                         (row['business_id'] is None and ref['business_id'] in scope.get('allowed_business_ids', []))))
+                        (ref['project_id'] == row['project_id'] or
+                         (row['project_id'] is None and ref['project_id'] in scope.get('allowed_project_ids', []))))
                 if any(matches(ref) for ref in refs): return True
         if event.get('source_type') == 'agent_messages':
             message = uow.connection.execute('SELECT delegation_assignment_id FROM agent_messages WHERE id=?', (event.get('source_id'),)).fetchone()
@@ -588,9 +588,9 @@ class Attention:
         source_map = {'tasks':'task', 'actions':'action', 'signoffs':'signoff', 'documents':'material', 'data_tables':'table'}
         kind = source_map.get(event.get('source_type'), event.get('source_type'))
         work = state['work_task_json']
-        if kind == 'task' and work and work['business_id'] == event.get('business_id'):
-            if uow.connection.execute("SELECT 1 FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? AND role='blocked_by' AND to_type='task' AND to_id=?", (work['business_id'],work['id'],event.get('source_id'))).fetchone(): return True
-        return any(ref and ref['type'] == kind and ref['id'] == event.get('source_id') and ref['business_id'] == event.get('business_id') for ref in refs)
+        if kind == 'task' and work and work['project_id'] == event.get('project_id'):
+            if uow.connection.execute("SELECT 1 FROM relationships WHERE project_id IS ? AND from_type='task' AND from_id=? AND role='blocked_by' AND to_type='task' AND to_id=?", (work['project_id'],work['id'],event.get('source_id'))).fetchone(): return True
+        return any(ref and ref['type'] == kind and ref['id'] == event.get('source_id') and ref['project_id'] == event.get('project_id') for ref in refs)
 
     def workflow_summary(self, uow, agent, run_id):
         """Narrow read-only projection of the exact focused run; never raw arguments, outputs or events."""
@@ -618,7 +618,7 @@ class Attention:
         from qorqut_operations.tasks.types import attributes
         from qorqut_operations.tasks.workers import project_workers
         typed = attributes(task)
-        return {**{key: task[key] for key in ('id', 'business_id', 'title', 'status', 'revision', 'created_at', 'parent_id')},
+        return {**{key: task[key] for key in ('id', 'project_id', 'title', 'status', 'revision', 'created_at', 'parent_id')},
             'archived': bool(task.get('archived')),
             **{key: task[key] for key in ('work_status', 'input_requests', 'input_needed', 'input_version', 'input_request_missing') if key in task},
             **{key: typed[key] for key in ('task_type', 'customer_kind', 'customer_state')},
@@ -632,7 +632,7 @@ class Attention:
         memberships = (() if projection == 'focus' else uow.connection.execute(
             'SELECT * FROM attention_memberships WHERE agent_id=?', (agent,)))
         for row in memberships:
-            ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
+            ref = {'type':'task','id':row['task_id'],'project_id':row['task_project_id']}
             try:
                 # Ordering and membership checks need lifecycle fields, not
                 # every Task's notes, related records and worker projections.
@@ -703,7 +703,7 @@ class Attention:
             if coordinator in workers:
                 continue
             typed = (json.loads(row['fields_json'] or '{}').get('$task') or {})
-            entry = {'task_ref': {'type': 'task', 'id': row['id'], 'business_id': row['business_id']}, 'title': row['title'],
+            entry = {'task_ref': {'type': 'task', 'id': row['id'], 'project_id': row['project_id']}, 'title': row['title'],
                      'status': row['status'], 'updated_at': row['updated_at'], 'due': row['due'],
                      'snoozed_until': row['snoozed_until'], 'status_line': typed.get('status_line', ''),
                      'next_step': typed.get('next_step', '')}
@@ -745,21 +745,21 @@ class Attention:
             # What the stalled and blocked lists show; a step that waits for confirmation is listed beyond it.
             overseen = (live and bool(set(held) & set(workers)) and coordinator not in held
                         and not (row['snoozed_until'] or '') > now)
-            entry = {'id': row['id'], 'business_id': row['business_id'], 'title': row['title'], 'status': row['status'],
+            entry = {'id': row['id'], 'project_id': row['project_id'], 'title': row['title'], 'status': row['status'],
                      'workers': [names.get(worker) or '' for worker in held], 'updated_at': row['updated_at']}
             fields = json.loads(row['fields_json'] or '{}') if plans is not None else {}
             found = None
             if isinstance(fields.get('$task'), dict) and fields['$task'].get('plan'):
                 if reads < PLAN_READ_LIMIT:
                     reads += 1
-                    found = plans({'id': row['id'], 'business_id': row['business_id'], 'created_at': row['created_at'],
+                    found = plans({'id': row['id'], 'project_id': row['project_id'], 'created_at': row['created_at'],
                                    'fields_json': fields})
                 else:
                     unread += 1
             if found:
                 entry['plan'] = position(found)
             if found and found.get('awaiting_review'):
-                awaiting.append({**{key: entry[key] for key in ('id', 'business_id', 'title', 'workers')},
+                awaiting.append({**{key: entry[key] for key in ('id', 'project_id', 'title', 'workers')},
                                  'step': found['id'], 'position': entry['plan'], 'text': found['text'],
                                  **({'note': found['note']} if found.get('note') else {})})
             if not overseen:
@@ -816,7 +816,7 @@ class Attention:
             row = uow.connection.execute('SELECT * FROM attention_memberships WHERE id=? AND agent_id=?', (args['membership_id'],agent)).fetchone()
             if not row: raise DomainError('not_found', 'Membership is unavailable')
             if row['revision'] != args['expected_membership_revision']: raise DomainError('revision_conflict', 'Membership changed; reread it', current_revision=row['revision'])
-            ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
+            ref = {'type':'task','id':row['task_id'],'project_id':row['task_project_id']}
             task = self.board_task(ctx, agent, ref, uow, lifecycle_only=True)
             if task['created_at'] != row['task_created_at']: raise DomainError('not_found', 'Task is unavailable')
             task = self.app.signoffs.sources.project_tasks(ctx, [task], uow)[0]
@@ -850,7 +850,7 @@ class Attention:
                 key = 'attention-board-transition'
             else:
                 state = self.state(uow, agent)
-                ref = {'type': 'task', 'id': args.get('task_id'), 'business_id': ctx.business_id}
+                ref = {'type': 'task', 'id': args.get('task_id'), 'project_id': ctx.project_id}
                 key = ('attention-focus-transition' if state['focus_json']
                        and ref in (state['focus_json'], state['work_task_json']) else None)
         return self.runtime.resolver.require_agentic_view().runtime_instructions().render(key) if key else None
@@ -894,17 +894,17 @@ class Attention:
             if not self.task_membership(uow,agent,args['task']):
                 # Already a recorded worker, with no entry yet.
                 self.enter(uow,agent,args['task'],task['created_at'],ctx.principal_id,now)
-                emit_event(uow,business_id=args['task']['business_id'],source_type='tasks',source_id=args['task']['id'],source_revision=task['revision'],actor_id=ctx.principal_id,event_type='attention_added',summary='Added to Attention board',required={agent})
+                emit_event(uow,project_id=args['task']['project_id'],source_type='tasks',source_id=args['task']['id'],source_revision=task['revision'],actor_id=ctx.principal_id,event_type='attention_added',summary='Added to Attention board',required={agent})
         elif op == 'attention_remove':
             row = uow.connection.execute('SELECT * FROM attention_memberships WHERE id=?',(args['membership_id'],)).fetchone()
-            ref = {'type':'task','id':row['task_id'],'business_id':row['task_business_id']}
+            ref = {'type':'task','id':row['task_id'],'project_id':row['task_project_id']}
             task = self.board_task(ctx,agent,ref,uow,lifecycle_only=True)
             self.membership_event(uow,agent,row['id'],ref,row['task_created_at'],ctx.principal_id,'removed',now,owner_requested=args.get('owner_requested',False),rationale=args.get('rationale',''))
             uow.connection.execute('DELETE FROM attention_memberships WHERE id=?',(row['id'],))
-            uow.connection.execute("UPDATE attention_workflows SET detached_at=?,updated_at=?,revision=revision+1 WHERE agent_id=? AND detached_at IS NULL AND json_extract(work_task_json,'$.id')=? AND json_extract(work_task_json,'$.business_id') IS ?", (now,now,agent,ref['id'],ref['business_id']))
+            uow.connection.execute("UPDATE attention_workflows SET detached_at=?,updated_at=?,revision=revision+1 WHERE agent_id=? AND detached_at IS NULL AND json_extract(work_task_json,'$.id')=? AND json_extract(work_task_json,'$.project_id') IS ?", (now,now,agent,ref['id'],ref['project_id']))
             if state['work_task_json'] == ref: self.clear_focus(uow,agent,'membership_removed')
             uow.connection.execute('UPDATE agent_attention SET revision=revision+1,updated_at=? WHERE agent_id=?',(now,agent))
-            emit_event(uow,business_id=ref['business_id'],source_type='tasks',source_id=ref['id'],source_revision=task['revision'],actor_id=ctx.principal_id,event_type='attention_removed',summary='Removed from Attention board',required={agent})
+            emit_event(uow,project_id=ref['project_id'],source_type='tasks',source_id=ref['id'],source_revision=task['revision'],actor_id=ctx.principal_id,event_type='attention_removed',summary='Removed from Attention board',required={agent})
             if agent in task_workers(task) and on_boards(task):
                 # Leaving the board is giving the work up: the agent stops being a recorded worker of the Task.
                 self.write_task(ctx, uow, ref, task['revision'], {'worker_ids': sorted(task_workers(task) - {agent})})
@@ -918,7 +918,7 @@ class Attention:
             since = (row['blocked_since'] if row['blocker_key'] == key and row['blocked_since'] else now) if mode == 'blocked' else None
             uow.connection.execute('UPDATE attention_workflows SET blocked_since=?,blocker_key=?,blocker_reason=?,resume_context=?,related_refs_json=?,detached_at=?,updated_at=?,revision=revision+1 WHERE agent_id=? AND run_id=?',
                 (since,key if mode == 'blocked' else None,args.get('reason','').strip() if mode == 'blocked' else '',args.get('resume_context',row['resume_context']),json.dumps(args.get('related_refs',json.loads(row['related_refs_json']))),now if mode == 'detached' else row['detached_at'],now,agent,args['run_id']))
-            current_workflow = state['focus_json'] == {'type':'workflow','id':args['run_id'],'business_id':None}
+            current_workflow = state['focus_json'] == {'type':'workflow','id':args['run_id'],'project_id':None}
             episode_changed = row['blocked_since'] and (mode != 'blocked' or row['blocker_key'] != key)
             if episode_changed:
                 uow.connection.execute("UPDATE attention_reminders SET state=CASE WHEN emission_started_at IS NOT NULL THEN 'uncertain' ELSE 'cancelled' END,updated_at=?,revision=revision+1 WHERE agent_id=? AND kind='workflow_detach' AND workflow_run_id=? AND blocked_since=? AND state IN ('pending','claimed')", (now,agent,args['run_id'],row['blocked_since']))

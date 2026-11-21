@@ -77,7 +77,7 @@ class Observation:
     retryable: bool
     attempts: int
     call_site: str
-    business_id: str | None = None
+    project_id: str | None = None
     agent_id: str | None = None
     session_id: str | None = None
     task_id: str | None = None
@@ -94,7 +94,7 @@ class Observation:
             "v": SCHEMA_VERSION, "component": self.component,
             "operation": self.operation, "error_code": self.error_code,
             "classification": self.classification, "call_site": self.call_site,
-            "business_id": self.business_id,
+            "project_id": self.project_id,
         }
         return hashlib.sha256(canonical_bytes(stable)).hexdigest()
 
@@ -170,7 +170,7 @@ class IncidentReporter:
                     call_site=component, error_code=code,
                     retryable=bool(error and (error.retryable or readiness and code == 'reprepare_required')),
                     principal_missing=bool(error and (error.details or {}).get('incident_classification') == 'setup_contract'),
-                    business_id=getattr(context, 'business_id', None),
+                    project_id=getattr(context, 'project_id', None),
                     agent_id=context.principal_id if context.principal_kind == 'agent' else None,
                     request_id=getattr(context, 'request_id', None), recovered=error is None))
             except Exception:
@@ -219,29 +219,29 @@ class IncidentReporter:
         return result
 
     def transport_failure(self, *, component, operation, request_id=None, context=None,
-                          agent_id=None, session_id=None, business_id=None):
+                          agent_id=None, session_id=None, project_id=None):
         """Record a trusted transport crash with bounded correlation data."""
         if context is not None:
-            business_id = getattr(context, 'business_id', business_id)
+            project_id = getattr(context, 'project_id', project_id)
             request_id = getattr(context, 'request_id', request_id)
             if getattr(context, 'principal_kind', None) == 'agent':
                 agent_id = getattr(context, 'principal_id', agent_id)
         observation = self.observation(component=component, operation=operation,
             error_code='internal_error', trusted_result=True, call_site=component,
-            business_id=business_id, agent_id=agent_id, session_id=session_id,
+            project_id=project_id, agent_id=agent_id, session_id=session_id,
             request_id=request_id)
         return self.observe(observation)
 
     def transport_success(self, *, component, operation, request_id=None, context=None,
-                          agent_id=None, session_id=None, business_id=None):
+                          agent_id=None, session_id=None, project_id=None):
         """Queue a matching success probe for a previously reported crash."""
         if context is not None:
-            business_id = getattr(context, 'business_id', business_id)
+            project_id = getattr(context, 'project_id', project_id)
             request_id = getattr(context, 'request_id', request_id)
             if getattr(context, 'principal_kind', None) == 'agent':
                 agent_id = getattr(context, 'principal_id', agent_id)
         observation = self.observation(component=component, operation=operation,
-            error_code='success', call_site=component, business_id=business_id,
+            error_code='success', call_site=component, project_id=project_id,
             agent_id=agent_id, session_id=session_id, request_id=request_id,
             recovered=True)
         return self.observe(observation)
@@ -252,7 +252,7 @@ class IncidentReporter:
         known_technical = code in _TECHNICAL_RETRY | _SOFTWARE or code == 'background_failed'
         observation = self.observation(component='background', operation=row['kind'],
             call_site='background.run_one', error_code=code,
-            business_id=row['business_id'], job_id=row['id'],
+            project_id=row['project_id'], job_id=row['id'],
             principal_missing=bool(error and (error.get('details') or {}).get('incident_classification') == 'setup_contract'),
             attempts=row['attempts'], retryable=bool(error and error.get('retryable')),
             terminal=bool(error and known_technical and code != 'busy'),
@@ -263,12 +263,12 @@ class IncidentReporter:
         """Warm the bounded success-probe index at startup and after each drain."""
         with database.read() as uow:
             rows = uow.connection.execute("SELECT DISTINCT json_extract(o.payload_json,'$.component'),x.operation,"
-                "json_extract(o.payload_json,'$.call_site'),x.business_id,x.agent_id,x.session_id,x.task_id,x.job_id,x.receipt_id FROM system_incident_impacts x "
+                "json_extract(o.payload_json,'$.call_site'),x.project_id,x.agent_id,x.session_id,x.task_id,x.job_id,x.receipt_id FROM system_incident_impacts x "
                 'JOIN system_incidents i ON i.id=x.incident_id JOIN system_incident_observations o '
                 "ON o.id=i.representative_observation_id WHERE x.recovered_at IS NULL AND x.operation IS NOT NULL AND i.status<>'closed' LIMIT 4096").fetchall()
             pending = {tuple(row) for row in rows}
             pending.update(tuple(row) for row in uow.connection.execute(
-                "SELECT component,operation,call_site,business_id,nullif(agent_key,''),nullif(session_id,''),NULL,NULL,NULL FROM system_incident_fault_runs LIMIT 4096"))
+                "SELECT component,operation,call_site,project_id,nullif(agent_key,''),nullif(session_id,''),NULL,NULL,NULL FROM system_incident_fault_runs LIMIT 4096"))
         with self._lock:
             self._active.difference_update(self._success_pending - pending)
             self._active.update(sorted(pending,key=str)[:max(0,4096-len(self._active))])
@@ -291,11 +291,11 @@ class IncidentReporter:
             retryable=bool(retryable), attempts=max(0, min(int(attempts), 999)),
             call_site=_stable_call_site(call_site), release=self.release,
             message=_text(message, 500), **{key: _text(refs.get(key), 120) or None
-                for key in ("business_id", "agent_id", "session_id", "task_id",
+                for key in ("project_id", "agent_id", "session_id", "task_id",
                             "request_id", "job_id", "receipt_id")},
             recovered=bool(refs.get('recovered',False)))
 
-    def external_observation(self, data: Mapping, *, agent_id: str, business_id: str | None,
+    def external_observation(self, data: Mapping, *, agent_id: str, project_id: str | None,
                              observation_namespace: str | None = None) -> Observation:
         """Validate the small hook outbox contract and bind server identity."""
         allowed = {'observation_id', 'observed_at', 'component', 'operation',
@@ -346,7 +346,7 @@ class IncidentReporter:
             error_code=_text(error_code, 80), classification=classify(error_code=error_code,
                 retryable=retryable, attempts=attempts, terminal=terminal), retryable=retryable,
             attempts=attempts, call_site=_stable_call_site(call_site),
-            agent_id=agent_id, business_id=business_id, session_id=session_id,
+            agent_id=agent_id, project_id=project_id, session_id=session_id,
             recovered=recovered)
 
     def observe_result(self, context, operation, result):
@@ -362,7 +362,7 @@ class IncidentReporter:
         observation = self.observation(component="application", operation=operation,
             error_code=code, retryable=retryable,
             call_site="application.invoke",
-            business_id=getattr(context, "business_id", None),
+            project_id=getattr(context, "project_id", None),
             agent_id=context.principal_id if context.principal_kind=='agent' else None,
             request_id=getattr(context,'request_id',None),job_id=getattr(context,'job_id',None))
         if (error.get('details') or {}).get('incident_classification') == 'setup_contract':
@@ -373,7 +373,7 @@ class IncidentReporter:
         """Queue a scoped success probe; drain matches it to persisted impacts."""
         observation = self.observation(component="application", operation=operation,
             error_code="success", call_site="application.invoke",
-            business_id=getattr(context, "business_id", None),
+            project_id=getattr(context, "project_id", None),
             agent_id=context.principal_id if context.principal_kind=='agent' else None, recovered=True)
         return self.observe(observation)
 
@@ -382,10 +382,10 @@ class IncidentReporter:
         # Error bodies can contain credentials, tool input or private text.
         # Persist typed codes/references only, even for future boundary callers.
         observation = replace(observation, message='')
-        # Background jobs sharing a kind and business are separate recovery
+        # Background jobs sharing a kind and project are separate recovery
         # identities. Legacy observations without a job_id retain NULL here.
         key = (observation.component,observation.operation,observation.call_site,
-               observation.business_id,observation.agent_id,observation.session_id,
+               observation.project_id,observation.agent_id,observation.session_id,
                observation.task_id,observation.job_id,observation.receipt_id)
         if not observation.recovered and observation.classification not in _REPORTABLE | {'transient_observation'}:
             return {'status':'ignored'}
@@ -538,11 +538,11 @@ class IncidentReporter:
         rows = conn.execute(
             "SELECT DISTINCT i.* FROM system_incidents i JOIN system_incident_impacts x ON x.incident_id=i.id "
             "JOIN system_incident_observations o ON o.id=i.representative_observation_id "
-            "WHERE i.status<>'closed' AND x.operation=? AND x.agent_id IS ? AND x.business_id IS ? AND x.session_id IS ? "
+            "WHERE i.status<>'closed' AND x.operation=? AND x.agent_id IS ? AND x.project_id IS ? AND x.session_id IS ? "
             "AND x.task_id IS ? AND x.recovered_at IS NULL "
             "AND x.last_seen<=? AND json_extract(o.payload_json,'$.component')=? "
             "AND json_extract(o.payload_json,'$.call_site')=? AND x.job_id IS ? AND x.receipt_id IS ? LIMIT 100",
-            (obs.operation,obs.agent_id,obs.business_id,obs.session_id,obs.task_id,obs.observed_at,obs.component,obs.call_site,obs.job_id,obs.receipt_id)).fetchall()
+            (obs.operation,obs.agent_id,obs.project_id,obs.session_id,obs.task_id,obs.observed_at,obs.component,obs.call_site,obs.job_id,obs.receipt_id)).fetchall()
         recovered = 0
         for row in rows:
             incident_id = row['id']
@@ -554,8 +554,8 @@ class IncidentReporter:
             conn.execute("INSERT INTO system_incident_recoveries(incident_id,observation_id,observed_at,evidence,agent_id,episode) VALUES(?,?,?,?,?,?)",
                 (incident_id,recovery_id,obs.observed_at,'A matching operation succeeded; affected work still needs verification.',obs.agent_id,episode))
             conn.execute("UPDATE system_incident_impacts SET recovered_at=? WHERE incident_id=? AND agent_id IS ? "
-                'AND business_id IS ? AND session_id IS ? AND task_id IS ? AND job_id IS ? AND receipt_id IS ? AND recovered_at IS NULL AND last_seen<=?',
-                (obs.observed_at,incident_id,obs.agent_id,obs.business_id,obs.session_id,obs.task_id,obs.job_id,obs.receipt_id,obs.observed_at))
+                'AND project_id IS ? AND session_id IS ? AND task_id IS ? AND job_id IS ? AND receipt_id IS ? AND recovered_at IS NULL AND last_seen<=?',
+                (obs.observed_at,incident_id,obs.agent_id,obs.project_id,obs.session_id,obs.task_id,obs.job_id,obs.receipt_id,obs.observed_at))
             conn.execute("INSERT INTO system_incident_history(incident_id,event_kind,observed_at,observation_id,details) VALUES(?,?,?,?,?)",
                 (incident_id,'recovered',obs.observed_at,recovery_id,'Matching scoped operation succeeded; ticket remains open for verification.'))
             pending = conn.execute('SELECT 1 FROM system_incident_impacts WHERE incident_id=? AND operation IS NOT NULL AND recovered_at IS NULL LIMIT 1',(incident_id,)).fetchone()
@@ -564,9 +564,9 @@ class IncidentReporter:
             # incident/recovery notice is produced. Phase 2 removes the producer and its rows.
             self._trim(conn, incident_id)
             recovered += 1
-        conn.execute('DELETE FROM system_incident_fault_runs WHERE agent_key=? AND session_id=? AND business_id IS ? '
+        conn.execute('DELETE FROM system_incident_fault_runs WHERE agent_key=? AND session_id=? AND project_id IS ? '
             'AND operation=? AND component=? AND call_site=? AND last_seen<=?',
-            (obs.agent_id or '',obs.session_id or '',obs.business_id,obs.operation,obs.component,obs.call_site,obs.observed_at))
+            (obs.agent_id or '',obs.session_id or '',obs.project_id,obs.operation,obs.component,obs.call_site,obs.observed_at))
         return {"created": False, "updated": False, "recovered": recovered > 0}
 
     def _ingest(self, uow, obs: Observation, reporter_id: str) -> dict:
@@ -579,10 +579,10 @@ class IncidentReporter:
                     'SELECT 1 FROM system_incident_fault_runs WHERE fingerprint=? AND agent_key=? AND session_id=?',key).fetchone():
                 return {'skipped':True,'reason':'capacity'}
             attempts = max(1, obs.attempts)
-            conn.execute('INSERT INTO system_incident_fault_runs(fingerprint,agent_key,session_id,business_id,operation,component,call_site,first_seen,last_seen,failures) '
+            conn.execute('INSERT INTO system_incident_fault_runs(fingerprint,agent_key,session_id,project_id,operation,component,call_site,first_seen,last_seen,failures) '
                 'VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(fingerprint,agent_key,session_id) DO UPDATE SET '
                 'last_seen=max(last_seen,excluded.last_seen),failures=failures+excluded.failures',
-                (*key,obs.business_id,obs.operation,obs.component,obs.call_site,obs.observed_at,obs.observed_at,attempts))
+                (*key,obs.project_id,obs.operation,obs.component,obs.call_site,obs.observed_at,obs.observed_at,attempts))
             run = conn.execute('SELECT * FROM system_incident_fault_runs WHERE fingerprint=? AND agent_key=? AND session_id=?',key).fetchone()
             span = (datetime.fromisoformat(run['last_seen'])-datetime.fromisoformat(run['first_seen'])).total_seconds()
             if run['failures'] >= 3 and span >= 600:
@@ -599,10 +599,10 @@ class IncidentReporter:
             incident_id, ticket_id = str(uuid.uuid4()), str(uuid.uuid4())
             title = f"System incident: {obs.component}/{obs.operation} ({obs.error_code})"[:200]
             details, kind = f'{obs.error_code} at {obs.call_site}. Automatically observed; inspect the incident evidence.', 'bug'
-            conn.execute("INSERT INTO dev_tickets(id,title,details,kind,status,reporter_id,business_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                         (ticket_id,title,details,kind,'open',reporter_id,obs.business_id,now,now))
-            conn.execute("INSERT INTO system_incidents(id,fingerprint,ticket_id,title,status,classification,first_seen,last_seen,occurrence_count,recovery_count,business_id,representative_observation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (incident_id, obs.fingerprint, ticket_id, title, "open", obs.classification, now, now, 1, 0, obs.business_id, obs.observation_id))
+            conn.execute("INSERT INTO dev_tickets(id,title,details,kind,status,reporter_id,project_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                         (ticket_id,title,details,kind,'open',reporter_id,obs.project_id,now,now))
+            conn.execute("INSERT INTO system_incidents(id,fingerprint,ticket_id,title,status,classification,first_seen,last_seen,occurrence_count,recovery_count,project_id,representative_observation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (incident_id, obs.fingerprint, ticket_id, title, "open", obs.classification, now, now, 1, 0, obs.project_id, obs.observation_id))
             event = "opened"
             created, updated = True, False
         else:
@@ -625,11 +625,11 @@ class IncidentReporter:
         if existing is None:
             conn.execute("INSERT OR IGNORE INTO system_incident_observations(id,fingerprint,observed_at,payload_json) VALUES(?,?,?,?)",
                          (obs.observation_id, obs.fingerprint, now, canonical_bytes(obs.to_dict()).decode()))
-        conn.execute("INSERT OR IGNORE INTO system_incident_impacts(incident_id,business_id,agent_id,session_id,task_id,operation,job_id,receipt_id,first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                     (incident_id, obs.business_id, obs.agent_id, obs.session_id, obs.task_id, obs.operation, obs.job_id, obs.receipt_id, now, now))
+        conn.execute("INSERT OR IGNORE INTO system_incident_impacts(incident_id,project_id,agent_id,session_id,task_id,operation,job_id,receipt_id,first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                     (incident_id, obs.project_id, obs.agent_id, obs.session_id, obs.task_id, obs.operation, obs.job_id, obs.receipt_id, now, now))
         conn.execute("UPDATE system_incident_impacts SET last_seen=max(last_seen,?),episode=episode+(recovered_at IS NOT NULL),recovered_at=NULL "
-                     "WHERE incident_id=? AND business_id IS ? AND agent_id IS ? AND session_id IS ? AND task_id IS ? AND operation IS ? AND job_id IS ? AND receipt_id IS ? AND (recovered_at IS NULL OR recovered_at<?)",
-                     (now, incident_id, obs.business_id, obs.agent_id, obs.session_id, obs.task_id, obs.operation, obs.job_id, obs.receipt_id, now))
+                     "WHERE incident_id=? AND project_id IS ? AND agent_id IS ? AND session_id IS ? AND task_id IS ? AND operation IS ? AND job_id IS ? AND receipt_id IS ? AND (recovered_at IS NULL OR recovered_at<?)",
+                     (now, incident_id, obs.project_id, obs.agent_id, obs.session_id, obs.task_id, obs.operation, obs.job_id, obs.receipt_id, now))
         conn.execute("INSERT INTO system_incident_history(incident_id,event_kind,observed_at,observation_id,details) VALUES(?,?,?,?,?)",
                      (incident_id, event, now, obs.observation_id, obs.message))
         # Repair-ticket removal, phase 1: a new or reopened incident is still recorded, but it no longer
@@ -641,14 +641,14 @@ class IncidentReporter:
                 "created": created, "updated": updated, "recovered": obs.recovered}
 
     @staticmethod
-    def link_task(uow, ticket_id, business_id, task_id, actor_id, at):
+    def link_task(uow, ticket_id, project_id, task_id, actor_id, at):
         """An authorized authored task note is the explicit association/evidence."""
-        incident = uow.connection.execute('SELECT id,business_id FROM system_incidents WHERE ticket_id=?', (ticket_id,)).fetchone()
-        if not incident or incident['business_id'] != business_id:
-            return  # Cross-business task associations never follow incidental agent scope.
+        incident = uow.connection.execute('SELECT id,project_id FROM system_incidents WHERE ticket_id=?', (ticket_id,)).fetchone()
+        if not incident or incident['project_id'] != project_id:
+            return  # Cross-project task associations never follow incidental agent scope.
         uow.connection.execute('INSERT OR IGNORE INTO system_incident_impacts'
-            '(incident_id,business_id,agent_id,session_id,task_id,operation,job_id,receipt_id,first_seen,last_seen) VALUES(?,?,NULL,NULL,?,NULL,NULL,NULL,?,?)',
-            (incident['id'],business_id,task_id,at,at))
+            '(incident_id,project_id,agent_id,session_id,task_id,operation,job_id,receipt_id,first_seen,last_seen) VALUES(?,?,NULL,NULL,?,NULL,NULL,NULL,?,?)',
+            (incident['id'],project_id,task_id,at,at))
 
     @classmethod
     def ticket_status(cls, uow, ticket, actor_id, *, verified=False):
@@ -726,7 +726,7 @@ class IncidentOperations:
                                       (row['representative_observation_id'],)).fetchone()
         sample=json.loads(sample[0]) if sample else {}
         incident['representative_error']=str(sample.get('error_code',''))
-        query = "SELECT incident_id,business_id,agent_id,session_id,task_id,operation,job_id,receipt_id,first_seen,last_seen,episode,recovered_at FROM system_incident_impacts x WHERE incident_id=?"
+        query = "SELECT incident_id,project_id,agent_id,session_id,task_id,operation,job_id,receipt_id,first_seen,last_seen,episode,recovered_at FROM system_incident_impacts x WHERE incident_id=?"
         impacts = [dict(x) for x in uow.connection.execute(query + " ORDER BY first_seen LIMIT 101", [row["id"]])]
         result = {"incident": incident, "impacts": impacts[:100],'impacts_truncated':len(impacts)>100}
         if details:
@@ -792,7 +792,7 @@ def technical_session_binding(connection, session_id, principal_id, registration
 
 
 def ensure_system_reporter(uow, authority, *, program_id=INCIDENT_PROGRAM_ID,
-                           business_ids=()):
+                           project_ids=()):
     """Provision the reporter using the same deterministic worker mechanism as jobs."""
     identity = authority.worker_id(program_id, uow)
     actor = uow.repository("principals").get(identity)
@@ -801,8 +801,8 @@ def ensure_system_reporter(uow, authority, *, program_id=INCIDENT_PROGRAM_ID,
                                                "display_name": "System Dev incident reporter"})
     elif actor["kind"] != "system":
         raise ValueError("Incident reporter principal identity is occupied")
-    for business_id in business_ids:
-        membership = uow.repository("business_memberships", business_id=business_id)
+    for project_id in project_ids:
+        membership = uow.repository("project_memberships", project_id=project_id)
         if membership.get(identity) is None:
             membership.insert({"principal_id": identity})
     return identity

@@ -59,7 +59,7 @@ MANIFEST = "SOURCE-MANIFEST.json"
 MAX_JSON = 4 * 1024 * 1024
 # InstancePaths component -> (source component name in SOURCE-MANIFEST.json, subdirectory of its destination).
 COMPONENT_SOURCES = {"app": ("qorqut-code", "app"), "operations_engine": ("qorqut-operations", ""),
-                     "context_engine": ("qorqut-context", ""), "dashboard": ("biz-dashboard", ""), "roles": ("qorqut-agentic", "src/qorqut_agentic/resources/defaults")}
+                     "context_engine": ("qorqut-context", ""), "dashboard": ("dashboard", ""), "roles": ("qorqut-agentic", "src/qorqut_agentic/resources/defaults")}
 # The authored role sources published into the catalog; only the first and last are registered as agents.
 ROLES = ("ordubashy", "global-worker", "learning-applier")
 # The plugins Ordubashy holds from the first start: email guidance, and the agent-control tools (status, start, restart, kill, ping,
@@ -277,7 +277,7 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
                 data = _ok(runtime.application.invoke(context, "agents_create", {
                     "role": pins[role], "plugins": [{**pin, "config": {}} for pin in plugin_pins] if role == 'ordubashy' else [],
                     "name": name, "display_name": display_name, "assignment_brief": brief,
-                    "scope": {"kind": "ecosystem", "allowed_business_ids": [],
+                    "scope": {"kind": "ecosystem", "allowed_project_ids": [],
                               "global_capabilities": AGENT_CAPABILITIES[role]}},
                     InvocationOptions(idempotency_key=f"initialize-{role}")), f"Registering {display_name}")
                 created[role] = data["agent_id"]
@@ -285,7 +285,7 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
                                            InvocationOptions(idempotency_key="initialize-coordinator")), "Selecting the coordinator")
             # The explicit installation prerequisite for background programs, including the scheduled Overseer due
             # program. Register their definitions in this installation runtime, then create missing system workers
-            # only; no business membership is created and no disabled identity or membership is reactivated.
+            # only; no project membership is created and no disabled identity or membership is reactivated.
             from qorqut.background.integration import register_programs
             from qorqut.overseer.due import register_program as register_overseer_due
             register_programs(runtime.programs, tables=runtime.domains.tables)

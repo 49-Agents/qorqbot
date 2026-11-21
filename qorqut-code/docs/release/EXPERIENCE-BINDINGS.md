@@ -33,7 +33,7 @@ Paths and the all-zero example hash are placeholders, not installation selection
 Planning verifies the real sidecar bytes at the frozen source commit. Dataset identity,
 source view, targets and sidecar hash are included in the immutable plan digest.
 The source view is an existing approved installed code view outside worktrees,
-release roots, businesses, artifacts and packaged skills. Its actual sidecar
+release roots, projects, artifacts and packaged skills. Its actual sidecar
 must match the staged artifact and frozen hash before provisioning. References to
 that view in prepared critic instructions must resolve before adoption is complete.
 

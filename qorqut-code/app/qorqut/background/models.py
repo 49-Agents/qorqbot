@@ -15,7 +15,7 @@ class ModelCalls:
         if self.factory is None:
             raise DomainError("operation_unavailable", "Background model provider is not configured")
         try:
-            client = self.factory(control.business_id)
+            client = self.factory(control.project_id)
         except ProviderError as exc:
             raise DomainError(exc.code, str(exc)) from exc
         model = model or client.config.model

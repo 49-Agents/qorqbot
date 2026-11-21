@@ -55,7 +55,7 @@ class JournalOperations:
     def _coordinator(self, ctx, uow):
         identity = self._coordinator_id(uow)
         if (ctx.principal_kind != "agent" or ctx.principal_id != identity
-                or ctx.home_business_id is not None or ctx.business_id is not None
+                or ctx.home_project_id is not None or ctx.project_id is not None
                 or ctx.delegation_assignment_id):
             raise DomainError("forbidden", "Journal management belongs to the configured Global Ordubashy")
 
@@ -72,7 +72,7 @@ class JournalOperations:
         builder = PlanBuilder(ctx, operation, args, 'Maintain owner journal', namespace='global')
         if operation == 'journal_entry_create':
             path = self.store.free_path(uow, None, 'notes', builder.at[:10]+'-journal', builder=builder)
-            self.store.write(builder, uow, kind='global_note', path=path, business_id=None, namespace='global',
+            self.store.write(builder, uow, kind='global_note', path=path, project_id=None, namespace='global',
                 body=args['body'], metadata={'title':args['title'], 'date':args.get('date',builder.at[:10]),
                     'created':builder.at, 'updated':builder.at, 'by':speaker, 'recorded_by':ctx.principal_id,
                     'attribution':relay, 'ordubashy_visible':True})
@@ -82,13 +82,13 @@ class JournalOperations:
                 raise DomainError('revision_conflict', 'Journal entry changed; read it again', current_revision=row['revision'])
             if operation == 'journal_entry_archive':
                 self.store.archive(builder, uow, row, expected_revision=args['expected_revision'],
-                    expected_content_hash=args['expected_content_hash'], namespace='global' if row['business_id'] is None else None)
+                    expected_content_hash=args['expected_content_hash'], namespace='global' if row['project_id'] is None else None)
             else:
                 metadata = {**row['metadata_json'], 'updated':builder.at, 'recorded_by':ctx.principal_id, 'attribution':relay}
                 if 'title' in args: metadata['title'] = args['title']
                 self.store.write(builder, uow, kind=row['kind'], before=row, body=args['body'], metadata=metadata,
                     expected_revision=args['expected_revision'], expected_content_hash=args['expected_content_hash'],
-                    business_id=row['business_id'], namespace='global' if row['business_id'] is None else None)
+                    project_id=row['project_id'], namespace='global' if row['project_id'] is None else None)
         return builder.build()
 
     def validate(self, ctx, plan, uow):
@@ -99,12 +99,12 @@ class JournalOperations:
             self._entry(ctx, plan.arguments['document_id'], uow, verify_content=False)
 
     def _entry(self, ctx, document_id, uow, *, verify_content=True):
-        saved = uow.connection.execute("SELECT business_id FROM documents WHERE id=?", (document_id,)).fetchone()
-        row = (uow.repository("documents", business_id=saved["business_id"]).get(document_id)
+        saved = uow.connection.execute("SELECT project_id FROM documents WHERE id=?", (document_id,)).fetchone()
+        row = (uow.repository("documents", project_id=saved["project_id"]).get(document_id)
                if saved else None)
         if (not row or row["kind"] not in JOURNAL_KINDS or row["archived"]
                 or row["metadata_json"].get("ordubashy_visible", True) is not True
-                or row["business_id"] and row["business_id"] not in ctx.allowed_business_ids):
+                or row["project_id"] and row["project_id"] not in ctx.allowed_project_ids):
             # Do not reveal whether an inaccessible or stale identifier exists.
             raise DomainError("not_found", "Journal entry is unavailable")
         if verify_content:
@@ -118,7 +118,7 @@ class JournalOperations:
         self._coordinator(ctx, uow)
         found = [row for row in entries(uow)
                  if row["metadata_json"].get("ordubashy_visible", True) is True
-                 and (not row["business_id"] or row["business_id"] in ctx.allowed_business_ids)]
+                 and (not row["project_id"] or row["project_id"] in ctx.allowed_project_ids)]
         found.sort(key=lambda row: (str(row["metadata_json"].get("date") or row["created_at"]), row["id"]), reverse=True)
         items = [{"document_id": row["id"], "title": row["metadata_json"].get("title") or "Daily",
                   "date": row["metadata_json"].get("date") or row["created_at"][:10]}

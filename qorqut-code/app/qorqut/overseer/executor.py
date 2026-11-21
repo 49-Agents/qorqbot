@@ -29,23 +29,23 @@ class ExternalTaskGateway:
             raise DomainError('forbidden', 'An authenticated executor context is required')
         namespace = task_ref.get('namespace')
         if (task_ref.get('provider') != 'operations' or task_ref.get('kind') != 'task'
-                or not isinstance(namespace, dict) or set(namespace) != {'kind', 'business_id'}):
+                or not isinstance(namespace, dict) or set(namespace) != {'kind', 'project_id'}):
             raise DomainError('validation_error', 'A canonical Task reference is required')
-        business = namespace['business_id']
-        if not (namespace['kind'] == 'global' and business is None or namespace['kind'] == 'business' and isinstance(business, str)):
+        project = namespace['project_id']
+        if not (namespace['kind'] == 'global' and project is None or namespace['kind'] == 'project' and isinstance(project, str)):
             raise DomainError('validation_error', 'Invalid Task namespace')
         with self.runtime.database.read() as uow:
             ctx, _ = current_overseer(self.runtime, context, uow, capability='manage_agentic_layer')
-            if business and business not in ctx.allowed_business_ids:
+            if project and project not in ctx.allowed_project_ids:
                 raise DomainError('forbidden', 'Task scope is unavailable')
-        args = {'task_id': task_ref.get('id'), **({'scope': 'global'} if business is None else {})}
-        options = {'business_id': business} if business else {}
+        args = {'task_id': task_ref.get('id'), **({'scope': 'global'} if project is None else {})}
+        options = {'project_id': project} if project else {}
         result = self.runtime.application.invoke(ctx, 'tasks_get', args, options)
         if result.status != 'ok':
             error = plain(result.error) if result.error else {'code': 'operation_unavailable', 'message': 'Task is unavailable'}
             raise DomainError(error['code'], error['message'], details=error.get('details'))
         task = plain(result.data)['task']
-        if task['id'] != task_ref.get('id') or task['business_id'] != business:
+        if task['id'] != task_ref.get('id') or task['project_id'] != project:
             raise DomainError('evidence_unavailable', 'Task identity does not match the reference')
         # The ordinary Task reader resolves each typed reference under current authority.
         # Only a real discussion entry with a summary and visible references is an
@@ -174,7 +174,7 @@ def satisfy_input_need(runtime, context, result):
     binding = {'schema_version': 1, 'id': binding_id, 'purpose': need['purpose'], 'run_id': app['run_id'],
                'targets': {'delta_id': app['delta_id'], 'delta_revision': target_revision, 'application_id': app['id'],
                            'application_revision': app['revision'], 'plan_revision': app['plan_revision']},
-               'owner_scope': {'kind': 'global', 'business_id': None}, 'request_key': need['request_key'],
+               'owner_scope': {'kind': 'global', 'project_id': None}, 'request_key': need['request_key'],
                'request_ref': None, 'choice_actions': actions, 'evidence_refs': need.get('evidence_refs', [])}
     if need['purpose'] == 'failure':
         binding['failure_evidence'] = failure
@@ -228,11 +228,11 @@ def _association(runtime, context, app, requirement_id, task_ref):
     with runtime.database.transaction(operation='overseer.task-association') as uow:
         runtime.application.ensure_writes_open(uow)
         ctx, _ = current_overseer(runtime, context, uow, capability='manage_agentic_layer')
-        business = task_ref['namespace']['business_id']
-        if business and business not in ctx.allowed_business_ids:
+        project = task_ref['namespace']['project_id']
+        if project and project not in ctx.allowed_project_ids:
             raise DomainError('forbidden', 'Task scope is unavailable')
         from .access import EvidenceAccess
-        EvidenceAccess(runtime, ctx)._read(ctx, 'tasks_get', {'task_id': task_ref['id']}, business, uow)
+        EvidenceAccess(runtime, ctx)._read(ctx, 'tasks_get', {'task_id': task_ref['id']}, project, uow)
         row = uow.connection.execute('SELECT * FROM overseer_development_tasks WHERE request_key=?', (request_key,)).fetchone()
         if row is None:
             uow.connection.execute('INSERT INTO overseer_development_tasks VALUES (?, ?, ?, ?, ?, ?)',
@@ -268,11 +268,11 @@ def development_task(runtime, context, name, args):
             if 'id' in task and task['id'] != task_id:
                 raise DomainError('validation_error', 'Task identity is fixed by the requirement')
             task['id'] = task_id
-            business = task.pop('business_id', None)
-            if business and business not in ctx.allowed_business_ids:
+            project = task.pop('project_id', None)
+            if project and project not in ctx.allowed_project_ids:
                 raise DomainError('forbidden', 'Task scope is unavailable')
             request_key = 'overseer-task:' + digest
-            fingerprint = hashlib.sha256(json.dumps({'task': task, 'business_id': business}, ensure_ascii=False,
+            fingerprint = hashlib.sha256(json.dumps({'task': task, 'project_id': project}, ensure_ascii=False,
                 sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
             runtime.require_authority()
             with runtime.database.transaction(operation='overseer.task-create-reserve') as uow:
@@ -286,17 +286,17 @@ def development_task(runtime, context, name, args):
                                                      (request_key,)).fetchone()
                 if association is not None:
                     saved = json.loads(association['task_ref_json'])
-                    if saved['id'] != task_id or saved['namespace']['business_id'] != business:
+                    if saved['id'] != task_id or saved['namespace']['project_id'] != project:
                         raise DomainError('operation_conflict', 'The requirement is already linked to a different Task')
                 if prior is None:
                     uow.connection.execute('INSERT INTO overseer_development_task_requests VALUES (?, ?)', (request_key, fingerprint))
-            options = {'idempotency_key': 'overseer-task:' + digest, **({'business_id': business} if business else {})}
+            options = {'idempotency_key': 'overseer-task:' + digest, **({'project_id': project} if project else {})}
             result = runtime.application.invoke(ctx, 'tasks_create', task, options)
             if result.status != 'ok':
                 error = plain(result.error) if result.error else {'code': 'operation_unavailable', 'message': 'Task creation was not applied'}
                 raise DomainError(error['code'], error['message'], details=error.get('details'))
             created = plain(result.data)['task']
-            namespace = {'kind': 'business', 'business_id': created['business_id']} if created['business_id'] else {'kind': 'global', 'business_id': None}
+            namespace = {'kind': 'project', 'project_id': created['project_id']} if created['project_id'] else {'kind': 'global', 'project_id': None}
             task_ref = {'provider': 'operations', 'kind': 'task', 'id': created['id'], 'revision': str(created['revision']), 'namespace': namespace}
         else:
             created = None

@@ -36,7 +36,7 @@ that the change was completed. Preserve that distinction in the claim's wording.
 Owner estimates and hypothetical premises remain attributed estimates or
 assumptions, not verified facts. Preserve their conditions and uncertainty.
 
-Business/product plans, milestones, design preferences, brand names and marketing
+Project/product plans, milestones, design preferences, brand names and marketing
 choices are CONTEXT with global storage scope and an explicit project/occasion
 qualification. They are not universal preferences. One task's routing instruction
 does not establish a rule for all agents. Omit routine dispatch/status requests.
@@ -46,9 +46,9 @@ decision is context. A workflow chosen for one exercise is not a standing policy
 Conversely, preserve explicitly stated future or recurring agent instructions as
 durable deltas, even when introduced during a concrete task. Do not suppress a
 standing policy just because its subject also occurs in routine task requests.
-Business strategy and identity decisions remain context; explicit changes to
+Project strategy and identity decisions remain context; explicit changes to
 shared agent behavior, system conventions or tooling can be deltas. Preserve
-the stated boundaries rather than extending them to every business or agent.
+the stated boundaries rather than extending them to every project or agent.
 Delta is only a durable change to agent/system behavior or requested tooling.
 agent_kind refers to the observed role, not another role mentioned in the chat.
 A desired system capability is a delta idea, not an already implemented fact.
@@ -58,7 +58,7 @@ The candidates are multiple passes over ONE conversation. Keep exactly one
 best-supported representation of each proposition; drop its duplicates even
 when their original bucket/tag differs. Prefer separate supported atomic claims
 over a redundant compound version. Never merge opposing claims. Different
-businesses, times, decisions or genuinely distinct claims remain separate.
+projects, times, decisions or genuinely distinct claims remain separate.
 You cannot approve anything or change any existing reviewed record.
 """
 

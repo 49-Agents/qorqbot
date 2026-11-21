@@ -21,8 +21,8 @@ guide documents the implemented core contract.
 | Private with Ordubashy | Installation owner and the configured Ordubashy | Installation owner and the configured Ordubashy |
 | Agent discussion (team) | Existing source-authorized readers and agents | Existing source-authorized writers; the owner is read-only |
 
-Applies to business and Global tasks, Stories, Signoffs,
-standalone Focus References and existing Projects (`{type: "project", id: PROJECT_UUID, business_id: PROJECT_UUID}`,
+Applies to project and Global tasks, Stories, Signoffs,
+standalone Focus References and existing Projects (`{type: "project", id: PROJECT_UUID, project_id: PROJECT_UUID}`,
 keyed as `source:<PROJECT_UUID>:project:<PROJECT_UUID>`; the Project itself has no team discussion — see
 [Project records](PROJECT-RECORDS.md)). A Project source is re-authorized through the one Project read guard on every
 read, directory projection and Focus card; a revoked membership or archived Project makes it unavailable without
@@ -57,29 +57,29 @@ owner can still read (empty or historical) and send (stored; not delivered).
 
 ## Canonical source binding
 
-`source = {type: 'task'|'story'|'signoff'|'table'|'reference', id, business_id?}`. (`email` remains in the stored `source_type`
+`source = {type: 'task'|'story'|'signoff'|'table'|'reference', id, project_id?}`. (`email` remains in the stored `source_type`
 vocabulary as retired history: the host serves no email source.)
 
-- Business-scoped call: `source.business_id` must be omitted or equal to it,
+- Project-scoped call: `source.project_id` must be omitted or equal to it,
   else `validation_error`.
-- Global call: `source.business_id` may name a business — re-selected the
-  same way `AttentionBoard.reply_plan` does (`ctx.select_business` plus an
+- Global call: `source.project_id` may name a project — re-selected the
+  same way `AttentionBoard.reply_plan` does (`ctx.select_project` plus an
   active-membership check; outside membership is `forbidden`) — or be null
   for a Global task/signoff or a Reference.
-- `story` is business-only. `task`, `signoff` and `table` may be business
+- `story` is project-only. `task`, `signoff` and `table` may be project
   or Global. A `table` source (a general or CRM Table) re-authorizes
   `tables_get` on every call and is the same single owner + Ordubashy channel: it never
   reposts into the Table's team discussion ([CRM](CRM.md)).
 - `reference` is a standalone Focus Reference (a `focus_cards` row with
   `source_json IS NULL` and no `context_json`); `id` is the card id and
-  business must be null. A Reference bound to a context is discussed under
+  project must be null. A Reference bound to a context is discussed under
   that context's own source; the card id is `validation_error` there.
-- Source key (unique): `'source:' + (business_id or 'global') + ':' + type +
+- Source key (unique): `'source:' + (project_id or 'global') + ':' + type +
   ':' + id` for task/story/signoff/table; `'reference:' + card_id` for a
   standalone Reference. Editing a Reference's target/title never changes it.
 - Every call re-authorizes the caller's canonical read of the object before
   using the pair-ACL result: `tasks_get`/`stories_get`/`signoffs_get`/`tables_get` (with a
-  row-existence and, for signoffs, `review_business_id` check), or a
+  row-existence and, for signoffs, `review_project_id` check), or a
   Reference's `focus_cards` existence (archived allowed). Missing → `not_found`.
 
 ## Storage
@@ -102,10 +102,10 @@ design; exports and history publication never include them.
 
 Registered by `PrivateConversations` in
 `qorqut/inbox/private_conversations.py`. Common argument `scope:
-'business'|'global'`, same semantics as `signoffs_comment`. Routes are
-`/api/biz/<slug>/operations/<name>` when the business is known, or
-`/api/root/operations/<name>` with `scope:'global'` and `source.business_id`
-otherwise (for example, a Global Focus card bound to a business object).
+'project'|'global'`, same semantics as `signoffs_comment`. Routes are
+`/api/project/<slug>/operations/<name>` when the project is known, or
+`/api/root/operations/<name>` with `scope:'global'` and `source.project_id`
+otherwise (for example, a Global Focus card bound to a project object).
 
 | Operation | Args | Result | Exposure |
 | --- | --- | --- | --- |
@@ -114,8 +114,8 @@ otherwise (for example, a Global Focus card bound to a business object).
 | `owner_conversation_mark_read` | `scope, source, sequence(int≥0)` | `read_state` | dashboard, worker |
 
 ```json
-POST /api/biz/<slug>/operations/owner_conversation_get
-{"scope": "business", "source": {"type": "task", "id": "<task-id>"}}
+POST /api/project/<slug>/operations/owner_conversation_get
+{"scope": "project", "source": {"type": "task", "id": "<task-id>"}}
 → {"conversation": {"id": "...", "source": {...}, "audience": "owner_ordubashy",
      "revision": 3, "latest_sequence": 3, "message_count": 3},
    "messages": [{"id": "...", "sequence": 1, "body": "...", "summary": null,
@@ -125,13 +125,13 @@ POST /api/biz/<slug>/operations/owner_conversation_get
    "read_state": {"last_read_sequence": 2, "unread": true}}
 
 POST /api/root/operations/owner_conversation_send
-{"scope": "global", "source": {"type": "task", "id": "<task-id>", "business_id": "<business-uuid>"},
+{"scope": "global", "source": {"type": "task", "id": "<task-id>", "project_id": "<project-uuid>"},
  "text": "Hold the price change until Friday."}
 → {"message": {"id": "...", "sequence": 4, "body": "...", "author_role": "owner", ...},
    "conversation": {"id": "...", "revision": 4, "latest_sequence": 4, "message_count": 4}}
 
-POST /api/biz/<slug>/operations/owner_conversation_mark_read
-{"scope": "business", "source": {"type": "task", "id": "<task-id>"}, "sequence": 4}
+POST /api/project/<slug>/operations/owner_conversation_mark_read
+{"scope": "project", "source": {"type": "task", "id": "<task-id>"}, "sequence": 4}
 → {"read_state": {"last_read_sequence": 4, "unread": false}}
 ```
 
@@ -144,25 +144,25 @@ uses `INSERT OR IGNORE` on `source_key` so concurrent first sends converge on
 one row; a stale `expected_conversation_revision` returns `revision_conflict`
 with the current revision. Retrying `send`/`mark_read` with the same
 idempotency key returns the prior result. `mark_read`'s `owner_only=True` is a
-coarse framework short-circuit for a human business/global owner; the
+coarse framework short-circuit for a human project/global owner; the
 operation itself still resolves the pair ACL and rejects anyone but the
-installation owner (including a non-installation business owner) with
+installation owner (including a non-installation project owner) with
 `forbidden`.
 
-Known limitation: on a business route the generic human policy still requires
-the installation owner to hold an active owner membership in that business, as
-every other business mutation does. In this single-owner installation the
-registered owner is the owner-member of every business by construction, so
-the Global route with `source.business_id` and the business route agree; no
+Known limitation: on a project route the generic human policy still requires
+the installation owner to hold an active owner membership in that project, as
+every other project mutation does. In this single-owner installation the
+registered owner is the owner-member of every project by construction, so
+the Global route with `source.project_id` and the project route agree; no
 special policy rule is added for the hypothetical plain-member case.
 
 ## Error codes
 
 | Code | HTTP | When |
 | --- | --- | --- |
-| `forbidden` | 403 | Caller is not the pair; business outside active membership; `mark_read` by anyone but the installation owner |
-| `not_found` | 404 | Bound object does not exist, or a signoff's `review_business_id` mismatches the effective scope |
-| `validation_error` | 422 | Business mismatch/missing for the source type; a Reference given a business or a context-bound card id; blank `text`; bad `summary`; `mark_read.sequence` above `latest_sequence` |
+| `forbidden` | 403 | Caller is not the pair; project outside active membership; `mark_read` by anyone but the installation owner |
+| `not_found` | 404 | Bound object does not exist, or a signoff's `review_project_id` mismatches the effective scope |
+| `validation_error` | 422 | Project mismatch/missing for the source type; a Reference given a project or a context-bound card id; blank `text`; bad `summary`; `mark_read.sequence` above `latest_sequence` |
 | `revision_conflict` | 409 | `send.expected_conversation_revision` mismatches the current revision |
 | `channel_required` | 422 | Raised on the **team** write operations below, not on `owner_conversation_*` itself |
 
@@ -239,13 +239,13 @@ ordinary outcome, not an incident.
 
 ## Dashboard behaviour
 
-See the `biz-dashboard` repository's `README.md` ("Every object discussion
+See the `dashboard` repository's `README.md` ("Every object discussion
 has two channels" paragraph) for the shipped UI. Summary: a two-button
 segmented control (tabs, not a menu) switches Private/Agent discussion, shown
 even with no team notes; the owner opens on Private with Ordubashy; Agent
 discussion stays readable with its composer removed and a read-only label.
 Each channel keeps independent messages, pagination, participants, draft,
-submission key and timers, keyed `${type}:${biz||'global'}:${id}:${channel}`.
+submission key and timers, keyed `${type}:${project||'global'}:${id}:${channel}`.
 Loading the private channel through its current `latest_sequence` without
 error calls `owner_conversation_mark_read`; polling, card preload, the agent
 discussion, and inbox acknowledgement never do, and a failed/partial load

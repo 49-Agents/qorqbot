@@ -65,13 +65,13 @@ class HostAssignees:
         return owner_directed_target(ctx, identity, uow)
 
     def worker_excluded(self, ctx, identity, uow):
-        profile = uow.repository("agent_profiles", business_id=None).get(identity)
+        profile = uow.repository("agent_profiles", project_id=None).get(identity)
         return bool(profile and (profile.get("profile_json") or {}).get("role", {}).get("id") == LEARNING_APPLIER_ROLE)
 
 
 class HostIncidents:
-    def link_task(self, uow, ticket_id, business_id, task_id, principal_id, at):
-        IncidentReporter.link_task(uow, ticket_id, business_id, task_id, principal_id, at)
+    def link_task(self, uow, ticket_id, project_id, task_id, principal_id, at):
+        IncidentReporter.link_task(uow, ticket_id, project_id, task_id, principal_id, at)
 
 
 class HostNoteReferences:
@@ -160,25 +160,25 @@ class HostRouting:
     delegated work, and the routes of held work."""
 
     @staticmethod
-    def mandatory(uow, business_id, task, actor_id):
+    def mandatory(uow, project_id, task, actor_id):
         """The mandatory v1 routes of a Task: the Focus coordinator of an owner's change to a focused Task and the
         Ordubashy followers of owner work."""
         from qorqut.agents.attention import task_recipients
 
-        required = set(task_recipients(uow, business_id, task, actor_id))
+        required = set(task_recipients(uow, project_id, task, actor_id))
         installation = uow.repository("installation").get("service")
         if installation and installation["management_coordinator_id"] and actor_id == installation["owner_principal_id"]:
             focused = uow.connection.execute(
                 """SELECT 1 FROM focus_cards f
-                WHERE (json_extract(source_json,'$.type')='task' AND json_extract(source_json,'$.id')=? AND json_extract(source_json,'$.business_id') IS ?)
-                OR (json_extract(context_json,'$.type')='task' AND json_extract(context_json,'$.id')=? AND json_extract(context_json,'$.business_id') IS ?)
+                WHERE (json_extract(source_json,'$.type')='task' AND json_extract(source_json,'$.id')=? AND json_extract(source_json,'$.project_id') IS ?)
+                OR (json_extract(context_json,'$.type')='task' AND json_extract(context_json,'$.id')=? AND json_extract(context_json,'$.project_id') IS ?)
                 OR EXISTS (SELECT 1 FROM json_each(f.references_json) r WHERE json_extract(r.value,'$.type')='task'
-                    AND json_extract(r.value,'$.id')=? AND json_extract(r.value,'$.business_id') IS ?) LIMIT 1""",
-                (task["id"], business_id) * 3).fetchone()
+                    AND json_extract(r.value,'$.id')=? AND json_extract(r.value,'$.project_id') IS ?) LIMIT 1""",
+                (task["id"], project_id) * 3).fetchone()
             if focused:
                 required.add(installation["management_coordinator_id"])
         owners = ordubashies(uow)
-        if owners and owner_task_rows(uow, business=business_id, identity=task["id"]).fetchone():
+        if owners and owner_task_rows(uow, project=project_id, identity=task["id"]).fetchone():
             required |= owners
         return required
 
@@ -199,13 +199,13 @@ class HostRouting:
             workers = json.loads(workers)
         return coordinators if any(is_worker(uow.connection, worker) for worker in workers) else set()
 
-    def routes(self, uow, business_id, task, actor_id, change=None):
-        required = self.mandatory(uow, business_id, task, actor_id) | self.oversight(uow, task, actor_id)
+    def routes(self, uow, project_id, task, actor_id, change=None):
+        required = self.mandatory(uow, project_id, task, actor_id) | self.oversight(uow, task, actor_id)
         if change is not None:
             required |= held_work(uow, task, change, actor_id)
-        return required, related_subscribers(uow, business_id, "task", task["id"])
+        return required, related_subscribers(uow, project_id, "task", task["id"])
 
-    def snooze_routes(self, uow, business_id, task, human_ids):
+    def snooze_routes(self, uow, project_id, task, human_ids):
         """The agents told when a snooze expires on behalf of the Task's responsible humans (its human assignees, or its
         human creator when it has no assignee). Human responsibility has no inbox row, so the mandatory routes answer for
         it: when the installation owner is one of them, the Focus coordinator of a focused Task and the Ordubashy owner-work
@@ -214,7 +214,7 @@ class HostRouting:
         installation = uow.repository("installation").get("service")
         owner = installation["owner_principal_id"] if installation else None
         owner_responsible = owner is not None and owner in set(human_ids)
-        required = self.mandatory(uow, business_id, task, owner if owner_responsible else None)
+        required = self.mandatory(uow, project_id, task, owner if owner_responsible else None)
         if owner_responsible:
             required |= ordubashies(uow)
         return sorted(required)

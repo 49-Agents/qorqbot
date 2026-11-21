@@ -187,7 +187,7 @@ independent; update a parent only when its own outcome changes. Blocked means a 
 technical obstacle prevents progress, Waiting means an external party owes the next action,
 and `needs_input` (Needs your input) is derived from pending owner Signoffs explicitly linked
 to the Task. Collect every missing owner answer, clarification, decision or approval through a
-Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id, business_id})`,
+Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id, project_id})`,
 or attach an existing prepared approval with `signoffs_source_link`; never duplicate its approval
 question or set `status: needs_input` manually. Standalone questions may omit source. The linked
 Signoff is visible in the source thread. Reassess the work when the response arrives; an answer

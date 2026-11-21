@@ -12,7 +12,7 @@ to it. Only the owning scope changes. This is not Project nesting, not a convers
 | `tasks_move_to_project_preview` | read | exactly what a move would carry, what it detaches and what blocks it |
 | `tasks_move_to_project` | mutation | the atomic move; needs the preview `token` and an `idempotency_key` |
 
-All three take an explicit `source_business_id` (a Project UUID, or `null` for Global). They are available on the root
+All three take an explicit `source_project_id` (a Project UUID, or `null` for Global). They are available on the root
 route `POST /api/root/operations/NAME`, on a Project route (which must name the same Project, otherwise
 `validation_error`) and as MCP tools. The destination is always an explicit active Project UUID.
 
@@ -26,7 +26,7 @@ other humans are refused whatever the transport. On every call, including a repl
 - the ordinary policy decision, including per-agent overrides, of `tasks_get` and `tasks_update` in the source and of
   `tasks_create` and `tasks_update` in the destination must currently be `allow`. A denied or Signoff-gated Task tool is
   never bypassed by moving; the failure is `policy_denied` and nothing is written;
-- an archived or missing destination fails (`business_archived` / `not_found`) with no effect.
+- an archived or missing destination fails (`project_archived` / `not_found`) with no effect.
 
 A replay with the same idempotency key returns the saved receipt after re-checking the identity and the destination, and
 never executes the move again. The operations are not Signoff-capable: a policy that would stage them is `invalid_policy`.
@@ -40,7 +40,7 @@ again. A state that has become incompatible is `move_blocked` with readable `blo
 
 | Dependency | Treatment |
 |---|---|
-| Tasks | same id; `business_id` changed; revision +1; selected roots become top-level (the old parent stays untouched, shown as `previous_parent_id`); archived and completed descendants move too |
+| Tasks | same id; `project_id` changed; revision +1; selected roots become top-level (the old parent stays untouched, shown as `previous_parent_id`); archived and completed descendants move too |
 | thread messages, follows, tags, snooze wakes, completions | scope only; ids, bodies, authors, times and events unchanged; explicit follows and unfollows preserved |
 | relationships | edges internal to the move follow, and so do a moved Task's links to agents (assignments must remain valid in the destination); every other edge whose other end stays behind stays in the source scope as written, as history (`historical_relationships` counts them). From the record's side its moved Task end is read where the audited resolver says it is now; from the moved Task's side `relationships_list` and the Story's associated records add the links written during its earlier stays |
 | Task links stored on other Tasks | a `$task_links` entry on a Task outside the move that names a moved Task is retargeted to the destination (that Task's revision advances) |
@@ -84,13 +84,13 @@ for the id as text:
 
 - recognised typed references: `{type: task, id}`, `{resource_type: tasks, resource_id}`, `{task_id}`,
   `{item_type: task, item_id}` and `task_ids`. Each is paired with its effective scope - the scope it names itself
-  (`business_id`, `namespace` such as `business:<UUID>`, or `scope: global`), otherwise the explicit scope it inherits from
+  (`project_id`, `namespace` such as `project:<UUID>`, or `scope: global`), otherwise the explicit scope it inherits from
   the nearest enclosing object that names one, otherwise the scope of the job, routine, Signoff or assignment that holds it.
-  So `{business_id: A, items: [{type: task, id}]}` binds the Task in A even inside a Global job, and a child that names
+  So `{project_id: A, items: [{type: task, id}]}` binds the Task in A even inside a Global job, and a child that names
   another scope overrides the one it inherits. A Signoff's `change_set` is read the same way (`target_namespace`, `arguments`,
   `affected_scope`, `expected_targets` and `changes` resources);
 - a delegated assignment also lists bare Task ids in its own scope: `links.tasks`, `scope.source_ids.tasks` and
-  `scope.record_ids.tasks` (a Global assignment's reach is its `allowed_business_ids`);
+  `scope.record_ids.tasks` (a Global assignment's reach is its `allowed_project_ids`);
 - free text, an id inside a message body, and a typed reference that explicitly names another scope or another Project's
   same-id Task are **not** bindings and never block.
 
@@ -108,7 +108,7 @@ new Task can take an id a relocation recorded), so history left in a scope can n
 ## Old references
 
 `task_moves` also serves a narrow resolver. A read or mutation of a moved Task in its old scope returns `record_moved`
-(HTTP 409) with `details.destination {id,name,slug}` and `details.task {type:'task',id,business_id}`, only to a caller who
+(HTTP 409) with `details.destination {id,name,slug}` and `details.task {type:'task',id,project_id}`, only to a caller who
 may read the Task where it is now; anyone else gets the ordinary `not_found`. A mutation never writes into the new scope.
 Global is a real scope: a Global Task that moved to Project A and then to Project B resolves, from Global, to B. Resolution
 is bounded, follows successive moves, never prefers history over a current exact-scope row and gives up on an ambiguous
@@ -121,7 +121,7 @@ A note's references are stored as `{type, id}` relative to the scope the note wa
 the Task that holds a note (or the Task the note names) moves, the display - never the payload - resolves each reference:
 
 1. `thread_messages.reference_namespace` is a nullable pin. `NULL` means the message never needed one. The first guarded
-   relocation of its Task fills it with the exact old namespace (`global` or `business:<UUID>`); a later move keeps it. A
+   relocation of its Task fills it with the exact old namespace (`global` or `project:<UUID>`); a later move keeps it. A
    message written after a move starts `NULL` and is pinned by the next move, so successive moves and notes written between
    moves each read in the scope they were written in. Only the armed relocation may write it, and only that exact value;
    bodies, `refs_json`, event associations, authors and times are unchanged.
@@ -132,7 +132,7 @@ the Task that holds a note (or the Task the note names) moves, the display - nev
    ambiguous identity or a record that never existed look the same).
 
 A readable Task reference (and the other scope-qualified kinds - topics, materials and tables) always carries the place it
-resolved in: `business_id` (an explicit `null` is Global), `business_slug` and `business_name`. A client therefore opens the
+resolved in: `project_id` (an explicit `null` is Global), `project_slug` and `project_name`. A client therefore opens the
 exact record and never reconstructs the scope, even when holder and target moved together and the reference is now in the
 reader's own scope. Any other kind carries them only when it resolved outside the reader's own scope, and an unavailable
 reference carries none. This applies to the Task and Action discussion readers, to the non-strict Signoff and Focus note

@@ -22,7 +22,7 @@ limited changed-files API. Runtime instruction and prompt Markdown is code,
 not a reason to skip tests. Inspect a selection locally with:
 
 ```sh
-python3 qorqut-code/tools/ci/changes.py qorqut-code/biz-dashboard/app.css
+python3 qorqut-code/tools/ci/changes.py qorqut-code/dashboard/app.css
 python3 qorqut-code/tools/ci/changes.py qorqut-code/extensions/telegram/pyproject.toml
 python3 -B -m unittest discover -s qorqut-code/tools/ci/tests
 ```

@@ -7,7 +7,7 @@ segments, the catalog of exported rows, the area provider and the clock. The loc
 becomes the same ``DomainError`` (or blocked area) as before; nothing resolved here is remembered.
 """
 from qorqut_operations.contracts import DomainError, utc_now
-from qorqut_operations.history_exports import (BusinessAgentFiles, BusinessHeadquarters, GlobalAgentFiles, GlobalFiles,
+from qorqut_operations.history_exports import (ProjectAgentFiles, ProjectHeadquarters, GlobalAgentFiles, GlobalFiles,
                                                History, HistoryObserver, ResolvedArea)
 
 from qorqut.instance_paths import SEGMENT, InstancePathError, InstancePaths
@@ -23,16 +23,16 @@ SNAPSHOT_SECONDS = 300.0
 
 def registered_areas(uow):
     areas = [GlobalFiles()]
-    businesses = {row["id"]: row["slug"] for row in uow.connection.execute("SELECT id,slug FROM businesses")}
-    for row in uow.connection.execute("SELECT agent_id,home_business_id FROM agent_profiles ORDER BY agent_id"):
-        home = row["home_business_id"]
+    projects = {row["id"]: row["slug"] for row in uow.connection.execute("SELECT id,slug FROM projects")}
+    for row in uow.connection.execute("SELECT agent_id,home_project_id FROM agent_profiles ORDER BY agent_id"):
+        home = row["home_project_id"]
         areas.append(GlobalAgentFiles(row["agent_id"]) if home is None else
-                     BusinessAgentFiles(businesses[home], row["agent_id"]))
+                     ProjectAgentFiles(projects[home], row["agent_id"]))
     # These are projections or independently protected sources, not authored HQ
     # working notes. Runtime/config/nested repositories also have capture rules.
-    areas.extend(BusinessHeadquarters(slug, excluded=("exports", "tables", "context/email", "context/agent-memory",
+    areas.extend(ProjectHeadquarters(slug, excluded=("exports", "tables", "context/email", "context/agent-memory",
                                                     "agents", "code", "sessions", "transcripts", "logs", "browser"))
-                 for slug in sorted(businesses.values()))
+                 for slug in sorted(projects.values()))
     return areas
 
 
@@ -61,10 +61,10 @@ def area_resolver(paths):
                     folder = paths.files
                 elif isinstance(area, GlobalAgentFiles):
                     folder = paths.agent_files(area.agent_id)
-                elif isinstance(area, BusinessAgentFiles):
-                    folder = paths.agent_files(area.agent_id, business_folder=area.business)
+                elif isinstance(area, ProjectAgentFiles):
+                    folder = paths.agent_files(area.agent_id, project_folder=area.project)
                 else:
-                    folder = paths.business_hq(area.business)
+                    folder = paths.project_hq(area.project)
             except InstancePathError:
                 resolved.append(ResolvedArea.refused(area))
                 continue

@@ -6,8 +6,8 @@ validation and storage rules; the registered operations in ``operations`` carry 
 authority, and ``admit_action_revision`` is the ``on_revision`` port the composition hands the Action writer: it
 queues the writer's exact stored revision before the writer's own transaction commits.
 
-Every input has one owning namespace (``business_id``, NULL for Global) and an attributed submitter. Reads and
-controls are bound to one namespace: nothing here lists across businesses.
+Every input has one owning namespace (``project_id``, NULL for Global) and an attributed submitter. Reads and
+controls are bound to one namespace: nothing here lists across projects.
 """
 
 from __future__ import annotations
@@ -60,8 +60,8 @@ def decode(value: str | None) -> Any:
     return None if value is None else json.loads(value)
 
 
-def scope_of(business_id) -> dict:
-    return {"kind": "global"} if business_id is None else {"kind": "business", "business_id": business_id}
+def scope_of(project_id) -> dict:
+    return {"kind": "global"} if project_id is None else {"kind": "project", "project_id": project_id}
 
 
 # -- GENERAL source admission -------------------------------------------------------------------------------------------
@@ -131,9 +131,9 @@ def general_values(input_id: str, arguments: dict, submitted_by: str, at: str) -
 # -- accepted Action revisions ------------------------------------------------------------------------------------------
 
 def tag_envelope(snapshots) -> list[dict]:
-    """The revision's frozen tags exactly as the Context Action mode takes them: ``{id, name, business_id}`` each, in
-    one deterministic order. Ordinary tags are shared labels, so ``business_id`` is None; it is carried, never inferred."""
-    return snapshot_order({"id": tag["id"], "name": tag["name"], "business_id": tag["business_id"]} for tag in snapshots)
+    """The revision's frozen tags exactly as the Context Action mode takes them: ``{id, name, project_id}`` each, in
+    one deterministic order. Ordinary tags are shared labels, so ``project_id`` is None; it is carried, never inferred."""
+    return snapshot_order({"id": tag["id"], "name": tag["name"], "project_id": tag["project_id"]} for tag in snapshots)
 
 
 # The one payload member that is never published and never shown by a queue read: the Action's occurrence, evidence
@@ -153,13 +153,13 @@ def action_payload(revision: dict) -> dict:
     payload = {"action_ref": key, "revision_ref": f"{key}:{revision['revision']}", "operation": operation,
                "submitted_by": revision["recorded_by"], "tags": tag_envelope(snapshot["tag_snapshots"]),
                "related_objects": [] if operation == "remove" else snapshot["related_objects"],
-               "scope": scope_of(revision["business_id"]),
+               "scope": scope_of(revision["project_id"]),
                "provenance": {"performed_by": revision["performed_by"], "recorded_by": revision["recorded_by"],
                               "origin": snapshot.get("origin"), "category": snapshot.get("category"),
                               **(revision["provenance_json"] or {})},
                ACTION_METADATA: deepcopy({
                    "version": 1, "occurred": snapshot.get("occurred"), "refs": snapshot.get("refs", {}),
-                   "business_ids": snapshot.get("business_ids", []), "recorded_at": revision["created_at"],
+                   "project_ids": snapshot.get("project_ids", []), "recorded_at": revision["created_at"],
                    "withdrawn": operation == "remove"})}
     if operation != "remove":
         payload["text"] = snapshot["text"]
@@ -204,9 +204,9 @@ def enqueue_action(uow, *, action_id: str, revision: int, operation: str, payloa
         payload[ACTION_METADATA]["evidence"] = capture_evidence(stored)
     input_id = new_id()
     uow.connection.execute(
-        "INSERT INTO context_inputs(id,business_id,input_kind,item_id,revision,operation,payload_json,submitted_by,created_at) "
+        "INSERT INTO context_inputs(id,project_id,input_kind,item_id,revision,operation,payload_json,submitted_by,created_at) "
         "VALUES (?,?,?,?,?,?,?,?,?)",
-        (input_id, stored["business_id"], "action", action_id, revision, operation, encode(payload),
+        (input_id, stored["project_id"], "action", action_id, revision, operation, encode(payload),
          stored["recorded_by"], utc_now()))
     return input_id
 
@@ -220,7 +220,7 @@ def input_view(row, *, payload: bool = False, execution: Any = OMITTED) -> dict:
     ``payload`` adds the complete stored payload, as the driver submits it. A read operation shows ``public_payload`` of
     it instead, because an Action payload carries model-only metadata."""
     result = {key: row[key] for key in INPUT_COLUMNS}
-    result["scope"] = scope_of(row["business_id"])
+    result["scope"] = scope_of(row["project_id"])
     result["result"] = decode(row["result_json"])
     result["error"] = decode(row["error_json"])
     content = json.loads(row["payload_json"])
@@ -257,7 +257,7 @@ def detail(uow, row, executions=None) -> dict:
     return result
 
 
-def list_inputs(uow, business_id, arguments: dict, operation: str, principal_id: str, executions=None) -> dict:
+def list_inputs(uow, project_id, arguments: dict, operation: str, principal_id: str, executions=None) -> dict:
     """One page of the namespace's inputs in queue order. ``queue_blocked`` is the single shared fact that something
     ahead of every later input is blocked; the blocked input itself is named only to a reader of its namespace."""
     state = arguments.get("state")
@@ -266,8 +266,8 @@ def list_inputs(uow, business_id, arguments: dict, operation: str, principal_id:
     limit = arguments.get("limit", 50)
     normalized = {"principal_id": principal_id, "limit": limit, **({"state": state} if state else {}),
                   **({"cursor": arguments["cursor"]} if arguments.get("cursor") else {})}
-    _, after = page_position(normalized, business_id, operation)
-    clauses, parameters = ["business_id IS ?"], [business_id]
+    _, after = page_position(normalized, project_id, operation)
+    clauses, parameters = ["project_id IS ?"], [project_id]
     if state:
         clauses.append("state=?")
         parameters.append(state)
@@ -277,17 +277,17 @@ def list_inputs(uow, business_id, arguments: dict, operation: str, principal_id:
     rows = uow.connection.execute(
         "SELECT * FROM context_inputs WHERE " + " AND ".join(clauses) + " ORDER BY sequence LIMIT ?",
         [*parameters, limit + 1]).fetchall()
-    selected, cursor = page([dict(row) for row in rows], normalized, business_id, operation,
+    selected, cursor = page([dict(row) for row in rows], normalized, project_id, operation,
                             key=lambda row: (row["sequence"],), reverse=False)
-    blocked = uow.connection.execute("SELECT id, business_id FROM context_inputs WHERE state='blocked'").fetchone()
+    blocked = uow.connection.execute("SELECT id, project_id FROM context_inputs WHERE state='blocked'").fetchone()
     return {"items": [input_view(row, **({} if executions is None else {"execution": executions(uow, row)})) for row in selected],
             "next_cursor": cursor, "queue_blocked": blocked is not None,
-            "blocked_input_id": blocked["id"] if blocked and blocked["business_id"] == business_id else None}
+            "blocked_input_id": blocked["id"] if blocked and blocked["project_id"] == project_id else None}
 
 
-def lookup(uow, business_id, input_id: str):
+def lookup(uow, project_id, input_id: str):
     text(input_id, "input_id")
-    row = uow.connection.execute("SELECT * FROM context_inputs WHERE id=? AND business_id IS ?", (input_id, business_id)).fetchone()
+    row = uow.connection.execute("SELECT * FROM context_inputs WHERE id=? AND project_id IS ?", (input_id, project_id)).fetchone()
     if row is None:
         raise DomainError("not_found", "Context input does not exist in this namespace")
     return row

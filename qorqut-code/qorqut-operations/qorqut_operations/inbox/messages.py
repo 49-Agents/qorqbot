@@ -68,26 +68,26 @@ class Messages:
 
     def register(self, common):
         self.app.registry.register(OperationDescriptor('agents_message_send', schema({
-            'scope': {'enum': ['business', 'global']}, 'to_agent_id': UUID, 'reply_to': UUID, 'summary': SUMMARY,
+            'scope': {'enum': ['project', 'global']}, 'to_agent_id': UUID, 'reply_to': UUID, 'summary': SUMMARY,
             'delivery': {'enum': ['inbox', 'terminal'], 'description': instruction_text('messages-default-inbox-terminal-targeted-retired-project-dev-agents')},
             'message': {'type': 'string', 'minLength': 1, 'maxLength': 16000}, 'relay': RELAY}, ('message',)),
             **common, description=instruction_text('messages-send-a-durable-internal-message-to-a-scoped'),
             prepare=self.prepare, apply=self.apply))
         self.app.registry.register(OperationDescriptor('agents_messages_list', schema({
-            'scope': {'enum': ['business', 'global']}, 'thread_id': UUID, 'counterpart_id': UUID,
+            'scope': {'enum': ['project', 'global']}, 'thread_id': UUID, 'counterpart_id': UUID,
             'retirement_backlog': {'type': 'boolean'}, **PAGE}),
             **common, effect_kind='read', description=instruction_text('messages-read-your-sent-and-received-message-history-in'), read=self.history))
         self.app.registry.register(OperationDescriptor('agents_message_recipients', schema({
-            'scope': {'enum': ['business', 'global']}, 'all_businesses': {'type': 'boolean'},
+            'scope': {'enum': ['project', 'global']}, 'all_projects': {'type': 'boolean'},
             'role_id': {'type': 'string', 'minLength': 1, 'maxLength': 100}}), **common, effect_kind='read',
             description=instruction_text('messages-find-active-agents-in-the-selected-scope-or'), read=self.recipients))
 
     @staticmethod
-    def scope_visible(ctx, business):
-        return business in ctx.allowed_business_ids if business else 'read_global_context' in ctx.global_capabilities
+    def scope_visible(ctx, project):
+        return project in ctx.allowed_project_ids if project else 'read_global_context' in ctx.global_capabilities
 
     def visible(self, ctx, row):
-        return ctx.principal_id in (row['current_sender_id'], row['current_recipient_id']) and self.scope_visible(ctx, row['business_id'])
+        return ctx.principal_id in (row['current_sender_id'], row['current_recipient_id']) and self.scope_visible(ctx, row['project_id'])
 
     @staticmethod
     def collapsed(row):
@@ -106,14 +106,14 @@ class Messages:
         if self.host.owner_directed_target(ctx, identity, uow):
             raise DomainError('not_found', 'Recipient is owner-directed and unavailable for agent messages, including replies')
         try:
-            peer = self.app.policy.context_for(identity, business_id=ctx.business_id, review_business_id=None, uow=uow)
-            if not self.scope_visible(peer, ctx.business_id):
+            peer = self.app.policy.context_for(identity, project_id=ctx.project_id, review_project_id=None, uow=uow)
+            if not self.scope_visible(peer, ctx.project_id):
                 raise DomainError('not_found', 'Recipient is unavailable in this scope')
             if peer.principal_kind == 'agent':
                 return peer
             if allow_owner and peer.principal_kind == 'human':
                 installation = uow.repository('installation').get('service')
-                member = uow.repository('business_memberships', business_id=ctx.business_id).get(identity) if ctx.business_id else None
+                member = uow.repository('project_memberships', project_id=ctx.project_id).get(identity) if ctx.project_id else None
                 if installation and installation['owner_principal_id'] == identity or member and member['is_owner'] and member['active']:
                     return peer
         except DomainError:
@@ -131,7 +131,7 @@ class Messages:
         parent = None
         if args.get('reply_to'):
             parent = uow.connection.execute('SELECT * FROM agent_messages WHERE id=?', (args['reply_to'],)).fetchone()
-            if not parent or parent['business_id'] != ctx.business_id or not self.visible(ctx, parent):
+            if not parent or parent['project_id'] != ctx.project_id or not self.visible(ctx, parent):
                 raise DomainError('not_found', 'Reply target is unavailable')
             if self.collapsed(parent):
                 raise DomainError('invalid_transition', 'This message is read-only history; send a new message instead')
@@ -160,8 +160,8 @@ class Messages:
         ctx, peer, parent = self.validate(ctx, args, uow)
         attribution(ctx, uow, args.get('relay'))
         return PlanBuilder(ctx, 'agents_message_send', args, 'Send internal message', clock=self.inbox.clock,
-            namespace='business:' + ctx.business_id if ctx.business_id else 'global',
-            affected_scope={'kind': 'business', 'business_id': ctx.business_id} if ctx.business_id else {'kind': 'global'}).build()
+            namespace='project:' + ctx.project_id if ctx.project_id else 'global',
+            affected_scope={'kind': 'project', 'project_id': ctx.project_id} if ctx.project_id else {'kind': 'global'}).build()
 
     def apply(self, ctx, plan, uow):
         args = plain(plan.arguments)
@@ -169,11 +169,11 @@ class Messages:
         identity, now = new_id(), timestamp(self.inbox.clock)
         save_attribution(ctx, uow, 'agent_message', identity, args.get('relay'))
         event_id = uow.connection.execute(
-            'INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)',
-            (ctx.business_id, 'agent_messages', identity, ctx.principal_id, 'direct_message', args['message'][:160], now)).lastrowid
+            'INSERT INTO inbox_events(project_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)',
+            (ctx.project_id, 'agent_messages', identity, ctx.principal_id, 'direct_message', args['message'][:160], now)).lastrowid
         assignment_id, generation, binding_id, plan_revision = self.host.attribution(ctx, parent, uow)
-        uow.connection.execute('INSERT INTO agent_messages(id,event_id,business_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,summary,delegation_assignment_id,delegation_generation,delegation_binding_id,delegation_plan_revision,current_sender_id,current_recipient_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-            (identity, event_id, ctx.business_id, ctx.principal_id, peer.principal_id, args.get('reply_to'), parent['thread_id'] if parent else identity, args['message'], now, normalize_summary(args.get('summary')), assignment_id, generation, binding_id, plan_revision, ctx.principal_id, peer.principal_id))
+        uow.connection.execute('INSERT INTO agent_messages(id,event_id,project_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,summary,delegation_assignment_id,delegation_generation,delegation_binding_id,delegation_plan_revision,current_sender_id,current_recipient_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            (identity, event_id, ctx.project_id, ctx.principal_id, peer.principal_id, args.get('reply_to'), parent['thread_id'] if parent else identity, args['message'], now, normalize_summary(args.get('summary')), assignment_id, generation, binding_id, plan_revision, ctx.principal_id, peer.principal_id))
         if peer.principal_kind == 'agent':
             uow.connection.execute('INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)', (peer.principal_id, event_id))
             self.host.forward_owner_message(uow, kind='agent_message', source_id=identity, sender_id=ctx.principal_id,
@@ -222,8 +222,8 @@ class Messages:
         if args.get('retirement_backlog'):
             return self.host.retirement_backlog(self, ctx, args, uow)
         limit, me, thread_id = args.get('limit', 20), ctx.principal_id, args.get('thread_id')
-        clauses = ['business_id IS ?', '(current_sender_id=? OR current_recipient_id=?)', 'event_id>?']
-        params = [ctx.business_id, me, me, args.get('after', 0)]
+        clauses = ['project_id IS ?', '(current_sender_id=? OR current_recipient_id=?)', 'event_id>?']
+        params = [ctx.project_id, me, me, args.get('after', 0)]
         extra_clauses, extra_params = self.host.history_scope(ctx, thread_id, uow)
         clauses += extra_clauses
         params += extra_params
@@ -239,15 +239,15 @@ class Messages:
     def recipients(self, ctx, args, options, uow):
         ctx = self.app.current_context(ctx, uow)
         result = []
-        targets = sorted(ctx.allowed_business_ids) if args.get('all_businesses') else [ctx.business_id]
-        businesses = []
-        for business_id in targets:
-            selected = replace(ctx, business_id=business_id)
-            business = uow.repository('businesses').get(business_id) if business_id else None
-            if business and business['archived_at'] is not None:
+        targets = sorted(ctx.allowed_project_ids) if args.get('all_projects') else [ctx.project_id]
+        projects = []
+        for project_id in targets:
+            selected = replace(ctx, project_id=project_id)
+            project = uow.repository('projects').get(project_id) if project_id else None
+            if project and project['archived_at'] is not None:
                 continue
-            slug = business['slug'] if business else None
-            businesses.append({'business_id': business_id, 'business_slug': slug})
+            slug = project['slug'] if project else None
+            projects.append({'project_id': project_id, 'project_slug': slug})
             for row in uow.connection.execute("SELECT agent_id,name,profile_json FROM agent_profiles WHERE status='active' AND agent_id!=? ORDER BY name,agent_id", (ctx.principal_id,)):
                 role = json.loads(row['profile_json']).get('role', {}).get('id')
                 if args.get('role_id') and role != args['role_id']:
@@ -257,5 +257,5 @@ class Messages:
                 except DomainError:
                     continue
                 result.append({'agent_id': peer.principal_id, 'name': row['name'], 'display_name': peer.principal.display_name,
-                    'role_id': role, 'business_id': business_id, 'business_slug': slug})
-        return {'items': result, 'businesses': businesses}
+                    'role_id': role, 'project_id': project_id, 'project_slug': slug})
+        return {'items': result, 'projects': projects}

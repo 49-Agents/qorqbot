@@ -14,7 +14,7 @@ def load(ctx, uow):
     installation = uow.connection.execute('SELECT installation_id,owner_principal_id FROM installation').fetchone()
     if installation is None:
         invalid()
-    if ctx.business_id is not None or getattr(ctx, 'delegation_assignment_id', None) is not None:
+    if ctx.project_id is not None or getattr(ctx, 'delegation_assignment_id', None) is not None:
         raise DomainError('forbidden', 'Retirement backlog requires an owner or Ordubashy Global session')
     if getattr(ctx, 'delegation_binding_id', None) is not None:
         raise DomainError('forbidden', 'Retirement backlog is unavailable to delegated workers')
@@ -22,11 +22,11 @@ def load(ctx, uow):
     if not owner and (ctx.principal_kind != 'agent' or ctx.principal_id != active_role_holder(uow.connection, 'ordubashy')):
         raise DomainError('forbidden', 'Retirement backlog requires the owner or current Ordubashy')
     ids = contract.backlog_ids(installation['installation_id'])
-    row = uow.connection.execute('SELECT * FROM thread_messages WHERE business_id IS NULL AND id=?',
+    row = uow.connection.execute('SELECT * FROM thread_messages WHERE project_id IS NULL AND id=?',
                                  (ids['system-entry'],)).fetchone()
     if row is None:
         return None
-    task = uow.connection.execute('SELECT * FROM tasks WHERE business_id IS NULL AND id=?', (ids['task'],)).fetchone()
+    task = uow.connection.execute('SELECT * FROM tasks WHERE project_id IS NULL AND id=?', (ids['task'],)).fetchone()
     if (task is None or task['created_by'] != installation['owner_principal_id'] or row['item_type'] != 'task'
             or row['item_id'] != ids['task'] or row['kind'] != 'system' or row['author_id'] is not None
             or row['recorder_id'] != installation['owner_principal_id']):
@@ -52,7 +52,7 @@ def load(ctx, uow):
                     or type(entry['event_id']) is not int or entry['event_id'] < 1
                     or not isinstance(entry['message_id'], str) or not 1 <= len(entry['message_id']) <= 256
                     or entry['message_id'] in seen
-                    or (entry['business_id'] is not None and not contract.canonical(entry['business_id']))):
+                    or (entry['project_id'] is not None and not contract.canonical(entry['project_id']))):
                 invalid()
             seen.add(entry['message_id'])
         for finding in value['findings']:
@@ -60,9 +60,9 @@ def load(ctx, uow):
                     or not isinstance(finding['check_key'], str) or not 1 <= len(finding['check_key']) <= 512):
                 invalid()
         for agent in cohort:
-            profile = uow.connection.execute('SELECT a.home_business_id,a.status,p.active FROM agent_profiles a '
+            profile = uow.connection.execute('SELECT a.home_project_id,a.status,p.active FROM agent_profiles a '
                 'JOIN principals p ON p.id=a.agent_id WHERE a.agent_id=?', (agent,)).fetchone()
-            if not profile or profile['home_business_id'] is None or profile['status'] != 'retired' or profile['active'] != 0:
+            if not profile or profile['home_project_id'] is None or profile['status'] != 'retired' or profile['active'] != 0:
                 invalid()
     except (KeyError, TypeError, ValueError):
         invalid()
@@ -79,10 +79,10 @@ def read(messages, ctx, args, uow):
     for entry in value['entries']:
         row = uow.connection.execute('SELECT m.* FROM agent_messages m JOIN inbox_events e ON e.id=m.event_id '
             'JOIN inbox_deliveries d ON d.event_id=e.id AND d.agent_id=? '
-            'WHERE m.id=? AND m.event_id=? AND m.business_id IS ? AND m.current_recipient_id=? '
-            "AND e.source_type='agent_messages' AND e.source_id=m.id AND e.business_id IS m.business_id "
+            'WHERE m.id=? AND m.event_id=? AND m.project_id IS ? AND m.current_recipient_id=? '
+            "AND e.source_type='agent_messages' AND e.source_id=m.id AND e.project_id IS m.project_id "
             "AND e.event_type='direct_message'", (entry['recipient_agent_id'], entry['message_id'], entry['event_id'],
-            entry['business_id'], entry['recipient_agent_id'])).fetchone()
+            entry['project_id'], entry['recipient_agent_id'])).fetchone()
         if row is None:
             invalid()
         if row['event_id'] > args.get('after', 0):
@@ -97,7 +97,7 @@ def read(messages, ctx, args, uow):
         items.append(item)
     findings = []
     for key in value['findings']:
-        row = uow.connection.execute('SELECT agent_id,check_key,code,business_id,task_id,message,created_at,state '
+        row = uow.connection.execute('SELECT agent_id,check_key,code,project_id,task_id,message,created_at,state '
             'FROM agent_checkpoint_findings WHERE agent_id=? AND check_key=?', (key['agent_id'],key['check_key'])).fetchone()
         if row is None or row['code'] != contract.FINDING_CODE:
             invalid()

@@ -82,7 +82,7 @@ class SourceManifest:
         if (not isinstance(data, dict) or type(data.get("schema_version")) is not int
                 or data.get("schema_version") != SCHEMA_VERSION or data.get("importer_version") != IMPORTER_VERSION
                 or not isinstance(data.get("source_root"), str) or not Path(data["source_root"]).is_absolute()
-                or not isinstance(data.get("files"), list) or not isinstance(data.get("businesses"), list)):
+                or not isinstance(data.get("files"), list) or not isinstance(data.get("projects"), list)):
             raise AuthorityError("snapshot_invalid", "Unsupported source manifest.")
         names = set()
         for item in data["files"]:
@@ -95,21 +95,21 @@ class SourceManifest:
                     or any(char not in "0123456789abcdef" for char in item["sha256"])):
                 raise AuthorityError("snapshot_invalid", "Invalid or duplicate source manifest entry.")
             names.add(name)
-        businesses, shapes = set(), set()
-        for business in data["businesses"]:
-            if not isinstance(business, dict) or not isinstance(business.get("slug"), str):
-                raise AuthorityError("snapshot_invalid", "Invalid business discovery metadata.")
-            slug = business["slug"]
-            hq = _relative(business.get("hq"))
+        projects, shapes = set(), set()
+        for project in data["projects"]:
+            if not isinstance(project, dict) or not isinstance(project.get("slug"), str):
+                raise AuthorityError("snapshot_invalid", "Invalid project discovery metadata.")
+            slug = project["slug"]
+            hq = _relative(project.get("hq"))
             # Two recognized archive shapes: an offline v1 source archive (<slug>/hq) and a target-instance archive
             # (projects/<slug>/hq). Neither is translated into the other here, and one archive uses one shape.
             shape = {(slug, "hq"): "source", ("projects", slug, "hq"): "target"}.get(hq.parts)
-            if shape is None or slug in businesses:
-                raise AuthorityError("snapshot_invalid", "Duplicate or invalid business discovery metadata.")
-            businesses.add(slug)
+            if shape is None or slug in projects:
+                raise AuthorityError("snapshot_invalid", "Duplicate or invalid project discovery metadata.")
+            projects.add(slug)
             shapes.add(shape)
         if len(shapes) > 1:
-            raise AuthorityError("snapshot_invalid", "Business discovery metadata mixes source and target path shapes.")
+            raise AuthorityError("snapshot_invalid", "Project discovery metadata mixes source and target path shapes.")
         data["files"].sort(key=lambda item: item["path"])
         object.__setattr__(self, "data", freeze(data))
 
@@ -125,19 +125,19 @@ class SourceManifest:
         return plain(self.data)
 
 
-def inventory_sources(businesses_root: str | Path) -> SourceManifest:
-    """Inspect only shared authored data and discovered business hq trees."""
-    root = Path(businesses_root).resolve(strict=True)
-    businesses, paths, repositories = [], [], {}
+def inventory_sources(projects_root: str | Path) -> SourceManifest:
+    """Inspect only shared authored data and discovered project hq trees."""
+    root = Path(projects_root).resolve(strict=True)
+    projects, paths, repositories = [], [], {}
     for entry in sorted(root.iterdir(), key=lambda path: path.name):
         if entry.name.startswith(".") or not entry.is_dir():
             continue
         hq = entry / "hq"
-        if not (hq / "business.yaml").is_file():
+        if not (hq / "project.yaml").is_file():
             continue
         if entry.is_symlink() or hq.is_symlink():
-            raise AuthorityError("source_symlink", "Business discovery cannot follow a symbolic link.")
-        businesses.append({"slug": entry.name, "hq": hq.relative_to(root).as_posix()})
+            raise AuthorityError("source_symlink", "Project discovery cannot follow a symbolic link.")
+        projects.append({"slug": entry.name, "hq": hq.relative_to(root).as_posix()})
         # hq/browser held a removed per-project browser's live profile: private runtime state, never migration input.
         paths.extend(_regular_files(hq, top_skip=frozenset({"browser"})))
         repositories[hq.relative_to(root).as_posix()] = _git_head(hq)
@@ -154,7 +154,7 @@ def inventory_sources(businesses_root: str | Path) -> SourceManifest:
         files.append({"path": path.relative_to(root).as_posix(), "size": before.st_size,
                       "mode": stat.S_IMODE(before.st_mode) & 0o777, "sha256": digest})
     return SourceManifest({"schema_version": SCHEMA_VERSION, "importer_version": IMPORTER_VERSION,
-        "source_root": str(root), "businesses": businesses, "files": files, "repositories": repositories})
+        "source_root": str(root), "projects": projects, "files": files, "repositories": repositories})
 
 
 def verify_sources(manifest: SourceManifest) -> None:
@@ -246,7 +246,7 @@ def _fsync_directory(path):
 
 
 def restore_snapshot(snapshot: str | Path, destination: str | Path) -> SourceManifest:
-    """Restore to an empty isolated directory, never merge over live business data."""
+    """Restore to an empty isolated directory, never merge over live project data."""
     snapshot, destination = Path(snapshot), Path(destination).absolute()
     manifest = verify_snapshot(snapshot)
     if destination.is_symlink() or destination.exists() and any(destination.iterdir()):

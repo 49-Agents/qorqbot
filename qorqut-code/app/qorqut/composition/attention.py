@@ -24,14 +24,14 @@ SCHEMA = (
     )""",
     """CREATE TABLE attention_memberships (
         id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id),
-        task_business_id TEXT, task_id TEXT NOT NULL, task_created_at TEXT NOT NULL,
+        task_project_id TEXT, task_id TEXT NOT NULL, task_created_at TEXT NOT NULL,
         revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1), created_at TEXT NOT NULL
     )""",
-    "CREATE UNIQUE INDEX attention_memberships_business ON attention_memberships(agent_id,task_business_id,task_id) WHERE task_business_id IS NOT NULL",
-    "CREATE UNIQUE INDEX attention_memberships_global ON attention_memberships(agent_id,task_id) WHERE task_business_id IS NULL",
+    "CREATE UNIQUE INDEX attention_memberships_project ON attention_memberships(agent_id,task_project_id,task_id) WHERE task_project_id IS NOT NULL",
+    "CREATE UNIQUE INDEX attention_memberships_global ON attention_memberships(agent_id,task_id) WHERE task_project_id IS NULL",
     """CREATE TABLE attention_membership_events (
         id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id), membership_id TEXT NOT NULL,
-        task_business_id TEXT, task_id TEXT NOT NULL, task_created_at TEXT NOT NULL,
+        task_project_id TEXT, task_id TEXT NOT NULL, task_created_at TEXT NOT NULL,
         actor_id TEXT NOT NULL REFERENCES principals(id), event_type TEXT NOT NULL CHECK(event_type IN ('added','removed')),
         owner_requested INTEGER NOT NULL DEFAULT 0 CHECK(owner_requested IN (0,1)), rationale TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
     )""",

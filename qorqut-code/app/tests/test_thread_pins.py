@@ -4,8 +4,8 @@ import unittest
 from qorqut.dashboard_preferences import MAX_THREAD_PINS, thread_pins
 from qorqut_operations.contracts import DomainError
 
-TASK = {'type': 'task', 'id': 'task-1', 'business_id': 'project-1'}
-SIGNOFF = {'type': 'signoff', 'id': 'signoff-1', 'business_id': None}
+TASK = {'type': 'task', 'id': 'task-1', 'project_id': 'project-1'}
+SIGNOFF = {'type': 'signoff', 'id': 'signoff-1', 'project_id': None}
 
 
 class ThreadPinsTest(unittest.TestCase):

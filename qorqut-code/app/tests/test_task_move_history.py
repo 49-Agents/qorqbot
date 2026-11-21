@@ -44,13 +44,13 @@ class Lookup:
 
     def resolve(self, ctx, item, uow, builder=None, allow_busy=False):
         if item['type'] == 'task':
-            row = uow.connection.execute('SELECT title FROM tasks WHERE business_id IS ? AND id=?', (ctx.business_id, item['id'])).fetchone()
+            row = uow.connection.execute('SELECT title FROM tasks WHERE project_id IS ? AND id=?', (ctx.project_id, item['id'])).fetchone()
             label = row['title'] if row else None
         else:
-            label = self.records.get((ctx.business_id, item['type'], item['id']))
+            label = self.records.get((ctx.project_id, item['type'], item['id']))
         if label is None:
             raise DomainError('not_found', 'Context item does not exist in this project')
-        return {**item, 'label': label, 'archived': False, 'business_id': ctx.business_id}
+        return {**item, 'label': label, 'archived': False, 'project_id': ctx.project_id}
 
     resource = relationship_item = fingerprint = lambda *a, **k: None
 
@@ -69,13 +69,13 @@ class TaskMoveHistoryTests(unittest.TestCase):
                                                          created_at=STAMP, updated_at=STAMP))
             uow.repository('installation').insert(dict(id='service', installation_id=str(uuid4()),
                                                        owner_principal_id=self.owner, created_at=STAMP, updated_at=STAMP))
-            for business, slug in ((self.source, 'launch'), (self.destination, 'product')):
-                uow.repository('businesses').insert({'id': business, 'name': slug.title(), 'slug': slug,
+            for project, slug in ((self.source, 'launch'), (self.destination, 'product')):
+                uow.repository('projects').insert({'id': project, 'name': slug.title(), 'slug': slug,
                                                      'workspace': slug, 'hq_path': 'hq-' + slug})
-                uow.repository('business_memberships', business_id=business).insert({'principal_id': self.owner, 'is_owner': True})
+                uow.repository('project_memberships', project_id=project).insert({'principal_id': self.owner, 'is_owner': True})
         self.ctx = InvocationContext(Principal(self.owner, 'human'), source='dashboard',
                                      global_capabilities=frozenset({'read_global_context'}),
-                                     allowed_business_ids=frozenset({self.source, self.destination}))
+                                     allowed_project_ids=frozenset({self.source, self.destination}))
         self.registry = OperationRegistry(TASK_ENTRIES)
         self.app = Application(self.db, self.registry, policy=NS(resolve=lambda *a: PolicyDecision('allow', 'test')))
         self.records = {}
@@ -93,41 +93,41 @@ class TaskMoveHistoryTests(unittest.TestCase):
 
     # -- fixtures -------------------------------------------------------------------------------------------------
 
-    def task(self, title, *, status='done', parent=None, attributes=None, business=None):
+    def task(self, title, *, status='done', parent=None, attributes=None, project=None):
         with self.db.transaction() as uow:
             task_id = identity.new_task_id(uow.connection)
-            uow.repository('tasks', business_id=business or self.source).insert(
+            uow.repository('tasks', project_id=project or self.source).insert(
                 {'id': task_id, 'title': title, 'status': status, 'parent_id': parent, 'created_by': self.owner,
                  'created_at': BEFORE, 'updated_at': BEFORE, **({'fields_json': {'$task': attributes}} if attributes else {})})
         return task_id
 
-    def edge(self, source, target, role='concerns', *, at=BEFORE, business=None):
+    def edge(self, source, target, role='concerns', *, at=BEFORE, project=None):
         edge_id = str(uuid4())
         with self.db.transaction() as uow:
-            uow.repository('relationships', business_id=business or self.source).insert(
+            uow.repository('relationships', project_id=project or self.source).insert(
                 {'id': edge_id, 'from_type': source[0], 'from_id': source[1], 'to_type': target[0], 'to_id': target[1],
                  'role': role, 'context': '', 'created_at': at, 'updated_at': at, 'created_by': self.owner})
         return edge_id
 
     def preview(self, *task_ids):
         with self.db.read() as uow:
-            return self.tasks.relocation.inspect(replace(self.ctx, business_id=self.source), uow, self.source, self.destination, list(task_ids))
+            return self.tasks.relocation.inspect(replace(self.ctx, project_id=self.source), uow, self.source, self.destination, list(task_ids))
 
     def move(self, *task_ids):
         inspection = self.preview(*task_ids)
         self.assertEqual(inspection.blockers, [])
         with self.db.transaction() as uow:
-            self.tasks.relocation.apply(replace(self.ctx, business_id=self.source), uow, self.source, self.destination, list(task_ids),
+            self.tasks.relocation.apply(replace(self.ctx, project_id=self.source), uow, self.source, self.destination, list(task_ids),
                                         inspection.fingerprint(self.owner), move_id=str(uuid4()), at=STAMP)
         return inspection
 
-    def listing(self, business, **arguments):
+    def listing(self, project, **arguments):
         with self.db.read() as uow:
-            return self.relationships.read('relationships_list', replace(self.ctx, business_id=business), arguments, uow)['items']
+            return self.relationships.read('relationships_list', replace(self.ctx, project_id=project), arguments, uow)['items']
 
     def read_scope(self, edge_id):
         with self.db.read() as uow:
-            return uow.connection.execute('SELECT business_id FROM relationships WHERE id=?', (edge_id,)).fetchone()[0]
+            return uow.connection.execute('SELECT project_id FROM relationships WHERE id=?', (edge_id,)).fetchone()[0]
 
     # -- tests ----------------------------------------------------------------------------------------------------
 
@@ -135,7 +135,7 @@ class TaskMoveHistoryTests(unittest.TestCase):
         task_id = self.task('Reply to a creator', attributes={'task_type': 'email', 'email_conversation_id': 'conversation-1'})
         self.move(task_id)
         with self.db.read() as uow:
-            row = uow.repository('tasks', business_id=self.destination).get(task_id)
+            row = uow.repository('tasks', project_id=self.destination).get(task_id)
         self.assertEqual(row['fields_json']['$task']['email_conversation_id'], 'conversation-1')
 
     def test_a_link_to_a_record_that_stays_is_history_read_from_both_ends(self):
@@ -150,10 +150,10 @@ class TaskMoveHistoryTests(unittest.TestCase):
         self.assertEqual((self.read_scope(inner), self.read_scope(crossing)), (self.destination, self.source))
         # From the moved Task's side the link is listed with the material read in the scope it lives in.
         [shown] = [edge for edge in self.listing(self.destination, item={'type': 'task', 'id': child}) if edge['id'] == crossing]
-        self.assertEqual((shown['business_id'], shown['target_item']['label']), (self.source, 'Launch brief'))
+        self.assertEqual((shown['project_id'], shown['target_item']['label']), (self.source, 'Launch brief'))
         # From the material's side the Task end is read where it is now.
         [shown] = self.listing(self.source, item={'type': 'material', 'id': 'brief'})
-        self.assertEqual((shown['source_item']['business_id'], shown['source_item']['moved']), (self.destination, True))
+        self.assertEqual((shown['source_item']['project_id'], shown['source_item']['moved']), (self.destination, True))
 
     def test_only_links_written_during_the_stay_belong_to_the_moved_task(self):
         self.records[(self.source, 'material', 'old')] = 'Old note'
@@ -173,7 +173,7 @@ class TaskMoveHistoryTests(unittest.TestCase):
         reader = TaskAssociatedRecords(self.tasks)
         with self.db.read() as uow:
             stays = reader.stays(uow, self.destination, [task_id])
-            found = reader.stay_sources(replace(self.ctx, business_id=self.destination), uow, 'signoff', stays)
+            found = reader.stay_sources(replace(self.ctx, project_id=self.destination), uow, 'signoff', stays)
         self.assertEqual(found, {('proposal-1', task_id, self.source)})
 
     def test_links_to_agents_travel_with_the_task(self):
@@ -197,22 +197,22 @@ class TaskMoveHistoryTests(unittest.TestCase):
         moved = self.task('Moved')
         staying = self.task('Stays', status='open')
         with self.db.transaction() as uow:
-            uow.connection.execute("UPDATE tasks SET fields_json=? WHERE business_id=? AND id=?",
-                                   ('{"$task_links":[{"business_id":"%s","task_id":"%s"}]}' % (self.source, moved), self.source, staying))
+            uow.connection.execute("UPDATE tasks SET fields_json=? WHERE project_id=? AND id=?",
+                                   ('{"$task_links":[{"project_id":"%s","task_id":"%s"}]}' % (self.source, moved), self.source, staying))
         self.assertEqual(self.move(moved).counts['linking_tasks'], 1)
         with self.db.read() as uow:
-            row = uow.repository('tasks', business_id=self.source).get(staying)
-        self.assertEqual(row['fields_json']['$task_links'], [{'business_id': self.destination, 'task_id': moved}])
+            row = uow.repository('tasks', project_id=self.source).get(staying)
+        self.assertEqual(row['fields_json']['$task_links'], [{'project_id': self.destination, 'task_id': moved}])
         self.assertEqual(row['revision'], 2)
 
     def test_an_older_custom_field_the_destination_does_not_define_moves_unchanged(self):
         task_id = self.task('Imported')
         with self.db.transaction() as uow:
-            uow.connection.execute("UPDATE tasks SET fields_json=? WHERE business_id=? AND id=?",
+            uow.connection.execute("UPDATE tasks SET fields_json=? WHERE project_id=? AND id=?",
                                    ('{"_migration_source":{"id":"old"}}', self.source, task_id))
         self.move(task_id)
         with self.db.read() as uow:
-            row = uow.repository('tasks', business_id=self.destination).get(task_id)
+            row = uow.repository('tasks', project_id=self.destination).get(task_id)
         self.assertEqual(row['fields_json']['_migration_source'], {'id': 'old'})
 
     def test_a_reviewed_link_stays_behind_but_a_reviewed_assignment_blocks(self):
@@ -220,11 +220,11 @@ class TaskMoveHistoryTests(unittest.TestCase):
         reviewed = self.edge(('task', first), ('task', second))
         with self.db.transaction() as uow:
             uow.connection.execute(
-                "INSERT INTO context_reviews(business_id,id,relationship_id,item_type,item_id,source_type,source_id,source_token,"
+                "INSERT INTO context_reviews(project_id,id,relationship_id,item_type,item_id,source_type,source_id,source_token,"
                 "relationship_revision,result,explanation,actor_id,prepared_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (self.source, str(uuid4()), reviewed, 'task', first, 'task', second, 't', 1, 'no_change', 'Read', self.owner, STAMP, STAMP))
         with self.db.transaction() as uow:
-            uow.connection.execute("UPDATE tasks SET parent_id=? WHERE business_id=? AND id=?", (first, self.source, second))
+            uow.connection.execute("UPDATE tasks SET parent_id=? WHERE project_id=? AND id=?", (first, self.source, second))
         self.assertEqual(self.move(first).counts['historical_relationships'], 1)
         self.assertEqual(self.read_scope(reviewed), self.source)
         self.assertIn(reviewed, {edge['id'] for edge in self.listing(self.destination, item={'type': 'task', 'id': first})})
@@ -233,7 +233,7 @@ class TaskMoveHistoryTests(unittest.TestCase):
         task_id = self.task('Moved then removed')
         self.move(task_id)
         with self.db.transaction() as uow:
-            uow.connection.execute('DELETE FROM tasks WHERE business_id=? AND id=?', (self.destination, task_id))
+            uow.connection.execute('DELETE FROM tasks WHERE project_id=? AND id=?', (self.destination, task_id))
         with self.db.read() as uow:
             self.assertTrue(identity.taken(uow.connection, task_id))
             self.assertTrue(identity.taken(uow.connection, task_id.upper()))
@@ -242,22 +242,22 @@ class TaskMoveHistoryTests(unittest.TestCase):
         note = str(uuid4())
         self.records[(self.destination, 'material', note)] = 'Launch brief'
         with self.db.transaction() as uow:
-            uow.connection.execute("INSERT INTO documents(id,business_id,namespace,kind,path,content_hash,created_at,updated_at) "
-                                   "VALUES(?,?,?,'business_owned_note','notes/brief.md','x',?,?)",
+            uow.connection.execute("INSERT INTO documents(id,project_id,namespace,kind,path,content_hash,created_at,updated_at) "
+                                   "VALUES(?,?,?,'project_owned_note','notes/brief.md','x',?,?)",
                                    (note, self.destination, self.destination, STAMP, STAMP))
-            uow.connection.execute("INSERT INTO document_moves(move_id,document_id,kind,source_business_id,destination_business_id,source_path,"
-                                   "destination_path,revision_before,actor_id,moved_at) VALUES(?,?,'business_owned_note',?,?,?,?,1,?,?)",
+            uow.connection.execute("INSERT INTO document_moves(move_id,document_id,kind,source_project_id,destination_project_id,source_path,"
+                                   "destination_path,revision_before,actor_id,moved_at) VALUES(?,?,'project_owned_note',?,?,?,?,1,?,?)",
                                    (str(uuid4()), note, self.source, self.destination, 'notes/brief.md', 'notes/brief.md', self.owner, STAMP))
         task_id = self.task('Send the brief', status='open')
         edge = self.edge(('task', task_id), ('material', note))
         [shown] = [item for item in self.listing(self.source, item={'type': 'task', 'id': task_id}) if item['id'] == edge]
-        self.assertEqual((shown['target_item']['business_id'], shown['target_item']['moved']), (self.destination, True))
+        self.assertEqual((shown['target_item']['project_id'], shown['target_item']['moved']), (self.destination, True))
 
     def extension_table(self, name):
         """An extension's table keyed to a Task, as Paper's Outreach handoffs are (the extension is not part of this repo)."""
         with self.db.transaction() as uow:
-            uow.connection.execute(f"CREATE TABLE {name} (id TEXT PRIMARY KEY, business_id TEXT NOT NULL, task_id TEXT NOT NULL, "
-                                   "payload_json TEXT NOT NULL, FOREIGN KEY (business_id, task_id) REFERENCES tasks(business_id, id))")
+            uow.connection.execute(f"CREATE TABLE {name} (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, "
+                                   "payload_json TEXT NOT NULL, FOREIGN KEY (project_id, task_id) REFERENCES tasks(project_id, id))")
 
     def test_an_outreach_handoff_receipt_moves_with_its_task_but_an_unknown_binding_still_blocks(self):
         from qorqut.domains.tasks.relocation import HostRelocation
@@ -266,14 +266,14 @@ class TaskMoveHistoryTests(unittest.TestCase):
         self.extension_table('unknown_bindings')
         task_id, other = self.task('Outreach reply from a creator'), self.task('Bound elsewhere')
         with self.db.transaction() as uow:
-            uow.connection.execute("INSERT INTO outreach_handoffs VALUES('h1',?,?,'{\"business_id\": \"kept\"}')", (self.source, task_id))
+            uow.connection.execute("INSERT INTO outreach_handoffs VALUES('h1',?,?,'{\"project_id\": \"kept\"}')", (self.source, task_id))
             uow.connection.execute("INSERT INTO unknown_bindings VALUES('u1',?,?,'{}')", (self.source, other))
         self.assertEqual([item['code'] for item in self.preview(other).blockers], ['unsupported_binding'])
         self.assertEqual(self.preview(task_id).counts['extension_receipts'], 1)
         self.move(task_id)
         with self.db.read() as uow:
-            row = uow.connection.execute("SELECT business_id, payload_json FROM outreach_handoffs WHERE id='h1'").fetchone()
-            self.assertEqual(tuple(row), (self.destination, '{"business_id": "kept"}'))
+            row = uow.connection.execute("SELECT project_id, payload_json FROM outreach_handoffs WHERE id='h1'").fetchone()
+            self.assertEqual(tuple(row), (self.destination, '{"project_id": "kept"}'))
             self.assertIsNone(uow.connection.execute('PRAGMA foreign_key_check(outreach_handoffs)').fetchone())
 
 if __name__ == '__main__':

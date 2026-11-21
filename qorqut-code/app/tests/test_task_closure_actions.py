@@ -55,23 +55,23 @@ class Harness(unittest.TestCase):
             for identity, name, role in agents:
                 uow.repository('principals').insert(dict(id=identity, kind='agent', display_name=name,
                     active=1, created_at=STAMP, updated_at=STAMP))
-                uow.repository('agent_profiles', business_id=None).insert(dict(agent_id=identity, principal_id=identity,
-                    home_business_id=None, namespace='ecosystem', name=name.lower(), workspace='/tmp/' + name.lower(),
+                uow.repository('agent_profiles', project_id=None).insert(dict(agent_id=identity, principal_id=identity,
+                    home_project_id=None, namespace='ecosystem', name=name.lower(), workspace='/tmp/' + name.lower(),
                     status='active', profile_json={'status': 'active', 'role': {'id': role}, 'scope': {
-                        'kind': 'ecosystem', 'business_id': None, 'global_capabilities': ['read_global_context']}},
+                        'kind': 'ecosystem', 'project_id': None, 'global_capabilities': ['read_global_context']}},
                     created_at=STAMP, updated_at=STAMP))
             uow.repository('installation').insert(dict(id='service', installation_id=str(uuid4()),
                 owner_principal_id=self.owner, management_coordinator_id=self.lead, created_at=STAMP, updated_at=STAMP))
-            for business, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta')):
-                uow.repository('businesses').insert({'id': business, 'slug': name.lower(), 'name': name,
+            for project, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta')):
+                uow.repository('projects').insert({'id': project, 'slug': name.lower(), 'name': name,
                                                      'workspace': name.lower(), 'hq_path': name.lower() + '/hq'})
-                uow.repository('business_memberships', business_id=business).insert(
+                uow.repository('project_memberships', project_id=project).insert(
                     {'principal_id': self.owner, 'active': 1, 'is_owner': 1})
         projects = frozenset({self.alpha, self.beta})
-        self.contexts = {self.owner: InvocationContext(Principal(self.owner, 'human'), allowed_business_ids=projects,
+        self.contexts = {self.owner: InvocationContext(Principal(self.owner, 'human'), allowed_project_ids=projects,
                                                        global_capabilities={'read_global_context'}, source='dashboard')}
         for identity, _, _ in agents:
-            self.contexts[identity] = InvocationContext(Principal(identity, 'agent'), allowed_business_ids=projects,
+            self.contexts[identity] = InvocationContext(Principal(identity, 'agent'), allowed_project_ids=projects,
                 global_capabilities={'read_global_context'}, profile_revision=1, source='mcp')
         self.registry = OperationRegistry(TASK_ENTRIES)
         self.app = Application(self.db, self.registry, policy=NS(resolve=lambda *a: PolicyDecision('allow', 'test')))
@@ -90,23 +90,23 @@ class Harness(unittest.TestCase):
 
     # -- calls ----------------------------------------------------------------------------------------------------
 
-    def invoke(self, who, operation, arguments, business=None):
-        options = {'idempotency_key': str(uuid4()), **({'business_id': business} if business else {})}
-        return self.app.invoke(self.contexts[who], operation, {**arguments, **({} if business else {'scope': 'global'})},
+    def invoke(self, who, operation, arguments, project=None):
+        options = {'idempotency_key': str(uuid4()), **({'project_id': project} if project else {})}
+        return self.app.invoke(self.contexts[who], operation, {**arguments, **({} if project else {'scope': 'global'})},
                                options)
 
     def ok(self, result):
         self.assertEqual(result.status, 'ok', result.to_dict())
         return result.data['task']
 
-    def task(self, business, title='Email the founding investors', who=None, **extra):
-        return self.ok(self.invoke(who or self.owner, 'tasks_create', {'title': title, **extra}, business))
+    def task(self, project, title='Email the founding investors', who=None, **extra):
+        return self.ok(self.invoke(who or self.owner, 'tasks_create', {'title': title, **extra}, project))
 
     def close(self, who, task, **extra):
-        return self.invoke(who, 'tasks_complete', {'task_id': task['id'], **extra}, task['business_id'])
+        return self.invoke(who, 'tasks_complete', {'task_id': task['id'], **extra}, task['project_id'])
 
     def update(self, who, task, changes):
-        return self.invoke(who, 'tasks_update', {'task_id': task['id'], 'changes': changes}, task['business_id'])
+        return self.invoke(who, 'tasks_update', {'task_id': task['id'], 'changes': changes}, task['project_id'])
 
     # -- reads ----------------------------------------------------------------------------------------------------
 
@@ -117,18 +117,18 @@ class Harness(unittest.TestCase):
     def actions(self):
         return self.rows('SELECT * FROM action_logs ORDER BY created_at, action_key')
 
-    def plant(self, task, *, performer, business=None, category=None, withdrawn=0, text='Sent the investor email'):
+    def plant(self, task, *, performer, project=None, category=None, withdrawn=0, text='Sent the investor email'):
         """An Action somebody recorded for the Task with ``actions_record``, as its stored rows."""
         identity = str(uuid4())
         key = 'global/' + identity
         with self.db.transaction() as uow:
-            uow.repository('action_logs', business_id=None).insert(dict(
-                id=identity, action_key=key, category=category or ('business-operational' if business else 'global-operational'),
+            uow.repository('action_logs', project_id=None).insert(dict(
+                id=identity, action_key=key, category=category or ('project-operational' if project else 'global-operational'),
                 action_text=text, performed_by=performer, recorded_by=self.lead, origin='agent', occurred_at=STAMP,
                 refs_json={'task': task['id']}, created_at=STAMP, updated_at=STAMP))
-            if business:
-                uow.connection.execute('INSERT INTO action_businesses(action_key,business_id,created_at) VALUES(?,?,?)',
-                                       (key, business, STAMP))
+            if project:
+                uow.connection.execute('INSERT INTO action_projects(action_key,project_id,created_at) VALUES(?,?,?)',
+                                       (key, project, STAMP))
             if withdrawn:
                 uow.connection.execute('UPDATE action_logs SET withdrawn=1 WHERE action_key=?', (key,))
         return key
@@ -142,14 +142,14 @@ class ClosureActionTests(Harness):
         [action] = self.actions()
         self.assertEqual(action['id'], closure_identity(self.alpha, task['id']))
         # Stored in Global and linked to the Task's project; the worker is both performer and recorder.
-        self.assertEqual((action['business_id'], action['action_key']), (None, 'global/' + action['id']))
+        self.assertEqual((action['project_id'], action['action_key']), (None, 'global/' + action['id']))
         self.assertEqual((action['origin'], action['category'], action['action_text'], action['withdrawn']),
-                         ('automatic', 'business-operational', RESULT, 0))
+                         ('automatic', 'project-operational', RESULT, 0))
         self.assertEqual((action['performed_by'], action['recorded_by']), (self.worker, self.worker))
         self.assertEqual(json.loads(action['refs_json']), {'task': task['id']})
         self.assertEqual(action['time_precision'], 'instant')
-        self.assertEqual(self.rows('SELECT business_id FROM action_businesses WHERE action_key=?', action['action_key']),
-                         [{'business_id': self.alpha}])
+        self.assertEqual(self.rows('SELECT project_id FROM action_projects WHERE action_key=?', action['action_key']),
+                         [{'project_id': self.alpha}])
         # Its one revision is stored and admitted to the Context queue in the same write.
         [revision] = self.rows('SELECT * FROM action_revisions WHERE action_key=?', action['action_key'])
         self.assertEqual((revision['revision'], revision['operation'], revision['recorded_by'], revision['performed_by']),
@@ -163,10 +163,10 @@ class ClosureActionTests(Harness):
         task = self.task(None)
         self.ok(self.close(self.worker, task, result=RESULT))
         [action] = self.actions()
-        self.assertEqual((action['business_id'], action['category'], action['id']),
+        self.assertEqual((action['project_id'], action['category'], action['id']),
                          (None, 'global-operational', closure_identity(None, task['id'])))
         self.assertEqual(json.loads(action['refs_json']), {'task': task['id']})
-        self.assertEqual(self.rows('SELECT * FROM action_businesses'), [])
+        self.assertEqual(self.rows('SELECT * FROM action_projects'), [])
 
     def test_the_text_is_the_result_of_this_write_cut_to_twenty_words_or_the_title(self):
         long = self.task(self.alpha)
@@ -197,9 +197,9 @@ class ClosureActionTests(Harness):
 
     def test_closures_by_the_coordinator_the_applier_and_the_owner_record_nothing(self):
         for who in (self.lead, self.applier, self.owner):
-            for business in (self.alpha, None):
+            for project in (self.alpha, None):
                 # The owner's words go through the private conversation, so the owner closes without a result.
-                self.ok(self.close(who, self.task(business), **({} if who == self.owner else {'result': RESULT})))
+                self.ok(self.close(who, self.task(project), **({} if who == self.owner else {'result': RESULT})))
         self.assertEqual([row['n'] for row in self.rows("SELECT COUNT(*) AS n FROM tasks WHERE status='done'")], [6])
         self.assertEqual(self.actions(), [])
         self.assertEqual(self.rows('SELECT * FROM context_inputs'), [])
@@ -231,9 +231,9 @@ class ClosureActionTests(Harness):
 
     def test_nothing_is_recorded_while_the_closer_has_a_current_action_for_the_task(self):
         mine, theirs, withdrawn = (self.task(self.alpha, title=title) for title in ('One', 'Two', 'Three'))
-        self.plant(mine, performer=self.worker, business=self.alpha)
-        self.plant(theirs, performer=self.applier, business=self.alpha)
-        self.plant(withdrawn, performer=self.worker, business=self.alpha, withdrawn=1)
+        self.plant(mine, performer=self.worker, project=self.alpha)
+        self.plant(theirs, performer=self.applier, project=self.alpha)
+        self.plant(withdrawn, performer=self.worker, project=self.alpha, withdrawn=1)
         for task in (mine, theirs, withdrawn):
             self.ok(self.close(self.worker, task, result=RESULT))
         recorded = [json.loads(action['refs_json'])['task'] for action in self.actions() if action['origin'] == 'automatic']
@@ -251,7 +251,7 @@ class ClosureActionTests(Harness):
         self.assertIn(task['id'], logged.output[0])
         self.assertIn('the Context queue is unavailable', logged.output[0])
         # Only the Action was rolled back: no row of it stays, and the Task write with its thread entry committed.
-        for table in ('action_logs', 'action_revisions', 'action_businesses', 'context_inputs'):
+        for table in ('action_logs', 'action_revisions', 'action_projects', 'context_inputs'):
             self.assertEqual(self.rows(f'SELECT * FROM {table}'), [], table)
         self.assertEqual(self.rows('SELECT status FROM tasks WHERE id=?', task['id']), [{'status': 'done'}])
         self.assertTrue(self.rows("SELECT 1 FROM thread_messages WHERE item_id=? AND kind='comment'", task['id']))
@@ -301,8 +301,8 @@ class Caller:
         return (actor.principal.id,)
 
     def invocation_context(self, actor, *, canonical_name, options, native_binding=None):
-        return replace(self.contexts[actor.principal.id], business_id=options.business_id,
-                       review_business_id=options.review_business_id)
+        return replace(self.contexts[actor.principal.id], project_id=options.project_id,
+                       review_project_id=options.review_project_id)
 
 
 class CoordinatorHintTests(Harness):
@@ -331,14 +331,14 @@ class CoordinatorHintTests(Harness):
         return self.instructions.render('task-action-recorded', ACTION_ID=key, TEXT=text, PERFORMER=performer)
 
     def test_the_coordinator_is_told_of_the_action_a_worker_closure_recorded(self):
-        for business in (self.alpha, None):
-            task = self.task(business)
+        for project in (self.alpha, None):
+            task = self.task(project)
             closed = self.send(self.worker, 'tasks_complete', {'task_id': task['id'], 'result': RESULT})
             self.assertEqual(closed['status'], 'ok', closed)
             # The worker is told nothing new, on its own closure or on a read.
             self.assertNotIn('agent_hint', closed)
             self.assertNotIn('agent_hint', self.read(self.worker, task))
-            expected = self.recorded('global/' + closure_identity(business, task['id']), RESULT, 'Scout')
+            expected = self.recorded('global/' + closure_identity(project, task['id']), RESULT, 'Scout')
             self.assertIn('Do not record it again.', expected)
             # The compact presentation of the read keeps the hint, and so does the full one.
             self.assertEqual(self.read(self.lead, task).get('agent_hint'), expected)
@@ -355,18 +355,18 @@ class CoordinatorHintTests(Harness):
         self.assertEqual(self.read(self.lead, task).get('agent_hint'), self.missing)
         self.assertEqual(self.actions(), [])
         # An Action of another scope, or a withdrawn one, is not this Task's Action.
-        self.plant(task, performer=self.lead, business=self.beta)
+        self.plant(task, performer=self.lead, project=self.beta)
         self.plant(task, performer=self.lead, category='global-operational')
-        self.plant(task, performer=self.lead, business=self.alpha, withdrawn=1)
+        self.plant(task, performer=self.lead, project=self.alpha, withdrawn=1)
         self.assertEqual(self.read(self.lead, task).get('agent_hint'), self.missing)
         # Once he records it, the read names it, with the performer the Action credits.
-        key = self.plant(task, performer=self.owner, business=self.alpha, text='Owner sent the investor email')
+        key = self.plant(task, performer=self.owner, project=self.alpha, text='Owner sent the investor email')
         self.assertEqual(self.read(self.lead, task).get('agent_hint'),
                          self.recorded(key, 'Owner sent the investor email', 'Owner'))
         # A Global Task counts a global-operational Action, never a project's.
         general = self.task(None)
         self.ok(self.close(self.owner, general))
-        self.plant(general, performer=self.lead, business=self.alpha)
+        self.plant(general, performer=self.lead, project=self.alpha)
         self.assertEqual(self.read(self.lead, general).get('agent_hint'), self.missing)
         key = self.plant(general, performer=self.lead, category='global-operational', text='Filed the yearly report')
         self.assertEqual(self.read(self.lead, general).get('agent_hint'),
@@ -397,7 +397,7 @@ class CoordinatorHintTests(Harness):
         self.assertEqual(dropped['status'], 'ok', dropped)
         self.assertNotIn('agent_hint', dropped)
         # An old closure that has its Action is still named: the window only limits the reminder that one is missing.
-        key = self.plant(old, performer=self.worker, business=self.alpha)
+        key = self.plant(old, performer=self.worker, project=self.alpha)
         self.assertEqual(self.read(self.lead, old).get('agent_hint'), self.recorded(key, 'Sent the investor email', 'Scout'))
 
     def test_only_the_configured_coordinator_is_told(self):

@@ -25,8 +25,8 @@ class JobControl:
     deadline: float
 
     @property
-    def business_id(self):
-        return self.job["business_id"]
+    def project_id(self):
+        return self.job["project_id"]
 
     def check(self, *, deadline=True):
         if self.service._stop.is_set():
@@ -34,7 +34,7 @@ class JobControl:
         if deadline and time.monotonic() >= self.deadline:
             raise DomainError("timeout", "Registered program exceeded its time limit")
         with self.service.database.read() as uow:
-            row = uow.repository("jobs", business_id=self.business_id).get(self.job["id"], required=True)
+            row = uow.repository("jobs", project_id=self.project_id).get(self.job["id"], required=True)
             if row["state"] == "cancel_requested":
                 raise DomainError("cancelled", "Owner stopped this routine")
 
@@ -46,7 +46,7 @@ class JobControl:
 
     def record_usage(self, model, usage, cost):
         with self.service.database.transaction() as uow:
-            repo = uow.repository("jobs", business_id=self.business_id)
+            repo = uow.repository("jobs", project_id=self.project_id)
             row = repo.get(self.job["id"], required=True)
             result = row["result_json"] or {}
             calls = list(result.get("calls", []))
@@ -57,7 +57,7 @@ class JobControl:
 
     def spent_usd(self):
         with self.service.database.read() as uow:
-            row = uow.repository("jobs", business_id=self.business_id).get(self.job["id"], required=True)
+            row = uow.repository("jobs", project_id=self.project_id).get(self.job["id"], required=True)
             return sum(call["usd"] for call in (row["result_json"] or {}).get("calls", []))
 
     def checkpoint(self, name, value, *, uow=None):
@@ -67,7 +67,7 @@ class JobControl:
             with self.service.database.transaction() as unit:
                 return self.checkpoint(name, value, uow=unit)
         uow.require_write()
-        repo = uow.repository("jobs", business_id=self.business_id)
+        repo = uow.repository("jobs", project_id=self.project_id)
         row = repo.get(self.job["id"], required=True)
         result = row["result_json"] or {}
         if name == "dispatch_intent" and row["state"] == "cancel_requested":
@@ -78,7 +78,7 @@ class JobControl:
 
     def saved(self, name):
         with self.service.database.read() as uow:
-            row = uow.repository("jobs", business_id=self.business_id).get(self.job["id"], required=True)
+            row = uow.repository("jobs", project_id=self.project_id).get(self.job["id"], required=True)
             return (row["result_json"] or {}).get(name)
 
 
@@ -138,8 +138,8 @@ class BackgroundService:
         self.instance_id = new_id()
 
     def context_for(self, row, uow):
-        return self.app.policy.context_for(row["principal_id"], business_id=row["business_id"],
-            review_business_id=row["business_id"], initiated_by_principal_id=row["initiated_by_principal_id"],
+        return self.app.policy.context_for(row["principal_id"], project_id=row["project_id"],
+            review_project_id=row["project_id"], initiated_by_principal_id=row["initiated_by_principal_id"],
             job_id=row["id"], uow=uow)
 
     def _queue_for(self, kind):
@@ -161,13 +161,13 @@ class BackgroundService:
             (self.clock().isoformat().replace('+00:00','Z'), *parameters)).fetchone())
 
     def _update(self, row, values, uow):
-        return uow.repository("jobs", business_id=row["business_id"]).update(row["id"], values, expected_revision=row["revision"])
+        return uow.repository("jobs", project_id=row["project_id"]).update(row["id"], values, expected_revision=row["revision"])
 
     def _routine_finish(self, row, uow):
         run_id = row["definition_ref_json"].get("routine_run_id")
         if not run_id:
             return
-        repo = uow.repository("routine_runs", business_id=row["business_id"])
+        repo = uow.repository("routine_runs", project_id=row["project_id"])
         run = repo.get(run_id, required=True)
         result = row["result_json"] or {}
         calls = result.get("calls", [])
@@ -176,7 +176,7 @@ class BackgroundService:
             "result_json": {**run["result_json"], "job_id": row["id"], "data": result.get("data", {}), "error": row["error_json"]},
             "cost_json": {"usd": round(sum(call["usd"] for call in calls), 8), "calls": calls}}, expected_revision=run["revision"])
         slots = uow.repository("routine_slots")
-        key = {"namespace": run["namespace"], "routine_id": run["routine_id"], "target_namespace": row["business_id"] or "global"}
+        key = {"namespace": run["namespace"], "routine_id": run["routine_id"], "target_namespace": row["project_id"] or "global"}
         slot = slots.get(key)
         if slot and slot["state_json"].get("job_id") == row["id"]:
             slots.update(key, {"state_json": {**slot["state_json"], "done": True}}, expected_revision=slot["revision"])
@@ -195,7 +195,7 @@ class BackgroundService:
             return None
         try:
             with self.database.read() as uow:
-                return uow.repository("jobs", business_id=row["business_id"]).get(row["id"])
+                return uow.repository("jobs", project_id=row["project_id"]).get(row["id"])
         except Exception:
             return None
 
@@ -216,7 +216,7 @@ class BackgroundService:
             descriptor = self.app.registry.get(output["operation"])
             self.app.registry.bind_arguments(descriptor.name, output["arguments"])
         with self.database.transaction() as uow:
-            current = uow.repository("jobs", business_id=row["business_id"]).get(row["id"], required=True)
+            current = uow.repository("jobs", project_id=row["project_id"]).get(row["id"], required=True)
             if current["state"] == "cancel_requested":
                 raise DomainError("cancelled", "Owner stopped this routine")
             previous = current["result_json"] or {}
@@ -232,10 +232,10 @@ class BackgroundService:
         for index, output in enumerate(outputs):
             control.check(deadline=False)
             with self.database.read() as uow:
-                current = uow.repository("jobs", business_id=row["business_id"]).get(row["id"], required=True)
+                current = uow.repository("jobs", project_id=row["project_id"]).get(row["id"], required=True)
                 prior = (current["result_json"].get("applied") or {}).get(str(index))
                 if prior and prior["status"] == "signoff_required":
-                    signoff = uow.repository("signoffs", business_id=row["business_id"]).get(prior["signoff"]["id"], required=True)
+                    signoff = uow.repository("signoffs", project_id=row["project_id"]).get(prior["signoff"]["id"], required=True)
                     if signoff["state"] in {"pending", "approved"}:
                         self._defer(row["id"], 5, state="waiting_signoff")
                         return False
@@ -251,7 +251,7 @@ class BackgroundService:
             if result.status not in {"ok", "accepted", "signoff_required"}:
                 raise DomainError("invalid_result", "Unexpected result from a declared job output")
             with self.database.transaction() as uow:
-                current = uow.repository("jobs", business_id=row["business_id"]).get(row["id"], required=True)
+                current = uow.repository("jobs", project_id=row["project_id"]).get(row["id"], required=True)
                 data = current["result_json"]
                 data["applied"][str(index)] = result.to_dict()
                 current = self._update(current, {"state": "waiting_signoff" if result.status == "signoff_required" else "applying",
@@ -260,7 +260,7 @@ class BackgroundService:
                 self._defer(row["id"], 5, state="waiting_signoff")
                 return False
         with self.database.transaction() as uow:
-            current = uow.repository("jobs", business_id=row["business_id"]).get(row["id"], required=True)
+            current = uow.repository("jobs", project_id=row["project_id"]).get(row["id"], required=True)
             error = current["result_json"].get("completion_error")
             current = self._update(current, {"state": "failed" if error else "succeeded", "error_json": error,
                 "claimed_by": None, "lease_until": None}, uow)
@@ -342,7 +342,7 @@ class BackgroundService:
                 if self._queue_for(row["kind"]) != queue:
                     return None
                 program = self.programs.require(row["kind"])
-                self.authority.require_worker(row["principal_id"], row["business_id"], uow)
+                self.authority.require_worker(row["principal_id"], row["project_id"], uow)
                 if row["definition_ref_json"].get("digest") != program.definition["digest"]:
                     raise DomainError("policy_denied", "Registered program definition changed before dispatch")
                 if row["state"] == "cancel_requested":
@@ -354,7 +354,7 @@ class BackgroundService:
                     "attempts": row["attempts"] + (not frozen)}, uow)
                 run_id = row["definition_ref_json"].get("routine_run_id")
                 if run_id:
-                    runs = uow.repository("routine_runs", business_id=row["business_id"])
+                    runs = uow.repository("routine_runs", project_id=row["project_id"])
                     run = runs.get(run_id, required=True)
                     if run["state"] == "queued":
                         runs.update(run_id, {"state": "running", "started_at": utc_now()}, expected_revision=run["revision"])
@@ -382,7 +382,7 @@ class BackgroundService:
                 return None
             if exc.code == "service_stopping" and 'row' in locals() and row:
                 with self.database.read() as uow:
-                    current = uow.repository("jobs", business_id=row["business_id"]).get(row["id"], required=True)
+                    current = uow.repository("jobs", project_id=row["project_id"]).get(row["id"], required=True)
                 self._defer(row["id"], 1, state="applying" if "outputs" in (current["result_json"] or {}) else "queued")
                 return {"job_id": row["id"], "state": "paused_for_restart"}
             if 'row' in locals() and row:
@@ -418,18 +418,18 @@ class BackgroundService:
     def routine_status(self, context):
         """Already-authorized owner view, independent of other programs' errors."""
         global_view = "manage_global_routines" in context.global_capabilities
-        allowed = sorted(context.allowed_business_ids)
+        allowed = sorted(context.allowed_project_ids)
         marks = ",".join("?" for _ in allowed) or "NULL"
         scope = "r.namespace=?"
-        parameters = [context.business_id]
+        parameters = [context.project_id]
         if global_view:
-            scope += f" OR (r.namespace='global' AND (r.business_id IS NULL OR r.business_id IN ({marks})))"
+            scope += f" OR (r.namespace='global' AND (r.project_id IS NULL OR r.project_id IN ({marks})))"
             parameters.extend(allowed)
         with self.database.read() as uow:
             found = uow.connection.execute(
                 "SELECT j.*,r.namespace AS routine_namespace,r.routine_id AS registered_routine_id,r.started_at AS run_started_at FROM jobs j "
                 "JOIN routine_runs r ON r.id=json_extract(j.definition_ref_json,'$.routine_run_id') "
-                "AND r.business_id IS j.business_id "
+                "AND r.project_id IS j.project_id "
                 "WHERE j.state IN ('queued','running','applying','waiting_signoff','cancel_requested') AND (" + scope + ") "
                 "ORDER BY j.created_at,j.id LIMIT 2001", parameters).fetchall()
         if len(found) > 2000:
@@ -441,27 +441,27 @@ class BackgroundService:
             identity = row.pop("registered_routine_id")
             started = row.pop("run_started_at")
             # Derive scope for pre-upgrade jobs without rewriting immutable bindings.
-            row["definition_ref_json"] = {**row["definition_ref_json"], "scope": "global" if namespace == "global" else "business", "routine_id": identity}
+            row["definition_ref_json"] = {**row["definition_ref_json"], "scope": "global" if namespace == "global" else "project", "routine_id": identity}
             row.update(routine=identity, key=namespace + "/" + identity,
                 seconds=max(0, int((self.clock() - datetime.fromisoformat(started.replace('Z', '+00:00'))).total_seconds())))
             jobs.append(row)
         return {"current": next((row for row in jobs if row["state"] != "queued"), None),
             "queued": [row for row in jobs if row["state"] == "queued"], "error": self.scheduler_error,
             "invalid": [row for row in (self.scheduler.errors if self.scheduler else [])
-                if row["namespace"] == context.business_id or global_view and row["namespace"] == "global"]}
+                if row["namespace"] == context.project_id or global_view and row["namespace"] == "global"]}
 
-    def status(self, business_id=None):
+    def status(self, project_id=None):
         with self.database.read() as uow:
-            rows = uow.repository("jobs", business_id=business_id).list(limit=20, order_by=("created_at", "id"), descending=True)
-            running = [decode_row(row) for row in uow.connection.execute("SELECT * FROM jobs WHERE business_id IS ? "
-                "AND state IN ('running','applying') ORDER BY created_at,rowid", (business_id,))]
-            counts = uow.connection.execute("SELECT kind,count(*) FROM jobs WHERE business_id IS ? AND state='queued' "
-                "GROUP BY kind", (business_id,)).fetchall()
+            rows = uow.repository("jobs", project_id=project_id).list(limit=20, order_by=("created_at", "id"), descending=True)
+            running = [decode_row(row) for row in uow.connection.execute("SELECT * FROM jobs WHERE project_id IS ? "
+                "AND state IN ('running','applying') ORDER BY created_at,rowid", (project_id,))]
+            counts = uow.connection.execute("SELECT kind,count(*) FROM jobs WHERE project_id IS ? AND state='queued' "
+                "GROUP BY kind", (project_id,)).fetchall()
         queues = {name: {"running": [row["id"] for row in running if self._queue_for(row["kind"]) == name],
                          "queued": sum(count for kind, count in counts if self._queue_for(kind) == name)} for name in self.queues}
         return {"current": next(iter(running), None), "running": running, "queues": queues,
                 "queued": sum(count for _, count in counts), "recent": rows, "error": self.last_error,
-                "invalid": [row for row in (self.scheduler.errors if self.scheduler else []) if row["business_id"] == business_id]}
+                "invalid": [row for row in (self.scheduler.errors if self.scheduler else []) if row["project_id"] == project_id]}
 
     def kick(self):
         self._wake.set()

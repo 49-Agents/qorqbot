@@ -112,8 +112,8 @@ OPTION_SCHEMAS = {
     "expected_revision": {"type": "integer", "minimum": 1,
                           "description": instruction_text('mcp-optional-for-task-writes-checked-when-given-required-when')},
     "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 200},
-    "business_id": {"type": "string", "format": "uuid"},
-    "review_business_id": {"type": "string", "format": "uuid"},
+    "project_id": {"type": "string", "format": "uuid"},
+    "review_project_id": {"type": "string", "format": "uuid"},
     "supersedes_signoff_id": {"type": "string", "format": "uuid"},
     "expected_superseded_status_revision": {"type": "integer", "minimum": 1},
 }
@@ -226,10 +226,10 @@ def written_task(context, arguments, result):
     """The context and arguments that name the Task a write changed, as stored: a ``task_id`` given alone runs where the
     engine found it (``locate_scope``), in the id's stored case, which the transport's own context does not know."""
     task = result.data.get("task") if isinstance(result.data, Mapping) else None
-    if not isinstance(task, Mapping) or not isinstance(task.get("id"), str) or "business_id" not in task:
+    if not isinstance(task, Mapping) or not isinstance(task.get("id"), str) or "project_id" not in task:
         return context, arguments
-    business_id = task["business_id"]
-    return (replace(context, business_id=business_id, review_business_id=business_id),
+    project_id = task["project_id"]
+    return (replace(context, project_id=project_id, review_project_id=project_id),
             {**arguments, "task_id": task["id"]})
 
 
@@ -254,7 +254,7 @@ def tool_schema(registry, name):
     if descriptor.transport_only:
         return schema
     options = (OPTION_SCHEMAS if descriptor.effect_kind != "read" else
-               {key: OPTION_SCHEMAS[key] for key in ("business_id", "review_business_id")})
+               {key: OPTION_SCHEMAS[key] for key in ("project_id", "review_project_id")})
     schema["properties"] = {**options, **schema.get("properties", {})}
     if descriptor.name in mcp_presentation.COMPACT_OPERATIONS:
         schema["properties"]["response_detail"] = (
@@ -344,7 +344,7 @@ class RegisteredAgentCaller:
                 # inventory, which would be an alternate path around its plan.
                 return []
             # A broken mandatory document must not hide the small repair
-            # interface too. This cannot expose ordinary business tools.
+            # interface too. This cannot expose ordinary project tools.
             context = self.runtime.agent_context(actor.principal, diagnostic=True)
             rows = []
             with self.runtime.database.read() as uow:
@@ -352,7 +352,7 @@ class RegisteredAgentCaller:
                     try:
                         descriptor = self.runtime.registry.get(name)
                         self.runtime.application.authorize(context,
-                            descriptor.business_policy if context.business_id else descriptor, (), uow)
+                            descriptor.project_policy if context.project_id else descriptor, (), uow)
                         rows.append({'canonical_operation': name, 'exposed_aliases': [], 'available': True})
                     except DomainError:
                         continue
@@ -374,8 +374,8 @@ class RegisteredAgentCaller:
 
     def invocation_context(self, actor, *, canonical_name, options, native_binding=None):
         context = self.runtime.agent_context(actor.principal, diagnostic=canonical_name in DIAGNOSTIC_OPERATIONS,
-            business_id=options.business_id,
-            session_registration_id=actor.registration_id, review_business_id=options.review_business_id)
+            project_id=options.project_id,
+            session_registration_id=actor.registration_id, review_project_id=options.review_project_id)
         if actor.delegation_binding_id:
             context = replace(context, delegation_binding_id=actor.delegation_binding_id,
                 delegation_assignment_id=actor.delegation_assignment_id,
@@ -650,9 +650,9 @@ class MCPTransport:
             arguments, tool_names = mcp_presentation.split_tool_names(canonical_name, arguments, detail)
             arguments, sections = mcp_presentation.split_sections(canonical_name, arguments, detail)
             arguments, read_token = mcp_reads.split(canonical_name, arguments, detail)
-            # A Global-only operation may target a business without selecting its
-            # scope (for example business_archive). Preserve its declared inputs;
-            # ordinary business selectors, including agent_config_get, still route.
+            # A Global-only operation may target a project without selecting its
+            # scope (for example project_archive). Preserve its declared inputs;
+            # ordinary project selectors, including agent_config_get, still route.
             domain_fields = descriptor.input_schema.get("properties", {}) if descriptor.scope_kinds == {"global"} else ()
             args, options = split_options(arguments, domain_fields=domain_fields)
             self.caller.validate_options(actor, canonical_name, options)
@@ -749,12 +749,12 @@ class MCPTransport:
                 binding = {"caller_route": self.caller.scope, "identity": self.caller.identity(actor),
                     "session": self.server.request_context.request.headers.get("mcp-session-id"),
                     "operation": name, "operation_version": descriptor.version, "arguments": args,
-                    "detail": detail, "business_id": context.business_id,
-                    "review_business_id": context.review_business_id,
-                    "allowed_business_ids": sorted(context.allowed_business_ids),
+                    "detail": detail, "project_id": context.project_id,
+                    "review_project_id": context.review_project_id,
+                    "allowed_project_ids": sorted(context.allowed_project_ids),
                     "global_capabilities": sorted(context.global_capabilities),
                     "profile_revision": context.profile_revision, "policy_revision": context.policy_revision,
-                    "owner_session_business_id": context.owner_session_business_id,
+                    "owner_session_project_id": context.owner_session_project_id,
                     "delegation_binding_id": context.delegation_binding_id,
                     "delegation_assignment_id": context.delegation_assignment_id,
                     "delegation_generation": context.delegation_generation}
@@ -804,7 +804,7 @@ class MCPTransport:
         try:
             task = result.data.get("task") if isinstance(result.data, Mapping) else None
             if (not isinstance(task, Mapping) or task.get("status") != "done" or not isinstance(task.get("id"), str)
-                    or "business_id" not in task or context.principal_kind != "agent"):
+                    or "project_id" not in task or context.principal_kind != "agent"):
                 return presented
             from qorqut.domains.tasks.closure_actions import coordinator_hint
             hint = await anyio.to_thread.run_sync(coordinator_hint, self.runtime, context, task)

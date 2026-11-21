@@ -35,44 +35,44 @@ class EvidenceAccess:
 
     @staticmethod
     def _namespace(ctx, namespace):
-        if not isinstance(namespace, dict) or set(namespace) != {'kind', 'business_id'}:
+        if not isinstance(namespace, dict) or set(namespace) != {'kind', 'project_id'}:
             _forbidden()
-        business = namespace['business_id']
-        if namespace['kind'] == 'global' and business is None and 'read_global_context' in ctx.global_capabilities:
+        project = namespace['project_id']
+        if namespace['kind'] == 'global' and project is None and 'read_global_context' in ctx.global_capabilities:
             return None
-        if namespace['kind'] == 'business' and isinstance(business, str) and business in ctx.allowed_business_ids:
-            return business
+        if namespace['kind'] == 'project' and isinstance(project, str) and project in ctx.allowed_project_ids:
+            return project
         _forbidden()
 
     def resolve_selection(self, selection):
         with self.runtime.database.read() as uow:
             ctx = self._current(uow)
-            allowed = ([{'kind': 'global', 'business_id': None}] if 'read_global_context' in ctx.global_capabilities else [])
-            allowed += [{'kind': 'business', 'business_id': identity} for identity in sorted(ctx.allowed_business_ids)]
+            allowed = ([{'kind': 'global', 'project_id': None}] if 'read_global_context' in ctx.global_capabilities else [])
+            allowed += [{'kind': 'project', 'project_id': identity} for identity in sorted(ctx.allowed_project_ids)]
             namespaces = allowed if selection['mode'] == 'all_authorized' else selection.get('namespaces', [])
             for ns in namespaces:
                 self._namespace(ctx, ns)
             # Subject IDs are admitted as specific canonical records, never silently dropped.
             for agent_id in selection.get('agent_ids', []):
                 self._agent(ctx, agent_id, uow)
-                row = uow.connection.execute('SELECT home_business_id FROM agent_profiles WHERE agent_id=?', (agent_id,)).fetchone()
-                if row is None or ({'kind': 'business', 'business_id': row[0]} if row[0] else {'kind': 'global', 'business_id': None}) not in namespaces:
+                row = uow.connection.execute('SELECT home_project_id FROM agent_profiles WHERE agent_id=?', (agent_id,)).fetchone()
+                if row is None or ({'kind': 'project', 'project_id': row[0]} if row[0] else {'kind': 'global', 'project_id': None}) not in namespaces:
                     _forbidden()
             for task_id in selection.get('task_ids', []):
-                rows = uow.connection.execute('SELECT business_id FROM tasks WHERE id=? LIMIT 101', (task_id,)).fetchall()
-                candidates = [r[0] for r in rows if {'kind': 'business', 'business_id': r[0]} in namespaces
-                              or r[0] is None and {'kind': 'global', 'business_id': None} in namespaces]
+                rows = uow.connection.execute('SELECT project_id FROM tasks WHERE id=? LIMIT 101', (task_id,)).fetchall()
+                candidates = [r[0] for r in rows if {'kind': 'project', 'project_id': r[0]} in namespaces
+                              or r[0] is None and {'kind': 'global', 'project_id': None} in namespaces]
                 if len(candidates) != 1:
                     _forbidden()
                 self._read(ctx, 'tasks_get', {'task_id': task_id}, candidates[0], uow)
             return {**selection, 'namespaces': list(namespaces)}
 
-    def _read(self, ctx, operation, args, business, uow):
+    def _read(self, ctx, operation, args, project, uow):
         app = self.runtime.application
         descriptor = self.runtime.registry.get(operation)
-        namespace = 'business:' + business if business else 'global'
-        ctx = replace(ctx, business_id=business, review_business_id=business)
-        args = {**args, **({'scope': 'global'} if business is None and 'scope' in descriptor.input_schema.get('properties', {}) else {})}
+        namespace = 'project:' + project if project else 'global'
+        ctx = replace(ctx, project_id=project, review_project_id=project)
+        args = {**args, **({'scope': 'global'} if project is None and 'scope' in descriptor.input_schema.get('properties', {}) else {})}
         args = app.registry.bind_arguments(operation, args)
         app.authorize(ctx, descriptor, (), uow, namespace=namespace)
         descriptor.read(ctx, args, InvocationOptions(), uow)
@@ -95,51 +95,51 @@ class EvidenceAccess:
             _forbidden()
         with self.runtime.database.read() as uow:
             ctx = self._current(uow)
-            business = self._namespace(ctx, ref.get('namespace'))
+            project = self._namespace(ctx, ref.get('namespace'))
             if kind in ('task', 'task_message'):
                 task_id = loc.get('task_id')
                 if not task_id or (kind == 'task' and identity != task_id): _forbidden()
                 if kind == 'task_message':
                     if identity != loc.get('message_id') or not uow.connection.execute(
-                            "SELECT 1 FROM thread_messages WHERE business_id IS ? AND item_type='task' AND item_id=? AND id=?",
-                            (business, task_id, identity)).fetchone(): _forbidden()
-                    self._read(ctx, 'tasks_thread_get', {'task_id': task_id}, business, uow)
-                self._read(ctx, 'tasks_get', {'task_id': task_id}, business, uow)
+                            "SELECT 1 FROM thread_messages WHERE project_id IS ? AND item_type='task' AND item_id=? AND id=?",
+                            (project, task_id, identity)).fetchone(): _forbidden()
+                    self._read(ctx, 'tasks_thread_get', {'task_id': task_id}, project, uow)
+                self._read(ctx, 'tasks_get', {'task_id': task_id}, project, uow)
             elif kind in ('action', 'action_revision', 'action_message'):
                 action_id = loc.get('action_id')
                 if not action_id or (kind != 'action_message' and identity != action_id): _forbidden()
                 if kind == 'action_message':
-                    action = uow.connection.execute('SELECT id FROM action_logs WHERE action_key=? AND business_id IS ?', (action_id, business)).fetchone()
+                    action = uow.connection.execute('SELECT id FROM action_logs WHERE action_key=? AND project_id IS ?', (action_id, project)).fetchone()
                     if (identity != loc.get('message_id') or action is None or not uow.connection.execute(
-                            "SELECT 1 FROM thread_messages WHERE business_id IS ? AND item_type='action' AND item_id=? AND id=?",
-                            (business, action[0], identity)).fetchone()): _forbidden()
-                    self._read(ctx, 'actions_thread_get', {'action_id': action_id}, business, uow)
+                            "SELECT 1 FROM thread_messages WHERE project_id IS ? AND item_type='action' AND item_id=? AND id=?",
+                            (project, action[0], identity)).fetchone()): _forbidden()
+                    self._read(ctx, 'actions_thread_get', {'action_id': action_id}, project, uow)
                 args = {'action_id': action_id}
                 if kind == 'action_revision':
                     if type(loc.get('revision')) is not int or loc['revision'] < 1: _forbidden()
                     args['revision'] = loc['revision']
-                self._read(ctx, 'actions_get', args, business, uow)
+                self._read(ctx, 'actions_get', args, project, uow)
             elif kind in ('signoff', 'signoff_note', 'signoff_response', 'execution_outcome'):
                 signoff_id = loc.get('signoff_id')
                 if not signoff_id or (kind != 'signoff_note' and identity != signoff_id): _forbidden()
                 if kind == 'signoff_note':
                     if identity != loc.get('note_id') or not uow.connection.execute('SELECT 1 FROM signoff_notes WHERE id=? AND signoff_id=?', (identity, signoff_id)).fetchone(): _forbidden()
-                    self._read(ctx, 'signoffs_notes_list', {'signoff_id': signoff_id}, business, uow)
-                self._read(ctx, 'signoffs_get', {'signoff_id': signoff_id}, business, uow)
+                    self._read(ctx, 'signoffs_notes_list', {'signoff_id': signoff_id}, project, uow)
+                self._read(ctx, 'signoffs_get', {'signoff_id': signoff_id}, project, uow)
             elif kind in ('document', 'document_revision'):
                 if identity != loc.get('document_id'): _forbidden()
-                ctx = replace(ctx, business_id=business, review_business_id=business)
+                ctx = replace(ctx, project_id=project, review_project_id=project)
                 doc = self.runtime.domains.documents.store.get(ctx, identity, uow)
-                if doc['business_id'] != business or doc['kind'] == 'working_memory': _forbidden()
+                if doc['project_id'] != project or doc['kind'] == 'working_memory': _forbidden()
             elif kind == 'agent':
-                if business is not None or identity != loc.get('agent_id'): _forbidden()
+                if project is not None or identity != loc.get('agent_id'): _forbidden()
                 self._agent(ctx, identity, uow)
             elif kind in ('transcript', 'transcript_entry', 'native_input'):
                 agent, engine, conversation = loc.get('agent_id'), loc.get('provider'), loc.get('conversation_id')
                 if not all(isinstance(x, str) and x for x in (agent, engine, conversation)): _forbidden()
                 self._agent(ctx, agent, uow)
-                profile = uow.connection.execute('SELECT home_business_id FROM agent_profiles WHERE agent_id=?', (agent,)).fetchone()
-                if profile is None or profile['home_business_id'] != business: _forbidden()
+                profile = uow.connection.execute('SELECT home_project_id FROM agent_profiles WHERE agent_id=?', (agent,)).fetchone()
+                if profile is None or profile['home_project_id'] != project: _forbidden()
                 capture = uow.connection.execute('SELECT receipt_id FROM native_captures WHERE agent_id=? AND provider=? AND conversation_id=?',
                                                  (agent, engine, conversation)).fetchone()
                 if capture is None: _forbidden()
@@ -175,7 +175,7 @@ class EvidenceAccess:
                             or loc['position'] + loc['length'] > receipt.record_boundary): _forbidden()
             elif (adapter := next((value for value in self.runtime.selection.owner_input_sources.values()
                                    if kind in value.kinds), None)) is not None:
-                adapter.authorize(self, ctx, kind, identity, loc, business, uow)
+                adapter.authorize(self, ctx, kind, identity, loc, project, uow)
             else:
                 _forbidden()
 

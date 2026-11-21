@@ -22,12 +22,12 @@ dashboard half of the feature is not described here beyond the transport contrac
 
 ### Minimal transport contract (shared by backend and UI workers)
 
-Tool input is `{message: string, references: [{type, id, business_id?}]}`.
+Tool input is `{message: string, references: [{type, id, project_id?}]}`.
 A Task `id` is the Task's id as stored (a short code for new Tasks, a UUID or other
 text for older ones); a Signoff `id` is its UUID; browser `id` is a validated,
-configured surface ID. `business_id` is the record's owning/review scope (null or
-omitted for Global). For a sandbox business browser whose synthetic surface ID
-is shared, its business_id disambiguates it. Reject arbitrary URLs, labels, HTML,
+configured surface ID. `project_id` is the record's owning/review scope (null or
+omitted for Global). For a sandbox project browser whose synthetic surface ID
+is shared, its project_id disambiguates it. Reject arbitrary URLs, labels, HTML,
 status/decision fields and unrelated fields. Bound message to 4000 characters and
 references to 8; a message must not be blank. Keep reference order; coalesce exact
 duplicates. No new discovery tool: existing Task/Signoff reads and the browser
@@ -48,11 +48,11 @@ and reply/unread accounting must stay correct.
 The owner Chat DTO includes resolved `references`:
 
 ```
-{type:'task', id, business_id:null|UUID, business_slug:null|string,
+{type:'task', id, project_id:null|UUID, project_slug:null|string,
  label:string, state:string, available:true}
-{type:'signoff', id, business_id:null|UUID, business_slug:null|string,
+{type:'signoff', id, project_id:null|UUID, project_slug:null|string,
  label:string, available:true}
-{type:'browser', id, business_id:null|UUID, label:string,
+{type:'browser', id, project_id:null|UUID, label:string,
  viewer_url:string, width?:number, height?:number, available:true}
 ```
 
@@ -75,24 +75,24 @@ Use an ordinary read handler returning the envelope above. The tool itself does
 not modify Tasks, Signoffs, Focus, chat inputs or browser state.
 
 Extend existing `browser_turn`, rather than introducing another browser tool:
-`action:'list'` returns a small catalog (id, label, business_id) and
+`action:'list'` returns a small catalog (id, label, project_id) and
 `browser_id` selects that exact surface on `acquire` with `protocol:'handles'`.
 New cross-surface selection is for the configured active Ordubashy; preserve
 existing peers' and assignment-bound access. Unknown/mismatched targets fail.
 Subsequent commands use a target-bound handle and cannot silently switch browser.
 Reuse existing stateless native handles for configured desktops, including target
 identity in their binding/resolution. No new handle store/table/expiry for them.
-Business selection resolves to the existing business-browser path and keeps its
+Project selection resolves to the existing project-browser path and keeps its
 current automation rules; adding a chat reference never acquires/releases a turn.
 
 Existing configuration facts: browser-surfaces schema 2 holds trusted viewer URLs,
-agents and business mappings. Global configured IDs include `ordubashy-browser`,
+agents and project mappings. Global configured IDs include `ordubashy-browser`,
 `example-browser`, `outlook-browser`. Trusted desktop configs already exist at
 `/etc/qorqut-browser-desktops/{ordubashy,marketing,outlook}.json`, with
 `chrome.cdp_port`; `app/tools/browser/desktop_session.py` has a safe `load()`
 validator. Read those existing operator configs for these managed desktop targets
 (test with temporary files); never hardcode observed CDP ports or derive CDP from
-a viewer URL. Reuse the installation's browser runtime. Business surfaces use
+a viewer URL. Reuse the installation's browser runtime. Project surfaces use
 their existing configured/sandbox resolver. No production config changes,
 new registry, service restart, browser launch or real browser interaction.
 
@@ -136,7 +136,7 @@ references show a small unavailable state. Keep layout usable at narrow widths.
 - Synthetic Claude and Codex tool results project once with stable identity;
   errors/plain prose do not. Reload/history preserve references; native completions,
   outgoing messages and unread sequences are not fabricated.
-- Mock browser dispatch proves Ordubashy selects own/desktop/business
+- Mock browser dispatch proves Ordubashy selects own/desktop/project
   targets, commands keep that selection, invalid targets and other caller/handle
   substitutions fail, and iframe presentation does not call browser acquisition.
 - Real Chromium with synthetic APIs: mixed reference render; native Signoff
@@ -169,17 +169,17 @@ allows it. The handler additionally requires the configured active Ordubashy age
 ```
 request_user_input(message="Please sign in below, then reply here.",
                    references=[{"type": "browser", "id": "example-browser"},
-                               {"type": "signoff", "id": "<uuid>", "business_id": "<business uuid>"},
+                               {"type": "signoff", "id": "<uuid>", "project_id": "<project uuid>"},
                                {"type": "task", "id": "<task id>"}])
 -> {"status": "ok", "data": {"user_input": {"version": 1, "message": "...", "references": [
-     {"type": "browser", "id": "example-browser", "business_id": null}, ...]}}}
+     {"type": "browser", "id": "example-browser", "project_id": null}, ...]}}}
 ```
 
 The contract lives once in `native_chat/references.py` (message 1-4000 characters after trimming, at most 8 references, strict
-`{type, id, business_id}` keys, a Task's stored id (1-200 characters, no blanks or control characters), lowercase canonical
+`{type, id, project_id}` keys, a Task's stored id (1-200 characters, no blanks or control characters), lowercase canonical
 UUIDs for Signoffs, configured surface ids for browsers, order kept, exact duplicates coalesced). Every reference is resolved through an existing read before the call returns: Tasks and
-Signoffs through `FocusService.resolve` (exact business and review scope; Signoffs exist only in a business, so a Signoff
-reference needs its `business_id`), browsers through `BrowserTargets.resolve`. Any target that is missing, unreadable or in the
+Signoffs through `FocusService.resolve` (exact project and review scope; Signoffs exist only in a project, so a Signoff
+reference needs its `project_id`), browsers through `BrowserTargets.resolve`. Any target that is missing, unreadable or in the
 wrong scope is `not_found` ("Reference N (type) is not available"), with no detail about the target. The result carries no URL,
 label, state, endpoint, credential, approval or answer, and the call writes nothing (every table is unchanged).
 
@@ -200,29 +200,29 @@ The successful tool result in the agent's own transcript is the only source (`na
   record.
 - The owner DTO (`entry.references`) is resolved in `chat.py` inside the one read transaction of the page, once per page, by
   `UserInput.owner_references` with the installation owner's own reach. Task, Signoff and browser entries have the plan's shapes;
-  an agent entry is `{type, id, business_id: null, label, role?, presentation?, available: true}` from `store.agent_identity`, the
+  an agent entry is `{type, id, project_id: null, label, role?, presentation?, available: true}` from `store.agent_identity`, the
   very projection (`_recipient`) that names the recipient of an outgoing agent message: the current display name, the role id and
   the safe `icon` presentation, and nothing else (no profile, path, scope, grant or markup);
-  a browser's `viewer_url` (and `width`/`height`) comes only from `browser-surfaces.json`, or from a sandboxed business's ready
-  owner viewer. Anything missing, archived or unreadable becomes `{type, id, business_id, label: "Unavailable <type>",
+  a browser's `viewer_url` (and `width`/`height`) comes only from `browser-surfaces.json`, or from a sandboxed project's ready
+  owner viewer. Anything missing, archived or unreadable becomes `{type, id, project_id, label: "Unavailable <type>",
   available: false}` and never fails the page.
 
 ### Browser list and exact selection
 
 `browser_turn` gains `action: "list"` and `browser_id` (`qorqut/browser/access.py`, `targets.py`, `handles.py`,
-`coordinator.py`, `operations.py`). `list` returns `{"browsers": [{id, label, business_id}]}`: the managed Global desktops the
-registry configures (`ordubashy-browser`, `example-browser`, `outlook-browser`), then every reachable business's one browser
-(the sandbox business uses its synthetic id with its `business_id`). It takes no turn, lease or handle.
+`coordinator.py`, `operations.py`). `list` returns `{"browsers": [{id, label, project_id}]}`: the managed Global desktops the
+registry configures (`ordubashy-browser`, `example-browser`, `outlook-browser`), then every reachable project's one browser
+(the sandbox project uses its synthetic id with its `project_id`). It takes no turn, lease or handle.
 
 `acquire` with `protocol: "handles"` and `browser_id` selects that browser:
 
 - Own browser: the same lease-free handle as the default. A named desktop browser: a stateless native handle in which the surface id is
   bound into both hex halves (`native_handle`/`native_target`), so the handle itself names the browser; there is no store,
   table or expiry. A different `browser_id` on a later call is refused, as is a handle of another principal.
-- Business browser: `browser_id` plus `business_id` is verified against the registry or sandbox, then the existing coordinator
+- Project browser: `browser_id` plus `project_id` is verified against the registry or sandbox, then the existing coordinator
   acquisition runs unchanged (exclusive lease, automation rules, `renew`/`release`).
 - Only the configured active Ordubashy may list or select by id (proved afresh on every call, including later commands on a
-  desktop handle); peers keep their own-browser and business-by-id access, and assignment-bound workers never pass `browser_id`.
+  desktop handle); peers keep their own-browser and project-by-id access, and assignment-bound workers never pass `browser_id`.
 - A desktop's CDP endpoint is `http://127.0.0.1:<chrome.cdp_port>` from `/etc/qorqut-browser-desktops/<name>.json`, read at each
   command with the operator helper's own `load()` (`app/tools/browser/desktop_session.py`, executed in memory so nothing is
   written beside an immutable source). Nothing is hardcoded and a viewer URL is never a CDP source. The browser runtime is the
@@ -271,8 +271,8 @@ service or network is started and no operational data is read.
 - The operator desktop helper (`app/tools/browser/desktop_session.py`) is loaded by executing its source in memory, because the
   immutable source must not gain bytecode; only its `load()` is used, and tests give it temporary configs.
 - `browser_turn action=list` names only the browsers that can be controlled: the configured Global desktops and each reachable
-  business's browser. A reference may still name any configured surface Chat can show.
+  project's browser. A reference may still name any configured surface Chat can show.
 - A retired Global agent still resolves under `agents_get` semantics (the archival profile is readable), so a reference to it shows its last
-  name; a business-home historical agent is unavailable at Global scope.
+  name; a project-home historical agent is unavailable at Global scope.
 - This repository change has no dashboard or browser rendering work; the dashboard worktree and the gitlinks are untouched.
 - The test environment is not part of the repository.

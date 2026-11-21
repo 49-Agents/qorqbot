@@ -32,9 +32,9 @@ expired continuation error, restart the inventory without inventory_after.
 It indexes your unfinished tasks (including snoozed), requested Signoffs and pending
 inbox changes across currently authorized scopes. Unavailable queues are not empty.
 Read selected source details before acting; summary delivery never acknowledges events.
-business_briefing gives one short picture of a project: brief, open and blocked work,
+project_briefing gives one short picture of a project: brief, open and blocked work,
 routines, what waits on the owner and recent results. A Global agent calls
-business_briefing(business_id=...) first whenever the owner names a project to work on.
+project_briefing(project_id=...) first whenever the owner names a project to work on.
 It is a snapshot; read the named sources before acting.
 Queue roles, at work start and before finishing, reconcile pending inbox events with a fresh
 inbox_list call for this session's exact consumer_id, omitting after (or using 0).
@@ -63,7 +63,7 @@ scope for work_revision and item_keys. Prefer patch actions add/replace/remove;
 replace/remove use the matching item_key, leaving other items untouched. An empty
 patch confirms unchanged work without echoing the list. Include every
 concurrent task or owner conversation you are actively handling; use the exact
-business_id and task_id when available. Update on a meaningful change of todo_focus,
+project_id and task_id when available. Update on a meaningful change of todo_focus,
 handoff or completion, and clear finished items before waiting. Runtime presence is
 automatic; never send your own heartbeat or claim that an open terminal is working.
 The owner reads Task threads, and sees there only what is for them: their own messages,
@@ -100,7 +100,7 @@ children: "close", or update a parent only when its own outcome changes. Blocked
 technical obstacle prevents progress, Waiting means an external party owes the next action,
 and `needs_input` (Needs your input) is derived from pending owner Signoffs explicitly linked
 to the Task. Collect every missing owner answer, clarification, decision or approval through a
-Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id, business_id})`,
+Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id, project_id})`,
 or attach an existing prepared approval with `signoffs_source_link`; never duplicate its approval
 question or set `status: needs_input` manually. Standalone questions may omit source. The linked
 Signoff is visible in the source thread. Reassess the work when the response arrives; an answer

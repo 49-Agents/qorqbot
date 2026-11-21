@@ -12,7 +12,7 @@ This is a local history service, not an editable record store, migration input, 
 
 Reuse the pinned donor's `app/qorqut_app/history/` capture, deterministic JSON export, sharding, isolated Git execution, locking, incomplete-file handling and health concepts. Move the host service into the target host; put the row-export contract in Operations.
 
-The current donor exporter lists only its foundation tables. That cannot cover retained v1 domains automatically. Its file scanner also assumes every agent lives under global `agents/{id}`. Replace both assumptions explicitly: compose trusted per-domain export definitions and obtain each allowed authored area through the registered global/business path contract.
+The current donor exporter lists only its foundation tables. That cannot cover retained v1 domains automatically. Its file scanner also assumes every agent lives under global `agents/{id}`. Replace both assumptions explicitly: compose trusted per-domain export definitions and obtain each allowed authored area through the registered global/project path contract.
 
 The snapshot service must not import the application registry to bypass permissions, inspect every SQL column by reflection or blindly serialize credential/configuration tables.
 
@@ -23,21 +23,21 @@ Before implementation, register every composed table under one of: exported colu
 | Record group | Planned treatment |
 | --- | --- |
 | Tasks, Actions, tags, typed relationships, immutable revisions and ordinary item-thread discussion | Export canonical records/revisions and attributed events with owning scope; no second synthetic Action log |
-| Principals, businesses, role/profile metadata | Export explicit non-secret identity/scope/configuration fields; exclude authentication bindings and credential material |
+| Principals, projects, role/profile metadata | Export explicit non-secret identity/scope/configuration fields; exclude authentication bindings and credential material |
 | Inbox/subscriptions | Export the selected ordinary work/delivery state needed to explain operational history, without provider input secrets or private-message bodies leaking through event payloads |
 | Signoffs | Export safe identity, lifecycle, revision and outcome summaries; exact prepared payloads/file bytes/recovery claims remain in the authoritative protected store |
 | Routines and runs | Export definitions/results through explicit safe fields; preserve IDs/definitions and states without copying arbitrary environment, secret arguments or opaque provider payloads |
-| Other retained business records | Domain-owned explicit column/export contracts, reusing existing public-export rules where applicable |
+| Other retained project records | Domain-owned explicit column/export contracts, reusing existing public-export rules where applicable |
 | Private owner/agent DMs | Excluded from additional operational Git snapshots, preserving v1 (owner decision, October 13, 2026). Private conversations retain their authoritative storage; do not expose messages indirectly through events |
 | Native Chat, raw transcripts, session bindings, credentials, tokens, exact execution/idempotency receipts and raw job state | Excluded from this Git snapshot; retained by their existing authoritative/archive owners |
 
 “Safe fields” must become an explicit table/column and structured-payload schema, not a runtime guess or a claim that filename scanning removes secrets. Record intentional redaction/exclusion in the export manifest without copying the excluded value. The snapshot is not a full-fidelity recovery export.
 
-Private-DM scope affects Git coverage only. It does not change MCP/UI conversation visibility or give business agents a global history browsing tool. No generic agent API exposes the entire history repository. Local file modes/API restrictions do not create OS isolation between processes already sharing the same Unix account.
+Private-DM scope affects Git coverage only. It does not change MCP/UI conversation visibility or give project agents a global history browsing tool. No generic agent API exposes the entire history repository. Local file modes/API restrictions do not create OS isolation between processes already sharing the same Unix account.
 
 ## Authored files
 
-Include regular authored files in the approved root/global `files/`, registered global-agent `files/`, registered business-agent `files/` and business `hq/` areas. Capture exact bytes, including permitted binaries, and preserve execute bits. Directories and file targets come from trusted registration/path resolution, not caller tags or arbitrary absolute paths.
+Include regular authored files in the approved root/global `files/`, registered global-agent `files/`, registered project-agent `files/` and project `hq/` areas. Capture exact bytes, including permitted binaries, and preserve execute bits. Directories and file targets come from trusted registration/path resolution, not caller tags or arbitrary absolute paths.
 
 Exclude code/role repositories, Context, raw transcripts, generated provider instructions/configuration, credentials/environment files, browser profiles, caches, virtual environments, dependency trees, `.runtime`, nested repositories, symlinks and special files. Derived table/export projections should not be recaptured as if they were independently authored documents; classify them explicitly with their domain owner.
 
@@ -52,7 +52,7 @@ The inspected v1 source already has several different contracts:
 | Existing mechanism | v1.2 treatment |
 | --- | --- |
 | Per-mutation `tables.version` / `tables.global-version` snapshots and `qorqut-tables` references | Preserve the exact revision receipts and domain retry behavior; a coalesced general snapshot cannot substitute for them |
-| `qorqut-business-docs-versioning` document versions/events | Preserve typed revision/source evidence, adapt moved Task/Action/Story callbacks and target paths |
+| `qorqut-docs-versioning` document versions/events | Preserve typed revision/source evidence, adapt moved Task/Action/Story callbacks and target paths |
 | Nightly maintenance exports/optional `qorqut-history` | Preserve the registered program's existing behavior; classify its target under retained history configuration rather than redirect it silently |
 | Context's published Git history | Owned by the Context engine and excluded from operational file capture |
 | Source repository history | Unchanged by the operational history service |
@@ -80,7 +80,7 @@ Git commands run with the donor's isolated environment, disabled hooks/prompts/n
 - A synthetic Task/Action/thread mutation appears once with correct scope and attribution; unchanged state makes no commit.
 - A retained-domain exporter participates in the same read snapshot, and an unclassified table is reported rather than leaked or silently forgotten.
 - Credential/token fields, private DM bodies under the selected policy, raw native transcripts and provider configuration do not appear in files, row exports or nested event payloads.
-- Registered global and business agent files are covered; code repositories, symlinks and generated files are excluded.
+- Registered global and project agent files are covered; code repositories, symlinks and generated files are excluded.
 - Concurrent changes/read failures are incomplete and retain prior bytes without presenting them as current; later retries resolve accurately.
 - Git/ref/lock failures leave accepted SQLite work intact. Signoff/routine execution is not retried by history.
 - Existing table/document revision receipt behavior still works on isolated fixtures; no source or real system-history ref is touched.

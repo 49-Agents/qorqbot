@@ -112,7 +112,7 @@ Capture and reply indexing run in the backend thread whether or not Chat is open
   with the declared type equal to the stored type and the input past its delivery claim. Everything else is an explicitly
   unverified notice with a reason. Replies are completed only by provider
 end-of-turn evidence, so narration before a tool call, tool-only records, sidechains, internal notices and owner echoes are never
-replies. The owner notification projection (`reply_notifications.py`) reads `native_replies` (`gchat:<reply id>`, business
+replies. The owner notification projection (`reply_notifications.py`) reads `native_replies` (`gchat:<reply id>`, project
 agents `nav_only`), private item-DM and Telegram parts and the independent attention preference are unchanged. Read state is a
 boundary on the agent's completion sequence, owner-only, monotonic and bound to an existing completion.
 
@@ -127,7 +127,7 @@ boundary on the agent's completion sequence, owner-only, monotonic and bound to 
 | Terminal-control `start`/`restart` | typed launcher into an idle shell | unchanged (lifecycle, not a native session) |
 | Inbox notice, Claude and Codex | `inbox/service.py::deliver_notice` → `service_notice` / `codex queue` | **replaced (P5)**: system input `inbox_nudge` through `arbiter.admit_nudge` (`native_chat/nudges.py`); `deliver_notice` is gone |
 | Agent-side Codex inbox watcher (`bootstrap/codex_session.py`) | `codex queue` from the agent's session | **removed (P5)** with the whole agent-side poller |
-| BusinessSandbox broker (`sandbox/tmux.py`) | `submit_input`/`queue_notice` | unchanged transport for non-host targets |
+| ProjectSandbox broker (`sandbox/tmux.py`) | `submit_input`/`queue_notice` | unchanged transport for non-host targets |
 
 `test_native_chat_producers.py` pins this inventory: a new low-level writer anywhere else fails the test.
 
@@ -209,7 +209,7 @@ provider item id, per-page rendered boundaries (older page / newer reply / older
 has not reached), the turn-end-only Codex reply as a visible full-text entry, its deduplication against an earlier final answer
 including a bounded page that starts at the turn end, a late `SessionEnd` from an
 earlier process, a busy nudge and an occupied-composer deferral, closed-Chat capture → eligible reply → read → restart, stable identity on
-resume, split/partial/sidechain/notice exclusions, concurrent newer reply vs read boundary, owner-only and business ownership,
+resume, split/partial/sidechain/notice exclusions, concurrent newer reply vs read boundary, owner-only and project ownership,
 archive growth/final capture/integrity, paging, transcript consumers, HTTP/DTO shape, the producer inventory, Telegram/broadcast/
 ping rewiring, and the pure provider record rules.
 

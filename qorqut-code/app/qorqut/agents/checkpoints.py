@@ -1,4 +1,4 @@
-"""Small authoritative completion checks; never execute the agent's business work."""
+"""Small authoritative completion checks; never execute the agent's project work."""
 import hashlib
 import json
 import uuid
@@ -19,11 +19,11 @@ from qorqut_agentic.behavior.completion import REVIEW
 def native_checkpoint(runtime, agent_id, session_id, registration_id=None):
     """Read only the registered session's protected native observation."""
     with runtime.database.read() as uow:
-        profile = uow.connection.execute('SELECT p.home_business_id,b.slug FROM agent_profiles p '
-            'LEFT JOIN businesses b ON b.id=p.home_business_id WHERE p.agent_id=?',(agent_id,)).fetchone()
+        profile = uow.connection.execute('SELECT p.home_project_id,b.slug FROM agent_profiles p '
+            'LEFT JOIN projects b ON b.id=p.home_project_id WHERE p.agent_id=?',(agent_id,)).fetchone()
         if not profile:
             return None
-    workspace = agent_workspace_of(runtime.paths, agent_id, profile['home_business_id'], profile['slug'])
+    workspace = agent_workspace_of(runtime.paths, agent_id, profile['home_project_id'], profile['slug'])
     path = workspace / '.qorqut/activity' / (str(uuid.UUID(session_id)) + '.json')
     try:
         if not safe_path(path) or not path.is_file() or path.stat().st_size > 8192:
@@ -80,7 +80,7 @@ class AgentCheckpoints:
                 if worker and attention is not None and enrolled_board(uow, ctx.principal_id) else None)
         if todo is not None:
             work = todo.get('work_task_json')
-            items = ([{'business_id': work['business_id'], 'task_id': work['id']}]
+            items = ([{'project_id': work['project_id'], 'task_id': work['id']}]
                      if todo.get('focus_json') and isinstance(work, dict) and work.get('id') else [])
         elif worker:
             # A worker's one shared assignment, not its observed session list, is the work these checks look at.
@@ -88,14 +88,14 @@ class AgentCheckpoints:
             items = [assignment['item_json']] if assignment and assignment['item_json'] else []
         issues = {}
         for item in ([] if coordinator else items[:10]):
-            task_id, business = item.get('task_id'), item['business_id']
+            task_id, project = item.get('task_id'), item['project_id']
             if not task_id:
                 continue
-            key = 'task:' + hashlib.sha256(json.dumps([business, task_id]).encode()).hexdigest()
+            key = 'task:' + hashlib.sha256(json.dumps([project, task_id]).encode()).hexdigest()
             code, message = None, None
             try:
-                selected = self.runtime.activity.allowed(ctx, business, 'tasks_get', uow)
-                task = uow.repository('tasks', business_id=business).get(task_id, required=True)
+                selected = self.runtime.activity.allowed(ctx, project, 'tasks_get', uow)
+                task = uow.repository('tasks', project_id=project).get(task_id, required=True)
                 if task['archived'] or task['status'] in CLOSED_STATES:
                     code = 'finished_work_listed'
                     message = instructions.render("completion-finished-work", TASK_ID=str(task_id))
@@ -105,7 +105,7 @@ class AgentCheckpoints:
                 code = 'unavailable_work_reference'
                 message = instructions.render("completion-unavailable-work")
             if code:
-                issues[key] = {'code': code, 'message': message, 'business_id': business,
+                issues[key] = {'code': code, 'message': message, 'project_id': project,
                                'task_id': task_id}
         # A Todo focus with its Intent is declared through the board and focus operations, so it stays reviewed
         # without a repeated maintenance write at every turn.
@@ -115,7 +115,7 @@ class AgentCheckpoints:
                 dirty_sequence=native['dirty_sequence'], reviewed=reviewed):
             # One reminder episode per substantive root turn, never per Stop or continuation.
             issues[REVIEW + ':' + native['root_turn_id']] = {
-                'code': 'work_review_missing', 'business_id': ctx.business_id, 'task_id': None,
+                'code': 'work_review_missing', 'project_id': ctx.project_id, 'task_id': None,
                 'message': instructions.render('completion-records')}
         inbox = getattr(self.app, 'inbox', None)
         # Ordubashy talks with the owner in Chat itself, so his turns carry no owner-inbox reminder.
@@ -123,7 +123,7 @@ class AgentCheckpoints:
             # Keep this issue session-bound and deliberately generic. The source
             # may be private even when its notification is old or was delivered.
             issues['owner-inbox'] = {
-                'code': 'pending_owner_messages', 'business_id': None, 'task_id': None,
+                'code': 'pending_owner_messages', 'project_id': None, 'task_id': None,
                 'message': instructions.render("completion-owner-inbox")}
         return issues, reviewed
 
@@ -182,12 +182,12 @@ class AgentCheckpoints:
                 if before is None or before['state'] == 'resolved':
                     episode = before['episode'] + 1 if before else 1
                     uow.connection.execute('INSERT INTO agent_checkpoint_findings'
-                        '(agent_id,check_key,code,business_id,task_id,session_id,episode,state,message,created_at,updated_at) '
+                        '(agent_id,check_key,code,project_id,task_id,session_id,episode,state,message,created_at,updated_at) '
                         "VALUES(?,?,?,?,?,?,?,'open',?,?,?) ON CONFLICT(agent_id,check_key) DO UPDATE SET "
-                        "code=excluded.code,business_id=excluded.business_id,task_id=excluded.task_id,session_id=excluded.session_id,"
+                        "code=excluded.code,project_id=excluded.project_id,task_id=excluded.task_id,session_id=excluded.session_id,"
                         "episode=excluded.episode,state='open',message=excluded.message,created_at=excluded.created_at,"
                         'updated_at=excluded.updated_at,resolved_at=NULL,claimed_at=NULL,claim_id=NULL',
-                        (ctx.principal_id, key, issue['code'], issue['business_id'], issue['task_id'],
+                        (ctx.principal_id, key, issue['code'], issue['project_id'], issue['task_id'],
                          session_id, episode, issue['message'], now, now))
                 if allow_correction:
                     result = uow.connection.execute('UPDATE agent_checkpoint_findings SET claimed_at=?,claim_id=? '
@@ -217,12 +217,12 @@ class AgentCheckpoints:
                 if not (ctx.principal_kind == 'human'
                         and ctx.principal_id == installation_owner(uow)):
                     continue
-            if row['business_id'] not in scopes:
+            if row['project_id'] not in scopes:
                 continue
             try:
-                self.runtime.activity.allowed(ctx, row['business_id'], 'agents_activity_list', uow)
+                self.runtime.activity.allowed(ctx, row['project_id'], 'agents_activity_list', uow)
                 if row['task_id']:
-                    self.runtime.activity.allowed(ctx, row['business_id'], 'tasks_get', uow)
+                    self.runtime.activity.allowed(ctx, row['project_id'], 'tasks_get', uow)
             except DomainError:
                 continue
             visible.append({'code': row['code'], 'message': row['message'],

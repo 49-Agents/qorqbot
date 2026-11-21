@@ -27,7 +27,7 @@ def deliver_owner_message(uow, *, owner_id, agent_id, body, created_at, message_
         raise DomainError("owner_binding_mismatch", "The installation owner is not the owner the Telegram bridge is bound to")
     owner = uow.repository("principals").get(owner_id)
     agent = uow.repository("principals").get(agent_id)
-    profile = uow.repository("agent_profiles", business_id=None).get(agent_id)
+    profile = uow.repository("agent_profiles", project_id=None).get(agent_id)
     if (not owner or not owner["active"] or owner["kind"] != "human" or not agent or not agent["active"]
             or agent["kind"] != "agent" or not profile or profile["status"] != "active"):
         raise DomainError("agent_unavailable", "The owner or the target agent is not active")
@@ -36,12 +36,12 @@ def deliver_owner_message(uow, *, owner_id, agent_id, body, created_at, message_
     identity = message_id or new_id()
     summary = (summary or body)[:SUMMARY_LIMIT]
     event_id = uow.connection.execute(
-        "INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)",
-        (profile["home_business_id"], "agent_messages", identity, owner_id, "direct_message", summary, created_at)).lastrowid
+        "INSERT INTO inbox_events(project_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)",
+        (profile["home_project_id"], "agent_messages", identity, owner_id, "direct_message", summary, created_at)).lastrowid
     uow.connection.execute(
-        "INSERT INTO agent_messages(id,event_id,business_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,summary,"
+        "INSERT INTO agent_messages(id,event_id,project_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,summary,"
         "current_sender_id,current_recipient_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-        (identity, event_id, profile["home_business_id"], owner_id, agent_id, None, identity, body, created_at,
+        (identity, event_id, profile["home_project_id"], owner_id, agent_id, None, identity, body, created_at,
          normalize_summary(None), owner_id, agent_id))
     uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)", (agent_id, event_id))
     return identity, event_id

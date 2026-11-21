@@ -2,7 +2,7 @@
 
 `browser_turn` version 2 keeps reservation credentials on the server. This is the
 MCP path used by Ordubashy, explicit native Codex helpers and durable workers;
-the business agent's shell launcher is unchanged.
+the project agent's shell launcher is unchanged.
 
 A native caller acquires once:
 
@@ -116,7 +116,7 @@ The constants are in `qorqut/browser/access.py`, and a test fails if the bridge'
 Ordubashy alone may add `browser_id` to a handles `acquire`: a managed Global desktop's surface id, or an active permanent
 worker's agent ID for that worker's tabs in the Shared browser, both from `action: "list"`, which labels such an entry
 "Shared browser, <Name>'s tabs". Omitting it keeps Ordubashy's own tabs.Ordubashy uses. The handle names that exact browser, so later calls use
-only the handle, and a different `browser_id` is refused. Projects have no browsers: `business_id` is not accepted. Identity,
+only the handle, and a different `browser_id` is refused. Projects have no browsers: `project_id` is not accepted. Identity,
 role, the browser-control skill and the operation permission are rechecked on every call. See
 [browser desktops](BROWSER-DESKTOPS.md) and [Ordubashy using a worker's browser](BROWSER-MANAGEMENT.md#ordubashy-using-a-workers-browser).
 
@@ -166,7 +166,7 @@ switch to the old binary or an automatic database restore.
 `tests/test_browser_short_handles.py` adds ten focused cases for handle-only
 execution/MCP schema, database reopen, action replay, caller/selector isolation,
 lease expiry/replacement, durable waiting/resumption/cancellation, private
-business gateway tokens, artifact delivery, migration from 087, cross-generation
+project gateway tokens, artifact delivery, migration from 087, cross-generation
 uncertainty reconciliation, delayed lease replacement, and compact receipts.
 All ten passed in targeted runs; only failed new fixtures were corrected and
 retried. Previously accepted tests were not rerun. Existing transport doubles

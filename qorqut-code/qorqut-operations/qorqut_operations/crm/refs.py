@@ -1,6 +1,6 @@
 """Typed references, scoped identities and the recorded-source contract of the CRM domain.
 
-A public reference always carries ``business_id`` (null is the Global scope): scope is never derived from a display name
+A public reference always carries ``project_id`` (null is the Global scope): scope is never derived from a display name
 or inferred from a missing field. Recorded sources are data. Nothing here fetches a URL, opens a path or contacts a
 provider; a URL is only checked to be a plain http(s) link without embedded credentials.
 """
@@ -14,9 +14,9 @@ from urllib.parse import urlsplit
 from qorqut_operations.application.plans import IDENTITY, UUID, schema, timestamp
 from qorqut_operations.contracts import DomainError
 
-NULLABLE_BUSINESS = {"anyOf": [UUID, {"type": "null"}]}
-RECORD_REF = schema({"type": {"const": "task"}, "id": IDENTITY, "business_id": NULLABLE_BUSINESS}, ("type", "id", "business_id"))
-TABLE_REF = schema({"type": {"const": "table"}, "id": UUID, "business_id": NULLABLE_BUSINESS}, ("type", "id", "business_id"))
+NULLABLE_PROJECT = {"anyOf": [UUID, {"type": "null"}]}
+RECORD_REF = schema({"type": {"const": "task"}, "id": IDENTITY, "project_id": NULLABLE_PROJECT}, ("type", "id", "project_id"))
+TABLE_REF = schema({"type": {"const": "table"}, "id": UUID, "project_id": NULLABLE_PROJECT}, ("type", "id", "project_id"))
 
 IDENTIFIER_LIMIT, URL_LIMIT, TITLE_LIMIT, EVENT_KEY_LIMIT = 500, 4000, 500, 300
 EVENT_KINDS = ("email", "message", "development")
@@ -30,21 +30,21 @@ SOURCE = schema({"kind": {"enum": list(SOURCE_KINDS)}, "provider": SOURCE_TEXT, 
 FUTURE_TOLERANCE = timedelta(minutes=5)
 
 
-def namespace_of(business_id):
-    return "global" if business_id is None else "business:" + business_id
+def namespace_of(project_id):
+    return "global" if project_id is None else "project:" + project_id
 
 
-def record_ref(business_id, task_id):
-    return {"type": "task", "id": task_id, "business_id": business_id}
+def record_ref(project_id, task_id):
+    return {"type": "task", "id": task_id, "project_id": project_id}
 
 
-def table_ref(business_id, table_id):
-    return {"type": "table", "id": table_id, "business_id": business_id}
+def table_ref(project_id, table_id):
+    return {"type": "table", "id": table_id, "project_id": project_id}
 
 
-def activity_id(kind, business_id, source_id):
+def activity_id(kind, project_id, source_id):
     """The stable, globally unambiguous key of one activity event: its kind, the owning scope of its store and its identity."""
-    return f"{kind}:{namespace_of(business_id)}:{source_id}"
+    return f"{kind}:{namespace_of(project_id)}:{source_id}"
 
 
 def clean_text(value, label, limit):

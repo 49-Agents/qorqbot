@@ -161,7 +161,7 @@ def forward_source(client, message_id):
 def account_authority(ctx, uow, resolver):
     """The one account gate: the installation owner, the configured ecosystem Ordubashy or an explicitly granted global worker."""
     from qorqut.agents.worker_access import is_worker
-    if ctx.business_id is not None or ctx.home_business_id is not None or CAPABILITY not in ctx.global_capabilities:
+    if ctx.project_id is not None or ctx.home_project_id is not None or CAPABILITY not in ctx.global_capabilities:
         raise DomainError("forbidden", "Fastmail requires the explicit Global account grant")
     installation = uow.repository("installation").get("service")
     if ctx.principal_kind == "human":

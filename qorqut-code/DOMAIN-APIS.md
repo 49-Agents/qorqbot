@@ -1,10 +1,10 @@
-# Business Domain Integration
+# Project Domain Integration
 
-`register_business_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None, filing=None, graph_edits=None, queue=None)` composes the retained domains with Operations and shared Context. Read the exact current signature in [domain composition](app/qorqut/domains/__init__.py); optional integration arguments evolve there. `paths` is explicit `InstancePaths`, not a businesses-root string. The `BusinessDomains` dataclass includes Tasks, Actions, tags, queue, shared Context, neutral items and retained domain services. Stories and the former Requests domain are not members.
+`register_project_domains(registry, application, paths, *, catalog, agent_resolver, clock=utc_clock, job_programs=None, filing=None, graph_edits=None, queue=None)` composes the retained domains with Operations and shared Context. Read the exact current signature in [domain composition](app/qorqut/domains/__init__.py); optional integration arguments evolve there. `paths` is explicit `InstancePaths`, not a projects-root string. The `ProjectDomains` dataclass includes Tasks, Actions, tags, queue, shared Context, neutral items and retained domain services. Stories and the former Requests domain are not members.
 `job_programs` is the shared `ProgramRegistry`, not an ad hoc task map.
 Missing required programs fail explicitly. No handler starts agent sessions.
 
-Compose `BusinessDomains.resolve_file_target` for resource type
+Compose `ProjectDomains.resolve_file_target` for resource type
 `managed_document_files` with the catalog/profile registered-file resolvers.
 Use `PreparedFileExecutor` for allow-mode writes and the same `FileApplier` for
 signoffs. Document files and immutable proposal bytes are never rewritten by a
@@ -39,7 +39,7 @@ Tasks included. Document/asset IDs
 are registered UUIDs, not request-supplied paths. Document views include
 `metadata`, `source_refs`, `agent_id`, `body`, `content_hash`, and `file_resource`.
 
-Business Materials additionally expose `material_type`, `origin`, and `tags`.
+Project Materials additionally expose `material_type`, `origin`, and `tags`.
 `context_items_list` filters these across documents;
 `context_list` and `context_search` accept the same filters for the text library
 (use `tag` for one label). Published content is included. `materials_update`
@@ -48,14 +48,14 @@ It edits classification metadata only, never source bytes or permission policy.
 Tags replace the whole list. Raw uploads and published content
 have fixed types; origin is immutable. Notes retain their dedicated tools; the old plan-file tools were removed.
 Asset bytes use the registered file target after scoped authorization. `notes_list`
-defaults to the agent's own notes or the human's business notes; `agent_id` selects
-same-business teammate reads. Agents may update only their own notes.
+defaults to the agent's own notes or the human's project notes; `agent_id` selects
+same-project teammate reads. Agents may update only their own notes.
 Agents no longer create private notes with `notes_create`; existing ones stay readable.
 
 Out-of-band authored edits are readable with `metadata_stale: true`. An update
 must then supply the observed `expected_content_hash` as well as its indexed
 revision. This acknowledges the exact current bytes without a read-side mutation.
-Protected business documents use `context_document_update`; registered global
+Protected project documents use `context_document_update`; registered global
 instructions use `shared_instructions_update`. Topic moves cannot relocate them.
 Context mutations regenerate a flat file inventory in `INDEX.md` as a registered
 `context_index` within the same exact file plan. The read-only
@@ -101,12 +101,12 @@ job revision and refuse already-started dispatch, closing the rejection/send rac
 
 ## Storage
 
-`businesses.config_json` is the sole general business configuration. Indexed
-name/stage/timezone update atomically; legacy config `id` is not the business UUID.
+`projects.config_json` is the sole general project configuration. Indexed
+name/stage/timezone update atomically; legacy config `id` is not the project UUID.
 This is ordinary agent-visible data; secrets belong in provider/connection
-configuration, referenced by stable IDs, not in business settings or proposals.
-`business_configs.domain` names the domain of an operational setting (for example `tasks`). Document namespaces remain raw business UUIDs
-(or `global`), independently of application target namespace `business:<UUID>`.
+configuration, referenced by stable IDs, not in project settings or proposals.
+`project_configs.domain` names the domain of an operational setting (for example `tasks`). Document namespaces remain raw project UUIDs
+(or `global`), independently of application target namespace `project:<UUID>`.
 `data_tables` and `data_rows` hold general tables. Specialized domain tools wrap the same
 table mutation, validation and Git-versioning path as the dashboard grid. Purpose fixes the
 required columns and domain rules; tags only group tables.
@@ -118,7 +118,7 @@ SQL/file mutation API is exposed.
 
 ## Notes Context snapshots
 
-`notes_upload(document_id, expected_content_hash?)` submits a selected business
+`notes_upload(document_id, expected_content_hash?)` submits a selected project
 note using the displayed revision. It creates a `context_upload` with a source
 reference and a `context.file` job, and records the upload ID and snapshot hash on
 the original note in the same prepared application. Unchanged snapshots cannot be
@@ -138,7 +138,7 @@ one paragraph unit to preserve all block boundaries and original escaped bytes.
 Journal handlers are retired. Metadata-only catalog entries remain solely so
 immutable published roles with old Journal grants can still validate; no Journal
 operation is installed or callable. Notes reads retain legacy `journal` records
-and explicit updates adopt `business_note` without changing the registered path.
+and explicit updates adopt `project_note` without changing the registered path.
 
 Former Journal entries use `content_format: plain_text` in registered metadata.
 The Notes editor treats their whole body as literal free text; Context export
@@ -147,11 +147,11 @@ A metadata-only `notes_update` on a Journal record adopts that format and kind
 without changing any source file bytes. Normal subsequent edits preserve the
 format and use the regular revision/hash checks.
 
-To adopt current entries across all registered businesses, inspect first, then
+To adopt current entries across all registered projects, inspect first, then
 apply the same explicit migration command with `--apply`:
 
 ```sh
-python -I -m qorqut.migration.journal_notes --root /path/to/businesses --workspace /path/to/workspace
+python -I -m qorqut.migration.journal_notes --root /path/to/projects --workspace /path/to/workspace
 ```
 
 The migration uses the installation owner's normal application policy, checks
@@ -164,12 +164,12 @@ service or background jobs. There is no startup migration or implicit import.
 `context_upload` accepts an optional `origin` (`call` or `meeting`), an optional
 `occurred_on` date (`YYYY-MM-DD`) and up to 20 `participants`, each
 `{person_id?, name}`. Participants and dates require an `origin`. A `person_id`
-must name an active Person of the selected business and is bound to the prepared
-plan with its revision, so a missing, archived, cross-business or Global Person
+must name an active Person of the selected project and is bound to the prepared
+plan with its revision, so a missing, archived, cross-project or Global Person
 fails before anything is written. Names are stripped, kept as chosen (never replaced
 by the Person's stored name) and must be distinct. The details live in the upload's
 metadata, survive `context_retry` and the move to `context_dump`, and need no
-migration. The dashboard sends them to `POST /api/biz/<slug>/context/upload` and
+migration. The dashboard sends them to `POST /api/project/<slug>/context/upload` and
 finds Persons for its participant typeahead with `context_people_list` through the
 generic operation route.
 
@@ -188,9 +188,9 @@ recorded on them, since the spelling is already theirs, and a proposed new Perso
 dropped), and creates a new Person named as typed when no Person or several Persons
 match. A picked Person archived
 or merged after the upload fails the filing, leaving the upload failed with
-"Participant is no longer a Person in this business"; restore them and use
+"Participant is no longer a Person in this project"; restore them and use
 `context_retry`. `context_items_list`, `context_list` and `context_search` filter the
-derived notes with `origin: "call"` or `"meeting"`. `context_items_list` is business
+derived notes with `origin: "call"` or `"meeting"`. `context_items_list` is project
 scope only; see Global Context Upload below for `context_list`/`context_search`.
 
 For every upload, not only these, a filing answer that lists one existing Person in two
@@ -200,24 +200,24 @@ than failing once the plan is built and leaving the upload pending.
 ## Global Context Upload
 
 `context_upload`, `context_people_list` and `context_people_get` are also usable at
-Global (`business_id` `None`), under the existing `read_global_context` capability;
+Global (`project_id` `None`), under the existing `read_global_context` capability;
 no new capability was added. `context_upload` additionally requires the installation
 owner at Global (the `context_retry` pattern), so a teammate or an ecosystem agent
 holding `read_global_context` cannot upload there even if their tool policy allows the
 operation. `story_ids` is rejected at Global with `validation_error` "Stories are per
-business"; an empty list is accepted. Everything above (encounter fields, participant
+project"; an empty list is accepted. Everything above (encounter fields, participant
 linkage, archived-participant failure, `context_retry`) applies the same way, against
-Global Persons and Global topics under the businesses root rather than a business's
-`hq/context`. A business Person ID is not a Global participant and fails with
-`not_found`, and `context_people_list`/`context_people_get` never cross the business/Global
+Global Persons and Global topics under the projects root rather than a project's
+`hq/context`. A project Person ID is not a Global participant and fails with
+`not_found`, and `context_people_list`/`context_people_get` never cross the project/Global
 boundary in either direction.
 
-Global documents are classified like business ones: `classification()` in
-`materials.py` admits a row when `business_id` is set or `namespace` is `"global"`, so a
+Global documents are classified like project ones: `classification()` in
+`materials.py` admits a row when `project_id` is set or `namespace` is `"global"`, so a
 filed Global `context_note` carries `material_type`/`origin`/`tags`, and
 `context_list`/`context_search` with `scope: "shared"` and an `origin`/`material_type`/`tag`
-filter return Global materials (a business-scope call still never does). The dashboard
+filter return Global materials (a project-scope call still never does). The dashboard
 sends Global uploads to `POST /api/root/context/upload` and finds Global Persons with
-`POST /api/root/context/people`, mirroring the business shapes above; neither is on the
+`POST /api/root/context/people`, mirroring the project shapes above; neither is on the
 generic `/api/root/operations/` allowlist, since Global context traffic stays on
 hand-written compatibility routes.

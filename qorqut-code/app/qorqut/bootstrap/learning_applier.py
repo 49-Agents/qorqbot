@@ -2,7 +2,7 @@
 
 The Learning Applier is the Overseer executor: it extracts evidence-backed agentic proposals, reviews them with the
 owner and applies accepted ones through the managed Overseer package. It is a supported global, so it reaches every
-active business through derived access and no explicit business list is selected or saved.
+active project through derived access and no explicit project list is selected or saved.
 """
 
 from qorqut_agentic.behavior.seeds import runtime_text as runtime_seed
@@ -22,7 +22,7 @@ def prepare_learning_applier(runtime, owner_context, *, role_ref, endpoint, clau
         raise DomainError("forbidden", "Learning-applier preparation requires the owner")
     if role_ref.get("id") != "learning-applier":
         raise DomainError("validation_error", "Select the published learning-applier role")
-    scope = {"kind": "ecosystem", "allowed_business_ids": [], "global_capabilities": sorted(CAPABILITIES)}
+    scope = {"kind": "ecosystem", "allowed_project_ids": [], "global_capabilities": sorted(CAPABILITIES)}
     arguments = {"name": "learning-applier", "display_name": "Learning Applier", "role": plain(role_ref),
                  "scope": scope, "assignment_brief": ASSIGNMENT, "plugins": []}
     # Creation is authorized even on retry; preparation never silently changes an
@@ -36,11 +36,11 @@ def prepare_learning_applier(runtime, owner_context, *, role_ref, endpoint, clau
         namespace = runtime.application.namespace(ctx, descriptor, arguments)
         runtime.application.authorize(ctx, descriptor, (), uow, namespace=namespace)
         existing = [row for row in uow.connection.execute(
-            "SELECT * FROM agent_profiles WHERE home_business_id IS NULL AND status='active' ORDER BY agent_id")
+            "SELECT * FROM agent_profiles WHERE home_project_id IS NULL AND status='active' ORDER BY agent_id")
             if json.loads(row["profile_json"]).get("role", {}).get("id") == "learning-applier"]
     if existing:
         profile = json.loads(existing[0]["profile_json"])
-        # A saved business list is inert; only the scope kind and capabilities are compared.
+        # A saved project list is inert; only the scope kind and capabilities are compared.
         if (len(existing) > 1 or profile["role"] != plain(role_ref) or profile["scope"]["kind"] != "ecosystem"
                 or sorted(profile["scope"]["global_capabilities"]) != scope["global_capabilities"]
                 or profile["plugins"] or profile["assignment_brief"] != ASSIGNMENT

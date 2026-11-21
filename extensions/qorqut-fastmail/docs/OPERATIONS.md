@@ -10,14 +10,14 @@ Selected through the existing `qorqut.extensions` mechanism in the trusted insta
 | `admin_token_file` | yes | Absolute path of a private (no group/world bits), non-symlink file holding the engine's account administration token (at least 32 ASCII characters) |
 | `account_id` | no | When set, the engine must report exactly this Fastmail account or every operation is refused (`account_mismatch`). Each account-specific read and receipt lookup first checks the engine's capability view, so no payload of another account is returned |
 
-There are no send/read tokens, no business mailbox file and no folder, alias or Project mapping. The token file is read when the
+There are no send/read tokens, no project mailbox file and no folder, alias or Project mapping. The token file is read when the
 engine is first used and never when the declaration is made, so a missing token yields "unavailable" at use, not a startup error.
 
 ## Access
 
 Every operation is Global-scope and needs the `manage_fastmail` Global grant. Beyond the grant the caller must be the installation
 owner, the configured ecosystem Ordubashy, or an authorized global worker; a generic ecosystem agent holding the grant is refused.
-Business-scoped callers are refused. Sending (`fastmail_send`, `fastmail_reply`, `fastmail_forward`) requires an authorized
+Project-scoped callers are refused. Sending (`fastmail_send`, `fastmail_reply`, `fastmail_forward`) requires an authorized
 agent proposal and exact owner Signoff; an `allow` override cannot skip review, while `deny` still refuses it. The owner
 reviews through the existing Signoff route rather than invoking a direct send. Other mutations keep their `allow` default
 and do not support Signoff. Reading, organizing mail and saving provider drafts retain their existing behavior.
@@ -50,7 +50,7 @@ changed. Composing operations (`draft_create`, `draft_update`, `send`, `reply`, 
 - `identity_id` must be an identity of the account and its email must equal `from_address` (case-insensitive); otherwise
   `sender_identity_denied` / `sender_identity_mismatch` before anything is queued. An identity with an automatic Bcc or Reply-To
   is refused, as the engine would refuse it.
-- No sender is ever inferred from a Project, folder or business. The engine re-verifies the identity when it applies the action.
+- No sender is ever inferred from a Project, folder or project. The engine re-verifies the identity when it applies the action.
 - Limits: ≤50 recipients per field, ≤10 attachments, ≤1 MiB base64 of inline attachment data in total, body ≤50 000 characters.
 
 Sending returns `signoff_required` with the pending Signoff identity. It creates no job and sends nothing yet. The frozen

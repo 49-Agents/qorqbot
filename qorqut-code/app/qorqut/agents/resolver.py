@@ -19,12 +19,12 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from qorqut.catalog.packages import Catalog, content_hash, declared_plugin_tools, files_digest, relative_path, visible_plugin_tools
 from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationContext, Principal, canonical_hash, new_id, plain, utc_now
-from qorqut_operations.business_lifecycle import active_business_ids
+from qorqut_operations.project_lifecycle import active_project_ids
 from qorqut_operations.policy import AgentPolicyBasis
 from qorqut_operations.storage.database import unit_memo
 from qorqut_operations.storage.structured import parse_yaml
 from qorqut.composition.files import lock_paths
-from qorqut.composition.locations import agent_workspace, business_hq
+from qorqut.composition.locations import agent_workspace, project_hq
 from qorqut.inbox.defaults import legacy_inbox_skill
 from qorqut.instance_paths import InstancePaths
 from . import role_workflow
@@ -67,10 +67,10 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
         if (metadata.name in (GLOBAL_DISCOVERY_OPERATIONS | getattr(registry, "extension_global_discovery", frozenset())) and profile.scope.kind == "ecosystem"
                 and "read_global_context" in profile.scope.global_capabilities):
             # Shared table and contributed provider tools may have a distinct Global scope rule.
-            # Business grants stay as they were; evaluate both namespaces without broadening either.
+            # Project grants stay as they were; evaluate both namespaces without broadening either.
             in_global = resolve_operation_policy(metadata.name, defaults, overrides, registry,
                                                  role_id=profile.data["role"]["id"], scope="global")
-            modes = {"business": decision.mode, "global": in_global.mode}
+            modes = {"project": decision.mode, "global": in_global.mode}
             if decision.mode == "deny":
                 decision = in_global
         mode = decision.mode
@@ -245,21 +245,21 @@ class AgentConfigResolver:
         return profile
 
     def _effective_profile(self, principal_id: str, profile_json: str, profile: AgentProfile, connection) -> AgentProfile:
-        """``with_effective_scope``, reusing the result for the same parsed profile and the same active businesses.
+        """``with_effective_scope``, reusing the result for the same parsed profile and the same active projects.
 
         The projection copies and refreezes the whole profile to replace one list. It is a pure function of the
-        parsed profile and the businesses active in this transaction, which are read here on every call; only the
+        parsed profile and the projects active in this transaction, which are read here on every call; only the
         copy is reused, and only for the very object ``_parsed_profile`` returned, so an entry never outlives the
         parse it was built from."""
-        businesses = tuple(sorted(active_business_ids(connection)))
-        key = (principal_id, profile_json, businesses)
+        projects = tuple(sorted(active_project_ids(connection)))
+        key = (principal_id, profile_json, projects)
         with self._profiles_lock:
             cached = self._effective.get(key)
             if cached is not None and cached[0] is profile:
                 self._effective.move_to_end(key)
                 return cached[1]
         effective = with_effective_scope(profile, connection)
-        if tuple(effective.data["scope"]["allowed_business_ids"]) == businesses:
+        if tuple(effective.data["scope"]["allowed_project_ids"]) == projects:
             with self._profiles_lock:
                 self._effective[key] = (profile, effective)
                 self._effective.move_to_end(key)
@@ -267,7 +267,7 @@ class AgentConfigResolver:
                     self._effective.popitem(last=False)
         return effective
 
-    def _workspace(self, agent_id: str, business) -> Path:
+    def _workspace(self, agent_id: str, project) -> Path:
         """The identity's workspace, selected and checked against symlinks once per unit of work.
 
         Selecting it resolves the path on disk and reads the fixed workspace mapping. One operation asks for the
@@ -275,11 +275,11 @@ class AgentConfigResolver:
         ``unit_memo``), and a refusal is never kept."""
         memo = unit_memo()
         if memo is None:
-            return agent_workspace(self.paths, agent_id, business)
-        key = (self, "workspace", agent_id, None if business is None else business["slug"])
+            return agent_workspace(self.paths, agent_id, project)
+        key = (self, "workspace", agent_id, None if project is None else project["slug"])
         found = memo.get(key)
         if found is None:
-            found = memo[key] = agent_workspace(self.paths, agent_id, business)
+            found = memo[key] = agent_workspace(self.paths, agent_id, project)
         return found
 
     def profile(self, principal: Principal, *, connection=None) -> tuple[AgentProfile, dict]:
@@ -292,25 +292,25 @@ class AgentConfigResolver:
         row = connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (principal.id,)).fetchone()
         if actor is None or actor["kind"] != "agent" or not actor["active"] or row is None or row["status"] != "active":
             raise DomainError("inactive_agent", "Agent identity is missing or inactive; read current configuration after preparation")
-        if row["home_business_id"] is not None:
-            # Businesses own resources only. A business-home identity is historical
+        if row["home_project_id"] is not None:
+            # Projects own resources only. A project-home identity is historical
             # whatever its stored status, and is never revived for execution.
-            raise DomainError("inactive_agent", "Business-home agent identities are historical and cannot operate")
+            raise DomainError("inactive_agent", "Project-home agent identities are historical and cannot operate")
         profile = self._parsed_profile(principal.id, row["profile_json"])
         if profile.role.id not in SUPPORTED_GLOBAL_ROLES:
             raise DomainError("inactive_agent", "Agent uses an unsupported role and cannot operate")
         if profile.scope.kind != "ecosystem":
             raise DomainError("profile_conflict", "An active agent must hold ecosystem scope")
         if (profile.agent_id != principal.id or row["principal_id"] != principal.id or profile.data["status"] != "active" or profile.revision != row["revision"]
-            or profile.data["name"] != row["name"] or profile.scope.business_id != row["home_business_id"]
-            or row["namespace"] != (profile.scope.business_id or "ecosystem")):
+            or profile.data["name"] != row["name"] or profile.scope.project_id != row["home_project_id"]
+            or row["namespace"] != (profile.scope.project_id or "ecosystem")):
             raise DomainError("profile_conflict", "Indexed identity and canonical profile disagree")
-        business = (None if row["home_business_id"] is None else
-                    connection.execute("SELECT slug FROM businesses WHERE id=?", (row["home_business_id"],)).fetchone())
+        project = (None if row["home_project_id"] is None else
+                    connection.execute("SELECT slug FROM projects WHERE id=?", (row["home_project_id"],)).fetchone())
         # The registered identity and home scope select the workspace; the stored column must agree, never choose.
-        if Path(row["workspace"]) != self._workspace(row["agent_id"], business):
+        if Path(row["workspace"]) != self._workspace(row["agent_id"], project):
             raise DomainError("registration_conflict", "Agent workspace is not the registered identity's workspace")
-        # Effective access is every active business in this transaction, not the saved list.
+        # Effective access is every active project in this transaction, not the saved list.
         return self._effective_profile(principal.id, row["profile_json"], profile, connection), dict(row)
 
     # -- AgentAuthority: what the Operations policy resolver asks of the agent registry -------------------------
@@ -339,37 +339,37 @@ class AgentConfigResolver:
         package = self.catalog.get("plugin", grant, connection=uow.connection)
         return descriptor.name in declared_plugin_tools(package)
 
-    def invocation_context(self, principal: Principal, *, business_id: str | None = None,
+    def invocation_context(self, principal: Principal, *, project_id: str | None = None,
                            source: str = "mcp", session_registration_id: str | None = None,
-                           review_business_id: str | None = None) -> InvocationContext:
-        config = self.resolve_agent_config(principal, business_id=business_id, include_preparation=False)
+                           review_project_id: str | None = None) -> InvocationContext:
+        config = self.resolve_agent_config(principal, project_id=project_id, include_preparation=False)
         data = config.data
         scope = data["scope"]
-        allowed = frozenset((scope["business_id"],)) if scope["kind"] == "business" else frozenset(scope["allowed_business_ids"])
-        if review_business_id and review_business_id not in allowed:
+        allowed = frozenset((scope["project_id"],)) if scope["kind"] == "project" else frozenset(scope["allowed_project_ids"])
+        if review_project_id and review_project_id not in allowed:
             raise DomainError("forbidden", "Review project is outside the current scope")
-        return InvocationContext(principal, business_id=data.get("business_id"), home_business_id=scope.get("business_id"),
-            allowed_business_ids=allowed, global_capabilities=frozenset(scope.get("global_capabilities", ())),
+        return InvocationContext(principal, project_id=data.get("project_id"), home_project_id=scope.get("project_id"),
+            allowed_project_ids=allowed, global_capabilities=frozenset(scope.get("global_capabilities", ())),
             profile_revision=data["profile_revision"], policy_revision=data["profile_revision"],
             role_artifact_ref=ArtifactRef(**data["role"]),
             enabled_plugin_refs=tuple(ArtifactRef(id=item["id"], version=item["version"], digest=item["digest"], kind="plugin") for item in data["plugins"]),
-            source=source, session_registration_id=session_registration_id, review_business_id=review_business_id,
+            source=source, session_registration_id=session_registration_id, review_project_id=review_project_id,
             configuration_revision=data["effective_config_id"])
 
-    def runtime_context(self, principal, *, business_id=None, session_registration_id=None, review_business_id=None):
+    def runtime_context(self, principal, *, project_id=None, session_registration_id=None, review_project_id=None):
         """Identity/policy only, for trusted delivery and the diagnostic allowlist.
 
         Ordinary MCP operations must still use invocation_context and receive
-        all mandatory context. This path cannot authorize business work itself.
+        all mandatory context. This path cannot authorize project work itself.
         """
         with self.database.read() as uow:
             profile, _ = self.profile(principal, connection=uow.connection)
-            ctx = InvocationContext(principal, business_id=business_id or profile.scope.business_id,
-                home_business_id=profile.scope.business_id, allowed_business_ids=profile.scope.businesses,
+            ctx = InvocationContext(principal, project_id=project_id or profile.scope.project_id,
+                home_project_id=profile.scope.project_id, allowed_project_ids=profile.scope.projects,
                 global_capabilities=frozenset(profile.scope.global_capabilities),
                 profile_revision=profile.revision, policy_revision=profile.revision,
                 role_artifact_ref=profile.role, source='mcp', session_registration_id=session_registration_id,
-                review_business_id=review_business_id)
+                review_project_id=review_project_id)
             return self.refresh_invocation_context(ctx, uow)
 
     def refresh_invocation_context(self, ctx: InvocationContext, uow) -> InvocationContext:
@@ -377,47 +377,47 @@ class AgentConfigResolver:
         if ctx.agent_id is None:
             return ctx
         profile, _ = self.profile(ctx.principal, connection=uow.connection)
-        from qorqut_operations.business_lifecycle import active_business_ids, require_active_business
-        target = ctx.business_id or profile.scope.business_id
-        require_active_business(uow.connection, target)
-        if target is not None and target not in profile.scope.businesses:
+        from qorqut_operations.project_lifecycle import active_project_ids, require_active_project
+        target = ctx.project_id or profile.scope.project_id
+        require_active_project(uow.connection, target)
+        if target is not None and target not in profile.scope.projects:
             raise DomainError("forbidden", "The selected project is no longer in the current agent scope")
-        if ctx.review_business_id and ctx.review_business_id not in profile.scope.businesses:
+        if ctx.review_project_id and ctx.review_project_id not in profile.scope.projects:
             raise DomainError("forbidden", "The review project is no longer in the current agent scope")
-        return replace(ctx, business_id=target, home_business_id=profile.scope.business_id,
-            allowed_business_ids=profile.scope.businesses & active_business_ids(uow.connection), global_capabilities=frozenset(profile.scope.global_capabilities),
+        return replace(ctx, project_id=target, home_project_id=profile.scope.project_id,
+            allowed_project_ids=profile.scope.projects & active_project_ids(uow.connection), global_capabilities=frozenset(profile.scope.global_capabilities),
             profile_revision=profile.revision, policy_revision=profile.revision, role_artifact_ref=profile.role,
             enabled_plugin_refs=tuple(ArtifactRef(id=item["id"], version=item["version"], digest=item["digest"], kind="plugin") for item in profile.data["plugins"]),
             context_refresh_required=ctx.profile_revision != profile.revision)
 
-    def _snapshot(self, principal: Principal, business_id: str | None, *, proposed: tuple[AgentProfile, dict] | None = None) -> dict:
+    def _snapshot(self, principal: Principal, project_id: str | None, *, proposed: tuple[AgentProfile, dict] | None = None) -> dict:
         with self.database.read() as uow:
             connection = uow.connection
             profile, row = proposed or self.profile(principal, connection=connection)
             profile = with_effective_scope(profile, connection)
-            from qorqut_operations.business_lifecycle import require_active_business
-            target = business_id or profile.scope.business_id
-            require_active_business(connection, target)
-            if target is not None and target not in profile.scope.businesses:
+            from qorqut_operations.project_lifecycle import require_active_project
+            target = project_id or profile.scope.project_id
+            require_active_project(connection, target)
+            if target is not None and target not in profile.scope.projects:
                 raise DomainError("forbidden", "Selected project is outside the agent's current scope")
-            businesses = []
-            for permitted in sorted(profile.scope.businesses):
-                business = connection.execute("SELECT * FROM businesses WHERE id=?", (permitted,)).fetchone()
-                if business is None:
+            projects = []
+            for permitted in sorted(profile.scope.projects):
+                project = connection.execute("SELECT * FROM projects WHERE id=?", (permitted,)).fetchone()
+                if project is None:
                     raise DomainError("invalid_scope", f"Profile references an unregistered project: {permitted}")
-                if business["archived_at"] is None:
-                    businesses.append({**dict(business), "display_name": business["name"]})
-            selected = next((item for item in businesses if item["id"] == target), None)
+                if project["archived_at"] is None:
+                    projects.append({**dict(project), "display_name": project["name"]})
+            selected = next((item for item in projects if item["id"] == target), None)
             registration = connection.execute("SELECT * FROM machine_registrations WHERE principal_id=? AND workspace=?", (principal.id, row["workspace"])).fetchone()
             owner_names = [item[0] for item in connection.execute(
-                "SELECT p.display_name FROM business_memberships m JOIN principals p ON p.id=m.principal_id WHERE m.business_id=? AND m.is_owner=1 AND m.active=1 AND p.active=1 ORDER BY p.id", (target,))]
+                "SELECT p.display_name FROM project_memberships m JOIN principals p ON p.id=m.principal_id WHERE m.project_id=? AND m.is_owner=1 AND m.active=1 AND p.active=1 ORDER BY p.id", (target,))]
             if target is None:  # Global scope names the registered installation owner.
                 owner_names = [item[0] for item in connection.execute(
                     "SELECT p.display_name FROM installation i JOIN principals p ON p.id=i.owner_principal_id WHERE i.id='service'")]
             # Only rows carrying a needed bootstrap key are read; a matching key in the selected project still
             # reaches the wrong-scope rejection below.
             docs = [dict(item) for item in connection.execute(
-                "SELECT * FROM documents WHERE ((business_id IS NULL AND namespace='global') OR business_id=?) "
+                "SELECT * FROM documents WHERE ((project_id IS NULL AND namespace='global') OR project_id=?) "
                 f"AND json_extract(metadata_json, '$.bootstrap_key') IN ({','.join('?' * len(BOOTSTRAP_KEYS))}) ORDER BY id",
                 (target, *sorted(BOOTSTRAP_KEYS)))]
             artifacts = []
@@ -440,7 +440,7 @@ class AgentConfigResolver:
                     self.registry, role_id=role.id).mode == "allow" for name in reads)
 
         selected_docs, signatures = {}, []
-        # Only global agents run; the retired business-agent instruction source is never required.
+        # Only global agents run; the retired project-agent instruction source is never required.
         if profile.scope.kind != "ecosystem":
             raise DomainError("invalid_scope", "Only ecosystem agents receive orientation")
         if "read_global_context" not in profile.scope.global_capabilities:
@@ -457,11 +457,11 @@ class AgentConfigResolver:
             if key not in BOOTSTRAP_KEYS:
                 continue
             global_source = key in BOOTSTRAP_KEYS
-            if (doc["business_id"] is None) != global_source:
+            if (doc["project_id"] is None) != global_source:
                 raise DomainError("context_scope_conflict", f"Mandatory source has the wrong registered scope: {key}")
             if key in selected_docs:
                 raise DomainError("context_scope_conflict", f"Multiple mandatory sources registered for: {key}")
-            selected_docs[key] = located(self.root if global_source else business_hq(self.paths, selected), doc, key)
+            selected_docs[key] = located(self.root if global_source else project_hq(self.paths, selected), doc, key)
         for artifact in artifacts:
             path = Path(artifact["stored_path"])
             signatures.append((artifact["kind"], artifact["digest"], str(path), _tree_signature(path)))
@@ -470,7 +470,7 @@ class AgentConfigResolver:
 
         def hashes():
             fingerprint = canonical_hash({"agentic_catalog_revision": agentic_revision, "profile": profile.data, "workspace": row["workspace"], "target": target,
-                "businesses": businesses, "owners": owner_names,
+                "projects": projects, "owners": owner_names,
                 "sources": [(key, doc["id"], doc["revision"], doc["content_hash"], doc["availability"]) for key, doc in sorted(selected_docs.items())],
                 "artifacts": [(item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts],
                 "operations": [(item.name, item.version, [(alias, self.registry.required_plugin_for(alias)) for alias in item.aliases],
@@ -484,28 +484,28 @@ class AgentConfigResolver:
         inputs = None
         if proposed is None and getattr(self.registry, "frozen", False) is True:
             try:
-                inputs = (agentic_revision, principal.id, row["profile_json"], tuple(profile.data["scope"]["allowed_business_ids"]),
-                          row["workspace"], target, tuple(tuple(item.items()) for item in businesses), tuple(owner_names),
+                inputs = (agentic_revision, principal.id, row["profile_json"], tuple(profile.data["scope"]["allowed_project_ids"]),
+                          row["workspace"], target, tuple(tuple(item.items()) for item in projects), tuple(owner_names),
                           tuple((item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts),
                           tuple(signatures))
                 hash(inputs)
             except TypeError:
                 inputs = None
         fingerprint, cache_key = self._remembered_hashes(inputs, hashes)
-        return {"profile": profile, "row": row, "business": selected, "businesses": businesses,
+        return {"profile": profile, "row": row, "project": selected, "projects": projects,
                 "documents": selected_docs, "owner_name": ", ".join(owner_names) or "Owner",
                 "agentic_catalog_revision": agentic_revision,
                 "registration": dict(registration) if registration else None, "fingerprint": fingerprint,
                 "cache_key": cache_key}
 
-    def resolve_agent_config(self, principal: Principal, *, business_id: str | None = None,
+    def resolve_agent_config(self, principal: Principal, *, project_id: str | None = None,
                              session_registration: Mapping | str | None = None,
                              include_preparation: bool = True) -> EffectiveAgentConfig:
         from qorqut.agentic.view import CONSISTENCY_ATTEMPTS
         for _ in range(CONSISTENCY_ATTEMPTS):
             try:
                 with self.require_agentic_view().read_snapshot():
-                    return self._resolve_agent_config(principal, business_id=business_id,
+                    return self._resolve_agent_config(principal, project_id=project_id,
                                                       session_registration=session_registration,
                                                       include_preparation=include_preparation)
             except DomainError as exc:
@@ -513,12 +513,12 @@ class AgentConfigResolver:
                     raise
         raise DomainError("agentic_revision_conflict", "Managed instructions kept changing during composition", retryable=True)
 
-    def _resolve_agent_config(self, principal: Principal, *, business_id: str | None = None,
+    def _resolve_agent_config(self, principal: Principal, *, project_id: str | None = None,
                               session_registration: Mapping | str | None = None,
                               include_preparation: bool = True) -> EffectiveAgentConfig:
-        snapshot = self._snapshot(principal, business_id)
+        snapshot = self._snapshot(principal, project_id)
         provider = getattr(self, "context_home", None)
-        home_text = provider(snapshot["business"]["id"] if snapshot["business"] else None) if provider else None
+        home_text = provider(snapshot["project"]["id"] if snapshot["project"] else None) if provider else None
         key = (canonical_hash({"key": snapshot["cache_key"], "context_home": home_text})
                if home_text else snapshot["cache_key"])
         with self._lock:
@@ -671,7 +671,7 @@ class AgentConfigResolver:
         view = self.require_agentic_view()
         from .preferences import load_preferences
         sources["user-preferences/preferences"] = load_preferences(view)
-        selection = view.selection(profile, project_id=snapshot["business"]["id"] if snapshot["business"] else None)
+        selection = view.selection(profile, project_id=snapshot["project"]["id"] if snapshot["project"] else None)
         skills, _ = self.managed_skills(profile, selection=selection)
         native_guidance_digest = self.native_guidance_digest(profile.to_dict())
         config_id = "sha256:" + canonical_hash({"fingerprint": snapshot["fingerprint"],
@@ -679,8 +679,8 @@ class AgentConfigResolver:
         tools = effective_tool_policy(profile, role, self.registry, packages=packages)
         tools = view.tool_instructions().metadata(tools)
         mandatory = compose_context(profile, role, sources, effective_config_id=config_id,
-            workspace=snapshot["row"]["workspace"], business=snapshot["business"],
-            allowed_businesses=tuple(snapshot["businesses"]), owner_name=snapshot["owner_name"],
+            workspace=snapshot["row"]["workspace"], project=snapshot["project"],
+            allowed_projects=tuple(snapshot["projects"]), owner_name=snapshot["owner_name"],
             available_operations=frozenset(tool["canonical_operation"] for tool in tools if tool["available"]),
             context_home=context_home, agentic_view=view, extension_guidance=tuple(
                 callback(view) for callback in dict.fromkeys(
@@ -692,11 +692,11 @@ class AgentConfigResolver:
             raise DomainError("agentic_resource_unavailable", "Managed inbox session guidance is empty or oversized")
         visible_scope = plain(profile.to_dict()["scope"])
         if profile.scope.kind == "ecosystem":
-            visible_scope["allowed_business_ids"] = [row["id"] for row in snapshot["businesses"]]
+            visible_scope["allowed_project_ids"] = [row["id"] for row in snapshot["projects"]]
         self.check_agentic_revision(snapshot["agentic_catalog_revision"])
         return EffectiveAgentConfig({**profile.to_dict(), "scope": visible_scope, "workspace": snapshot["row"]["workspace"],
-            "business_id": snapshot["business"]["id"] if snapshot["business"] else None,
-            "business_revision": snapshot["business"]["revision"] if snapshot["business"] else None,
+            "project_id": snapshot["project"]["id"] if snapshot["project"] else None,
+            "project_revision": snapshot["project"]["revision"] if snapshot["project"] else None,
             "effective_config_id": config_id, "configuration_revision": config_id, "context_refresh_required": False,
             "agentic_catalog_revision": snapshot["agentic_catalog_revision"], "agentic_selection": selection,
             "inbox_session_note": session_note,
@@ -961,7 +961,7 @@ class AgentConfigResolver:
         return {"recorded": True, "effective_config_id": effective_config_id, "observation": "hook_emitted"}
 
 
-def resolve_agent_config(resolver: AgentConfigResolver, principal: Principal, *, business_id=None, session_registration=None,
+def resolve_agent_config(resolver: AgentConfigResolver, principal: Principal, *, project_id=None, session_registration=None,
                          include_preparation: bool = True) -> EffectiveAgentConfig:
-    return resolver.resolve_agent_config(principal, business_id=business_id, session_registration=session_registration,
+    return resolver.resolve_agent_config(principal, project_id=project_id, session_registration=session_registration,
                                          include_preparation=include_preparation)

@@ -29,14 +29,14 @@ from .recovery import BackupStore, ROOT_AUTHORED, SKIP_DIRECTORIES, _identity
 HISTORY_REF = "refs/heads/qorqut-history"
 PROGRAM = "maintenance.nightly"
 PENDING_SECONDS = 5  # how soon a yielded nightly job looks again for its capture
-HQ_ENTRIES = frozenset({"business.yaml", "CLAUDE.md", "README.md", ".gitignore", ".gitattributes",
+HQ_ENTRIES = frozenset({"project.yaml", "CLAUDE.md", "README.md", ".gitignore", ".gitattributes",
     "context", "assets", "agents", "notes", "journal", "tasks",
     "log", "analytics", "learnings", "routines", "exports", "tables"})
 PRIVATE_PARTS = SKIP_DIRECTORIES - {"exports"} | {"sessions", "transcripts", "logs", "cache", ".cache", "work", "code"}
 OBJECT_ID = re.compile(r"^[a-f0-9]{40}(?:[a-f0-9]{24})?$")
 
 
-def public_path(name, businesses):
+def public_path(name, projects):
     parts = Path(name).parts
     if (not parts or Path(name).is_absolute() or ".." in parts or "\\" in name
             or any(part in PRIVATE_PARTS for part in parts)
@@ -48,12 +48,12 @@ def public_path(name, businesses):
         position = parts.index(".claude")
         if parts[position + 1:position + 2] != ("skills",):
             return False
-    for business in businesses:
-        agents = (*Path(business["root"]).parts, "agents")
+    for project in projects:
+        agents = (*Path(project["root"]).parts, "agents")
         if parts[:len(agents)] == agents:
-            # A business's registered agents sit beside its HQ; the same exclusions above apply to them.
+            # A project's registered agents sit beside its HQ; the same exclusions above apply to them.
             return len(parts) > len(agents)
-        hq = Path(business["hq"]).parts
+        hq = Path(project["hq"]).parts
         if parts[:len(hq)] == hq:
             if parts[len(hq):len(hq) + 2] == ("context", "email"):
                 return False
@@ -110,20 +110,20 @@ class GitVersioner:
                 selected = set()
                 with tarfile.open(generation / "authored/sources.tar", "r:") as archive:
                     for member in archive:
-                        if not public_path(member.name, manifest["businesses"]) or member.name in bundle.files:
+                        if not public_path(member.name, manifest["projects"]) or member.name in bundle.files:
                             continue
                         body = archive.extractfile(member).read()
                         blob = oid(git("hash-object", "-w", "--stdin", data=body)[0])
                         git("update-index", "--add", "--cacheinfo", "100755" if member.mode & 0o111 else "100644", blob, member.name)
                         selected.add(member.name)
                 for name, body in sorted(bundle.files.items()):
-                    if not public_path(name, manifest["businesses"]):
+                    if not public_path(name, manifest["projects"]):
                         raise DomainError("invalid_export", "Generated projection is outside versioning's explicit data paths")
                     blob = oid(git("hash-object", "-w", "--stdin", data=body)[0])
                     git("update-index", "--add", "--cacheinfo", "100644", blob, name)
                     selected.add(name)
                 for name in tracked:
-                    if name and public_path(name, manifest["businesses"]) and name not in selected:
+                    if name and public_path(name, manifest["projects"]) and name not in selected:
                         git("update-index", "--force-remove", "--", name)
                 tree = oid(git("write-tree")[0])
                 previous_tree = oid(git("rev-parse", base + "^{tree}")[0])
@@ -230,7 +230,7 @@ class NightlyMaintenance:
         return ProgramPending(retry_after=PENDING_SECONDS)
 
     def run(self, control, arguments):
-        if arguments != {} or control.business_id is not None:
+        if arguments != {} or control.project_id is not None:
             raise DomainError("validation_error", "Nightly maintenance takes no arguments and runs only at installation scope")
         generation = _identity(control.job["id"])
         with application_claim(self.locks, generation):

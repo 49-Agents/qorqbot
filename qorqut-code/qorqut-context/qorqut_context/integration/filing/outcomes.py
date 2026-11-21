@@ -20,7 +20,7 @@ from qorqut_context.integration.filing.sources import require_system
 from qorqut_operations.contracts import DomainError, canonical_hash, utc_now
 
 RECEIPT_NAMESPACE = UUID("5c5c1f4e-6d0b-4a53-9c7a-2f0f3a1e9b10")
-COLUMNS = ("id", "business_id", "filing_id", "job_id", "input_id", "source_version_id", "outcome", "context_event_id",
+COLUMNS = ("id", "project_id", "filing_id", "job_id", "input_id", "source_version_id", "outcome", "context_event_id",
            "published_commit", "reason_json", "outcome_digest", "state", "application_json", "revision", "created_at",
            "resolved_at")
 
@@ -41,7 +41,7 @@ def decode(row) -> dict | None:
 
 def _bound(uow, input_id):
     return uow.connection.execute(
-        "SELECT f.id AS filing_id, f.job_id, f.business_id, f.source_version_id, v.source_digest, v.source_path, v.operation, "
+        "SELECT f.id AS filing_id, f.job_id, f.project_id, f.source_version_id, v.source_digest, v.source_path, v.operation, "
         "v.source_revision FROM context_filings f JOIN context_source_versions v ON v.id = f.source_version_id "
         "WHERE f.input_id=?", (input_id,)).fetchone()
 
@@ -49,7 +49,7 @@ def _bound(uow, input_id):
 def _verify_payload(row, bound) -> None:
     payload = json.loads(row["payload_json"])
     if payload.get("path") != bound["source_path"] or row["operation"] != bound["operation"] \
-            or row["business_id"] != bound["business_id"]:
+            or row["project_id"] != bound["project_id"]:
         raise DomainError("completion_conflict", "The input no longer matches its accepted source version")
     if bound["operation"] != "remove" and envelope.fingerprint(payload.get("content") or "") != bound["source_digest"]:
         raise DomainError("completion_conflict", "The input's frozen source differs from its accepted source version")
@@ -86,9 +86,9 @@ class FilingOutcomes:
                 raise DomainError("completion_conflict", "A different terminal outcome was already recorded for this filing")
             return decode(existing)
         uow.connection.execute(
-            "INSERT INTO context_completions(id,business_id,filing_id,job_id,input_id,source_version_id,outcome,context_event_id,"
+            "INSERT INTO context_completions(id,project_id,filing_id,job_id,input_id,source_version_id,outcome,context_event_id,"
             "published_commit,reason_json,outcome_digest,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (identity, bound["business_id"], bound["filing_id"], bound["job_id"], input_row["id"], bound["source_version_id"],
+            (identity, bound["project_id"], bound["filing_id"], bound["job_id"], input_row["id"], bound["source_version_id"],
              input_row["state"], facts["context_event_id"], facts["published_commit"],
              None if facts["reason"] is None else json.dumps(facts["reason"], sort_keys=True), digest, utc_now()))
         return decode(uow.connection.execute("SELECT * FROM context_completions WHERE id=?", (identity,)).fetchone())

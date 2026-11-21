@@ -44,10 +44,10 @@ def acknowledge_seen(uow, before, actor_id, clock=utc_clock):
     row = before["row"]
     cursor = uow.connection.execute(
         "UPDATE inbox_deliveries SET acknowledged_at=?,outcome=? WHERE agent_id=? AND acknowledged_at IS NULL AND event_id IN ("
-        "SELECT e.id FROM inbox_events e WHERE e.source_type='tasks' AND e.source_id=? AND e.business_id IS ? "
+        "SELECT e.id FROM inbox_events e WHERE e.source_type='tasks' AND e.source_id=? AND e.project_id IS ? "
         "AND e.source_revision<=? AND e.event_type NOT LIKE '%note_added%' AND e.event_type NOT LIKE '%plan_step_%' "
         "AND NOT EXISTS (SELECT 1 FROM operational_event_claims c WHERE c.event_id=e.id AND c.state='claimed'))",
-        (timestamp(clock), SEEN, actor_id, row["id"], row["business_id"], row["revision"]))
+        (timestamp(clock), SEEN, actor_id, row["id"], row["project_id"], row["revision"]))
     return cursor.rowcount
 
 
@@ -74,12 +74,12 @@ class TaskClosure:
                   if ctx.principal_kind == "agent" else 0}
         closed = row["status"] in CLOSED_STATES and (before is None or before["row"]["status"] not in CLOSED_STATES)
         if before is not None and stored_plan(before) and (closed or stored_plan(before) != stored_plan(after)):
-            result["plan_submissions"] = settle_submissions(uow, row["business_id"], row["id"],
+            result["plan_submissions"] = settle_submissions(uow, row["project_id"], row["id"],
                                                             at=timestamp(self.attention.clock))
         if closed:
-            business_id, task_id = row["business_id"], row["id"]
-            result.update(focus_card=self.focus_board.release_task(business_id, task_id, uow),
-                          reminders=self.reminders.release_task(uow, business_id, task_id))
+            project_id, task_id = row["project_id"], row["id"]
+            result.update(focus_card=self.focus_board.release_task(project_id, task_id, uow),
+                          reminders=self.reminders.release_task(uow, project_id, task_id))
             if self.actions is not None and not carried:
                 # Last, and isolated: whatever happens to the Action, everything above stays part of the Task write.
                 result["action"] = self.actions.record(ctx, uow, before, after)

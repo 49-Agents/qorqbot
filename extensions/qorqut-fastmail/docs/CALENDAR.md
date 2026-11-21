@@ -12,18 +12,18 @@ Create a Fastmail [app password](https://www.fastmail.help/hc/en-us/articles/360
 then run (outside Git, on the owner's machine, only as part of an authorized installation configuration):
 
 ```sh
-python -m qorqut_fastmail.calendar_connect --name business --config /private/calendar.json
+python -m qorqut_fastmail.calendar_connect --name project --config /private/calendar.json
 ```
 
 The helper asks on the terminal for the Fastmail login email, the app password and the owner's actual invitation addresses
 (not wildcards or agent addresses), and saves a `fastmail` connection into the same private, mode 0600 `calendar.json` the core
 reads (`QORQUT_CALENDAR_CONFIG` overrides its path). It creates no event and prints no credential. The connection talks to
 Fastmail's CalDAV service at `https://caldav.fastmail.com`; run `calendar_calendars_list` to discover its calendars. No new
-Fastmail user or mailbox is needed for each business address.
+Fastmail user or mailbox is needed for each project address.
 
 ```json
-{"connections": {"business": {"provider": "fastmail", "username": "owner@example.com", "app_password": "...",
-                              "identities": ["owner@example.com", "owner@business.example"]}}}
+{"connections": {"project": {"provider": "fastmail", "username": "owner@example.com", "app_password": "...",
+                              "identities": ["owner@example.com", "owner@project.example"]}}}
 ```
 
 ## Behavior

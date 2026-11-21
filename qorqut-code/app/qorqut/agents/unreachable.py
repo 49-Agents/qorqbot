@@ -175,7 +175,7 @@ def reconcile(uow, *, now: datetime | None = None, terminal: bool = False) -> li
             continue
         waiting = uow.connection.execute(
             "SELECT COUNT(*) FROM inbox_deliveries WHERE agent_id=? AND acknowledged_at IS NULL", (agent_id,)).fetchone()[0]
-        event_id = emit_event(uow, business_id=None, source_type=SOURCE_TYPE, source_id=agent_id,
+        event_id = emit_event(uow, project_id=None, source_type=SOURCE_TYPE, source_id=agent_id,
                               source_revision=profile["revision"], actor_id=None, event_type=EVENT_TYPE,
                               summary=summary(profile["name"], found, waiting), required=[coordinator])
         if event_id is not None:

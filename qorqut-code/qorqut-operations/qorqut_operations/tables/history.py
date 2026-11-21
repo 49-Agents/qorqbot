@@ -33,61 +33,61 @@ def snapshot(table, children):
 
 
 class TableHistory:
-    """``operations_root`` is the existing operations-root Git repository; ``project_hq(business_row)`` is the
+    """``operations_root`` is the existing operations-root Git repository; ``project_hq(project_row)`` is the
     trusted host callable that names a project's headquarters directory. Neither is resolved from any default."""
 
     def __init__(self, database, operations_root, project_hq, *, runner=None):
         self.database, self.root, self.project_hq = database, Path(operations_root), project_hq
         self.runner = runner or subprocess.run
 
-    def location(self, business_id, table_id, uow):
-        """Business tables live under their business's hq; Global tables under the operations root's files/tables."""
-        if business_id is None:
+    def location(self, project_id, table_id, uow):
+        """Project tables live under their project's hq; Global tables under the operations root's files/tables."""
+        if project_id is None:
             return registered_path(self.root, GLOBAL_DIRECTORY + "/" + table_id + ".json")
-        business = uow.repository("businesses").get(business_id, required=True)
-        return self.project_hq(business) / "tables" / (table_id + ".json")
+        project = uow.repository("projects").get(project_id, required=True)
+        return self.project_hq(project) / "tables" / (table_id + ".json")
 
     def prepare(self, builder, table_id, identity, uow):
-        path = self.location(builder.ctx.business_id, table_id, uow).relative_to(self.root).as_posix()
+        path = self.location(builder.ctx.project_id, table_id, uow).relative_to(self.root).as_posix()
         builder.record("table_versions", identity, None, {"id": identity, "table_id": table_id,
             "actor_id": builder.ctx.principal_id, "operation": builder.operation, "path": path},
             action="capture_table_version", label="Table history snapshot")
 
     def capture(self, ctx, table, snapshot, change, uow):
         # Like any commit-time allocation, the prepared snapshot effect allocates its sequence at commit.
-        uow.repository("table_versions", business_id=ctx.business_id).insert({**dict(change.values),
+        uow.repository("table_versions", project_id=ctx.project_id).insert({**dict(change.values),
             "table_revision": table["revision"], "sequence": uow.next_sequence("tables"),
             "snapshot_json": snapshot, "snapshot_hash": canonical_hash(snapshot), "created_at": utc_now()})
 
     def run(self, control, arguments):
         # BackgroundService already serializes programs across service instances.
         with self.database.read() as uow:
-            target = uow.repository("table_versions", business_id=control.business_id).get(arguments["version_id"], required=True)
+            target = uow.repository("table_versions", project_id=control.project_id).get(arguments["version_id"], required=True)
             pending = [row["id"] for row in uow.connection.execute(
-                "SELECT id FROM table_versions WHERE business_id IS ? AND sequence<=? AND git_commit IS NULL ORDER BY sequence",
-                (control.business_id, target["sequence"]))]
+                "SELECT id FROM table_versions WHERE project_id IS ? AND sequence<=? AND git_commit IS NULL ORDER BY sequence",
+                (control.project_id, target["sequence"]))]
         for identity in pending:
             control.check()
             with self.database.read() as uow:
-                version = uow.repository("table_versions", business_id=control.business_id).get(identity, required=True)
+                version = uow.repository("table_versions", project_id=control.project_id).get(identity, required=True)
             commit = self.commit(version, control)
             # Git may already be saved after a crash. Reconciliation below recognizes its exact marker.
             with self.database.transaction() as uow:
-                uow.repository("table_versions", business_id=control.business_id).update(version["id"],
+                uow.repository("table_versions", project_id=control.project_id).update(version["id"],
                     {"git_commit": commit, "snapshot_json": None})
-        self.project(target["table_id"], control.business_id)
+        self.project(target["table_id"], control.project_id)
         with self.database.read() as uow:
-            target = uow.repository("table_versions", business_id=control.business_id).get(arguments["version_id"], required=True)
+            target = uow.repository("table_versions", project_id=control.project_id).get(arguments["version_id"], required=True)
         return ProgramResult(data={"version_id": target["id"], "commit": target["git_commit"], "ref": HISTORY_REF})
 
-    def project(self, table_id, business_id):
+    def project(self, table_id, project_id):
         # Projection follows current SQLite state, not an older queued revision.
         with self.database.read() as uow:
-            table = uow.repository("data_tables", business_id=business_id).get(table_id, required=True)
+            table = uow.repository("data_tables", project_id=project_id).get(table_id, required=True)
             children = "crm_entries" if table["table_kind"] == "crm" else "data_rows"
             rows = [decode_row(row) for row in uow.connection.execute(
-                f"SELECT * FROM {children} WHERE business_id IS ? AND table_id=? ORDER BY id", (business_id, table_id))]
-            path = self.location(business_id, table_id, uow)
+                f"SELECT * FROM {children} WHERE project_id IS ? AND table_id=? ORDER BY id", (project_id, table_id))]
+            path = self.location(project_id, table_id, uow)
         atomic_write(registered_path(self.root, path), self.bytes(snapshot(table, rows)))
 
     @staticmethod

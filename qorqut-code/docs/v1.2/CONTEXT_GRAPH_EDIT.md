@@ -49,10 +49,10 @@ that is called on this path is a bug.
 ## Target ownership
 
 An existing node or edge belongs to the scope in its first creation event's controlled `record_context.scope` in the published
-history at the fixed base. Later support, attributes, links or tags (including a later event from another business that restates
-the object) never transfer it. A recorded `{"kind": "global"}` scope or a `{"kind": "business", "business_id"}` of a registered
-business is recognised; a missing, malformed or unresolved scope (no record context, an unregistered business ID, any other
-shape, or a first event that is not an `add`) is protected: it is treated as Global/unknown and supplies no business grant. Objects
+history at the fixed base. Later support, attributes, links or tags (including a later event from another project that restates
+the object) never transfer it. A recorded `{"kind": "global"}` scope or a `{"kind": "project", "project_id"}` of a registered
+project is recognised; a missing, malformed or unresolved scope (no record context, an unregistered project ID, any other
+shape, or a first event that is not an `add`) is protected: it is treated as Global/unknown and supplies no project grant. Objects
 the plan itself creates belong to the admission namespace (the caller's selected scope).
 
 The frozen evidence (`targets_json`) lists every object the plan updates, removes or creates, and every old and new endpoint of an
@@ -68,10 +68,10 @@ of the old `_authorized` (now `GraphEditAuthority._role`). Nothing is added.
 * A human must be the actual current installation owner (the owner keeps full authority over every namespace).
 * An agent needs an active registration, a supported role (`INSTRUCT_ROLES`) and a current allow in the admission namespace *and* in
   the namespace of every target and endpoint (`policy.refresh_context` for that namespace, then `Application.authorize` with
-  `namespace=`). A business agent therefore cannot change a Global, unknown-owned or foreign-business object, or point an edge at
+  `namespace=`). A project agent therefore cannot change a Global, unknown-owned or foreign-project object, or point an edge at
   one. The Global namespace stays restricted to the coordinator role (`ordubashy`); having a Global agent kind or the shared
   graph-read capability is not enough, and an explicit deny override wins everywhere.
-* A business agent invoked with no selected business is resolved to its home business by the retained resolver; it is never in the
+* A project agent invoked with no selected project is resolved to its home project by the retained resolver; it is never in the
   Global namespace, and a Global-owned object is refused for it.
 
 ## The driver gate
@@ -114,7 +114,7 @@ fallback is hidden behind that. The later integration must:
   returning the library snapshot (with `events` and `record_context`) and `pending()`; the `SharedContextReader` of the read path
   exposes no raw snapshot, so the writer-side `Context` is the natural provider;
 * build `GraphEdits(application, ports, roles=INSTRUCT_ROLES)` where the application exists (the `register_domains` hook) and pass it
-  as `graph_edits=` to `register_business_domains`; pass `graph_authority=edits.authority` to the driver. Without `graph_edits` the
+  as `graph_edits=` to `register_project_domains`; pass `graph_authority=edits.authority` to the driver. Without `graph_edits` the
   operation answers `operation_unavailable`; without `graph_authority` the driver refuses graph-edit inputs;
 * build the `Application` with `delegated_creation_groups=HOST_DELEGATED_CREATION_GROUPS` (the stock `build_runtime` already does;
   it is the only place the `context_edit` group exists);
@@ -132,7 +132,7 @@ new records with one randomly allocated ID, which an assignment's `record_ids` c
 * **One trusted creation group.** `composition/delegation.py` registers exactly `DelegatedCreationGroup("context_edit",
   {"context_graph_edits", "context_inputs"})` (`HOST_DELEGATED_CREATION_GROUPS`) and `service/runtime.py` hands it to the one
   `Application`. The Operations delegated check still runs every retained test first (live binding, parent, assignment, generation,
-  lease, registration, role and capabilities, the operation allowance, the owner/external exclusions and the business boundaries of
+  lease, registration, role and capabilities, the operation allowance, the owner/external exclusions and the project boundaries of
   the admission and of each target). Only a *complete* expected-absent pair of those two types, with one new UUID and the admission's
   own scope, skips the assignment's record-ID membership; any other operation or table keeps the original record boundary. No
   caller argument, assignment JSON or tool policy can install or change the group.
@@ -151,7 +151,7 @@ new records with one randomly allocated ID, which an assignment's `record_ids` c
 * **Rechecked as the same worker.** `GraphEditAuthority.recheck` rebuilds the original parent's current context with the retained
   resolver, attaches precisely the frozen triplet (a refreshed context can never carry another one) and authorizes in the admission
   and every target namespace through `Application.authorize`, passing the frozen edit as the arguments. The live provider check
-  therefore repeats the assignment's operation grant, its exact business, the parent's profile and registration, and the binding,
+  therefore repeats the assignment's operation grant, its exact project, the parent's profile and registration, and the binding,
   lease and generation. Nothing looks up a newer binding, clears the delegation or uses the unrestricted parent or the driver
   identity.
 * **Expiry.** An expired, released, completed or revoked assignment, a new generation, or a changed registration blocks the head of
@@ -164,8 +164,8 @@ new records with one randomly allocated ID, which an assignment's `record_ids` c
 
 ## Interpretations to review
 
-* An unknown or unresolved owner needs the Global namespace's authority (it is never given to the admission business).
-* The companion row carries no `business_id` or `created_at`: the queue input's immutable `business_id` and `created_at` are the
+* An unknown or unresolved owner needs the Global namespace's authority (it is never given to the admission project).
+* The companion row carries no `project_id` or `created_at`: the queue input's immutable `project_id` and `created_at` are the
   single source of both.
 * `targets_json` is a flat list of `{kind, id, change, roles, ownership}` subjects; the driver compares it for equality with its own
   re-derivation.
@@ -180,8 +180,8 @@ new records with one randomly allocated ID, which an assignment's `record_ids` c
 policy, application, `context_edit`, Operations queue, `context_filing`, `context_graph_edits`, the host driver wired with the
 authority port, real Git Context and the accepted library `Pipeline`) with a model runner that fails the test if called. The role
 sources come from the committed role prerequisite when `QORQUT_TEST_ROLES_SOURCE` names an export of it. The two stand-ins above
-are the only schema stand-ins. The cases cover the owner and allowed business agent, replay, read-only preparation, forbidden
-roles / non-owner human, ownership (Global, unknown, malformed, foreign, support from another business), old/new/newly created
+are the only schema stand-ins. The cases cover the owner and allowed project agent, replay, read-only preparation, forbidden
+roles / non-owner human, ownership (Global, unknown, malformed, foreign, support from another project), old/new/newly created
 endpoints, broader agents with and without grants and an explicit deny, revocation of a grant / registration / ownership after
 enqueue, restoration, a stale base and queue order, missing wiring, spoofing of the reserved path and metadata, missing and
 mismatched companions, changed prepared arguments, reserved-ID collision, interrupted staging with retry, interruption after

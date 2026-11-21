@@ -215,8 +215,8 @@
     {
       "source_repository": "agent-roles",
       "source_commit": "ac00fe4c8eb5e05f724988444def3873fa45d5b3",
-      "source_path": "skills/business-operations/SKILL.md",
-      "defaults_path": "operations/imported-role-skills/native/skills/business-operations/SKILL.md",
+      "source_path": "skills/project-operations/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/project-operations/SKILL.md",
       "source_sha256": "f8f3d4aa4c6428494f75aef29f5c6dc6023d96140b457294babd84d315e4c67c",
       "defaults_sha256": "f8f3d4aa4c6428494f75aef29f5c6dc6023d96140b457294babd84d315e4c67c",
       "old_ref": "imported-roles/asset-580b179fb8f7f2085bdb",
@@ -225,8 +225,8 @@
     {
       "source_repository": "agent-roles",
       "source_commit": "ecfb8cc1101e4202aab27b56bfacf853b733072c",
-      "source_path": "skills/business-tables/SKILL.md",
-      "defaults_path": "operations/imported-role-skills/native/skills/business-tables/SKILL.md",
+      "source_path": "skills/project-tables/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/project-tables/SKILL.md",
       "source_sha256": "d49f5ff8fc6e6cc213967f568db91bf149a43780fe90e66cbe0076644ea58f31",
       "defaults_sha256": "d49f5ff8fc6e6cc213967f568db91bf149a43780fe90e66cbe0076644ea58f31",
       "old_ref": "imported-roles/asset-4ce12da680f2bb107eda",
@@ -656,9 +656,9 @@
             "to": "operations/imported-role-skills/native/skills/operations-delegation/SKILL.md"
           },
           {
-            "id": "business-operations",
-            "from": "skills/business-operations/SKILL.md",
-            "to": "operations/imported-role-skills/native/skills/business-operations/SKILL.md"
+            "id": "project-operations",
+            "from": "skills/project-operations/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/project-operations/SKILL.md"
           },
           {
             "id": "browser-control",
@@ -681,9 +681,9 @@
             "to": "operations/imported-role-skills/native/skills/context-relationships/SKILL.md"
           },
           {
-            "id": "business-tables",
-            "from": "skills/business-tables/SKILL.md",
-            "to": "operations/imported-role-skills/native/skills/business-tables/SKILL.md"
+            "id": "project-tables",
+            "from": "skills/project-tables/SKILL.md",
+            "to": "operations/imported-role-skills/native/skills/project-tables/SKILL.md"
           },
           {
             "id": "ecosystem-review",

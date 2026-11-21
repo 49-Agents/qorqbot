@@ -26,13 +26,13 @@ _DEFAULT_MAINTENANCE = object()
 
 
 def background_model_factory(local_files, defaults=None, *, client_factory=None):
-    """Compose business model clients from the trusted defaults, Global settings and the project's own overrides."""
+    """Compose project model clients from the trusted defaults, Global settings and the project's own overrides."""
     defaults = dict(defaults or {})
     client_factory = BackgroundModelClient if client_factory is None else client_factory
 
-    def resolve(business_id):
+    def resolve(project_id):
         trusted = {**defaults, **local_files.environment()}
-        own = {row["key"]: row["value"] for row in local_files.environment_pairs(business_id)} if business_id else {}
+        own = {row["key"]: row["value"] for row in local_files.environment_pairs(project_id)} if project_id else {}
         return client_factory(ProviderConfig.from_environment({**trusted, **own}))
     return resolve
 
@@ -156,7 +156,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     from qorqut.inbox.broadcasts import BroadcastDispatcher
     runtime.broadcast_dispatcher = BroadcastDispatcher(runtime, runtime.broadcasts, launch)
     if model_client_factory is None:
-        service_provider = {key: os.environ[key] for key in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "BIZ_BACKGROUND_MODEL") if key in os.environ}
+        service_provider = {key: os.environ[key] for key in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "QORQUT_BACKGROUND_MODEL") if key in os.environ}
         model_client_factory = background_model_factory(local, service_provider)
 
     from qorqut.background.backups import BackupDownloader
@@ -171,7 +171,7 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
             lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)
     # Returns silently in managed mode and without tmux, so an approved archive never needs either.
-    runtime.domains.archive.reset_terminals = terminals.reset_business_for_archive
+    runtime.domains.archive.reset_terminals = terminals.reset_project_for_archive
     # The managed runtime and the terminal side both exist now: finish what a service that died mid-switch left behind.
     recover_switch(runtime)
     compatibility = DashboardCompatibility(runtime, terminals=terminals, background=runtime.background, local_files=local)
@@ -202,16 +202,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=instruction_text('main-shared-qorqut-dashboard-and-http-mcp-service'))
     parser.add_argument("--workspace", type=Path, default=None)
     add_instance_arguments(parser)
-    parser.add_argument("--biz", action="append", default=[])
-    parser.add_argument("--host", default=os.environ.get("BIZ_DASH_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("BIZ_DASH_PORT", "1049")))
+    parser.add_argument("--project", action="append", default=[])
+    parser.add_argument("--host", default=os.environ.get("QORQUT_DASH_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("QORQUT_DASH_PORT", "1049")))
     parser.add_argument("--origin", action="append", default=[])
     parser.add_argument("--service-url", default=os.environ.get("QORQUT_MCP_URL", os.environ.get("BAZARLYK_MCP_URL")))
-    parser.add_argument("--token", default=os.environ.get("BIZ_DASH_TOKEN", ""))
+    parser.add_argument("--token", default=os.environ.get("QORQUT_DASH_TOKEN", ""))
     parser.add_argument("--token-file", type=Path, help="Private (0600) file holding the owner bootstrap token, instead of --token")
     parser.add_argument("--extensions-config", type=Path, help="JSON file of the trusted extension selection "
                         "({\"extensions\": [...]}); without it the process's own installation configuration decides")
-    parser.add_argument("--prepare-agent", nargs=2, metavar=("BUSINESS_SLUG", "AGENT"))
+    parser.add_argument("--prepare-agent", nargs=2, metavar=("PROJECT_SLUG", "AGENT"))
     parser.add_argument("--claude-version")
     parser.add_argument("--codex-version")
     parser.add_argument("--recovery-config", type=Path, help="Private external host configuration for local encrypted recovery")
@@ -239,20 +239,20 @@ def main(argv=None):
         token = args.token
         if args.token_file is not None:
             if token:
-                raise DomainError("invalid_configuration", "Give the owner token once: --token-file replaces --token and BIZ_DASH_TOKEN")
+                raise DomainError("invalid_configuration", "Give the owner token once: --token-file replaces --token and QORQUT_DASH_TOKEN")
             token = read_private_file(args.token_file, max_bytes=512).decode().strip()
             if not token:
                 raise DomainError("invalid_configuration", "The token file is empty")
         database = open_database(paths, host_assembly(ChangeFeed(), selection))
-        if args.biz:
+        if args.project:
             with database.read() as uow:
-                registered = {str(Path(row["workspace"]).resolve()) for row in uow.repository("businesses").list()}
-            if any(str(Path(path).expanduser().resolve()) not in registered for path in args.biz):
-                raise DomainError("invalid_configuration", "--biz accepts registered project folders only; it does not import them")
+                registered = {str(Path(row["workspace"]).resolve()) for row in uow.repository("projects").list()}
+            if any(str(Path(path).expanduser().resolve()) not in registered for path in args.project):
+                raise DomainError("invalid_configuration", "--project accepts registered project folders only; it does not import them")
         local_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
         if ":" in local_host:
             local_host = "[" + local_host.strip("[]") + "]"
-        origins = args.origin + [value for value in os.environ.get("BIZ_SERVICE_ORIGINS", "").split(",") if value]
+        origins = args.origin + [value for value in os.environ.get("QORQUT_SERVICE_ORIGINS", "").split(",") if value]
         origins += [f"http://{local_host}:{args.port}", f"http://localhost:{args.port}"]
         endpoint = args.service_url or f"http://{local_host}:{args.port}/mcp"
         context_settings = None
@@ -272,7 +272,7 @@ def main(argv=None):
                 with database.read() as uow:
                     actor = app.state.authentication.installation_owner(connection=uow.connection)[0]
                 from qorqut.transport.auth import AuthenticatedPrincipal
-                context, business = app.state.http_api.context(AuthenticatedPrincipal(actor), slug, owner=True)
+                context, project = app.state.http_api.context(AuthenticatedPrincipal(actor), slug, owner=True)
                 profile, _ = runtime.managed_launch.agent(context, selector)
                 versions = ({"claude-code": args.claude_version or "", "codex": args.codex_version or ""}
                             if args.claude_version or args.codex_version else None)

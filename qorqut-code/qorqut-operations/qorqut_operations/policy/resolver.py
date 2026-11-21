@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
-from qorqut_operations.business_lifecycle import active_business_ids, require_active_business
+from qorqut_operations.project_lifecycle import active_project_ids, require_active_project
 from qorqut_operations.contracts import DomainError, InvocationContext, PolicyDecision, Principal, freeze, plain
 from .rules import PolicyRules, resolve_operation_policy, validate_modes
 
@@ -40,7 +40,7 @@ class WorkerProfile:
     """Trusted registered program grants; these never come from tool arguments."""
 
     operations: Mapping[str, str]
-    business_ids: frozenset[str] = field(default_factory=frozenset)
+    project_ids: frozenset[str] = field(default_factory=frozenset)
     global_capabilities: frozenset[str] = field(default_factory=frozenset)
     revision: int = 1
 
@@ -48,7 +48,7 @@ class WorkerProfile:
         if type(self.revision) is not int or self.revision < 1:
             raise ValueError("Worker policy revision must be positive")
         object.__setattr__(self, "operations", freeze(self.operations))
-        object.__setattr__(self, "business_ids", frozenset(self.business_ids))
+        object.__setattr__(self, "project_ids", frozenset(self.project_ids))
         object.__setattr__(self, "global_capabilities", frozenset(self.global_capabilities))
 
 
@@ -104,7 +104,7 @@ class PolicyResolver:
         principal = self._principal(context.principal_id, uow)
         if principal.kind != context.principal_kind:
             raise DomainError("invalid_principal", "Principal kind changed")
-        require_active_business(uow.connection, context.business_id)
+        require_active_project(uow.connection, context.project_id)
         context = replace(context, principal=principal)
         if principal.kind == "agent":
             if self.agent_resolver is None:
@@ -115,39 +115,39 @@ class PolicyResolver:
             if context.source != "worker":
                 raise DomainError("forbidden", "Worker principals require the internal worker interface")
             memberships = frozenset(row[0] for row in uow.connection.execute(
-                "SELECT business_id FROM business_memberships WHERE principal_id = ? AND active = 1", (principal.id,)))
-            context = replace(context, allowed_business_ids=profile.business_ids & memberships,
+                "SELECT project_id FROM project_memberships WHERE principal_id = ? AND active = 1", (principal.id,)))
+            context = replace(context, allowed_project_ids=profile.project_ids & memberships,
                               global_capabilities=profile.global_capabilities,
                               profile_revision=profile.revision, policy_revision=profile.revision)
         if principal.kind == "human":
             memberships = frozenset(row[0] for row in uow.connection.execute(
-                "SELECT business_id FROM business_memberships WHERE principal_id = ? AND active = 1", (principal.id,)))
-            context = replace(context, allowed_business_ids=context.allowed_business_ids & memberships)
+                "SELECT project_id FROM project_memberships WHERE principal_id = ? AND active = 1", (principal.id,)))
+            context = replace(context, allowed_project_ids=context.allowed_project_ids & memberships)
         if principal.kind == "human" and self.human_global_capabilities is not None:
             provider = self.human_global_capabilities
             capabilities = provider(principal.id, uow) if callable(provider) else provider.get(principal.id, ())
             context = replace(context, global_capabilities=frozenset(capabilities))
         if principal.kind != "human":
-            context = replace(context, allowed_business_ids=context.allowed_business_ids & active_business_ids(uow.connection))
-        if context.review_business_id and context.review_business_id not in context.allowed_business_ids:
+            context = replace(context, allowed_project_ids=context.allowed_project_ids & active_project_ids(uow.connection))
+        if context.review_project_id and context.review_project_id not in context.allowed_project_ids:
             raise DomainError("forbidden", "Review project is no longer authorized")
-        return context.select_business(context.business_id)
+        return context.select_project(context.project_id)
 
-    def context_for(self, principal_id, *, business_id, review_business_id, uow,
+    def context_for(self, principal_id, *, project_id, review_project_id, uow,
                     initiated_by_principal_id=None, request_id=None, job_id=None, source=None):
         """Reconstitute an approval's proposer from current authoritative configuration."""
         actor = self._principal(principal_id, uow)
         values = {"source": source or {"agent": "mcp", "system": "worker", "human": "dashboard"}[actor.kind],
-                  "business_id": business_id, "review_business_id": review_business_id,
+                  "project_id": project_id, "review_project_id": review_project_id,
                   "initiated_by_principal_id": initiated_by_principal_id}
         if request_id is not None:
             values["request_id"] = request_id
         if job_id is not None:
             values["job_id"] = job_id
         if actor.kind == "human":
-            values["business_id"] = business_id or review_business_id
-            values["allowed_business_ids"] = frozenset(row[0] for row in uow.connection.execute(
-                "SELECT business_id FROM business_memberships WHERE principal_id = ? AND active = 1", (actor.id,)))
+            values["project_id"] = project_id or review_project_id
+            values["allowed_project_ids"] = frozenset(row[0] for row in uow.connection.execute(
+                "SELECT project_id FROM project_memberships WHERE principal_id = ? AND active = 1", (actor.id,)))
         return self.refresh_context(InvocationContext(actor, **values), uow)
 
     def _agent_decision(self, context, descriptor, uow):
@@ -167,7 +167,7 @@ class PolicyResolver:
                 memo[key] = basis
         decision = resolve_operation_policy(descriptor.name, basis.defaults, basis.overrides, self.registry,
                                             rules=self.rules, role_id=basis.role["id"],
-                                            scope="global" if descriptor.global_capability and context.business_id is None else "business")
+                                            scope="global" if descriptor.global_capability and context.project_id is None else "project")
         if descriptor.plugin_requirement and not self.agent_resolver.plugin_declares(context, basis, descriptor, uow):
             return PolicyDecision("deny", "plugin_unavailable")
         return PolicyDecision(decision.mode, decision.provenance, {
@@ -180,28 +180,28 @@ class PolicyResolver:
         context = self.refresh_context(context, uow)
         for target in targets:
             resource = getattr(target, "resource", target)
-            if resource.business_id and resource.business_id not in context.allowed_business_ids:
+            if resource.project_id and resource.project_id not in context.allowed_project_ids:
                 raise DomainError("forbidden", "Prepared resource is outside current scope")
         if descriptor.global_capability and descriptor.global_capability_selected(context.global_capabilities) is None:
             raise DomainError("forbidden", "Global capability is not granted")
         if descriptor.owner_only:
             return PolicyDecision("deny", "owner_only")
         if context.principal_kind == "human":
-            if descriptor.name == "business_archive":
+            if descriptor.name == "project_archive":
                 installation = uow.repository("installation").get("service")
-                return PolicyDecision("signoff" if installation and installation["owner_principal_id"] == context.principal_id else "deny", "business_archive_owner_approval")
-            if descriptor.global_capability and context.business_id is None:
+                return PolicyDecision("signoff" if installation and installation["owner_principal_id"] == context.principal_id else "deny", "project_archive_owner_approval")
+            if descriptor.global_capability and context.project_id is None:
                 installation = uow.repository("installation").get("service")
                 if installation and installation["owner_principal_id"] == context.principal_id:
                     return PolicyDecision("allow", "installation_owner", {
                         "installation_revision": installation["revision"],
                         **descriptor.global_capability_evidence(context.global_capabilities)})
                 return PolicyDecision("deny", "installation_owner_required")
-            member = (uow.repository("business_memberships", business_id=context.business_id).get(context.principal_id)
-                      if context.business_id else None)
+            member = (uow.repository("project_memberships", project_id=context.project_id).get(context.principal_id)
+                      if context.project_id else None)
             if not member or not member["active"] or (descriptor.effect_kind != "read" and not member["is_owner"]):
                 return PolicyDecision("deny", "owner_required")
-            return PolicyDecision("allow", "owner" if member["is_owner"] else "business_member", {"membership_revision": member["revision"],
+            return PolicyDecision("allow", "owner" if member["is_owner"] else "project_member", {"membership_revision": member["revision"],
                                   **descriptor.global_capability_evidence(context.global_capabilities)})
         if context.principal_kind == "agent":
             return self._agent_decision(context, descriptor, uow)
@@ -223,8 +223,8 @@ class PolicyResolver:
                 raise DomainError("invalid_principal", "Initiating principal is missing")
             if historical["kind"] == "agent":
                 initiator = self._principal(context.initiated_by_principal_id, uow)
-                original = self.context_for(initiator.id, business_id=context.business_id,
-                    review_business_id=context.review_business_id, uow=uow)
+                original = self.context_for(initiator.id, project_id=context.project_id,
+                    review_project_id=context.review_project_id, uow=uow)
                 other = self.resolve(original, descriptor, targets, uow)
                 binding["initiator"] = {"principal_id": initiator.id, "mode": other.mode,
                                          "binding": plain(other.binding)}

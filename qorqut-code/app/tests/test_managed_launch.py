@@ -31,7 +31,7 @@ class Arbiter:
 
 class Case(unittest.TestCase):
     def setUp(self):
-        self.row = {"agent_id": AGENT, "home_business_id": None, "status": "active"}
+        self.row = {"agent_id": AGENT, "home_project_id": None, "status": "active"}
         self.arbiter = Arbiter(InputResult(state=STATE_SUBMITTED, evidence={"transport": "managed"}))
 
         @contextmanager
@@ -67,8 +67,8 @@ class BroadcastPortTests(Case):
                 self.assertEqual(found["state"], state)
                 self.assertNotIn("terminal", str(found).lower())
 
-    def test_a_business_home_or_inactive_agent_is_never_dispatched_to(self):
-        for row in (None, {**self.row, "home_business_id": "b1"}):
+    def test_a_project_home_or_inactive_agent_is_never_dispatched_to(self):
+        for row in (None, {**self.row, "home_project_id": "b1"}):
             self.row = row
             self.assertEqual(self.launch.input_existing(None, AGENT, "hi", key="k")["state"], "unavailable")
         self.assertEqual(self.arbiter.requests, [])
@@ -84,8 +84,8 @@ class PreparationTests(Case):
         calls = []
         self.launch.preparation = lambda resolver, principal, **kw: calls.append((principal.id, kw)) or {"ok": True}
         self.launch.version_provider = lambda: "2.1.0"
-        self.launch.agent_environment = lambda business, profile: {"TOKEN": "t"}
-        with mock.patch.object(managed_launch, "agent_workspace", lambda paths, agent_id, business: "/w/" + agent_id), \
+        self.launch.agent_environment = lambda project, profile: {"TOKEN": "t"}
+        with mock.patch.object(managed_launch, "agent_workspace", lambda paths, agent_id, project: "/w/" + agent_id), \
                 mock.patch.object(managed_launch.agent_cli_launch, "session_environment", lambda env: {**env, "PATH": "/ours"}):
             result = self.launch.prepare_managed(AGENT)
         self.assertEqual(result, {"workspace": "/w/" + AGENT, "env": {"TOKEN": "t", "PATH": "/ours"}})
@@ -104,8 +104,8 @@ class PreparationTests(Case):
         import sqlite3
         connection = sqlite3.connect(":memory:")
         connection.row_factory = sqlite3.Row
-        connection.execute("CREATE TABLE agent_profiles(agent_id TEXT, home_business_id TEXT, status TEXT)")
-        connection.execute("INSERT INTO agent_profiles VALUES(?,?,?)", (AGENT, "business-1", "active"))
+        connection.execute("CREATE TABLE agent_profiles(agent_id TEXT, home_project_id TEXT, status TEXT)")
+        connection.execute("INSERT INTO agent_profiles VALUES(?,?,?)", (AGENT, "project-1", "active"))
 
         @contextmanager
         def read():
@@ -115,9 +115,9 @@ class PreparationTests(Case):
         with self.assertRaises(DomainError) as refused:
             self.launch.prepare_managed(AGENT)
         self.assertEqual(refused.exception.code, "not_found")
-        connection.execute("UPDATE agent_profiles SET home_business_id=NULL")
+        connection.execute("UPDATE agent_profiles SET home_project_id=NULL")
         self.launch.preparation = lambda *a, **k: {"ok": True}
-        with mock.patch.object(managed_launch, "agent_workspace", lambda paths, agent_id, business: "/w"), \
+        with mock.patch.object(managed_launch, "agent_workspace", lambda paths, agent_id, project: "/w"), \
                 mock.patch.object(managed_launch.agent_cli_launch, "session_environment", lambda env: env):
             self.assertEqual(self.launch.prepare_managed(AGENT)["workspace"], "/w")
 

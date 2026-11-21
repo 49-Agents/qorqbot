@@ -53,7 +53,7 @@ def adopt(plan_path, component_id, artifact_path, runtime_path, receipt_path):
         raise ReleaseError("frozen profile selection does not match selected agents")
     from .adoption_runtime import resolve
     workspace, interpreter = resolve(plan, recipe, runtime_path)
-    root = Path(recipe["businesses_root"])
+    root = Path(recipe["projects_root"])
     runtime = build_runtime(root, workspace, worker_profiles=[])
     package = load_package(artifact_path, component["manifest"], "plugin", runtime.registry)
     kind, mapped_source, mapped_manifest = load_sources(workspace)[component_id]
@@ -71,7 +71,7 @@ def adopt(plan_path, component_id, artifact_path, runtime_path, receipt_path):
     receipt_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with runtime.database.read() as uow:
         owner, _, _ = Authentication(runtime.database, root).installation_owner(connection=uow.connection)
-        owner_ctx = runtime.policy.context_for(owner.id, business_id=None, review_business_id=None, uow=uow)
+        owner_ctx = runtime.policy.context_for(owner.id, project_id=None, review_project_id=None, uow=uow)
         agents = []
         for agent_id in selected:
             row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (agent_id,)).fetchone()
@@ -129,7 +129,7 @@ def adopt(plan_path, component_id, artifact_path, runtime_path, receipt_path):
                     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                     shutil.copy2(source, destination)
                     destination.chmod(0o600)
-            context = owner_ctx if row["home_business_id"] is None else owner_ctx.select_business(row["home_business_id"])
+            context = owner_ctx if row["home_project_id"] is None else owner_ctx.select_project(row["home_project_id"])
             updated = runtime.application.invoke_or_raise(context, "agents_update",
                 {"agent_id": agent_id, "changes": changes, "rationale": "Owner-approved plugin release"},
                 InvocationOptions(expected_revision=row["revision"], idempotency_key=f"{plan['release_id']}:plugin:{component_id}:{agent_id}"))

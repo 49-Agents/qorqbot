@@ -26,7 +26,7 @@ _URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://")
 _DOUBLE_ENCODED = re.compile(r"%(?:2e|2f|5c|00)", re.IGNORECASE)
 _BAD_ESCAPE = re.compile(rb"%(?![0-9A-Fa-f]{2})")
 _LABEL_SPECIALS = re.compile(r"([\\\[\]`*_<>])")
-SELECTOR_KEYS = frozenset({"path", "document_id", "business_id", "version"})
+SELECTOR_KEYS = frozenset({"path", "document_id", "project_id", "version"})
 
 
 def invalid(message):
@@ -89,7 +89,7 @@ class Selector:
 
     path: str | None = None
     document_id: str | None = None
-    business_id: str | None = None
+    project_id: str | None = None
     version: int | None = None
 
     @property
@@ -97,13 +97,13 @@ class Selector:
         return self.document_id is not None
 
     def url(self):
-        return viewer_url(path=self.path, document_id=self.document_id, business_id=self.business_id, version=self.version)
+        return viewer_url(path=self.path, document_id=self.document_id, project_id=self.project_id, version=self.version)
 
 
 def parse_selector(items, roots):
     """Strict viewer selector from ``(key, value)`` query pairs: exactly one of ``path`` or ``document_id``.
 
-    ``business_id`` (absent means Global) and ``version`` belong to ``document_id`` only. Unknown keys, duplicates,
+    ``project_id`` (absent means Global) and ``version`` belong to ``document_id`` only. Unknown keys, duplicates,
     empty values and any ambiguity are errors.
     """
     values = {}
@@ -118,29 +118,29 @@ def parse_selector(items, roots):
     if ("path" in values) == ("document_id" in values):
         raise invalid("A link names exactly one of path or document_id")
     if "path" in values:
-        if "business_id" in values or "version" in values:
-            raise invalid("business_id and version apply only to a document_id link")
+        if "project_id" in values or "version" in values:
+            raise invalid("project_id and version apply only to a document_id link")
         return Selector(path=normalize_path(values["path"], roots))
     if not _UUID.fullmatch(values["document_id"]):
         raise invalid("document_id must be a lowercase UUID")
-    business = values.get("business_id")
-    if business is not None and not _UUID.fullmatch(business):
-        raise invalid("business_id must be a lowercase UUID")
+    project = values.get("project_id")
+    if project is not None and not _UUID.fullmatch(project):
+        raise invalid("project_id must be a lowercase UUID")
     version = None
     if "version" in values:
         if not _VERSION.fullmatch(values["version"]):
             raise invalid("version must be a positive integer")
         version = int(values["version"])
-    return Selector(document_id=values["document_id"], business_id=business, version=version)
+    return Selector(document_id=values["document_id"], project_id=project, version=version)
 
 
-def viewer_url(*, path=None, document_id=None, business_id=None, version=None):
+def viewer_url(*, path=None, document_id=None, project_id=None, version=None):
     """The root-relative viewer link; it resolves against whichever origin the owner opens it on."""
     if path is not None:
         return f"{VIEWER_PATH}?path={quote(path, safe='/')}"
     query = f"document_id={document_id}"
-    if business_id:
-        query += f"&business_id={business_id}"
+    if project_id:
+        query += f"&project_id={project_id}"
     if version:
         query += f"&version={int(version)}"
     return f"{VIEWER_PATH}?{query}"

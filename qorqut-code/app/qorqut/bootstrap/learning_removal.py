@@ -943,8 +943,8 @@ def _native_catalogs(paths, transition: _Transition, extensions, *, connection=N
     database = _database_path(paths)
     if not os.path.lexists(database):
         return {"paths": [], "surveys": []}
-    query = ("SELECT p.agent_id, p.home_business_id, b.slug FROM agent_profiles p "
-             "LEFT JOIN businesses b ON b.id=p.home_business_id WHERE p.status='active' ORDER BY p.agent_id")
+    query = ("SELECT p.agent_id, p.home_project_id, b.slug FROM agent_profiles p "
+             "LEFT JOIN projects b ON b.id=p.home_project_id WHERE p.status='active' ORDER BY p.agent_id")
     if connection is None:
         opened = _connect(database, "ro")
         try:
@@ -957,15 +957,15 @@ def _native_catalogs(paths, transition: _Transition, extensions, *, connection=N
     inspected = 0
     for agent_id, home, slug in rows:
         if home is not None and (not isinstance(slug, str) or not slug):
-            raise DomainError("invalid_profile", "A business profile has no resolvable business workspace",
+            raise DomainError("invalid_profile", "A project profile has no resolvable project workspace",
                               details={"agent_id": agent_id})
         try:
-            workspace = paths.agent_workspace(agent_id, business_folder=slug if home else None)
+            workspace = paths.agent_workspace(agent_id, project_folder=slug if home else None)
         except (InstancePathError, DomainError) as exc:
             raise DomainError("invalid_configuration", "An active profile's workspace path is unsafe",
                               details={"agent_id": agent_id}) from exc
         survey = {"agent_id": agent_id, "workspace": str(workspace),
-                  "scope": "business" if home else "global", "documents": {}}
+                  "scope": "project" if home else "global", "documents": {}}
         if not os.path.lexists(workspace):
             survey["state"] = "workspace_absent"
             surveys.append(survey)
@@ -1342,52 +1342,52 @@ def _candidate_ids(plan: ChangeSet) -> dict:
     """Every stored candidate identity referenced by the plan's actual effects, with any planned replacement value."""
     found = {}
 
-    def add(business_id, identity, value=None):
+    def add(project_id, identity, value=None):
         if isinstance(identity, str) and identity:
-            found.setdefault((business_id, identity), value)
+            found.setdefault((project_id, identity), value)
 
-    def walk(value, business_id=None):
+    def walk(value, project_id=None):
         if isinstance(value, dict):
             for key, child in value.items():
                 if key in {"candidate_id", "learning_id"} and isinstance(child, str):
-                    add(business_id, child)
+                    add(project_id, child)
                 if key == "earlier" and isinstance(child, dict):
-                    add(business_id, child.get("id"))
-                walk(child, business_id)
+                    add(project_id, child.get("id"))
+                walk(child, project_id)
             if isinstance(value.get("id"), str) and value.get("bucket") is not None:
-                add(business_id, value["id"], value)
+                add(project_id, value["id"], value)
         elif isinstance(value, (list, tuple)):
             for child in value:
-                walk(child, business_id)
+                walk(child, project_id)
 
     for change in plan.changes:
         if change.resource.resource_type not in RETAINED_LEARNING_TABLES:
             continue
-        business_id = change.resource.business_id
+        project_id = change.resource.project_id
         values = plain(change.values)
         if change.resource.resource_type == "learning_candidates":
             candidate = values.get("candidate_json") if isinstance(values, dict) else None
-            add(business_id, change.resource.resource_id, candidate if isinstance(candidate, dict) else None)
+            add(project_id, change.resource.resource_id, candidate if isinstance(candidate, dict) else None)
             if isinstance(candidate, dict):
-                walk(candidate, business_id)
+                walk(candidate, project_id)
         elif change.resource.resource_type == "learning_decisions":
-            add(business_id, values.get("candidate_id") if isinstance(values, dict) else None)
-            walk(values, business_id)
+            add(project_id, values.get("candidate_id") if isinstance(values, dict) else None)
+            walk(values, project_id)
         elif change.resource.resource_type == "learning_history":
-            add(business_id, values.get("candidate_id") if isinstance(values, dict) else None)
-            walk(values, business_id)
+            add(project_id, values.get("candidate_id") if isinstance(values, dict) else None)
+            walk(values, project_id)
     walk(plan.arguments)
     return found
 
 
-def _effective_candidate(connection, business_id, identity, planned=None, planned_decisions=None):
-    row = connection.execute("SELECT candidate_json FROM learning_candidates WHERE business_id IS ? AND id=?",
-                             (business_id, identity)).fetchone()
+def _effective_candidate(connection, project_id, identity, planned=None, planned_decisions=None):
+    row = connection.execute("SELECT candidate_json FROM learning_candidates WHERE project_id IS ? AND id=?",
+                             (project_id, identity)).fetchone()
     candidate = planned if isinstance(planned, dict) else (_decode(row[0]) if row is not None else None)
     if not isinstance(candidate, dict):
         return None
-    decision = connection.execute("SELECT changes_json FROM learning_decisions WHERE business_id IS ? AND candidate_id=?",
-                                  (business_id, identity)).fetchone()
+    decision = connection.execute("SELECT changes_json FROM learning_decisions WHERE project_id IS ? AND candidate_id=?",
+                                  (project_id, identity)).fetchone()
     merged = _decode(decision[0]) if decision is not None else {}
     merged = merged if isinstance(merged, dict) else {}
     if planned_decisions:
@@ -1429,10 +1429,10 @@ def _classify_pending_plan(connection, operation, plan: ChangeSet, registry, *, 
         if change.resource.resource_type == "learning_decisions" and isinstance(change.values, dict):
             planned = change.values.get("changes_json")
             if isinstance(planned, dict):
-                planned_decisions[(change.resource.business_id, change.values.get("candidate_id") or change.resource.resource_id)] = planned
-    for (business_id, identity), planned in _candidate_ids(plan).items():
-        effective = _effective_candidate(connection, business_id, identity, planned,
-                                         planned_decisions.get((business_id, identity)))
+                planned_decisions[(change.resource.project_id, change.values.get("candidate_id") or change.resource.resource_id)] = planned
+    for (project_id, identity), planned in _candidate_ids(plan).items():
+        effective = _effective_candidate(connection, project_id, identity, planned,
+                                         planned_decisions.get((project_id, identity)))
         if effective is None:
             return "incompatible"
         if effective.get("bucket") == "delta":

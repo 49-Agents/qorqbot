@@ -87,7 +87,7 @@ class PlanFixture(Fixture):
 
     def stored(self, task):
         with self.db.read() as uow:
-            return uow.repository('tasks', business_id=None).get(task['id'])
+            return uow.repository('tasks', project_id=None).get(task['id'])
 
     def told(self, task):
         """The plan step events of a Task, oldest first: their type, summary and who they were delivered to."""
@@ -310,9 +310,9 @@ class QueueTests(PlanFixture):
 class ThreadTests(PlanFixture):
     def context(self, task):
         from qorqut.inbox.thread_views import task_context
-        service = NS(select=lambda ctx, business, uow: ctx, app=self.app)
+        service = NS(select=lambda ctx, project, uow: ctx, app=self.app)
         with self.db.read() as uow:
-            return task_context(service, self.ctx(self.lead), {'type': 'task', 'id': task['id'], 'business_id': None}, uow)
+            return task_context(service, self.ctx(self.lead), {'type': 'task', 'id': task['id'], 'project_id': None}, uow)
 
     def test_the_thread_shows_where_the_plan_stands(self):
         task = self.planned()
@@ -409,7 +409,7 @@ class StepShapeTests(PlanFixture):
         task = self.planned()
         row = self.stored(task)
         self.assertEqual(attributes(row)['plan'], PLAN)
-        material = json.dumps([row.get('business_id'), row['id'], row['created_at'], PLAN], ensure_ascii=False, separators=(',', ':'))
+        material = json.dumps([row.get('project_id'), row['id'], row['created_at'], PLAN], ensure_ascii=False, separators=(',', ':'))
         self.assertEqual(plan_key(row), 'plan-' + hashlib.sha256(material.encode()).hexdigest()[:48])
         self.assertEqual(self.read(self.worker, task)['plan_steps'][0], {'id': 's1', 'text': PLAN[0], 'state': 'pending', 'current': True})
 
@@ -870,12 +870,12 @@ class CheckTests(PlanFixture):
         alpha, beta = str(uuid4()), str(uuid4())
         with self.db.transaction() as uow:
             for identity, slug in ((alpha, 'alpha'), (beta, 'beta')):
-                uow.repository('businesses').insert({'id': identity, 'name': slug, 'slug': slug, 'workspace': slug,
+                uow.repository('projects').insert({'id': identity, 'name': slug, 'slug': slug, 'workspace': slug,
                                                      'hq_path': slug + '/hq'})
 
-        def call(who, business, operation, arguments, task=None):
-            ctx = replace(self.ctx(who), business_id=business, review_business_id=business,
-                          allowed_business_ids=frozenset({alpha, beta}))
+        def call(who, project, operation, arguments, task=None):
+            ctx = replace(self.ctx(who), project_id=project, review_project_id=project,
+                          allowed_project_ids=frozenset({alpha, beta}))
             options = {'idempotency_key': str(uuid4())}
             if task:
                 options['expected_revision'] = self.rows('SELECT revision FROM tasks WHERE id=?', task['id'])[0][0]
@@ -888,14 +888,14 @@ class CheckTests(PlanFixture):
         task = plain(self.ok(call(self.lead, alpha, 'tasks_create', {'title': 'In alpha'})))['task']
         self.ok(call(self.lead, alpha, 'tasks_delegate', {'worker_id': self.worker, 'plan': [
             {'text': 'Wait for the owner', 'check': {'kind': 'signoff'}}, 'Report']}, task))
-        ctx = lambda business: replace(self.ctx(self.worker), business_id=business, review_business_id=business,
-                                       allowed_business_ids=frozenset({alpha, beta}))
+        ctx = lambda project: replace(self.ctx(self.worker), project_id=project, review_project_id=project,
+                                       allowed_project_ids=frozenset({alpha, beta}))
         there, here = self.question(ctx=ctx(beta)), self.question(ctx=ctx(alpha))
-        owner = lambda business: replace(self.deciding_owner(), business_id=business, review_business_id=business,
-                                         allowed_business_ids=frozenset({alpha, beta}))
+        owner = lambda project: replace(self.deciding_owner(), project_id=project, review_project_id=project,
+                                         allowed_project_ids=frozenset({alpha, beta}))
         with self.db.transaction() as uow:
-            for business in (alpha, beta):
-                uow.repository('business_memberships', business_id=business).insert({'principal_id': self.owner, 'is_owner': True})
+            for project in (alpha, beta):
+                uow.repository('project_memberships', project_id=project).insert({'principal_id': self.owner, 'is_owner': True})
         self.answer(there, owner(beta))
         self.assertEqual(self.signoff_state(there)[0], 'answered')
         refused = call(self.worker, alpha, 'tasks_step_done', {'step_id': 's1', 'evidence': {'signoff_id': there['id']}}, task)

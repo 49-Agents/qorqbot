@@ -20,7 +20,7 @@ Do not borrow another agent's bearer credential, invent a watcher/session UUID,
 or claim to be Ordubashy. A registered role agent must complete its normal
 bootstrap and stay within its own MCP grants; the owner HTTP interface is not a
 workaround for an agent's denied operation. An external coding task does not
-need to register a fictional business agent merely to use owner-authorized HTTP.
+need to register a fictional project agent merely to use owner-authorized HTTP.
 
 The installation's origin (for example `http://qorqut.example:1071`) and active release are
 instance configuration; verify them in the instance and [the operating guide](OPERATING_GUIDE.md).
@@ -42,13 +42,13 @@ curl --fail-with-body --silent --show-error --max-time 15 \
 curl --fail-with-body --silent --show-error --max-time 15 \
   "$QORQUT_ORIGIN/api/session"
 curl --fail-with-body --silent --show-error --max-time 15 \
-  "$QORQUT_ORIGIN/api/biz"
+  "$QORQUT_ORIGIN/api/project"
 ```
 
 Check `status: "ok"`, `data.ready: true` for readiness, and
 `data.principal_kind: "human"`, `data.is_installation_owner: true` for the
-session. `/api/biz` is a legacy read adapter returning a **bare array** of
-businesses; use its exact `slug` for HTTP paths and `id` for UUID references.
+session. `/api/project` is a legacy read adapter returning a **bare array** of
+projects; use its exact `slug` for HTTP paths and `id` for UUID references.
 Do not infer either from a display name or filesystem directory.
 
 Canonical operation requests are **POST**, including reads. Every POST needs
@@ -70,15 +70,15 @@ JSON
 
 | Scope | Canonical operation path |
 |---|---|
-| One business | `/api/biz/<business-slug>/operations/<operation_name>` |
+| One project | `/api/project/<project-slug>/operations/<operation_name>` |
 | Global, when that operation has a root route | `/api/root/operations/<operation_name>` |
 
-Business route scope comes from the URL. Do not use a different `business_id`
+Project route scope comes from the URL. Do not use a different `project_id`
 inside the body. HTTP never looks a task id up beyond the route's scope; only MCP
 calls do ([details](../GLOBAL-TASKS.md#finding-a-tasks-scope-from-its-id)). Global is a separate namespace, not an instruction to include
-all businesses. Use explicit `scope: "global"` when that operation supports it.
+all projects. Use explicit `scope: "global"` when that operation supports it.
 The root route has an explicit operation allowlist: **not every MCP tool or
-business operation has a Global HTTP route**. A 404 does not prove that the
+project operation has a Global HTTP route**. A 404 does not prove that the
 underlying tool is absent.
 
 ## 3. Discover tools and exact schemas
@@ -129,7 +129,7 @@ Focus presentation fields are `display_name`, `reason`, `requested_response`,
 `blocker`, `urgent`, `references` and `deferred_until`. Pass these to
 `focus_present`, or inside `focus_edit.changes` with the current card revision.
 Ordubashy writes `display_name`: aim for 2 very simple words, at most 4 when
-possible, without the business name. Names are Focus-only; original task and
+possible, without the project name. Names are Focus-only; original task and
 Signoff titles stay intact. `blocker` and `urgent` are independent booleans.
 The Focus `recommendation` field is removed.
 
@@ -151,13 +151,13 @@ IDs, read current revisions, and perform them only when the owner's task calls
 for the corresponding change. Use one new UUID per intended mutation and retain
 it with the exact payload for retry.
 
-To put an existing business task on Focus, POST this to
+To put an existing project task on Focus, POST this to
 `root/operations/focus_present`:
 
 ```json
 {
   "scope": "global",
-  "source": {"type":"task","id":"<task ID>","business_id":"<business UUID>"},
+  "source": {"type":"task","id":"<task ID>","project_id":"<project UUID>"},
   "reason": "The completed implementation needs your review.",
   "requested_response": "Review the task and tell us whether changes are needed.",
   "display_name": "Review result",
@@ -165,7 +165,7 @@ To put an existing business task on Focus, POST this to
 }
 ```
 
-Use `business_id:null` for a Global source. Source types are `task`,
+Use `project_id:null` for a Global source. Source types are `task`,
 and `signoff`; use the source's actual owning scope. Re-presenting the same
 source reuses its card rather than creating a duplicate.
 
@@ -225,11 +225,11 @@ claim that every tool is granted to every caller or has a root HTTP route.
 | Authored sources, notes, relationships | `context_list`, `context_get`, `context_search`, `notes_list`, `notes_get`, `notes_create`, `relationships_list`, `relationships_create` |
 | Published Context | `context_home`, `context_find`, `context_object`, `context_expand`; edits and filing use their separately authorized queue contracts |
 | Tables / uploads | `tables_list`, `tables_get`, `tables_rows_list`, `tables_rows_write`, `data_uploads_list`, `data_uploads_get` |
-| Email / background work | `email_mailboxes_list`, `email_conversations_list`, `email_conversation_get`, `jobs_get`; operate in the owning business |
+| Email / background work | `email_mailboxes_list`, `email_conversations_list`, `email_conversation_get`, `jobs_get`; operate in the owning project |
 | System Dev queue | Global owner `dev_tickets_list` and `dev_tickets_status_set` |
-| Signoff review | Owner GET `/api/root/signoffs` or `/api/biz/<slug>/signoffs`, then GET the exact `/<signoff ID>` |
+| Signoff review | Owner GET `/api/root/signoffs` or `/api/project/<slug>/signoffs`, then GET the exact `/<signoff ID>` |
 
-Read `tasks_config_get` for the current contract. States are fixed: `open`, `working`, `waiting`, `done`, `cancelled`; businesses cannot redefine them.
+Read `tasks_config_get` for the current contract. States are fixed: `open`, `working`, `waiting`, `done`, `cancelled`; projects cannot redefine them.
 Reuse existing Tasks/parent Tasks and exact IDs rather than creating parallel records.
 Use `assignees_list` for owner/agent UUIDs. Task updates and comments normally
 need top-level `expected_revision` from the task you just read.
@@ -276,7 +276,7 @@ are not interchangeable. Follow each read's actual `next_cursor`, `next_offset`
 or `next_before`; use bounded pages rather than loading all private records.
 
 A queued email job or `reconciliation_required` is not proof of delivery or
-non-delivery. Read the exact Signoff and `jobs_get` in its business; retain the
+non-delivery. Read the exact Signoff and `jobs_get` in its project; retain the
 original request/job/provider receipt IDs. A saved dispatch intent without a
 receipt may require platform repair. Do not repair uncertainty by resending,
 creating a replacement approval, or directly editing SQLite. Check the approved

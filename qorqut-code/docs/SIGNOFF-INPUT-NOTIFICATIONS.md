@@ -14,7 +14,7 @@ Returning a draft is separate from approval to execute an action.
 `signoffs_input_create` takes a stable `request_key`, a `form`, optional
 `attention`, optional `scope: global`, and the usual mutation idempotency key.
 Global input requires registered ecosystem scope and `read_global_context` as
-well as the operation grant. Business agents cannot choose a different business
+well as the operation grant. Project agents cannot choose a different project
 or route their request into Global. Human input creation follows current owner
 mutation policy. Creation does not need an approval to ask a question.
 
@@ -139,8 +139,8 @@ the daily report is one. The engine enforces what makes it different:
   `response_policy` is always `owner_only`, so it is never routed to management.
 - It is never a dependency: `source` is refused at creation and `signoffs_source_link`
   refuses it, so no Task or record shows Needs your input because of it.
-- `report_task: {id, business_id}` is optional and names the Task the report belongs to
-  (`business_id` null for a Global Task); a report about no Task omits it. When it is given,
+- `report_task: {id, project_id}` is optional and names the Task the report belongs to
+  (`project_id` null for a Global Task); a report about no Task omits it. When it is given,
   the caller must be able to read that Task, which may be closed; a Global report names a Global Task and a project
   report a Task of the same project. One Task may hold many reports. The link is its own
   table (`signoff_report_tasks`, one row per report), separate from `signoff_source_links`,
@@ -164,11 +164,11 @@ acknowledging. Read models count these apart from decisions: `GET /api/me/attent
 and `dashboard_summary_get` report `to_read` and leave them out of `signoffs` and
 `total`; `signoffs_list` adds a `to_read` count beside `counts`, and every Signoff
 row carries `input_kind`; a report's row also carries `report_task`
-(`{type: 'task', id, business_id, title}`, null for a report with no Task).
+(`{type: 'task', id, project_id, title}`, null for a report with no Task).
 
 ## Responses and history
 
-The owner posts to `/api/biz/<slug>/signoffs/<id>/respond` or
+The owner posts to `/api/project/<slug>/signoffs/<id>/respond` or
 `/api/root/signoffs/<id>/respond` with `proposal_revision`, `payload_hash`,
 `expected_status_revision`, `idempotency_key`, `notes`, and `selected_choices`.
 Only an active authorized owner can answer; agents cannot use the response
@@ -212,9 +212,9 @@ summary replaces its previous summary. Delivery reads recheck ownership,
 notification settings, pending status and snooze. Answered, cancelled, superseded,
 and inaccessible items disappear from pending deliveries without deleting history.
 
-`GET /api/me/attention` returns authorized business totals (pending signoffs plus
+`GET /api/me/attention` returns authorized project totals (pending signoffs plus
 incomplete tasks assigned to this human), plus urgent/blocking Signoffs across
-businesses and Global. Task completion follows configured closed states; archived
+projects and Global. Task completion follows configured closed states; archived
 and unassigned tasks are excluded. `GET /api/me/attention/deliveries` returns
 currently deliverable items. The same owner/scope checks apply to every read.
 
@@ -228,8 +228,8 @@ summary. Normal hourly repetition is automatic and requires no snooze action.
 The dashboard polls attention every 15 seconds and on window focus. Bell toasts
 appear bottom-right across workspaces, never navigate automatically, and provide
 explicit navigation, dismiss and snooze controls. Ordinary summaries contain
-clickable business rows. One toast is displayed at a time, prioritizing urgent/
-blocking individual deliveries. Business badges and the pane's urgent section
+clickable project rows. One toast is displayed at a time, prioritizing urgent/
+blocking individual deliveries. Project badges and the pane's urgent section
 include pending urgent/blocking items even when snoozed or notification is off.
 The configured [Telegram bridge](TELEGRAM-OWNER-BRIDGE.md) can also deliver Signoff
 notifications. Owner reminders and agent response-inbox delivery are separate.
@@ -244,5 +244,5 @@ change adopts no agent pin. Existing roles remain usable with explicit overrides
 Offline tests cover input/decision integrity, response races, scope,
 owner/task counts, reminders, snooze, summary timing, and HTTP/MCP. Dashboard
 browser tests exercise notes, fixed choice geometry, keyboard interaction,
-response history, badges, cross-business navigation and toast actions with
-synthetic data. No test uses production businesses or provider credentials.
+response history, badges, cross-project navigation and toast actions with
+synthetic data. No test uses production projects or provider credentials.

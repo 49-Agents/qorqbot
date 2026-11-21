@@ -15,7 +15,7 @@ def http_status(result, *, created=False, statuses=None):
         return 401
     if code in {"forbidden", "policy_denied", "invalid_origin", "invalid_host", "csrf_required"}:
         return 403
-    if code in {"not_found", "unknown_business"}:
+    if code in {"not_found", "unknown_project"}:
         return 404
     if code in {"invalid_json", "invalid_request"}:
         return 400

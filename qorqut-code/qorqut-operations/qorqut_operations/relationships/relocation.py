@@ -36,7 +36,7 @@ def classify(uow, source, destination, moving):
     for kind, ids in sorted(by_type.items()):
         for start in range(0, len(ids), 400):
             chunk = ids[start:start + 400]
-            for edge in connection.execute("SELECT * FROM relationships WHERE business_id=? AND ((from_type=? AND from_id IN " + marks(chunk)
+            for edge in connection.execute("SELECT * FROM relationships WHERE project_id=? AND ((from_type=? AND from_id IN " + marks(chunk)
                                            + ") OR (to_type=? AND to_id IN " + marks(chunk) + ")) ORDER BY id",
                                            (source, kind, *chunk, kind, *chunk)):
                 if edge["id"] not in seen:
@@ -48,7 +48,7 @@ def classify(uow, source, destination, moving):
         keys = [edge["id"] for edge in edges]
         for start in range(0, len(keys), 500):
             chunk = keys[start:start + 500]
-            reviewed.update(row[0] for row in connection.execute("SELECT DISTINCT relationship_id FROM context_reviews WHERE business_id=? "
+            reviewed.update(row[0] for row in connection.execute("SELECT DISTINCT relationship_id FROM context_reviews WHERE project_id=? "
                                                                  "AND relationship_id IN " + marks(chunk), (source, *chunk)))
     carried, historical, blockers = [], 0, []
     for edge in edges:
@@ -61,7 +61,7 @@ def classify(uow, source, destination, moving):
             blockers.append(blocker("reviewed_relationship", "A moved relationship has Context review decisions that cannot be rewritten"))
         else:
             historical += 1
-    if carried and connection.execute("SELECT 1 FROM relationships WHERE business_id=? AND id IN " + marks([edge["id"] for edge in carried])
+    if carried and connection.execute("SELECT 1 FROM relationships WHERE project_id=? AND id IN " + marks([edge["id"] for edge in carried])
                                       + " LIMIT 1", (destination, *[edge["id"] for edge in carried])).fetchone():
         blockers.append(blocker("relationship_id_exists", "The destination project already has a relationship with the same id"))
     material = [[edge["id"], edge["revision"], edge["role"]] for edge in edges]
@@ -70,7 +70,7 @@ def classify(uow, source, destination, moving):
 
 def carry(uow, source, destination, edges):
     for edge in edges:
-        uow.connection.execute("UPDATE relationships SET business_id=? WHERE business_id=? AND id=?", (destination, source, edge["id"]))
+        uow.connection.execute("UPDATE relationships SET project_id=? WHERE project_id=? AND id=?", (destination, source, edge["id"]))
 
 
 __all__ = ["DOCUMENT_ENDS", "carry", "classify", "current_place"]

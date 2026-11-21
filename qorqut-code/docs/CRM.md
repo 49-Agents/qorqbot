@@ -11,7 +11,7 @@ mailbox orchestration, contact matching or dataset import exists here, and no li
 
 ## Composition
 
-`qorqut.domains.register_business_domains` builds the Domain once, after Tasks, Tables and the neutral items
+`qorqut.domains.register_project_domains` builds the Domain once, after Tasks, Tables and the neutral items
 exist and **before the registry freezes**: `CRMOperations(application, tables, tasks, items, clock=…)`, then
 `tables.bind_crm(crm)` so the Table service reads CRM rows through it, then `crm.register(registry)`. It is exposed
 as `runtime.domains.crm`. The host adds one operation of its own, `crm_activity_list`
@@ -23,7 +23,7 @@ implementation: the host imports the Domain's `CATALOG_ENTRIES`, `TABLES`, `IMMU
 |---|---|
 | Catalog and exposure | `composition/catalog.py`: the Domain's entries join `ENGINE_ENTRIES`; `crm_activity_list` is a host entry (`read`, no Signoff form). Each name is declared once. |
 | Storage ownership | `composition/schema.py` composes `crm.storage_contribution()` (`crm_entries`, `crm_activity_events`) beside the other contributions, so it is part of the target fingerprint. |
-| Change capture | `composition/capture.py`: feed-only triggers writing **identity columns only** (`business_id`, `id`); cells, summaries and bodies are never captured. |
+| Change capture | `composition/capture.py`: feed-only triggers writing **identity columns only** (`project_id`, `id`); cells, summaries and bodies are never captured. |
 | Change feed | `service/changes.py`: `crm_entries` is a `tables` change, `crm_activity_events` a `tasks` change, and the typed item `table` is `tables`. |
 | History and export | `operations_history/catalog.py` classifies both tables explicitly (`host.separate_history`). `storage/exports.py` exports `crm_entries` (local cells and scoped references) and deliberately **not** `crm_activity_events`: recorded external bodies stay out of broad Git history. Normal database backups retain both. |
 
@@ -50,7 +50,7 @@ name never lifts a denial or Signoff requirement of the base operation, an expli
 wins, and a name with no grant of its own inherits the base decision exactly. A Signoff requirement the new
 operation cannot stage is a denial, never an allow. The base operation is resolved in the caller's own scope, so
 the Global Table rule (only the standing Global roles hold Table defaults; anyone else needs an explicit grant)
-applies to the Global call rather than the business rule. Effective-configuration discovery evaluates both scopes
+applies to the Global call rather than the project rule. Effective-configuration discovery evaluates both scopes
 for the Table-based names, so what an agent is told it may do matches what the call will do. A Table comment is
 Table **write** authority; it never borrows Task comment, schema or archive authority. Membership changes and
 recorded events keep the Normal Signoff policy of the operation they build on.
@@ -74,7 +74,7 @@ explicitly** linked to:
   direct call of the source's own read operation is (`qorqut/read_admission.py`: the operation's exposure, the Global
   capability, the policy decision and, for a delegated assignment, the explicit in-boundary record selector - not the
   policy decision alone). One that is absent, archived away or no longer readable is skipped without a trace: no
-  label, count or placeholder. Another business's Task needs the caller's own access to that business; a Global Task
+  label, count or placeholder. Another project's Task needs the caller's own access to that project; a Global Task
   needs the Global read capability.
 - **Linked discussion is its own read.** The text, labels, count and paging position of a source's discussion appear
   only while the caller may *also* read that discussion in the source's own scope: `tasks_thread_get` for a Task (its
@@ -113,7 +113,7 @@ mistyped field, is `validation_error`; a changed link set is `revision_conflict`
 
 `crm_activity_list` and `crm_activity_record` are served by the authenticated Global operation route
 (`/api/root/operations/<name>`, `scope: global`) with the same restrictions as the other Global operations (no
-business option); the route grants no authority, and neither name is an owner-session capability. The Domain returns
+project option); the route grants no authority, and neither name is an owner-session capability. The Domain returns
 `channel_required` for the installation owner recording Global activity. Project Tasks retain their existing owner exception.
 
 The read is pure. It writes no row, acknowledges no inbox event, marks no conversation read, creates no receipt
@@ -131,8 +131,8 @@ and sends nothing; tests compare every table's row count and `PRAGMA data_versio
   owner's channel, so an owner reply is `channel_required`). Archiving the **card** (`focus_set_archived`) is
   presentation only and leaves the Table untouched; presenting the Table again restores the same card. Table archive
   is the separate existing Table operation. No parent edge or wrapper Task is written for a pinned Table.
-- **Private conversations.** `owner_conversation_*` accepts `source.type: 'table'` (business or Global). It is the
-  same single owner + Ordubashy channel: null peer, source key `source:<business|global>:table:<id>`, discovery,
+- **Private conversations.** `owner_conversation_*` accepts `source.type: 'table'` (project or Global). It is the
+  same single owner + Ordubashy channel: null peer, source key `source:<project|global>:table:<id>`, discovery,
   read/unread, replay and authorization as for a Task, re-authorizing `tables_get` on every call. Private text is
   never reposted into the team thread, never exported, and never part of activity.
 - **Projects.** A Table linked into a Project's inventory has `can_thread: true`.

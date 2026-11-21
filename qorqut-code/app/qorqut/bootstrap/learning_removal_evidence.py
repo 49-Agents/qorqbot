@@ -59,7 +59,7 @@ def application_receipt_id(principal: str, namespace: str, operation: str, key: 
 def operation_input_hash(operation: str, version: int, arguments, options: dict) -> str:
     """The engine's own input binding of one invocation (the key itself is deliberately outside it)."""
     return canonical_hash({"operation": operation, "version": version, "arguments": arguments,
-                           "options": {**options, "business_id": None, "review_business_id": None,
+                           "options": {**options, "project_id": None, "review_project_id": None,
                                        "idempotency_key": None}})
 
 
@@ -368,7 +368,7 @@ def _verify_profile(intent, result, connection, paths, attempt) -> dict:
             or stored is None or image_fingerprint(stored) != capture["after"]):
         raise DomainError("operation_conflict", "The profile inbox capture is not an unchanged fresh insertion")
     captured = dict(stored)
-    fields = ("agent_id", "home_business_id", "name", "status", "profile_json", "revision")
+    fields = ("agent_id", "home_project_id", "name", "status", "profile_json", "revision")
     try:
         projected_before = json.loads(captured["before_json"])
         projected_after = json.loads(captured["after_json"])

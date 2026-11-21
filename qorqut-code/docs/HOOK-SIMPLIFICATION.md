@@ -197,7 +197,7 @@ roots on `PYTHONPATH`: `qorqut-code/app`, `qorqut-code/qorqut-operations`,
   with build isolation. The nine modified Python modules in the wheel match
   their worktree source bytes. The installed runtime environment was not changed.
 - **Dashboard selection: 17 passed, 1 existing failure, 2 skipped.** Command:
-  `node --test qorqut-code/biz-dashboard/tests/focus-attention.test.js qorqut-code/biz-dashboard/tests/attention-board-owner-toggle.test.js`.
+  `node --test qorqut-code/dashboard/tests/focus-attention.test.js qorqut-code/dashboard/tests/attention-board-owner-toggle.test.js`.
   The `signoff pending-write check` case fails with `reviewEdits is not defined`.
   The same failure was reproduced from a clean archive of baseline `4d88ab1`
   using `--test-name-pattern='signoff pending-write check'`. No dashboard source

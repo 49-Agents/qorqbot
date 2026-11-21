@@ -22,8 +22,8 @@ _TASK_REF = {'type': 'object', 'additionalProperties': False,
     'required': ['provider', 'kind', 'id', 'revision', 'namespace'], 'properties': {
         # A Task id is a short generated code, or a UUID or slug on an older Task: any stored id, never only a UUID.
         'provider': {'const': 'operations'}, 'kind': {'const': 'task'}, 'id': _STR, 'revision': _STR,
-        'namespace': {'type': 'object', 'additionalProperties': False, 'required': ['kind', 'business_id'],
-                      'properties': {'kind': {'enum': ['global', 'business']}, 'business_id': {'type': ['string', 'null']}}}}}
+        'namespace': {'type': 'object', 'additionalProperties': False, 'required': ['kind', 'project_id'],
+                      'properties': {'kind': {'enum': ['global', 'project']}, 'project_id': {'type': ['string', 'null']}}}}}
 
 
 def _schema(properties, required=()):
@@ -126,7 +126,7 @@ class OverseerOperations:
             if name == 'overseer_development_task_create':
                 from qorqut_operations.contracts import plain
                 task_schema = plain(self.runtime.registry.get('tasks_create').input_schema)
-                task_schema['properties']['business_id'] = {'type': ['string', 'null'], 'format': 'uuid'}
+                task_schema['properties']['project_id'] = {'type': ['string', 'null'], 'format': 'uuid'}
                 properties = {**properties, 'task': task_schema}
             self.runtime.registry.register(OperationDescriptor(name, _schema(properties, required), effect_kind='compound',
                 supports_signoff=False, exposure=frozenset({'mcp'}), scope_kinds=frozenset({'global'}),
@@ -186,7 +186,7 @@ class OverseerOperations:
             request['frontier'] = result['frontier']
             refs = result['source_refs']
         run_ref = {'provider': 'qorqut_overseer', 'agent_id': ctx.principal_id, 'conversation_id': session['conversation_id'],
-                   'run_id': args['run_id'], 'namespace': {'kind': 'global', 'business_id': None}}
+                   'run_id': args['run_id'], 'namespace': {'kind': 'global', 'project_id': None}}
         records = [{'kind': 'evidence_delivery', 'operation': name, 'request': request, 'result': result,
                     'delivery_state': 'prepared_for_delivery'}]
         raw = json.dumps({'run_ref': run_ref, 'records': records, 'source_refs': refs}, sort_keys=True,

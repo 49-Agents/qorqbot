@@ -1,0 +1,97 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const read = name => fs.readFileSync(path.join(__dirname, '..', 'js', name), 'utf8');
+const missing = () => Object.assign(new Error('Missing record'), {code:'not_found'});
+function timeline(overrides = {}) {
+  const context = vm.createContext({
+    URL, document:{addEventListener() {}}, T_VIEW_LABEL:{}, T_VIEW_ICON:{},
+    state:{projects:[]}, coreData:body=>body.data, SJ_ZONE:'UTC',
+    ...overrides,
+  });
+  vm.runInContext(read('safe-links.js'), context);
+  vm.runInContext('const esc = safeLinkEsc;', context);
+  vm.runInContext(read('san-juan-time.js'), context);
+  vm.runInContext('const AICONS = {};', context);
+  vm.runInContext(read('actions.js'), context);
+  vm.runInContext(read('agent-timeline.js'), context);
+  return context;
+}
+
+test('evidence has no summary tooltip and links prose without allowing unsafe URLs', () => {
+  const t = timeline();
+  const html = t.agentTimelineRow({text:'Recorded result', detail:'Read [source](https://example.com/receipt).',
+    refs:{url:'javascript:alert(1)',task:'task-1'},
+    projects:[{name:'Hidden project'}], occurred:{date:vm.runInContext('sjToday()', t),precision:'day'}});
+  assert.ok(html.includes('<time>Today · time unknown</time>'));
+  assert.ok(!html.includes('Hidden project'));
+  assert.ok(!html.includes('title="Show evidence"'));
+  assert.ok(html.includes('href="https://example.com/receipt"'));
+  assert.ok(!html.includes('href="javascript:'));
+  assert.ok(html.includes('aria-label="Open task reference"'));
+  assert.ok(html.includes('aria-label="Copy url reference"'));
+});
+
+test('the coordinator\'s pane names who performed each action; another pane names only a recorder', () => {
+  const t = timeline();
+  const ord = {id:'ord',name:'Ordubashy'}, worker = {id:'w1',name:'Atlas'};
+  const row = (action, everyone) => t.agentTimelineRow({text:'Result', occurred:{date:'2026-11-10',precision:'day'}, ...action}, everyone);
+  const closed = {origin:'automatic', attribution:'performed', performed_by:worker, recorded_by:worker};
+  assert.ok(row(closed, true).includes('<p class="agent-timeline-meta">Atlas</p>'));
+  assert.ok(row({origin:'agent', attribution:'performed', performed_by:worker, recorded_by:ord}, true).includes('Atlas · recorded by Ordubashy'));
+  assert.ok(row({origin:'agent', attribution:'performed', performed_by:ord, recorded_by:ord}, true).includes('<p class="agent-timeline-meta">Ordubashy</p>'));
+  assert.ok(row(closed, true).includes('<p class="agent-timeline-text">Result</p>'));
+  assert.ok(!row(closed).includes('agent-timeline-meta'));
+  assert.ok(row({attribution:'recorded', recorded_by:ord}).includes('Recorded by Ordubashy'));
+  assert.equal(t.agentTimelineEveryone({workspaceRole:'ordubashy', agentId:'ord'}), true);
+  assert.deepEqual({...t.agentTimelineScope({workspaceRole:'ordubashy', agentId:'ord'})}, {});
+  assert.deepEqual({...t.agentTimelineScope({workspaceRole:'global-worker', agentId:'w1'})}, {performer:'w1'});
+});
+
+test('a globally recorded action opens a project task in its actual scope', async () => {
+  const calls = [];
+  const t = timeline({workCall:async (slug,operation,args) => {
+    calls.push({slug,operation,args});
+    if (slug==='project-a') return {task:{id:'task-1',project_id:'project-id',title:'Task'}};
+    throw missing();
+  }});
+  const result = await t.agentTimelineResolve({legacy:{project_id:null},
+    projects:[{id:'project-id',slug:'project-a'}]}, 'task', 'task-1');
+  assert.equal(result.slug,'project-a');
+  assert.equal(result.projectId,'project-id');
+  assert.deepEqual(calls.map(c=>c.slug),[null,'project-a']);
+});
+
+test('an ambiguous ID never silently opens the wrong project', async () => {
+  const t = timeline({workCall:async () => ({task:{id:'task-1'}})});
+  await assert.rejects(t.agentTimelineResolve({projects:[{id:'project-id',slug:'project-a'}]},'task','task-1'),
+    /more than one project/);
+});
+
+test('signoffs use their existing HTTP reader instead of an unregistered operation', async () => {
+  const requests = [];
+  const t = timeline({api:async url => {requests.push(url);return {data:{signoff:{id:'signoff-1'}}};}});
+  const result = await t.agentTimelineResolve({},'signoff','signoff-1');
+  assert.equal(result.projectId,null);
+  assert.deepEqual(requests,['/root/signoffs/signoff-1']);
+});
+
+test('documents and uploads resolve through their supported readers', async () => {
+  const operations = [];
+  const t = timeline({workCall:async (slug,operation) => {
+    operations.push(operation);
+    if (operation==='assets_get') return {asset:{id:'asset-1',kind:'asset'}};
+    throw Object.assign(new Error('Different document kind'),{code:'validation_error'});
+  }});
+  const result = await t.agentTimelineResolve({},'upload','asset-1');
+  assert.equal(result.record.kind,'asset');
+  assert.deepEqual(operations,['notes_get','context_get','assets_get']);
+});
+
+test('authorization and network failures are not hidden as missing evidence', async () => {
+  const t = timeline({workCall:async () => {throw Object.assign(new Error('Access denied'),{code:'forbidden'});}});
+  await assert.rejects(t.agentTimelineResolve({},'task','task-1'),/Access denied/);
+});

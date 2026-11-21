@@ -25,7 +25,7 @@ class ThreadPinsToolTests(unittest.TestCase):
         self.addCleanup(runtime.database.close)
         runtime.registry = runtime.application.registry
         runtime.application.attention = SimpleNamespace(legacy=SimpleNamespace(
-            resolve=lambda ctx, found, uow: {**found, "label": "Supplier question", "business_slug": None}))
+            resolve=lambda ctx, found, uow: {**found, "label": "Supplier question", "project_slug": None}))
         OwnerInputs(runtime).register()
         ThreadPins(runtime).register()
         self.owner, self.lead = runtime.owner.principal_id, runtime.coordinator.principal_id
@@ -88,9 +88,9 @@ class ThreadPinsToolTests(unittest.TestCase):
         report = create(self.runtime)
         task = report_task(self.runtime)
         with self.runtime.database.transaction() as uow:
-            uow.connection.execute("INSERT INTO signoff_report_tasks(signoff_id,task_id,task_business_id,created_by,created_at) "
+            uow.connection.execute("INSERT INTO signoff_report_tasks(signoff_id,task_id,task_project_id,created_by,created_at) "
                                    "VALUES(?,?,NULL,?,'2026-11-01T09:00:00.000000Z')", (report["id"], task["id"], self.owner))
-        task_source = {"type": "task", "id": task["id"], "business_id": None}
+        task_source = {"type": "task", "id": task["id"], "project_id": None}
         thread_pins(self.runtime.paths.runtime, self.owner, {"source": task_source, "title": "Report work", "pinned": True})
         with self.runtime.database.read() as uow:
             self.assertEqual(self.runtime.thread_pins.report_task(source(report), uow), task_source)

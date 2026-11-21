@@ -2,7 +2,7 @@
 
 The portable Operations engine of Qorqut: the one authority, application and storage contract that the host
 composes with its own domains. It is a library (Python 3.12, four runtime dependencies: `jsonschema`, `markdown-it-py`, `PyYAML` and the first-party
-`qorqut-business-docs-versioning` document-history library) with no
+`qorqut-docs-versioning` document-history library) with no
 authentication service, transports, native-session code or import-time database access. It imports nothing from the
 deployed v1 core or from any host. It does own two service endpoints (`SignoffService` and `BackgroundService`, each
 with explicit `start()`/`stop()` and `run_one()`); they start no thread and touch no store until the host invokes
@@ -31,7 +31,7 @@ and the target identity/validation model), the source map and what the host stil
 | `signoffs` | The retained Signoff service (staging, owner decisions, exactly-once application, input requests, notes, delegated rejection, notifications) behind typed `SignoffPorts` |
 | `storage.structured`, `.paths` | The one safe YAML parser (`parse_yaml`: duplicate and non-string keys refused, dates stay strings) and `registered_path`, the resolver of a path under a trusted root |
 | `documents` | Operational source documents: the registered-file `store`, the source `library` (selection, parsing, cache, search, cursors; `markdown-it-py` for headings), the source read and mutation `operations`, the owner `journal` reads, the Context people/topics/notes helpers and the `documents` table DDL and spec (`schema`; `CHANGE_CAPTURE` is spliced by the host beside its change feed). Host behavior arrives through constructor callables and one presentation callback |
-| `document_history` | Exact document history over the `qorqut-business-docs-versioning` library: generic `text` versions and events, file-receipt capture with per-kind byte-capture callbacks (`files`), the document availability `lifecycle`, Task/Action/document record history with host-supplied SQL projections and fact callbacks (`records`), the owner-only `reads` and the history table DDL (`schema`). A missing hook fails composition |
+| `document_history` | Exact document history over the `qorqut-docs-versioning` library: generic `text` versions and events, file-receipt capture with per-kind byte-capture callbacks (`files`), the document availability `lifecycle`, Task/Action/document record history with host-supplied SQL projections and fact callbacks (`records`), the owner-only `reads` and the history table DDL (`schema`). A missing hook fails composition |
 | `documents.serialization` | Source document framing: `split_document`, `document_bytes`, `slugify` and the `SLUG`/`BODY`/`HASH`/`MAX_TEXT_BYTES`/`BINARY_KINDS` bounds |
 | `assets`, `assets.validation` | Generic assets (`AssetOperations`, over the host's source store and a host `additional_references` source of `used_by` entries) and the asset and upload file-name normalizer (`filename`) |
 | `tables` | Operational tables (general and `crm` kinds), table versions and original data uploads: `TableOperations`/`TableHistory` (explicit `operations_root` and `project_hq`), `DataUploadOperations`, the feature-local DDL, specs, immutable fields, history-coverage declarations, the Global-table policy rule and the table revision hook |
@@ -46,7 +46,7 @@ and the target identity/validation model), the source map and what the host stil
 | `actions` | Actions with immutable revisions (`ActionOperations(..., on_revision=)`, `new_action`/`change_action`/`settle(..., on_revision=)`; the admission callable is required and supplied by the host) |
 | `tasks.writes` | `TaskWrites`: Tasks written inside another module's plan are announced once (follows, thread entry, inbox event) in the writing transaction; import the submodule |
 | `actions.writeback` | `ActionWriteback`, `linked_action`, `linked_action_items`: the automatic one-per-source Action written inside an applying transaction, and the workspace-visible Action item links; import the submodule (the `actions` initializer does not load it) |
-| `projects` | Project lifecycle bookkeeping behind host ports: `creation` (`BusinessCreationOperations`, `COORDINATION_CAPABILITY`; the host supplies the roots, the path functions and `creator_actor`), `archive` (`BusinessArchive`, optional late-bound `reset_terminals`, the owner-approval `POLICY_RULES`), `settings` (`merge_settings`) and `summary` (the Task/Action counting readers for the progress views) |
+| `projects` | Project lifecycle bookkeeping behind host ports: `creation` (`ProjectCreationOperations`, `COORDINATION_CAPABILITY`; the host supplies the roots, the path functions and `creator_actor`), `archive` (`ProjectArchive`, optional late-bound `reset_terminals`, the owner-approval `POLICY_RULES`), `settings` (`merge_settings`) and `summary` (the Task/Action counting readers for the progress views) |
 | `background`, `routines` | Registered programs and their worker authority, the serial job service, the cron/DST routine scheduler, and the generic routine operations/reads |
 | `inbox_nudges` | The durable inbox-nudge need, immutable attempts and exact receipts and the event-based eligibility rule (each event announced at most once per native conversation), behind a typed `Visibility` port (the host supplies the binding and authorization; see `docs/INBOX_NUDGES.md`) |
 | `inbox` | Direct agent messages (`Messages`, over a required `MessageHost` adapter), broadcasts and their delivery engine (`Broadcasts`, `BroadcastDispatch`, over host-supplied global-agent facts, authority and terminal-input calls), the pure related-work routing (`related`), the generic read/acknowledge/follow/subscribe service (`InboxService`, over a required `InboxHost` adapter of nine methods and the host's explicit `SourceHandlers`) and the one before-commit event finalizer (`EventFinalizer`, over a required eleven-method `EventRouting` adapter), and the verbatim DDL, capture triggers, specs, history export, catalog entries, classifications and standing policy of those tables (data for the host's assembly, not a `StorageContribution` of its own) |
@@ -147,7 +147,7 @@ overview; parent/child links organize its next steps. There is no separate Story
 Customer table.
 
 An Email Task must select a readable whole email conversation in the Task's owning
-business/global scope. Binding/rebinding validates the source through the host's
+project/global scope. Binding/rebinding validates the source through the host's
 existing item resolver and pins its revision in a prepared plan. Reading the email
 still requires the email reader's permissions. It does not send mail, grant approval,
 copy messages, mark mail read, or synchronize Task and mailbox state. Creation is
@@ -168,7 +168,7 @@ events and table history; there is no second writer or new operational authority
 no status filter applies, reads only the requested page. Each page's views are built in a
 fixed handful of queries however many rows it holds (`tasks/detail.py`). `search` matches
 title, id, overview, status line, next step and comments, with Unicode case folding.
-Every Task view names what its ids point at: `business_name`, `assignees`
+Every Task view names what its ids point at: `project_name`, `assignees`
 (`{id, kind, name}`) and `blockers` (`{id, title, status}`), beside the existing id
 lists. `tasks_get` accepts `include: ["actions", "signoffs"]` to return the first page of
 each as `tasks_associated_records` would, under that operation's own grant; a type the
@@ -201,11 +201,11 @@ notes appear only in the authorized `tasks_get`/`tasks_list` detail rows, never 
 `tasks_overview`, links, children or the discussion's system entries.
 
 **State vocabulary.** The choices offered are the labels ever used in the owning scope
-(each business, and Global, separately). They are stored in the existing scoped
-`business_configs` table, domain `task_customer_states`, as `{"v": 1, "states": [...]}`.
-No new table is introduced, but a Global vocabulary row has a NULL business, so the host
-must admit `task_customer_states` as the second permitted NULL-business
-`business_configs` domain (beside `tasks`). An existing store needs a separately reviewed, explicit offline schema transition before this code opens it; that transition belongs to the host installer, not to this engine. Business choices and Global choices stay
+(each project, and Global, separately). They are stored in the existing scoped
+`project_configs` table, domain `task_customer_states`, as `{"v": 1, "states": [...]}`.
+No new table is introduced, but a Global vocabulary row has a NULL project, so the host
+must admit `task_customer_states` as the second permitted NULL-project
+`project_configs` domain (beside `tasks`). An existing store needs a separately reviewed, explicit offline schema transition before this code opens it; that transition belongs to the host installer, not to this engine. Project choices and Global choices stay
 separate. `tasks_config_get` returns them as the top-level
 `customer_states` array beside `config` and `revision`. Labels compare after Unicode
 (NFKC) normalization and case folding; a variant of an existing label is stored with the
@@ -224,11 +224,11 @@ current revision, or its absence, so two writers introducing labels cannot lose 
 other's (the later one gets the ordinary revision conflict, and a retry reuses the
 winner's spelling). A failed, denied, stale or rolled-back write adds nothing, and an
 idempotent replay returns the saved result without appending again. Prepared-plan
-validation accepts a `business_configs` effect in a Task plan only as one exact record
+validation accepts a `project_configs` effect in a Task plan only as one exact record
 append of the label the Task introduces, in its first spelling: this scope's
 `task_customer_states` row, inserted with exactly `domain` and `config_json` while absent
 or updated with exactly `config_json` while present, no named operation, pinned to the
-row's absence or revision, and not duplicated. Any other `business_configs` effect
+row's absence or revision, and not duplicated. Any other `project_configs` effect
 (another domain, extra columns, another scope or row) is refused before application, and
 a write that introduces no label may carry none. Delegation is unchanged: a constrained assignment
 that does not name the `task_customer_states` row fails closed on a new label (it may
@@ -236,8 +236,8 @@ still reuse an existing one) and is not widened.
 
 ### Links between Tasks, Stories, Customers and Email Tasks
 
-`tasks_update.changes.related_task` accepts `{business_id: UUID|null, task_id,
-linked: boolean}`. A Task can link to multiple other Task records across business
+`tasks_update.changes.related_task` accepts `{project_id: UUID|null, task_id,
+linked: boolean}`. A Task can link to multiple other Task records across project
 and Global scopes. Every type uses the same identity and operation; linking does
 not move either item, set a parent, propagate state, or subscribe participants.
 Plain tags remain independent labels. Self-links are rejected; existing links,

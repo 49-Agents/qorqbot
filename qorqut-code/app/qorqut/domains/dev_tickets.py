@@ -7,7 +7,7 @@ and is refused to agents by the MCP caller's discovery and dispatch."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
-from qorqut.agents.global_scope import active_global, reaches_business
+from qorqut.agents.global_scope import active_global, reaches_project
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, timestamp, utc_clock
@@ -43,7 +43,7 @@ class DevTickets:
         registry.register(OperationDescriptor("dev_tickets_get",
             schema({"ticket_id": UUID, "history_limit": {"type": "integer", "minimum": 1, "maximum": 100},
                     "history_offset": {"type": "integer", "minimum": 0}}, ("ticket_id",)),
-            scope_kinds=frozenset({"business", "global"}), supports_signoff=False,
+            scope_kinds=frozenset({"project", "global"}), supports_signoff=False,
             global_capability="read_global_context", exposure=frozenset({"mcp"}),
             resolve_namespace=self.agent_namespace, effect_kind="read",
             description=instruction_text('dev-tickets-read-one-system-dev-report-and-its'),
@@ -57,7 +57,7 @@ class DevTickets:
 
     @staticmethod
     def agent_namespace(ctx, _args):
-        return "global" if ctx.business_id is None else "business:" + ctx.business_id
+        return "global" if ctx.project_id is None else "project:" + ctx.project_id
 
     @staticmethod
     def role(ctx):
@@ -66,12 +66,12 @@ class DevTickets:
     def in_scope(self, ctx, ticket, uow):
         if active_global(uow.connection, ctx.principal_id) is None:
             return False
-        business = ticket["business_id"]
-        if business is None:
-            return ctx.business_id is None and "read_global_context" in ctx.global_capabilities
-        if ctx.business_id is not None and business != ctx.business_id:
+        project = ticket["project_id"]
+        if project is None:
+            return ctx.project_id is None and "read_global_context" in ctx.global_capabilities
+        if ctx.project_id is not None and project != ctx.project_id:
             return False
-        return business in ctx.allowed_business_ids and reaches_business(uow.connection, ctx.principal_id, business)
+        return project in ctx.allowed_project_ids and reaches_project(uow.connection, ctx.principal_id, project)
 
     def agent_access(self, ctx, ticket, uow=None, *, read_only=False):
         if ctx.principal_kind != "agent":
@@ -87,14 +87,14 @@ class DevTickets:
                 "JOIN system_incident_impacts x ON x.incident_id=i.id "
                 "WHERE p.id=? AND p.kind='system' AND "
                 "((x.agent_id=? AND x.agent_id IS NOT NULL) OR "
-                "(x.business_id=? AND x.business_id IS NOT NULL)) LIMIT 1",
-                (ticket["id"], ticket["reporter_id"], ctx.principal_id, ctx.business_id)).fetchone():
-            if self.in_scope(ctx, {"business_id": ctx.business_id}, uow):
+                "(x.project_id=? AND x.project_id IS NOT NULL)) LIMIT 1",
+                (ticket["id"], ticket["reporter_id"], ctx.principal_id, ctx.project_id)).fetchone():
+            if self.in_scope(ctx, {"project_id": ctx.project_id}, uow):
                 return True
         if self.role(ctx) == "ordubashy":
-            if ticket["business_id"] is None:
+            if ticket["project_id"] is None:
                 return "read_global_context" in ctx.global_capabilities
-            if ticket["business_id"] in ctx.allowed_business_ids:
+            if ticket["project_id"] in ctx.allowed_project_ids:
                 return True
         raise DomainError("forbidden", "System Dev report is outside your authorized scope")
 
@@ -129,7 +129,7 @@ class DevTickets:
             clauses.append("id=?")
             params.append(args["ticket_id"])
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-        columns = "*" if args.get("details", False) else "id,title,kind,status,reporter_id,business_id,created_at,updated_at,revision"
+        columns = "*" if args.get("details", False) else "id,title,kind,status,reporter_id,project_id,created_at,updated_at,revision"
         columns += ',(SELECT i.id FROM system_incidents i WHERE i.ticket_id=dev_tickets.id) AS incident_id'
         limit, offset = args.get("limit", 50), args.get("offset", 0)
         items = [dict(row) for row in uow.connection.execute(
@@ -158,7 +158,7 @@ class DevTickets:
             values.update(resolved_at=None, resolved_by=None, resolution="")
         elif args["status"] == "closed" and before["status"] != "closed":
             values.update(resolved_at=builder.at, resolved_by=ctx.principal_id, resolution=args.get('resolution','').strip())
-        builder.record("dev_tickets", args["ticket_id"], before, values, business_id=None, namespace="global")
+        builder.record("dev_tickets", args["ticket_id"], before, values, project_id=None, namespace="global")
         return builder.build()
 
     def validate_owner(self, ctx, plan, uow):

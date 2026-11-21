@@ -45,8 +45,8 @@ def register_programs(programs, *, models=None, transcript_source=None,
 
     # The final Context filing programs: completion-only, no model call and no document read of their own.
     FilingPrograms().register(programs)
-    # One Global learning stream (v1.2 G022): the learning programs are Global only, so no business routine, job or worker
-    # membership is created for them and historical business learning is left as it is.
+    # One Global learning stream (v1.2 G022): the learning programs are Global only, so no project routine, job or worker
+    # membership is created for them and historical project learning is left as it is.
     add("learnings.extract", EXTRACT_ARGUMENTS, learning.run, ("learnings_record_batch",),
         ("learning_candidates", "learning_decisions", "learning_scan_state", "learning_runs", "learning_history"), timeout_seconds=7200,
         scope_kinds=("global",), global_capabilities=("read_global_context",))
@@ -60,7 +60,7 @@ def register_programs(programs, *, models=None, transcript_source=None,
     add("backups.pull", BACKUP_ARGUMENTS, pull, timeout_seconds=900, external=True, recover=pull)
     add("repository.status", schema({}), repository_status)
     if tables is not None:
-        # Business jobs keep this registration byte-for-byte: queued and running jobs carry its frozen digest.
+        # Project jobs keep this registration byte-for-byte: queued and running jobs carry its frozen digest.
         add("tables.version", schema({"version_id": UUID}, ("version_id",)), tables.history.run,
             external=True, recover=tables.history.run)
         # Global table history has its own internal program (same runner and recovery), prepared only by the table operations.
@@ -91,8 +91,8 @@ def register_operations(runtime, programs, authority, *, clock=None):
     learnings = LearningOperations(runtime.application, programs, authority, documents=runtime.domains.documents).register()
 
     def job_get(ctx, args, options, uow):
-        business_id = None if args.get("scope") == "global" else ctx.business_id
-        row = uow.repository("jobs", business_id=business_id).get(args["job_id"], required=True)
+        project_id = None if args.get("scope") == "global" else ctx.project_id
+        row = uow.repository("jobs", project_id=project_id).get(args["job_id"], required=True)
         if row["kind"] in PRIVATE_JOB_KINDS:
             # The frozen recipient and text live only in the job and its Signoff. The installation owner reads the job;
             # every agent (the proposer included) gets status and error codes only.
@@ -101,7 +101,7 @@ def register_operations(runtime, programs, authority, *, clock=None):
                 return {"job": row, "details_available": True}
             if ctx.principal_kind != "agent":
                 raise DomainError("forbidden", "Private job details require the installation owner")
-            public = {key: row[key] for key in ("id", "business_id", "kind", "state", "created_at", "updated_at", "attempts",
+            public = {key: row[key] for key in ("id", "project_id", "kind", "state", "created_at", "updated_at", "attempts",
                                                 "next_retry_at", "initiated_by_principal_id")}
             error = row.get("error_json")
             public["error_json"] = ({key: error[key] for key in ("code", "retryable") if key in error}
@@ -114,7 +114,7 @@ def register_operations(runtime, programs, authority, *, clock=None):
         if not reads_whole_job(ctx, row, uow):
             # Shared coordination needs status, not another agent's provider
             # payloads, private source text or frozen plugin configuration.
-            fields = ("id", "business_id", "kind", "state", "created_at", "updated_at", "attempts",
+            fields = ("id", "project_id", "kind", "state", "created_at", "updated_at", "attempts",
                       "next_retry_at", "initiated_by_principal_id")
             public = {key: row[key] for key in fields}
             error = row.get("error_json")
@@ -123,9 +123,9 @@ def register_operations(runtime, programs, authority, *, clock=None):
             return {"job": public, "details_available": False, **extra}
         return {"job": row, "details_available": True, **extra}
 
-    runtime.registry.register(OperationDescriptor("jobs_get", schema({"job_id": UUID, "scope": {"enum": ["business", "global"]}}, ["job_id"]),
-        effect_kind="read", supports_signoff=False, scope_kinds={"business", "global"},
-        resolve_namespace=lambda c,a: "global" if a.get("scope") == "global" else "business:" + c.business_id,
+    runtime.registry.register(OperationDescriptor("jobs_get", schema({"job_id": UUID, "scope": {"enum": ["project", "global"]}}, ["job_id"]),
+        effect_kind="read", supports_signoff=False, scope_kinds={"project", "global"},
+        resolve_namespace=lambda c,a: "global" if a.get("scope") == "global" else "project:" + c.project_id,
         global_capability="manage_global_routines",
         read=job_get, description=instruction_text('integration-inspect-a-scoped-background-job-the-initiating-agent')))
 
@@ -144,8 +144,8 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
         maintenance=maintenance, tables=runtime.domains.tables,
         backup_downloader=backup_downloader)
     authority = runtime.authority
-    if getattr(runtime.domains, "business_creation", None):
-        runtime.domains.business_creation.worker_authority = authority
+    if getattr(runtime.domains, "project_creation", None):
+        runtime.domains.project_creation.worker_authority = authority
     runtime.policy.worker_profiles = authority.worker_profiles
     runtime.policy.job_consequence_verifier = authority.verify_consequence
     runtime.policy.job_plan_validator = authority.validate_plan

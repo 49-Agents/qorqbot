@@ -59,9 +59,9 @@ what remains, and how to continue from verified cursors or unresolved IDs.
    `work_item` entries are enriched display DTOs and may omit entries whose
    source or scope is no longer readable. Never assume the displayed list is a complete writable
    payload. Construct writes using only the current `agent_work_update` item
-   fields: `business_id`, `task_id`, `summary`, and `blocked_reason`. Preserve
+   fields: `project_id`, `task_id`, `summary`, and `blocked_reason`. Preserve
    each authored value exactly; omit display-only fields such as `title`,
-   `task_status`, `business_slug`, `business_name`, `blocked`, and `blockers`.
+   `task_status`, `project_slug`, `project_name`, `blocked`, and `blockers`.
    Full `items` replacement additionally requires `items_replacement_safe=true`.
    If that is false, use targeted patches rather than clearing unseen commitments.
    Retain real waits; an empty patch confirms unchanged work.

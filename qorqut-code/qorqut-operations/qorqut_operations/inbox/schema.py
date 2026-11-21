@@ -4,7 +4,7 @@ They are blocks of the host's ``inbox`` owner, copied verbatim and kept in the o
 list is not contiguous in them (the native session and private owner-conversation statements sit between), so the host splices
 each tuple at its existing position instead of receiving one contribution; the combined schema, and so its fingerprint, is
 unchanged. The positions in the owner's statement list are 0 (``CHANGE_SCHEMA``), 2-13 (``CAPTURE_SCHEMA``: Signoff,
-Signoff attention, agent profile and business membership captures), 14-17 (``BROADCAST_SCHEMA``), 24-26
+Signoff attention, agent profile and project membership captures), 14-17 (``BROADCAST_SCHEMA``), 24-26
 (``PRINCIPAL_CAPTURE_SCHEMA``), 27-35 (``MESSAGE_SCHEMA``) and 37-39 (``RELATIONSHIP_CAPTURE_SCHEMA``). No new owner, immutable
 field or validator is declared. The capture triggers write ``inbox_changes`` through the host's ``inbox_actor()`` SQL function.
 ``agent_messages`` keeps its own immutability triggers. The classifications repeat the existing exclusions: direct conversations
@@ -18,9 +18,9 @@ from qorqut_operations.storage.specs import TableSpec
 TABLE_NAMES = ("inbox_changes", "broadcasts", "broadcast_deliveries", "agent_messages")
 
 TABLE_SPECS = {
-    "agent_messages": TableSpec(("id",), "business_id", False, None),
-    "broadcasts": TableSpec(("id",), "business_id"),
-    "broadcast_deliveries": TableSpec(("broadcast_id", "occurrence", "recipient_id"), "business_id", revision_column=None),
+    "agent_messages": TableSpec(("id",), "project_id", False, None),
+    "broadcasts": TableSpec(("id",), "project_id"),
+    "broadcast_deliveries": TableSpec(("broadcast_id", "occurrence", "recipient_id"), "project_id", revision_column=None),
     "inbox_changes": TableSpec(("id",), revision_column=None),
 }
 
@@ -34,13 +34,13 @@ CHANGE_SCHEMA = (
 CAPTURE_SCHEMA = (
     """CREATE TRIGGER inbox_capture_signoffs_insert AFTER INSERT ON signoffs
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('signoffs','insert',inbox_actor(),NULL,json_object('review_business_id',NEW.review_business_id,'id',NEW.id,'category',NEW.category,'proposer_agent_id',NEW.proposer_agent_id,'state',NEW.state,'decision_json',NEW.decision_json,'apply_result_json',NEW.apply_result_json,'error_json',NEW.error_json,'execution_json',NEW.execution_json,'preview_json',NEW.preview_json,'status_revision',NEW.status_revision)); END""",
+VALUES('signoffs','insert',inbox_actor(),NULL,json_object('review_project_id',NEW.review_project_id,'id',NEW.id,'category',NEW.category,'proposer_agent_id',NEW.proposer_agent_id,'state',NEW.state,'decision_json',NEW.decision_json,'apply_result_json',NEW.apply_result_json,'error_json',NEW.error_json,'execution_json',NEW.execution_json,'preview_json',NEW.preview_json,'status_revision',NEW.status_revision)); END""",
     """CREATE TRIGGER inbox_capture_signoffs_update AFTER UPDATE ON signoffs
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('signoffs','update',inbox_actor(),json_object('review_business_id',OLD.review_business_id,'id',OLD.id,'category',OLD.category,'proposer_agent_id',OLD.proposer_agent_id,'state',OLD.state,'decision_json',OLD.decision_json,'apply_result_json',OLD.apply_result_json,'error_json',OLD.error_json,'execution_json',OLD.execution_json,'preview_json',OLD.preview_json,'status_revision',OLD.status_revision),json_object('review_business_id',NEW.review_business_id,'id',NEW.id,'category',NEW.category,'proposer_agent_id',NEW.proposer_agent_id,'state',NEW.state,'decision_json',NEW.decision_json,'apply_result_json',NEW.apply_result_json,'error_json',NEW.error_json,'execution_json',NEW.execution_json,'preview_json',NEW.preview_json,'status_revision',NEW.status_revision)); END""",
+VALUES('signoffs','update',inbox_actor(),json_object('review_project_id',OLD.review_project_id,'id',OLD.id,'category',OLD.category,'proposer_agent_id',OLD.proposer_agent_id,'state',OLD.state,'decision_json',OLD.decision_json,'apply_result_json',OLD.apply_result_json,'error_json',OLD.error_json,'execution_json',OLD.execution_json,'preview_json',OLD.preview_json,'status_revision',OLD.status_revision),json_object('review_project_id',NEW.review_project_id,'id',NEW.id,'category',NEW.category,'proposer_agent_id',NEW.proposer_agent_id,'state',NEW.state,'decision_json',NEW.decision_json,'apply_result_json',NEW.apply_result_json,'error_json',NEW.error_json,'execution_json',NEW.execution_json,'preview_json',NEW.preview_json,'status_revision',NEW.status_revision)); END""",
     """CREATE TRIGGER inbox_capture_signoffs_delete AFTER DELETE ON signoffs
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('signoffs','delete',inbox_actor(),json_object('review_business_id',OLD.review_business_id,'id',OLD.id,'category',OLD.category,'proposer_agent_id',OLD.proposer_agent_id,'state',OLD.state,'decision_json',OLD.decision_json,'apply_result_json',OLD.apply_result_json,'error_json',OLD.error_json,'execution_json',OLD.execution_json,'preview_json',OLD.preview_json,'status_revision',OLD.status_revision),NULL); END""",
+VALUES('signoffs','delete',inbox_actor(),json_object('review_project_id',OLD.review_project_id,'id',OLD.id,'category',OLD.category,'proposer_agent_id',OLD.proposer_agent_id,'state',OLD.state,'decision_json',OLD.decision_json,'apply_result_json',OLD.apply_result_json,'error_json',OLD.error_json,'execution_json',OLD.execution_json,'preview_json',OLD.preview_json,'status_revision',OLD.status_revision),NULL); END""",
     """CREATE TRIGGER inbox_capture_signoff_attention_insert AFTER INSERT ON signoff_attention
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
 VALUES('signoff_attention','insert',inbox_actor(),NULL,json_object('signoff_id',NEW.signoff_id,'notify',NEW.notify,'urgent',NEW.urgent,'blocking',NEW.blocking,'reason',NEW.reason,'deadline',NEW.deadline,'revision',NEW.revision)); END""",
@@ -52,22 +52,22 @@ BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_js
 VALUES('signoff_attention','delete',inbox_actor(),json_object('signoff_id',OLD.signoff_id,'notify',OLD.notify,'urgent',OLD.urgent,'blocking',OLD.blocking,'reason',OLD.reason,'deadline',OLD.deadline,'revision',OLD.revision),NULL); END""",
     """CREATE TRIGGER inbox_capture_agent_profiles_insert AFTER INSERT ON agent_profiles
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('agent_profiles','insert',inbox_actor(),NULL,json_object('agent_id',NEW.agent_id,'home_business_id',NEW.home_business_id,'name',NEW.name,'status',NEW.status,'profile_json',NEW.profile_json,'revision',NEW.revision)); END""",
+VALUES('agent_profiles','insert',inbox_actor(),NULL,json_object('agent_id',NEW.agent_id,'home_project_id',NEW.home_project_id,'name',NEW.name,'status',NEW.status,'profile_json',NEW.profile_json,'revision',NEW.revision)); END""",
     """CREATE TRIGGER inbox_capture_agent_profiles_update AFTER UPDATE ON agent_profiles
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('agent_profiles','update',inbox_actor(),json_object('agent_id',OLD.agent_id,'home_business_id',OLD.home_business_id,'name',OLD.name,'status',OLD.status,'profile_json',OLD.profile_json,'revision',OLD.revision),json_object('agent_id',NEW.agent_id,'home_business_id',NEW.home_business_id,'name',NEW.name,'status',NEW.status,'profile_json',NEW.profile_json,'revision',NEW.revision)); END""",
+VALUES('agent_profiles','update',inbox_actor(),json_object('agent_id',OLD.agent_id,'home_project_id',OLD.home_project_id,'name',OLD.name,'status',OLD.status,'profile_json',OLD.profile_json,'revision',OLD.revision),json_object('agent_id',NEW.agent_id,'home_project_id',NEW.home_project_id,'name',NEW.name,'status',NEW.status,'profile_json',NEW.profile_json,'revision',NEW.revision)); END""",
     """CREATE TRIGGER inbox_capture_agent_profiles_delete AFTER DELETE ON agent_profiles
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('agent_profiles','delete',inbox_actor(),json_object('agent_id',OLD.agent_id,'home_business_id',OLD.home_business_id,'name',OLD.name,'status',OLD.status,'profile_json',OLD.profile_json,'revision',OLD.revision),NULL); END""",
-    """CREATE TRIGGER inbox_capture_business_memberships_insert AFTER INSERT ON business_memberships
+VALUES('agent_profiles','delete',inbox_actor(),json_object('agent_id',OLD.agent_id,'home_project_id',OLD.home_project_id,'name',OLD.name,'status',OLD.status,'profile_json',OLD.profile_json,'revision',OLD.revision),NULL); END""",
+    """CREATE TRIGGER inbox_capture_project_memberships_insert AFTER INSERT ON project_memberships
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('business_memberships','insert',inbox_actor(),NULL,json_object('business_id',NEW.business_id,'principal_id',NEW.principal_id,'is_owner',NEW.is_owner,'active',NEW.active,'person_json',NEW.person_json,'revision',NEW.revision)); END""",
-    """CREATE TRIGGER inbox_capture_business_memberships_update AFTER UPDATE ON business_memberships
+VALUES('project_memberships','insert',inbox_actor(),NULL,json_object('project_id',NEW.project_id,'principal_id',NEW.principal_id,'is_owner',NEW.is_owner,'active',NEW.active,'person_json',NEW.person_json,'revision',NEW.revision)); END""",
+    """CREATE TRIGGER inbox_capture_project_memberships_update AFTER UPDATE ON project_memberships
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('business_memberships','update',inbox_actor(),json_object('business_id',OLD.business_id,'principal_id',OLD.principal_id,'is_owner',OLD.is_owner,'active',OLD.active,'person_json',OLD.person_json,'revision',OLD.revision),json_object('business_id',NEW.business_id,'principal_id',NEW.principal_id,'is_owner',NEW.is_owner,'active',NEW.active,'person_json',NEW.person_json,'revision',NEW.revision)); END""",
-    """CREATE TRIGGER inbox_capture_business_memberships_delete AFTER DELETE ON business_memberships
+VALUES('project_memberships','update',inbox_actor(),json_object('project_id',OLD.project_id,'principal_id',OLD.principal_id,'is_owner',OLD.is_owner,'active',OLD.active,'person_json',OLD.person_json,'revision',OLD.revision),json_object('project_id',NEW.project_id,'principal_id',NEW.principal_id,'is_owner',NEW.is_owner,'active',NEW.active,'person_json',NEW.person_json,'revision',NEW.revision)); END""",
+    """CREATE TRIGGER inbox_capture_project_memberships_delete AFTER DELETE ON project_memberships
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('business_memberships','delete',inbox_actor(),json_object('business_id',OLD.business_id,'principal_id',OLD.principal_id,'is_owner',OLD.is_owner,'active',OLD.active,'person_json',OLD.person_json,'revision',OLD.revision),NULL); END""",
+VALUES('project_memberships','delete',inbox_actor(),json_object('project_id',OLD.project_id,'principal_id',OLD.principal_id,'is_owner',OLD.is_owner,'active',OLD.active,'person_json',OLD.person_json,'revision',OLD.revision),NULL); END""",
 )
 
 PRINCIPAL_CAPTURE_SCHEMA = (
@@ -85,19 +85,19 @@ VALUES('principals','delete',inbox_actor(),json_object('id',OLD.id,'kind',OLD.ki
 RELATIONSHIP_CAPTURE_SCHEMA = (
     """CREATE TRIGGER inbox_capture_relationships_delete AFTER DELETE ON relationships
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('relationships','delete',inbox_actor(),json_object('business_id',OLD.business_id,'id',OLD.id,'from_type',OLD.from_type,'from_id',OLD.from_id,'to_type',OLD.to_type,'to_id',OLD.to_id,'role',OLD.role,'context',OLD.context,'created_by',OLD.created_by,'revision',OLD.revision),NULL); END""",
+VALUES('relationships','delete',inbox_actor(),json_object('project_id',OLD.project_id,'id',OLD.id,'from_type',OLD.from_type,'from_id',OLD.from_id,'to_type',OLD.to_type,'to_id',OLD.to_id,'role',OLD.role,'context',OLD.context,'created_by',OLD.created_by,'revision',OLD.revision),NULL); END""",
     """CREATE TRIGGER inbox_capture_relationships_insert AFTER INSERT ON relationships
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('relationships','insert',inbox_actor(),NULL,json_object('business_id',NEW.business_id,'id',NEW.id,'from_type',NEW.from_type,'from_id',NEW.from_id,'to_type',NEW.to_type,'to_id',NEW.to_id,'role',NEW.role,'context',NEW.context,'created_by',NEW.created_by,'revision',NEW.revision)); END""",
+VALUES('relationships','insert',inbox_actor(),NULL,json_object('project_id',NEW.project_id,'id',NEW.id,'from_type',NEW.from_type,'from_id',NEW.from_id,'to_type',NEW.to_type,'to_id',NEW.to_id,'role',NEW.role,'context',NEW.context,'created_by',NEW.created_by,'revision',NEW.revision)); END""",
     """CREATE TRIGGER inbox_capture_relationships_update AFTER UPDATE ON relationships
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('relationships','update',inbox_actor(),json_object('business_id',OLD.business_id,'id',OLD.id,'from_type',OLD.from_type,'from_id',OLD.from_id,'to_type',OLD.to_type,'to_id',OLD.to_id,'role',OLD.role,'context',OLD.context,'created_by',OLD.created_by,'revision',OLD.revision),json_object('business_id',NEW.business_id,'id',NEW.id,'from_type',NEW.from_type,'from_id',NEW.from_id,'to_type',NEW.to_type,'to_id',NEW.to_id,'role',NEW.role,'context',NEW.context,'created_by',NEW.created_by,'revision',NEW.revision)); END""",
+VALUES('relationships','update',inbox_actor(),json_object('project_id',OLD.project_id,'id',OLD.id,'from_type',OLD.from_type,'from_id',OLD.from_id,'to_type',OLD.to_type,'to_id',OLD.to_id,'role',OLD.role,'context',OLD.context,'created_by',OLD.created_by,'revision',OLD.revision),json_object('project_id',NEW.project_id,'id',NEW.id,'from_type',NEW.from_type,'from_id',NEW.from_id,'to_type',NEW.to_type,'to_id',NEW.to_id,'role',NEW.role,'context',NEW.context,'created_by',NEW.created_by,'revision',NEW.revision)); END""",
 )
 
 BROADCAST_SCHEMA = (
     """CREATE TABLE broadcasts (
  id TEXT PRIMARY KEY,
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  sender_id TEXT NOT NULL REFERENCES principals(id),
  name TEXT NOT NULL,
  created_by TEXT NOT NULL REFERENCES principals(id),
@@ -119,7 +119,7 @@ BROADCAST_SCHEMA = (
  broadcast_id TEXT NOT NULL REFERENCES broadcasts(id),
  occurrence INTEGER NOT NULL CHECK(occurrence > 0),
  recipient_id TEXT NOT NULL REFERENCES principals(id),
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  state TEXT NOT NULL CHECK(state IN ('pending','delivered','unavailable','denied','uncertain','failed')),
  payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
  message_id TEXT REFERENCES agent_messages(id),
@@ -135,7 +135,7 @@ MESSAGE_SCHEMA = (
     """CREATE TABLE "agent_messages" (
  id TEXT PRIMARY KEY,
  event_id INTEGER NOT NULL UNIQUE REFERENCES inbox_events(id),
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  sender_id TEXT NOT NULL REFERENCES principals(id),
  recipient_id TEXT NOT NULL REFERENCES principals(id),
  reply_to TEXT REFERENCES agent_messages(id),
@@ -157,7 +157,7 @@ MESSAGE_SCHEMA = (
     """CREATE INDEX agent_messages_current_sender ON agent_messages(current_sender_id,event_id)""",
     """CREATE INDEX agent_messages_current_recipient ON agent_messages(current_recipient_id,event_id)""",
     """CREATE TRIGGER agent_messages_immutable_update BEFORE UPDATE ON agent_messages
-WHEN NEW.id IS NOT OLD.id OR NEW.event_id IS NOT OLD.event_id OR NEW.business_id IS NOT OLD.business_id
+WHEN NEW.id IS NOT OLD.id OR NEW.event_id IS NOT OLD.event_id OR NEW.project_id IS NOT OLD.project_id
  OR NEW.sender_id IS NOT OLD.sender_id OR NEW.recipient_id IS NOT OLD.recipient_id
  OR NEW.reply_to IS NOT OLD.reply_to OR NEW.thread_id IS NOT OLD.thread_id OR NEW.body IS NOT OLD.body
  OR NEW.created_at IS NOT OLD.created_at OR NEW.summary IS NOT OLD.summary

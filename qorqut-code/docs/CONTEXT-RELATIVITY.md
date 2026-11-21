@@ -2,7 +2,7 @@
 
 ## Model
 
-Business context is a set of existing items connected by directional relationships.
+Project context is a set of existing items connected by directional relationships.
 Items retain their domain storage and tools. Context Material is the common item
 category for documents, excerpts, posts, published content and conversations.
 People, topics, tasks, stories, tables,
@@ -33,7 +33,7 @@ relationship IDs are preserved. Use shared context discovery and reading tools.
 The word research can still be an ordinary topic, task label or description of
 work; it no longer selects a separate storage or workflow.
 
-Each relationship has its own ID, business scope, typed source and target IDs,
+Each relationship has its own ID, project scope, typed source and target IDs,
 role, free-form explanation, creation time, and last-edit time. Multiple edges,
 including duplicates, are allowed. Predefined roles are preferred; custom roles
 are allowed when none fits. Part-of relationships allow multiple parents. Edges
@@ -69,7 +69,7 @@ and summaries. Ambiguous identity matches remain separate. It cannot overwrite
 human-written descriptions or notes, appoint managers, change assignments, edit
 task instructions or agent profiles, or create Stories. It can relate material to
 existing Stories and maintain their Background. Story Details belongs to humans
-and business agents; Background belongs to filing. No standalone Fact type.
+and project agents; Background belongs to filing. No standalone Fact type.
 
 Filing has a narrow input schema and may create only descriptive/provenance edges
 such as concerns, mentions, extracted_from, and part_of. It is not granted general
@@ -122,7 +122,7 @@ Core coverage lives in `test_context_relationships.py`, `test_context_reviews.py
 `test_filing_materials.py`, and the existing task, document, Story and email tests.
 These exercise permissions, concurrency, upgrade preservation, archive/restore,
 verbatim extraction and protected authored content. `test_filer_provider.py` is
-an opt-in real-provider check using synthetic inputs, not business correspondence.
+an opt-in real-provider check using synthetic inputs, not project correspondence.
 
 Dashboard graph tests exercise topology, layout and navigation. The isolated
 `test_relationships_browser.js` workflow covers shared decisions, lost-response

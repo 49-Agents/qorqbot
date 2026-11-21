@@ -130,7 +130,7 @@ class Runtime:
         """Observe context failures before an operation can reach its dispatcher.
 
         Only the authenticated identity is known if resolution fails. Do not
-        attribute an unvalidated business selector or guess the agent's task.
+        attribute an unvalidated project selector or guess the agent's task.
         """
         from qorqut_operations.contracts import InvocationContext
         context = InvocationContext(principal)
@@ -452,7 +452,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # File targets are resolved lazily: the document, environment, artifact and agent-bootstrap resolvers exist only
     # once the Application and its domains do, but the Signoff service applies through the sealed applier.
     file_targets = FileTargetResolver(lambda resource: domains.resolve_file_target(resource))
-    file_targets.register("business_environment_files", lambda resource: environment_file(resource))
+    file_targets.register("project_environment_files", lambda resource: environment_file(resource))
     file_targets.register("artifact_files", lambda resource: publisher.resolve_file_target(resource))
     file_targets.register("agent_bootstrap_files", lambda resource: agents.resolve_file_target(resource))
     file_applier = FileApplier(database, file_targets.seal(), locks=locks)
@@ -478,8 +478,8 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.shared_context.service import ContextServices, compose_context
     composed = compose_context(application, paths, context)
     if register_domains is None:
-        from qorqut.domains import register_business_domains
-        register_domains = register_business_domains
+        from qorqut.domains import register_project_domains
+        register_domains = register_project_domains
     domains = register_domains(registry, application, paths, catalog=catalog, agent_resolver=resolver, job_programs=job_programs,
                                filing=composed.filing, graph_edits=composed.graph_edits, queue=composed.queue,
                                on_revision=composed.on_revision, extensions=selection)
@@ -623,7 +623,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.domains.documents.moves import NoteMoves
     from qorqut.domains.tables.moves import TableMoves
     from qorqut_operations.documents.relocation import DocumentRelocation
-    document_moves = DocumentRelocation(lambda business, path: document_root(paths, business, path))
+    document_moves = DocumentRelocation(lambda project, path: document_root(paths, project, path))
     runtime.table_moves = TableMoves(application, documents=document_moves).register(registry)
     runtime.note_moves = NoteMoves(application, document_moves).register(registry)
     # The aggregate CRM activity read: the Domain's local activity merged with the directly linked sources, which are read

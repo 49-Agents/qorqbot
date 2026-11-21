@@ -37,11 +37,11 @@ class CoordinatorReach(unittest.TestCase):
                 # The former coordinator is an earlier Ordubashy registration that no longer acts.
                 status = 'inactive' if name == 'former' else 'active'
                 uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': name})
-                uow.repository('agent_profiles', business_id=None).insert({
+                uow.repository('agent_profiles', project_id=None).insert({
                     'agent_id': identity, 'principal_id': identity, 'namespace': 'ecosystem', 'name': name,
                     'workspace': str(root / name), 'status': status,
                     'profile_json': {'name': name, 'status': status, 'runtime': 'claude-code', 'role': {'id': role},
-                        'scope': {'kind': 'ecosystem', 'allowed_business_ids': [],
+                        'scope': {'kind': 'ecosystem', 'allowed_project_ids': [],
                                   'global_capabilities': ['read_global_context', 'manage_delegated_assignments']}}})
             uow.repository('installation').insert({'id': 'service', 'installation_id': new_id(),
                 'owner_principal_id': self.owner, 'management_coordinator_id': self.ids['coordinator']})
@@ -70,10 +70,10 @@ class CoordinatorReach(unittest.TestCase):
         """A direct message the worker sent the peer: the worker is its requester."""
         identity = new_id()
         event = uow.connection.execute(
-            "INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) "
+            "INSERT INTO inbox_events(project_id,source_type,source_id,actor_id,event_type,summary,created_at) "
             "VALUES(NULL,'agent_messages',?,?,'direct_message','Stuck',?)", (identity, self.ids['worker'], STAMP)).lastrowid
         uow.connection.execute(
-            "INSERT INTO agent_messages(id,event_id,business_id,sender_id,recipient_id,thread_id,body,created_at,"
+            "INSERT INTO agent_messages(id,event_id,project_id,sender_id,recipient_id,thread_id,body,created_at,"
             "current_sender_id,current_recipient_id) VALUES(?,?,NULL,?,?,?,?,?,?,?)",
             (identity, event, self.ids['worker'], self.ids['peer'], identity, 'I am stuck', STAMP,
              self.ids['worker'], self.ids['peer']))
@@ -82,7 +82,7 @@ class CoordinatorReach(unittest.TestCase):
     def routed(self, uow, coordinator):
         identity = new_id()
         uow.connection.execute(
-            "INSERT INTO management_routing(id,source_type,source_id,business_id,coordinator_id,attention_destination,"
+            "INSERT INTO management_routing(id,source_type,source_id,project_id,coordinator_id,attention_destination,"
             "created_by,created_at,updated_at) VALUES(?,'agent_messages',?,NULL,?,'management',?,?,?)",
             (identity, self.message(uow), self.ids[coordinator], self.ids['worker'], STAMP, STAMP))
         return identity
@@ -116,7 +116,7 @@ class CoordinatorReach(unittest.TestCase):
 
     def agent_context(self):
         def profile(principal, connection=None):
-            return NS(data={'status': 'active'}, scope=NS(kind='ecosystem', businesses=frozenset())), None
+            return NS(data={'status': 'active'}, scope=NS(kind='ecosystem', projects=frozenset())), None
         return AgentContext(NS(), NS(profile=profile))
 
     def test_the_coordinator_inspects_a_worker_and_nobody_inspects_the_learning_applier(self):
@@ -142,8 +142,8 @@ class CoordinatorReach(unittest.TestCase):
             self.assertFalse(reads_whole_job(self.delegated('coordinator'), job, uow))
 
     def test_the_coordinator_records_the_result_of_an_assignment_another_parent_created(self):
-        assignment = {'id': new_id(), 'parent_principal_id': self.ids['former'], 'business_id': None, 'state': 'completed',
-                      'result_json': {'summary': 'Done'}, 'scope_json': {'kind': 'global', 'allowed_business_ids': []}}
+        assignment = {'id': new_id(), 'parent_principal_id': self.ids['former'], 'project_id': None, 'state': 'completed',
+                      'result_json': {'summary': 'Done'}, 'scope_json': {'kind': 'global', 'allowed_project_ids': []}}
         actions = NS(application=NS(delegation=NS(assignment=lambda uow, identity: assignment)))
         arguments = {'delegation_assignment_id': assignment['id']}
         with self.database.read() as uow:
@@ -158,8 +158,8 @@ class CoordinatorReach(unittest.TestCase):
         store = OperationalDelegation(clock=lambda: STAMP)
         operations = OperationalDelegationOperations(store)
         with self.database.transaction() as uow:
-            assignment = store.create(uow, parent_principal_id=self.ids['worker'], business_id=None,
-                scope={'kind': 'global', 'allowed_business_ids': [], 'record_ids': {}, 'source_ids': {}},
+            assignment = store.create(uow, parent_principal_id=self.ids['worker'], project_id=None,
+                scope={'kind': 'global', 'allowed_project_ids': [], 'record_ids': {}, 'source_ids': {}},
                 objective='Stale work', plan={'steps': ['wait']}, allowed_operations=[])
             operations._notify_parent(uow, assignment, 'blocked', 'waiting for a file')
             told = {row[0] for row in uow.connection.execute(

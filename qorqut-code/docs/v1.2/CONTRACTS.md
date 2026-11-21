@@ -10,8 +10,8 @@ The owner subsequently accepted the standalone engine, new host composition, fol
 
 | Concern | Target contract |
 | --- | --- |
-| Principals | Keep v1 principal IDs, registrations, global/business agent kinds and role resolution. Do not generate a replacement all-global roster or adopt v2.2's six-character agent-ID scheme |
-| Business ownership | A Task or Action belongs to one business or the explicit global namespace. A global list/aggregate view does not change that ownership |
+| Principals | Keep v1 principal IDs, registrations, global/project agent kinds and role resolution. Do not generate a replacement all-global roster or adopt v2.2's six-character agent-ID scheme |
+| Project ownership | A Task or Action belongs to one project or the explicit global namespace. A global list/aggregate view does not change that ownership |
 | Operational reads/writes | Resolve current v1 scope and capabilities for every operation, relationship endpoint and response. No rights follow merely from a tag, a native-session ID or a system-origin label |
 | Context reads | Grant all registered agents access to the complete published shared Context and its published evidence. This is the deliberate read-access change |
 | Context writes | Preserve current v1 write authority and prepare/apply requirements. Global read access does not grant global submissions, protected edits, file access or owner decision powers |
@@ -30,7 +30,7 @@ The v2.2 choices to use global instances of the Ordubashy role, grant broad edit
 - A Task has one shared `snoozed_until` timestamp, not one per assignee. Snooze suppresses the Task's due reminder until that time; it is not a new Task state, cancellation, completion, subscription change or deletion.
 - Due reconciliation creates one durable due event for the current snooze generation, for current assignees or the creator when unassigned. Repeated ticks cannot create repeated notifications for the same due state. Completed/cancelled Tasks do not produce obsolete work reminders.
 - Task snooze is distinct from retained owner Focus-card deferral. Update the Task controls/read model without changing Focus ordering or its independent card workflow.
-- Preserve v1's operational scope checks for assignees, parent/dependency links and related resources. No new cross-business access is granted by this port. An agent never gets another business's Task body through a linked parent or dependency.
+- Preserve v1's operational scope checks for assignees, parent/dependency links and related resources. No new cross-project access is granted by this port. An agent never gets another project's Task body through a linked parent or dependency.
 - Existing parent/child work relationships use normal typed Task references. There is no hidden `is_story` class, parallel Story table or Story API alias in the target runtime.
 
 The target Task schema is prepared in isolated code/fixtures only. No conversion of saved Task states, custom status configuration or Story records is attempted during this phase.
@@ -51,7 +51,7 @@ Unselected v1 fields are retained. Changing states, tags, snoozing and Story ref
 | Configurable states, completion and blockers | Replace selected semantics | Fixed `status` enum; `tasks_complete` defaults to `done` and accepts only terminal states; `blocked_by` remains informational with valid, visible, distinct Task targets | Normal Task permissions govern completion; dependencies do not prevent it; invalid/missing/self links and dependency cycles remain rejected |
 | Comments, note references and Story grouping | Replace storage/Story targets; retain useful caller functions | `tasks_comment`, `tasks_thread_get`, `tasks_notes_list`, create/update `note`, summaries and typed note references all use the one canonical item thread; `parent_id` and related Task links replace `story_ids/story_context` | A comment written through either retained entry point appears once, with actual/represented attribution; linked-resource privacy holds; no Story alias or duplicate note writer |
 
-The field-definition scope remains the owning business or the explicit global namespace; sharing tag labels does not share custom-field configuration. Preserve v1 configuration-change authorization and validation against current records. P1 must enumerate actual callers of removed fields, including setup guards, rather than silently accepting and ignoring their arguments.
+The field-definition scope remains the owning project or the explicit global namespace; sharing tag labels does not share custom-field configuration. Preserve v1 configuration-change authorization and validation against current records. P1 must enumerate actual callers of removed fields, including setup guards, rather than silently accepting and ignoring their arguments.
 
 ## Shared tags
 
@@ -59,13 +59,13 @@ The new shared tag catalog initially covers Tasks and Actions. Existing Signoff/
 
 Tags support creation, listing, application and removal from an item. Previously used tags remain discoverable in the shared catalog. No renaming or merging feature is needed. Validation prevents duplicate catalog entries for the same normalized label; presentation retains a stable display form.
 
-A business-named label is still only a label. It does not create a business/folder, transfer ownership, create a second owner or grant access. Item listing resolves the caller's operational access first and then filters visible items by tags. The shared catalog may reveal label names, as requested, but never leaks unauthorized item contents or counts through tag queries.
+A project-named label is still only a label. It does not create a project/folder, transfer ownership, create a second owner or grant access. Item listing resolves the caller's operational access first and then filters visible items by tags. The shared catalog may reveal label names, as requested, but never leaks unauthorized item contents or counts through tag queries.
 
 An item thread inherits its item's tags for display/filtering; it has no separately editable tag set.
 
 ## Actions and Context submission
 
-An Action records a business/global activity or outcome. It is neither a planned Task nor the generic technical audit log.
+An Action records a project/global activity or outcome. It is neither a planned Task nor the generic technical audit log.
 
 - Each Action has one owning scope, stable identity, current revision, immutable revision history, attributed actor, recorder and provenance. Use the actual v1 principal IDs.
 - Creation, correction and withdrawal append accepted revisions. A withdrawal retains history. A real-world reversal is a new Action describing what happened, not destruction of earlier evidence.
@@ -169,18 +169,18 @@ Raw transcripts remain authoritative for native conversation content. Keep durab
 | Read boundary | Keep the owner-only `POST /api/root/agents/{agent_id}/chat/read` with `{sequence}`; it advances the owner's per-agent cursor only to an existing completion boundary that the client rendered. Return the observed boundary with the Chat page/event. A stale read request cannot clear a concurrently completed newer reply; fetching/prefetching/selecting alone does not mark unseen replies read |
 | HTTP/read models | The existing Chat state/history/events endpoints expose stable entry IDs, completion sequences, exact conversation binding and application-origin/type metadata. The reply-notification reader joins identity/read metadata to a bounded derived preview instead of querying an authoritative normalized message body |
 | Eligible replies | Preserve completed, nonempty, owner-visible assistant replies. Exclude partial output, tool-only/internal records, owner-input echoes and system-generated nudge records. An assistant's actual visible reply after a nudge is still an assistant reply; the nudge itself is never one |
-| Owner attention and navigation | Preserve the latest eligible unread reply per active enabled agent. Global-agent replies retain existing attention/toast eligibility; business-agent replies retain `nav_only` behavior. Keep active-business/agent and owner authorization filters |
+| Owner attention and navigation | Preserve the latest eligible unread reply per active enabled agent. Global-agent replies retain existing attention/toast eligibility; project-agent replies retain `nav_only` behavior. Keep active-project/agent and owner authorization filters |
 | Independent acknowledgments | The owner's attention-queue notification acknowledgments remain separate from Chat read cursors, inbox acknowledgment and Signoff state. Use stable notification IDs derived from reply identities so restart/reprojection does not resurrect an acknowledged entry. Reading Chat removes its unread indication; acknowledging a card does not silently mark conversation content read |
 | Background ownership | Capture, completion indexing and notification availability run in the host with Chat closed. The browser only renders/records actual reading; it is not the notification producer. Keep private item-DM read/notification semantics with their existing owner |
 | Rebuild and retention | Rebuilding a derived cache must reuse durable identity/completion bindings and saved cursors. Never reset read state to regenerate a view. Ended native conversations remain readable and retain unread state; an integrity failure reports unavailable evidence, not a fabricated new message |
 
 The completion sequence is not the SSE transport cursor, provider message role or an inbox event ID. Register the durable metadata as a host-owned schema contribution through Operations; there is no second database or permission authority. Update the existing client directly to the final response schema.
 
-**Acceptance:** with Chat closed, append a complete synthetic reply and reconcile the backend; its notification/nav indicator appears. Render/read through its completion boundary; the indicator clears. Restart and rebuild the rendering cache; it stays cleared and the reply/notification IDs remain unchanged. Also check business `nav_only`, separately acknowledged attention cards, partial-to-complete output after an earlier read, a concurrently arriving later reply, same-conversation resume and a system nudge that creates no owner-message or reply notification.
+**Acceptance:** with Chat closed, append a complete synthetic reply and reconcile the backend; its notification/nav indicator appears. Render/read through its completion boundary; the indicator clears. Restart and rebuild the rendering cache; it stays cleared and the reply/notification IDs remain unchanged. Also check project `nav_only`, separately acknowledged attention cards, partial-to-complete output after an earlier read, a concurrently arriving later reply, same-conversation resume and a system nudge that creates no owner-message or reply notification.
 
 ## Shared Context
 
-Replace the old `qorqut-contextbase` host integration with the pinned new `qorqut-context` library and its published graph/search/history model. There is one shared graph. Business ownership remains operational metadata, not a separate Context engine per business.
+Replace the old `qorqut-contextbase` host integration with the pinned new `qorqut-context` library and its published graph/search/history model. There is one shared graph. Project ownership remains operational metadata, not a separate Context engine per project.
 
 The owner selected general graph-based Context only. Home/bootstrap content is a bounded read of published node summaries, attributes and relationships, with graph references and a pinned revision. Remove the dedicated living-brief record, editor, write operations and maintenance requirements from the target; do not recreate them as a second summary store or a generated-brief job. An empty graph produces an explicit empty view, not invented brief content. This presentation decision leaves the agreed ordinary and Action-revision input paths into the shared engine intact.
 
@@ -207,7 +207,7 @@ Keep the selected shared graph and the current write/owner-diagnostic authority.
 
 | Existing behavior | Disposition | Target interface | Acceptance check |
 | --- | --- | --- | --- |
-| Graph lookup/search, neighborhood and history | Replace implementation; retain retrieval functions | `context_object`, `context_find`, `context_expand` read a pinned published snapshot using new node/edge IDs, summaries, attributes, relationships, source history and explicit pagination; `context_changes` retains its owner-only diagnostic boundary | Existing UI/bootstrap/report readers consume the final DTO; two business agents read the same published graph through agent-permitted queries; draft data and protected raw sources remain inaccessible |
+| Graph lookup/search, neighborhood and history | Replace implementation; retain retrieval functions | `context_object`, `context_find`, `context_expand` read a pinned published snapshot using new node/edge IDs, summaries, attributes, relationships, source history and explicit pagination; `context_changes` retains its owner-only diagnostic boundary | Existing UI/bootstrap/report readers consume the final DTO; two project agents read the same published graph through agent-permitted queries; draft data and protected raw sources remain inaccessible |
 | Living brief/home/bootstrap pack | Remove dedicated living briefs; replace home/bootstrap content with the general published graph | `context_home` and bootstrap DTOs return bounded published node summaries/attributes, relationships, graph references and revision. Update consumers directly; remove brief-only fields, editing routes and maintenance requirements | A synthetic graph supplies the home/bootstrap view at its published revision; an empty graph is explicitly empty. No dedicated brief schema, writer, editor or background generation remains |
 | Explicit typed graph edits | Retain deterministic edits; replace old graph schema | `context_edit` accepts typed operations on new node/edge records, source/citation/support evidence, rationale and expected published revision. A queue entry freezes that exact plan; the controlled Context writer stages/validates/publishes it without model reinterpretation | Enumerate each retained graph-edit verb in P1 and map it explicitly; remove old brief-only verbs. Valid edits produce one attributed event; unauthorized targets, unsupported verbs, stale graph bases or invalid support fail without publication; retry cannot reinterpret the request |
 | Focused instructions | Retain permission/attribution; replace filer | `context_instruct` freezes text, people/source references and attribution into a GENERAL input through its registered program | Only currently permitted roles/scopes submit; request/job/input/result identities survive retry and restart; no operational authority follows from a handoff note |
@@ -283,7 +283,7 @@ No data conversion, old-ID redirect layer, pending-approval replay or real Story
 | Signoffs | V1 owner review authority, exact prepared operation/revision binding, automatic application/recovery of approved plans, rejection/input rules, retry and existing notification rules | Extract generic lifecycle/executor into Operations; register domain contributions; retarget Story lookups and changed operation preparation | V2.2 response-only approval, separate one-use grants, agent recording formal owner decisions, generic-thread approval bypass |
 | Routines/jobs | Registered program model, cron/timezone, current pause/manual-run controls, serial execution, existing slot catch-up/recovery/cost/authority rules | Extract definitions/state/authority into Operations, compose concrete host runners, update Context/Task/Story/transcript consumers | V2.2 fresh-Task occurrences, arbitrary script routines, new overlap/missed-slot/retry policy, automatic creation of routines |
 | Focus | Card layout, curation/ordering rights, private channels, ordering/deferral and source-specific workflow | Neutral item lookup; final Task statuses/snooze metadata; replacement Task links where Stories were shown | Focus redesign, changed card authority or a second Task model to avoid wiring changes |
-| Agent pane | Existing layout, tabs and global/business context | Chat mount/navigation presentation and exact session/status wiring | New overall workspace layout, removed tabs or global-only agent roster |
+| Agent pane | Existing layout, tabs and global/project context | Chat mount/navigation presentation and exact session/status wiring | New overall workspace layout, removed tabs or global-only agent roster |
 | Other v1 features | Existing tools/permissions and domain behavior; existing data remains untouched | Register retained services/domains with new host/engine; update imports, paths and affected typed references/readers | Browser-engine replacement, auth removal, automatic learning/evolution |
 | Owner reminders | Existing v1 owner-notification tool and durable delivery behavior | Only shared delivery integration if an actual selected dependency requires it | Deleting owner reminders because v2.2 treats agent reminders as snoozed Tasks |
 
@@ -293,7 +293,7 @@ For routine behavior, the deployed source specifically describes globally serial
 
 Port the new Chat and navigation presentation into the existing dashboard mounts. The donor UI uses a different application/framework and all-global assumptions; do not transplant its root store, router, roster or full layout.
 
-Chat may change message typography, spacing, composer, delivery status, history presentation and compact system-nudge markers. Navigation may change the agent selector/list appearance and interaction while retaining business grouping, role identity, selection and permission behavior. Preserve per-agent draft/history/scroll state where supported by the existing host.
+Chat may change message typography, spacing, composer, delivery status, history presentation and compact system-nudge markers. Navigation may change the agent selector/list appearance and interaction while retaining project grouping, role identity, selection and permission behavior. Preserve per-agent draft/history/scroll state where supported by the existing host.
 
 Keep CSS scoped to these surfaces. Wire new Task statuses, snooze controls and parent links into affected existing views without redesigning their layout. Context views may need new backend DTOs and rendering fields but no unrelated visual rebuild. Story navigation is removed as part of the requested domain removal, with useful access routed to Tasks.
 
@@ -301,6 +301,6 @@ Keep CSS scoped to these surfaces. Wire new Task statuses, snooze controls and p
 
 Source moves into `qorqut-code/` and `qorqut-roles/` and code targeting new `operations/` paths do not authorize moving real data. Operational Git history is now included as a code feature; its first test snapshots must use only isolated synthetic records/files, with coverage defined in [history](HISTORY.md).
 
-Code may define the final schema, queries, provider adapters and synthetic initialization needed to exercise it. It must not load existing data to discover failures, run automatic upgrades against live roots, import business/agent directories, reset unsupported rows or copy a real database as a test fixture.
+Code may define the final schema, queries, provider adapters and synthetic initialization needed to exercise it. It must not load existing data to discover failures, run automatic upgrades against live roots, import project/agent directories, reset unsupported rows or copy a real database as a test fixture.
 
 Later migration work will reconcile actual records, identities, files, history and prepared state against these settled contracts. That is intentionally deferred. No backup/restore procedure, gradual deployment toggle or legacy writer is introduced now in anticipation of that work.

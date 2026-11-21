@@ -1,18 +1,18 @@
-# qorqut-business-docs-versioning
+# qorqut-docs-versioning
 
-Shared document revision history and append-only business activity for Qorqut.
+Shared document revision history and append-only project activity for Qorqut.
 
 A small standard-library Python package (Python 3.12+) that stores, through a
 SQLite connection the host already owns:
 
 1. **Document history** — immutable full snapshots of text documents, with
    history listing, on-demand diffs and restore-as-new-version.
-2. **Business activity** — an append-only, business-scoped log of facts such as
+2. **Project activity** — an append-only, project-scoped log of facts such as
    "task completed" or "document updated".
 
 The two record types share one package but are separate tables and APIs. An
 event records an action that already succeeded; it is not a command, work
-queue, approval or replayable business model. The package is a library, not a
+queue, approval or replayable project model. The package is a library, not a
 plugin, service or adapter. Version 0.2.0 includes the trusted import call used
 by the Qorqut integration (the host and qorqut-context consume it through exact
 Git commit pins).
@@ -36,7 +36,7 @@ network access, and uses it from a directory outside the checkout (skipped if
 
 ```python
 import sqlite3
-from qorqut_business_docs_versioning import HistoryStore, initialize_schema
+from qorqut_docs_versioning import HistoryStore, initialize_schema
 
 connection = sqlite3.connect(path, isolation_level=None)
 connection.execute("BEGIN IMMEDIATE")
@@ -53,11 +53,11 @@ store = HistoryStore(connection)
 - Importing the package or constructing `HistoryStore` touches no database.
   `initialize_schema` must be called explicitly, inside the caller's
   transaction. It is repeatable (`IF NOT EXISTS`), does not use `executescript`,
-  and only creates `qbdv_`-prefixed objects:
-  - `qbdv_document_versions` (primary key `namespace, document_id, version`);
-  - `qbdv_business_events` (integer `sequence` primary key, unique index
-    `qbdv_business_events_identity` on `business_id, event_id`, index
-    `qbdv_business_events_business_sequence`);
+  and only creates `qdv_`-prefixed objects:
+  - `qdv_document_versions` (primary key `namespace, document_id, version`);
+  - `qdv_project_events` (integer `sequence` primary key, unique index
+    `qdv_project_events_identity` on `project_id, event_id`, index
+    `qdv_project_events_project_sequence`);
   - `BEFORE UPDATE` / `BEFORE DELETE` triggers on both tables that abort.
 - There is no mutable document head; the latest version is the highest version.
 - The triggers make history immutable through normal SQL `UPDATE`/`DELETE` and
@@ -85,16 +85,16 @@ store = HistoryStore(connection)
   committed, retrying with the same `expected_version` fails closed with
   `VersionConflict`; the host reconciles through its own operation receipts
   (or by reading the latest version) and can skip redundant saves itself.
-- Events are idempotent by `(business_id, event_id)`, described below.
+- Events are idempotent by `(project_id, event_id)`, described below.
 - All SQL values are bound parameters.
 
 ## Namespaces versus authorization
 
-`namespace`, `document_id`, `business_id`, `author_id` and `actor_id` are opaque
-nonblank strings chosen by the host. Namespaces such as `business:<uuid>` and
+`namespace`, `document_id`, `project_id`, `author_id` and `actor_id` are opaque
+nonblank strings chosen by the host. Namespaces such as `project:<uuid>` and
 `global` are caller conventions; the package does not route on them. Every
 document call is scoped by both namespace and document ID, and every event call
-by business ID; nothing reads across those scopes.
+by project ID; nothing reads across those scopes.
 
 A namespace is not a permission. `author_id`/`actor_id` are recorded as given,
 not authenticated. The host must decide, before calling the package, whether
@@ -165,11 +165,11 @@ clock and `expected_version`.
 
 | Call | Result |
 |---|---|
-| `append_event(business_id, event_id, kind, actor_id, summary, *, subject_type, subject_id, occurred_at, data=None)` | Records a fact, or returns the identical earlier record; returns `BusinessEvent`. |
-| `get_event(business_id, event_id)` | `BusinessEvent`; `NotFound` if absent in that business. |
-| `list_events(business_id, *, before_sequence=None, limit=50)` | `EventPage`, newest appended first. |
+| `append_event(project_id, event_id, kind, actor_id, summary, *, subject_type, subject_id, occurred_at, data=None)` | Records a fact, or returns the identical earlier record; returns `ProjectEvent`. |
+| `get_event(project_id, event_id)` | `ProjectEvent`; `NotFound` if absent in that project. |
+| `list_events(project_id, *, before_sequence=None, limit=50)` | `EventPage`, newest appended first. |
 
-`BusinessEvent` fields: `sequence`, `business_id`, `event_id`, `kind`,
+`ProjectEvent` fields: `sequence`, `project_id`, `event_id`, `kind`,
 `actor_id`, `summary`, `subject_type`, `subject_id`, `data` (dict),
 `occurred_at`, `recorded_at`.
 
@@ -184,7 +184,7 @@ clock and `expected_version`.
 - `sequence` is a database-generated increasing integer that orders **appends**,
   not occurrence. Imported or late facts get a later sequence even if they
   occurred earlier; sort by `occurred_at` yourself when that is what you need.
-- `(business_id, event_id)` is unique. Retrying with the same normalized
+- `(project_id, event_id)` is unique. Retrying with the same normalized
   contents returns the original event (same `sequence` and `recorded_at`)
   without another row. Key order in `data` and equivalent timezone spellings
   are not differences. Any other difference raises `EventConflict`, whose
@@ -212,8 +212,8 @@ Both lists return newest first with an exclusive integer continuation:
 `VersionPage.next_before_version` / `EventPage.next_before_sequence`. Pass it
 back as `before_version` / `before_sequence` to get the next page; it is `None`
 when there are no more items. `limit` must be 1–200. A missing document or
-business gives an empty page. Pages never include other documents, namespaces
-or businesses.
+project gives an empty page. Pages never include other documents, namespaces
+or projects.
 
 ## Example
 
@@ -232,7 +232,7 @@ adapter.
 - ORM, storage adapters or generic schema engines.
 - Event sourcing or state rebuilding from events.
 - Automatically migrating existing Qorqut histories; hosts decide what to import
-  through `import_document_version`. Email, Business Tables and learning
+  through `import_document_version`. Email, Project Tables and learning
   records keep their own semantics — email send receipts and reconciliation,
   per-mutation table revisions with their Git history, and learning review
   state — which are specific to those features and already have their own

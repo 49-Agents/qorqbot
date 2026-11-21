@@ -76,11 +76,11 @@ class OwnerTaskAttention(Protocol):
     """Task/snooze knowledge for the owner attention overview (v1 ``tasks.models.DEFAULT_CONFIG`` and
     ``tasks.snooze.ACTIVE_SQL`` inside ``SignoffNotifications.overview``).
 
-    ``open_assigned_count(uow, business_id, principal_id, now)`` -> the number of non-archived, non-closed,
-    not-snoozed tasks assigned to that person in that business (``None`` is the Global workspace). ``now`` is the
+    ``open_assigned_count(uow, project_id, principal_id, now)`` -> the number of non-archived, non-closed,
+    not-snoozed tasks assigned to that person in that project (``None`` is the Global workspace). ``now`` is the
     normalized UTC stamp the engine compares against."""
 
-    def open_assigned_count(self, uow, business_id: str | None, principal_id: str, now: str) -> int: ...
+    def open_assigned_count(self, uow, project_id: str | None, principal_id: str, now: str) -> int: ...
 
 
 @dataclass(frozen=True)

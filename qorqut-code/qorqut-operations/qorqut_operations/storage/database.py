@@ -312,9 +312,9 @@ def active_tables(tables=None):
 
 
 class UnitOfWork:
-    def __init__(self, database, connection, *, writable: bool, business_id=UNSET):
+    def __init__(self, database, connection, *, writable: bool, project_id=UNSET):
         self.database, self.connection = database, connection
-        self.writable, self.business_id = writable, business_id
+        self.writable, self.project_id = writable, project_id
         self.actor_id = None
         self.completed_file_documents = set()
         # Document lifecycle events waiting for this unit's verified file finalisation.
@@ -335,8 +335,8 @@ class UnitOfWork:
         if not self.writable:
             raise DomainError("read_only", "Preparation and reads cannot change operational data")
 
-    def repository(self, table: str, *, business_id=UNSET) -> Repository:
-        return Repository(self, table, business_id)
+    def repository(self, table: str, *, project_id=UNSET) -> Repository:
+        return Repository(self, table, project_id)
 
     @contextmanager
     def relocating(self, source, destination, task_ids):
@@ -582,7 +582,7 @@ class Database:
         return self
 
     @contextmanager
-    def _unit(self, *, writable, business_id=UNSET, operation=None, attempt=None):
+    def _unit(self, *, writable, project_id=UNSET, operation=None, attempt=None):
         """One unit of work. ``attempt`` (see ``write_if_needed``) makes a write unit optimistic: it opens without
         the writer and takes it with its first write, or is abandoned when that write cannot have it at once."""
         if not self._columns:
@@ -634,7 +634,7 @@ class Database:
             # Everything an optimistic unit runs, the commit hooks below included, goes through the handle that
             # notices a refused write; an ordinary unit uses the connection itself.
             handle = _OptimisticConnection(connection, attempt) if optimistic else connection
-            uow = UnitOfWork(self, handle, writable=writable, business_id=business_id)
+            uow = UnitOfWork(self, handle, writable=writable, project_id=project_id)
             yield uow
             publisher, captured = self.assembly.change_publisher, None
             if writable:
@@ -653,7 +653,7 @@ class Database:
                 name, _, _, _ = OBSERVATION.get()
                 try:
                     publisher.publish_commit(captured=captured, operation=operation or name,
-                        business_id=None if business_id is UNSET else business_id,
+                        project_id=None if project_id is UNSET else project_id,
                         wrote=connection.total_changes != changes_before)
                 except Exception:
                     LOGGER.exception("change_publish_failed operation=%s", operation or name)
@@ -731,13 +731,13 @@ class Database:
         finally:
             OBSERVATION.reset(token)
 
-    def read(self, *, business_id=UNSET):
-        return self._unit(writable=False, business_id=business_id)
+    def read(self, *, project_id=UNSET):
+        return self._unit(writable=False, project_id=project_id)
 
-    def transaction(self, *, business_id=UNSET, operation=None):
-        return self._unit(writable=True, business_id=business_id, operation=operation)
+    def transaction(self, *, project_id=UNSET, operation=None):
+        return self._unit(writable=True, project_id=project_id, operation=operation)
 
-    def write_if_needed(self, body, *, business_id=UNSET, operation=None):
+    def write_if_needed(self, body, *, project_id=UNSET, operation=None):
         """Run ``body(uow)`` as one write unit and return its result, holding the writer only if it writes.
 
         For work that runs often and usually finds nothing to change: a periodic reconcile, a claim that is rarely
@@ -758,7 +758,7 @@ class Database:
         whatever write admission it holds around this call."""
         attempt = _Attempt()
         try:
-            with self._unit(writable=True, business_id=business_id, operation=operation, attempt=attempt) as uow:
+            with self._unit(writable=True, project_id=project_id, operation=operation, attempt=attempt) as uow:
                 return body(uow)
         except _WriterRequired:
             pass
@@ -766,7 +766,7 @@ class Database:
             # An error raised after a refused write describes the abandoned attempt, not the work.
             if not attempt.refused:
                 raise
-        with self._unit(writable=True, business_id=business_id, operation=operation) as uow:
+        with self._unit(writable=True, project_id=project_id, operation=operation) as uow:
             return body(uow)
 
     def validate_snapshot(self, path):

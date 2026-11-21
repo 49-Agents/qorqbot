@@ -49,8 +49,8 @@ class TimelineOwner:
         else:
             rows = uow.connection.execute(
                 f"{QUESTION_ROW} WHERE {ASKS} AND EXISTS (SELECT 1 FROM signoff_source_links l WHERE l.signoff_id=s.id "
-                "AND l.source_type=? AND l.source_id=? AND l.source_business_id IS ?) ORDER BY blocking DESC, s.created_at, s.id LIMIT ?",
-                (item["type"], item["id"], item["business_id"], LINKS_LIMIT)).fetchall()
+                "AND l.source_type=? AND l.source_id=? AND l.source_project_id IS ?) ORDER BY blocking DESC, s.created_at, s.id LIMIT ?",
+                (item["type"], item["id"], item["project_id"], LINKS_LIMIT)).fetchall()
         return [{"id": row["id"], "signoff_id": row["id"], "text": row["text"] or "", "blocking": bool(row["blocking"]),
                  "raised_by": "coordinator", "created_at": row["created_at"]} for row in rows]
 

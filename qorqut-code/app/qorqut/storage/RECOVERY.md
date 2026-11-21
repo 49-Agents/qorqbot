@@ -16,7 +16,7 @@ rehearsals. Scheduling is an ordinary explicitly installed global routine.
 The program needs a verified backup, publishes deterministic exports from that
 saved database, optionally versions those exact saved bytes, then applies the
 seven-daily/four-weekly retention policy. Errors remain ordinary failed jobs and
-never roll back live business work or create journal entries. The oldest valid
+never roll back live project work or create journal entries. The oldest valid
 generations are removed only after a new generation has been verified. One newest
 generation per available UTC date/week is retained, with the two sets combined.
 
@@ -78,10 +78,10 @@ complete generation is sealed; a proof lost mid-capture fails the generation and
 `create` uses SQLite's backup API, validates integrity, foreign
 keys and migration checksums, and writes a private temporary generation. It
 captures registered document hashes, complete pinned artifact packages, registered
-bootstrap files and scoped credentials, owned business `hq` trees and shared
+bootstrap files and scoped credentials, owned project `hq` trees and shared
 authored context. Root and registered HQ `.qorqut/legacy/` retirement archives
 are included completely as private historical bytes, including nested private
-files; they are never traversed by exports or Git versioning. Business `code`
+files; they are never traversed by exports or Git versioning. Project `code`
 siblings, Git internals, generated exports and
 cache/dependency directories are not captured. Private full backups include the
 operational DB's exact signoff plans, job results, and file-apply receipts; the
@@ -113,7 +113,7 @@ depending on today's authored files, binds the authored projects to the captured
 instance's Context identity; a missing, altered or foreign Context makes the generation invalid.
 `restore(generation_uuid, empty_directory)`
 rehearses into a separate empty root and verifies operational row counts. The SQLite maintenance gate
-stays closed. Original absolute business/agent bindings are intentionally retained in the database: this is a
+stays closed. Original absolute project/agent bindings are intentionally retained in the database: this is a
 parity rehearsal, not a relocation feature. The Context pair is restored last, at its final locations beneath
 the rehearsal root (its two ownership markers name those paths; events and provenance are unchanged), and
 `.runtime/restore-incomplete.json` marks the root incomplete until the restored pair passes the library's
@@ -124,14 +124,14 @@ belongs to the reviewed recovery runbook at the original registered root.
 
 ## Exports And History
 
-Business tables additionally use per-mutation history on `qorqut-tables`, separate
+Project tables additionally use per-mutation history on `qorqut-tables`, separate
 from nightly history. Current records, pending snapshots and original Data Uploads
 are included in full backups; already-published historical snapshots remain in
-the businesses Git repository, whose `.git` directory is not part of these backups.
-Global general tables use the same stores with a NULL business (migration 105), the
-same history ref and `global/tables/<table-id>.json` under the businesses root, and
+the projects Git repository, whose `.git` directory is not part of these backups.
+Global general tables use the same stores with a NULL project (migration 105), the
+same history ref and `global/tables/<table-id>.json` under the projects root, and
 a `global` export scope; retry and recovery never cross between Global and a
-business. See [Tables](../../../docs/TABLES.md#git-history) and
+project. See [Tables](../../../docs/TABLES.md#git-history) and
 [Global tables](../../../docs/TABLES.md#global-tables).
 
 `build_exports(snapshot_path, root)` selects the fixed public operational table
@@ -162,7 +162,7 @@ attribution to committed action receipts; it remains in the same private
 backup/export boundary.
 Migration 080 adds worker/assignment/plan attribution to direct-message rows.
 Migration 081 adds claims for exact linked tasks, Stories, documents, and
-message threads. Business-only matches and ambiguous matches are not routed.
+message threads. Project-only matches and ambiguous matches are not routed.
 The parent delivery remains authoritative: a worker must save a handling
 outcome before the same transaction acknowledges the parent delivery. A live
 claim prevents parent acknowledgement, and pause/revision/completion releases
@@ -188,7 +188,7 @@ Enabled Git versioning requires the root's existing repository; it never runs
 `git init`. History lives only on `refs/heads/qorqut-history`, seeded once from
 existing `HEAD`. A temporary index receives explicit authored-data and export
 paths from the verified generation. The user's current branch, worktree, real
-index, unrelated staged files and business code repositories are not changed.
+index, unrelated staged files and project code repositories are not changed.
 Versioning refuses to advance this history branch while it is checked out in any
 working tree; inspect it by ref without checking it out for ordinary work.
 Credentials, `.env`, DB/backups, sessions, runtime logs and caches are excluded

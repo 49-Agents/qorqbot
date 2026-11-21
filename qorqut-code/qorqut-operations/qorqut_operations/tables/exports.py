@@ -10,7 +10,7 @@ from qorqut_operations.history_exports import Integer, SEPARATE_HISTORY, TableCl
 
 EXPORTS = (
     TableExport('data_tables', {
-        'business_id': Text(nullable=True),
+        'project_id': Text(nullable=True),
         'id': Text(),
         'title': Text(),
         'description': Text(),
@@ -20,7 +20,7 @@ EXPORTS = (
         'revision': Integer(),
         'created_at': Text(),
         'updated_at': Text(),
-    }, ('business_id', 'id')),
+    }, ('project_id', 'id')),
 )
 
 CLASSIFICATIONS = (

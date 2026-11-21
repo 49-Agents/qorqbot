@@ -84,12 +84,12 @@ class VerifyTests(unittest.TestCase):
         self.paths = SimpleNamespace(runtime=Path(directory.name))
         self.panes = (0, "4300\n")
         self.tmux = mock.Mock(side_effect=lambda *args: self.panes)
-        terminals = SimpleNamespace(execution=lambda business: SimpleNamespace(broker=SimpleNamespace(tmux=self.tmux)),
-                                    binding=lambda business, row, broker: ("key", "agent-session", "/w"))
+        terminals = SimpleNamespace(execution=lambda project: SimpleNamespace(broker=SimpleNamespace(tmux=self.tmux)),
+                                    binding=lambda project, row, broker: ("key", "agent-session", "/w"))
         database = SimpleNamespace(read=mock.MagicMock())
         database.read.return_value.__enter__.return_value.repository.return_value.get.return_value = None
         self.runtime = SimpleNamespace(paths=self.paths, terminals=terminals, database=database)
-        self.profile = {"agent_id": AGENT, "workspace": "/w", "home_business_id": None,
+        self.profile = {"agent_id": AGENT, "workspace": "/w", "home_project_id": None,
                         "profile_json": json.dumps({"runtime": "claude-code"})}
         self.ran = []
         self.observation = {"agent_id": AGENT, "session_id": CONVERSATION, "pid": 4343, "started": "777", "owner": "4343:777"}

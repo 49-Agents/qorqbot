@@ -90,7 +90,7 @@ SCHEMA = (
         signoff_id TEXT NOT NULL UNIQUE REFERENCES signoffs(id),
         proposal_revision INTEGER NOT NULL CHECK(proposal_revision > 0),
         payload_hash TEXT NOT NULL,
-        review_business_id TEXT REFERENCES businesses(id),
+        review_project_id TEXT REFERENCES projects(id),
         purpose TEXT NOT NULL,
         run_id TEXT NOT NULL,
         delta_id TEXT,
@@ -205,4 +205,4 @@ SCHEMA = (
 def storage_contribution():
     return StorageContribution(OWNER, TABLES, IMMUTABLE_FIELDS, SCHEMA,
                                required_tables=frozenset({'native_inputs', 'native_sessions', 'principals',
-                                                          'signoffs', 'tasks', 'businesses', 'routine_runs', 'jobs'}))
+                                                          'signoffs', 'tasks', 'projects', 'routine_runs', 'jobs'}))

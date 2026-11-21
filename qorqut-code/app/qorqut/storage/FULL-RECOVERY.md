@@ -4,25 +4,25 @@
 installation. It composes the existing `BackupStore` validation of authoritative
 SQLite, registered HQ data, artifacts and credential projections with a pinned
 [restic 0.19.1](https://restic.readthedocs.io/en/stable/) snapshot of the state
-that `BackupStore` intentionally excludes: every registered business's `code/`
+that `BackupStore` intentionally excludes: every registered project's `code/`
 tree (including `.git` and worktrees) and Git metadata the authority snapshot
 skips. Restic records symbolic links as links and
-does not follow them, so a checkout link outside the business mount is preserved
+does not follow them, so a checkout link outside the project mount is preserved
 without making that external location part of the backup.
 
 The caller passes `create(generation_id, quiescence=...)` a trusted context
-manager. Its `__enter__` must return only after the service, every business
+manager. Its `__enter__` must return only after the service, every project
 writer, an explicit legacy-host inventory, and browser writer leases are drained.
 The store deliberately has no boolean, PID check or claimed token that could
 assert consistency without causing it. The scope remains entered while the SQLite
 snapshot and encrypted filesystem snapshot are made. If either capture or verification fails, no retention runs and
 the short-lived unencrypted authority staging copy is erased.
 
-Provision restic outside the business mounts and construct `ResticBinary` with
+Provision restic outside the project mounts and construct `ResticBinary` with
 the executable and its SHA-256 from the official release's `SHA256SUMS`; the
 module verifies that digest and requires exactly version 0.19.1 before use. The
 repository, password file and authority staging directory must each be outside the
-business mount, must not overlap one another, and cannot cross symlinks. The
+project mount, must not overlap one another, and cannot cross symlinks. The
 password is supplied only with restic's password-file option; command output is
 captured and never logged by this module. A repository must already be initialized
 unless the trusted caller sets `initialize_repository=True` for a newly created
@@ -39,13 +39,13 @@ intentionally external: it references the repository, password file, staging and
 local socket, so it must never be captured inside the generation it controls.
 
 `restore(generation_id, destination)` rehearses into an empty directory outside
-the live businesses root. `restore_original_root(generation_id, quiescence=...)`
+the live projects root. `restore_original_root(generation_id, quiescence=...)`
 prepares an original-path restore after the trusted caller has retired that root:
 the original root must be absent or empty, all installation writers must stay
 quiesced, and the method refuses to merge or overwrite a nonempty root. Both
 restore paths close SQLite maintenance and file-authority gates, retain original
-absolute database bindings, and start no service. The API has no per-business
-restore because SQLite is installation authority: restoring one business while
+absolute database bindings, and start no service. The API has no per-project
+restore because SQLite is installation authority: restoring one project while
 others continue would silently roll back their shared operational state.
 
 `Runtime.recovery_quiescence()` supplies the in-process portion of the trusted
@@ -78,18 +78,18 @@ itself. Restore is deliberately absent from this interface; rehearsal and
 original-path activation remain offline all-installation procedures.
 
 The controller listens only on the absolute `socket_path` in a small mode-0600
-private host configuration, outside the businesses mount. It refuses symlinked,
+private host configuration, outside the projects mount. It refuses symlinked,
 FIFO, public-parent, or pre-existing socket paths, verifies Linux `SO_PEERCRED`
 against the configured owner UID, and bounds each JSON line request and response.
 It returns only generation, snapshot, and timestamp data and never returns command
 output, repository paths, or password references. `python -m
-qorqut.storage.recovery_admin --businesses-root ROOT --config PRIVATE.json
+qorqut.storage.recovery_admin --projects-root ROOT --config PRIVATE.json
 create GENERATION_UUID` is a local UDS client; it is not an HTTP/MCP command.
 
 The config has exact schema version 1 and references the pinned restic executable
 and SHA-256, repository, password file, authority staging directory, retention,
-owner UID, and registered businesses root. All recovery paths must be absolute,
-non-overlapping, and outside the businesses mount. Starting the controller creates
+owner UID, and registered projects root. All recovery paths must be absolute,
+non-overlapping, and outside the projects mount. Starting the controller creates
 no repository implicitly beyond the explicit `initialize_repository` contract of
 `FullRecoveryStore`; stopping waits a bounded time and reports an in-flight capture
 instead of claiming it has stopped.

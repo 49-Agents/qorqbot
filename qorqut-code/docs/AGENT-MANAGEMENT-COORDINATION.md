@@ -5,7 +5,7 @@ coordinator, or deployment.
 
 ## Management without impersonation
 
-Business agents use `management_message_send` for durable management requests.
+Project agents use `management_message_send` for durable management requests.
 An owner explicitly selects the installation's active Ordubashy with
 `management_coordinator_set`. The service routes to this exact principal; it
 never chooses a similarly named agent or gives it the owner's identity.
@@ -13,11 +13,11 @@ never chooses a similarly named agent or gives it the owner's identity.
 `management_list/get` read canonical message/input sources. `management_route`
 changes attention destination with a revision check and an escalation reason;
 `management_resolve` resolves message intake only. Signoffs retain their own
-lifecycle. Current business membership, scope and operation policy remain
+lifecycle. Current project membership, scope and operation policy remain
 authoritative. Scope revocation removes access to the corresponding records.
 
 New ordinary question forms default to `response_policy=management_allowed`.
-An eligible business-agent question automatically enters management intake when
+An eligible project-agent question automatically enters management intake when
 the exact coordinator is configured and in scope. An offline but configured
 coordinator can receive durable requests; the UI reports observed availability
 separately. Missing/inactive configuration is explicit and never implies a reply.
@@ -70,7 +70,7 @@ response can lose a reminder; it cannot gain another automatic continuation.
 Unknown lineage or unavailable storage allows stopping.
 
 The work-review text asks the agent to bring its existing current-work entry,
-and relevant task or business notes in line with completed work,
+and relevant task or project notes in line with completed work,
 decisions received and remaining blockers, changing only what changed and never
 recording a proposal as an approved decision. Saves made in response
 (`agent_work_update`, own `notes_create`/`notes_update`,
@@ -121,7 +121,7 @@ changes may still require the CLI's normal reload/restart behavior.
 
 The application dispatcher, authenticated context/preparation paths, checkpoint
 and inbox service boundaries, and background job outcomes observe typed faults.
-The reporter neither calls a model nor retries a business/provider action.
+The reporter neither calls a model nor retries a project/provider action.
 Unexpected software faults and missing registered internal workers are actionable
 immediately. Repeated technical transients need three failed attempts spanning
 ten minutes; successful probes reset that transient run. Ordinary permission,
@@ -131,10 +131,10 @@ Unknown error codes are not promoted to software faults by guessing from prose.
 Failures append sanitized codes and trusted IDs to a private durable spool;
 raw error text, arguments, credentials and transcripts are discarded. The service
 drains at most 100 observations per minute into one System Dev ticket per stable
-fault signature and business scope. Repeated faults update counts and bounded
-evidence. Different businesses are intentionally separate privacy boundaries.
+fault signature and project scope. Repeated faults update counts and bounded
+evidence. Different projects are intentionally separate privacy boundaries.
 Context failures before scope resolution record the authenticated agent without
-inventing a business or task association.
+inventing a project or task association.
 
 A successful operation is an availability probe, not proof of repair. Recovery
 is tracked per affected agent/episode; one healthy agent cannot clear another's
@@ -152,7 +152,7 @@ history and gives the coordinator one new notice. Repeated failures while it is
 open do not repeat that notice. An ordinary success probe cannot reopen a verified closure.
 
 The reporter is an attributed system principal, registered lazily by the service
-worker, with no human approval or business-send powers. Assembly starts no worker,
+worker, with no human approval or project-send powers. Assembly starts no worker,
 performs no migration and writes no live configuration. Observer failure preserves
 the original operation result. Ingestion failure retains its spool for retry and
 does not report itself recursively. Reporting health is visible in System Dev.

@@ -668,7 +668,7 @@ class ClaudeLookup(ManagerFixture):
         with self.assertRaises(hosts.ManagedError) as refused:
             self.manager.ensure_open(PROFILE, 5)
         self.assertEqual(refused.exception.code, "cli_unavailable")
-        # One plain sentence naming the agent's client and what to do; no folders (those are the service's business, not the owner's).
+        # One plain sentence naming the agent's client and what to do; no folders (those are the service's project, not the owner's).
         self.assertEqual(refused.exception.message, "This agent is set to use Claude Code, and Claude Code couldn't be found. "
                                                     "Download it under Settings > Agents, then send again.")
         self.assertEqual(self.launcher.started, [])

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, canonical_hash, plain
-from qorqut_operations.documents.business_notes import KIND, TARGET
+from qorqut_operations.documents.project_notes import KIND, TARGET
 from qorqut_operations.documents.materials import TAGS
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.runtime import build_runtime
@@ -44,9 +44,9 @@ def candidates(runtime):
     found = []
     with runtime.database.read() as uow:
         rows = [dict(row) for row in uow.connection.execute(
-            "SELECT id,business_id FROM documents WHERE kind=? AND archived=0 ORDER BY business_id,id", (KIND,))]
+            "SELECT id,project_id FROM documents WHERE kind=? AND archived=0 ORDER BY project_id,id", (KIND,))]
         for ref in rows:
-            row = uow.repository('documents', business_id=ref['business_id']).get(ref['id'])
+            row = uow.repository('documents', project_id=ref['project_id']).get(ref['id'])
             view = store.view(row, uow)
             if 'category' not in view['metadata']:
                 continue
@@ -62,7 +62,7 @@ def migrate(runtime, *, apply=False):
     for row, data, view in candidates(runtime):
         tags = view['metadata'].get('tags', [])
         converted, reason = tag_for(view['metadata']['category'], tags)
-        entry = {'document_id': row['id'], 'business_id': row['business_id'], 'path': row['path'],
+        entry = {'document_id': row['id'], 'project_id': row['project_id'], 'path': row['path'],
                  'author_id': view['metadata'].get('author_id'), 'category': view['metadata']['category']}
         if converted is None:
             skipped.append({**entry, 'reason': reason})
@@ -83,10 +83,10 @@ def migrate(runtime, *, apply=False):
     path = backup / 'manifest.json'
     path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n'); path.chmod(0o600)
     for row, data, view, converted, entry in plan:
-        ctx = InvocationContext(owner, business_id=row['business_id'],
-            allowed_business_ids=frozenset({row['business_id']}), source='dashboard')
+        ctx = InvocationContext(owner, project_id=row['project_id'],
+            allowed_project_ids=frozenset({row['project_id']}), source='dashboard')
         before = hashlib.sha256(data).hexdigest()
-        args = {'document_id': row['id'], TARGET: row['business_id'], 'expected_content_hash': before,
+        args = {'document_id': row['id'], TARGET: row['project_id'], 'expected_content_hash': before,
                 'metadata': {'tags': converted}}
         outcome = runtime.application.invoke(ctx, 'notes_update', args, InvocationOptions(
             expected_revision=row['revision'],
@@ -95,9 +95,9 @@ def migrate(runtime, *, apply=False):
             raise DomainError('migration_incomplete', 'A note changed or could not be converted; rerun after resolving it',
                 details={'document_id': row['id'], 'result': outcome.to_dict(), 'backup': str(backup)})
         with runtime.database.read() as uow:
-            saved = uow.repository('documents', business_id=row['business_id']).get(row['id'])
+            saved = uow.repository('documents', project_id=row['project_id']).get(row['id'])
             observed = store.view(saved, uow)
-            if (saved['kind'] != KIND or saved['path'] != row['path'] or saved['business_id'] != row['business_id']
+            if (saved['kind'] != KIND or saved['path'] != row['path'] or saved['project_id'] != row['project_id']
                     or observed['body'] != view['body']
                     or observed['metadata'].get('author_id') != view['metadata'].get('author_id')
                     or observed['metadata'].get('tags') != converted):

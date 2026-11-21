@@ -25,7 +25,7 @@ OPERATION = "relationships_create"
 
 def source_document(ctx, uow, identity, builder=None):
     """The stored document of ``identity`` in the caller's scope, or the one the plan being built inserts."""
-    document = uow.repository("documents", business_id=ctx.business_id).get(identity)
+    document = uow.repository("documents", project_id=ctx.project_id).get(identity)
     if document is None and builder:
         document = next((change.values for change in builder.changes if change.resource.resource_type == "documents"
                          and change.resource.resource_id == identity and change.action == "insert"), None)
@@ -53,18 +53,18 @@ def link_new_resource(builder, uow, kind, identity, task_ids=(), *, inherit_from
     item = item_resolver(ctx, uow, kind, identity, builder)
     if inherit_from:
         origin = item_resolver(ctx, uow, "documents", inherit_from)
-        for edge in related_rows(uow, ctx.business_id, source=origin) + related_rows(uow, ctx.business_id, target=origin):
+        for edge in related_rows(uow, ctx.project_id, source=origin) + related_rows(uow, ctx.project_id, target=origin):
             if edge["role"] != "concerns":
                 continue
             other = next(endpoint for endpoint in endpoints(edge) if endpoint != origin)
             if other["type"] == "task":
-                builder.expect(ref("relationships", edge["id"], ctx.business_id), edge)
+                builder.expect(ref("relationships", edge["id"], ctx.project_id), edge)
                 wanted.add(other["id"])
     for task_id in sorted(wanted):
-        task = uow.repository("tasks", business_id=ctx.business_id).get(task_id)
+        task = uow.repository("tasks", project_id=ctx.project_id).get(task_id)
         if task is None:
             raise DomainError("not_found", "Task does not exist in this scope")
-        builder.expect(ref("tasks", task_id, ctx.business_id), task)
+        builder.expect(ref("tasks", task_id, ctx.project_id), task)
         create_edge(builder, item, {"type": "task", "id": task_id}, "concerns", operation_name=OPERATION)
 
 

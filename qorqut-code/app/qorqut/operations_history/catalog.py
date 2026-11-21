@@ -32,7 +32,7 @@ def catalog(extensions=()):
                 'created_at': Text(),
                 'updated_at': Text(),
             }, ('id',)),
-            TableExport('businesses', {
+            TableExport('projects', {
                 'id': Text(),
                 'slug': Text(),
                 'name': Text(),
@@ -47,7 +47,7 @@ def catalog(extensions=()):
             TableExport('agent_profiles', {
                 'agent_id': Text(),
                 'principal_id': Text(),
-                'home_business_id': Text(nullable=True),
+                'home_project_id': Text(nullable=True),
                 'namespace': Text(),
                 'name': Text(),
                 'status': Text(),
@@ -55,19 +55,19 @@ def catalog(extensions=()):
                 'created_at': Text(),
                 'updated_at': Text(),
             }, ('agent_id',)),
-            TableExport('business_memberships', {
-                'business_id': Text(),
+            TableExport('project_memberships', {
+                'project_id': Text(),
                 'principal_id': Text(),
                 'is_owner': Integer(),
                 'active': Integer(),
                 'revision': Integer(),
                 'created_at': Text(),
                 'updated_at': Text(),
-            }, ('business_id', 'principal_id')),
+            }, ('project_id', 'principal_id')),
         )),
         HistoryContribution('host.tasks', exports=(
             TableExport('tasks', {
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'id': Text(),
                 'title': Text(),
                 'status': Text(),
@@ -81,20 +81,20 @@ def catalog(extensions=()):
                 'snooze_generation': Integer(),
                 'kind': Text(),
                 'parent_id': Text(nullable=True),
-            }, ('business_id', 'id')),
+            }, ('project_id', 'id')),
             TableExport('task_completions', {
-                'business_id': Text(),
+                'project_id': Text(),
                 'task_id': Text(),
                 'completed_at': Text(nullable=True),
-            }, ('business_id', 'task_id')),
+            }, ('project_id', 'task_id')),
             # The append-only audit of Task relocations (Move to project): who moved which Task between which scopes, and
             # the revisions around it. Ids and scopes only; no Task content.
             TableExport('task_moves', {
                 'seq': Integer(),
                 'move_id': Text(),
                 'task_id': Text(),
-                'source_business_id': Text(nullable=True),
-                'destination_business_id': Text(),
+                'source_project_id': Text(nullable=True),
+                'destination_project_id': Text(),
                 'task_created_at': Text(),
                 'previous_parent_id': Text(nullable=True),
                 'revision_before': Integer(),
@@ -105,7 +105,7 @@ def catalog(extensions=()):
         )),
         HistoryContribution('host.actions', exports=(
             TableExport('action_logs', {
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'id': Text(),
                 'action_key': Text(),
                 'category': Text(nullable=True),
@@ -122,9 +122,9 @@ def catalog(extensions=()):
                 'revision': Integer(),
                 'created_at': Text(),
                 'updated_at': Text(),
-            }, ('business_id', 'id')),
+            }, ('project_id', 'id')),
             TableExport('action_revisions', {
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'action_key': Text(),
                 'revision': Integer(),
                 'operation': Text(),
@@ -132,11 +132,11 @@ def catalog(extensions=()):
                 'performed_by': Text(nullable=True),
                 'created_at': Text(),
             }, ('action_key', 'revision'), structured={'snapshot_json': action_snapshot()}),
-            TableExport('action_businesses', {
+            TableExport('action_projects', {
                 'action_key': Text(),
-                'business_id': Text(),
+                'project_id': Text(),
                 'created_at': Text(),
-            }, ('action_key', 'business_id')),
+            }, ('action_key', 'project_id')),
         )),
         HistoryContribution('host.tags', exports=(
             TableExport('tags', {
@@ -147,29 +147,29 @@ def catalog(extensions=()):
                 'created_at': Text(),
             }, ('id',)),
             TableExport('item_tags', {
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'item_type': Text(),
                 'item_id': Text(),
                 'tag_id': Text(),
                 'applied_by': Text(),
                 'applied_at': Text(),
-            }, ('business_id', 'item_type', 'item_id', 'tag_id')),
+            }, ('project_id', 'item_type', 'item_id', 'tag_id')),
         )),
         HistoryContribution('host.project_links', exports=(
             # The explicit cross-scope associations of one Project: a link is not conversation content, a grant or a
             # copy of the target. Private channels stay in their own classified store below.
             TableExport('project_item_links', {
-                'business_id': Text(),
+                'project_id': Text(),
                 'id': Text(),
                 'target_type': Text(),
                 'target_id': Text(),
-                'target_business_id': Text(nullable=True),
+                'target_project_id': Text(nullable=True),
                 'target_namespace': Text(),
                 'revision': Integer(),
                 'created_by': Text(),
                 'created_at': Text(),
                 'updated_at': Text(),
-            }, ('business_id', 'id')),
+            }, ('project_id', 'id')),
         )),
         HistoryContribution('host.relationships', exports=(
             *relationship_exports.EDGE_EXPORTS,
@@ -178,7 +178,7 @@ def catalog(extensions=()):
         )),
         HistoryContribution('host.discussion', exports=(
             TableExport('thread_messages', {
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'id': Text(),
                 'item_type': Text(),
                 'item_id': Text(),
@@ -190,9 +190,9 @@ def catalog(extensions=()):
                 'event_id': Integer(nullable=True),
                 'created_at': Text(),
                 'reference_namespace': Text(nullable=True),
-            }, ('business_id', 'id'), structured={'attribution_json': attribution()}),
+            }, ('project_id', 'id'), structured={'attribution_json': attribution()}),
             TableExport('thread_follows', {
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'item_type': Text(),
                 'item_id': Text(),
                 'principal_id': Text(),
@@ -201,7 +201,7 @@ def catalog(extensions=()):
                 'reason': Text(),
                 'created_at': Text(),
                 'updated_at': Text(),
-            }, ('business_id', 'item_type', 'item_id', 'principal_id')),
+            }, ('project_id', 'item_type', 'item_id', 'principal_id')),
         )),
         INBOX_HISTORY,
         HistoryContribution('host.signoffs', exports=(
@@ -214,7 +214,7 @@ def catalog(extensions=()):
                 selector=public_message_attributions),
             TableExport('signoffs', {
                 'id': Text(),
-                'review_business_id': Text(nullable=True),
+                'review_project_id': Text(nullable=True),
                 'review_scope_kind': Text(),
                 'proposer_principal_id': Text(),
                 'proposer_agent_id': Text(nullable=True),
@@ -237,7 +237,7 @@ def catalog(extensions=()):
             TableExport('signoff_report_tasks', {
                 'signoff_id': Text(),
                 'task_id': Text(),
-                'task_business_id': Text(nullable=True),
+                'task_project_id': Text(nullable=True),
                 'revision': Integer(),
                 'created_by': Text(),
                 'created_at': Text(),
@@ -258,7 +258,7 @@ def catalog(extensions=()):
                 'id': Text(),
                 'item_type': Text(),
                 'item_id': Text(),
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'sequence': Integer(),
                 'action': Text(),
                 'kind': Text(),
@@ -272,7 +272,7 @@ def catalog(extensions=()):
                 'id': Text(),
                 'item_type': Text(),
                 'item_id': Text(),
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'text': Text(),
                 'blocking': Integer(),
                 'raised_by': Text(),
@@ -288,7 +288,7 @@ def catalog(extensions=()):
         HistoryContribution('host.routines', exports=(
             TableExport('routines', {
                 'namespace': Text(),
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'id': Text(),
                 'name': Text(),
                 'scope': Text(),
@@ -306,7 +306,7 @@ def catalog(extensions=()):
                 'id': Text(),
                 'namespace': Text(),
                 'routine_id': Text(),
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'trigger': Text(),
                 'slot': Text(nullable=True),
                 'state': Text(),
@@ -320,7 +320,7 @@ def catalog(extensions=()):
         HistoryContribution('host.documents', exports=(
             TableExport('documents', {
                 'id': Text(),
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'namespace': Text(),
                 'owning_agent_id': Text(nullable=True),
                 'kind': Text(),
@@ -334,7 +334,7 @@ def catalog(extensions=()):
             }, ('id',)),
             *operations_tables.EXPORTS,
         )),
-        HistoryContribution('host.business_records', exports=(
+        HistoryContribution('host.project_records', exports=(
             TableExport('dev_tickets', {
                 'id': Text(),
                 'title': Text(),
@@ -342,7 +342,7 @@ def catalog(extensions=()):
                 'kind': Text(),
                 'status': Text(),
                 'reporter_id': Text(),
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'created_at': Text(),
                 'updated_at': Text(),
                 'revision': Integer(),
@@ -365,7 +365,7 @@ def catalog(extensions=()):
         context_registration.FILING_HISTORY,
         HistoryContribution('host.learning', exports=(
             TableExport('learning_candidates', {
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'id': Text(),
                 'work_state': Text(nullable=True),
                 'agent_note': Text(),
@@ -373,9 +373,9 @@ def catalog(extensions=()):
                 'created_at': Text(),
                 'updated_at': Text(),
                 'scope_key': Text(nullable=True),
-            }, ('business_id', 'id')),
+            }, ('project_id', 'id')),
             TableExport('learning_decisions', {
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'candidate_id': Text(),
                 'state': Text(),
                 'feedback': Text(nullable=True),
@@ -384,22 +384,22 @@ def catalog(extensions=()):
                 'created_at': Text(),
                 'updated_at': Text(),
                 'scope_key': Text(nullable=True),
-            }, ('business_id', 'candidate_id')),
+            }, ('project_id', 'candidate_id')),
             TableExport('learning_history', {
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'id': Text(),
                 'candidate_id': Text(),
                 'event': Text(),
                 'actor_id': Text(),
                 'created_at': Text(),
                 'scope_key': Text(nullable=True),
-            }, ('business_id', 'id')),
+            }, ('project_id', 'id')),
         )),
         HistoryContribution('host.delegation', exports=(
             TableExport('operational_assignments', {
                 'id': Text(),
                 'parent_principal_id': Text(),
-                'business_id': Text(nullable=True),
+                'project_id': Text(nullable=True),
                 'objective': Text(),
                 'plan_revision': Integer(),
                 'selected_model': Text(),
@@ -459,7 +459,7 @@ def catalog(extensions=()):
             TableClassification('session_registrations', PRIVATE_EXCLUDED, 'Authentication, credentials, private integration bindings and exact identity/control material.'),
             TableClassification('session_deliveries', PRIVATE_EXCLUDED, 'Authentication, credentials, private integration bindings and exact identity/control material.'),
             TableClassification('machine_registrations', PRIVATE_EXCLUDED, 'Authentication, credentials, private integration bindings and exact identity/control material.'),
-            TableClassification('business_configs', PRIVATE_EXCLUDED, 'Authentication, credentials, private integration bindings and exact identity/control material.'),
+            TableClassification('project_configs', PRIVATE_EXCLUDED, 'Authentication, credentials, private integration bindings and exact identity/control material.'),
             TableClassification('installation', PRIVATE_EXCLUDED, 'Authentication, credentials, private integration bindings and exact identity/control material.'),
             TableClassification('management_routing', PRIVATE_EXCLUDED, 'Authentication, credentials, private integration bindings and exact identity/control material.'),
             TableClassification('apply_receipts', PRIVATE_EXCLUDED, 'Exact prepared effects, raw job payloads and external-effect evidence stay in protected recovery storage.'),
@@ -523,8 +523,8 @@ def catalog(extensions=()):
         HistoryContribution('host.separate_history', classifications=(
             *operations_tables.CLASSIFICATIONS,
             *crm.CLASSIFICATIONS,
-            TableClassification('qbdv_business_events', SEPARATE_HISTORY, 'Exact authored document revisions and business events have their own history.', 'qorqut-business-docs-versioning'),
-            TableClassification('qbdv_document_versions', SEPARATE_HISTORY, 'Exact authored document revisions and business events have their own history.', 'qorqut-business-docs-versioning'),
+            TableClassification('qdv_project_events', SEPARATE_HISTORY, 'Exact authored document revisions and project events have their own history.', 'qorqut-docs-versioning'),
+            TableClassification('qdv_document_versions', SEPARATE_HISTORY, 'Exact authored document revisions and project events have their own history.', 'qorqut-docs-versioning'),
             *context_registration.SEPARATE_HISTORY_CLASSIFICATIONS,
         )),
         *extensions,

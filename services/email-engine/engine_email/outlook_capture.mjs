@@ -1,5 +1,5 @@
 // The browser bridge supplies the authenticated, fixed-action call function.
-// This module has no browser, network, filesystem, or business-mailbox access.
+// This module has no browser, network, filesystem, or project-mailbox access.
 const MAX_CALLS = 24;
 const MAX_GET_ITEMS = 10;
 const MAX_PAGE_BYTES = 50 * 1024 * 1024;

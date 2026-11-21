@@ -18,7 +18,7 @@ from qorqut_operations.storage.specs import TableSpec
 SCHEMA = (
     """CREATE TABLE documents (
     id TEXT PRIMARY KEY,
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     namespace TEXT NOT NULL,
     owning_agent_id TEXT REFERENCES agent_profiles(agent_id),
     kind TEXT NOT NULL,
@@ -31,24 +31,24 @@ SCHEMA = (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
     UNIQUE (namespace, path),
-    UNIQUE (business_id, id)
+    UNIQUE (project_id, id)
 )""",
-    """CREATE INDEX documents_scope ON documents(business_id, kind, owning_agent_id, id)""",
+    """CREATE INDEX documents_scope ON documents(project_id, kind, owning_agent_id, id)""",
 )
 
 CHANGE_CAPTURE = (
     """CREATE TRIGGER inbox_capture_documents_insert AFTER INSERT ON documents
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('documents','insert',inbox_actor(),NULL,json_object('business_id',NEW.business_id,'id',NEW.id,'owning_agent_id',NEW.owning_agent_id,'kind',NEW.kind,'path',NEW.path,'content_hash',NEW.content_hash,'metadata_json',NEW.metadata_json,'availability',NEW.availability,'archived',NEW.archived,'source_refs_json',NEW.source_refs_json,'revision',NEW.revision)); END""",
+VALUES('documents','insert',inbox_actor(),NULL,json_object('project_id',NEW.project_id,'id',NEW.id,'owning_agent_id',NEW.owning_agent_id,'kind',NEW.kind,'path',NEW.path,'content_hash',NEW.content_hash,'metadata_json',NEW.metadata_json,'availability',NEW.availability,'archived',NEW.archived,'source_refs_json',NEW.source_refs_json,'revision',NEW.revision)); END""",
     """CREATE TRIGGER inbox_capture_documents_update AFTER UPDATE ON documents
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('documents','update',inbox_actor(),json_object('business_id',OLD.business_id,'id',OLD.id,'owning_agent_id',OLD.owning_agent_id,'kind',OLD.kind,'path',OLD.path,'content_hash',OLD.content_hash,'metadata_json',OLD.metadata_json,'availability',OLD.availability,'archived',OLD.archived,'source_refs_json',OLD.source_refs_json,'revision',OLD.revision),json_object('business_id',NEW.business_id,'id',NEW.id,'owning_agent_id',NEW.owning_agent_id,'kind',NEW.kind,'path',NEW.path,'content_hash',NEW.content_hash,'metadata_json',NEW.metadata_json,'availability',NEW.availability,'archived',NEW.archived,'source_refs_json',NEW.source_refs_json,'revision',NEW.revision)); END""",
+VALUES('documents','update',inbox_actor(),json_object('project_id',OLD.project_id,'id',OLD.id,'owning_agent_id',OLD.owning_agent_id,'kind',OLD.kind,'path',OLD.path,'content_hash',OLD.content_hash,'metadata_json',OLD.metadata_json,'availability',OLD.availability,'archived',OLD.archived,'source_refs_json',OLD.source_refs_json,'revision',OLD.revision),json_object('project_id',NEW.project_id,'id',NEW.id,'owning_agent_id',NEW.owning_agent_id,'kind',NEW.kind,'path',NEW.path,'content_hash',NEW.content_hash,'metadata_json',NEW.metadata_json,'availability',NEW.availability,'archived',NEW.archived,'source_refs_json',NEW.source_refs_json,'revision',NEW.revision)); END""",
     """CREATE TRIGGER inbox_capture_documents_delete AFTER DELETE ON documents
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
-VALUES('documents','delete',inbox_actor(),json_object('business_id',OLD.business_id,'id',OLD.id,'owning_agent_id',OLD.owning_agent_id,'kind',OLD.kind,'path',OLD.path,'content_hash',OLD.content_hash,'metadata_json',OLD.metadata_json,'availability',OLD.availability,'archived',OLD.archived,'source_refs_json',OLD.source_refs_json,'revision',OLD.revision),NULL); END""",
+VALUES('documents','delete',inbox_actor(),json_object('project_id',OLD.project_id,'id',OLD.id,'owning_agent_id',OLD.owning_agent_id,'kind',OLD.kind,'path',OLD.path,'content_hash',OLD.content_hash,'metadata_json',OLD.metadata_json,'availability',OLD.availability,'archived',OLD.archived,'source_refs_json',OLD.source_refs_json,'revision',OLD.revision),NULL); END""",
 )
 
-TABLES = {"documents": TableSpec(("id",), "business_id")}
+TABLES = {"documents": TableSpec(("id",), "project_id")}
 IMMUTABLE_FIELDS: dict[str, frozenset[str]] = {}
 REQUIRED_LIFECYCLES = frozenset({RESOURCE_TYPE})
 

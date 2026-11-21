@@ -1,7 +1,7 @@
 """Encrypted, installation-wide recovery generations.
 
 This module deliberately has no service integration.  A trusted runtime owns
-the quiescence context: entering it means that every business writer, browser,
+the quiescence context: entering it means that every project writer, browser,
 agent terminal, and service writer has actually stopped.  The recovery store
 cannot infer that state from a flag, a PID, or an SQLite transaction.
 """
@@ -28,7 +28,7 @@ from uuid import UUID
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut.migration.snapshots import _fsync_directory, restore_snapshot, verify_snapshot
 from qorqut_context.integration.recovery import CAPTURE_DIRECTORY, ContextRecovery
-from qorqut.storage.recovery import BackupStore, require_target_businesses
+from qorqut.storage.recovery import BackupStore, require_target_projects
 
 
 RESTIC_VERSION = "0.19.1"
@@ -299,8 +299,8 @@ class FullRecoveryGeneration:
 class FullRecoveryStore:
     """Compose verified authority snapshots with a restic-encrypted full installation snapshot.
 
-    It only supports an all-installation generation.  It never restores a business
-    independently, because the SQLite authority covers every registered business.
+    It only supports an all-installation generation.  It never restores a project
+    independently, because the SQLite authority covers every registered project.
     ``restore`` is deliberately a closed-gate rehearsal into a separate empty root;
     activating an original-path recovery is an external all-installation runbook.
     Optional installation Git metadata preserves linked-worktree control data; root
@@ -326,7 +326,7 @@ class FullRecoveryStore:
             _no_symlink_ancestors(path)
         if any(_within(path, self.root) or _within(self.root, path)
                for path in (self.repository, self.password_file, self.authority_staging)):
-            raise DomainError("invalid_configuration", "Recovery repository, password file, and staging must be outside business mounts")
+            raise DomainError("invalid_configuration", "Recovery repository, password file, and staging must be outside project mounts")
         if _within(self.authority_staging, self.repository) or _within(self.repository, self.authority_staging):
             raise DomainError("invalid_configuration", "Authority staging must not overlap the encrypted repository")
         if _within(self.password_file, self.repository) or _within(self.repository, self.password_file):
@@ -353,9 +353,9 @@ class FullRecoveryStore:
     def _runtime_sources(self, authority: Path) -> list[Path]:
         try:
             manifest = json.loads((authority / "authored/manifest.json").read_text(encoding="utf-8"))
-            businesses = manifest["businesses"]
+            projects = manifest["projects"]
         except (OSError, TypeError, ValueError, KeyError) as exc:
-            raise DomainError("invalid_backup", "Authority snapshot has no valid registered-business manifest") from exc
+            raise DomainError("invalid_backup", "Authority snapshot has no valid registered-project manifest") from exc
         # The installation repository is the common Git directory for linked HQ
         # worktrees.  It is optional for legacy installations.  When present it
         # must be a directory: a root gitdir file can redirect to an arbitrary
@@ -372,21 +372,21 @@ class FullRecoveryStore:
         paths = [authority]
         if root_git is not None:
             paths.append(root_git)
-        for business in businesses:
+        for project in projects:
             try:
-                hq = Path(business["hq"])
+                hq = Path(project["hq"])
             except (TypeError, KeyError) as exc:
-                raise DomainError("invalid_backup", "Authority snapshot has an invalid registered business path") from exc
+                raise DomainError("invalid_backup", "Authority snapshot has an invalid registered project path") from exc
             if hq.is_absolute() or ".." in hq.parts:
-                raise DomainError("invalid_backup", "Authority snapshot has an invalid registered business path")
+                raise DomainError("invalid_backup", "Authority snapshot has an invalid registered project path")
             code = self.root / hq.parent / "code"
             # An existing directory symlink is a valid Git checkout reference: restic records the link itself.
             try:
                 mode = code.lstat().st_mode
             except OSError as exc:
-                raise DomainError("backup_incomplete", "Registered business code root is missing") from exc
+                raise DomainError("backup_incomplete", "Registered project code root is missing") from exc
             if not (stat.S_ISDIR(mode) or stat.S_ISLNK(mode)):
-                raise DomainError("backup_incomplete", "Registered business code root is not a directory or link")
+                raise DomainError("backup_incomplete", "Registered project code root is not a directory or link")
             paths.append(code)
             hq_git = self.root / hq / ".git"
             if hq_git.exists() or hq_git.is_symlink():
@@ -489,23 +489,23 @@ class FullRecoveryStore:
     def _merge_runtime(self, raw_root: Path, target: Path, authority: Path) -> None:
         try:
             manifest = json.loads((authority / "authored/manifest.json").read_text(encoding="utf-8"))
-            businesses = manifest["businesses"]
+            projects = manifest["projects"]
         except (OSError, TypeError, ValueError, KeyError) as exc:
             raise DomainError("invalid_backup", "Restored authority manifest is invalid") from exc
-        for item in businesses:
+        for item in projects:
             try:
                 hq = Path(item["hq"])
             except (TypeError, KeyError) as exc:
-                raise DomainError("invalid_restore", "Restored authority manifest has an invalid business path") from exc
+                raise DomainError("invalid_restore", "Restored authority manifest has an invalid project path") from exc
             if hq.is_absolute() or ".." in hq.parts or not hq.parts:
-                raise DomainError("invalid_restore", "Restored authority manifest has an invalid business path")
+                raise DomainError("invalid_restore", "Restored authority manifest has an invalid project path")
             relative = hq.parent / "code"
             source, destination = raw_root / relative, target / relative
             if not (source.exists() or source.is_symlink()) or destination.exists() or destination.is_symlink():
-                raise DomainError("invalid_restore", "Restored business code tree is missing or conflicts")
+                raise DomainError("invalid_restore", "Restored project code tree is missing or conflicts")
             destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             if destination.parent.is_symlink():
-                raise DomainError("invalid_restore", "Restored business code parent is not safe")
+                raise DomainError("invalid_restore", "Restored project code parent is not safe")
             os.rename(source, destination)
             git_relative = hq / ".git"
             git_source, git_destination = raw_root / git_relative, target / git_relative
@@ -549,7 +549,7 @@ class FullRecoveryStore:
             manifest = verify_snapshot(authority / "authored")
             if manifest.root != self.root:
                 raise ValueError
-            require_target_businesses(manifest, authority / "state.sqlite3", self.paths)
+            require_target_projects(manifest, authority / "state.sqlite3", self.paths)
             restore_snapshot(authority / "authored", target)
             restored = self.database.restore(authority / "state.sqlite3", target / self.database_relative,
                                         expected_checksum=metadata["database"]["checksum"])

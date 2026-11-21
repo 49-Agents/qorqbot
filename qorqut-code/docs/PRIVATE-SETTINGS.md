@@ -14,9 +14,9 @@ Explicit denial and current membership/capabilities are rechecked on every call.
 Reads do not support signoff. No role pins or live permissions change on deploy.
 
 Global calls require the existing `read_global_context` capability as well as
-the operation grant. Business calls require active business membership and read
-only that business's own Settings. Unlike `environment_list`, value reads never
-inherit Global Settings into a business scope. Global agents must select Global
+the operation grant. Project calls require active project membership and read
+only that project's own Settings. Unlike `environment_list`, value reads never
+inherit Global Settings into a project scope. Global agents must select Global
 to retrieve Global values. Callers cannot supply an arbitrary scope in arguments.
 Human callers must be owners of the selected scope. System workers are rejected.
 Reserved runtime identity bindings remain unreadable.
@@ -29,11 +29,11 @@ does not encrypt the existing Settings store or make it suitable for storing car
 security codes. Access to a card/account/token does not authorize a payment,
 outbound message or any other external action.
 
-Owner-directed code sessions are business-bound human-owner calls. Their
-`environment_list` metadata contains only the selected business's ordinary
+Owner-directed code sessions are project-bound human-owner calls. Their
+`environment_list` metadata contains only the selected project's ordinary
 Settings and owner-readable private bindings; Global variable names are not
 inherited. Their one-key `environment_get` calls likewise read only that
-business and may include the owner's private values. Bootstrap and listings
+project and may include the owner's private values. Bootstrap and listings
 never contain credential values, and owner-session credentials or delegation
 grants cannot be issued or edited through these Settings operations.
 
@@ -58,7 +58,7 @@ closed; symlinks are rejected. No UI controls or automatic operation grants exis
 The scope owner can retrieve these values through `environment_get`.
 
 Private overlays are scope-local: Global private values never inherit into
-business discovery, retrieval or sessions. For an allowed role, an overlay wins
+project discovery, retrieval or sessions. For an allowed role, an overlay wins
 over the same ordinary `.env` key. Other roles still receive the ordinary value
 if one exists, but cannot discover or retrieve the private replacement. To make
 a key exclusively private, remove its ordinary `.env` entry as a separate,

@@ -11,12 +11,12 @@ needed, and viewing writes nothing.
 | Path and URL rules, no filesystem | `qorqut/file_viewer/paths.py` |
 | Descriptor-anchored file opening | `qorqut/file_viewer/files.py` |
 | Owner folder listings and project badges | `qorqut/file_viewer/explorer.py` |
-| Ordubashy Files tab | `biz-dashboard/js/agent-files.js`, `css/agent-files.css` |
+| Ordubashy Files tab | `dashboard/js/agent-files.js`, `css/agent-files.css` |
 | Bounded previews (Markdown, text, CSV, HTML) | `qorqut/file_viewer/previews.py` |
 | One backend resolver (metadata, content, download, history) | `qorqut/file_viewer/service.py` |
 | Owner HTTP routes | `HTTPAPI.files_route` (`qorqut/transport/http.py`) |
-| Viewer page | `GET /files/view` serving `biz-dashboard/file-viewer.html` (`qorqut/service/web.py`) |
-| Shared safe link rendering in prose | `biz-dashboard/js/safe-links.js` |
+| Viewer page | `GET /files/view` serving `dashboard/file-viewer.html` (`qorqut/service/web.py`) |
+| Shared safe link rendering in prose | `dashboard/js/safe-links.js` |
 
 ## URLs
 
@@ -26,13 +26,13 @@ selector is allowed; anything else, unknown, duplicate or empty keys included, i
 
 | Form | Meaning |
 |---|---|
-| `/files/view?path=businesses/widget/hq/notes/report.md` | A regular file by its path relative to this instance's operations root (slashes may be percent-encoded). Always the **current** contents. |
-| `/files/view?document_id=<uuid>&business_id=<uuid>` | A registered document in that business, current contents at its present location. Omit `business_id` for a Global document. Survives moves. |
+| `/files/view?path=projects/widget/hq/notes/report.md` | A regular file by its path relative to this instance's operations root (slashes may be percent-encoded). Always the **current** contents. |
+| `/files/view?document_id=<uuid>&project_id=<uuid>` | A registered document in that project, current contents at its present location. Omit `project_id` for a Global document. Survives moves. |
 | `…&version=N` | With `document_id` only: one saved version (`N` is a positive integer). |
 
 This instance's operations root (`operations/`, resolved from the explicit instance paths, not hardcoded) is the file
-scope. A business note is `businesses/<slug>/hq/...` and a global agent file `agents/<agent>/...`; the first folder is part
-of the path, and a path that starts at the business slug (`<slug>/hq/...`) is a different, usually missing, file: nothing
+scope. A project note is `projects/<slug>/hq/...` and a global agent file `agents/<agent>/...`; the first folder is part
+of the path, and a path that starts at the project slug (`<slug>/hq/...`) is a different, usually missing, file: nothing
 redirects, prefixes or searches for it. Rejected before any file access: NUL and control characters, `..` segments, absolute paths outside the root, URL schemes,
 and malformed or double-encoded escapes (`%2e`, `%2f`, `%5c`, `%00` left after decoding).
 
@@ -44,7 +44,7 @@ Nothing is written to create an identifier, and an ambiguous location gets no gu
 ## `files_link`
 
 `files_link` is a nonmutating read exposed to active agents and to the owner. Input is exactly
-one of `path` (absolute under the operations root, or relative to it, keeping `businesses/` or `agents/`) or `document_id`
+one of `path` (absolute under the operations root, or relative to it, keeping `projects/` or `agents/`) or `document_id`
 (readable in the caller's scope), plus optional `label` and `version` (document only).
 
 It returns `viewer_url`, a ready Markdown `markdown` link with the label and URL encoded and
@@ -63,7 +63,7 @@ operation. Republishing roles is not needed: the tool appears in MCP `tools/list
 The shared orientation guidance (`agents/context.py`) tells agents to deliver prompts and research
 as a file or managed note, call `files_link`, and paste the Markdown it returns unchanged, never a hand-built URL. For a
 path, they pass the file's actual absolute path when they know it, or a path relative to the operations root that keeps
-its `businesses/<slug>/hq/...` or `agents/<agent>/...` prefix. They should create no task only to carry a document.
+its `projects/<slug>/hq/...` or `agents/<agent>/...` prefix. They should create no task only to carry a document.
 
 ## Authorization
 
@@ -92,10 +92,10 @@ nosniff`. File queries use the same selectors as the page; directory queries are
 | Route | Answer |
 |---|---|
 | `/api/root/files/directory` | One operations directory, with paged entries and available project metadata. |
-| `/api/root/files/metadata` | filename, root-relative `path`, size, mtime, preview kind, `binary`, optional `managed` (document id, scope, business name, `history_available`, `stable_url`), and the URLs to copy, content, download. Never an absolute host path. |
+| `/api/root/files/metadata` | filename, root-relative `path`, size, mtime, preview kind, `binary`, optional `managed` (document id, scope, project name, `history_available`, `stable_url`), and the URLs to copy, content, download. Never an absolute host path. |
 | `/api/root/files/content` | A bounded preview (see below). |
 | `/api/root/files/download` | The bytes, always `application/octet-stream` with `Content-Disposition: attachment` (ASCII fallback plus RFC 5987 `filename*`; no quote, separator or line break can be carried). Current files stream from the opened descriptor. A saved version downloads its exact saved text as `name.vN.ext`. |
-| `/api/root/files/history` | `document_id` (+ `business_id`) with optional `limit`, `before_version` (a page of version metadata), or `from_version` and `to_version` (an escaped unified diff). Reads through the existing owner-only `document_history_get` in the owning scope. |
+| `/api/root/files/history` | `document_id` (+ `project_id`) with optional `limit`, `before_version` (a page of version metadata), or `from_version` and `to_version` (an escaped unified diff). Reads through the existing owner-only `document_history_get` in the owning scope. |
 
 Errors use the standard envelope. Codes: `not_found` (404), `validation_error`, `forbidden`,
 `not_a_regular_file` (422), `symlink_not_followed` (422), `file_unreadable`. Messages contain no host paths.
@@ -219,12 +219,12 @@ Newlines and existing references are unchanged, and a one-line preview shows lin
 
 ## Deployment
 
-No migration, and no role or plugin republication. Deploy `biz-core` and `biz-dashboard` together
+No migration, and no role or plugin republication. Deploy `core` and `dashboard` together
 (the dashboard ships `file-viewer.html`, `js/file-viewer.js`, `js/safe-links.js` and their CSS);
 the viewer page returns `not_found` if only core is updated.
 
-Checks: `tests/test_file_viewer_core.py`, `tests/test_file_viewer_http.py`; in `biz-dashboard`,
+Checks: `tests/test_file_viewer_core.py`, `tests/test_file_viewer_http.py`; in `dashboard`,
 `node tests/test_file_viewer_browser.js` (real service and synthetic files through
-`biz-core/tests/file_viewer_browser_fixture.py`; it also embeds the reader in a same-origin parent,
+`core/tests/file_viewer_browser_fixture.py`; it also embeds the reader in a same-origin parent,
 nests the HTML preview, refuses a cross-origin parent and runs hostile HTML) and
 `node tests/test_safe_links.js`.

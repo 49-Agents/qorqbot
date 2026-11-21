@@ -7,7 +7,7 @@ the retired per-Project mailbox model (still readable in Git history).
 ## What core owns
 
 - **No mail code, tables, configuration or worker.** A core-only composition has no `email_*` table, history trigger or view,
-  no `business_email_*` / `email_*` operation, no mailbox provisioning, no email plugin tools and no Fastmail import. Nothing
+  no `project_email_*` / `email_*` operation, no mailbox provisioning, no email plugin tools and no Fastmail import. Nothing
   is shimmed: there is no empty `EmailOperations`, no always-empty read result and no old module kept under another name.
 - **Email Management v3 is guidance only.** The `email-management` package (version 3.x, instruction-only, `owner_input`
   approval rule, no tools) is granted by default to the configured Ordubashy in ecosystem scope. Agent preparation validates it
@@ -30,14 +30,14 @@ the retired per-Project mailbox model (still readable in Git history).
 The optional `qorqut-fastmail` package (`qorqut_fastmail.extension:create`, selected through the existing
 `qorqut.extensions` mechanism) provides the `fastmail_*` account operations, the Fastmail CalDAV adapter and a narrow route
 client for Paper. Its contract is in that repository's `docs/OPERATIONS.md`; configuration is `engine_url`, `admin_token_file`
-and an optional `account_id`, with no business mailbox, folder or alias ownership. The separate email engine's account API
+and an optional `account_id`, with no project mailbox, folder or alias ownership. The separate email engine's account API
 (`services/email-engine`) is what it talks to. A standard source export, preparation and installed-host check need neither;
 `prepare-local.py --with-fastmail` adds both (the bridge to the host environment, the engine to its own). Paper loads without
 the provider and keeps its sender routes only through the provider's explicit interface (see `qorqut-paper/README.md`).
 
 ## Retired from core
 
-- Mandatory `business_email_*` provisioning, per-Project mailboxes, owned folders and aliases, and default sender inference
+- Mandatory `project_email_*` provisioning, per-Project mailboxes, owned folders and aliases, and default sender inference
   from a Project.
 - Mail threads, comments, controls, decisions, history and the selector maze of the old email plugin.
 - Platform-dispatch of `email.send`, Ordubashy email approval (`signoffs_email_approve`) and incident reporting of failed
@@ -58,7 +58,7 @@ Old records that point at mail stay readable as data and are never resolved agai
   reads return the note. Showing the historical link is the display layer's job, from the metadata it already holds: a fresh core
   does not reconstruct imported legacy mail links, and the offline export (below) is not an instance migration.
 - **Signoffs.** A stored platform-action Signoff keeps its recorded evidence and stays readable; it cannot execute, retry or cancel.
-- **Progress.** `business_progress_get` and `global_progress_get` no longer return an `emails_sent` series or total (the count
+- **Progress.** `project_progress_get` and `global_progress_get` no longer return an `emails_sent` series or total (the count
   relied on the removed mail mirror, and a zero would imply tracked mail). No replacement metric is recorded.
 
 ## Deliberately retained names

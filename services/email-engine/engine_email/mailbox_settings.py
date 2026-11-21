@@ -1,4 +1,4 @@
-"""Durable mailbox registration for the trusted business-settings service."""
+"""Durable mailbox registration for the trusted project-settings service."""
 
 from dataclasses import replace
 import hashlib
@@ -23,8 +23,8 @@ def load_settings(settings, store):
     boxes = {box.ref: box for box in settings.mailboxes}
     for box in managed:
         old = boxes.get(box.ref)
-        if old and (old.business_id, old.folder_id, old.address, old.purpose, old.sender_ref) != (
-                box.business_id, box.folder_id, box.address, box.purpose, box.sender_ref):
+        if old and (old.project_id, old.folder_id, old.address, old.purpose, old.sender_ref) != (
+                box.project_id, box.folder_id, box.address, box.purpose, box.sender_ref):
             raise ValueError("Configured mailbox conflicts with its managed ownership binding")
         boxes[box.ref] = box
     return replace(settings, mailboxes=tuple(boxes.values()))
@@ -64,8 +64,8 @@ def register(service, box, revision, *, receipt=None):
     boxes = {item.ref: item for item in service.settings.mailboxes}
     boxes[box.ref] = box
     updated = replace(service.settings, mailboxes=tuple(boxes.values()))
-    if sum(item.business_id == box.business_id for item in updated.mailboxes) > 50:
-        raise ValueError("At most 50 mailboxes may belong to a business")
+    if sum(item.project_id == box.project_id for item in updated.mailboxes) > 50:
+        raise ValueError("At most 50 mailboxes may belong to a project")
     folder = service.provider.folders().get(box.folder_id)
     rights = (folder or {}).get("myRights", {})
     if (not folder or folder.get("role") or not rights.get("mayReadItems")

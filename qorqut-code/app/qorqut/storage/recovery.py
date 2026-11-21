@@ -18,7 +18,7 @@ from qorqut.migration.snapshots import (SourceManifest, _digest, _fsync_director
     restore_snapshot, verify_snapshot)
 from qorqut_operations.storage.paths import registered_path
 from qorqut_operations.storage.safe_io import TEMPORARY_PREFIXES, atomic_write
-from qorqut.composition.locations import business_hq, business_root, document_root
+from qorqut.composition.locations import project_hq, project_root, document_root
 from qorqut_context.integration.recovery import CAPTURE_DIRECTORY, ContextRecovery
 from .exports import build_exports, snapshot_connection
 from qorqut_operations.storage.repositories import decode_row
@@ -74,28 +74,28 @@ def external_worker(root, row) -> bool:
     return not row["credential_id"] and Path(row["workspace"]).is_absolute() and not Path(row["workspace"]).is_relative_to(root)
 
 
-def business_entries(connection, instance):
+def project_entries(connection, instance):
     """The registered projects as the authored manifest records them, from the instance's own path contract.
 
     Pure derivation from the registered rows and ``InstancePaths``: a project's folder, HQ and root are
     ``projects/<slug>``-relative, exactly the shape a target backup emits and verification demands."""
     root = instance.operations
-    return [{"slug": business["slug"], "hq": business_hq(instance, business).relative_to(root).as_posix(),
-             "root": business_root(instance, business).relative_to(root).as_posix()}
-            for business in connection.execute("SELECT * FROM businesses ORDER BY id")]
+    return [{"slug": project["slug"], "hq": project_hq(instance, project).relative_to(root).as_posix(),
+             "root": project_root(instance, project).relative_to(root).as_posix()}
+            for project in connection.execute("SELECT * FROM projects ORDER BY id")]
 
 
-def require_target_businesses(manifest, database_path, instance):
+def require_target_projects(manifest, database_path, instance):
     """Raise ``ValueError`` unless the authored manifest's projects are exactly this database's, in the target layout.
 
     ``SourceManifest`` also parses historical source archives; recognizing a shape is not enough to certify a
-    generation, so a current backup's businesses must equal what its captured database and the instance paths derive."""
+    generation, so a current backup's projects must equal what its captured database and the instance paths derive."""
     connection = snapshot_connection(database_path)
     try:
-        expected = business_entries(connection, instance)
+        expected = project_entries(connection, instance)
     finally:
         connection.close()
-    if [dict(item) for item in manifest.data["businesses"]] != expected:
+    if [dict(item) for item in manifest.data["projects"]] != expected:
         raise ValueError("The authored projects differ from the captured database and the instance layout")
 
 
@@ -106,23 +106,23 @@ def authored_inventory(snapshot, instance, *, skip_external_workers=False):
     try:
         if connection.execute("SELECT 1 FROM resource_claims LIMIT 1").fetchone():
             raise DomainError("backup_incomplete", "Finish or recover claimed file applications before backing up", retryable=True)
-        businesses = {row["id"]: decode_row(row) for row in connection.execute("SELECT * FROM businesses ORDER BY id")}
-        business_manifest = business_entries(connection, instance)
-        for business in businesses.values():
-            hq = business_hq(instance, business)
+        projects = {row["id"]: decode_row(row) for row in connection.execute("SELECT * FROM projects ORDER BY id")}
+        project_manifest = project_entries(connection, instance)
+        for project in projects.values():
+            hq = project_hq(instance, project)
             if not hq.is_dir():
                 raise DomainError("backup_incomplete", "Registered project data folder is missing")
             paths.update(_walk(hq, top_skip=PRIVATE_HQ_DIRECTORIES))
-            # The agents of a business sit beside its HQ and are authored material of the same business.
-            paths.update(_walk(business_root(instance, business) / "agents"))
+            # The agents of a project sit beside its HQ and are authored material of the same project.
+            paths.update(_walk(project_root(instance, project) / "agents"))
         graph = instance.context
         for name in (*ROOT_AUTHORED, *PRIVATE_RUNTIME_FILES):
             # The Context repository's authority is the generation's required Context component (Git objects, refs and
             # the separate runtime), never a walk of its checkout, wherever the instance places it.
             paths.update(path for path in _walk(registered_path(root, name)) if not _inside(path, graph))
         for row in connection.execute("SELECT * FROM documents ORDER BY id"):
-            business = None if row["business_id"] is None else businesses[row["business_id"]]
-            path = registered_path(root, document_root(instance, business, row["path"]) / row["path"])
+            project = None if row["project_id"] is None else projects[row["project_id"]]
+            path = registered_path(root, document_root(instance, project, row["path"]) / row["path"])
             expected = row["content_hash"]
             if (row["availability"] != "ready" or not expected or not path.is_file()
                     or _digest(path) != expected.removeprefix("sha256:")):
@@ -166,7 +166,7 @@ def authored_inventory(snapshot, instance, *, skip_external_workers=False):
             files.append({"path": path.relative_to(root).as_posix(), "size": before.st_size,
                           "mode": stat.S_IMODE(before.st_mode) & 0o777, "sha256": digest})
         return SourceManifest({"schema_version": 1, "importer_version": "1", "source_root": str(root),
-            "businesses": business_manifest, "files": files, "artifact_digests": artifact_digests})
+            "projects": project_manifest, "files": files, "artifact_digests": artifact_digests})
     finally:
         connection.close()
 
@@ -297,7 +297,7 @@ class BackupStore:
             if (authored.fingerprint != metadata["authored"]["fingerprint"] or authored.root != self.root
                     or _digest(directory / "authored/sources.tar") != metadata["authored"]["archive_sha256"]):
                 raise ValueError
-            require_target_businesses(authored, database, self.paths)
+            require_target_projects(authored, database, self.paths)
             context = metadata["context"]
         except (OSError, ValueError, KeyError, TypeError, sqlite3.DatabaseError) as exc:
             raise DomainError("invalid_backup", "Backup generation failed manifest, database, or authored-file verification") from exc

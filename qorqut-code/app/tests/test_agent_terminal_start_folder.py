@@ -90,7 +90,7 @@ class Fixture(unittest.TestCase):
                 arbiter=SimpleNamespace(locks=lambda agent: nullcontext()),
                 attachment=SimpleNamespace(resume_selected=lambda agent, authorized: (self.resumed.append((agent, authorized)),
                                                                                        self.resume_result)[1])))
-        terminals = SimpleNamespace(runtime=runtime, open=lambda context, business, agent: self.opened.append(agent))
+        terminals = SimpleNamespace(runtime=runtime, open=lambda context, project, agent: self.opened.append(agent))
         backend = AgentTerminalBackend(terminals, timeout=1, sleep=lambda seconds: None, ready=lambda client: True)
         backend.selected = lambda row: (self.broker, "key", "session", workspace, None)
         seen = list(snapshots)
@@ -115,7 +115,7 @@ class Fixture(unittest.TestCase):
         self.process_cwd = mock.patch("qorqut.process_info.cwd", cwd)
         self.process_cwd.start()
         self.addCleanup(self.process_cwd.stop)
-        self.row = row or {"agent_id": "ordubashy", "home_business_id": None,
+        self.row = row or {"agent_id": "ordubashy", "home_project_id": None,
                            "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": "ordubashy"}})}
         return backend
 
@@ -250,7 +250,7 @@ class StartFolderTest(Fixture):
     # -- Dev keeps its owner-project launch -----------------------------------------------------------------------------
 
     def test_dev_still_launches_from_wherever_its_terminal_is(self):
-        dev = {"agent_id": "dev", "home_business_id": None,
+        dev = {"agent_id": "dev", "home_project_id": None,
                "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": DEV_ROLE}})}
         backend = self.backend([SHELL], [self.project], row=dev)
         self.assertEqual(self.start(backend), "Startup command submitted; readiness/work is not confirmed")

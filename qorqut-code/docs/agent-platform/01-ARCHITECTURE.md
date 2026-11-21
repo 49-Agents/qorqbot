@@ -12,43 +12,43 @@ companion contracts for storage, permissions and context delivery.
 flowchart TB
     Claude[Claude Code sessions in mirrored terminals] --> MCP[MCP interface]
     Owner[Owner in the dashboard] --> HTTP[Dashboard HTTP interface]
-    MCP --> Operations[Shared business operations]
+    MCP --> Operations[Shared project operations]
     HTTP --> Operations
     Jobs[Existing background jobs] --> Operations
     Operations --> Policy[Identity, scope and operation policy]
     Policy --> Direct[Allowed operation]
     Policy --> Pending[Prepared signoff proposal]
-    Pending --> Review[Selected-business Signoffs side tab]
+    Pending --> Review[Selected-project Signoffs side tab]
     Review --> Apply[Service applies approved change]
     Direct --> Storage[SQLite records and managed authored files]
     Apply --> Storage
     Storage --> Versions[Nightly exports/versioning and separate backups]
 ```
 
-MCP is a transport, not the application's business logic or storage layer. The
+MCP is a transport, not the application's project logic or storage layer. The
 dashboard and MCP adapters reach the same operation implementations and
 permission checks. Long-running background work may use managed subprocesses,
 but there is one shared service and no MCP server or model runner per agent.
 
 The application supplies Claude with tools; it does not replace Claude Code's
 conversation loop. Qorqbot runs Claude Code and Codex as managed sessions. Background DeepSeek jobs are explicitly named workloads such as filing
-or extraction, not members of the business-agent roster.
+or extraction, not members of the project-agent roster.
 
 ## Four independent concepts
 
 | Concept | Example | Meaning |
 | --- | --- | --- |
-| Role | `business-agent` | The job, default operations and short essential instructions. |
+| Role | `project-agent` | The job, default operations and short essential instructions. |
 | Plugin | Scoped email | Additional registered tools, procedures and target data. |
-| Scope | One business, or explicit Ordubashy authority | Which records/resources the caller may operate on. |
+| Scope | One project, or explicit Ordubashy authority | Which records/resources the caller may operate on. |
 | Permission mode | `allow`, `signoff`, `deny` | Whether a particular operation executes, requires a prepared review, or is refused. |
 
-A role does not imply every plugin. A plugin does not widen business scope.
+A role does not imply every plugin. A plugin does not widen project scope.
 A task does not change either. An approved policy change is an ordinary managed
 configuration operation evaluated under the current policy until it applies.
 
 The role/profile model does not require inheritance from the organization chart.
-Ordubashy and the business agent have different roles and scopes. They receive selected
+Ordubashy and the project agent have different roles and scopes. They receive selected
 applicable instructions rather than one generic restrictive prompt followed by
 exceptions. Shared ancestor instructions contain only universally applicable
 orientation.
@@ -57,7 +57,7 @@ orientation.
 
 At startup, resume, clear and compaction, the prepared agent's bootstrap resolves
 one effective profile. It supplies identity, a short foundation, role brief,
-business orientation where applicable, team/queue orientation and a compact list
+project orientation where applicable, team/queue orientation and a compact list
 of available abilities. Mandatory context is kept within a measured budget.
 
 Detailed role/plugin procedures are selected project skills. Only granted
@@ -76,12 +76,12 @@ adding it later.
 SQLite owns operational state: identities, profiles, permissions, task records,
 signoffs, requests, routine state and learning decisions.
 Documents that people or agents author remain files where that representation
-is useful: business context, role/skill text, plans, notes, source code and
+is useful: project context, role/skill text, plans, notes, source code and
 assets. The database holds references/revisions rather than a second editable
 copy of those documents.
 
 Profiles select published role/plugin revisions. Generated Claude integration
-files and exported `agent.yaml`/`business.yaml` are projections, never parallel
+files and exported `agent.yaml`/`project.yaml` are projections, never parallel
 configuration sources that the server silently merges back in.
 
 The service enforces protected mutations and checks file hashes/revisions before
@@ -97,31 +97,31 @@ No operation has to wait for Git push to become true.
 
 A signoff stores the prepared operation, its exact preview, current target
 revisions and outcome. The owner approves or rejects inline in the existing
-right panel for the selected business or Global. Approval discards draft feedback and
+right panel for the selected project or Global. Approval discards draft feedback and
 applies automatically. Rejection stores feedback for the agent. No signoff
-creation/decision/application event is appended to the business journal.
+creation/decision/application event is appended to the project journal.
 
 An ordinary task asks an agent or the owner to do work or answer a question.
-Agents see their business's roster and teammates' tasks/plans/notes, and can
+Agents see their project's roster and teammates' tasks/plans/notes, and can
 assign tasks to themselves, teammates or the owner. Tasks queue work without
 waking agents. Links can connect a task and a proposal, but approving a proposal
 does not automatically complete an unrelated task.
 
-New global/shared operations are reviewed in Global; business operations are
-reviewed in their owning business. The server derives this destination, with
+New global/shared operations are reviewed in Global; project operations are
+reviewed in their owning project. The server derives this destination, with
 affected scope clearly identified. Older prepared proposals retain their saved
 queue. Global also hosts authorized root agents/routines and the owner's personal
-taskbox; it is not a synthetic business or a cross-business authority grant.
+taskbox; it is not a synthetic project or a cross-project authority grant.
 
 ## Deliberate limits
 
 - No new agent runner, waking logic or chat orchestration.
 - No human-facing CLI requirement.
 - No extended-context search project, semantic retrieval or vector database.
-- No general cross-business operational dashboard beyond the existing Global views.
+- No general cross-project operational dashboard beyond the existing Global views.
 - No bespoke policy language, general workflow engine or plugin marketplace.
 - No strict filesystem sandbox or personal Claude configuration overhaul.
 
 Success is a coherent shared application with explicit agent configuration,
 selective tools/skills, reviewable internal changes and reliable existing
-business workflows. It is not measured by how much source code is replaced.
+project workflows. It is not measured by how much source code is replaced.

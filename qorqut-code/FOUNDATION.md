@@ -3,7 +3,7 @@
 This is the foundation contract of the shared service. The contract types, application engine and storage
 live in the Operations engine (`qorqut_operations`, in the `qorqut-operations` repository); the host composes
 them.
-Database initialization, authentication, concrete business handlers, background
+Database initialization, authentication, concrete project handlers, background
 admission, policy/signoff installation, and transport startup are separate
 composition steps. No module performs live imports or initializes a database at
 import time. There is no CLI application-logic adapter.
@@ -13,7 +13,7 @@ import time. There is no CLI application-logic adapter.
 Use Python 3.12 or later in a project-local environment. `app/pyproject.toml` declares
 the host's runtime dependencies; the `service` extra adds the maintained MCP SDK,
 Starlette, and Uvicorn. Run focused tests as described in the [README](README.md#running-tests).
-Foundation tests use temporary roots and never access operational business data.
+Foundation tests use temporary roots and never access operational project data.
 
 ## Values and Handler Interfaces
 
@@ -22,18 +22,18 @@ JSON values are defensively copied/frozen, not references to caller-owned dicts.
 
 - `Principal(id, kind, display_name='', active=True)`: canonical UUID; kind is
   `human`, `agent`, or `system`. An owner remains a human with membership rights.
-- `InvocationContext(principal, ...)`: selected and home business UUIDs, allowed
-  businesses, global capabilities, profile/policy revisions, pinned role/plugin
-  refs, source, request/session/initiator identity, and review business. Optional
+- `InvocationContext(principal, ...)`: selected and home project UUIDs, allowed
+  projects, global capabilities, profile/policy revisions, pinned role/plugin
+  refs, source, request/session/initiator identity, and review project. Optional
   `job_id` is a trusted claimed-job UUID, allowed only for system worker contexts.
   It is persisted in the policy binding when present. Adapters
   construct this from authenticated registrations. None of these authority facts
   are supplied by an operation argument or trusted because they appeared in JSON.
-- `InvocationOptions`: `expected_revision`, `idempotency_key`, `business_id`,
-  `review_business_id`, `supersedes_signoff_id`, and
+- `InvocationOptions`: `expected_revision`, `idempotency_key`, `project_id`,
+  `review_project_id`, `supersedes_signoff_id`, and
   `expected_superseded_status_revision`. The last two must appear together.
   Review context chooses a queue, never grants target scope.
-- `ResourceRef(resource_type, resource_id, business_id=None, namespace=None)`;
+- `ResourceRef(resource_type, resource_id, project_id=None, namespace=None)`;
   `ExpectedTarget(resource, revision=None, content_hash=None, exists=True)`.
 - `PreparedChange(kind, resource, action, values, operation_name=None)`:
   `kind` is `record`, `file`, or `job`. `operation_name` adds a composed permission
@@ -114,16 +114,16 @@ Ports in `qorqut_operations/application/ports.py` are deliberately injected, not
   -> ChangeSet | None` resumes an exact unfinished allow-mode receipt before any
   domain preparation, so a crashed file mutation is never prepared twice.
 
-Namespace spelling is `business:<uuid>`, `global`, or `agent:<agent_uuid>`.
-Descriptors use `business`, `global`, and `agent_workspace` in `scope_kinds`.
+Namespace spelling is `project:<uuid>`, `global`, or `agent:<agent_uuid>`.
+Descriptors use `project`, `global`, and `agent_workspace` in `scope_kinds`.
 Global targets require a declared `global_capability` and the current grant.
 For mixed-scope descriptors the capability is conditional on resolving to global;
-the engine passes a descriptor copy without that capability to business/agent
+the engine passes a descriptor copy without that capability to project/agent
 policy checks. Ecosystem agent administration uses `manage_ecosystem_agents`.
-Root global mutation with signoff still requires a permitted review business.
+Root global mutation with signoff still requires a permitted review project.
 
-Prepared business effects cannot target another business. Read dependencies may
-include registered shared global context or other currently authorized businesses.
+Prepared project effects cannot target another project. Read dependencies may
+include registered shared global context or other currently authorized projects.
 Every effect needs an expected target; file effects are unique per resource.
 Composed permissions are checked both before proposal creation and application.
 Changed policy bindings conflict rather than authorizing a proposal with its own
@@ -136,7 +136,7 @@ the separate legacy-writer barrier is owned by migration code.
 SQLite authority, not a database file to share over a network filesystem.
 
 ```python
-with database.transaction(business_id=business_id) as uow:
+with database.transaction(project_id=project_id) as uow:
     tasks = uow.repository('tasks')
     current = tasks.get(task_id, required=True)
     tasks.update(task_id, {'title': title}, expected_revision=current['revision'])
@@ -145,8 +145,8 @@ with database.transaction(business_id=business_id) as uow:
 `read` uses query-only transactions; `transaction` uses `BEGIN IMMEDIATE` and
 rolls back all handler/receipt writes on failure. Unit-of-work scopes cannot be
 overridden by repository calls. An unscoped internal UOW must pass explicit
-business IDs to scoped repositories. `None` explicitly selects a global/null
-business namespace, not every business. Global tables still require domain-level
+project IDs to scoped repositories. `None` explicitly selects a global/null
+project namespace, not every project. Global tables still require domain-level
 authorization for their identity and target relationships.
 
 Repositories expose `get`, bounded `list`, `insert`, revision-CAS `update`, and

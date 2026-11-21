@@ -22,23 +22,23 @@ from qorqut.management.identity import configured_ordubashy, installation_owner
 
 LIST_DESCRIPTION = (
     "Owner and coordinator read. Lists the threads the owner has pinned in the pinned-threads row at the top of the owner's Focus "
-    "dashboard, in the order shown. Each item has source (type, id, business_id: the record whose private thread it is), the "
+    "dashboard, in the order shown. Each item has source (type, id, project_id: the record whose private thread it is), the "
     "title shown on the pin and readable. When readable is true, title is the record's current title; when it is false you "
     "may not read that record now, so no title is given. Pin or unpin with thread_pins_set. Changes nothing.")
 SET_DESCRIPTION = (
     "Owner and coordinator write. Pins or unpins one thread in the pinned-threads row at the top of the owner's Focus dashboard; "
     "this changes what the owner sees there, so use it only when the owner asks you to. source names the record whose thread "
-    "it is: type (task, project, table, reference or signoff), id, and business_id (the Project's id, or null "
+    "it is: type (task, project, table, reference or signoff), id, and project_id (the Project's id, or null "
     "for a Global record). pinned true pins it, false unpins it; the call sets that state and repeating it changes nothing. "
     "Pinning needs a record that exists and that you may read, and refuses otherwise; unpinning is always allowed. title is "
     "optional (at most 200 characters; the record's own title is used when omitted). At most 50 threads can be pinned, and a "
     "newly pinned thread goes to the end of the row. Returns source, pinned and how many threads are now pinned. This touches "
     "only the pinned-threads row, never the owner's Focus notes.")
 
-SOURCE = {"type": "object", "additionalProperties": False, "required": ["type", "id", "business_id"], "properties": {
+SOURCE = {"type": "object", "additionalProperties": False, "required": ["type", "id", "project_id"], "properties": {
     "type": {"type": "string", "pattern": "^[a-z][a-z_]{0,39}$"},
     "id": {"type": "string", "minLength": 1, "maxLength": 200},
-    "business_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200}}}
+    "project_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200}}}
 LIST_SCHEMA = schema({"scope": {"const": "global"}})
 SET_SCHEMA = schema({"scope": {"const": "global"}, "source": SOURCE, "title": {"type": "string", "maxLength": 200},
                      "pinned": {"type": "boolean"}}, ("source", "pinned"))
@@ -62,7 +62,7 @@ class ThreadPins:
     def caller(self, ctx, uow):
         """The installation owner or the configured coordinator in person, at Global. A delegated identity acts for its parent
         on one assignment and never touches the owner's dashboard."""
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         owner, coordinator = installation_owner(uow), configured_ordubashy(uow)
         personal = ctx.delegation_assignment_id is None
         if not personal or not owner or not ((ctx.principal_kind == "human" and ctx.principal_id == owner)
@@ -81,7 +81,7 @@ class ThreadPins:
 
     @staticmethod
     def key(source):
-        return {"kind": source["type"], "identity": source["id"], "business_id": source["business_id"]}
+        return {"kind": source["type"], "identity": source["id"], "project_id": source["project_id"]}
 
     def check(self, ctx, args, uow):
         """The caller, the source to store and its title. A pin reads the record through the caller's own read and stores the
@@ -101,11 +101,11 @@ class ThreadPins:
         if source["type"] != "signoff":
             return None
         try:
-            row = uow.connection.execute("SELECT task_id,task_business_id FROM signoff_report_tasks WHERE signoff_id=?",
+            row = uow.connection.execute("SELECT task_id,task_project_id FROM signoff_report_tasks WHERE signoff_id=?",
                                          (source["id"],)).fetchone()
         except sqlite3.OperationalError:
             return None
-        return {"type": "task", "id": row["task_id"], "business_id": row["task_business_id"]} if row else None
+        return {"type": "task", "id": row["task_id"], "project_id": row["task_project_id"]} if row else None
 
     def canonical(self, reading, given, uow):
         try:
@@ -114,7 +114,7 @@ class ThreadPins:
             return None
         if not isinstance(resolved, dict) or resolved.get("type") != given["type"] or not resolved.get("id"):
             return None
-        return {"type": resolved["type"], "id": resolved["id"], "business_id": resolved.get("business_id")}
+        return {"type": resolved["type"], "id": resolved["id"], "project_id": resolved.get("project_id")}
 
     def prepare(self, ctx, args, options, uow):
         self.check(ctx, args, uow)
@@ -123,6 +123,6 @@ class ThreadPins:
     def apply(self, ctx, plan, uow):
         args = plan.arguments
         reading, source, title = self.check(ctx, args, uow)
-        source = {"type": source["type"], "id": source["id"], "business_id": source["business_id"]}
+        source = {"type": source["type"], "id": source["id"], "project_id": source["project_id"]}
         saved = thread_pins(self.runtime.paths.runtime, reading.owner, {"source": source, "title": title, "pinned": args["pinned"]})
         return {"source": source, "pinned": args["pinned"], "pinned_count": len(saved["threads"]), "limit": MAX_THREAD_PINS}

@@ -56,7 +56,7 @@ ENGINE_KEYS = frozenset({"engine", "engine_id", "engine_scope_id", "issue_id", "
 OWNER_EDIT_FIELDS = frozenset({"scope", "bucket", "tag", "text"})
 DECISION_KEYS = frozenset({"candidate_id", "state", "feedback", "changes_json", "decided_by", "created_at", "updated_at"})
 HISTORY_KEYS = frozenset({"id", "candidate_id", "event", "actor_id", "before_json", "after_json", "created_at"})
-JOB_KEYS = frozenset({"id", "business_id", "target_namespace", "kind", "principal_id", "initiated_by_principal_id",
+JOB_KEYS = frozenset({"id", "project_id", "target_namespace", "kind", "principal_id", "initiated_by_principal_id",
                       "arguments_json", "definition_ref_json", "dedupe_key", "state"})
 RUN_KEYS = frozenset({"id", "cores", "started", "finished", "supersession_mode", "processed", "processed_by_source",
                       "items", "dedup", "errors", "diagnostics", "partial", "status", "source_states", "paused_sources",
@@ -104,18 +104,18 @@ FILE_MUTATORS = frozenset({"learnings_review", "learnings_edit", "learnings_deci
 CONTEXT_FILING_TABLES = frozenset({"documents", "context_filings", "context_inputs", "context_source_versions", "jobs"})
 # The supported composed Context intake effect contracts. Each value is the exact stored row shape prepared by the
 # documents/Context filing composition; a retained learning plan may not invent an action or a field outside it.
-DOCUMENT_INSERT_FIELDS = frozenset({"id", "business_id", "namespace", "owning_agent_id", "kind", "path", "content_hash",
+DOCUMENT_INSERT_FIELDS = frozenset({"id", "project_id", "namespace", "owning_agent_id", "kind", "path", "content_hash",
                                     "metadata_json", "source_refs_json", "availability", "created_at", "updated_at"})
 DOCUMENT_UPDATE_FIELDS = frozenset({"kind", "path", "content_hash", "metadata_json", "source_refs_json", "updated_at"})
 AUXILIARY_EFFECTS = {
     "documents": {"insert": DOCUMENT_INSERT_FIELDS, "update": DOCUMENT_UPDATE_FIELDS},
-    "context_source_versions": {"insert": frozenset({"id", "business_id", "source_kind", "source_id", "source_revision",
+    "context_source_versions": {"insert": frozenset({"id", "project_id", "source_kind", "source_id", "source_revision",
                                                      "operation", "source_path", "source_digest", "retracts_revision",
                                                      "created_by"})},
-    "context_filings": {"insert": frozenset({"id", "business_id", "source_version_id", "request_id", "job_id",
+    "context_filings": {"insert": frozenset({"id", "project_id", "source_version_id", "request_id", "job_id",
                                              "program_id", "program_version", "definition_digest", "worker_id",
                                              "initiated_by", "input_id"})},
-    "context_inputs": {"insert": frozenset({"id", "business_id", "input_kind", "operation", "payload_json",
+    "context_inputs": {"insert": frozenset({"id", "project_id", "input_kind", "operation", "payload_json",
                                             "submitted_by", "created_at"})},
     "jobs": {"insert": JOB_KEYS},
 }
@@ -127,11 +127,11 @@ AUXILIARY_REQUIRED = {
     "jobs": {"insert": JOB_KEYS},
 }
 # The repository's stored primary key for every table a retained learning plan may write; all these specs exclude the
-# business scope column from the key, and an insert's values (not its declared resource) decide the row it creates.
+# project scope column from the key, and an insert's values (not its declared resource) decide the row it creates.
 PRIMARY_KEYS = {"learning_candidates": "id", "learning_decisions": "candidate_id", "learning_history": "id",
                 "learning_runs": "id", "learning_scan_state": "session_id", "documents": "id", "context_filings": "id",
                 "context_inputs": "id", "context_source_versions": "id", "jobs": "id"}
-SCOPE_FIELD = "business_id"
+SCOPE_FIELD = "project_id"
 UPLOAD_DOCUMENT_KINDS = frozenset({"context_upload"})
 INDEX_DOCUMENT_KINDS = frozenset({"context_index"})
 # Jobs a retained plan may queue: extraction itself, or the existing Context filing completion for an accepted intake.
@@ -326,7 +326,7 @@ class _Effects:
 
     def __init__(self, ctx, plan, uow, *, source_bytes=None):
         self.ctx, self.plan, self.uow, self.source_bytes = ctx, plan, uow, source_bytes
-        self.business = ctx.business_id
+        self.project = ctx.project_id
         self.candidate_changes = {}
         self.decision_changes = {}
         self.history = []
@@ -358,7 +358,7 @@ class _Effects:
             if change.kind == "file":
                 if not file_mutator:
                     _forbidden("This learning operation has no prepared file effect.")
-                key = (change.resource.resource_type, change.resource.business_id, change.resource.resource_id)
+                key = (change.resource.resource_type, change.resource.project_id, change.resource.resource_id)
                 if key in seen_files:
                     _forbidden("A saved learning change prepares the same file twice.")
                 seen_files.add(key)
@@ -366,14 +366,14 @@ class _Effects:
                 continue
             if change.kind != "record":
                 _forbidden("A retained learning change may only carry record or document effects.")
-            if change.resource.business_id != self.business:
+            if change.resource.project_id != self.project:
                 _forbidden("A prepared learning effect targets another scope.")
             values = _plain_mapping(change.values, "A prepared " + table + " effect")
             if table in ENGINE_TABLES:
                 _forbidden("A saved learning change targets a removed procedural engine record.")
             if table not in PRIMARY_KEYS:
                 _forbidden("A saved learning change targets a table outside the supported learning contract.")
-            identity = (table, change.resource.business_id, change.resource.resource_id)
+            identity = (table, change.resource.project_id, change.resource.resource_id)
             if identity in seen:
                 _forbidden("A saved learning change prepares the same stored record twice.")
             seen.add(identity)
@@ -405,7 +405,7 @@ class _Effects:
                 _forbidden("A prepared " + table + " update may not mutate its stored scope.")
         else:
             _forbidden("This learning operation never prepares the action " + change.action + " on " + table + ".")
-        if SCOPE_FIELD in values and values[SCOPE_FIELD] != change.resource.business_id:
+        if SCOPE_FIELD in values and values[SCOPE_FIELD] != change.resource.project_id:
             _forbidden("A prepared " + table + " effect names another scope.")
 
     def _typed(self, table, change, values):
@@ -413,7 +413,7 @@ class _Effects:
             candidate = _json_object(values.get("candidate_json"), "A prepared candidate")
             if _engine_marker(candidate):
                 _forbidden("A retained learning change may not write a procedural engine projection.")
-            self.candidate_changes[(change.resource.business_id, change.resource.resource_id)] = (change, candidate)
+            self.candidate_changes[(change.resource.project_id, change.resource.resource_id)] = (change, candidate)
         elif table == "learning_decisions":
             changes = _json_object(values.get("changes_json", {}), "A prepared decision change set")
             unsupported = sorted(set(changes) - OWNER_EDIT_FIELDS)
@@ -423,7 +423,7 @@ class _Effects:
                 _forbidden("A prepared decision may not classify a factual record as procedural.")
             if _engine_marker(changes):
                 _forbidden("A prepared decision carries a procedural engine projection.")
-            self.decision_changes[(change.resource.business_id, change.resource.resource_id)] = (change, values)
+            self.decision_changes[(change.resource.project_id, change.resource.resource_id)] = (change, values)
         elif table == "learning_history":
             self.history.append((change, values))
         elif table == "learning_runs":
@@ -437,7 +437,7 @@ class _Effects:
                 _forbidden("A prepared learning run carries unsupported fields: " + ", ".join(unsupported) + ".")
             if _engine_marker(result):
                 _forbidden("A prepared learning run carries a procedural engine projection.")
-            self.prepared_runs[(change.resource.business_id, change.resource.resource_id)] = result
+            self.prepared_runs[(change.resource.project_id, change.resource.resource_id)] = result
         elif table == "learning_scan_state":
             state = _json_object(values.get("state_json"), "A prepared scan state")
             if change.action == "insert" and values.get("session_id") != change.resource.resource_id:
@@ -448,10 +448,10 @@ class _Effects:
             self.learning_jobs.append((change, values))
 
     # -- stored/prepared state ------------------------------------------------------------------------------------
-    def candidate_row(self, business, identity):
-        key = (business, identity)
+    def candidate_row(self, project, identity):
+        key = (project, identity)
         if key not in self._candidate_rows:
-            row = self.uow.repository("learning_candidates", business_id=business).get(identity)
+            row = self.uow.repository("learning_candidates", project_id=project).get(identity)
             change = self.candidate_changes.get(key)
             if change is not None:
                 if change[0].action == "insert" and row is not None:
@@ -461,10 +461,10 @@ class _Effects:
             self._candidate_rows[key] = row
         return self._candidate_rows[key]
 
-    def decision_row(self, business, identity):
-        key = (business, identity)
+    def decision_row(self, project, identity):
+        key = (project, identity)
         if key not in self._decision_rows:
-            row = self.uow.repository("learning_decisions", business_id=business).get(identity)
+            row = self.uow.repository("learning_decisions", project_id=project).get(identity)
             change = self.decision_changes.get(key)
             if change is not None:
                 if change[0].action == "insert" and row is not None:
@@ -474,50 +474,50 @@ class _Effects:
             self._decision_rows[key] = row
         return self._decision_rows[key]
 
-    def candidate_json_after(self, business, identity):
-        change = self.candidate_changes.get((business, identity))
+    def candidate_json_after(self, project, identity):
+        change = self.candidate_changes.get((project, identity))
         if change is not None:
             return change[1]
-        row = self.candidate_row(business, identity)
+        row = self.candidate_row(project, identity)
         return plain(row["candidate_json"]) if row else None
 
-    def after_decision(self, business, identity):
-        change = self.decision_changes.get((business, identity))
+    def after_decision(self, project, identity):
+        change = self.decision_changes.get((project, identity))
         if change is not None:
             values = change[1]
             if change[0].action == "update":
-                return {**(self.decision_row(business, identity) or {}), **values}
+                return {**(self.decision_row(project, identity) or {}), **values}
             return values
-        return self.decision_row(business, identity)
+        return self.decision_row(project, identity)
 
-    def after_state(self, business, identity):
-        candidate = self.candidate_json_after(business, identity)
+    def after_state(self, project, identity):
+        candidate = self.candidate_json_after(project, identity)
         if candidate is None:
             return None
-        return effective(candidate, self.after_decision(business, identity))
+        return effective(candidate, self.after_decision(project, identity))
 
-    def before_state(self, business, identity):
-        row = self.candidate_row(business, identity)
+    def before_state(self, project, identity):
+        row = self.candidate_row(project, identity)
         if row is None:
             return None
-        return effective(row["candidate_json"], self.decision_row(business, identity))
+        return effective(row["candidate_json"], self.decision_row(project, identity))
 
-    def _inserted_here(self, business, identity):
+    def _inserted_here(self, project, identity):
         """Whether this plan inserts the candidate and no stored row exists yet."""
-        change = self.candidate_changes.get((business, identity))
-        return change is not None and change[0].action == "insert" and self.candidate_row(business, identity) is None
+        change = self.candidate_changes.get((project, identity))
+        return change is not None and change[0].action == "insert" and self.candidate_row(project, identity) is None
 
-    def has_candidate_state(self, business, identity):
+    def has_candidate_state(self, project, identity):
         """Whether any stored or prepared candidate or decision state exists for this identity."""
-        return (self.candidate_json_after(business, identity) is not None
-                or self.after_decision(business, identity) is not None)
+        return (self.candidate_json_after(project, identity) is not None
+                or self.after_decision(project, identity) is not None)
 
-    def frozen_core(self, business, run_id, session):
+    def frozen_core(self, project, run_id, session):
         """The frozen extraction core of one run/session: the exact prepared run effect, else the stored run."""
-        key = (business, run_id)
+        key = (project, run_id)
         result = self.prepared_runs.get(key)
         if key not in self._run_rows:
-            self._run_rows[key] = self.uow.repository("learning_runs", business_id=business).get(run_id)
+            self._run_rows[key] = self.uow.repository("learning_runs", project_id=project).get(run_id)
         row = self._run_rows[key]
         if result is not None:
             if row is not None:
@@ -532,7 +532,7 @@ class _Effects:
             _forbidden("An embedded earlier learning snapshot has no frozen extraction core in its run.")
         return core
 
-    def embedded_snapshot(self, business, owner, snapshot):
+    def embedded_snapshot(self, project, owner, snapshot):
         """Prove one complete factual ``reconciliations[].earlier`` snapshot whose identity has no stored/prepared state.
 
         The reconciliation keeps a same-run earlier item only as this full copy inside its surviving candidate. It is
@@ -542,7 +542,7 @@ class _Effects:
         identity = _identifier(snapshot.get("id"), "An embedded earlier learning identity")
         copy = _json_object(snapshot, "An embedded earlier learning snapshot")
         canonical = json.dumps(copy, sort_keys=True, separators=(",", ":"))
-        known = self._embedded.get((business, identity))
+        known = self._embedded.get((project, identity))
         if known is not None:
             # The cache reuses the proof of the evidence only; every relation still answers for its own owner's scope.
             if known != canonical:
@@ -563,42 +563,42 @@ class _Effects:
         if evidence.get("run", run_id) != run_id:
             _forbidden("An embedded earlier learning snapshot names two different runs.")
         session = _text(evidence.get("session"), "An embedded earlier learning session")
-        core = self.frozen_core(business, run_id, session)
+        core = self.frozen_core(project, run_id, session)
         markdown = _frozen_evidence(core, evidence, session)
         try:
             analysis.validate_item(copy, markdown, source_core=core)
         except ValueError as exc:
             _forbidden("An embedded earlier learning snapshot is not supported by its frozen evidence: " + str(exc))
-        self._embedded[(business, identity)] = canonical
+        self._embedded[(project, identity)] = canonical
 
     # -- validation -----------------------------------------------------------------------------------------------
     def validate(self):
         written = sorted(set(self.candidate_changes) | set(self.decision_changes))
-        self.accepted_ids = {(business, identity) for business, identity in written
-                             if (self.after_decision(business, identity) or {}).get("state") == "accepted"
-                             and (self.after_state(business, identity) or {}).get("bucket") == CONTEXT_BUCKET}
+        self.accepted_ids = {(project, identity) for project, identity in written
+                             if (self.after_decision(project, identity) or {}).get("state") == "accepted"
+                             and (self.after_state(project, identity) or {}).get("bucket") == CONTEXT_BUCKET}
         self.accepted = bool(self.accepted_ids)
         if self.files or self.auxiliary or self.auxiliary_jobs:
             if not self.accepted:
                 _forbidden("A prepared file or filing effect requires an accepted factual Context decision in the same plan.")
             self._validate_context()
-        for business, identity in written:
-            before_raw = (self.candidate_row(business, identity) or {}).get("candidate_json")
-            after_raw = self.candidate_json_after(business, identity)
-            before = self.before_state(business, identity)
-            after = self.after_state(business, identity)
+        for project, identity in written:
+            before_raw = (self.candidate_row(project, identity) or {}).get("candidate_json")
+            after_raw = self.candidate_json_after(project, identity)
+            before = self.before_state(project, identity)
+            after = self.after_state(project, identity)
             if before_raw is not None and _engine_marker(before_raw):
                 _forbidden("A retained learning change targets an engine-linked record.")
             if before is not None:
                 if before.get("bucket") != CONTEXT_BUCKET:
                     _forbidden("A retained learning change may not modify a historical procedural or unclassified record.")
-                _validate_links(self, business, identity, before)
+                _validate_links(self, project, identity, before)
             if after is None or after_raw is None:
                 _forbidden("A prepared learning effect has no resolvable candidate.")
             if after.get("bucket") != CONTEXT_BUCKET:
                 _forbidden("A retained learning change may only write a factual Context candidate.")
-            _validate_links(self, business, identity, after)
-            changes = (self.after_decision(business, identity) or {}).get("changes_json") or {}
+            _validate_links(self, project, identity, after)
+            changes = (self.after_decision(project, identity) or {}).get("changes_json") or {}
             changes = _json_object(changes, "A prepared decision change set")
             unsupported = sorted(set(changes) - OWNER_EDIT_FIELDS)
             if unsupported:
@@ -623,7 +623,7 @@ class _Effects:
         identity = values.get("candidate_id")
         if not isinstance(identity, str) or not identity:
             _forbidden("A prepared learning history record has no target candidate.")
-        after = self.after_state(self.business, identity)
+        after = self.after_state(self.project, identity)
         if after is None:
             _forbidden("A prepared learning history record targets an unknown learning record.")
         if after.get("bucket") != CONTEXT_BUCKET:
@@ -634,7 +634,7 @@ class _Effects:
             snapshot = _json_object(values.get(side), "A prepared history snapshot")
             if _engine_marker(snapshot):
                 _forbidden("A prepared history snapshot carries a procedural engine projection.")
-            if side == "before_json" and self._inserted_here(self.business, identity) and not any(
+            if side == "before_json" and self._inserted_here(self.project, identity) and not any(
                     value is not None for value in snapshot.values()):
                 continue   # restoring an embedded earlier item: nothing existed before this prepared insert
             if "bucket" in snapshot:
@@ -642,14 +642,14 @@ class _Effects:
                     _forbidden("A retained learning change may not record procedural history.")
             elif self.plan.operation_name not in BUCKETLESS_HISTORY_OPERATIONS:
                 _forbidden("A prepared history snapshot omits the factual bucket of a full learning item.")
-            _validate_links(self, self.business, identity, snapshot)
+            _validate_links(self, self.project, identity, snapshot)
 
     def _job(self, values, kinds):
-        required = {"id", "business_id", "target_namespace", "kind", "principal_id", "initiated_by_principal_id",
+        required = {"id", "project_id", "target_namespace", "kind", "principal_id", "initiated_by_principal_id",
                     "arguments_json", "definition_ref_json", "dedupe_key", "state"}
         if not required <= set(values):
             _forbidden("A prepared learning job is incomplete.")
-        if values.get("business_id") != self.business:
+        if values.get("project_id") != self.project:
             _forbidden("A prepared learning job targets another scope.")
         if values.get("kind") not in kinds or values.get("kind") == "learnings.engine_extract":
             _forbidden("A prepared learning job queues an unsupported program.")
@@ -661,19 +661,19 @@ class _Effects:
             _forbidden("A prepared learning job carries a procedural engine projection.")
 
 
-    def after_filing(self, business, identity):
+    def after_filing(self, project, identity):
         """The candidate's effective filing JSON (stored column plus any prepared candidate update)."""
-        change = self.candidate_changes.get((business, identity))
+        change = self.candidate_changes.get((project, identity))
         if change is not None:
             values = _plain_mapping(change[0].values, "A prepared candidate effect")
             if "filing_json" in values:
                 return _json_object(values["filing_json"], "A prepared candidate filing")
-        row = self.candidate_row(business, identity)
+        row = self.candidate_row(project, identity)
         return _json_object((row or {}).get("filing_json") or {}, "A stored candidate filing")
 
-    def _document_state(self, change, values, business):
+    def _document_state(self, change, values, project):
         """The effective stored-plus-prepared document row, including immutable scope for an existing index update."""
-        stored = self.uow.repository("documents", business_id=business).get(change.resource.resource_id)
+        stored = self.uow.repository("documents", project_id=project).get(change.resource.resource_id)
         if change.action == "insert":
             if stored is not None:
                 _forbidden("A prepared Context document insert would replace an existing document.")
@@ -691,10 +691,10 @@ class _Effects:
         """The composed Context intake must be exactly one ordered provenance chain bound to the accepted factual record."""
         if len(self.accepted_ids) != 1:
             _forbidden("A prepared Context filing must correspond to exactly one accepted factual learning record.")
-        business, identity = next(iter(self.accepted_ids))
+        project, identity = next(iter(self.accepted_ids))
         actor = self.ctx.principal_id
         expected_initiator = self.ctx.initiated_by_principal_id if self.ctx.principal_kind == "system" else actor
-        expected_namespace = "business:" + business if business else "global"
+        expected_namespace = "project:" + project if project else "global"
         documents = {change.resource.resource_id: (change, values) for table, change, values in self.auxiliary
                      if table == "documents"}
         versions = [(change, values) for table, change, values in self.auxiliary
@@ -707,7 +707,7 @@ class _Effects:
         filing_change, filing_values = filings[0]
         input_change, input_values = inputs[0]
         job_change, job = self.auxiliary_jobs[0]
-        filing = self.after_filing(business, identity)
+        filing = self.after_filing(project, identity)
         upload_id, job_id, snapshot = filing.get("upload_id"), filing.get("job_id"), filing.get("snapshot_hash")
         if not all(isinstance(value, str) and value for value in (upload_id, job_id, snapshot)):
             _forbidden("An accepted factual record carries no complete Context filing identity.")
@@ -728,7 +728,7 @@ class _Effects:
             if required is None:
                 _forbidden("A prepared Context effect has an unsupported action.")
             _required_fields(table, required, values)
-            if change.action == "insert" and values.get("business_id") != business:
+            if change.action == "insert" and values.get("project_id") != project:
                 _forbidden("A prepared Context effect targets another scope.")
         _required_fields("jobs", JOB_KEYS, job)
 
@@ -736,13 +736,13 @@ class _Effects:
         # its scope comes from the ResourceRef above and its current stored row, and the immutable stored/prepared state
         # is validated together exactly as execution will see it.
         upload_change, upload_values = upload
-        upload_values = self._document_state(upload_change, upload_values, business)
+        upload_values = self._document_state(upload_change, upload_values, project)
         upload = (upload_change, upload_values)
-        document_states = {document_id: self._document_state(change, values, business)
+        document_states = {document_id: self._document_state(change, values, project)
                            for document_id, (change, values) in documents.items()}
         metadata = _json_object(upload_values.get("metadata_json"), "A prepared upload metadata")
         refs = upload_values.get("source_refs_json")
-        expected_refs = [{"resource_type": "learning_candidates", "resource_id": identity, "business_id": business}]
+        expected_refs = [{"resource_type": "learning_candidates", "resource_id": identity, "project_id": project}]
         if not isinstance(refs, list) or refs != expected_refs:
             _forbidden("A prepared Context upload does not reference exactly its accepted factual record.")
         expected_files = {}
@@ -752,7 +752,7 @@ class _Effects:
             _json_object(values.get("metadata_json"), "A prepared Context document metadata")
             if not isinstance(values.get("source_refs_json"), list):
                 _forbidden("A prepared Context document has no source reference list.")
-            if values.get("business_id") != business or values.get("namespace") != (business or "global"):
+            if values.get("project_id") != project or values.get("namespace") != (project or "global"):
                 _forbidden("A prepared Context document has another scope or namespace.")
             if values.get("owning_agent_id") is not None:
                 _forbidden("A prepared Context document has an unsupported owning agent.")
@@ -779,9 +779,9 @@ class _Effects:
                 _forbidden("A prepared Context index document is unsupported.")
 
         # Effective snapshot and exact accepted source.
-        decision = self.after_decision(business, identity) or {}
-        candidate = self.candidate_json_after(business, identity) or {}
-        snapshot_item = {**effective(candidate, decision), "id": identity, "business_id": business,
+        decision = self.after_decision(project, identity) or {}
+        candidate = self.candidate_json_after(project, identity) or {}
+        snapshot_item = {**effective(candidate, decision), "id": identity, "project_id": project,
                          "decision": {"state": decision.get("state"), "note": decision.get("feedback")}}
         expected_body, expected_digest = intake_snapshot(snapshot_item)
         if snapshot != expected_digest:
@@ -833,7 +833,7 @@ class _Effects:
         _text(job.get("principal_id"), "A prepared job worker")
         _text(job.get("dedupe_key"), "A prepared job dedupe key")
         _json_object(job.get("arguments_json"), "A prepared job argument set")
-        if job.get("business_id") != business or job.get("target_namespace") != expected_namespace:
+        if job.get("project_id") != project or job.get("target_namespace") != expected_namespace:
             _forbidden("A prepared Context job targets another scope.")
         if job.get("kind") != "context.file" or job.get("state") != "queued" \
                 or job.get("initiated_by_principal_id") != expected_initiator:
@@ -901,7 +901,7 @@ class _Effects:
             if not isinstance(reference, dict) or set(reference) != {"document_id", "path"} \
                     or reference.get("document_id") not in expected_files:
                 _forbidden("A prepared Context file does not belong to a prepared document.")
-            if change.resource.business_id != business:
+            if change.resource.project_id != project:
                 _forbidden("A prepared Context file targets another scope.")
             if reference.get("path") != expected_files[reference["document_id"]]:
                 _forbidden("A prepared Context file writes another path than its document.")
@@ -941,7 +941,7 @@ class _Effects:
             _forbidden("A prepared Context document has no file effect.")
 
 
-def _validate_links(view, business, identity, state, seen=None, depth=0):
+def _validate_links(view, project, identity, state, seen=None, depth=0):
     """Validate every supported reconciliation/supersession structure of one candidate or history copy."""
     seen = set() if seen is None else seen
     if depth > MAX_GRAPH_DEPTH:
@@ -969,32 +969,32 @@ def _validate_links(view, business, identity, state, seen=None, depth=0):
         if embedded is not None:
             if embedded.get("bucket") not in (None, CONTEXT_BUCKET) or _engine_marker(embedded):
                 _forbidden("A prepared learning relation embeds a procedural or engine-linked candidate.")
-            if may_embed and not view.has_candidate_state(business, target):
+            if may_embed and not view.has_candidate_state(project, target):
                 # The same-run earlier item exists only as this complete copy; stored or prepared state, when present,
                 # stays authoritative and is validated below instead.
-                view.embedded_snapshot(business, state, embedded)
-                _validate_links(view, business, target, embedded, seen, depth + 1)
+                view.embedded_snapshot(project, state, embedded)
+                _validate_links(view, project, target, embedded, seen, depth + 1)
                 continue
-            _validate_links(view, business, target, embedded, seen, depth + 1)
-        _require_factual(view, business, target, seen, depth + 1)
+            _validate_links(view, project, target, embedded, seen, depth + 1)
+        _require_factual(view, project, target, seen, depth + 1)
 
 
-def _require_factual(view, business, identity, seen, depth):
+def _require_factual(view, project, identity, seen, depth):
     if depth > MAX_GRAPH_DEPTH:
         _forbidden("A prepared learning relation is nested too deeply to inspect.")
-    key = (business, identity)
+    key = (project, identity)
     if key in seen:
         return
     seen.add(key)
-    after = view.after_state(business, identity)
+    after = view.after_state(project, identity)
     if after is None:
         _forbidden("A prepared learning relation names an unknown learning record.")
-    raw = view.candidate_json_after(business, identity)
+    raw = view.candidate_json_after(project, identity)
     if raw is not None and _engine_marker(raw):
         _forbidden("A prepared learning relation names an engine-linked record.")
     if after.get("bucket") != CONTEXT_BUCKET:
         _forbidden("A prepared learning relation names a historical procedural record.")
-    _validate_links(view, business, identity, after, seen, depth + 1)
+    _validate_links(view, project, identity, after, seen, depth + 1)
 
 
 def validate_saved_plan(ctx, plan, uow, *, source_bytes=None):

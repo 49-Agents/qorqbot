@@ -128,8 +128,8 @@ class Indexer:
 
     def archive(self, profile: dict) -> TranscriptArchive:
         """The agent's own archive root, selected by its registered identity and home scope, never by a stored path."""
-        folder = profile.get("business_slug") if profile.get("home_business_id") else None
-        root = str(self.runtime.paths.agent_transcripts(profile["agent_id"], business_folder=folder))
+        folder = profile.get("project_slug") if profile.get("home_project_id") else None
+        root = str(self.runtime.paths.agent_transcripts(profile["agent_id"], project_folder=folder))
         return self._archive_factory(root) if self._archive_factory else TranscriptArchive(root)
 
     @staticmethod

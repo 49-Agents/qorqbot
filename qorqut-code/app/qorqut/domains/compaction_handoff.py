@@ -148,7 +148,7 @@ class CompactionHandoff:
 
     def coordinator(self, ctx, uow):
         """The configured coordinator in person, at Global: never a delegated identity, another agent or the owner."""
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         if (ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None
                 or ctx.principal_id != configured_ordubashy(uow)):
             raise DomainError("forbidden", "A compaction handoff is filed by the coordinator in person")
@@ -303,15 +303,15 @@ class CompactionHandoff:
         located, namespace = tasks.lookup(ctx, {"task_id": task_id}, uow)
         if namespace is None:
             raise DomainError("not_found", "no Task has this id")
-        business = None if namespace == "global" else namespace.removeprefix("business:")
-        identity, scope = located["task_id"], ({} if business else {"scope": "global"})
-        row = uow.repository("tasks", business_id=business).get(identity, required=True)
+        project = None if namespace == "global" else namespace.removeprefix("project:")
+        identity, scope = located["task_id"], ({} if project else {"scope": "global"})
+        row = uow.repository("tasks", project_id=project).get(identity, required=True)
         note = "\n".join(write["notes"])
         if write["next_step"] and row["status"] not in CLOSED_STATES:
             operation, arguments = "tasks_update", {"task_id": identity, "changes": {"next_step": write["next_step"]}, "note": note, **scope}
         else:
             operation, arguments = "tasks_comment", {"task_id": identity, "text": note, **scope}
-        prepared = tasks.prepare(operation, ctx.select_business(business) if business else ctx, arguments,
+        prepared = tasks.prepare(operation, ctx.select_project(project) if project else ctx, arguments,
                                  replace(options, expected_revision=None), uow)
         for target in prepared.expected_targets:
             if builder.targets.get(target.resource, target) != target:
@@ -323,8 +323,8 @@ class CompactionHandoff:
         builder.previews.extend(preview["changes"])
         builder.effects.extend(preview["effects"])
         # The Task write is judged by the Task service's own policy too, and this marker ends the Task's effects in the plan.
-        builder.policy_effect(builder.expect(ref("tasks", identity, business), row), operation, "Writes the handoff note on the Task")
-        return {"id": identity, "business_id": business, "title": row["title"]}
+        builder.policy_effect(builder.expect(ref("tasks", identity, project), row), operation, "Writes the handoff note on the Task")
+        return {"id": identity, "project_id": project, "title": row["title"]}
 
     def apply(self, ctx, plan, uow):
         if plan.principal_id != configured_ordubashy(uow):
@@ -335,9 +335,9 @@ class CompactionHandoff:
                 own.append(change)
             elif change.action == "policy_effect" and change.operation_name in {"tasks_update", "tasks_comment"}:
                 # One Task's effects, applied by the Task service: its write, follows, thread entry and event.
-                business, identity = change.resource.business_id, change.resource.resource_id
-                arguments = {"task_id": identity, **({} if business else {"scope": "global"})}
-                tasks.apply(ctx.select_business(business) if business else replace(ctx, business_id=None),
+                project, identity = change.resource.project_id, change.resource.resource_id
+                arguments = {"task_id": identity, **({} if project else {"scope": "global"})}
+                tasks.apply(ctx.select_project(project) if project else replace(ctx, project_id=None),
                             replace(plan, operation_name=change.operation_name, arguments=arguments, changes=tuple(group)), uow)
                 written.append({"task_id": identity, "set": "note and next step" if change.operation_name == "tasks_update" else "note"})
                 group = []

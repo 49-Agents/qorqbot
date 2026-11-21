@@ -84,7 +84,7 @@ def inside(phase):
             task_id = connection.execute('SELECT id FROM tasks WHERE title=?',
                 ('Synthetic native package acceptance',)).fetchone()[0]
             tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert not {'business_sandboxes', 'business_previews'} & tables
+        assert not {'project_sandboxes', 'project_previews'} & tables
         assert not any(name.startswith('telegram_') for name in tables)
         marker.write_text('Synthetic acceptance record: preserve across restart and update.\n')
         state.write_text(json.dumps({'task_id': task_id, 'database_inode': db.stat().st_ino,

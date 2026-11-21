@@ -19,22 +19,22 @@ class OwnerInputGateway:
     def resolve_response(self, binding, reference):
         runtime = self.runtime
         scope = binding['owner_scope']
-        business = scope['business_id']
-        namespace = 'business:' + business if business else 'global'
+        project = scope['project_id']
+        namespace = 'project:' + project if project else 'global'
         with runtime.database.read() as uow:
             ctx, _ = self.authority(runtime, self.context, uow)
-            if business and business not in ctx.allowed_business_ids:
+            if project and project not in ctx.allowed_project_ids:
                 raise DomainError('forbidden', 'The Signoff review scope is unavailable')
-            ctx = replace(ctx, business_id=business, review_business_id=business)
+            ctx = replace(ctx, project_id=project, review_project_id=project)
             runtime.application.authorize(ctx, runtime.registry.get('signoffs_get'), (), uow, namespace=namespace)
             row = runtime.signoffs._row(ctx, reference['signoff_id'], uow)
             saved = uow.connection.execute('SELECT * FROM overseer_signoffs WHERE binding_id=?', (binding['id'],)).fetchone()
             if (saved is None or saved['request_key'] != binding['request_key']
-                    or saved['signoff_id'] != row['id'] or saved['review_business_id'] != business
+                    or saved['signoff_id'] != row['id'] or saved['review_project_id'] != project
                     or saved['proposal_revision'] != row['proposal_revision'] or saved['payload_hash'] != row['payload_hash']):
                 raise DomainError('stale_revision', 'The Signoff is not the saved binding request')
-            if (scope['kind'] != ('business' if business else 'global') or row['category'] != 'input_request'
-                    or row['review_business_id'] != business or row['request_key'] != binding['request_key']
+            if (scope['kind'] != ('project' if project else 'global') or row['category'] != 'input_request'
+                    or row['review_project_id'] != project or row['request_key'] != binding['request_key']
                     or row['state'] != 'answered' or row['superseded_by_id'] is not None
                     or reference != {'provider': 'qorqut_signoff', 'signoff_id': row['id'],
                                      'proposal_revision': row['proposal_revision'], 'payload_hash': row['payload_hash'],
@@ -49,9 +49,9 @@ class OwnerInputGateway:
             principal = uow.connection.execute('SELECT kind,active FROM principals WHERE id=?', (owner,)).fetchone()
             if decision.get('kind') != 'respond' or principal is None or principal['kind'] != 'human' or not principal['active']:
                 raise DomainError('forbidden', 'The answer was not made by an active owner')
-            if business:
-                member = uow.connection.execute('SELECT active,is_owner FROM business_memberships WHERE business_id=? AND principal_id=?',
-                                                (business, owner)).fetchone()
+            if project:
+                member = uow.connection.execute('SELECT active,is_owner FROM project_memberships WHERE project_id=? AND principal_id=?',
+                                                (project, owner)).fetchone()
                 if member is None or not member['active'] or not member['is_owner']:
                     raise DomainError('forbidden', 'The responder no longer has owner authority for this scope')
             else:
@@ -93,8 +93,8 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
     binding['request_ref'] = None
     identity, request_key = binding['id'], binding['request_key']
     scope = binding['owner_scope']
-    business = scope['business_id']
-    if scope['kind'] != ('business' if business else 'global'):
+    project = scope['project_id']
+    if scope['kind'] != ('project' if project else 'global'):
         raise DomainError('validation_error', 'Invalid review scope')
     form = validate_form({**form, 'response_policy': 'owner_only'})
     if 'schema_version' in form:
@@ -150,18 +150,18 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
     if len(explanation) > 8000:
         raise DomainError('validation_error', 'The exact bound material exceeds the Signoff explanation limit')
     form['explanation'] = explanation
-    namespace = 'business:' + business if business else 'global'
+    namespace = 'project:' + project if project else 'global'
     with runtime.database.read() as uow:
         ctx, _ = authorize(uow)
-        if business and business not in ctx.allowed_business_ids:
+        if project and project not in ctx.allowed_project_ids:
             raise DomainError('forbidden', 'The requested review scope is unavailable')
-        ctx = replace(ctx, business_id=business, review_business_id=business)
+        ctx = replace(ctx, project_id=project, review_project_id=project)
         if direct_submission is None:
             from .continuation import require_run
             require_run(runtime, ctx, uow, binding['run_id'], active=True)
         runtime.application.authorize(ctx, runtime.registry.get('signoffs_get'), (), uow, namespace=namespace)
-        rows = uow.connection.execute('SELECT id FROM signoffs WHERE proposer_principal_id=? AND review_business_id IS ? AND request_key=? LIMIT 2',
-                                      (ctx.principal_id, business, request_key)).fetchall()
+        rows = uow.connection.execute('SELECT id FROM signoffs WHERE proposer_principal_id=? AND review_project_id IS ? AND request_key=? LIMIT 2',
+                                      (ctx.principal_id, project, request_key)).fetchall()
         if len(rows) > 1:
             raise DomainError('operation_conflict', 'More than one canonical Signoff uses this request key')
         existing = runtime.signoffs._row(ctx, rows[0]['id'], uow) if rows else None
@@ -177,7 +177,7 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
             raise
         layer.overseer.inputs.bind(saved_binding, operation_id)
     if existing is None:
-        args = {'request_key': request_key, 'form': form, **({'scope': 'global'} if business is None else {})}
+        args = {'request_key': request_key, 'form': form, **({'scope': 'global'} if project is None else {})}
         result = runtime.application.invoke(ctx, 'signoffs_input_create', args,
                                             {'idempotency_key': 'overseer-input:' + identity})
         if result.status != 'ok':
@@ -189,11 +189,11 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
     with runtime.database.transaction(operation='overseer.input-association') as uow:
         runtime.application.ensure_writes_open(uow)
         current, _ = authorize(uow)
-        current = replace(current, business_id=business, review_business_id=business)
+        current = replace(current, project_id=project, review_project_id=project)
         runtime.application.authorize(current, runtime.registry.get('signoffs_get'), (), uow, namespace=namespace)
         row = runtime.signoffs._row(current, signoff_id, uow)
         if (row['proposer_principal_id'] != current.principal_id or row['request_key'] != request_key
-                or row['review_business_id'] != business or row['category'] != 'input_request'
+                or row['review_project_id'] != project or row['category'] != 'input_request'
                 or row['preview_json'].get('input') != form):
             raise DomainError('operation_conflict', 'Canonical Signoff does not match the requested binding')
         reference = {'provider': 'qorqut_signoff', 'signoff_id': row['id'],
@@ -202,14 +202,14 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
             raise DomainError('stale_revision', 'The requested Signoff binding has changed')
         prior = uow.connection.execute('SELECT * FROM overseer_signoffs WHERE binding_id=?', (identity,)).fetchone()
         if prior is not None:
-            if (prior['signoff_id'], prior['proposal_revision'], prior['payload_hash'], prior['review_business_id'], prior['request_key'],
+            if (prior['signoff_id'], prior['proposal_revision'], prior['payload_hash'], prior['review_project_id'], prior['request_key'],
                 prior['purpose'], prior['run_id'], prior['delta_id'], prior['delta_revision'], prior['application_id'], prior['plan_revision'], prior['batch_id']) != (
-                row['id'], row['proposal_revision'], row['payload_hash'], business, request_key, binding['purpose'], binding['run_id'],
+                row['id'], row['proposal_revision'], row['payload_hash'], project, request_key, binding['purpose'], binding['run_id'],
                 targets['delta_id'], targets['delta_revision'], targets['application_id'], targets['plan_revision'], binding.get('batch_id')):
                 raise DomainError('operation_conflict', 'The binding already names a different Signoff')
         else:
             uow.connection.execute('INSERT INTO overseer_signoffs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (identity, request_key, row['id'], row['proposal_revision'], row['payload_hash'], business, binding['purpose'], binding['run_id'],
+                (identity, request_key, row['id'], row['proposal_revision'], row['payload_hash'], project, binding['purpose'], binding['run_id'],
                  targets['delta_id'], targets['delta_revision'], targets['application_id'], targets['plan_revision'], binding.get('batch_id')))
         from qorqut_operations.contracts import utc_now
         event = json.dumps({'binding_id': identity, 'signoff_id': row['id']}, sort_keys=True, separators=(',', ':'))

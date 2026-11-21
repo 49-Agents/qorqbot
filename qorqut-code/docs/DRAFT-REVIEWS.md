@@ -52,11 +52,11 @@ draft** submits the edited content, accompanying choices and feedback together.
 Feedback uses the existing one-line input, and version history stays collapsed.
 A returned draft is read-only.
 
-Owner HTTP routes use the review's own business or Global namespace:
+Owner HTTP routes use the review's own project or Global namespace:
 
 | Route | Body |
 |---|---|
-| `POST /api/biz/<slug>/signoffs/<id>/draft` (or `/api/root/signoffs/<id>/draft`) | Current `proposal_revision`, `payload_hash`, `expected_status_revision`, `idempotency_key`, and complete `values` map keyed by field ID |
+| `POST /api/project/<slug>/signoffs/<id>/draft` (or `/api/root/signoffs/<id>/draft`) | Current `proposal_revision`, `payload_hash`, `expected_status_revision`, `idempotency_key`, and complete `values` map keyed by field ID |
 | `POST .../signoffs/<id>/respond` | Same binding, complete `draft_values`, optional `notes` and `selected_choices` |
 | `GET .../signoffs/<id>?draft_history_before=<revision>` | Read an older page of version history |
 

@@ -410,7 +410,7 @@ class StopRequestTest(unittest.TestCase):
 
 class OwnerAuthorizationTest(unittest.TestCase):
     def setUp(self):
-        rows = [{'agent_id': agent, 'display_name': name, 'home_business_id': None, 'slug': None}
+        rows = [{'agent_id': agent, 'display_name': name, 'home_project_id': None, 'slug': None}
                 for agent, name in (('learning', 'Learning Applier'), ('scout', 'Scout'), ('lead', 'Ordubashy'), ('atlas', 'Atlas'))]
         connection = mock.Mock()
         connection.execute.return_value.fetchall.return_value = rows

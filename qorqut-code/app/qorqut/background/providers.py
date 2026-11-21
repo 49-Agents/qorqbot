@@ -70,11 +70,11 @@ class ProviderConfig:
 
     @classmethod
     def from_environment(cls, values: Mapping[str, str]) -> "ProviderConfig":
-        """The caller supplies its business-specific environment; never mutate it."""
+        """The caller supplies its project-specific environment; never mutate it."""
         return cls(
             api_key=values.get("DEEPSEEK_API_KEY", ""),
             base_url=values.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-            model=values.get("BIZ_BACKGROUND_MODEL", DEFAULT_MODEL),
+            model=values.get("QORQUT_BACKGROUND_MODEL", DEFAULT_MODEL),
         )
 
 

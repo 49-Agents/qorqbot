@@ -256,7 +256,7 @@
       "id": "project-aliases",
       "path": "app/qorqut/agentic/assets/project-aliases.md",
       "parameters": [],
-      "source_site": "app/qorqut/agents/context.py:business_directory"
+      "source_site": "app/qorqut/agents/context.py:project_directory"
     },
     {
       "id": "team-queue",

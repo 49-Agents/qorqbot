@@ -175,7 +175,7 @@ optional `tags` snapshots, recorder and optional event ID. It is not authenticat
 References are nonempty and at most 256 UTF-8 bytes; pointer kinds are node/edge,
 IDs use the normal five-character syntax, and optional text is `explanation`.
 Absent IDs remain unresolved suggestions. Tags are a list of `{id, name,
-business_id}` snapshots (default `[]`); business_id may be null. Tag/business IDs
+project_id}` snapshots (default `[]`); project_id may be null. Tag/project IDs
 are opaque nonempty strings of at most 256 UTF-8 bytes, names are nonempty, and
 tag IDs are unique within a snapshot. They are grouping metadata, never inferred
 graph relationships or a requirement to create a node.
@@ -198,7 +198,7 @@ the text, pointers and tags, and a removal retains it in its event and digest.
 
 `record_context` (`Context.begin`/`Pipeline.submit` and `Context.begin_action`/
 `Pipeline.submit_action`) is exactly `{scope, provenance}`. `scope` is exactly
-`{"kind": "global"}` or `{"kind": "business", "business_id": <opaque ref>}`, where
+`{"kind": "global"}` or `{"kind": "project", "project_id": <opaque ref>}`, where
 the reference is nonempty and at most 256 UTF-8 bytes like other opaque references.
 `provenance` is a JSON object of strictly JSON-compatible values (`null`, booleans,
 numbers that are finite, valid-UTF-8 text, lists, objects with text keys). Nothing
@@ -206,7 +206,7 @@ is converted: a tuple, set, bytes, non-text key, non-finite number, unpaired
 surrogate or other object is refused, and the canonical serialization must fit the
 source byte limit. `None` (the default) means no supplied context; no scope is ever
 inferred from tags, text or metadata. It is trusted caller evidence only: it creates
-no permission, business graph, tag ownership or model-write capability, and tags
+no permission, project graph, tag ownership or model-write capability, and tags
 remain ordinary labels.
 
 A supplied value is copied, validated, and bound into the submission digest
@@ -673,7 +673,7 @@ limit=20, revision=None)` and the equivalent snapshot read page published Action
 in publication order independently of object associations. Current reads select
 the latest revision of non-withdrawn Actions before applying filters; audit reads
 include all revisions and withdrawals. Filters combine: tag ID equality and/or
-no tag with non-null business_id. Each revision uses its own immutable tag
+no tag with non-null project_id. Each revision uses its own immutable tag
 snapshot, never current mutable operational tags. Results retain canonical
 action/source identity, exact revision_ref, text, transitions, previous-event
 binding, commit and recording time in the existing collection-page shape.

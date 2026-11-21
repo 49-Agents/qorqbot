@@ -14,7 +14,7 @@ from qorqut_operations.documents.serialization import BINARY_KINDS, MAX_TEXT_BYT
 from qorqut_operations.relationships import related_rows
 from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, file_values
 from qorqut_operations.storage.safe_io import read_bytes as read_file_bytes
-from . import business_notes
+from . import project_notes
 from .journal_access import JOURNAL_KINDS, is_owner, require_writer
 from .materials import classification
 from .people import affiliation_effect, details as person_details
@@ -22,19 +22,19 @@ from .relationships import LEGACY_FIELDS, projection
 
 
 class DocumentStore:
-    """Registered authored files. ``document_root(business_row_or_none, relative_path)`` is the one host-bound selection of
+    """Registered authored files. ``document_root(project_row_or_none, relative_path)`` is the one host-bound selection of
     the root a registered document path is relative to; ``operations_root`` is the Global authored root."""
 
     def __init__(self, database, *, operations_root, document_root):
         if not callable(document_root):
-            raise TypeError("The document store needs a bound document_root(business, relative_path)")
+            raise TypeError("The document store needs a bound document_root(project, relative_path)")
         self.database = database
         self.root = operations_root
         self._document_root = document_root
 
-    def file_ref(self, identity, path, business_id, *, namespace=None):
+    def file_ref(self, identity, path, project_id, *, namespace=None):
         return ResourceRef("managed_document_files", canonical_bytes({"document_id": identity, "path": path}).decode(),
-                           business_id, namespace)
+                           project_id, namespace)
 
     def _file_target(self, resource, uow):
         if resource.resource_type != "managed_document_files":
@@ -45,8 +45,8 @@ class DocumentStore:
                 raise ValueError
         except (ValueError, TypeError) as exc:
             raise DomainError("invalid_plan", "Invalid registered document file reference") from exc
-        business = None if resource.business_id is None else uow.repository("businesses").get(resource.business_id, required=True)
-        return RegisteredFileTarget(self._document_root(business, value["path"]), value["path"])
+        project = None if resource.project_id is None else uow.repository("projects").get(resource.project_id, required=True)
+        return RegisteredFileTarget(self._document_root(project, value["path"]), value["path"])
 
     def resolve_file_target(self, resource):
         with self.database.read() as uow:
@@ -57,13 +57,13 @@ class DocumentStore:
         return {"content_hash": digest} if digest is not None else None
 
     def get(self, ctx, identity, uow, *, kinds=None, write=False):
-        row = uow.repository("documents", business_id=ctx.business_id).get(identity)
-        if row is None and ctx.business_id is None and is_owner(ctx, uow):
-            saved = uow.connection.execute("SELECT business_id,kind FROM documents WHERE id=?", (identity,)).fetchone()
+        row = uow.repository("documents", project_id=ctx.project_id).get(identity)
+        if row is None and ctx.project_id is None and is_owner(ctx, uow):
+            saved = uow.connection.execute("SELECT project_id,kind FROM documents WHERE id=?", (identity,)).fetchone()
             if saved and saved["kind"] in JOURNAL_KINDS:
-                row = uow.repository("documents", business_id=saved["business_id"]).get(identity)
-        if row is None and ctx.business_id is not None:
-            row = uow.repository("documents", business_id=None).get(identity)
+                row = uow.repository("documents", project_id=saved["project_id"]).get(identity)
+        if row is None and ctx.project_id is not None:
+            row = uow.repository("documents", project_id=None).get(identity)
         if row is None:
             raise DomainError("not_found", "Document not found")
         owner_journal = row["kind"] in JOURNAL_KINDS
@@ -75,8 +75,8 @@ class DocumentStore:
             # Dedicated memory operations validate provenance, drift and history.
             # Generic document APIs must not become a second reader/writer.
             raise DomainError('not_found', 'Document not found')
-        if row["business_id"] is not None and not (owner_journal and ctx.business_id is None):
-            if row["business_id"] != ctx.business_id or row["business_id"] not in ctx.allowed_business_ids:
+        if row["project_id"] is not None and not (owner_journal and ctx.project_id is None):
+            if row["project_id"] != ctx.project_id or row["project_id"] not in ctx.allowed_project_ids:
                 raise DomainError("not_found", "Document not found")
         elif row["owning_agent_id"] != ctx.agent_id:
             if "read_global_context" not in ctx.global_capabilities:
@@ -91,7 +91,7 @@ class DocumentStore:
         return row
 
     def collection(self, ctx, uow, *, kinds=None, agent_id=UNSET, include_archived=False):
-        result = rows(uow, "documents", ctx.business_id)
+        result = rows(uow, "documents", ctx.project_id)
         if not is_owner(ctx, uow):
             result = [row for row in result if row["kind"] not in JOURNAL_KINDS]
         result = [row for row in result if row['kind'] != 'working_memory']
@@ -103,7 +103,7 @@ class DocumentStore:
         return [{**row, "metadata_json": projection(row, uow)} if row["kind"] in {"context_topic", "context_note", "context_person", "content"} else row for row in result]
 
     def read_bytes(self, row, uow):
-        resource = self.file_ref(row["id"], row["path"], row["business_id"])
+        resource = self.file_ref(row["id"], row["path"], row["project_id"])
         path = self._file_target(resource, uow).resolve()
         if not path.is_file():
             raise DomainError("document_unavailable", "Registered document file is missing")
@@ -117,15 +117,15 @@ class DocumentStore:
             raise
 
     @staticmethod
-    def related_business(row, uow):
-        related_id = row.get("metadata_json", {}).get("related_business_id")
+    def related_project(row, uow):
+        related_id = row.get("metadata_json", {}).get("related_project_id")
         if not related_id:
             return None
-        related = uow.repository("businesses").get(related_id)
+        related = uow.repository("projects").get(related_id)
         if related is None:
             return None
-        return {"business_id": related["id"], "business_slug": related["slug"],
-                "business_name": related["name"]}
+        return {"project_id": related["id"], "project_slug": related["slug"],
+                "project_name": related["name"]}
 
     def view(self, row, uow, *, include_body=True):
         if row["availability"] != "ready":
@@ -133,7 +133,7 @@ class DocumentStore:
         data = self.read_bytes(row, uow) if include_body else None
         result = {key: value for key, value in row.items() if key not in {"metadata_json", "source_refs_json", "owning_agent_id"}}
         result.update(metadata=plain(row["metadata_json"]), source_refs=plain(row["source_refs_json"]), agent_id=row["owning_agent_id"])
-        result["file_resource"] = plain(self.file_ref(row["id"], row["path"], row["business_id"]))
+        result["file_resource"] = plain(self.file_ref(row["id"], row["path"], row["project_id"]))
         if data is not None:
             digest = hashlib.sha256(data).hexdigest()
             result["indexed_content_hash"] = row["content_hash"]
@@ -144,9 +144,9 @@ class DocumentStore:
                 if frontmatter:
                     result["metadata"] = {**result["metadata"], **frontmatter}
         if row["kind"] == "agent_note":
-            related_business = self.related_business(row, uow)
-            if related_business is not None:
-                result["related_business"] = related_business
+            related_project = self.related_project(row, uow)
+            if related_project is not None:
+                result["related_project"] = related_project
         if row["kind"] in {"context_topic", "context_note", "context_person", "content"}:
             result["metadata"] = projection({**row, "metadata_json": result["metadata"]}, uow)
         # Classification is registry metadata, not an instruction embedded in source text.
@@ -156,14 +156,14 @@ class DocumentStore:
             result["metadata"].update(material)
         if row["kind"] == "context_person":
             result["metadata"].update(person_details(row, uow))
-        if row["business_id"] is not None and row["kind"] in {"content", "context_note", "email_message"}:
-            sources = [edge["to_id"] for edge in related_rows(uow, row["business_id"],
+        if row["project_id"] is not None and row["kind"] in {"content", "context_note", "email_message"}:
+            sources = [edge["to_id"] for edge in related_rows(uow, row["project_id"],
                 source={"type": "material", "id": row["id"]}, role="extracted_from") if edge["to_type"] == "signoff"]
             result["signoff_id"] = sources[0] if len(sources) == 1 else None
         return result
 
-    def _file(self, builder, uow, identity, path, business_id, before, after, *, namespace=None, label=None, binary=False):
-        resource = self.file_ref(identity, path, business_id, namespace=namespace)
+    def _file(self, builder, uow, identity, path, project_id, before, after, *, namespace=None, label=None, binary=False):
+        resource = self.file_ref(identity, path, project_id, namespace=namespace)
         actual = file_hash(self._file_target(resource, uow).resolve())
         digest = hashlib.sha256(before).hexdigest() if before is not None else None
         if actual != digest:
@@ -187,13 +187,13 @@ class DocumentStore:
 
     def write(self, builder, uow, *, kind, body=None, metadata=None, data=None, before=None, identity=None,
               path=None, expected_revision=None, expected_content_hash=None, agent_id=None,
-              business_id=UNSET, namespace=None, source_refs=None, operation_name=None):
+              project_id=UNSET, namespace=None, source_refs=None, operation_name=None):
         if kind in JOURNAL_KINDS or before and before["kind"] in JOURNAL_KINDS:
             require_writer(builder.ctx, uow, builder.operation)
         if before and before['kind'] == 'plan' and before['metadata_json'].get('working_memory_id'):
             raise DomainError('plan_migrated', 'Legacy plan is frozen')
-        business_id = builder.ctx.business_id if business_id is UNSET else business_id
-        business_notes.require_project_access(builder.ctx, before, kind, business_id)
+        project_id = builder.ctx.project_id if project_id is UNSET else project_id
+        project_notes.require_project_access(builder.ctx, before, kind, project_id)
         identity = identity or (before["id"] if before else new_id())
         require_revision(before, expected_revision)
         if before and before["availability"] != "ready":
@@ -214,49 +214,49 @@ class DocumentStore:
             old_affiliation = (before or {}).get("metadata_json", {}).get("affiliation", "external")
             explicit = (builder.arguments.get("changes", builder.arguments))
             if metadata.get("affiliation", "external") != old_affiliation or "affiliation" in explicit:
-                affiliation_effect(builder, ref("documents", identity, business_id))
+                affiliation_effect(builder, ref("documents", identity, project_id))
 
-        metadata.update(classification(before) if before else classification({"kind": kind, "business_id": business_id, "owning_agent_id": agent_id,
-            "namespace": business_id or "global", "metadata_json": metadata, "source_refs_json": source_refs or []}))
+        metadata.update(classification(before) if before else classification({"kind": kind, "project_id": project_id, "owning_agent_id": agent_id,
+            "namespace": project_id or "global", "metadata_json": metadata, "source_refs_json": source_refs or []}))
         metadata = {key: value for key, value in metadata.items() if key not in LEGACY_FIELDS | {"topic_ids", "parent_ids"}}
         if data is None:
             if body is None:
                 body = split_document(old)[1] if old is not None else ""
             data = document_bytes(metadata, body, frontmatter=kind != "plan")
         if before and before["path"] != path:
-            self._file(builder, uow, identity, before["path"], business_id, old, None, namespace=namespace, binary=kind in BINARY_KINDS)
-            self._file(builder, uow, identity, path, business_id, None, data, namespace=namespace, binary=kind in BINARY_KINDS)
+            self._file(builder, uow, identity, before["path"], project_id, old, None, namespace=namespace, binary=kind in BINARY_KINDS)
+            self._file(builder, uow, identity, path, project_id, None, data, namespace=namespace, binary=kind in BINARY_KINDS)
         else:
-            self._file(builder, uow, identity, path, business_id, old, data, namespace=namespace, binary=kind in BINARY_KINDS)
+            self._file(builder, uow, identity, path, project_id, old, data, namespace=namespace, binary=kind in BINARY_KINDS)
         values = {"kind": kind, "path": path, "content_hash": hashlib.sha256(data).hexdigest(),
                   "metadata_json": metadata, "source_refs_json": source_refs if source_refs is not None else (before or {}).get("source_refs_json", []),
                   "updated_at": builder.at}
         if before is None:
-            values.update(id=identity, business_id=business_id, namespace=business_id or "global",
+            values.update(id=identity, project_id=project_id, namespace=project_id or "global",
                           owning_agent_id=agent_id, availability="ready", created_at=builder.at)
-        builder.record("documents", identity, before, values, business_id=business_id, namespace=namespace, operation_name=operation_name)
+        builder.record("documents", identity, before, values, project_id=project_id, namespace=namespace, operation_name=operation_name)
         return identity
 
     def archive(self, builder, uow, row, *, expected_revision, expected_content_hash=None, namespace=None, operation_name=None, archived=True):
         if row["kind"] in JOURNAL_KINDS:
             require_writer(builder.ctx, uow, builder.operation)
-        business_notes.require_project_access(builder.ctx, row)
+        project_notes.require_project_access(builder.ctx, row)
         require_revision(row, expected_revision)
         if expected_content_hash is not None:
-            snapshot = self.resolve_snapshot(builder.ctx, self.file_ref(row["id"], row["path"], row["business_id"]), uow)
+            snapshot = self.resolve_snapshot(builder.ctx, self.file_ref(row["id"], row["path"], row["project_id"]), uow)
             if snapshot is None or snapshot["content_hash"] != expected_content_hash.removeprefix("sha256:"):
                 raise DomainError("revision_conflict", "Document changed since it was read")
         builder.record("documents", row["id"], row, {"archived": archived, "updated_at": builder.at},
-            business_id=row["business_id"], namespace=namespace, operation_name=operation_name)
+            project_id=row["project_id"], namespace=namespace, operation_name=operation_name)
 
-    def free_path(self, uow, business_id, prefix, name, *, suffix=".md", builder=None):
-        existing = {row["path"] for row in rows(uow, "documents", business_id)}
+    def free_path(self, uow, project_id, prefix, name, *, suffix=".md", builder=None):
+        existing = {row["path"] for row in rows(uow, "documents", project_id)}
         if builder:
             existing.update(change.values["path"] for change in builder.changes
                             if change.resource.resource_type == "documents" and "path" in change.values)
         for number in range(1, 10001):
             path = str(PurePosixPath(prefix) / (name + (f"-{number}" if number > 1 else "") + suffix))
-            target = self._file_target(self.file_ref("new", path, business_id), uow).resolve()
+            target = self._file_target(self.file_ref("new", path, project_id), uow).resolve()
             if path not in existing and not target.exists():
                 return path
         raise DomainError("conflict", "Cannot allocate an unused document path")

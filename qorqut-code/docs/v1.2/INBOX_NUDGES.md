@@ -20,7 +20,7 @@ transport's report that the notice was typed; it is never evidence that the agen
   message, owner conversation, email, focus card, incident, operational assignment and content session
   pointer events) keeps its own event shape and its own recipient rule; none of them knows about nudges. A source that is
   later added needs only `Inbox.event_visible` to answer for it.
-* **Recipients** are the agents that have a not-yet-acknowledged delivery row, in business and Global scope alike, each judged
+* **Recipients** are the agents that have a not-yet-acknowledged delivery row, in project and Global scope alike, each judged
   with that agent's own invocation context and `inbox_list` policy (`HostVisibility`). One agent never sees another's items.
 * **Authorization** is checked per event at every use: when a notice is reserved, and again immediately before the first input
   (`InboxNudges.validate`, run inside the arbiter's checkpoint). An event that is not provably visible discloses nothing. The
@@ -180,7 +180,7 @@ worked through, a nudge reply or deferral, either steering order (nudge, owner i
 turn), a restart between the input and the completion, or elapsed time; the engine receiving no work/user counter and the memo
 fingerprint ignoring them; offline then manual binding; restart with an uncertain receipt, with a crash-left unclaimed
 reservation and with a reservation typed before the crash; two concurrent passes typing one notice; a new conversation getting the
-outstanding batch; unchanged Task, Signoff, message and acknowledgement state; a retained private message; several business and
+outstanding batch; unchanged Task, Signoff, message and acknowledgement state; a retained private message; several project and
 Global recipients; recovery wake (its own type `bootstrap_recovery`, idempotent, required exact conversation/binding, pinned to the
 asking conversation, no inbox event announced or repeated, "notice" provenance in Chat); a lookalike marker that is the owner's
 work; the owner inbox read's `delivery`; lifetime drain and restart. Its "event coverage" section needs the event-coverage engine of the pin:

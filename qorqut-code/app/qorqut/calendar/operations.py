@@ -61,7 +61,7 @@ class CalendarOperations:
         self.lock = threading.Lock()
 
     def access(self, ctx, uow):
-        if ctx.business_id or ctx.home_business_id or CAPABILITY not in ctx.global_capabilities:
+        if ctx.project_id or ctx.home_project_id or CAPABILITY not in ctx.global_capabilities:
             raise DomainError("forbidden", "Calendar tools require the Global calendar grant")
         installation = uow.repository("installation").get("service") or {}
         if ctx.principal_kind == "human" and installation.get("owner_principal_id") == ctx.principal_id:

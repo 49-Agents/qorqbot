@@ -21,7 +21,7 @@ class DocumentLifecycle:
         self._availability(uow, resource, "conflicted")
 
     def applied(self, uow, resource):
-        uow.completed_file_documents.add((resource.business_id, resource.resource_id))
+        uow.completed_file_documents.add((resource.project_id, resource.resource_id))
         self._availability(uow, resource, "ready")
 
     def released(self, uow, resource):

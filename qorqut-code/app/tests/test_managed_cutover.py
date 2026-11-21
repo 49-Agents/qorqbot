@@ -25,7 +25,7 @@ CONV_A = '11111111-1111-4111-8111-111111111111'
 CONV_B = '22222222-2222-4222-8222-222222222222'
 CONV_C = '33333333-3333-4333-8333-333333333333'
 OTHER_CONV = '44444444-4444-4444-8444-444444444444'
-AGENTS = (  # id, name, business slug (None = global), profile runtime, db conversation, db runtime
+AGENTS = (  # id, name, project slug (None = global), profile runtime, db conversation, db runtime
     ('agent-a', 'ordubashy', None, 'claude-code', CONV_A, 'claude-code'),
     ('agent-b', 'dev', 'acme', 'codex', CONV_B, 'codex'),
     ('agent-c', 'qa', 'acme', 'codex', CONV_C, 'claude-code'),   # profile says codex, Claude Code really runs
@@ -166,7 +166,7 @@ class Installation(unittest.TestCase):
         (self.codex / 'thread-writer-locks').mkdir(parents=True)
         self.machine = FakeMachine()
         self.server = FakeServer(self.machine, 'qorqut')
-        self.env = {'PATH': os.environ.get('PATH', ''), 'BIZ_TMUX_SOCKET': 'qorqut'}
+        self.env = {'PATH': os.environ.get('PATH', ''), 'QORQUT_TMUX_SOCKET': 'qorqut'}
         self.build_database()
         self.workspace = {agent[0]: self.make_workspace(agent) for agent in AGENTS}
 
@@ -174,20 +174,20 @@ class Installation(unittest.TestCase):
     def build_database(self):
         with sqlite3.connect(self.paths.database) as db:
             db.executescript('''
-                CREATE TABLE businesses(id TEXT PRIMARY KEY, slug TEXT);
-                CREATE TABLE agent_profiles(agent_id TEXT PRIMARY KEY, name TEXT, home_business_id TEXT, status TEXT, profile_json TEXT);
+                CREATE TABLE projects(id TEXT PRIMARY KEY, slug TEXT);
+                CREATE TABLE agent_profiles(agent_id TEXT PRIMARY KEY, name TEXT, home_project_id TEXT, status TEXT, profile_json TEXT);
                 CREATE TABLE native_session_owners(agent_id TEXT PRIMARY KEY, consumer_id TEXT, binding_json TEXT, generation INTEGER,
                                                    desired_state TEXT);
-                INSERT INTO businesses VALUES('biz-acme', 'acme');''')
+                INSERT INTO projects VALUES('project-acme', 'acme');''')
             for agent_id, name, slug, runtime, conversation, bound in AGENTS:
                 db.execute('INSERT INTO agent_profiles VALUES(?,?,?,?,?)',
-                           (agent_id, name, None if slug is None else 'biz-acme', 'active', json.dumps({'runtime': runtime})))
+                           (agent_id, name, None if slug is None else 'project-acme', 'active', json.dumps({'runtime': runtime})))
                 db.execute('INSERT INTO native_session_owners VALUES(?,?,?,?,?)',
                            (agent_id, conversation, json.dumps({'runtime': bound}), 1, 'running'))
 
     def make_workspace(self, agent):
         from qorqut.composition.locations import agent_workspace_of
-        path = agent_workspace_of(self.paths, agent[0], None if agent[2] is None else 'biz-acme', agent[2])
+        path = agent_workspace_of(self.paths, agent[0], None if agent[2] is None else 'project-acme', agent[2])
         (path / '.qorqut/zsh').mkdir(parents=True)
         for name in ('agent-shell.bash', 'zsh/.zshenv', 'zsh/.zshrc'):
             (path / '.qorqut' / name).write_text('# Generated Qorqut agent shell; keep personal shell setup.\n')
@@ -290,9 +290,9 @@ class CommandLines(unittest.TestCase):
 
     def test_the_socket_names_are_the_installations_own(self):
         self.assertEqual(cutover.own_sockets({}), ['qorqut', 'bazarlyk'])
-        self.assertEqual(cutover.own_sockets({'BIZ_TMUX_SOCKET': 'mine'}), ['mine'])
+        self.assertEqual(cutover.own_sockets({'QORQUT_TMUX_SOCKET': 'mine'}), ['mine'])
         with self.assertRaises(cutover.CutoverError):
-            cutover.own_sockets({'BIZ_TMUX_SOCKET': '../x'})
+            cutover.own_sockets({'QORQUT_TMUX_SOCKET': '../x'})
 
 
 class Inspect(Installation):
@@ -748,7 +748,7 @@ class ForeignServers(Installation):
         def factory(name):
             asked.append(name)
             return cutover.Tmux(name, '/some/folder', runner=server.runner, executable='tmux', env={})
-        cutover.survey(self.paths, {**self.env, 'BIZ_TMUX_SOCKET': 'mine'}, machine=self.machine, tmux_factory=factory)
+        cutover.survey(self.paths, {**self.env, 'QORQUT_TMUX_SOCKET': 'mine'}, machine=self.machine, tmux_factory=factory)
         self.assertEqual(asked, ['mine'])
         self.assertTrue(all(call[:3] == ['tmux', '-L', 'mine'] for call in server.calls))
 

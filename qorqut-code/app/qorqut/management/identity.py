@@ -24,7 +24,7 @@ def ordubashy_profile(uow, identity):
 
     Current means the shared global eligibility (``global_scope.active_global``):
     an active agent principal with an active, homeless ecosystem profile. A
-    business-home, inactive or malformed registration never qualifies. The
+    project-home, inactive or malformed registration never qualifies. The
     runtime is not part of the identity: the owner may start Ordubashy with any
     supported CLI, and every session shares the same records and history.
     """

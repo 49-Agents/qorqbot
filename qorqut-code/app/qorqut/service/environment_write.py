@@ -1,10 +1,10 @@
-"""One business Settings value per hash-checked, replayable file mutation."""
+"""One project Settings value per hash-checked, replayable file mutation."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 import hashlib
 import json
 
-from qorqut.agents.global_scope import active_business_participant
+from qorqut.agents.global_scope import active_project_participant
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, ExpectedTarget, PreparedChange, ResourceRef
 from qorqut_operations.application.plans import PlanBuilder, schema
@@ -12,13 +12,13 @@ from qorqut_operations.storage import safe_io
 from qorqut_operations.storage.files import RegisteredFileTarget, file_values, file_hash
 from .local import IDENTITY_KEYS, LocalFiles
 
-RESOURCE = "business_environment_files"
+RESOURCE = "project_environment_files"
 
 
 def file_target(runtime, resource):
-    if not resource.business_id or resource.resource_id not in {"shared", "private"}:
+    if not resource.project_id or resource.resource_id not in {"shared", "private"}:
         raise DomainError("invalid_plan", "Settings require a registered project target")
-    path = LocalFiles(runtime).env_path(resource.business_id)
+    path = LocalFiles(runtime).env_path(resource.project_id)
     return RegisteredFileTarget(path.parent, ".env.private.json" if resource.resource_id == "private" else ".env")
 
 
@@ -35,11 +35,11 @@ def shared_setting(before, key, value):
     return (text + key + '=\"' + value + '\"\n').encode()
 
 
-def persist_settings(local, business_id, row, values):
+def persist_settings(local, project_id, row, values):
     """Host-side Settings write for provider secrets; values never enter a plan, result or receipt."""
-    path = local.env_path(business_id, row)
+    path = local.env_path(project_id, row)
     private_path = path.with_name(".env.private.json")
-    local.private_environment(business_id, owner=True, row=row)
+    local.private_environment(project_id, owner=True, row=row)
     private_before = safe_io.read_bytes(private_path, limit=1024 * 1024) if private_path.exists() else None
     shared_before = safe_io.read_bytes(path, limit=1024 * 1024) if path.exists() else None
     entries, shared = json.loads(private_before) if private_before is not None else {}, shared_before
@@ -65,13 +65,13 @@ def persist_settings(local, business_id, row, values):
     return receipt
 
 
-def business_settings(local, uow, business_id, *, role=None):
-    """Business-owned Settings (shared file plus private overlays), excluding inherited Global values.
+def project_settings(local, uow, project_id, *, role=None):
+    """Project-owned Settings (shared file plus private overlays), excluding inherited Global values.
 
     With role, private overlays are limited to that role, as environment_get sees them."""
-    row = uow.repository("businesses").get(business_id, required=True)
-    values = {pair["key"]: pair["value"] for pair in local.environment_pairs(business_id, row)}
-    values.update(local.private_environment(business_id, role=role, owner=role is None, row=row))
+    row = uow.repository("projects").get(project_id, required=True)
+    values = {pair["key"]: pair["value"] for pair in local.environment_pairs(project_id, row)}
+    values.update(local.private_environment(project_id, role=role, owner=role is None, row=row))
     return values
 
 
@@ -80,13 +80,13 @@ def register_environment_write(runtime):
 
     def require_scope(ctx, uow):
         runtime.require_authority()
-        if not ctx.business_id:
+        if not ctx.project_id:
             raise DomainError("forbidden", "Select a project to write Settings")
         if ctx.principal_kind == "human":
             local.require_environment_owner(ctx, uow)
         elif ctx.principal_kind == "agent":
-            # An active supported global reaches every active business; no membership row is consulted.
-            if not active_business_participant(uow.connection, ctx.business_id, ctx.principal_id):
+            # An active supported global reaches every active project; no membership row is consulted.
+            if not active_project_participant(uow.connection, ctx.project_id, ctx.principal_id):
                 raise DomainError("forbidden", "Settings writes require active project access")
         else:
             raise DomainError("forbidden", "Settings writes require a permitted agent or owner")
@@ -101,8 +101,8 @@ def register_environment_write(runtime):
         if key in IDENTITY_KEYS or any(c in value for c in "\n\r\0"):
             raise DomainError("validation_error", "Invalid Settings key or value")
         # Validate private overlays before choosing the existing key's storage.
-        local.private_environment(ctx.business_id, owner=True)
-        private_ref = ResourceRef(RESOURCE, "private", ctx.business_id, "business:" + ctx.business_id)
+        local.private_environment(ctx.project_id, owner=True)
+        private_ref = ResourceRef(RESOURCE, "private", ctx.project_id, "project:" + ctx.project_id)
         private_path = file_target(runtime, private_ref).resolve()
         private_bytes = safe_io.read_bytes(private_path, limit=1024 * 1024) if private_path.exists() else None
         entries = json.loads(private_bytes) if private_bytes is not None else {}
@@ -114,11 +114,11 @@ def register_environment_write(runtime):
             entries[key]["value"] = value
             after = (json.dumps(entries, ensure_ascii=False, indent=2) + "\n").encode()
         else:
-            resource = ResourceRef(RESOURCE, "shared", ctx.business_id, "business:" + ctx.business_id)
+            resource = ResourceRef(RESOURCE, "shared", ctx.project_id, "project:" + ctx.project_id)
             path = file_target(runtime, resource).resolve()
             before = safe_io.read_bytes(path, limit=1024 * 1024) if path.exists() else None
             after = shared_setting(before, key, value)
-            if len(local.environment_pairs(ctx.business_id)) >= 500 and key not in {p["key"] for p in local.environment_pairs(ctx.business_id)}:
+            if len(local.environment_pairs(ctx.project_id)) >= 500 and key not in {p["key"] for p in local.environment_pairs(ctx.project_id)}:
                 raise DomainError("validation_error", "Settings contain too many entries")
         if len(after) > 1024 * 1024:
             raise DomainError("payload_too_large", "Project Settings exceed their size limit")
@@ -135,7 +135,7 @@ def register_environment_write(runtime):
     def validate(ctx, plan, uow):
         require_scope(ctx, uow)
         if ctx.principal_kind == "agent" and any(c.resource.resource_id == "private" for c in plan.changes):
-            visible = local.private_environment(ctx.business_id, role=local.settings_role(ctx, uow))
+            visible = local.private_environment(ctx.project_id, role=local.settings_role(ctx, uow))
             if plan.arguments["key"] not in visible:
                 raise DomainError("forbidden", "This private Settings binding is outside your role")
 
@@ -145,7 +145,7 @@ def register_environment_write(runtime):
         for change in plan.changes:
             if change.kind == "file":
                 receipt[change.resource.resource_id + "_hash"] = change.values["after_hash"]
-        return {"key": plan.arguments["key"], "configured": bool(plan.arguments["value"]), "origin": "business",
+        return {"key": plan.arguments["key"], "configured": bool(plan.arguments["value"]), "origin": "project",
                 "receipt": receipt}
 
     runtime.application.register_target_resolver(RESOURCE, snapshot)
@@ -153,6 +153,6 @@ def register_environment_write(runtime):
         "key": {"type": "string", "maxLength": 200, "pattern": r"^[A-Za-z_][A-Za-z0-9_]*$"},
         "value": {"type": "string", "maxLength": 20000},
         "rationale": {"type": "string", "maxLength": 2000}}, ("key", "value")),
-        effect_kind="compound", scope_kinds={"business"}, exposure={"mcp", "dashboard"},
+        effect_kind="compound", scope_kinds={"project"}, exposure={"mcp", "dashboard"},
         prepare=prepare, apply=apply, validate_targets=validate,
         description=instruction_text('environment-write-set-one-settings-key-value-in-the')))

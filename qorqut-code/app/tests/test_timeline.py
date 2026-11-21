@@ -24,28 +24,28 @@ class TimelineTests(Fixture):
     def setUp(self):
         super().setUp()
         self.tool = Timeline(NS(application=self.app, registry=self.registry)).register()
-        self.business_id = str(uuid4())
-        self.current = frozenset({self.business_id})
+        self.project_id = str(uuid4())
+        self.current = frozenset({self.project_id})
         with self.db.transaction() as uow:
-            uow.repository('businesses').insert({'id': self.business_id, 'name': 'Example project', 'slug': 'example',
+            uow.repository('projects').insert({'id': self.project_id, 'name': 'Example project', 'slug': 'example',
                                                  'workspace': 'example', 'hq_path': 'hq'})
         self.work = self.task(self.lead, 'Pay creators')
-        self.item = {'type': 'task', 'id': self.work['id'], 'business_id': None}
-        self.project = {'type': 'project', 'id': self.business_id, 'business_id': self.business_id}
-        self.global_item = {'type': 'global', 'id': 'global', 'business_id': None}
+        self.item = {'type': 'task', 'id': self.work['id'], 'project_id': None}
+        self.project = {'type': 'project', 'id': self.project_id, 'project_id': self.project_id}
+        self.global_item = {'type': 'global', 'id': 'global', 'project_id': None}
         patcher = patch('qorqut.domains.timeline.timestamp', lambda: DAY)
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def ctx(self, who):
         # The coordinator reaches every current project; the worker only the ones in ``reach``.
-        return replace(super().ctx(who), allowed_business_ids=self.current if who == self.lead else self.reach)
+        return replace(super().ctx(who), allowed_project_ids=self.current if who == self.lead else self.reach)
 
     def inside(self, title):
         """A Task created in the project, as the item that names its timeline."""
-        made = self.app.invoke(replace(self.ctx(self.lead), business_id=self.business_id), 'tasks_create', {'title': title},
+        made = self.app.invoke(replace(self.ctx(self.lead), project_id=self.project_id), 'tasks_create', {'title': title},
                                {'idempotency_key': str(uuid4())})
-        return {'type': 'task', 'id': self.ok(made)['task']['id'], 'business_id': self.business_id}
+        return {'type': 'task', 'id': self.ok(made)['task']['id'], 'project_id': self.project_id}
 
     def ok(self, result):
         return plain(super().ok(result))
@@ -107,7 +107,7 @@ class TimelineTests(Fixture):
                       [{'action': 'remove', 'entry_id': gone}, {'action': 'remove', 'entry_id': gone}]):
             self.assertEqual(self.code(self.file(self.lead, self.item, again)), 'validation_error')
         other = self.task(self.lead, 'Other work')
-        foreign = self.add('fact', 'Elsewhere.', {'type': 'task', 'id': other['id'], 'business_id': None})
+        foreign = self.add('fact', 'Elsewhere.', {'type': 'task', 'id': other['id'], 'project_id': None})
         self.assertEqual(self.code(self.file(self.lead, self.item, [{'action': 'remove', 'entry_id': foreign}])), 'validation_error')
 
     def test_a_later_goal_and_a_later_progress_note_hold(self):
@@ -187,7 +187,7 @@ class TimelineTests(Fixture):
     def test_entries_are_never_edited_or_deleted_and_only_the_project_follows_a_move(self):
         self.add('fact', 'Fixed.')
         with self.db.transaction() as uow:
-            uow.connection.execute('UPDATE timeline_entries SET business_id=?', (self.business_id,))
+            uow.connection.execute('UPDATE timeline_entries SET project_id=?', (self.project_id,))
         for sql in ("UPDATE timeline_entries SET text='Changed'", "UPDATE timeline_entries SET kind='goal'",
                     'UPDATE timeline_entries SET sequence=99', 'DELETE FROM timeline_entries'):
             with self.assertRaises(DomainError):
@@ -205,7 +205,7 @@ class TimelineTests(Fixture):
         quote = {'quote': 'q', 'ref': 'm'}
         self.assertEqual(self.code(self.file(self.lead, self.item, [add], sources=[{**quote, 'quote': 'q' * 1001}])), 'validation_error')
         self.assertEqual(self.code(self.file(self.lead, self.item, [add], sources=[quote] * 11)), 'validation_error')
-        for item in ({**self.item, 'type': 'story'}, {**self.global_item, 'id': 'other'}, {**self.project, 'business_id': None},
+        for item in ({**self.item, 'type': 'story'}, {**self.global_item, 'id': 'other'}, {**self.project, 'project_id': None},
                      {**self.item, 'id': 'missing'}):
             self.assertIn(self.code(self.file(self.lead, item, [add])), ('validation_error', 'not_found'))
         self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
@@ -296,19 +296,19 @@ class TimelineTests(Fixture):
         self.add('fact', 'Inside the project.', inside)
         self.assertEqual(self.read(inside)['state']['facts'][0]['text'], 'Inside the project.')
         self.assertEqual(self.code(self.get(self.worker, inside)), 'not_found')
-        self.reach = frozenset({self.business_id})
+        self.reach = frozenset({self.project_id})
         self.assertEqual(self.read(inside, self.worker)['state']['facts'][0]['text'], 'Inside the project.')
 
     def test_approval_and_report_titles_are_for_the_coordinator_and_the_owner(self):
         approval = str(uuid4())
         with self.db.transaction() as uow:
             uow.connection.execute(
-                "INSERT INTO signoffs(id,review_business_id,review_scope_kind,proposer_principal_id,operation_name,operation_version,"
+                "INSERT INTO signoffs(id,review_project_id,review_scope_kind,proposer_principal_id,operation_name,operation_version,"
                 "proposal_revision,payload_hash,change_set,preview_json,expected_targets_json,policy_binding_json,affected_scope_json,"
                 "state,updated_sequence,created_at,updated_at,category) VALUES(?,NULL,'global',?,'owner_input_request',1,1,'hash',x'00',"
                 "'{\"title\":\"Send the offer to Northwind\"}','[]','{}','{}','pending',1,?,?,'input_request')", (approval, self.lead, DAY, DAY))
             uow.connection.execute(
-                "INSERT INTO signoff_source_links(id,signoff_id,source_type,source_id,source_business_id,source_namespace,created_by,"
+                "INSERT INTO signoff_source_links(id,signoff_id,source_type,source_id,source_project_id,source_namespace,created_by,"
                 "created_at) VALUES(?,?,'task',?,NULL,'global',?,?)", (str(uuid4()), approval, self.work['id'], self.lead, DAY))
         full = {'type': 'signoff', 'id': approval, 'title': 'Send the offer to Northwind', 'state': 'pending'}
         self.assertEqual(self.read(self.item, history=True)['links']['approvals'], [full])
@@ -321,7 +321,7 @@ class TimelineTests(Fixture):
     def test_nothing_is_filed_on_an_archived_project(self):
         inside = self.inside('Inside')
         with self.db.transaction() as uow:
-            uow.connection.execute('UPDATE businesses SET archived_at=? WHERE id=?', (DAY, self.business_id))
+            uow.connection.execute('UPDATE projects SET archived_at=? WHERE id=?', (DAY, self.project_id))
         # An archived project is no longer in anyone's reach, so the call is refused before anything is checked...
         self.current = frozenset()
         change = [{'action': 'add', 'kind': 'fact', 'text': 'Late.'}]
@@ -330,14 +330,14 @@ class TimelineTests(Fixture):
             # ...and a filing prepared while the project was current is not applied after it was archived.
             with self.assertRaises(DomainError) as refused, self.db.transaction() as uow:
                 self.tool.file(self.lead, {'item': item, 'changes': change}, uow)
-            self.assertEqual(refused.exception.code, 'business_archived')
+            self.assertEqual(refused.exception.code, 'project_archived')
         self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
 
     def test_a_project_timeline_needs_a_participant_and_global_is_open(self):
         self.add('decision', 'Ship in spring.', self.project)
         self.add('decision', 'Everyone sees this.', self.global_item)
         self.assertEqual(self.code(self.get(self.worker, self.project)), 'not_found')
-        self.reach = frozenset({self.business_id})
+        self.reach = frozenset({self.project_id})
         self.assertEqual(self.read(self.project, self.worker)['state']['decisions'][0]['text'], 'Ship in spring.')
         self.assertTrue(self.read(self.project, self.worker)['text'].startswith('Project "Example project"'))
         self.reach = frozenset()
@@ -350,17 +350,17 @@ class TimelineTests(Fixture):
         entry = self.add('fact', 'Moves with the Task.')
         self.asked(self.item, [{'action': 'ask', 'text': 'Where next?', 'blocking': False}])
         stay = self.task(self.lead, 'Stays')
-        self.add('fact', 'Stays behind.', {'type': 'task', 'id': stay['id'], 'business_id': None})
+        self.add('fact', 'Stays behind.', {'type': 'task', 'id': stay['id'], 'project_id': None})
         self.add('fact', 'Global stays.', self.global_item)
-        relocation = Relocation(None, self.business_id, (self.work['id'],), (self.work['id'],))
+        relocation = Relocation(None, self.project_id, (self.work['id'],), (self.work['id'],))
         adapter = HostRelocation(self.app)
         with self.db.transaction() as uow:
             self.assertEqual(adapter.inspect(uow, relocation).counts['timeline_rows'], 2)
             adapter.apply(uow, relocation, DAY)
-        self.assertEqual(self.rows('SELECT id,business_id FROM timeline_entries WHERE item_id=?', self.work['id']), [(entry, self.business_id)])
-        self.assertEqual(self.rows('SELECT business_id FROM timeline_questions'), [(self.business_id,)])
-        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries WHERE business_id IS NULL'), [(2,)])
-        moved = {**self.item, 'business_id': self.business_id}
+        self.assertEqual(self.rows('SELECT id,project_id FROM timeline_entries WHERE item_id=?', self.work['id']), [(entry, self.project_id)])
+        self.assertEqual(self.rows('SELECT project_id FROM timeline_questions'), [(self.project_id,)])
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries WHERE project_id IS NULL'), [(2,)])
+        moved = {**self.item, 'project_id': self.project_id}
         self.assertEqual(self.state(moved)['facts'][0]['text'], 'Moves with the Task.')
         self.assertEqual(self.state(self.item)['revision'], 0)
 

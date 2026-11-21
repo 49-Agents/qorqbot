@@ -9,8 +9,8 @@ Every document operation has exactly one owner and is registered by it:
 * ``qorqut_context.integration.filing.operations.FilingOperations`` (Context): ``context_upload``, ``notes_upload``,
   ``journal_upload_to_filer``, ``context_retry``, ``context_retract``, ``context_filing_receipt``;
 * ``shared_instructions.SharedInstructions`` (host, permanent): ``shared_instructions_update``;
-* ``business_config.BusinessConfigOperations`` (the host's binding of ``qorqut_operations.projects.settings_operations``, which owns the
-  generic Project settings operations; the host supplies only its guards through ``HostSettings``): ``business_config_*``.
+* ``project_config.ProjectConfigOperations`` (the host's binding of ``qorqut_operations.projects.settings_operations``, which owns the
+  generic Project settings operations; the host supplies only its guards through ``HostSettings``): ``project_config_*``.
 
 The aggregate holds no behavior of its own. The attributes other host code reads (``store``, ``library``, ``filing``, ``clock``)
 and the few filing projections they share are plain, explicit delegations; there is no attribute forwarding. The published
@@ -31,7 +31,7 @@ from qorqut_context.integration.filing.publication import ContextPublication
 
 from qorqut.composition.locations import agent_workspace, document_root, scope_root
 from qorqut.management.identity import configured_ordubashy
-from .business_config import BusinessConfigOperations
+from .project_config import ProjectConfigOperations
 from .shared_instructions import SharedInstructions
 
 
@@ -39,7 +39,7 @@ class DocumentOperations:
     def __init__(self, database, paths, *, clock=utc_clock, job_programs=None, filing=None):
         self.clock, self.programs = clock, job_programs
         self.store = DocumentStore(database, operations_root=paths.operations,
-                                   document_root=lambda business, path: document_root(paths, business, path))
+                                   document_root=lambda project, path: document_root(paths, project, path))
         # Context filing (uploads, notes, journals, accepted learnings and instructions) is an explicit typed dependency:
         # ``filing`` is the ``FilingPorts`` of the composed Context queue. Without it filing operations are unavailable.
         self.filing = None if filing is None else ContextFiling(self.store, job_programs, filing)
@@ -47,12 +47,12 @@ class DocumentOperations:
         # The scoped library presents a raw upload with the same current-source filing the unscoped reads attach.
         self.library = SourceLibrary(self.store, present=self.publication.present_item)
         self.sources = DocumentSources(self.store, self.library,
-            agent_workspace=lambda agent_id, business=None: agent_workspace(paths, agent_id, business),
-            scope_root=lambda business=None: scope_root(paths, business), clock=clock,
+            agent_workspace=lambda agent_id, project=None: agent_workspace(paths, agent_id, project),
+            scope_root=lambda project=None: scope_root(paths, project), clock=clock,
             present=self.publication.present_view)
         self.filing_operations = FilingOperations(self.sources, self.filing,
             global_upload_agent=lambda uow: configured_ordubashy(uow))
-        self.business_config = BusinessConfigOperations(paths, clock=clock)
+        self.project_config = ProjectConfigOperations(paths, clock=clock)
         self.journal = JournalOperations(self.store, lambda uow: configured_ordubashy(uow), sources=self.sources)
         self.shared_instructions = self.shared_context = None
 
@@ -64,7 +64,7 @@ class DocumentOperations:
         self.sources.register(registry, application)
         self.filing_operations.register(registry)
         self.shared_instructions.register(registry)
-        self.business_config.register(registry)
+        self.project_config.register(registry)
         self.journal.register(registry)
         return self
 

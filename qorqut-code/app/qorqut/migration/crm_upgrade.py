@@ -255,13 +255,13 @@ def backfill_latest_completion(connection):
     This runs before target triggers are installed and changes no copied source column.
     """
     counts = {"history": 0, "fallback": 0}
-    for rowid, business_id, task_id, created_at in connection.execute(
-            "SELECT rowid,business_id,id,created_at FROM tasks WHERE status='done'").fetchall():
+    for rowid, project_id, task_id, created_at in connection.execute(
+            "SELECT rowid,project_id,id,created_at FROM tasks WHERE status='done'").fetchall():
         history = connection.execute(
-            "SELECT MAX(created_at) FROM thread_messages WHERE business_id IS ? AND item_type='task' AND item_id=? "
+            "SELECT MAX(created_at) FROM thread_messages WHERE project_id IS ? AND item_type='task' AND item_id=? "
             "AND kind='system' AND json_extract(change_json,'$.to')='done' "
             "AND json_extract(change_json,'$.from') IS NOT NULL "
-            "AND json_extract(change_json,'$.from')!='done'", (business_id, task_id)).fetchone()[0]
+            "AND json_extract(change_json,'$.from')!='done'", (project_id, task_id)).fetchone()[0]
         counts["history" if history else "fallback"] += 1
         connection.execute("UPDATE tasks SET latest_completed_at=? WHERE rowid=?", (history or created_at, rowid))
     return counts

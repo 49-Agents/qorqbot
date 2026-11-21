@@ -118,8 +118,8 @@ files). You cannot supply a chat, a topic, raw bytes, base64, a Telegram file id
     characters, hidden (dot-leading) names and the application's internal receipt names
     are refused, as are directories, symbolic links, special files and files with more
     than one hard link.
-  - `{"type": "document", "document_id": "<document-id>", "business_id": "<project-id>"}`:
-    a stored document you can already read through its own tool. `business_id` is
+  - `{"type": "document", "document_id": "<document-id>", "project_id": "<project-id>"}`:
+    a stored document you can already read through its own tool. `project_id` is
     required: the owning project, or `null` to name Global explicitly. Supported kinds
     are assets (`assets_get`), data uploads (`data_uploads_get`), agent and project
     notes (`notes_get`) and content or context notes (`content_get`). Every other kind is
@@ -162,7 +162,7 @@ placeholders you replace; the digest is 64 hex characters):
 ```
 
 ```json
-{"source": {"type": "document", "document_id": "<document-id>", "business_id": null}, "expected_sha256": "<sha256-hex>", "send_as": "document", "purpose": "update"}
+{"source": {"type": "document", "document_id": "<document-id>", "project_id": null}, "expected_sha256": "<sha256-hex>", "send_as": "document", "purpose": "update"}
 ```
 
 ### Sending a file

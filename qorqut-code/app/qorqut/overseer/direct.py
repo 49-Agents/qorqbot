@@ -57,7 +57,7 @@ def authorize_source(runtime, context, ref):
         if (ref.get('provider') != 'operations' or ref.get('kind') != 'owner_instruction'
                 or ref.get('locator') != expected or ref.get('revision') != row['request_hash']
                 or ref.get('actor_id') != row['principal_id'] or ref.get('actor_kind') != 'human'
-                or ref.get('namespace') != {'kind': 'global', 'business_id': None}):
+                or ref.get('namespace') != {'kind': 'global', 'project_id': None}):
             raise DomainError('forbidden', 'The instruction reference does not match its canonical owner event')
 
 
@@ -98,7 +98,7 @@ def binding_for(saved):
         'run_id': 'direct-instruction:' + saved['id'],
         'targets': {'delta_id': _id(saved['id'] + ':delta'), 'delta_revision': 1,
                     'application_id': None, 'plan_revision': None},
-        'owner_scope': {'kind': 'global', 'business_id': None},
+        'owner_scope': {'kind': 'global', 'project_id': None},
         'request_key': 'direct-instruction:' + saved['id'], 'request_ref': None,
         'choice_actions': {'accept': 'accept', 'reject': 'reject', 'revise': 'revise', 'later': 'later'},
         'direct_submission_id': saved['id']}
@@ -119,7 +119,7 @@ def propose(runtime, context, *, request_key, instruction_text, summary, change_
     validation.scope(scope)
     with runtime.database.read() as uow:
         ctx, _ = current_manager(runtime, context, uow)
-        if any(project not in ctx.allowed_business_ids for project in scope['project_ids']):
+        if any(project not in ctx.allowed_project_ids for project in scope['project_ids']):
             raise DomainError('forbidden', 'The proposed scope is outside current access')
         row = _instruction(runtime, ctx, instruction_text, source_id, uow)
         holder = active_role_holder(uow.connection, LEARNING_APPLIER_ROLE)
@@ -147,7 +147,7 @@ def propose(runtime, context, *, request_key, instruction_text, summary, change_
             occurred_at=row['created_at'], producer_id=row['principal_id'], original_event_id='owner-input:' + row['id'],
             locator={'input_id': row['id'], 'agent_id': row['agent_id'], 'request_hash': row['request_hash'],
                      'provider': row['provider'], 'conversation_id': row['conversation_id']},
-            scope=source_scope, namespace={'kind': 'global', 'business_id': None})
+            scope=source_scope, namespace={'kind': 'global', 'project_id': None})
         journal = CaptureJournal(runtime.paths.overseer_archive, EvidenceAccess(runtime, ctx), overseer_ids={holder})
         ref = journal.observe('direct-instruction:' + identity, 'owner-input:' + row['id'], ref,
                               {'text': instruction_text})
@@ -188,7 +188,7 @@ def get(runtime, context, submission_id):
     layer = runtime.agentic_layer
     binding = layer.overseer.inputs.get(binding_for(saved)['id'], include_response=True)
     ref = binding['binding']['request_ref']
-    signoff = runtime.signoffs.get(replace(context, business_id=None, review_business_id=None), ref['signoff_id']) if ref else None
+    signoff = runtime.signoffs.get(replace(context, project_id=None, review_project_id=None), ref['signoff_id']) if ref else None
     if signoff is not None and signoff.status != 'ok':
         raise DomainError('forbidden', 'The proposal Signoff is no longer available')
     return {'submission_id': submission_id, 'proposal_id': _id(submission_id + ':proposal'),

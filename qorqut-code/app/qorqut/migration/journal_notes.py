@@ -22,20 +22,20 @@ def migrate(runtime, *, apply=False):
     owner, _, _ = Authentication(runtime.database, runtime.root).installation_owner()
     store = runtime.domains.documents.store
     with runtime.database.read() as uow:
-        businesses = {row['id']: uow.repository('businesses').get(row['id'])
-                      for row in uow.connection.execute('SELECT id FROM businesses')}
-        rows = [uow.repository('documents', business_id=row['business_id']).get(row['id'])
-                for row in uow.connection.execute("SELECT id,business_id FROM documents WHERE kind='journal' ORDER BY business_id,id")]
-        if any(row['business_id'] not in businesses for row in rows):
-            raise DomainError('invalid_document', 'Journal entry has no registered business')
+        projects = {row['id']: uow.repository('projects').get(row['id'])
+                      for row in uow.connection.execute('SELECT id FROM projects')}
+        rows = [uow.repository('documents', project_id=row['project_id']).get(row['id'])
+                for row in uow.connection.execute("SELECT id,project_id FROM documents WHERE kind='journal' ORDER BY project_id,id")]
+        if any(row['project_id'] not in projects for row in rows):
+            raise DomainError('invalid_document', 'Journal entry has no registered project')
         entries = []
         for row in rows:
             data = store.read_bytes(row, uow)
             entries.append((row, data, store.view(row, uow)))
-    counts = {row['slug']: 0 for row in businesses.values()}
+    counts = {row['slug']: 0 for row in projects.values()}
     for row, _, _ in entries:
-        counts[businesses[row['business_id']]['slug']] += 1
-    result = {'apply': apply, 'entries': len(entries), 'businesses': counts}
+        counts[projects[row['project_id']]['slug']] += 1
+    result = {'apply': apply, 'entries': len(entries), 'projects': counts}
     if not apply or not entries:
         return result
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
@@ -50,8 +50,8 @@ def migrate(runtime, *, apply=False):
     path = backup / 'manifest.json'
     path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n'); path.chmod(0o600)
     for row, data, document in entries:
-        ctx = InvocationContext(owner, business_id=row['business_id'],
-            allowed_business_ids=frozenset({row['business_id']}), source='dashboard')
+        ctx = InvocationContext(owner, project_id=row['project_id'],
+            allowed_project_ids=frozenset({row['project_id']}), source='dashboard')
         args = {'document_id': row['id'], 'expected_content_hash': hashlib.sha256(data).hexdigest()}
         outcome = runtime.application.invoke(ctx, 'notes_update', args, {
             'expected_revision': row['revision'],
@@ -61,9 +61,9 @@ def migrate(runtime, *, apply=False):
             raise DomainError('migration_incomplete', 'An entry changed or could not be adopted; rerun after resolving it',
                 details={'document_id': row['id'], 'result': outcome.to_dict(), 'backup': str(backup)})
         with runtime.database.read() as uow:
-            saved = uow.repository('documents', business_id=row['business_id']).get(row['id'])
+            saved = uow.repository('documents', project_id=row['project_id']).get(row['id'])
             observed = store.view(saved, uow)
-            if (saved['kind'] != 'business_note'
+            if (saved['kind'] != 'project_note'
                     or store.read_bytes(saved, uow) != data or observed['body'] != document['body']
                     or saved['path'] != row['path']):
                 raise DomainError('migration_verification_failed', 'Journal adoption did not preserve its original source',

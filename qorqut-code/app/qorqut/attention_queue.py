@@ -91,7 +91,7 @@ def queue(runtime, ctx, change=None):
             SELECT v.*, a.profile_json, ROW_NUMBER() OVER (
                 PARTITION BY v.agent_id ORDER BY v.placement_sequence DESC) AS board_rank
             FROM agent_viewbox_items v JOIN agent_profiles a ON a.agent_id=v.agent_id
-            WHERE a.status='active' AND a.home_business_id IS NULL
+            WHERE a.status='active' AND a.home_project_id IS NULL
         ) WHERE board_rank<=?""", (BOARD_LIMIT,)).fetchall()
         current = {agent: active_global(uow.connection, agent) is not None for agent in {row['agent_id'] for row in placements}}
         for row in (row for row in placements if current[row['agent_id']]):
@@ -122,7 +122,7 @@ def queue(runtime, ctx, change=None):
     for row in signoffs:
         candidates.append({'id': signoff_key(row), 'kind': 'signoff', 'signoff_id': row['id'],
             'title': row['title'], 'text': row['title'], 'category': row['category'],
-            'business_id': row['review_business_id'], 'biz': row['business_slug'],
+            'project_id': row['review_project_id'], 'project': row['project_slug'],
             'created_at': row['created_at'],
             # Something to read and acknowledge, not a decision; a question for the owner shows as one.
             **({'to_read': True} if row.get('input_kind') == 'acknowledge' else {}),
@@ -143,7 +143,7 @@ def queue(runtime, ctx, change=None):
         elif item['kind'] == 'reminder':
             group = ('reminder', item['reminder_id'])
         else:
-            group = (item['kind'], item.get('agent_id'), bool(item.get('chat')), source.get('type'), source.get('business_id'), source.get('id')) if item['kind'] != 'signoff' else ('signoff', item['signoff_id'])
+            group = (item['kind'], item.get('agent_id'), bool(item.get('chat')), source.get('type'), source.get('project_id'), source.get('id')) if item['kind'] != 'signoff' else ('signoff', item['signoff_id'])
         previous = groups.get(group)
         groups[group] = {**item, 'viewed_ids': (previous['viewed_ids'] if previous else []) + [item['id']]}
     return {'items': sorted(groups.values(), key=order, reverse=True), 'side_chats': side_chats, 'discarded': sorted(gone)}

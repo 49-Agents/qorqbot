@@ -16,8 +16,8 @@ from qorqut.read_admission import may_read
 
 ID={'type':'string','minLength':1,'maxLength':200}
 TEXT={'type':'string','maxLength':2000}
-SOURCE=schema({'type':{'enum':['task','signoff','project','table']},'id':ID,'business_id':{'type':['string','null']}},('type','id','business_id'))
-TARGET=schema({'type':{'type':'string'},'id':ID,'business_id':{'type':['string','null']},'url':{'type':'string','maxLength':4000}},('type',))
+SOURCE=schema({'type':{'enum':['task','signoff','project','table']},'id':ID,'project_id':{'type':['string','null']}},('type','id','project_id'))
+TARGET=schema({'type':{'type':'string'},'id':ID,'project_id':{'type':['string','null']},'url':{'type':'string','maxLength':4000}},('type',))
 REFERENCE=schema({'key':ID,'title':TEXT,'target':TARGET},('key','title','target'))
 FIELDS={'display_name':{'type':'string','maxLength':200,
         'description':instruction_text('attention-focus-only-name-written-by-the-curator-use')},
@@ -89,7 +89,7 @@ class AttentionBoard:
         return self
 
     def context(self,ctx,uow):
-        ctx=self.app.current_context(replace(ctx,business_id=None,review_business_id=None),uow)
+        ctx=self.app.current_context(replace(ctx,project_id=None,review_project_id=None),uow)
         installation=uow.repository('installation').get('service')
         if ctx.principal_kind=='human' and installation and ctx.principal_id==installation['owner_principal_id']: return ctx
         from qorqut.agents.global_peers import global_peer
@@ -102,11 +102,11 @@ class AttentionBoard:
         identities=[installation['owner_principal_id'],installation['management_coordinator_id']]
         for identity in identities:
             if not identity or identity==ctx.principal_id: continue
-            yield self.app.policy.context_for(identity,business_id=None,review_business_id=None,uow=uow)
+            yield self.app.policy.context_for(identity,project_id=None,review_project_id=None,uow=uow)
 
     @staticmethod
     def public(source):
-        """A Focus Project reference is public: id and business_id must be the same actual Project UUID."""
+        """A Focus Project reference is public: id and project_id must be the same actual Project UUID."""
         if isinstance(source,dict) and source.get('type')=='project':
             from qorqut.domains.projects.access import validate_public_reference
             return validate_public_reference(source)
@@ -129,8 +129,8 @@ class AttentionBoard:
             if parsed.scheme not in {'http','https'} or not parsed.hostname or parsed.username or parsed.password:
                 raise DomainError('validation_error','Reference URLs must be HTTP(S) without embedded credentials')
             return target
-        if target['type'] not in self.legacy.items.kinds or 'id' not in target or 'business_id' not in target:
-            raise DomainError('validation_error','Choose a typed existing target with id and business_id, or a URL/desktop target')
+        if target['type'] not in self.legacy.items.kinds or 'id' not in target or 'project_id' not in target:
+            raise DomainError('validation_error','Choose a typed existing target with id and project_id, or a URL/desktop target')
         return self.resolve(ctx,target,uow)
 
     def row(self,identity,uow):
@@ -139,7 +139,7 @@ class AttentionBoard:
         return row
 
     def binding(self,row):
-        return row['source'] or row['context'] or {'type':'reference','id':row['id'],'business_id':None}
+        return row['source'] or row['context'] or {'type':'reference','id':row['id'],'project_id':None}
 
     def projection(self,ctx,row,uow,private=None):
         value={k:v for k,v in row.items() if k not in {'source_key','recommendation'}}
@@ -152,14 +152,14 @@ class AttentionBoard:
             source=self.resolve(ctx,row['source'],uow) if row['source'] else None
             context=self.resolve(ctx,row['context'],uow) if row['context'] else None
             value.update(label=source['label'] if source else row['reference']['title'],state=source.get('state') if source else None,
-                resolved_source=source,source_revision=(source or context or {}).get('revision'),context_business_slug=(context or {}).get('business_slug'),context_label=(context or {}).get('label'))
+                resolved_source=source,source_revision=(source or context or {}).get('revision'),context_project_slug=(context or {}).get('project_slug'),context_label=(context or {}).get('label'))
             if source and row['source']['type']=='task':
                 ref = row['source']
-                selected = self.app.current_context(replace(ctx, business_id=ref['business_id'], review_business_id=ref['business_id']), uow)
+                selected = self.app.current_context(replace(ctx, project_id=ref['project_id'], review_project_id=ref['project_id']), uow)
                 descriptor = self.app.registry.get('tasks_get')
-                if ref['business_id'] is not None: descriptor = replace(descriptor, global_capability=None)
-                self.app.authorize(selected, descriptor, (), uow, namespace='business:'+ref['business_id'] if ref['business_id'] else 'global')
-                value['task'] = descriptor.read(selected, {'task_id':ref['id'], **({'scope':'global'} if ref['business_id'] is None else {})}, InvocationOptions(), uow)['task']
+                if ref['project_id'] is not None: descriptor = replace(descriptor, global_capability=None)
+                self.app.authorize(selected, descriptor, (), uow, namespace='project:'+ref['project_id'] if ref['project_id'] else 'global')
+                value['task'] = descriptor.read(selected, {'task_id':ref['id'], **({'scope':'global'} if ref['project_id'] is None else {})}, InvocationOptions(), uow)['task']
                 # A Task card says what the Task says. Its own stored text is shown only until the Task has a status line.
                 if value['task'].get('status_line'): value['reason']=value['task']['status_line']
             if row['reference']: value['opening_target']=self.target(ctx,row['reference']['target'],uow)
@@ -181,7 +181,7 @@ class AttentionBoard:
                     'table':' AND item_type=\'table\' AND kind=\'comment\''}.get(binding['type'],'')
                 params=[binding['id']]
                 if binding['type'] in ('task','table'):
-                    clause+=' AND business_id IS ?';params.append(binding['business_id'])
+                    clause+=' AND project_id IS ?';params.append(binding['project_id'])
                 value['note_count']=uow.connection.execute(f'SELECT count(*) FROM {table} WHERE {column}=?'+clause,params).fetchone()[0]
             if binding['type']=='signoff':
                 from qorqut_operations.signoffs.notes import eligible
@@ -191,7 +191,7 @@ class AttentionBoard:
             # reading these counters writes nothing and restores no card. A list
             # read passes one prefetched index instead of querying per card.
             value.update(private_state(ctx,binding,uow) if private is None
-                else private.get(source_key(binding['type'],binding.get('business_id'),binding['id']),EMPTY_STATE))
+                else private.get(source_key(binding['type'],binding.get('project_id'),binding['id']),EMPTY_STATE))
         except DomainError:
             return {'id':row['id'],'revision':row['revision'],'archived':row['archived'],'unavailable':True,'task':None}
         return value
@@ -207,7 +207,7 @@ class AttentionBoard:
                     if source['type']!='signoff': continue
                     try:
                         self.resolve(ctx,source,uow)
-                        selected=replace(ctx,business_id=source['business_id'],review_business_id=source['business_id'])
+                        selected=replace(ctx,project_id=source['project_id'],review_project_id=source['project_id'])
                         proposal=self.legacy.signoffs._row(selected,source['id'],uow)
                         value['action_signoffs'].append(self.legacy.signoffs._dto(proposal,uow))
                     except DomainError:
@@ -234,13 +234,13 @@ class AttentionBoard:
     def thread(self,ctx,row,args,uow):
         binding=self.binding(row)
         if binding['type']!='reference': self.resolve(ctx,binding,uow)
-        selected=self.app.current_context(replace(ctx,business_id=binding['business_id'],review_business_id=binding['business_id']),uow)
+        selected=self.app.current_context(replace(ctx,project_id=binding['project_id'],review_project_id=binding['project_id']),uow)
         if binding['type']=='task':
-            return self.call_read(selected,'tasks_thread_get',{'task_id':binding['id'],**({'scope':'global'} if binding['business_id'] is None else {}),
+            return self.call_read(selected,'tasks_thread_get',{'task_id':binding['id'],**({'scope':'global'} if binding['project_id'] is None else {}),
                 **{k:args[k] for k in ('cursor','limit') if k in args}},uow)
         if binding['type']=='table':
             # The Table's team thread; a CRM and a general Table share it. The private channel keeps its own store.
-            return self.call_read(selected,'tables_thread_get',{'table_id':binding['id'],**({'scope':'global'} if binding['business_id'] is None else {}),
+            return self.call_read(selected,'tables_thread_get',{'table_id':binding['id'],**({'scope':'global'} if binding['project_id'] is None else {}),
                 **{k:args[k] for k in ('cursor','limit') if k in args}},uow)
         if binding['type']=='signoff':
             return self.call_read(selected,'signoffs_notes_list',{'signoff_id':binding['id'],**{k:args[k] for k in ('before','limit') if k in args}},uow)
@@ -263,12 +263,12 @@ class AttentionBoard:
 
     def discussion_readable(self,ctx,binding,uow):
         """Whether the caller may read the Table's team discussion now, admitted exactly as a direct tables_thread_get call is."""
-        selected=self.app.current_context(replace(ctx,business_id=binding['business_id'],review_business_id=binding['business_id']),uow)
-        return may_read(self.app,selected,'tables_thread_get',{'table_id':binding['id'],**({'scope':'global'} if binding['business_id'] is None else {})},uow)
+        selected=self.app.current_context(replace(ctx,project_id=binding['project_id'],review_project_id=binding['project_id']),uow)
+        return may_read(self.app,selected,'tables_thread_get',{'table_id':binding['id'],**({'scope':'global'} if binding['project_id'] is None else {})},uow)
 
     def call_read(self,ctx,op,args,uow):
         descriptor=self.app.registry.get(op)
-        self.app.authorize(ctx,descriptor,(),uow,namespace='business:'+ctx.business_id if ctx.business_id else 'global')
+        self.app.authorize(ctx,descriptor,(),uow,namespace='project:'+ctx.project_id if ctx.project_id else 'global')
         return descriptor.read(ctx,args,InvocationOptions(),uow)
 
     def validate(self,op,ctx,args,uow):
@@ -302,13 +302,13 @@ class AttentionBoard:
             if not row['reference']: raise DomainError('validation_error','Only References have an editable opening target/title')
             if 'target' in args['changes']: self.target(ctx,args['changes']['target'],uow)
         if op=='focus_reply':
-            # Owner replies may join business Task discussions. Other sources keep their channel rule.
+            # Owner replies may join project Task discussions. Other sources keep their channel rule.
             binding=self.binding(row)
             if binding['type']=='project':
                 # A Project has no shared team channel; its one conversation is owner_conversation_send.
                 from qorqut_operations.team_channel import channel_required
                 raise channel_required('focus_reply')
-            team_ctx=replace(ctx,business_id=binding.get('business_id')) if binding['type']=='task' else ctx
+            team_ctx=replace(ctx,project_id=binding.get('project_id')) if binding['type']=='task' else ctx
             reject_owner_team_write(team_ctx,uow,'focus_reply')
             self.legacy.signoffs.notes.validate(args['text'])
             normalize_summary(args.get('summary'))
@@ -318,10 +318,10 @@ class AttentionBoard:
         return ctx,row
 
     def reply_plan(self,ctx,binding,args,uow):
-        selected=self.app.current_context(replace(ctx,business_id=binding['business_id'],review_business_id=binding['business_id']),uow)
+        selected=self.app.current_context(replace(ctx,project_id=binding['project_id'],review_project_id=binding['project_id']),uow)
         kind=binding['type'];op={'task':'tasks_comment','signoff':'signoffs_comment','table':'tables_comment'}[kind]
         values={kind+'_id':binding['id'],'text':args['text'],
-            **({'scope':'global'} if binding['business_id'] is None else {})}
+            **({'scope':'global'} if binding['project_id'] is None else {})}
         if 'summary' in args: values['summary']=args['summary']
         if args.get('refs'):
             values['note_refs' if kind in ('task','table') else 'refs']=args['refs']
@@ -331,7 +331,7 @@ class AttentionBoard:
         descriptor.validate(values)
         decisions=self.app._decisions(selected,descriptor,plan.expected_targets,plan.changes,uow,namespace=plan.target_namespace)
         plan=replace(plan,policy_binding=self.app._binding(selected,decisions),review_scope=self.app._review_scope(selected,plan),
-            review_business_id=selected.business_id,encoding_version=2,proposer_agent_id=selected.agent_id,
+            review_project_id=selected.project_id,encoding_version=2,proposer_agent_id=selected.agent_id,
             initiated_by_principal_id=selected.initiated_by_principal_id)
         self.app.validate_prepared(selected,plan,uow)
         return selected,descriptor,plan
@@ -360,7 +360,7 @@ class AttentionBoard:
             return {**result,'conversation':binding}
         if op=='focus_present':
             source=args.get('source');reference=args.get('reference');context=args.get('context')
-            key=('source:'+str(source['business_id'] or 'global')+':'+source['type']+':'+source['id']) if source else 'reference:'+reference['key']
+            key=('source:'+str(source['project_id'] or 'global')+':'+source['type']+':'+source['id']) if source else 'reference:'+reference['key']
             row=decode(uow.connection.execute('SELECT * FROM focus_cards WHERE source_key=?',(key,)).fetchone())
             if row and (row['context']!=context or row['source']!=source): raise DomainError('validation_error','Conversation binding cannot be changed; present a distinct Reference key')
             outcome='restored' if row and row['archived'] else 'already_present' if row else 'created'
@@ -406,10 +406,10 @@ class AttentionBoard:
 
         The card shows the Task's status line, so the line has one home and the card keeps no copy of it. An unchanged
         text writes nothing."""
-        selected=self.app.current_context(replace(ctx,business_id=source['business_id'],review_business_id=source['business_id']),uow)
-        scope={'scope':'global'} if source['business_id'] is None else {}
-        namespace='business:'+source['business_id'] if source['business_id'] else 'global'
-        read,update=(self.app.registry.get(name) if source['business_id'] is None
+        selected=self.app.current_context(replace(ctx,project_id=source['project_id'],review_project_id=source['project_id']),uow)
+        scope={'scope':'global'} if source['project_id'] is None else {}
+        namespace='project:'+source['project_id'] if source['project_id'] else 'global'
+        read,update=(self.app.registry.get(name) if source['project_id'] is None
                      else replace(self.app.registry.get(name),global_capability=None) for name in ('tasks_get','tasks_update'))
         self.app.authorize(selected,read,(),uow,namespace=namespace)
         task=read.read(selected,{'task_id':source['id'],'notes_limit':0,**scope},InvocationOptions(),uow)['task']
@@ -435,8 +435,8 @@ class AttentionBoard:
             (ctx.principal_id,json.dumps({'card_id':after['id'],'fields':fields,'deferred_until':new['deferred_until']})))
 
     @staticmethod
-    def signoff_key(business_id,identity):
-        return 'source:'+(business_id or 'global')+':signoff:'+identity
+    def signoff_key(project_id,identity):
+        return 'source:'+(project_id or 'global')+':signoff:'+identity
 
     def release_signoff(self,before,after,uow):
         # A signoff that stops awaiting a decision leaves Focus; a replacement inherits its card.
@@ -444,12 +444,12 @@ class AttentionBoard:
         replaced=bool(after['superseded_by_id']) and not before['superseded_by_id']
         if not (left or replaced): return
         row=decode(uow.connection.execute('SELECT * FROM focus_cards WHERE source_key=?',
-            (self.signoff_key(before['review_business_id'],before['id']),)).fetchone())
+            (self.signoff_key(before['review_project_id'],before['id']),)).fetchone())
         if not row: return
         now=timestamp(self.legacy.inbox.clock)
         if not row['archived']:
             uow.connection.execute('UPDATE focus_cards SET archived=1,revision=revision+1,updated_at=? WHERE id=?',(now,row['id']))
-        key=self.signoff_key(before['review_business_id'],after['superseded_by_id'] or '')
+        key=self.signoff_key(before['review_project_id'],after['superseded_by_id'] or '')
         if replaced and not uow.connection.execute('SELECT 1 FROM focus_cards WHERE source_key=?',(key,)).fetchone():
             source={**row['source'],'id':after['superseded_by_id']}
             uow.connection.execute('INSERT INTO focus_cards(id,source_key,source_json,context_json,reason,requested_response,references_json,'
@@ -458,10 +458,10 @@ class AttentionBoard:
                  json.dumps(row['references']),row['position'],row['deferred_until'],row['created_by'],now,now,row['display_name'],row['blocker'],row['urgent']))
         uow.next_sequence('focus_board')
 
-    def release_task(self,business_id,task_id,uow):
+    def release_task(self,project_id,task_id,uow):
         # A Task that is done or cancelled leaves Focus in the write that closes it. Presenting the Task again restores the card.
         row=uow.connection.execute('SELECT id FROM focus_cards WHERE source_key=? AND archived=0',
-            ('source:'+(business_id or 'global')+':task:'+task_id,)).fetchone()
+            ('source:'+(project_id or 'global')+':task:'+task_id,)).fetchone()
         if not row: return False
         uow.connection.execute('UPDATE focus_cards SET archived=1,revision=revision+1,updated_at=? WHERE id=?',
             (timestamp(self.legacy.inbox.clock),row[0]))

@@ -17,15 +17,15 @@ from qorqut_operations.contracts import (DomainError, ExpectedTarget, FieldChang
 from qorqut_operations.storage.directories import RegisteredDirectoryTarget, observe_directory
 from qorqut_operations.storage.directory_layout import ACTION as DIRECTORY_ACTION, checked_values, directory_values
 
-ACTION = "create_business"
-DIRECTORIES = "business_creation_directories"
-NAMES = "business_creation_names"
+ACTION = "create_project"
+DIRECTORIES = "project_creation_directories"
+NAMES = "project_creation_names"
 LAYOUT = ("code", "hq")
 SLUG = re.compile(r"[a-z][a-z0-9-]{0,63}")
 FALLBACK_SLUG = "project"
 SUGGESTION_LIMIT = 1000
 # What a creation freezes in its one record change, and the only keys it writes into the new project's configuration.
-VALUE_KEYS = frozenset({"business", "owner_id", "worker_ids", "directories"})
+VALUE_KEYS = frozenset({"project", "owner_id", "worker_ids", "directories"})
 CONFIG_KEYS = frozenset({"one_liner", "code"})
 # The inert storage defaults of a new row: no lifecycle-stage form or workflow reads them.
 STAGE, TIMEZONE = "idea", "UTC"
@@ -51,7 +51,7 @@ def numbered(slug: str, number: int) -> str:
 
 
 class Creation:
-    """The creation rules over the facts the operations object was constructed with (see ``BusinessCreationOperations``).
+    """The creation rules over the facts the operations object was constructed with (see ``ProjectCreationOperations``).
 
     ``operations.project_root(row)``, ``project_hq(row)`` and ``relative_path(path)`` are the host's own validating path
     functions; they are called at every point the rules need a location and their results are never kept."""
@@ -68,13 +68,13 @@ class Creation:
 
     @staticmethod
     def name_snapshot(ctx, resource, uow):
-        return uow.connection.execute("SELECT id,revision FROM businesses WHERE lower(slug)=?", (resource.resource_id.lower(),)).fetchone()
+        return uow.connection.execute("SELECT id,revision FROM projects WHERE lower(slug)=?", (resource.resource_id.lower(),)).fetchone()
 
     def directory_target(self, resource) -> RegisteredDirectoryTarget:
         """The one registered creation target: the project root below the canonical projects directory, staged privately."""
         slug = resource.resource_id
         if (not isinstance(slug, str) or SLUG.fullmatch(slug) is None or resource.resource_type != DIRECTORIES
-                or resource.business_id is not None or resource.namespace != "global"):
+                or resource.project_id is not None or resource.namespace != "global"):
             raise DomainError("invalid_plan", "Invalid project folder")
         return RegisteredDirectoryTarget(self.operations.operations_root,
                                          self.operations.relative_path(self.operations.project_root({"slug": slug})),
@@ -118,7 +118,7 @@ class Creation:
     def require_no_variant(self, slug, uow):
         """Keep the case-insensitive reservation after preparation: a sibling that appeared since refuses every later phase.
 
-        Only the other spellings are examined. The exact destination is the business of the file effect and the plan's
+        Only the other spellings are examined. The exact destination is the project of the file effect and the plan's
         targets, which recognize this creation's own published directory by its receipt and refuse any other."""
         if self.variants(slug):
             raise self.taken(slug, uow)
@@ -132,7 +132,7 @@ class Creation:
             raise DomainError("configuration_required", "Configure background programs before creating a project")
         identities = []
         for program in authority.programs:
-            if "business" in program.scope_kinds:
+            if "project" in program.scope_kinds:
                 identity = authority.worker_id(program.id, uow)
                 authority.require_worker(identity, None, uow)
                 identities.append(identity)
@@ -166,11 +166,11 @@ class Creation:
         builder.targets[folder_ref] = ExpectedTarget(folder_ref, exists=False)
         project_id = new_id()
         folder, hq = self.operations.project_root({"slug": slug}), self.operations.project_hq({"slug": slug})
-        business = {"id": project_id, "slug": slug, "workspace": str(folder), "hq_path": str(hq), "name": name,
+        project = {"id": project_id, "slug": slug, "workspace": str(folder), "hq_path": str(hq), "name": name,
                     "stage": STAGE, "timezone": TIMEZONE, "config_json": {"one_liner": summary, "code": []}}
-        builder.record("businesses", project_id, None, {"business": business, "owner_id": owner["id"], "worker_ids": worker_ids,
+        builder.record("projects", project_id, None, {"project": project, "owner_id": owner["id"], "worker_ids": worker_ids,
                                                          "directories": list(LAYOUT)},
-                       action=ACTION, business_id=None, namespace="global", label=name)
+                       action=ACTION, project_id=None, namespace="global", label=name)
         builder.changes.append(PreparedChange("file", folder_ref, DIRECTORY_ACTION, directory_values(LAYOUT)))
         projects = self.operations.projects_directory
         shown = PreviewResource(DIRECTORIES, slug, f"{projects}/{slug}")
@@ -190,18 +190,18 @@ class Creation:
                 or folders[0].resource.resource_type != DIRECTORIES):
             raise DomainError("invalid_plan", "The plan does not create exactly one project")
         values = plain(created[0].values)
-        business = values.get("business") if set(values) == VALUE_KEYS else None
-        if (not isinstance(business, dict) or SLUG.fullmatch(str(business.get("slug"))) is None
-                or set(business.get("config_json") or ()) != CONFIG_KEYS or values["directories"] != list(LAYOUT)
-                or business["stage"] != STAGE or business["timezone"] != TIMEZONE):
+        project = values.get("project") if set(values) == VALUE_KEYS else None
+        if (not isinstance(project, dict) or SLUG.fullmatch(str(project.get("slug"))) is None
+                or set(project.get("config_json") or ()) != CONFIG_KEYS or values["directories"] != list(LAYOUT)
+                or project["stage"] != STAGE or project["timezone"] != TIMEZONE):
             raise DomainError("invalid_plan", "The project differs from what preparation writes")
-        slug = business["slug"]
-        reference = ref("businesses", business["id"], None, "global")
+        slug = project["slug"]
+        reference = ref("projects", project["id"], None, "global")
         if (created[0].resource != reference or folders[0].resource != ResourceRef(DIRECTORIES, slug, None, "global")
                 or tuple(checked_values(folders[0].values)) != LAYOUT):
             raise DomainError("invalid_plan", "The project folder differs from the project")
-        if (business["workspace"] != str(self.operations.project_root({"slug": slug}))
-                or business["hq_path"] != str(self.operations.project_hq({"slug": slug}))):
+        if (project["workspace"] != str(self.operations.project_root({"slug": slug}))
+                or project["hq_path"] != str(self.operations.project_hq({"slug": slug}))):
             raise DomainError("revision_conflict", "The project location changed after preparation")
         owner = uow.repository("principals").get(values["owner_id"])
         installation = uow.repository("installation").get("service", required=True)
@@ -219,13 +219,13 @@ class Creation:
         values = self.check_frozen(plan, uow)
         if set(values["worker_ids"]) != set(self.workers(uow)):
             raise DomainError("revision_conflict", "Background programs changed after preparation")
-        business = values["business"]
-        uow.repository("businesses").insert(business)
-        memberships = uow.repository("business_memberships", business_id=business["id"])
+        project = values["project"]
+        uow.repository("projects").insert(project)
+        memberships = uow.repository("project_memberships", project_id=project["id"])
         memberships.insert({"principal_id": values["owner_id"], "is_owner": True})
         for identity in values["worker_ids"]:
             memberships.insert({"principal_id": identity})
-        return {"business": {"id": business["id"], "slug": business["slug"], "name": business["name"],
-                             "summary": business["config_json"]["one_liner"], "workspace_path": business["workspace"],
-                             "hq_path": business["hq_path"]},
-                "business_id": business["id"], "slug": business["slug"]}
+        return {"project": {"id": project["id"], "slug": project["slug"], "name": project["name"],
+                             "summary": project["config_json"]["one_liner"], "workspace_path": project["workspace"],
+                             "hq_path": project["hq_path"]},
+                "project_id": project["id"], "slug": project["slug"]}

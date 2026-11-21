@@ -24,10 +24,10 @@ not display name or transcript claims.
   rejected model proposals are diagnostic records, not owner queue rejections.
   Incomplete sources publish no partial candidates and pause after three failed
   attempts per hash.
-- Global and business sources, scan state and proposals remain isolated. A
-  Global conversation mentioning a business is not implicitly routed there.
+- Global and project sources, scan state and proposals remain isolated. A
+  Global conversation mentioning a project is not implicitly routed there.
 - Context stays Global; transcript deltas may target the observed agent, role,
-  or Global scope. Text must retain business, audience and occasion qualifiers.
+  or Global scope. Text must retain project, audience and occasion qualifiers.
 - The same Global Learning cards support evidence inspection, editing, owner
   notes, approval/rejection and reopening before application. The Applier uses
   existing review and revision-bound work tools. Delegated decisions still need
@@ -36,13 +36,13 @@ not display name or transcript claims.
 ## Accepted context
 
 Acceptance freezes the text and owner note into one durable upload and queues
-the existing filer, just as for business learning. Global materials, topics,
+the existing filer, just as for project learning. Global materials, topics,
 people and source relationships stay under the Global `context/` library.
 The filer preserves the learning intact, creates no tasks, and cannot modify
-mandatory shared instructions or another business's records.
+mandatory shared instructions or another project's records.
 There is no new general agent upload permission. Global filing is audited by
 the decision history, apply receipts, document provenance and job results; it
-does not create a business activity log.
+does not create a project activity log.
 
 Global Context has a Filed context viewer with typed, paginated materials,
 topics, people and sources, including owner retry for failed filing jobs.

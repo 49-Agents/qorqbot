@@ -11,7 +11,7 @@ an edge that touches a Task or an Action is announced by the engine operation th
 Focus edit of a Task's card: it announces through that same writer (``emit_event``)."""
 import json
 
-from qorqut.agents.global_scope import active_global, reaches_business
+from qorqut.agents.global_scope import active_global, reaches_project
 from qorqut.composition.capture import CAPTURED as FEED_ONLY
 from qorqut.extensions import NO_SOURCES
 from qorqut_operations.discussion import emit_event
@@ -55,16 +55,16 @@ def focus_edit_targets(uow, data, actor):
     if binding and binding['type'] == 'task':
         # A Task's events have one writer, the Operations discussion: the coordinator and the assignees are its
         # required recipients, exactly as for a change to the Task itself.
-        task = uow.connection.execute('SELECT * FROM tasks WHERE business_id IS ? AND id=?',
-                                      (binding['business_id'], binding['id'])).fetchone()
+        task = uow.connection.execute('SELECT * FROM tasks WHERE project_id IS ? AND id=?',
+                                      (binding['project_id'], binding['id'])).fetchone()
         if task is not None:
-            emit_event(uow, business_id=task['business_id'], source_type='tasks', source_id=task['id'],
+            emit_event(uow, project_id=task['project_id'], source_type='tasks', source_id=task['id'],
                        source_revision=task['revision'], actor_id=actor, event_type=','.join(types),
                        summary='Owner ' + ' and '.join(parts) + ': ' + source_summary(dict(task), 'tasks'),
-                       required=recipients | assigned(uow, task['business_id'], 'task', task['id']))
+                       required=recipients | assigned(uow, task['project_id'], 'task', task['id']))
             return []
     table = FOCUS_SOURCE_TABLES.get(binding['type']) if binding else None
-    record = row_for(uow, table, binding['business_id'], binding['id']) if table else None
+    record = row_for(uow, table, binding['project_id'], binding['id']) if table else None
     if record:
         # The canonical source row keeps its own revision and read authorization.
         if table == 'signoffs' and record.get('proposer_agent_id'):
@@ -98,7 +98,7 @@ class HostEventRouting:
             return focus_edit_targets(uow, data, capture['actor_id'])
         return None
 
-    def additional_targets(self, uow, capture, data, business, actor):
+    def additional_targets(self, uow, capture, data, project, actor):
         table = capture['source_type']
         if table == 'focus_notes':
             card = uow.connection.execute('SELECT * FROM focus_cards WHERE id=?', (data['card_id'],)).fetchone()
@@ -107,7 +107,7 @@ class HostEventRouting:
             record = {**dict(card), 'title': json.loads(card['reference_json'])['title']} if card else None
             return [('focus_cards', record, data['created_by'], 'note_added', recipients)] if record else []
         if table == 'signoff_notes':
-            record = row_for(uow, 'signoffs', business, data['signoff_id'])
+            record = row_for(uow, 'signoffs', project, data['signoff_id'])
             installation = uow.repository('installation').get('service')
             recipients = {record.get('proposer_agent_id'), installation['management_coordinator_id'] if installation else None} if record else set()
             recipients.discard(None)
@@ -121,21 +121,21 @@ class HostEventRouting:
             return False
         return terminal
 
-    def augment_direct(self, uow, capture, business, record, direct, responsible):
+    def augment_direct(self, uow, capture, project, record, direct, responsible):
         return None
 
     def presentation(self, capture):
         return capture['source_type'] == 'focus_edits'
 
-    def augment_recipients(self, uow, business, table, identity, change, recipients, batch):
+    def augment_recipients(self, uow, project, table, identity, change, recipients, batch):
         actor = change['actor']
         installation = uow.repository('installation').get('service')
         if table == 'signoffs':
-            links = uow.connection.execute("SELECT source_id,source_business_id FROM signoff_source_links WHERE signoff_id=? AND source_type='task'", (identity,)).fetchall()
+            links = uow.connection.execute("SELECT source_id,source_project_id FROM signoff_source_links WHERE signoff_id=? AND source_type='task'", (identity,)).fetchall()
             for link in links:
-                recipients.update(assigned(uow, link['source_business_id'], 'task', link['source_id']))
-                task = uow.connection.execute('SELECT worker_ids_json FROM tasks WHERE business_id IS ? AND id=?',
-                    (link['source_business_id'], link['source_id'])).fetchone()
+                recipients.update(assigned(uow, link['source_project_id'], 'task', link['source_id']))
+                task = uow.connection.execute('SELECT worker_ids_json FROM tasks WHERE project_id IS ? AND id=?',
+                    (link['source_project_id'], link['source_id'])).fetchone()
                 if task:
                     recipients.update(json.loads(task['worker_ids_json']))
             if links and installation and installation['management_coordinator_id']:
@@ -144,23 +144,23 @@ class HostEventRouting:
                 and table == 'signoffs'):
             kind = ITEM_TYPES[table]
             focused = uow.connection.execute('''SELECT 1 FROM focus_cards f
-                WHERE (json_extract(source_json,'$.type')=? AND json_extract(source_json,'$.id')=? AND json_extract(source_json,'$.business_id') IS ?)
-                OR (json_extract(context_json,'$.type')=? AND json_extract(context_json,'$.id')=? AND json_extract(context_json,'$.business_id') IS ?)
+                WHERE (json_extract(source_json,'$.type')=? AND json_extract(source_json,'$.id')=? AND json_extract(source_json,'$.project_id') IS ?)
+                OR (json_extract(context_json,'$.type')=? AND json_extract(context_json,'$.id')=? AND json_extract(context_json,'$.project_id') IS ?)
                 OR EXISTS (SELECT 1 FROM json_each(f.references_json) r WHERE json_extract(r.value,'$.type')=?
-                    AND json_extract(r.value,'$.id')=? AND json_extract(r.value,'$.business_id') IS ?) LIMIT 1''',
-                (kind, identity, business) * 3).fetchone()
+                    AND json_extract(r.value,'$.id')=? AND json_extract(r.value,'$.project_id') IS ?) LIMIT 1''',
+                (kind, identity, project) * 3).fetchone()
             if focused: recipients.add(installation['management_coordinator_id'])
         return None
 
-    def recipient_allowed(self, uow, agent, business, table, guard):
-        # Only active supported globals receive deliveries; business-home identities are historical.
+    def recipient_allowed(self, uow, agent, project, table, guard):
+        # Only active supported globals receive deliveries; project-home identities are historical.
         profile = active_global(uow.connection, agent)
         if profile is None: return False
-        if business is None:
+        if project is None:
             allowed = bool(profile['scope'].get('global_capabilities'))
         else:
-            # Derived access: every active business, no agent membership row.
-            allowed = reaches_business(uow.connection, agent, business)
+            # Derived access: every active project, no agent membership row.
+            allowed = reaches_project(uow.connection, agent, project)
         return bool(allowed)
 
     def presentation_summary(self, record):

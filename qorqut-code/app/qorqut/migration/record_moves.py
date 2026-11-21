@@ -25,19 +25,19 @@ CHANGED = frozenset({('trigger', THREAD_TRIGGER), ('trigger', CRM_TRIGGER)})
 
 # The exact text each replaced trigger gained, as (earlier, current) fragments.
 THREAD_EDITS = (
-    (" AND NOT (OLD.item_type='task' AND NEW.business_id IS NOT OLD.business_id AND NEW.event_id IS OLD.event_id",
-     " AND NOT (OLD.item_type IN ('task','table') AND NEW.business_id IS NOT OLD.business_id AND NEW.event_id IS OLD.event_id"),
-    (" AND NEW.created_at IS OLD.created_at AND relocation_permits(OLD.business_id,NEW.business_id,OLD.item_id)",
-     " AND NEW.created_at IS OLD.created_at\n AND relocation_permits(OLD.business_id,NEW.business_id,CASE OLD.item_type WHEN 'task' "
+    (" AND NOT (OLD.item_type='task' AND NEW.project_id IS NOT OLD.project_id AND NEW.event_id IS OLD.event_id",
+     " AND NOT (OLD.item_type IN ('task','table') AND NEW.project_id IS NOT OLD.project_id AND NEW.event_id IS OLD.event_id"),
+    (" AND NEW.created_at IS OLD.created_at AND relocation_permits(OLD.project_id,NEW.project_id,OLD.item_id)",
+     " AND NEW.created_at IS OLD.created_at\n AND relocation_permits(OLD.project_id,NEW.project_id,CASE OLD.item_type WHEN 'task' "
      "THEN OLD.item_id ELSE 'table:' || OLD.item_id END)"),
 )
 CRM_EDITS = (
-    ("  AND relocation_permits(OLD.record_business_id,NEW.record_business_id,OLD.record_task_id))\nBEGIN",
-     "  AND relocation_permits(OLD.record_business_id,NEW.record_business_id,OLD.record_task_id))\n"
-     " AND NOT (NEW.id IS OLD.id AND NEW.business_id IS NOT OLD.business_id AND NEW.table_id IS OLD.table_id\n"
-     "  AND NEW.record_task_id IS OLD.record_task_id AND NEW.record_business_id IS OLD.record_business_id\n"
+    ("  AND relocation_permits(OLD.record_project_id,NEW.record_project_id,OLD.record_task_id))\nBEGIN",
+     "  AND relocation_permits(OLD.record_project_id,NEW.record_project_id,OLD.record_task_id))\n"
+     " AND NOT (NEW.id IS OLD.id AND NEW.project_id IS NOT OLD.project_id AND NEW.table_id IS OLD.table_id\n"
+     "  AND NEW.record_task_id IS OLD.record_task_id AND NEW.record_project_id IS OLD.record_project_id\n"
      "  AND NEW.record_namespace IS OLD.record_namespace AND NEW.created_by IS OLD.created_by AND NEW.created_at IS OLD.created_at\n"
-     "  AND relocation_permits(OLD.business_id,NEW.business_id,'table:' || OLD.table_id))\nBEGIN"),
+     "  AND relocation_permits(OLD.project_id,NEW.project_id,'table:' || OLD.table_id))\nBEGIN"),
 )
 
 

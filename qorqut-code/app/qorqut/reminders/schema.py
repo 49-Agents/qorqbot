@@ -9,18 +9,18 @@ from qorqut_operations.storage.specs import TableSpec
 
 OWNER = 'host-reminders'
 TABLE_SPECS = {
-    'reminders': TableSpec(('id',), 'business_id'),
-    'reminder_occurrences': TableSpec(('id',), 'business_id', revision_column=None),
+    'reminders': TableSpec(('id',), 'project_id'),
+    'reminder_occurrences': TableSpec(('id',), 'project_id', revision_column=None),
 }
 IMMUTABLE = {
-    'reminders': frozenset({'id', 'business_id', 'creator_id', 'created_at'}),
-    'reminder_occurrences': frozenset({'id', 'reminder_id', 'business_id', 'recipient_id', 'generation', 'due_at', 'created_at'}),
+    'reminders': frozenset({'id', 'project_id', 'creator_id', 'created_at'}),
+    'reminder_occurrences': frozenset({'id', 'reminder_id', 'project_id', 'recipient_id', 'generation', 'due_at', 'created_at'}),
 }
 SCHEMA = (
     """CREATE TABLE reminders (
         id TEXT PRIMARY KEY,
         revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
-        business_id TEXT REFERENCES businesses(id),
+        project_id TEXT REFERENCES projects(id),
         creator_id TEXT NOT NULL REFERENCES principals(id),
         authority_principal_id TEXT NOT NULL REFERENCES principals(id),
         recipient_id TEXT NOT NULL REFERENCES principals(id),
@@ -36,11 +36,11 @@ SCHEMA = (
         CHECK((state = 'due') = (current_occurrence_id IS NOT NULL))
     )""",
     "CREATE INDEX reminders_due ON reminders(next_at, id) WHERE next_at IS NOT NULL AND state IN ('scheduled','due')",
-    "CREATE INDEX reminders_recipient ON reminders(recipient_id, state, business_id)",
+    "CREATE INDEX reminders_recipient ON reminders(recipient_id, state, project_id)",
     """CREATE TABLE reminder_occurrences (
         id TEXT PRIMARY KEY,
         reminder_id TEXT NOT NULL REFERENCES reminders(id),
-        business_id TEXT REFERENCES businesses(id),
+        project_id TEXT REFERENCES projects(id),
         recipient_id TEXT NOT NULL REFERENCES principals(id),
         generation INTEGER NOT NULL CHECK(generation >= 1),
         due_at TEXT NOT NULL, created_at TEXT NOT NULL,

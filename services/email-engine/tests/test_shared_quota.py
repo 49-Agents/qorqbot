@@ -17,10 +17,10 @@ class SharedQuotaTests(unittest.TestCase):
         self.store = Store(self.path)
         self.senders = [SharedSender(ref='sender-' + str(i),
             address=f'sender-{i}@example.test', account_ref='account-' + str(i),
-            business_scope='all', enabled=True, rolling_limit=500) for i in range(2)]
+            project_scope='all', enabled=True, rolling_limit=500) for i in range(2)]
 
     def enqueue(self, identity, sender):
-        message = Outgoing(request_id=identity, business_id='business-' + sender.ref,
+        message = Outgoing(request_id=identity, project_id='project-' + sender.ref,
             mailbox='archive-' + sender.ref, from_address=sender.address,
             sender_ref=sender.ref, to=['recipient@example.test'],
             subject='Synthetic quota check', body='Never submitted to a provider.')

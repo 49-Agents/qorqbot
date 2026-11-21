@@ -38,7 +38,7 @@ Use `signoffs_input_create` for an owner response that is not an approval to
 execute a prepared action. Keep platform and internal-change approvals on their
 existing tools. An answer to a question does not bypass those approvals.
 
-When work or a record thread is waiting, pass `source: {type, id, business_id}` at creation.
+When work or a record thread is waiting, pass `source: {type, id, project_id}` at creation.
 Use the actual source identity (`task`, `table`, `project`, or `reference`),
 with an explicit project UUID or `null` for Global. A Project source names its own UUID in both
 fields. Source and Signoff keep their own scopes. Omit source for a standalone question.

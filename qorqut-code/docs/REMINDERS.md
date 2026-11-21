@@ -8,12 +8,12 @@ Telegram outbox row inside the same transaction.
 
 ## Operations
 
-All are ordinary operations (MCP, worker and the owner HTTP `POST /root/operations/<name>`; business routes use the existing
+All are ordinary operations (MCP, worker and the owner HTTP `POST /root/operations/<name>`; project routes use the existing
 scoped dispatch). Writes take the standard idempotency key.
 
 | Operation | Arguments | Result |
 | --- | --- | --- |
-| `reminders_create` | `text` (1-240), `recipient_id` (default caller), `at` **or** `recurrence {schedule, timezone}`, `time_critical`, `linked_item {type,id,business_id}` | `{reminder}` |
+| `reminders_create` | `text` (1-240), `recipient_id` (default caller), `at` **or** `recurrence {schedule, timezone}`, `time_critical`, `linked_item {type,id,project_id}` | `{reminder}` |
 | `reminders_get` | `reminder_id` | `{reminder}` |
 | `reminders_list` | `recipient_id`, `all_recipients`, `all_scopes`, `states[]` (scheduled/due/dismissed/cancelled), `cursor`, `limit` ≤ 100 | `{reminders, next_cursor}` |
 | `reminders_update` | `reminder_id`, `revision`, any of `text`, `recipient_id`, `at`, `recurrence`, `time_critical`, `linked_item` | `{reminder}` |
@@ -21,7 +21,7 @@ scoped dispatch). Writes take the standard idempotency key.
 | `reminders_dismiss` | `reminder_id`, `revision`, `occurrence_id` (the current due one) | `{reminder}` |
 | `reminders_cancel` | `reminder_id`, `revision` | `{reminder}` |
 
-The view carries `reminder_id, revision, text, recipient_id/recipient_name, creator_id/creator_name, business_id, at, state,
+The view carries `reminder_id, revision, text, recipient_id/recipient_name, creator_id/creator_name, project_id, at, state,
 recurrence, time_critical, linked_item, link_available, occurrence_id, due_at, next_at, created_at, updated_at`. `at` is the due
 time while due, otherwise the next scheduled time. `occurrence_id`/`due_at` are set only while `state` is `due`.
 

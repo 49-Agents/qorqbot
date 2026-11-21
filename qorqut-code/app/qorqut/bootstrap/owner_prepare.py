@@ -153,13 +153,13 @@ def resolve_roots(code_root, nested=(), outside_roots=()) -> list[Path]:
     return roots
 
 
-def resolve_business(database, business) -> dict:
-    value = str(business or "").strip()
+def resolve_project(database, project) -> dict:
+    value = str(project or "").strip()
     if not value:
         raise DomainError("validation_error", "A project UUID or slug is required")
     with database.read() as uow:
         rows = uow.connection.execute(
-            "SELECT id, slug, name, archived_at FROM businesses WHERE id=? OR slug=?", (value, value)).fetchall()
+            "SELECT id, slug, name, archived_at FROM projects WHERE id=? OR slug=?", (value, value)).fetchall()
     row = next((row for row in rows if row["id"] == value), rows[0] if rows else None)
     if row is None:
         raise DomainError("not_found", "No project matches this identifier")
@@ -175,24 +175,24 @@ def resolve_owner_name(database) -> str | None:
     return owner_label(row["display_name"]) if row else None
 
 
-def instruction_block(business: dict, endpoint: str, owner_name=None) -> str:
+def instruction_block(project: dict, endpoint: str, owner_name=None) -> str:
     builder = owner_label(owner_name) or OWNER_FALLBACK
     return "\n".join([
         BLOCK_START,
-        f"# Qorqut owner session: {business['name']}",
+        f"# Qorqut owner session: {project['name']}",
         "",
-        f"Business: {business['name']} (`{business['slug']}`), UUID `{business['id']}`.",
+        f"Project: {project['name']} (`{project['slug']}`), UUID `{project['id']}`.",
         f"Qorqut service: {endpoint} — MCP server `{SERVER}` at `{endpoint + ROUTE}`.",
         "",
         required_text(owner_name),
         "",
         "- Start by calling the `owner_session_bootstrap` tool for project orientation and context pointers.",
         "- Fetch deeper context on demand with `context_list`, `context_search` and `context_get`; project",
-        "  notes are listed with `notes_list` (target_business_id) and read with `notes_get`.",
+        "  notes are listed with `notes_list` (target_project_id) and read with `notes_get`.",
         "- Project direction belongs to the owner with Ordubashy, who coordinates execution through the permanent",
         "  workers. Projects have no resident agents.",
         "- Use `agents_message_recipients`, `agents_message_send` and `agents_messages_list` for direct",
-        "  same-business messages; use `tasks_create` and `tasks_assign` for durable work. Direct messages are",
+        "  same-project messages; use `tasks_create` and `tasks_assign` for durable work. Direct messages are",
         "  not the same as owner private conversations on objects.",
         "- Tasks: `tasks_create`, `tasks_update`, close with `tasks_complete`, reopen with `tasks_update` to an open",
         "  status. A work group is an ordinary parent Task (`parent_id`); related items link with `relationships_create`.",
@@ -257,7 +257,7 @@ def _gitignore_file(path: Path) -> bytes | None:
     return ((previous + "\n" if previous.strip() else "") + GITIGNORE_ENTRY + "\n").encode()
 
 
-def _managed_directory_conflict(root: Path, business: dict) -> None:
+def _managed_directory_conflict(root: Path, project: dict) -> None:
     directory = root / DIRECTORY
     if not directory.exists():
         return
@@ -274,7 +274,7 @@ def _managed_directory_conflict(root: Path, business: dict) -> None:
         raise DomainError("projection_conflict",
                           "Existing .qorqut-owner registration is not valid JSON") from exc
     if (not isinstance(value, dict) or value.get("version") != VERSION
-            or value.get("business_id") != business["id"]):
+            or value.get("project_id") != project["id"]):
         raise DomainError("projection_conflict",
                           "Existing .qorqut-owner files belong to another preparation")
 
@@ -343,7 +343,7 @@ def _codex_file(path: Path, endpoint: str, helper: str) -> bytes:
     return candidate.encode()
 
 
-def build_projection(*, business, endpoint, roots, label, prepared_at=None, owner_name=None) -> Projection:
+def build_projection(*, project, endpoint, roots, label, prepared_at=None, owner_name=None) -> Projection:
     """Plan every root's managed bytes, raising before any file is written.
 
     The credential itself is not part of the projection: it is issued once and
@@ -352,11 +352,11 @@ def build_projection(*, business, endpoint, roots, label, prepared_at=None, owne
     endpoint = service_url(endpoint)
     roots = [Path(root) for root in roots]
     prepared_at = prepared_at or utc_now()
-    block = instruction_block(business, endpoint, owner_name)
+    block = instruction_block(project, endpoint, owner_name)
     files = {}
     for index, root in enumerate(roots):
         helper = shlex.quote(str(root / HEADERS))
-        _managed_directory_conflict(root, business)
+        _managed_directory_conflict(root, project)
         for name in (CREDENTIAL, HEADERS, REGISTRATION):
             if path_has_symlink(root / name):
                 raise DomainError("projection_conflict", "Owner-session files cannot follow a symbolic link")
@@ -371,8 +371,8 @@ def build_projection(*, business, endpoint, roots, label, prepared_at=None, owne
                                and previous_registration.get("gitignore_added") is True))
         planned = {
             HEADERS: HEADERS_SCRIPT.encode(),
-            REGISTRATION: _json_bytes({"version": VERSION, "endpoint": endpoint, "business_id": business["id"],
-                                       "business_slug": business["slug"], "business_name": business["name"],
+            REGISTRATION: _json_bytes({"version": VERSION, "endpoint": endpoint, "project_id": project["id"],
+                                       "project_slug": project["slug"], "project_name": project["name"],
                                        "label": label, "root": str(root), "prepared_at": prepared_at,
                                        "gitignore_added": gitignore_added}),
             ".mcp.json": _mcp_file(root / ".mcp.json", endpoint, helper),
@@ -387,7 +387,7 @@ def build_projection(*, business, endpoint, roots, label, prepared_at=None, owne
         planned[CODEX_CONFIG] = _codex_file(root / CODEX_CONFIG, endpoint, helper)
         files[root] = planned
     metadata = {"version": VERSION, "endpoint": endpoint, "label": label, "prepared_at": prepared_at,
-                "business_id": business["id"], "business_slug": business["slug"],
+                "project_id": project["id"], "project_slug": project["slug"],
                 "top_root": str(roots[0]), "roots": [str(root) for root in roots]}
     return Projection(files, metadata)
 
@@ -404,7 +404,7 @@ def _validate_token(token) -> str:
     return token
 
 
-def _bundle_business(value) -> dict:
+def _bundle_project(value) -> dict:
     if not isinstance(value, dict) or set(value) != {"id", "slug", "name"}:
         raise DomainError("invalid_bundle", "Owner-session bundle has invalid project identity")
     if any(not isinstance(value[key], str) or not value[key].strip() for key in value):
@@ -421,7 +421,7 @@ def _load_bundle(path) -> dict:
         value = json.loads(raw)
     except (OSError, ValueError, UnicodeDecodeError) as exc:
         raise DomainError("invalid_bundle", "Owner-session bundle is not valid JSON") from exc
-    required = {"version", "endpoint", "business", "label", "token"}
+    required = {"version", "endpoint", "project", "label", "token"}
     if (not isinstance(value, dict) or value.get("version") != VERSION
             or not required <= set(value) or set(value) - required - {"owner_name"}):
         raise DomainError("invalid_bundle", "Unsupported owner-session bundle")
@@ -432,11 +432,11 @@ def _load_bundle(path) -> dict:
         endpoint = service_url(value["endpoint"])
     except (DomainError, TypeError) as exc:
         raise DomainError("invalid_bundle", "Owner-session bundle has an invalid endpoint") from exc
-    business = _bundle_business(value["business"])
+    project = _bundle_project(value["project"])
     label = value["label"]
     if not isinstance(label, str) or not label.strip() or len(label) > 200 or "\n" in label:
         raise DomainError("invalid_bundle", "Owner-session bundle has an invalid machine label")
-    return {"version": VERSION, "endpoint": endpoint, "business": business, "label": label.strip(),
+    return {"version": VERSION, "endpoint": endpoint, "project": project, "label": label.strip(),
             "token": _validate_token(value["token"]), "owner_name": owner_label(owner_name)}
 
 
@@ -460,23 +460,23 @@ def _bundle_path(path) -> Path:
     return path
 
 
-def issue_bundle(database, *, business, endpoint, label=None, output) -> dict:
+def issue_bundle(database, *, project, endpoint, label=None, output) -> dict:
     """Issue a credential on the Qorqut host and save a portable private bundle."""
     endpoint = service_url(endpoint)
     label = label or platform.node()
     output = _bundle_path(output)
-    record = resolve_business(database, business)
-    token = owner_sessions.issue_credential(database, business_id=record["id"], label=label,
+    record = resolve_project(database, project)
+    token = owner_sessions.issue_credential(database, project_id=record["id"], label=label,
                                             endpoint=endpoint)
     payload = {"version": VERSION, "endpoint": endpoint,
-               "business": {key: record[key] for key in ("id", "slug", "name")},
+               "project": {key: record[key] for key in ("id", "slug", "name")},
                "label": label, "token": token}
     owner_name = resolve_owner_name(database)
     if owner_name:
         payload["owner_name"] = owner_name
     _write(output, (_json_bytes(payload)), 0o600)
-    return {"version": VERSION, "endpoint": endpoint, "business_id": record["id"],
-            "business_slug": record["slug"], "business_name": record["name"],
+    return {"version": VERSION, "endpoint": endpoint, "project_id": record["id"],
+            "project_slug": record["slug"], "project_name": record["name"],
             "label": label, "bundle": str(output)}
 
 
@@ -492,10 +492,10 @@ def install_bundle(bundle, *, code_root, nested=(), outside_roots=()) -> dict:
     """Install a DB-free issuance bundle into explicitly selected local roots."""
     bundle = _load_bundle(bundle)
     roots = resolve_roots(code_root, nested, outside_roots)
-    projection = build_projection(business=bundle["business"], endpoint=bundle["endpoint"],
+    projection = build_projection(project=bundle["project"], endpoint=bundle["endpoint"],
                                   roots=roots, label=bundle["label"], owner_name=bundle["owner_name"])
     _install_projection(projection, bundle["token"])
-    return {**projection.metadata, "business_name": bundle["business"]["name"],
+    return {**projection.metadata, "project_name": bundle["project"]["name"],
             "launch": launch_instructions(roots)}
 
 
@@ -504,20 +504,20 @@ def launch_instructions(roots) -> dict:
             "codex": [f"cd {shlex.quote(str(root))} && codex" for root in roots]}
 
 
-def prepare(database, *, business, code_root, nested=(), outside_roots=(), endpoint, label=None) -> dict:
-    """Prepare every given root for owner-directed sessions of one business."""
+def prepare(database, *, project, code_root, nested=(), outside_roots=(), endpoint, label=None) -> dict:
+    """Prepare every given root for owner-directed sessions of one project."""
     endpoint = service_url(endpoint)
     label = label or platform.node()
     roots = resolve_roots(code_root, nested, outside_roots)
-    record = resolve_business(database, business)
-    projection = build_projection(business=record, endpoint=endpoint, roots=roots, label=label,
+    record = resolve_project(database, project)
+    projection = build_projection(project=record, endpoint=endpoint, roots=roots, label=label,
                                   owner_name=resolve_owner_name(database))
-    # Issuance enforces the enabled business and owner membership, and revokes
+    # Issuance enforces the enabled project and owner membership, and revokes
     # this label's previous credential; conflicts are already ruled out above.
-    token = owner_sessions.issue_credential(database, business_id=record["id"], label=label,
+    token = owner_sessions.issue_credential(database, project_id=record["id"], label=label,
                                             endpoint=endpoint, roots=[str(root) for root in roots])
     _install_projection(projection, token)
-    return {**projection.metadata, "business_name": record["name"], "launch": launch_instructions(roots)}
+    return {**projection.metadata, "project_name": record["name"], "launch": launch_instructions(roots)}
 
 
 def _remove_empty(path: Path) -> None:
@@ -649,11 +649,11 @@ def remove(*, code_root, nested=(), outside_roots=()) -> dict:
     return {"roots": [str(root) for root in roots], "removed": removed}
 
 
-def revoke(database, *, business, label) -> dict:
-    """Revoke this label's owner-session credentials for one business."""
+def revoke(database, *, project, label) -> dict:
+    """Revoke this label's owner-session credentials for one project."""
     from qorqut_operations.application.engine import Application
 
-    record = resolve_business(database, business)
+    record = resolve_project(database, project)
     revoked = 0
     with database.transaction() as uow:
         Application.ensure_writes_open(uow)
@@ -665,19 +665,19 @@ def revoke(database, *, business, label) -> dict:
                 "SELECT id, metadata_json, revision FROM credentials WHERE principal_id=? AND revoked_at IS NULL",
                 (owner_id,)).fetchall():
             binding = owner_sessions.credential_binding(row["metadata_json"])
-            if binding and binding["business_id"] == record["id"] and (label is None or binding.get("label") == label):
+            if binding and binding["project_id"] == record["id"] and (label is None or binding.get("label") == label):
                 uow.repository("credentials").update(row["id"], {"revoked_at": utc_now()},
                                                      expected_revision=row["revision"])
                 revoked += 1
-    return {"business_id": record["id"], "business_slug": record["slug"], "label": label, "revoked": revoked}
+    return {"project_id": record["id"], "project_slug": record["slug"], "label": label, "revoked": revoked}
 
 
 def _common(parser, *names) -> None:
-    if "businesses-root" in names:
+    if "projects-root" in names:
         from qorqut.service.instance_arguments import add_instance_arguments
         add_instance_arguments(parser)
-    if "business" in names:
-        parser.add_argument("--business", required=True, help="Project UUID or slug")
+    if "project" in names:
+        parser.add_argument("--project", required=True, help="Project UUID or slug")
     if "root" in names:
         parser.add_argument("--root", required=True, help="Absolute top code root to prepare")
         parser.add_argument("--nested", action="append", default=[],
@@ -691,12 +691,12 @@ def main(argv=None) -> int:
                                      description="Owner-invoked preparation for owner-directed code sessions")
     commands = parser.add_subparsers(dest="command", required=True)
     prepared = commands.add_parser("prepare", help="Prepare Claude and Codex integration for the given roots")
-    _common(prepared, "businesses-root", "business", "root")
+    _common(prepared, "projects-root", "project", "root")
     prepared.add_argument("--endpoint", required=True, help="Qorqut service URL, for example http://host:1049")
     prepared.add_argument("--label", default=platform.node(), help="Machine label for this credential")
     issued = commands.add_parser("issue", aliases=["issue-bundle"],
                                  help="Issue a portable private bundle on the Qorqut host")
-    _common(issued, "businesses-root", "business")
+    _common(issued, "projects-root", "project")
     issued.add_argument("--endpoint", required=True, help="Qorqut service URL, for example http://host:1049")
     issued.add_argument("--label", default=platform.node(), help="Machine label for this credential")
     issued.add_argument("--output", required=True, help="Absolute private bundle path outside the code tree")
@@ -707,7 +707,7 @@ def main(argv=None) -> int:
     removal = commands.add_parser("remove", help="Remove only the owned files and entries")
     _common(removal, "root")
     revocation = commands.add_parser("revoke", help="Revoke this label's owner-session credentials")
-    _common(revocation, "businesses-root", "business")
+    _common(revocation, "projects-root", "project")
     revocation.add_argument("--label", default=platform.node(), help="Machine label to revoke")
     args = parser.parse_args(argv)
     from qorqut.composition.assembly import host_assembly, open_database
@@ -721,10 +721,10 @@ def main(argv=None) -> int:
 
     try:
         if args.command == "prepare":
-            result = prepare(database(), business=args.business, code_root=args.root,
+            result = prepare(database(), project=args.project, code_root=args.root,
                              nested=args.nested, outside_roots=args.outside_root,
                              endpoint=args.endpoint, label=args.label)
-            print(f"Prepared {result['business_slug']} ({result['business_id']}) as {result['label']}.")
+            print(f"Prepared {result['project_slug']} ({result['project_id']}) as {result['label']}.")
             for root in result["roots"]:
                 print("  root: " + root)
             for provider in ("claude", "codex"):
@@ -732,22 +732,22 @@ def main(argv=None) -> int:
                 for line in result["launch"][provider]:
                     print("  " + line)
         elif args.command in {"issue", "issue-bundle"}:
-            result = issue_bundle(database(), business=args.business, endpoint=args.endpoint,
+            result = issue_bundle(database(), project=args.project, endpoint=args.endpoint,
                                   label=args.label, output=args.output)
-            print(f"Issued {result['business_slug']} ({result['business_id']}) as {result['label']}.")
+            print(f"Issued {result['project_slug']} ({result['project_id']}) as {result['label']}.")
             print("  private bundle: " + result["bundle"])
         elif args.command in {"install", "install-bundle"}:
             result = install_bundle(args.bundle, code_root=args.root,
                                     nested=args.nested, outside_roots=args.outside_root)
-            print(f"Installed {result['business_slug']} ({result['business_id']}) as {result['label']}.")
+            print(f"Installed {result['project_slug']} ({result['project_id']}) as {result['label']}.")
             for root in result["roots"]:
                 print("  root: " + root)
         elif args.command == "remove":
             result = remove(code_root=args.root, nested=args.nested, outside_roots=args.outside_root)
             print(f"Removed owner-session files from {len(result['roots'])} root(s).")
         else:
-            result = revoke(database(), business=args.business, label=args.label)
-            print(f"Revoked {result['revoked']} owner-session credential(s) for {result['business_slug']}.")
+            result = revoke(database(), project=args.project, label=args.label)
+            print(f"Revoked {result['revoked']} owner-session credential(s) for {result['project_slug']}.")
     except DomainError as error:
         print(f"{error.code}: {error}", file=sys.stderr)
         return 1

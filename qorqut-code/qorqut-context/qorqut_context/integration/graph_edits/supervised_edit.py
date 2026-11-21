@@ -45,7 +45,7 @@ from .graph_edit import (COMMIT_SCHEMA, EDGE_SCHEMA, ID_SCHEMA, NODE_SCHEMA, OUT
 FORMAT = library.FORMAT
 RESOURCE = "context_supervised_edit"
 PREPARED = frozenset({"kind", "event_id", "preview_only", "expected_revision", "plan_digest", "document_digest", "document_bytes",
-                      "source_bytes", "business_id", "attribution", "targets"})
+                      "source_bytes", "project_id", "attribution", "targets"})
 RECEIPT_FIELDS = ("status", "event_id", "source_id", "base_revision", "published_commit", "input_mode", "handoff_disposition",
                   "execution", "result_counts", "model", "recovered")
 SUPERVISED_ONLY = ("document", "event_id", "preview_only")
@@ -127,9 +127,9 @@ def build_request(arguments: Any, source_bytes: int) -> Request:
     return Request(plan, document, arguments["event_id"], bool(arguments.get("preview_only", False)), marker)
 
 
-def record_context_of(attribution: dict, business_id: str | None) -> dict:
+def record_context_of(attribution: dict, project_id: str | None) -> dict:
     """The controlled evidence kept with the published event: the exact original scope and attribution of the caller."""
-    return {"scope": scope_of(business_id), "provenance": {"submitted_by": attribution["principal_id"], "attribution": attribution,
+    return {"scope": scope_of(project_id), "provenance": {"submitted_by": attribution["principal_id"], "attribution": attribution,
                                                            "operation": "context_edit", "variant": "supervised"}}
 
 
@@ -209,7 +209,7 @@ def analyze(plan: dict, snapshot, admission: str | None, registered: Callable[[s
 
 
 def needed_namespaces(targets: list[dict], admission: str | None) -> set:
-    """Every business namespace (``None`` is Global) whose authority the edit needs: the shared ownership rules, plus Global for a
+    """Every project namespace (``None`` is Global) whose authority the edit needs: the shared ownership rules, plus Global for a
     note with no linked subject."""
     needed = namespaces(targets, admission)
     if any(item.get("unattached") for item in targets):
@@ -265,7 +265,7 @@ class SupervisedEdits:
             raise DomainError("conflict", "The published Context is no longer at this edit's expected_revision; read it again and "
                               "submit a newly reviewed plan", details={"expected_revision": request.plan["expected_revision"],
                                                                        "published_revision": snapshot.revision})
-        targets = analyze(request.plan, snapshot, admission, lambda business: uow.repository("businesses").get(business) is not None)
+        targets = analyze(request.plan, snapshot, admission, lambda project: uow.repository("projects").get(project) is not None)
         authority.check_personal(uow, caller, snapshot, request.plan)
         authority.check(uow, caller, needed_namespaces(targets, admission), arguments)
         return targets
@@ -275,7 +275,7 @@ class SupervisedEdits:
         require_variant(arguments)
         edits = self.edits
         request = build_request(arguments, edits.ports.source_bytes)
-        admission = ctx.business_id
+        admission = ctx.project_id
         caller = edits.application_context(ctx, uow)
         attribution = edits.attribution(ctx, uow, admission)
         preview = self.preview(request, attribution, admission)
@@ -285,7 +285,7 @@ class SupervisedEdits:
         value = plain({"kind": RESOURCE, "event_id": request.event_id, "preview_only": request.preview_only,
                        "expected_revision": request.plan["expected_revision"], "plan_digest": request.marker["plan_digest"],
                        "document_digest": request.marker["document_digest"], "document_bytes": len(request.document),
-                       "source_bytes": edits.ports.source_bytes, "business_id": admission, "attribution": attribution,
+                       "source_bytes": edits.ports.source_bytes, "project_id": admission, "attribution": attribution,
                        "targets": targets})
         builder = PlanBuilder(ctx, "context_edit", arguments, "Supervised Context Edit", clock=clock, namespace=namespace_name(admission),
                               affected_scope=scope_of(admission))
@@ -317,7 +317,7 @@ class SupervisedEdits:
                 or value["document_digest"] != request.marker["document_digest"] or value["document_bytes"] != len(request.document)
                 or value["source_bytes"] != source_bytes or not isinstance(attribution, dict)
                 or attribution.get("principal_id") != plan.principal_id or attribution.get("operation") != "context_edit"
-                or attribution.get("business_id") != value["business_id"] or plan.target_namespace != namespace_name(value["business_id"])
+                or attribution.get("project_id") != value["project_id"] or plan.target_namespace != namespace_name(value["project_id"])
                 or (value["targets"] is not None and not isinstance(value["targets"], list))):
             raise DomainError("invalid_plan", "The prepared supervised edit no longer matches its arguments")
         return request, value
@@ -326,7 +326,7 @@ class SupervisedEdits:
         """Re-verify, then preview or publish; the outcome is kept for ``apply`` and nothing here holds a SQLite write lock."""
         self.actor(ctx)
         request, value = self.prepared(plan)
-        attribution, admission = value["attribution"], value["business_id"]
+        attribution, admission = value["attribution"], value["project_id"]
         arguments = plain(plan.arguments)
         edits = self.edits
         with edits.authority.application.database.read() as uow:
@@ -365,7 +365,7 @@ class SupervisedEdits:
         request, value = self.prepared(plan)
         attribution = value["attribution"]
         if (attribution["principal_id"] != ctx.principal_id or attribution["principal_kind"] != ctx.principal_kind
-                or attribution.get("delegation") != bindings.delegation_of(ctx) or ctx.business_id != value["business_id"]):
+                or attribution.get("delegation") != bindings.delegation_of(ctx) or ctx.project_id != value["project_id"]):
             raise DomainError("forbidden", "A prepared supervised edit belongs to the caller, scope and delegation that prepared it")
         with self.guard:
             outcome = self.outcomes.pop(plan.payload_hash, None)

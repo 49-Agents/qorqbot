@@ -151,7 +151,7 @@ unrelated coordinator capabilities or workflow tools.
 
 ### 4 Shared dashboard
 
-Enable the existing Todo view for permanent workers in `biz-dashboard/js/agentpane.js`.
+Enable the existing Todo view for permanent workers in `dashboard/js/agentpane.js`.
 Reuse `attention-board.js`, its pagination, cache, owner filter, task-state controls
 and record panel. Include the selected board's `agent_id` on membership mutations;
 the current remove request omits it and would otherwise select the owner's default

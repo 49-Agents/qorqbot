@@ -8,7 +8,7 @@ LEGACY_FIELDS = {"parent_id", "topic_id", "also", "also_topic_ids", "people"}
 
 def projection(row, uow):
     metadata = {key: value for key, value in row["metadata_json"].items() if key not in LEGACY_FIELDS}
-    edges = related_rows(uow, row["business_id"], source={"type": document_type(row), "id": row["id"]})
+    edges = related_rows(uow, row["project_id"], source={"type": document_type(row), "id": row["id"]})
     parents = list(dict.fromkeys(edge["to_id"] for edge in edges if edge["to_type"] == "topic" and edge["role"] == "part_of"))
     topics = list(dict.fromkeys([*parents, *[edge["to_id"] for edge in edges if edge["to_type"] == "topic" and edge["role"] in {"concerns", "mentions"}]]))
     metadata.update(topic_ids=topics, parent_ids=parents if row["kind"] == "context_topic" else [],
@@ -19,7 +19,7 @@ def projection(row, uow):
 
 def replace_targets(builder, uow, source, role, target_type, identities, *, operation_name=None):
     wanted = set(identities)
-    existing = [edge for edge in related_rows(uow, builder.ctx.business_id, source=source, role=role) if edge["to_type"] == target_type]
+    existing = [edge for edge in related_rows(uow, builder.ctx.project_id, source=source, role=role) if edge["to_type"] == target_type]
     for edge in existing:
         if edge["to_id"] not in wanted:
             builder.record("relationships", edge["id"], edge, {}, action="delete", operation_name=operation_name)

@@ -39,7 +39,7 @@ class LearningOperations(LearningReview):
                 "actor": decision["decided_by"], "created": decision["updated_at"]})
         else:
             value["state"] = "open"
-        value.update(business_id=row["business_id"], origin_scope="business" if row["business_id"] else "global", agent_note=row.get("agent_note", ""),
+        value.update(project_id=row["project_id"], origin_scope="project" if row["project_id"] else "global", agent_note=row.get("agent_note", ""),
                      targets=plain(row.get("work_targets_json", [])), outcome=plain(row.get("work_outcome_json", {})),
                      filing=plain(row.get("filing_json", {})))
         if row.get("work_state"):
@@ -55,9 +55,9 @@ class LearningOperations(LearningReview):
         # no creation time (the schema permits it), and the explicit empty sentinel covers a row whose timestamp is
         # itself absent. Displayed ``created`` stays exactly the stored effective metadata.
         order_key = "COALESCE(" + created + ",c.created_at,'')"
-        filters = "c.business_id IS ? AND " + bucket + "='delta'"
-        parameters = [ctx.business_id]
-        binding, after = page_position(args, ctx.business_id, "learnings_legacy_pending.v2")
+        filters = "c.project_id IS ? AND " + bucket + "='delta'"
+        parameters = [ctx.project_id]
+        binding, after = page_position(args, ctx.project_id, "learnings_legacy_pending.v2")
         clause = filters
         page_parameters = list(parameters)
         if after is not None:
@@ -68,10 +68,10 @@ class LearningOperations(LearningReview):
                 effective(key) + " AS " + key for key in ("scope", "tag", "text", "created", "reconciled_into")) +
             "," + order_key + " AS order_key,c.work_state AS work_state,c.filing_json AS filing_json,"
             "d.state AS decision_state FROM learning_candidates c LEFT JOIN learning_decisions d "
-            "ON d.business_id IS c.business_id AND d.candidate_id=c.id WHERE " + clause +
+            "ON d.project_id IS c.project_id AND d.candidate_id=c.id WHERE " + clause +
             " ORDER BY " + order_key + " DESC,c.id DESC LIMIT ?", [*page_parameters, args.get("limit", 50) + 1])]
         total = uow.connection.execute(
-            "SELECT COUNT(*) FROM learning_candidates c LEFT JOIN learning_decisions d ON d.business_id IS c.business_id "
+            "SELECT COUNT(*) FROM learning_candidates c LEFT JOIN learning_decisions d ON d.project_id IS c.project_id "
             "AND d.candidate_id=c.id WHERE " + filters, parameters).fetchone()[0]
         more = len(rows_found) > args.get("limit", 50)
         items = []
@@ -103,8 +103,8 @@ class LearningOperations(LearningReview):
                              "edit, reopen or retry control over them."}
 
     def list(self, ctx, args, options, uow):
-        decisions = {x["candidate_id"]: x for x in rows(uow, "learning_decisions", ctx.business_id)}
-        values = [self.item(x, decisions.get(x["id"])) for x in rows(uow, "learning_candidates", ctx.business_id)]
+        decisions = {x["candidate_id"]: x for x in rows(uow, "learning_decisions", ctx.project_id)}
+        values = [self.item(x, decisions.get(x["id"])) for x in rows(uow, "learning_candidates", ctx.project_id)]
         pending = {row["resource_id"]: {"state": row["state"]} for row in uow.connection.execute(
             "SELECT c.resource_id, r.state FROM resource_claims c JOIN apply_receipts r ON r.id=c.apply_id "
             "WHERE c.target_namespace=? AND c.resource_type='learning_candidates' AND r.operation_name IN ('learnings_review','learnings_edit','learnings_decide')",
@@ -123,13 +123,13 @@ class LearningOperations(LearningReview):
         for name in ("state", "scope", "bucket", "tag"):
             if name in args:
                 values = [x for x in values if x.get(name) == args[name]]
-        items, cursor = page(values, {**args, "_factual": "context-only-v2"}, ctx.business_id, "learnings_list",
+        items, cursor = page(values, {**args, "_factual": "context-only-v2"}, ctx.project_id, "learnings_list",
                              key=lambda x: (x.get("created", ""), x["id"]))
         return {"items": items, "counts": counts, "next_cursor": cursor}
 
     def get(self, ctx, args, options, uow):
-        row = uow.repository("learning_candidates", business_id=ctx.business_id).get(args["learning_id"], required=True)
-        decision = uow.repository("learning_decisions", business_id=ctx.business_id).get(row["id"])
+        row = uow.repository("learning_candidates", project_id=ctx.project_id).get(args["learning_id"], required=True)
+        decision = uow.repository("learning_decisions", project_id=ctx.project_id).get(row["id"])
         item = self.item(row, decision)
         cores = {}
         evidence = [item.get('evidence', {}), *item.get('evidence_more', [])]
@@ -143,17 +143,17 @@ class LearningOperations(LearningReview):
         run_ids = {e.get('run') or item.get('run') for e in evidence}
         sessions = {e.get('session') for e in evidence}
         for run_id in sorted(r for r in run_ids if r)[:50]:
-            stored = uow.repository('learning_runs', business_id=ctx.business_id).get(run_id)
+            stored = uow.repository('learning_runs', project_id=ctx.project_id).get(run_id)
             if stored:
                 cores.update({key: value for key, value in stored['result_json'].get('cores', {}).items() if key in sessions})
         result = {"item": item, "cores": cores}
-        result.update(reasoning_projection(uow, ctx.business_id, item))
+        result.update(reasoning_projection(uow, ctx.project_id, item))
         return result
 
     def prepare_keep_both(self, ctx, args, options, uow):
-        row = uow.repository('learning_candidates', business_id=ctx.business_id).get(args['learning_id'], required=True)
+        row = uow.repository('learning_candidates', project_id=ctx.project_id).get(args['learning_id'], required=True)
         require_revision(row, options.expected_revision)
-        current = self.item(row, uow.repository('learning_decisions', business_id=ctx.business_id).get(row['id']))
+        current = self.item(row, uow.repository('learning_decisions', project_id=ctx.project_id).get(row['id']))
         legacy.require_context(current)
         value = plain(row['candidate_json'])
         builder = PlanBuilder(ctx, 'learnings_keep_both', args, 'Keep related learning candidates separately')
@@ -162,13 +162,13 @@ class LearningOperations(LearningReview):
             if not relation.get('automatic') or relation.get('kept_both'):
                 continue
             old = relation['earlier']
-            existing = uow.repository('learning_candidates', business_id=ctx.business_id).get(old['id'])
-            existing_decision = uow.repository('learning_decisions', business_id=ctx.business_id).get(old['id']) if existing else None
+            existing = uow.repository('learning_candidates', project_id=ctx.project_id).get(old['id'])
+            existing_decision = uow.repository('learning_decisions', project_id=ctx.project_id).get(old['id']) if existing else None
             if existing:
                 legacy.require_context(self.item(existing, existing_decision))
                 restored = plain(existing['candidate_json'])
                 if relation.get('supersession'):
-                    decision = uow.repository('learning_decisions', business_id=ctx.business_id).get(old['id'])
+                    decision = uow.repository('learning_decisions', project_id=ctx.project_id).get(old['id'])
                     if (restored.get('superseded_by') != row['id'] or not decision
                             or decision['state'] != 'rejected' or decision['revision'] != 1):
                         raise DomainError('revision_conflict', 'Superseded learning has since been reviewed')
@@ -181,7 +181,7 @@ class LearningOperations(LearningReview):
             else:
                 restored = {k:v for k,v in old.items() if k not in {'reviewed','revision','state'}}
                 legacy.require_context(restored)
-                stored = uow.repository('learning_runs', business_id=ctx.business_id).get(old['run'], required=True)
+                stored = uow.repository('learning_runs', project_id=ctx.project_id).get(old['run'], required=True)
                 core = stored['result_json']['cores'][old['evidence']['session']]
                 validate_item(restored, core.get('markdown'), source_core=core)
             restored['reconciliation_reviewed'] = True
@@ -201,11 +201,11 @@ class LearningOperations(LearningReview):
         return builder.build()
 
     def prepare_extract(self, ctx, args, options, uow):
-        require_global(ctx.business_id)
+        require_global(ctx.project_id)
         if args.get('supersession_mode') == 'apply' and ctx.principal_kind != 'human':
             raise DomainError('forbidden', 'Only the owner may enable automatic supersession for an extraction')
         if args.get("agent_id"):
-            profile = uow.repository('agent_profiles', business_id=None).get(args['agent_id'])
+            profile = uow.repository('agent_profiles', project_id=None).get(args['agent_id'])
             if not profile or profile['profile_json'].get('role', {}).get('id') == 'learning-applier':
                 raise DomainError('forbidden', 'Selected transcript agent is outside this learning workspace or excluded')
         builder = PlanBuilder(ctx, "learnings_extract", args, "Extract learning candidates")
@@ -217,10 +217,10 @@ class LearningOperations(LearningReview):
         if delegated and (ctx.principal_kind != "agent" or not ctx.role_artifact_ref
                           or ctx.role_artifact_ref.id != "learning-applier"):
             raise DomainError("forbidden", "Only Learning Applier can record an instructed learning decision")
-        row = uow.repository("learning_candidates", business_id=ctx.business_id).get(args["learning_id"], required=True)
+        row = uow.repository("learning_candidates", project_id=ctx.project_id).get(args["learning_id"], required=True)
         if row['candidate_json'].get('reconciled_into'):
             raise DomainError('invalid_transition', 'This learning was combined with its answer; use Keep both separately before reviewing it')
-        previous = uow.repository("learning_decisions", business_id=ctx.business_id).get(row["id"])
+        previous = uow.repository("learning_decisions", project_id=ctx.project_id).get(row["id"])
         changes = plain(previous["changes_json"]) if previous else {}
         current = self.item(row, previous)
         # The effective state, not only the original extraction bucket, decides whether this route is retired.
@@ -289,13 +289,13 @@ class LearningOperations(LearningReview):
             upload, upload_id, job_id = self.documents.prepare_learning_intake(ctx,
                 {"body": body, "title": after["tag"].title() + ": " + after["text"][:120], "source": "accepted-learning"}, uow,
                 metadata={"format": "learning-v1", "learning_tag": after["tag"], "source_snapshot_hash": digest},
-                source_refs=[{"resource_type": "learning_candidates", "resource_id": row["id"], "business_id": ctx.business_id}])
-            if delegated or ctx.business_id is None:
+                source_refs=[{"resource_type": "learning_candidates", "resource_id": row["id"], "project_id": ctx.project_id}])
+            if delegated or ctx.project_id is None:
                 # Filing this frozen candidate is intrinsic to acceptance, not
                 # a grant to upload arbitrary agent-authored context.
                 upload = replace(upload, changes=tuple(replace(change, operation_name=name)
                     if change.operation_name == "context_upload" else change for change in upload.changes))
-            append_plan(builder, upload, name if delegated or ctx.business_id is None else "context_upload")
+            append_plan(builder, upload, name if delegated or ctx.project_id is None else "context_upload")
             updates["filing_json"] = {"upload_id": upload_id, "job_id": job_id, "snapshot_hash": digest}
             after["filing"] = updates["filing_json"]
         builder.record("learning_candidates", row["id"], row, updates)
@@ -311,7 +311,7 @@ class LearningOperations(LearningReview):
         return builder.build()
 
     def intake_status(self, ctx, args, options, uow):
-        row = uow.repository("learning_candidates", business_id=ctx.business_id).get(args["learning_id"], required=True)
+        row = uow.repository("learning_candidates", project_id=ctx.project_id).get(args["learning_id"], required=True)
         claim = uow.repository("resource_claims").get({"target_namespace": namespace(ctx),
             "resource_type": "learning_candidates", "resource_id": row["id"]})
         receipt = uow.repository("apply_receipts").get(claim["apply_id"]) if claim else None
@@ -332,8 +332,8 @@ class LearningOperations(LearningReview):
         return self.app.file_executor.resume(self.app, status["pending"]["receipt_id"])
 
     def prepare_batch(self, ctx, args, options, uow):
-        # A business output prepared before the stream became Global-only (or by a stale job) never changes history.
-        require_global(ctx.business_id)
+        # A project output prepared before the stream became Global-only (or by a stale job) never changes history.
+        require_global(ctx.project_id)
         builder = PlanBuilder(ctx, "learnings_record_batch", args, "Record verified learning extraction")
         run = args["run"]
         cores = run.get("cores", {})
@@ -344,11 +344,11 @@ class LearningOperations(LearningReview):
             batch = next((item for item in args["items"] if item.get("id") == identity), None)
             if batch is not None:
                 return batch
-            row = uow.repository("learning_candidates", business_id=ctx.business_id).get(identity)
+            row = uow.repository("learning_candidates", project_id=ctx.project_id).get(identity)
             if not row:
                 return None
             value = plain(row["candidate_json"])
-            decision = uow.repository("learning_decisions", business_id=ctx.business_id).get(identity)
+            decision = uow.repository("learning_decisions", project_id=ctx.project_id).get(identity)
             if decision:
                 value.update(plain(decision["changes_json"]))
             return value
@@ -363,14 +363,14 @@ class LearningOperations(LearningReview):
                 validate_item(item, core.get("markdown"), source_core=core)
             except ValueError as exc:
                 raise DomainError("validation_error", str(exc)) from exc
-            if uow.repository("learning_candidates", business_id=ctx.business_id).get(item["id"]):
+            if uow.repository("learning_candidates", project_id=ctx.project_id).get(item["id"]):
                 raise DomainError("revision_conflict", "Learning candidate already exists")
             builder.record("learning_candidates", item["id"], None, {"id": item["id"], "candidate_json": item})
         evidence = {}
         for line in args.get("evidence", []):
             identity = line["of"]
             if identity not in evidence:
-                row = uow.repository("learning_candidates", business_id=ctx.business_id).get(identity, required=True)
+                row = uow.repository("learning_candidates", project_id=ctx.project_id).get(identity, required=True)
                 evidence[identity] = row, plain(row["candidate_json"])
             old_row, value = evidence[identity]
             if line.get('kind') == 'related':
@@ -378,7 +378,7 @@ class LearningOperations(LearningReview):
                 value['reconciliations'] = list(value.get('reconciliations', [])) + line['reconciliations']
                 continue
             if line.get('kind') in {'reconciled', 'superseded'}:
-                decision = uow.repository('learning_decisions', business_id=ctx.business_id).get(identity)
+                decision = uow.repository('learning_decisions', project_id=ctx.project_id).get(identity)
                 claim = uow.repository('resource_claims').get({'target_namespace':namespace(ctx),
                     'resource_type':'learning_candidates','resource_id':identity})
                 if (claim or old_row['revision'] != line.get('revision') or decision is not None
@@ -393,10 +393,10 @@ class LearningOperations(LearningReview):
                     from .reconciliation import supersession_supported
                     relation = next(r for r in relations if r.get('automatic') and r['earlier']['id'] == identity)
                     if survivor is None:
-                        replacement = uow.repository('learning_candidates', business_id=ctx.business_id).get(line['into'], required=True)
+                        replacement = uow.repository('learning_candidates', project_id=ctx.project_id).get(line['into'], required=True)
                         related = next((e for e in args.get('evidence', []) if e.get('kind') == 'related' and e['of'] == line['into']), {})
                         require_revision(replacement, related.get('revision'), argument='revision')
-                        replacement_decision = uow.repository('learning_decisions', business_id=ctx.business_id).get(line['into'])
+                        replacement_decision = uow.repository('learning_decisions', project_id=ctx.project_id).get(line['into'])
                         replacement_claim = uow.repository('resource_claims').get({'target_namespace': namespace(ctx),
                             'resource_type': 'learning_candidates', 'resource_id': line['into']})
                         if replacement_decision or replacement_claim or replacement.get('work_state') or replacement.get('filing_json'):
@@ -424,7 +424,7 @@ class LearningOperations(LearningReview):
         for identity, (row, value) in evidence.items():
             builder.record("learning_candidates", identity, row, {"candidate_json": value})
         for record in args.get("processed", []):
-            prior = uow.repository("learning_scan_state", business_id=ctx.business_id).get(record["session_id"])
+            prior = uow.repository("learning_scan_state", project_id=ctx.project_id).get(record["session_id"])
             if 'expected_scan_revision' in record and record['expected_scan_revision'] != (prior['revision'] if prior else 0):
                 raise DomainError('revision_conflict', 'Transcript scan changed during extraction; late results were not published')
             values = {"transcript_hash": record["transcript_hash"], "state_json": {**record, "run_id": run["id"]}}
@@ -443,8 +443,8 @@ class LearningOperations(LearningReview):
             return {"job_id": changed[0]["id"], "state": changed[0]["state"]}
         if plan.operation_name == "learnings_record_batch":
             return {"run_id": plan.arguments["run"]["id"], "items": len(plan.arguments["items"])}
-        row = uow.repository("learning_candidates", business_id=ctx.business_id).get(plan.arguments["learning_id"])
-        decision = uow.repository("learning_decisions", business_id=ctx.business_id).get(row["id"])
+        row = uow.repository("learning_candidates", project_id=ctx.project_id).get(plan.arguments["learning_id"])
+        decision = uow.repository("learning_decisions", project_id=ctx.project_id).get(row["id"])
         return {"item": LearningOperations.item(row, decision)}
 
     def register(self):

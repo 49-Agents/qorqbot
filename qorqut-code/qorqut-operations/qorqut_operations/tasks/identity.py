@@ -4,7 +4,7 @@ A new Task gets ``TASK_ID_LENGTH`` characters from ``TASK_ID_ALPHABET``: lowerca
 look-alikes (no 0/o, 1/l/i), so an id can be read aloud, typed from a screenshot and quoted in chat. Change the length
 here and nowhere else; existing ids keep whatever length they were made with.
 
-Storage keys a Task by ``(business_id, id)``, and older installations hold the same id in more than one project (slug ids
+Storage keys a Task by ``(project_id, id)``, and older installations hold the same id in more than one project (slug ids
 and a few UUIDs), so no unique index can say "one Task per id". The writer says it instead: a generated id that is
 already used anywhere, archived and moved Tasks included (and any id a relocation recorded), is drawn again, and a caller-supplied id that is already used
 anywhere is refused without saying where (``taken``). Ids compare without regard to case, so a lookup that ignores case

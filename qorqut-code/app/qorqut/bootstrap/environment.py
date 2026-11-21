@@ -40,7 +40,7 @@ def bootstrap_environment_context(metadata=None, environ=None, *, instructions, 
             name = item.get("name", "")
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,199}", name):
                 continue
-            origin = item.get("origin") if item.get("origin") in {"global", "business"} else "unknown"
+            origin = item.get("origin") if item.get("origin") in {"global", "project"} else "unknown"
             label = f"{name} ({origin}, {'configured' if item.get('configured') else 'empty'})"
             if len(label) + 2 > remaining:
                 truncated = True

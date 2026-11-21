@@ -20,7 +20,7 @@ def resolve(plan, recipe, runtime_path):
             raise ReleaseError('runtime is not this release')
         workspace = runtime_path
         sources = workspace / 'package-sources.json'
-        interpreter = workspace / 'biz-core/.venv/bin/python'
+        interpreter = workspace / 'core/.venv/bin/python'
     else:
         if set(selection) != {'config', 'config_sha256', 'manifest_sha256'}:
             raise ReleaseError('Invalid persistent adoption selection')
@@ -37,7 +37,7 @@ def resolve(plan, recipe, runtime_path):
         if (workspace.joinpath('current').resolve(strict=True) != runtime_path
                 or hashlib.sha256(manifest_raw).hexdigest() != selection['manifest_sha256']
                 or config['service'] != plan['installation']['service']
-                or config['businesses_root'] != recipe['businesses_root']):
+                or config['projects_root'] != recipe['projects_root']):
             raise ReleaseError('Persistent adoption runtime changed')
         manifest = json.loads(manifest_raw)
         interpreter = Path(manifest['python'])

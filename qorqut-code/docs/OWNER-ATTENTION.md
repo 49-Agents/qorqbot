@@ -21,7 +21,7 @@ configured coordinator to inspect the presented source.
 Focus holds the owner's highest-importance and highest-priority action items, which the owner wants done.
 A card need not require an immediate owner response. The owner and authorized global
 curators can order cards with `focus_move`, subject to ordinary grants and revision
-checks. Business agents and system principals do not become global curators through
+checks. Project agents and system principals do not become global curators through
 an explicit tool allow. New cards append; restore keeps the saved position unless a
 curator explicitly moves it. Existing explicit denies remain effective.
 
@@ -35,10 +35,10 @@ Global `DESKTOP_CONTROL_URL` and reports missing configuration explicitly.
 Migration 068 adds optional `display_name` to every Focus card. Ordubashy writes
 this separate presentation name with `focus_present`, `focus_edit.changes`, or
 the `focus` arguments on source creation. Aim for 2 very simple words, at most 4
-when possible, and omit the business name because the card already shows its
-business tag. For example, "Review the example project's landing page and share feedback"
+when possible, and omit the project name because the card already shows its
+project tag. For example, "Review the example project's landing page and share feedback"
 becomes "Landing page review". These are instructions, not word-count or
-business-name validation rules. Source titles, revisions, conversations and
+project-name validation rules. Source titles, revisions, conversations and
 other task/Signoff lists remain unchanged. Reads retain the full source `label`;
 the dashboard uses `display_name` only for the Focus heading. Omission preserves
 an existing name; an empty name restores the full title. Older cards fall back
@@ -54,7 +54,7 @@ separate and is no longer copied onto Focus.
 
 `requested_response` is optional when there is no action for the owner. When needed, give one
 brief, direct instruction in very simple words, without greetings, filler or
-repeated business names. UI review and design feedback are assigned to the owner
+repeated project names. UI review and design feedback are assigned to the owner
 unless the owner explicitly delegates the review. Agents' checks do not replace
 the owner's review or approval.
 
@@ -201,7 +201,7 @@ objects.
 
 ## Private conversation with Ordubashy
 
-Every supported discussion (business/Global task, Story, Signoff, email thread,
+Every supported discussion (project/Global task, Story, Signoff, email thread,
 or standalone Focus Reference) has a second, separate channel: a private
 conversation between the installation owner and the one configured Ordubashy,
 stored independently from the team channel's notes/revisions/notifications.

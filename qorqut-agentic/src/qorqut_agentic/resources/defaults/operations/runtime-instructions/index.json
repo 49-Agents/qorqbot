@@ -621,9 +621,9 @@
       "path": "messages/project-briefing-evidence.md",
       "parameters": [],
       "status": "conditional",
-      "trigger": "domains/business_briefing.py",
+      "trigger": "domains/project_briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/qorqut/domains/business_briefing.py:118"
+      "previous_source": "qorqut-code/app/qorqut/domains/project_briefing.py:118"
     },
     {
       "id": "retirement-inbox-history",

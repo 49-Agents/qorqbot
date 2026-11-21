@@ -27,7 +27,7 @@ qorqut-code/
   tools/                      committed export, environment preparation and native distribution tools
   qorqut-operations/          Operations engine component
   qorqut-context/             shared Context engine component
-  biz-dashboard/              owner dashboard component
+  dashboard/              owner dashboard component
   docs/  README.md  FOUNDATION.md  DOMAIN-APIS.md
 ```
 
@@ -40,9 +40,9 @@ qorqut-code/
   `package-sources.json`) are relative to `app/`. `app/tools/`, `app/templates/`, `app/plugins/` and
   `app/scripts/` are source-component resources reached through the explicit `app` component, not wheel
   contents.
-- There is no business-template component. The three initial shared instructions are package resources of
+- There is no project-template component. The three initial shared instructions are package resources of
   the host (`app/qorqut/bootstrap/instructions/`), and a new project is an empty `hq/` and `code/` folder
-  created only by the configured Ordubashy ([Project creation](docs/BUSINESS-CREATION.md)).
+  created only by the configured Ordubashy ([Project creation](docs/PROJECT-CREATION.md)).
 - Owned startup validates the database and enables WAL before admitting work or starting background
   services. Assembling or inspecting an instance never changes its journal mode.
 
@@ -51,8 +51,8 @@ qorqut-code/
 The host composes the following retained capabilities. Each links to its contract.
 
 - **Projects and records.** Projects own resources (files, records, code, integrations), not resident agents;
-  creation, [archive and restore](docs/BUSINESS-ARCHIVE.md), [settings](docs/BUSINESS-SETTINGS.md),
-  [backups](docs/BUSINESS-BACKUPS.md), [tables](docs/TABLES.md) and [document history](docs/DOCUMENT-HISTORY.md).
+  creation, [archive and restore](docs/PROJECT-ARCHIVE.md), [settings](docs/PROJECT-SETTINGS.md),
+  [backups](docs/PROJECT-BACKUPS.md), [tables](docs/TABLES.md) and [document history](docs/DOCUMENT-HISTORY.md).
   Project notes are ordinary documents (`notes_create`, `notes_list`) filed under `notes/<date>-<slug>.md`; a tag
   grants nothing and nothing injects a note into an agent's context. The owner's Global notebook is available
   through `/api/root/notes`.
@@ -74,7 +74,7 @@ The host composes the following retained capabilities. Each links to its contrac
   [person details](docs/person-details.md).
 - **Roster and agents.** The active roster is Ordubashy (the stable coordinator name), any number of ordinary
   global workers and the Learning Applier, with at most one active registration of Ordubashy and of the
-  Learning Applier. Each reaches every active project through derived access; a saved business list or
+  Learning Applier. Each reaches every active project through derived access; a saved project list or
   membership row is never authority. Agents cannot create agents (Ordubashy registers workers). See
   [agent platform decisions](docs/agent-platform/README.md), [agent management coordination](docs/AGENT-MANAGEMENT-COORDINATION.md),
   [agent inbox](docs/AGENT-INBOX.md), [messaging and the keyless local API](docs/AGENT-MESSAGING.md),
@@ -140,7 +140,7 @@ Python 3.12 or later, with the ordinary component directories described above. R
 cd app
 python3 -m venv .venv
 # First-party wheels come from a prepared output (docs/INSTALLATION.md): by file path, not from an index or Git URL.
-.venv/bin/python -m pip install --no-deps /absolute/prepared/wheels/qorqut_{operations,context,business_docs_versioning,agentic}-*.whl
+.venv/bin/python -m pip install --no-deps /absolute/prepared/wheels/qorqut_{operations,context,docs_versioning,agentic}-*.whl
 .venv/bin/python -m pip install -c service-constraints.txt -e '.[service,test]'
 ```
 
@@ -148,13 +148,13 @@ Keep the code checkout and interpreter as explicit absolute paths; do not reuse 
 
 ### Running tests
 
-Current tests live in `app/tests` and `biz-dashboard/tests`. With the current
+Current tests live in `app/tests` and `dashboard/tests`. With the current
 first-party packages and service dependencies installed in a development venv,
 run from the repository root:
 
 ```sh
 python -I -B -m unittest discover -s qorqut-code/app/tests
-node --test --test-concurrency=2 qorqut-code/biz-dashboard/tests/*.test.js
+node --test --test-concurrency=2 qorqut-code/dashboard/tests/*.test.js
 ```
 
 Backend tests also need `psutil` for mocked macOS process adapters on Linux.

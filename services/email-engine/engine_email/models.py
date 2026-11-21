@@ -71,13 +71,13 @@ class Attachment(BaseModel):
 class StopKey(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     contact_key: str = Field(min_length=1, max_length=320)
-    business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
+    project_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
 
 
 class Outgoing(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     request_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
-    business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
+    project_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
     mailbox: str = Field(pattern=r"^[A-Za-z0-9_-]{1,100}$")
     from_address: str
     from_name: str = Field(default="", max_length=160)
@@ -133,8 +133,8 @@ class Outgoing(BaseModel):
         if self.effective_category() == "cold_outreach":
             if self.stop_key is None or self.workflow_owner is None:
                 raise ValueError("cold_outreach requires workflow_owner and stop_key")
-            if self.stop_key.business_id != self.business_id:
-                raise ValueError("stop_key.business_id must match business_id")
+            if self.stop_key.project_id != self.project_id:
+                raise ValueError("stop_key.project_id must match project_id")
         elif self.stop_key is not None or self.workflow_owner is not None:
             raise ValueError("workflow_owner and stop_key require category cold_outreach")
         return self
@@ -146,10 +146,10 @@ class Outgoing(BaseModel):
         return self.category or "conversational"
 
     def cold_outreach_label(self):
-        """(workflow_owner, contact_key, business_id) when labelled for the stop guard, else None."""
+        """(workflow_owner, contact_key, project_id) when labelled for the stop guard, else None."""
         if self.effective_category() != "cold_outreach" or self.stop_key is None or self.workflow_owner is None:
             return None
-        return (self.workflow_owner, self.stop_key.contact_key, self.stop_key.business_id)
+        return (self.workflow_owner, self.stop_key.contact_key, self.stop_key.project_id)
 
     def digest(self):
         # Preserve pre-extension request digests, including recovery of saved drafts.
@@ -167,11 +167,11 @@ class Mailbox(BaseModel):
     ref: str = Field(pattern=r"^[A-Za-z0-9_-]{1,100}$")
     folder_id: str = Field(min_length=1, max_length=255)
     address: str | None = None
-    business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
+    project_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
     aliases: list[str] = Field(default_factory=list, max_length=100)
     # Archive-only routes have no public address; defaults keep legacy dumps unchanged.
-    purpose: Literal["business_mail", "outreach_archive"] = Field(
-        default="business_mail", exclude_if=lambda value: value == "business_mail")
+    purpose: Literal["project_mail", "outreach_archive"] = Field(
+        default="project_mail", exclude_if=lambda value: value == "project_mail")
     sender_ref: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,100}$",
         exclude_if=lambda value: value is None)
 
@@ -187,9 +187,9 @@ class Mailbox(BaseModel):
 
     @model_validator(mode="after")
     def purpose_shape(self):
-        if self.purpose == "business_mail":
+        if self.purpose == "project_mail":
             if self.address is None or self.sender_ref is not None:
-                raise ValueError("A business mailbox requires an address and no bound sender")
+                raise ValueError("A project mailbox requires an address and no bound sender")
         elif self.address is not None or self.aliases or self.sender_ref is None:
             raise ValueError("An archive mailbox has no address or aliases and one bound shared sender")
         return self
@@ -213,8 +213,8 @@ class SharedSender(BaseModel):
     from_name: str = Field(default="", max_length=160)
     account_ref: str = Field(pattern=r"^[A-Za-z0-9_-]{1,100}$")
     transport: Literal["fastmail", "outlook_web"] = "fastmail"
-    business_scope: Literal["selected", "all"] = "selected"
-    allowed_business_ids: list[str] = Field(default_factory=list, max_length=100)
+    project_scope: Literal["selected", "all"] = "selected"
+    allowed_project_ids: list[str] = Field(default_factory=list, max_length=100)
     default_for_outreach: bool = False
     writing_instructions: str = Field(default="", max_length=10_000)
     required_footer: str = Field(default="", max_length=2000)
@@ -227,15 +227,15 @@ class SharedSender(BaseModel):
 
     @model_validator(mode="after")
     def valid_scope(self):
-        if self.business_scope == "selected" and not self.allowed_business_ids:
-            raise ValueError("Selected shared senders require allowed business IDs")
-        if self.default_for_outreach and self.business_scope != "all":
-            raise ValueError("The outreach default must have all-business scope")
+        if self.project_scope == "selected" and not self.allowed_project_ids:
+            raise ValueError("Selected shared senders require allowed project IDs")
+        if self.default_for_outreach and self.project_scope != "all":
+            raise ValueError("The outreach default must have all-project scope")
         return self
 
-    def permits_business(self, business_id):
+    def permits_project(self, project_id):
         """Scope grant only; sending also requires enablement and a registered mailbox."""
-        return self.business_scope == "all" or business_id in self.allowed_business_ids
+        return self.project_scope == "all" or project_id in self.allowed_project_ids
 
 
 class IntegrationClient(BaseModel):
@@ -245,7 +245,7 @@ class IntegrationClient(BaseModel):
     secret: str = Field(min_length=32, max_length=200)
     workflow_owner: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
     allowed_mailboxes: list[str] = Field(default_factory=list, max_length=100)
-    business_ids: list[str] = Field(default_factory=list, max_length=200)
+    project_ids: list[str] = Field(default_factory=list, max_length=200)
     handoff_destinations: list[str] = Field(default_factory=list, max_length=100)
     # Opt-in: trusted-admin managed routes may extend this client's static scope.
     managed_routes: bool = Field(default=False, exclude_if=lambda value: value is False)
@@ -270,11 +270,11 @@ class IntegrationClient(BaseModel):
             raise ValueError("An integration client needs static mailboxes or managed routes")
         return self
 
-    @field_validator("business_ids")
+    @field_validator("project_ids")
     @classmethod
-    def business_id_values(cls, values):
+    def project_id_values(cls, values):
         if any(not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", value) for value in values):
-            raise ValueError("Invalid business ID")
+            raise ValueError("Invalid project ID")
         return list(dict.fromkeys(values))
 
     @field_validator("handoff_destinations")
@@ -290,7 +290,7 @@ class IntentCorrelation(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     workflow_owner: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,60}$")
     account_id: str | None = Field(default=None, max_length=200)
-    business_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,120}$")
+    project_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,120}$")
     campaign_id: str | None = Field(default=None, max_length=200)
     enrollment_id: str | None = Field(default=None, max_length=200)
     step_index: int | None = Field(default=None, ge=0, le=1_000_000)
@@ -332,7 +332,7 @@ class HistoryConfig(BaseModel):
 
 
 class OutlookWebConfig(BaseModel):
-    """Owner-selected local browser; never exposed in business metadata."""
+    """Owner-selected local browser; never exposed in project metadata."""
     model_config = ConfigDict(extra="forbid", strict=True)
     cdp_url: str = Field(min_length=1, max_length=2000)
     address: str
@@ -405,12 +405,12 @@ class Settings:
             folders.add(box.folder_id)
             addresses.update(owned)
         refs, addresses, limits = set(), set(), {}
-        businesses = {box.business_id for box in self.mailboxes}
+        projects = {box.project_id for box in self.mailboxes}
         for sender in self.shared_senders:
             if sender.ref in refs or sender.address in addresses:
                 raise ValueError("Shared sender refs and addresses must be unique")
-            if sender.business_scope == "selected" and not set(sender.allowed_business_ids) <= businesses:
-                raise ValueError("Shared sender business must have a registered mailbox")
+            if sender.project_scope == "selected" and not set(sender.allowed_project_ids) <= projects:
+                raise ValueError("Shared sender project must have a registered mailbox")
             if sender.account_ref in limits and limits[sender.account_ref] != sender.rolling_limit:
                 raise ValueError("Shared account aliases must use the same rolling limit")
             refs.add(sender.ref)
@@ -427,7 +427,7 @@ class Settings:
         if self.outlook_web and self.history is None:
             raise ValueError("Outlook browser collection requires private email history")
         if self.history and set(self.history.private_folder_ids) & {box.folder_id for box in self.mailboxes}:
-            raise ValueError("Private history folders cannot be business mailboxes")
+            raise ValueError("Private history folders cannot be project mailboxes")
         mailbox_refs = {box.ref for box in self.mailboxes}
         secrets_by_token = {self.read_token, self.send_token, *([self.admin_token] if self.admin_token else [])}
         client_ids, secrets = set(), set()
@@ -438,9 +438,9 @@ class Settings:
                 raise ValueError("Integration client secrets must be distinct from every other credential")
             if not set(client.allowed_mailboxes) <= mailbox_refs:
                 raise ValueError("Integration client mailboxes must be registered")
-            allowed_businesses = {box.business_id for box in self.mailboxes if box.ref in client.allowed_mailboxes}
-            if client.business_ids and not client.managed_routes and not set(client.business_ids) <= allowed_businesses:
-                raise ValueError("Integration client business IDs must match its allowed mailboxes")
+            allowed_projects = {box.project_id for box in self.mailboxes if box.ref in client.allowed_mailboxes}
+            if client.project_ids and not client.managed_routes and not set(client.project_ids) <= allowed_projects:
+                raise ValueError("Integration client project IDs must match its allowed mailboxes")
             client_ids.add(client.client_id)
             secrets.add(client.secret)
 
@@ -454,8 +454,8 @@ class Settings:
         read, send = required("EMAIL_READ_TOKEN"), required("EMAIL_SEND_TOKEN")
         if len(read) < 32 or len(send) < 32 or read == send or not read.isascii() or not send.isascii():
             raise ValueError("Use distinct read and send tokens of at least 32 characters")
-        # Business mailboxes are optional: an account-only deployment names no file, or an empty array, and still serves
-        # the /fastmail account API (the sync worker then has no business folder to poll).
+        # Project mailboxes are optional: an account-only deployment names no file, or an empty array, and still serves
+        # the /fastmail account API (the sync worker then has no project folder to poll).
         mailboxes_file = os.environ.get("EMAIL_MAILBOXES_FILE", "")
         raw = json.loads(Path(mailboxes_file).read_text()) if mailboxes_file else []
         if not isinstance(raw, list):
@@ -501,10 +501,10 @@ class Settings:
         return matched
 
     def sender(self, mailbox, message):
-        if mailbox.business_id != message.business_id:
-            raise ValueError("Business is outside the registered mailbox")
+        if mailbox.project_id != message.project_id:
+            raise ValueError("Project is outside the registered mailbox")
         if message.reply_to is not None and (mailbox.archive_only or message.reply_to != mailbox.address):
-            raise ValueError("Reply-To must be the registered business address")
+            raise ValueError("Reply-To must be the registered project address")
         configured = next((s for s in self.shared_senders if s.address == message.from_address), None)
         if mailbox.archive_only and (message.sender_ref is None or message.sender_ref != mailbox.sender_ref):
             raise ValueError("An archive mailbox sends only through its bound shared sender")
@@ -514,8 +514,8 @@ class Settings:
         elif not mailbox.accepts_sender(message.from_address):
             raise ValueError("Sender is outside the registered mailbox")
         if configured:
-            if not configured.enabled or not configured.permits_business(mailbox.business_id):
-                raise ValueError("Shared sender is unavailable for this business")
+            if not configured.enabled or not configured.permits_project(mailbox.project_id):
+                raise ValueError("Shared sender is unavailable for this project")
             if not message.expires_at:
                 raise ValueError("Shared sending requires an approval execution deadline")
             if (message.transport or "fastmail") != configured.transport:
@@ -525,5 +525,5 @@ class Settings:
                 if not lines or lines[-1] != configured.required_footer:
                     raise ValueError("Approved message must end with the exact required footer")
         elif (message.transport or "fastmail") != "fastmail":
-            raise ValueError("Business mailbox sending requires Fastmail")
+            raise ValueError("Project mailbox sending requires Fastmail")
         return configured

@@ -217,7 +217,7 @@ so; remove it yourself and start again.
 with its operations history and database (every directory 0700, every file 0600; nothing group- or world-readable), one human owner principal and the installation row,
 the packaged shared instructions, the `ordubashy`, `global-worker` and `learning-applier` role sources published
 through the catalog, exactly two registered agents, Ordubashy and the Learning Applier, with Ordubashy as the
-management coordinator, and the system worker principals for the registered background programs. No business
+management coordinator, and the system worker principals for the registered background programs. No project
 worker membership, project, conversation, routine, job, provider connection or native product agent is created,
 and nothing is contacted.
 
@@ -274,7 +274,7 @@ due requests retain their own explicit authorization and target-conversation rul
 ### Scheduled Overseer extraction (owner-selected, offline setup)
 
 Initialization registers the system worker identities for every program, including
-`overseer.extraction_due`; it creates no routine, business, conversation, job or schedule slot. A scheduled
+`overseer.extraction_due`; it creates no routine, project, conversation, job or schedule slot. A scheduled
 extraction exists only after the owner selects a saved conversation, a schedule and a timezone and creates one
 Global/root routine through the existing routine operations. No startup or read path creates one.
 

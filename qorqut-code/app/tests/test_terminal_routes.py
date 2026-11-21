@@ -79,7 +79,7 @@ class RouteTest(unittest.TestCase):
         api._report_transport_success = lambda *args: None
         api._report_transport_failure = lambda *args: None
         api.context = lambda actor, slug=None, owner=False: (
-            SimpleNamespace(principal_kind=self.kind, principal_id=self.principal, business_id=None), None)
+            SimpleNamespace(principal_kind=self.kind, principal_id=self.principal, project_id=None), None)
         self.api = api
 
         async def handler(request):
@@ -138,8 +138,8 @@ class RouteTest(unittest.TestCase):
     def test_in_terminals_mode_the_routes_reach_the_service_with_the_path_after_root(self):
         calls = []
 
-        async def route(request, context, business, tail):
-            calls.append((request.method, business, tail))
+        async def route(request, context, project, tail):
+            calls.append((request.method, project, tail))
             from starlette.responses import JSONResponse
             return JSONResponse({"ok": True})
         self.api.terminals = SimpleNamespace(route=route, require_terminals=lambda: None)

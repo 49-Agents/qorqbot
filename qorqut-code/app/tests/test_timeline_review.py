@@ -47,7 +47,7 @@ class TimelineReviewTests(Fixture):
         self.tool = Timeline(NS(application=self.app, registry=self.registry)).register()
         self.owner_view = TimelineOwner(NS(application=self.app, registry=self.registry, timeline=self.tool)).register()
         self.work = self.task(self.lead, 'Pay creators')
-        self.item = {'type': 'task', 'id': self.work['id'], 'business_id': None}
+        self.item = {'type': 'task', 'id': self.work['id'], 'project_id': None}
         patcher = patch('qorqut.domains.timeline.timestamp', lambda: DAY)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -228,7 +228,7 @@ class TimelineReviewTests(Fixture):
     def test_a_pending_filing_on_another_item_is_not_listed(self):
         other = self.task(self.lead, 'Other work')
         self.app.invoke(self.ctx(self.lead), 'timeline_file', {'scope': 'global', 'changes': [{'action': 'add', 'kind': 'fact', 'text': 'x'}],
-                        'item': {'type': 'task', 'id': other['id'], 'business_id': None}}, {'idempotency_key': str(uuid4())})
+                        'item': {'type': 'task', 'id': other['id'], 'project_id': None}}, {'idempotency_key': str(uuid4())})
         self.assertNotIn('waiting_for_review', plain(self.get(self.lead).data))
 
     def test_the_card_carries_the_texts_a_removal_and_an_answer_name(self):
@@ -285,13 +285,13 @@ class TimelineReviewTests(Fixture):
         later = self.ask('Which currency?')
         first = self.ask('Which bank?', blocking=True)
         other = self.task(self.lead, 'Other work')
-        self.ask('Elsewhere?', source={'type': 'task', 'id': other['id'], 'business_id': None})
+        self.ask('Elsewhere?', source={'type': 'task', 'id': other['id'], 'project_id': None})
         unlinked = self.ask('Global rule?', source=False)
         questions = self.view()['state']['questions']
         self.assertEqual([(row['text'], row['blocking'], row.get('signoff_id')) for row in questions],
                          [('Which bank?', True, first['id']), ('Which currency?', False, later['id']),
                           ('Asked on the timeline before?', False, None)])
-        self.assertEqual([row['text'] for row in self.view({'type': 'global', 'id': 'global', 'business_id': None})['state']['questions']],
+        self.assertEqual([row['text'] for row in self.view({'type': 'global', 'id': 'global', 'project_id': None})['state']['questions']],
                          ['Global rule?'])
         # Answered, it leaves the list; the timeline itself holds no question for it.
         self.respond(first, selected_choices=['usd'])

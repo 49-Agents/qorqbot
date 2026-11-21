@@ -27,11 +27,11 @@ OWNER_ONLY = frozenset({
     'learnings_review', 'learnings_edit', 'learnings_intake_status',
     'context_changes', 'context_filings', 'context_retract', 'context_upload_map', 'journal_upload_to_filer',
     # Archived projects and document history: owner views today.
-    'business_archived_list', 'business_restore', 'document_history_get', 'business_history_list',
+    'project_archived_list', 'project_restore', 'document_history_get', 'project_history_list',
 })
 # The owner approves each of these: the coordinator proposes, a Signoff decides.
 NEEDS_APPROVAL = frozenset({
-    'business_archive', 'tables_archive', 'owner_action_propose', 'roles_publish', 'plugins_publish',
+    'project_archive', 'tables_archive', 'owner_action_propose', 'roles_publish', 'plugins_publish',
     'shared_instructions_update', 'learnings_extract',
 })
 # The role file denies direct Context writes by name; the coordinator files through context_instruct and context_edit.
@@ -62,7 +62,7 @@ class OrdubashyOwnerParity(unittest.TestCase):
     def refused(self):
         found = {}
         for entry in self.registry.entries():
-            for scope in ('global', 'business'):
+            for scope in ('global', 'project'):
                 decision = self.decision(entry.name, scope)
                 if decision.mode != 'allow':
                     found.setdefault(entry.name, set()).add(decision.mode)

@@ -33,20 +33,20 @@ def bounded(refs):
     return {key: str(value)[:200] for key, value in sorted(refs.items())[:20]}
 
 
-def closed_states(connection, business_id):
+def closed_states(connection, project_id):
     return set(CLOSED_STATES)
 
 
 def task_event(connection, before, after, *, actor_id, data):
-    """task.completed / task.reopened when a committed change crosses the business's configured closed states."""
-    if not after.get("business_id"):
+    """task.completed / task.reopened when a committed change crosses the project's configured closed states."""
+    if not after.get("project_id"):
         return None
-    closed = closed_states(connection, after["business_id"])
+    closed = closed_states(connection, after["project_id"])
     was, now = before is not None and before["status"] in closed, after["status"] in closed
     if was == now:
         return None
     verb = "completed" if now else "reopened"
-    return append_event(connection, after["business_id"], f"task:{after['id']}:r{after['revision']}:{verb}",
+    return append_event(connection, after["project_id"], f"task:{after['id']}:r{after['revision']}:{verb}",
         f"task.{verb}", actor_id, f"Task {verb}", subject_type="task", subject_id=after["id"],
         occurred_at=after["updated_at"], data={**data, "task_id": after["id"], "status": after["status"],
         "previous_status": before["status"] if before else None, "revision": after["revision"]})
@@ -54,7 +54,7 @@ def task_event(connection, before, after, *, actor_id, data):
 
 def action_fact_event(row, *, operation):
     """The summary event for one committed Action log; its ID is the source row's."""
-    return {"business_id": row["business_id"], "event_id": f"action:{row['id']}", "kind": "action.recorded",
+    return {"project_id": row["project_id"], "event_id": f"action:{row['id']}", "kind": "action.recorded",
             "actor_id": row["recorded_by"], "summary": one_line(row["action_text"]), "subject_type": "action",
             "subject_id": row["id"], "occurred_at": row["occurred_at"], "data": {"log_id": row["id"], "action_key": row["action_key"],
             "refs": bounded(_json(row.get("refs_json"))), "operation": operation}}
@@ -88,10 +88,10 @@ class RecordHistory:
         row = after or before
         if table in self.sql_documents:
             version = self.sql_documents.capture(connection, table, before, after, author=actor, operation=plan.operation_name)
-            if after is None and row.get("business_id"):
+            if after is None and row.get("project_id"):
                 prefix, key, _ = self.sql_documents.descriptors[table]
                 subject = prefix.replace("-", "_")
-                append_event(connection, row["business_id"], f"{prefix}:{row[key]}:deleted", f"{subject}.deleted", actor,
+                append_event(connection, row["project_id"], f"{prefix}:{row[key]}:deleted", f"{subject}.deleted", actor,
                     subject.replace("_", " ").capitalize() + " deleted", subject_type=subject, subject_id=row[key],
                     occurred_at=utc_now(), data={**delegated, "history_document_id": self.sql_documents.document_id(table, row),
                                                  "revision": row.get("revision")})
@@ -106,7 +106,7 @@ class RecordHistory:
             else:
                 append_event(connection, **event)
             return None
-        if not row.get("business_id") or after is None:
+        if not row.get("project_id") or after is None:
             return None
         if table == "tasks":
             return task_event(connection, before, after, actor_id=actor, data=delegated)

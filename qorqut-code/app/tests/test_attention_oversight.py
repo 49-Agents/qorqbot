@@ -13,9 +13,9 @@ from qorqut_agentic.behavior.instructions import from_catalog
 
 CATALOG = Path(qorqut_agentic.__file__).parent / 'resources/defaults/operations/runtime-instructions'
 NOW = '2026-11-18T12:00:00.000000Z'
-TASK = {'id': 'own', 'business_id': None, 'title': 'Own task', 'status': 'open', 'workers': [],
+TASK = {'id': 'own', 'project_id': None, 'title': 'Own task', 'status': 'open', 'workers': [],
         'workers_omitted': 0, 'user_needed': False}
-FOCUS = {'type': 'task', 'id': 'task-1', 'business_id': None}
+FOCUS = {'type': 'task', 'id': 'task-1', 'project_id': None}
 
 
 class OversightTextTests(unittest.TestCase):
@@ -28,9 +28,9 @@ class OversightTextTests(unittest.TestCase):
 
     def test_the_coordinator_gets_the_oversight_pass_with_team_data(self):
         team = {'available': ['Harbor', 'Cedar'], 'stalled_count': 7, 'blocked_count': 1, 'blocked': [
-            {'id': 'stuck', 'business_id': None, 'title': 'Stuck task', 'status': 'blocked', 'workers': ['Harbor'],
+            {'id': 'stuck', 'project_id': None, 'title': 'Stuck task', 'status': 'blocked', 'workers': ['Harbor'],
              'updated_at': '2026-11-17T08:00:00.000000Z'}], 'stalled': [
-            {'id': 'held', 'business_id': 'project', 'title': 'Held task', 'status': 'working', 'workers': ['Scout'],
+            {'id': 'held', 'project_id': 'project', 'title': 'Held task', 'status': 'working', 'workers': ['Scout'],
              'updated_at': '2026-11-18T08:00:00.000000Z'}]}
         for kind, focus in (('focus', FOCUS), ('board_normal', None), ('board_reassess', None)):
             text = attention.render(kind, self.snapshot(team, focus), instructions=self.instructions)
@@ -71,9 +71,9 @@ class TeamDataTests(unittest.TestCase):
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript('''
             CREATE TABLE principals (id TEXT, display_name TEXT);
-            CREATE TABLE businesses (id TEXT, archived_at TEXT);
-            CREATE TABLE crm_entries (record_task_id TEXT, record_business_id TEXT, removed INTEGER);
-            CREATE TABLE tasks (id TEXT, business_id TEXT, title TEXT, status TEXT, created_at TEXT, updated_at TEXT, due TEXT,
+            CREATE TABLE projects (id TEXT, archived_at TEXT);
+            CREATE TABLE crm_entries (record_task_id TEXT, record_project_id TEXT, removed INTEGER);
+            CREATE TABLE tasks (id TEXT, project_id TEXT, title TEXT, status TEXT, created_at TEXT, updated_at TEXT, due TEXT,
                 snoozed_until TEXT, worker_ids_json TEXT, fields_json TEXT, archived INTEGER DEFAULT 0);''')
         for agent in ('coordinator', 'scout', 'harbor', 'cedar'):
             self.conn.execute('INSERT INTO principals VALUES(?,?)', (agent, agent.title()))

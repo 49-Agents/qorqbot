@@ -39,14 +39,14 @@ class HostInbox:
 
     def managed_subject(self, ctx, target, uow):
         require_worker_manager(ctx, uow, target)
-        return self.inbox.resolver.runtime_context(Principal(target, 'agent'), business_id=ctx.business_id)
+        return self.inbox.resolver.runtime_context(Principal(target, 'agent'), project_id=ctx.project_id)
 
-    def business_member(self, ctx, business, uow):
-        """Current business access: a human/system membership, or an active supported global's derived access."""
-        from qorqut.agents.global_scope import active_business_participant
-        return active_business_participant(uow.connection, business, ctx.principal_id)
+    def project_member(self, ctx, project, uow):
+        """Current project access: a human/system membership, or an active supported global's derived access."""
+        from qorqut.agents.global_scope import active_project_participant
+        return active_project_participant(uow.connection, project, ctx.principal_id)
 
-    def private_visible(self, ctx, source_type, identity, business, uow):
+    def private_visible(self, ctx, source_type, identity, project, uow):
         if source_type != 'owner_conversations':
             return None
         # Private rows are not an inbox item type and cannot be subscribed
@@ -56,7 +56,7 @@ class HostInbox:
         from .private_conversations import visible_conversation
         return visible_conversation(self.inbox.app, ctx, identity, uow)
 
-    def integration_visible(self, selected, source_type, identity, business, uow):
+    def integration_visible(self, selected, source_type, identity, project, uow):
         return None
 
     def event_visible(self, ctx, row, uow):
@@ -71,7 +71,7 @@ class HostInbox:
                 return False
             assignment = uow.repository('operational_assignments').get(row['source_id'])
             # The parent sees its own assignment's notices, and the configured coordinator every parent's.
-            if (assignment is None or assignment['business_id'] != row['business_id']
+            if (assignment is None or assignment['project_id'] != row['project_id']
                     or ctx.principal_id not in {assignment['parent_principal_id'], configured_ordubashy(uow)}):
                 return False
             try:
@@ -150,37 +150,37 @@ class HostInbox:
 
     def augment_subscriptions(self, service, ctx, result, uow):
         from .owner_tasks import ordubashies, tasks
-        manual = {(item['business_id'], item['source_type'], item['source_id']): item for item in result}
+        manual = {(item['project_id'], item['source_type'], item['source_id']): item for item in result}
         if ctx.principal_id in ordubashies(uow):
             for raw in tasks(uow):
                 row = dict(raw)
-                if not service.visible(ctx, 'tasks', row['id'], row['business_id'], uow):
+                if not service.visible(ctx, 'tasks', row['id'], row['project_id'], uow):
                     continue
                 flags = {'automatic': True, 'managed_by': 'owner_task_assignment'}
-                explicit = manual.get((row['business_id'], 'tasks', row['id']))
+                explicit = manual.get((row['project_id'], 'tasks', row['id']))
                 if explicit is not None:
                     explicit.update(flags)
                     continue
-                business = uow.repository('businesses').get(row['business_id']) if row['business_id'] else None
+                project = uow.repository('projects').get(row['project_id']) if row['project_id'] else None
                 result.append({'id': None, 'agent_id': ctx.principal_id,
-                    'business_id': row['business_id'], 'business_slug': business['slug'] if business else None,
+                    'project_id': row['project_id'], 'project_slug': project['slug'] if project else None,
                     'source_type': 'tasks', 'source_id': row['id'], 'include_related': False,
                     **flags,
                     'summary': source_summary(row, 'tasks')})
-                manual[(row['business_id'], 'tasks', row['id'])] = result[-1]
+                manual[(row['project_id'], 'tasks', row['id'])] = result[-1]
         if ctx.principal_id in ordubashies(uow):
             for row in uow.connection.execute(
-                    "SELECT t.* FROM attention_memberships m JOIN tasks t ON t.business_id IS m.task_business_id "
+                    "SELECT t.* FROM attention_memberships m JOIN tasks t ON t.project_id IS m.task_project_id "
                     "AND t.id=m.task_id AND t.created_at=m.task_created_at WHERE m.agent_id=?", (ctx.principal_id,)):
-                if not service.visible(ctx, 'tasks', row['id'], row['business_id'], uow):
+                if not service.visible(ctx, 'tasks', row['id'], row['project_id'], uow):
                     continue
-                key = (row['business_id'], 'tasks', row['id'])
+                key = (row['project_id'], 'tasks', row['id'])
                 if key in manual:
                     manual[key]['attention_board'] = True
                     continue
-                business = uow.repository('businesses').get(row['business_id']) if row['business_id'] else None
-                item = {'id': None, 'agent_id': ctx.principal_id, 'business_id': row['business_id'],
-                    'business_slug': business['slug'] if business else None, 'source_type': 'tasks',
+                project = uow.repository('projects').get(row['project_id']) if row['project_id'] else None
+                item = {'id': None, 'agent_id': ctx.principal_id, 'project_id': row['project_id'],
+                    'project_slug': project['slug'] if project else None, 'source_type': 'tasks',
                     'source_id': row['id'], 'include_related': False, 'automatic': True,
                     'managed_by': 'attention_board', 'attention_board': True, 'summary': source_summary(dict(row), 'tasks')}
                 result.append(item)
@@ -205,8 +205,8 @@ class InboxService(OperationsInboxService):
             profile = uow.connection.execute('SELECT * FROM agent_profiles WHERE agent_id=?', (agent_id,)).fetchone()
             if not profile:
                 raise DomainError('not_found', 'Agent is unavailable')
-            member = uow.connection.execute('SELECT is_owner,active FROM business_memberships WHERE business_id=? AND principal_id=?',
-                (profile['home_business_id'], owner.principal_id)).fetchone()
+            member = uow.connection.execute('SELECT is_owner,active FROM project_memberships WHERE project_id=? AND principal_id=?',
+                (profile['home_project_id'], owner.principal_id)).fetchone()
             if owner.principal_kind != 'human' or not (
                 installation and installation['owner_principal_id'] == owner.principal_id or member and member['is_owner'] and member['active']):
                 raise DomainError('forbidden', 'Only this agent’s owner may inspect its inbox')
@@ -216,13 +216,13 @@ class InboxService(OperationsInboxService):
         ctx = self.owner_agent_context(owner, agent_id)
         with self.app.database.read() as uow:
             ctx = self.context(ctx, uow)
-            references = uow.connection.execute("SELECT business_id FROM inbox_subscriptions WHERE agent_id=? AND source_type='documents' AND source_id=? "
-                "UNION SELECT e.business_id FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id "
+            references = uow.connection.execute("SELECT project_id FROM inbox_subscriptions WHERE agent_id=? AND source_type='documents' AND source_id=? "
+                "UNION SELECT e.project_id FROM inbox_events e JOIN inbox_deliveries d ON d.event_id=e.id "
                 "WHERE d.agent_id=? AND e.source_type='documents' AND e.source_id=?",
                 (agent_id, document_id, agent_id, document_id)).fetchall()
             if len(references) != 1 or not self.visible(ctx, 'documents', document_id, references[0][0], uow):
                 raise DomainError('not_found', 'Inbox document is unavailable')
-            selected = ctx.select_business(references[0][0])
+            selected = ctx.select_project(references[0][0])
             store = self.domains.documents.store
             row = store.get(selected, document_id, uow)
             return {'document': store.view(row, uow)}
@@ -268,7 +268,7 @@ class InboxService(OperationsInboxService):
         ctx = self.context(ctx, uow)
         self.app.ensure_writes_open(uow)
         descriptor = self.app.registry.get('inbox_list')
-        if ctx.business_id is not None:
+        if ctx.project_id is not None:
             descriptor = replace(descriptor, global_capability=None)
         if self.app.policy.resolve(ctx, descriptor, (), uow).mode != 'allow':
             raise DomainError('forbidden', 'Inbox access is not granted')
@@ -366,7 +366,7 @@ class InboxService(OperationsInboxService):
         try:
             self.session_owner(ctx, session_id, uow)
             descriptor = self.app.registry.get('inbox_list')
-            if ctx.business_id is not None:
+            if ctx.project_id is not None:
                 descriptor = replace(descriptor, global_capability=None)
             if self.app.policy.resolve(ctx, descriptor, (), uow).mode != 'allow':
                 return False

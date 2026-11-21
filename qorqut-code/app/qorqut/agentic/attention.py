@@ -99,7 +99,7 @@ from qorqut.transport.auth import AuthenticatedPrincipal, current_agent_credenti
 
 _SYNC_OPERATIONS = ('workflows.start', 'workflows.resume', 'workflows.pause', 'workflows.cancel', 'workflows.complete_step')
 _TASK = schema({'type': {'const': 'task'}, 'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
-                'business_id': {'type': ['string', 'null']}}, ('type', 'id', 'business_id'))
+                'project_id': {'type': ['string', 'null']}}, ('type', 'id', 'project_id'))
 _BINDING = {'scope': {'const': 'global'}, 'operation': {'enum': list(_SYNC_OPERATIONS)},
             'operation_id': {'type': 'string', 'minLength': 1, 'maxLength': 200}, 'consumer_id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
             'binding_generation': {'type': 'integer', 'minimum': 1}, 'run_id': {'type': 'string', 'minLength': 1, 'maxLength': 200}}
@@ -227,7 +227,7 @@ class WorkflowAttention:
         return self
 
     def caller(self, ctx, consumer, generation, uow):
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         if (ctx.principal_kind != 'agent' or ctx.source != 'mcp' or not ctx.session_registration_id
                 or ctx.delegation_binding_id is not None or ctx.delegation_assignment_id is not None
                 or configured_ordubashy(uow) != ctx.principal_id):
@@ -324,7 +324,7 @@ class WorkflowAttention:
                                      {'actor_id': ctx.principal_id, 'actor_kind': 'agent'})
         project_id = evidence['project_id']
         if (args['operation'] not in ('workflows.pause', 'workflows.cancel')
-                and project_id is not None and project_id not in ctx.allowed_business_ids):
+                and project_id is not None and project_id not in ctx.allowed_project_ids):
             raise DomainError('forbidden', 'Workflow routing is no longer authorized')
         existing = self.association(uow, ctx.principal_id, args['run_id'])
         if args['operation'] not in ('workflows.start', 'workflows.resume', 'workflows.pause', 'workflows.cancel') and existing is None:
@@ -332,7 +332,7 @@ class WorkflowAttention:
         builder = PlanBuilder(ctx, 'attention_workflow_sync', args, 'Synchronize workflow attention', namespace='global',
                               affected_scope={'kind': 'global'})
         builder.record('attention_workflows', {'agent_id': ctx.principal_id, 'run_id': args['run_id']}, existing,
-                       {'evidence': evidence}, action='sync_workflow_attention', business_id=None, namespace='global')
+                       {'evidence': evidence}, action='sync_workflow_attention', project_id=None, namespace='global')
         attention_row = uow.repository('agent_attention').get(ctx.principal_id)
         builder.expect(ref('agent_attention', ctx.principal_id, None, 'global'), attention_row)
         if snapshot['membership_id']:
@@ -352,7 +352,7 @@ class WorkflowAttention:
             raise DomainError('invalid_plan', 'Workflow evidence is unavailable')
         evidence = plain(changes[0].values)['evidence']; run_id = args['run_id']
         if (args['operation'] not in ('workflows.pause', 'workflows.cancel') and evidence.get('project_id') is not None
-                and evidence['project_id'] not in ctx.allowed_business_ids):
+                and evidence['project_id'] not in ctx.allowed_project_ids):
             raise DomainError('forbidden', 'Workflow routing is no longer authorized')
         row = self.association(uow, ctx.principal_id, run_id)
         if row and evidence['ordinal'] <= row['last_event_ordinal']:
@@ -364,7 +364,7 @@ class WorkflowAttention:
         valid = bool(member and member['id'] == snapshot['membership_id'] and member['agent_id'] == ctx.principal_id
                      and member['task_id'] == task['id'] and member['task_created_at'] == snapshot['task_created_at']) if task else False
         if valid:
-            task = {'type': 'task', 'id': member['task_id'], 'business_id': member['task_business_id']}
+            task = {'type': 'task', 'id': member['task_id'], 'project_id': member['task_project_id']}
             try:
                 selected = self.service.authorized_task(uow, ctx, ctx.principal_id, task)
                 valid = selected['task']['created_at'] == snapshot['task_created_at']
@@ -402,7 +402,7 @@ class WorkflowAttention:
                 # Both changes are in the same writer transaction as the generation-checked focus.
                 uow.connection.execute('UPDATE attention_workflows SET work_task_json=?,detached_at=NULL WHERE agent_id=? AND run_id=?',
                                        (json.dumps(task), ctx.principal_id, run_id))
-            focused = self.service.set_focus(uow, ctx, ctx.principal_id, focus={'type': 'workflow', 'id': run_id, 'business_id': None},
+            focused = self.service.set_focus(uow, ctx, ctx.principal_id, focus={'type': 'workflow', 'id': run_id, 'project_id': None},
                                              task=task, intent=snapshot['intent'], expected_focus_generation=snapshot['focus_generation'])
             if not focused:
                 raise DomainError('revision_conflict', 'Focus changed during workflow synchronization')
@@ -423,7 +423,7 @@ class WorkflowAttention:
                     or member['task_id'] != context['task']['id']
                     or member['task_created_at'] != context['task_created_at']):
                 raise DomainError('not_found', 'Workflow Task membership is unavailable')
-            task = {'type': 'task', 'id': member['task_id'], 'business_id': member['task_business_id']}
+            task = {'type': 'task', 'id': member['task_id'], 'project_id': member['task_project_id']}
             self.service.authorized_task(uow, ctx, ctx.principal_id, task)
 
 

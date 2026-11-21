@@ -14,7 +14,7 @@ advances the pin to a commit that contains `24f1ea2`. Nothing here changes the r
 | Task states, fields, parents, informational dependencies, shared `snoozed_until`, assignees, protected `request_to_owner` | `qorqut_operations.tasks` | `domains/tasks/ports.py` answers the typed `TaskPorts` (assignee rules, setup guards, Focus presentation, incident links, note references, owner-work routing) |
 | Shared Task/Action tag catalog (`tags`, `item_tags`) | `qorqut_operations.tags` | none; a tag is a label and grants nothing |
 | Item threads, follows, the one event writer (`emit_event`), required vs optional deliveries | `qorqut_operations.discussion` | `inbox/service.py` routes `inbox_subscribe` of a Task or Action to the same follow state; `inbox/events.py` no longer writes Task or Action events |
-| Actions with immutable revisions (`action_logs`, `action_revisions`, `action_businesses`) | `qorqut_operations.actions` | `domains/activity` is now `ActionWriteback` (one-source-one-Action key) plus `linked_action` for item links |
+| Actions with immutable revisions (`action_logs`, `action_revisions`, `action_projects`) | `qorqut_operations.actions` | `domains/activity` is now `ActionWriteback` (one-source-one-Action key) plus `linked_action` for item links |
 | Context input queue (`context_inputs`), `enqueue_action`, transitions, attempts, controls | `qorqut_operations.context_queue` | none |
 
 `domains/__init__.py` builds `TagOperations`, `TaskOperations`, `ActionOperations` and `ContextQueueOperations` and installs
@@ -35,7 +35,7 @@ engine's `settle`, which enqueues the exact revision and announces it in that tr
 
 `composition/capture.py` is a host-owned storage contribution (owner `operational_feed`, last in order) that attaches the
 `inbox_changes` capture triggers to the engine tables `tasks`, `thread_messages`, `thread_follows`, `item_tags`,
-`action_logs` and `action_businesses`. Triggers copy only scope and identity. `service/changes.py` maps them to the
+`action_logs` and `action_projects`. Triggers copy only scope and identity. `service/changes.py` maps them to the
 `tasks` and `action_logs` kinds (a thread entry, follow or tag by its `item_type`), and `inbox/events.py::targets` ignores
 these sources, so the capture never produces a second event.
 
@@ -58,21 +58,21 @@ these sources, so the capture never produces a second event.
 
 ## Checks
 
-`tests/test_host_operational_contracts.py` (4 cases, one composed host with two businesses, two business agents and a
+`tests/test_host_operational_contracts.py` (4 cases, one composed host with two projects, two project agents and a
 registered coordinator): the default denial of the new mutations, an explicit override enabling correction and its
 revocation before a Signoff-staged correction is applied (the approval answers `stale_signoff`, the proposal is
 `conflicted`, no revision or Context input appears); the queued create/correction/withdrawal payloads handed to the exact
 Context `begin_action` API of the pinned Context (`24f3744`) in a disposable initialized Context with no model, proving the
-nonempty `{id,name,business_id}` tag envelope is accepted, the retired label list is rejected and an earlier queued
+nonempty `{id,name,project_id}` tag envelope is accepted, the retired label list is rejected and an earlier queued
 revision never changes; the Action discussion (default denial, explicit grant, read with the Action's authorization, a
 coordinator's owner relay following both parties, one optional event, sticky unfollow, no Action revision, Context input
 or private-conversation row); and the snooze wake (human-only assignment and an owner-created unassigned non-Focus Task
 both routed through `HostRouting.snooze_routes` to the registered coordinator with exactly one required wake, no human
 inbox row and nothing on repeated reconciliation; no creator notification while someone else is assigned; an
 agent-created unassigned Task reaching its creator; an assigned agent's inbox row; a closed Task never woken).
-`tests/test_host_operational_records.py` (10 cases, one composed host, two businesses, registered agents): states,
+`tests/test_host_operational_records.py` (10 cases, one composed host, two projects, registered agents): states,
 snooze idempotency, parent and dependency validation; agent defaults and the protected owner request; tags that grant
-nothing across businesses; one discussion writer with required events independent of an unfollow; private conversations
+nothing across projects; one discussion writer with required events independent of an unfollow; private conversations
 never becoming item threads; Action record, correction and withdrawal each queued as the exact immutable revision;
 the host Action writeback recording once per confirmed source; change-feed capture; the setup guard answering through the
 Task port; `TaskWrites` announcing a Task written inside another domain's plan once.
@@ -84,7 +84,7 @@ Task port; `TaskWrites` announcing a Task written inside another domain's plan o
   `runtime.domains.tasks.reconcile_snoozes(uow)` (the engine `TaskOperations.reconcile_snoozes`, which uses the Task
   `Routing` port: the engine classifies the responsible principals once (every assignee, else the creator), delivers to
   responsible agents through the eligible inbox filter and hands the human ones to
-  `HostRouting.snooze_routes(uow, business_id, task, human_ids)`, which returns agent ids: the mandatory Focus-coordinator
+  `HostRouting.snooze_routes(uow, project_id, task, human_ids)`, which returns agent ids: the mandatory Focus-coordinator
   route and, when the installation owner is among those humans, the Ordubashy owner-work recipients (`ordubashies(uow)`,
   no assigned-to-owner edge required, so an owner-created unassigned Task is covered); other humans keep whichever
   mandatory route applies; optional Story routes are not responsibility and no human inbox/notification store is
@@ -99,7 +99,7 @@ Task port; `TaskWrites` announcing a Task written inside another domain's plan o
   `qorqut/global_chat`, `reply_notifications.py`) are intentionally NOT removed on this isolated branch; their exact
   deletion belongs to the approved combined feature integration after P2. Full Story removal is P6.
 * `ContextQueueOperations` is built without a content cap (`max_content_bytes=None`); the Context piece supplies its limit.
-* Dashboard repository: `biz-dashboard/js/actions.js` still calls `actions_update` and `task-snooze.js` reads
+* Dashboard repository: `dashboard/js/actions.js` still calls `actions_update` and `task-snooze.js` reads
   `task.snooze.indefinite`; both need the new read models (`actions_correct`, `snoozed_until`). The compatibility
   transport (`/log`, `/log/<id>/labels`) already maps onto the Action operations.
 * The "Filed context upload" Action producer in `domains/documents/operations.py` is removed; Context filing is P4/P5's.

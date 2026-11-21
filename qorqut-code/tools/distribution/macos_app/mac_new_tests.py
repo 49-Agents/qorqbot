@@ -170,7 +170,7 @@ def main():
             summaries.append(run_python_module(module, distribution_tests, args, env, output))
             print(f"{module}: {summaries[-1]['status']} ({summaries[-1]['tests']} tests)", flush=True)
     if wanted("dashboard"):
-        summaries.append(run_dashboard(args.node, code / "biz-dashboard", output))
+        summaries.append(run_dashboard(args.node, code / "dashboard", output))
         print(f"dashboard: {summaries[-1]['status']} ({summaries[-1]['tests']} tests)", flush=True)
     (output / "summary.json").write_text(json.dumps(summaries, indent=2) + "\n")
     text = markdown(summaries, machine)

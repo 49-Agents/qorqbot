@@ -14,13 +14,13 @@ REPOSITORY = Path(__file__).resolve().parents[4]
 
 class RequiredAssets(unittest.TestCase):
     def test_the_dashboard_broker_is_a_required_native_helper(self):
-        self.assertIn('qorqut-code/biz-dashboard/pty_broker.py', runtime_source.REQUIRED_RUNTIME_ASSETS['native-helpers'])
+        self.assertIn('qorqut-code/dashboard/pty_broker.py', runtime_source.REQUIRED_RUNTIME_ASSETS['native-helpers'])
 
     def test_the_terminal_view_its_switch_and_the_emulator_licence_are_required(self):
         required = set(runtime_source.REQUIRED_RUNTIME_ASSETS['legacy-terminals'])
         for name in ('js/terminal.js', 'js/xterm.js', 'css/xterm.css', 'js/agent-start.js', 'js/agent-mode.js', 'css/agent-mode.css', 'js/agent-terminal-view.js',
                      'js/agent-trust-row.js', 'css/legacy-terminals.css', 'LICENSES/xterm-MIT.txt', 'THIRD-PARTY-NOTICES.md'):
-            self.assertIn('qorqut-code/biz-dashboard/' + name, required)
+            self.assertIn('qorqut-code/dashboard/' + name, required)
 
     def test_every_required_file_exists_in_the_checkout(self):
         missing = [path for paths in runtime_source.REQUIRED_RUNTIME_ASSETS.values() for path in paths
@@ -30,7 +30,7 @@ class RequiredAssets(unittest.TestCase):
     def test_none_of_them_is_excluded_from_the_runtime(self):
         for path in runtime_source.REQUIRED_RUNTIME_ASSETS['legacy-terminals']:
             local = path.split('/', 2)[2]
-            self.assertIsNone(runtime_source.exclusion('biz-dashboard', local), path)
+            self.assertIsNone(runtime_source.exclusion('dashboard', local), path)
 
 
 if __name__ == '__main__':

@@ -34,7 +34,7 @@ MAX_TARGETS = 100
 SELECTORS = {
     'target_agent_id': UUID,
     'target_agent_ids': {'type':'array', 'items':UUID, 'minItems':1, 'maxItems':MAX_TARGETS},
-    'business_ids': {'type':'array', 'items':UUID, 'minItems':1, 'maxItems':MAX_TARGETS},
+    'project_ids': {'type':'array', 'items':UUID, 'minItems':1, 'maxItems':MAX_TARGETS},
 }
 
 
@@ -74,14 +74,14 @@ class TerminalControl:
         self.stop_event, self.thread = Event(), None
 
     def message_target(self, ctx, identity, uow):
-        """Recorded direct messages targeted a business Dev. Businesses have no resident agents, and a
-        business-home identity is never dispatched to whatever its stored status; inbox delivery remains."""
+        """Recorded direct messages targeted a project Dev. Projects have no resident agents, and a
+        project-home identity is never dispatched to whatever its stored status; inbox delivery remains."""
         if ctx.principal_kind == 'human':
             self.owner(ctx, uow)
         raise DomainError('forbidden', 'Direct messages targeted retired project Dev agents; use inbox delivery')
 
     def queue_message(self, ctx, message, uow):
-        """Direct messages to a business Dev are retired: the target check refuses every caller."""
+        """Direct messages to a project Dev are retired: the target check refuses every caller."""
         self.message_target(ctx, message['recipient_id'], uow)
 
     def owner(self, ctx, uow):
@@ -102,9 +102,9 @@ class TerminalControl:
         row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND status='active'", (identity,)).fetchone()
         if not row or identity == ctx.principal_id:
             raise DomainError('forbidden', 'Select another active registered agent')
-        # A business-home identity is historical and never controlled or dispatched to, whatever its stored status.
-        if row['home_business_id'] is not None or active_global(uow.connection, identity) is None:
-            raise DomainError('forbidden', 'Select an active global agent; business-home identities are historical')
+        # A project-home identity is historical and never controlled or dispatched to, whatever its stored status.
+        if row['home_project_id'] is not None or active_global(uow.connection, identity) is None:
+            raise DomainError('forbidden', 'Select an active global agent; project-home identities are historical')
         if control:
             # Every prepare, apply and queued dispatch rechecks the current actor.
             require_protected_control(uow, ctx.principal_id, ctx.principal_kind, [identity], allow_coordinators=True)
@@ -114,18 +114,18 @@ class TerminalControl:
         return dict(row)
 
     def select_targets(self, ctx, args, uow):
-        """Resolve once; never expand a business again after owner approval."""
+        """Resolve once; never expand a project again after owner approval."""
         self.actor(ctx, uow)
         identities = set(args.get('target_agent_ids', []))
         if args.get('target_agent_id'):
             identities.add(args['target_agent_id'])
-        for business_id in sorted(set(args.get('business_ids', []))):
-            if business_id not in ctx.allowed_business_ids:
+        for project_id in sorted(set(args.get('project_ids', []))):
+            if project_id not in ctx.allowed_project_ids:
                 raise DomainError('forbidden', 'Selected project is outside current scope')
-            business = uow.repository('businesses').get(business_id)
-            if not business or business['archived_at'] is not None:
+            project = uow.repository('projects').get(project_id)
+            if not project or project['archived_at'] is not None:
                 raise DomainError('forbidden', 'Selected project is unavailable')
-            # Businesses have no resident agents, so a business selection adds no targets.
+            # Projects have no resident agents, so a project selection adds no targets.
         if not identities or len(identities) > MAX_TARGETS:
             raise DomainError('validation_error', f'Select between 1 and {MAX_TARGETS} active agents')
         # Invalid explicit IDs or unauthorized selections reject the whole request.
@@ -284,7 +284,7 @@ class TerminalControl:
             binding = self.binding(row)
             if self.in_terminal_mode():
                 terminal_actions.validate(self, action, binding['terminal'])
-            builder.expect(ref('agent_profiles', row['agent_id'], row['home_business_id']), row)
+            builder.expect(ref('agent_profiles', row['agent_id'], row['home_project_id']), row)
             targets.append({'target_id':row['agent_id'], 'binding':binding})
             builder.effects.append(f"{action.capitalize()} {row['name']} ({row['agent_id']})")
         if command and targets != command['targets_json']:
@@ -298,16 +298,16 @@ class TerminalControl:
             builder.record('terminal_commands', identity, None, {'id':identity, 'issuer_id':ctx.principal_id,
                 'targets_json':targets, 'action':action, 'message':message,
                 'expires_at':(datetime.now(timezone.utc)+timedelta(minutes=10)).isoformat().replace('+00:00','Z'),
-                'consumed_by':None}, business_id=None)
+                'consumed_by':None}, project_id=None)
         else:
             batch_id = new_id()
             if command:
-                builder.record('terminal_commands', command['id'], command, {'consumed_by':batch_id}, business_id=None)
+                builder.record('terminal_commands', command['id'], command, {'consumed_by':batch_id}, project_id=None)
             for target in targets:
                 identity = new_id()
                 builder.record('terminal_actions', identity, None, {'id':identity, 'batch_id':batch_id,
                     'proposer_id':ctx.principal_id, 'target_id':target['target_id'], 'action':action,
-                    'message':message, 'binding_json':target['binding'], 'state':'queued', 'detail':None}, business_id=None)
+                    'message':message, 'binding_json':target['binding'], 'state':'queued', 'detail':None}, project_id=None)
         return builder.build()
 
     def apply(self, ctx, plan, uow):
@@ -455,11 +455,11 @@ class TerminalControl:
                     or message['current_sender_id'] != message['sender_id']
                     or message['current_recipient_id'] != message['recipient_id']):
                 raise DomainError('forbidden', 'Terminal message participants changed')
-            ctx = self.app.policy.context_for(action['proposer_id'], business_id=message['business_id'], review_business_id=None, uow=uow)
+            ctx = self.app.policy.context_for(action['proposer_id'], project_id=message['project_id'], review_project_id=None, uow=uow)
             self.app.authorize(ctx, self.app.registry.get('agents_message_send'), [], uow,
-                               namespace='business:' + message['business_id'])
+                               namespace='project:' + message['project_id'])
             return self.message_target(ctx, action['target_id'], uow)
-        ctx = self.app.policy.context_for(action['proposer_id'], business_id=None, review_business_id=None, uow=uow)
+        ctx = self.app.policy.context_for(action['proposer_id'], project_id=None, review_project_id=None, uow=uow)
         descriptor = self.app.registry.get(PREFIX + ('ping' if action['action']=='ping' else action['action']))
         decision = self.app.authorize(ctx, descriptor, [], uow, namespace='global')
         if decision.mode == 'deny': raise DomainError('forbidden', 'Terminal permission was revoked')

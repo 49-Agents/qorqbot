@@ -7,19 +7,19 @@ already normalized in the stored rows (``occurred_date`` is the local calendar d
 """
 
 
-def project_task_completions(uow, business_id, count):
+def project_task_completions(uow, project_id, count):
     """Each Task first completed in the Project: ``count("tasks_done", completed_at)`` once per row."""
-    for row in uow.connection.execute("SELECT completed_at FROM task_completions WHERE business_id=?", (business_id,)):
+    for row in uow.connection.execute("SELECT completed_at FROM task_completions WHERE project_id=?", (project_id,)):
         count("tasks_done", row[0])
 
 
-def project_action_counts(uow, business_id, totals, undated, series):
+def project_action_counts(uow, project_id, totals, undated, series):
     """Actions linked to the Project wherever stored, on their occurrence day (backfills included).
 
     Every row adds to ``totals["actions"]``; a row without a day adds to ``undated["actions"]``; a day inside ``series``
     adds to that day's ``"actions"``."""
-    for row in uow.connection.execute("SELECT a.occurred_date FROM action_logs a JOIN action_businesses m "
-                                      "ON m.action_key=a.action_key WHERE m.business_id=?", (business_id,)):
+    for row in uow.connection.execute("SELECT a.occurred_date FROM action_logs a JOIN action_projects m "
+                                      "ON m.action_key=a.action_key WHERE m.project_id=?", (project_id,)):
         totals["actions"] += 1
         if not row[0]: undated["actions"] += 1
         elif row[0] in series: series[row[0]]["actions"] += 1
@@ -27,7 +27,7 @@ def project_action_counts(uow, business_id, totals, undated, series):
 
 def global_task_completions(uow, count):
     """Each Global Task first completed: ``count("tasks_done", completed_at)`` once per row."""
-    for row in uow.connection.execute('SELECT completed_at FROM task_completions WHERE business_id IS NULL'):
+    for row in uow.connection.execute('SELECT completed_at FROM task_completions WHERE project_id IS NULL'):
         count('tasks_done', row[0])
 
 

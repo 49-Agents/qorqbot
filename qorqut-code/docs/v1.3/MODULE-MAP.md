@@ -11,7 +11,7 @@ installation and the authored/runtime boundary.
 | Operations `qorqut-code/qorqut-operations` | Tasks, Actions, Projects, documents, Signoffs, inbox and storage contracts: `qorqut_operations/`. |
 | Context `qorqut-code/qorqut-context` | Shared Context engine and Operations integration: `qorqut_context/` and `qorqut_context/integration/`. Host wiring is in `app/qorqut/shared_context/`. |
 | Agentic `qorqut-agentic` | Standalone catalogue, authoring, history, change feed and Overseer storage: `src/qorqut_agentic/`. Default role and guidance resources live in `src/qorqut_agentic/resources/defaults/`; the three role definitions are under `roles/imported-roles/`. |
-| Dashboard `qorqut-code/biz-dashboard` | Static owner interface: `index.html`, `js/`, `css/`, `server.py`. |
+| Dashboard `qorqut-code/dashboard` | Static owner interface: `index.html`, `js/`, `css/`, `server.py`. |
 | Document history, email | Separate source components `dependencies/document-history/`, `dependencies/email-management/`; Operations uses document history and email guidance is imported into agentic plugins. The procedural learning engine is retired; factual Context intake and read-only historical records remain. |
 | Optional extensions | Google Calendar is bundled inactive; Fastmail, Telegram and WhatsApp are separately installed and selected by trusted host configuration. Paper/content are outside this publication; see [Extensions](../EXTENSIONS.md) and `app/package-sources.json`. |
 

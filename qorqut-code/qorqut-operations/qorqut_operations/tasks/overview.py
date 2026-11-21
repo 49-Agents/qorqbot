@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from qorqut_operations.application.plans import PAGE, page, schema, timestamp
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
-from qorqut_operations.global_agents import effective_business_ids, is_global_agent
+from qorqut_operations.global_agents import effective_project_ids, is_global_agent
 from qorqut_operations.roles import ORDUBASHY_ROLE
 from qorqut_operations.tags.catalog import labels_by_item
 from qorqut_operations.tasks.models import snooze_view
@@ -60,8 +60,8 @@ class TaskOverview:
             description=instruction_text('overview-ordubashy-only-brief-owner-self-task-overview-across'), read=self.read)
 
     def read(self, ctx, args, options, uow):
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
-        profile = uow.repository("agent_profiles", business_id=None).get(ctx.principal_id)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
+        profile = uow.repository("agent_profiles", project_id=None).get(ctx.principal_id)
         if (ctx.principal_kind != "agent" or not profile or not is_global_agent(uow.connection, ctx.principal_id)
                 or profile["profile_json"]["role"]["id"] != ORDUBASHY_ROLE):
             raise DomainError("forbidden", "Task overview requires an active ecosystem Ordubashy")
@@ -80,25 +80,25 @@ class TaskOverview:
         filters = {"assignee": args.get("assignee", "both"), "snooze_filter": args.get("snooze_filter", "all"),
                    "include_closed": args.get("include_closed", False)}
         matches, scopes = [], {}
-        # The caller is an active global agent: its businesses are the active directory, not membership rows.
-        for business_id in [None, *sorted(ctx.allowed_business_ids & effective_business_ids(uow.connection, ctx.principal_id))]:
-            selected = replace(ctx, business_id=business_id, review_business_id=business_id)
-            self.app.authorize(selected, descriptor, (), uow, namespace="business:" + business_id if business_id else "global")
-            business = uow.repository("businesses").get(business_id) if business_id else None
-            if business_id and not business:
+        # The caller is an active global agent: its projects are the active directory, not membership rows.
+        for project_id in [None, *sorted(ctx.allowed_project_ids & effective_project_ids(uow.connection, ctx.principal_id))]:
+            selected = replace(ctx, project_id=project_id, review_project_id=project_id)
+            self.app.authorize(selected, descriptor, (), uow, namespace="project:" + project_id if project_id else "global")
+            project = uow.repository("projects").get(project_id) if project_id else None
+            if project_id and not project:
                 continue
-            scopes[business_id] = business["name"] if business else "Global"
-            clauses, parameters = ["t.business_id IS ?", "t.archived=0"], [business_id]
+            scopes[project_id] = project["name"] if project else "Global"
+            clauses, parameters = ["t.project_id IS ?", "t.archived=0"], [project_id]
             if not filters["include_closed"]:
                 clauses.append("t.status NOT IN ('done','cancelled')")
             if filters["snooze_filter"] != "all":
                 active = "(t.snoozed_until IS NULL OR t.snoozed_until<=?)"
                 clauses.append("NOT " + active if filters["snooze_filter"] == "snoozed" else active)
                 parameters.append(now)
-            owner_membership = uow.repository("business_memberships", business_id=business_id).get(owner["id"]) if business_id else None
-            owner_present = business_id is None or bool(owner_membership and owner_membership["active"])
+            owner_membership = uow.repository("project_memberships", project_id=project_id).get(owner["id"]) if project_id else None
+            owner_present = project_id is None or bool(owner_membership and owner_membership["active"])
             # IS (not =) keeps NULL/Global joins scoped, including duplicate task IDs.
-            assigned = ("EXISTS (SELECT 1 FROM relationships r WHERE r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id "
+            assigned = ("EXISTS (SELECT 1 FROM relationships r WHERE r.project_id IS t.project_id AND r.from_type='task' AND r.from_id=t.id "
                         "AND r.role='assigned_to' AND r.to_type=? AND r.to_id=?)")
             owner_sql = assigned if owner_present else "0"
             assignment_parameters = (["person", owner["id"]] if owner_present else []) + ["agent", ctx.principal_id]
@@ -108,24 +108,24 @@ class TaskOverview:
                 "COALESCE(json_extract(t.fields_json,'$.\"$task\".task_type'),'task') AS task_type," + owner_sql + " AS owner_assigned," + assigned
                 + " AS self_assigned FROM tasks t WHERE " + " AND ".join(clauses) + " AND " + predicate + " LIMIT ?",
                 [*assignment_parameters, *parameters, MAX_MATCHES + 1 - len(matches)]).fetchall()
-            labels = labels_by_item(uow, business_id, "task")
+            labels = labels_by_item(uow, project_id, "task")
             for row in found:
                 task = dict(row)
                 task["tags"] = labels.get(task["id"], [])
-                matches.append({**task, "business_id": business_id, **snooze_view(task, now)})
+                matches.append({**task, "project_id": project_id, **snooze_view(task, now)})
             if len(matches) > MAX_MATCHES:
                 raise DomainError("result_too_large", f"Task overview exceeds {MAX_MATCHES:,} matches; narrow assignee or snooze_filter")
         counts = {"active": sum(not task["snoozed"] for task in matches), "snoozed": sum(task["snoozed"] for task in matches)}
         # Bind continuation to identity and current readable scopes as well as filters.
         selected, cursor = page(matches, {**filters, "principal_id": ctx.principal_id, "owner_id": owner["id"],
-                                          "scopes": sorted(business or "" for business in scopes), "limit": args.get("limit", 100),
+                                          "scopes": sorted(project or "" for project in scopes), "limit": args.get("limit", 100),
                                           **({"cursor": args["cursor"]} if "cursor" in args else {})},
                                 None, "tasks_overview", reverse=False,
-                                key=lambda task: (int(task["snoozed"]), task["due"] or "9999-12-31", task["business_id"] or "", task["id"]))
+                                key=lambda task: (int(task["snoozed"]), task["due"] or "9999-12-31", task["project_id"] or "", task["id"]))
         groups = {}
         for task in self.tasks.project_input(ctx, selected, uow):
-            business_id = task["business_id"]
-            group = groups.setdefault(business_id, {"business_id": business_id, "name": scopes[business_id], "active": [], "snoozed": []})
+            project_id = task["project_id"]
+            group = groups.setdefault(project_id, {"project_id": project_id, "name": scopes[project_id], "active": [], "snoozed": []})
             brief = {key: task[key] for key in ("id", "revision", "title", "status", "due", "task_type")}
             brief.update({key: task[key] for key in ('work_status', 'input_needed', 'input_requests', 'input_version', 'input_request_missing') if key in task})
             if len(brief["title"]) > 180:
@@ -166,21 +166,21 @@ class TaskOverview:
                     people[identity] = {"id": identity, "name": principal["display_name"], "kind": kind, "rank": rank}
             return people[identity]
 
-        for business_id in [None, *sorted(ctx.allowed_business_ids & effective_business_ids(uow.connection, ctx.principal_id))]:
-            selected = replace(ctx, business_id=business_id, review_business_id=business_id)
+        for project_id in [None, *sorted(ctx.allowed_project_ids & effective_project_ids(uow.connection, ctx.principal_id))]:
+            selected = replace(ctx, project_id=project_id, review_project_id=project_id)
             try:
-                self.app.authorize(selected, descriptor, (), uow, namespace="business:" + business_id if business_id else "global")
+                self.app.authorize(selected, descriptor, (), uow, namespace="project:" + project_id if project_id else "global")
             except DomainError as error:
-                if error.code != "business_archived":
+                if error.code != "project_archived":
                     raise
                 continue
-            business = uow.repository("businesses").get(business_id) if business_id else None
-            if business_id and not business:
+            project = uow.repository("projects").get(project_id) if project_id else None
+            if project_id and not project:
                 continue
-            names[business_id] = business["name"] if business else "Global"
-            clauses = ["t.business_id IS ?", "t.archived=0", "t.status NOT IN ('done','cancelled')",
+            names[project_id] = project["name"] if project else "Global"
+            clauses = ["t.project_id IS ?", "t.archived=0", "t.status NOT IN ('done','cancelled')",
                        "COALESCE(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')!='customer'"]
-            parameters = [business_id]
+            parameters = [project_id]
             if since:
                 clauses.append("t.updated_at>=?")
                 parameters.append(since)
@@ -192,7 +192,7 @@ class TaskOverview:
                 raise DomainError("result_too_large", f"Task overview exceeds {MAX_MATCHES:,} matches; narrow updated_since")
             for row in found:
                 task = {key: row[key] for key in ("id", "revision", "title", "status", "due", "updated_at")}
-                task.update(business_id=business_id,
+                task.update(project_id=project_id,
                             stale=task["status"] in limits and (task["updated_at"] or "") < limits[task["status"]])
                 for identity in json.loads(row["worker_ids_json"] or "[]") or [None]:
                     pairs.append({**task, "holder": holder(identity)})
@@ -210,10 +210,10 @@ class TaskOverview:
                                         "limit": args.get("limit", 100), **({"cursor": args["cursor"]} if "cursor" in args else {})},
                                 None, "tasks_overview", reverse=False,
                                 key=lambda pair: (pair["holder"]["rank"], pair["holder"]["id"] or "", pair["updated_at"] or "",
-                                                  pair["business_id"] or "", pair["id"]))
+                                                  pair["project_id"] or "", pair["id"]))
         for pair, task in zip(selected, self.tasks.project_input(ctx, selected, uow)):
-            brief = {key: task[key] for key in ("id", "business_id", "revision", "title", "status", "due", "updated_at")}
-            brief["business_name"] = names[task["business_id"]]
+            brief = {key: task[key] for key in ("id", "project_id", "revision", "title", "status", "due", "updated_at")}
+            brief["project_name"] = names[task["project_id"]]
             brief.update({key: task[key] for key in ("work_status", "input_needed") if key in task})
             if len(brief["title"]) > 180:
                 brief.update(title=brief["title"][:179] + "…", title_truncated=True)

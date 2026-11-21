@@ -5,7 +5,7 @@ or racing control cannot produce a second outcome or a second notification. None
 model: the driver does that outside any operational transaction and records the observed result here.
 
 These are internal calls, not registered operations. ``driver_id`` must be an active registered ``system`` principal
-(the Context worker); nothing a business agent, the owner or a public caller can invoke reaches them, and a public
+(the Context worker); nothing a project agent, the owner or a public caller can invoke reaches them, and a public
 caller cannot supply publication or attempt results.
 """
 
@@ -160,7 +160,7 @@ def _notify(uow, driver_id, ordubashy_id, input_id, attempt, event_type, text) -
     recipient = uow.connection.execute(
         "SELECT 1 FROM principals p JOIN agent_profiles a ON a.agent_id=p.id WHERE p.id=? AND p.kind='agent' AND p.active=1 "
         "AND a.status='active'", (ordubashy_id,)).fetchone()
-    event = emit_event(uow, business_id=None, source_type=SOURCE_TYPE, source_id=input_id, source_revision=attempt,
+    event = emit_event(uow, project_id=None, source_type=SOURCE_TYPE, source_id=input_id, source_revision=attempt,
                        actor_id=driver_id, event_type=event_type, summary=text, required=(ordubashy_id,)) if recipient else None
     if event is None:
         raise DomainError("validation_error", "The Context handoff recipient must be an active agent that can receive Global notices")

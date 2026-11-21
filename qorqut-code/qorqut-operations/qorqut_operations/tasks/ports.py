@@ -34,7 +34,7 @@ class AssigneeRules(Protocol):
 class Incidents(Protocol):
     """Links a Task to the development ticket a note cites (v1 ``IncidentReporter.link_task``)."""
 
-    def link_task(self, uow, ticket_id: str, business_id: str | None, task_id: str, principal_id: str, at: str) -> None: ...
+    def link_task(self, uow, ticket_id: str, project_id: str | None, task_id: str, principal_id: str, at: str) -> None: ...
 
 
 class NoteReferences(Protocol):
@@ -57,22 +57,22 @@ class NoteReferences(Protocol):
 class Routing(Protocol):
     """Mandatory and optional recipients the host adds to a Task event (v1 coordinator routing).
 
-    ``routes(uow, business_id, task, actor_id, change)`` returns ``(required, optional)`` principal ids; ``change`` is
+    ``routes(uow, project_id, task, actor_id, change)`` returns ``(required, optional)`` principal ids; ``change`` is
     ``events.change`` for a Task write (its state before and after and its newly recorded workers) and ``None`` otherwise: the Focus coordinator
     for an owner's change to a focused Task and the Ordubashy followers of owner work are required; the subscribers of a
     group Task this Task is directly related to (a child, or a related link in either direction) are optional. The engine adds the recipients every Task has (assignees, assignment targets, owners
     of dependent work, followers) itself, and the acting principal is always removed.
 
-    ``snooze_routes(uow, business_id, task, human_ids)`` is the one required route of a snooze wake: ``human_ids`` are
+    ``snooze_routes(uow, project_id, task, human_ids)`` is the one required route of a snooze wake: ``human_ids`` are
     the human principals responsible for the Task (its human assignees, or its human creator when it has no assignee at
     all) and the result is the agent ids that must be told on their behalf. Human responsibility has no inbox of its
     own, so this is where the host answers for it (the Focus coordinator, the owner-work coordinators); optional
     followers are never part of it. The engine filters the result to agents eligible in the Task's scope."""
 
-    def routes(self, uow, business_id: str | None, task: Mapping[str, Any], actor_id: str | None,
+    def routes(self, uow, project_id: str | None, task: Mapping[str, Any], actor_id: str | None,
                change: Mapping[str, Any] | None = None) -> tuple[Sequence[str], Sequence[str]]: ...
 
-    def snooze_routes(self, uow, business_id: str | None, task: Mapping[str, Any], human_ids: Sequence[str]) -> Sequence[str]: ...
+    def snooze_routes(self, uow, project_id: str | None, task: Mapping[str, Any], human_ids: Sequence[str]) -> Sequence[str]: ...
 
 
 class Boards(Protocol):

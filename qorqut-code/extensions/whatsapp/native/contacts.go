@@ -40,7 +40,7 @@ func (r *receiver) contactName(ctx context.Context, aliases []types.JID, fallbac
 	if r.client == nil || r.client.Store == nil || r.client.Store.Contacts == nil {
 		return fallback
 	}
-	var first, push, business string
+	var first, push, project string
 	for _, jid := range aliases {
 		contact, err := r.client.Store.Contacts.GetContact(ctx, jid)
 		if err != nil {
@@ -56,11 +56,11 @@ func (r *receiver) contactName(ctx context.Context, aliases []types.JID, fallbac
 		if push == "" {
 			push = contact.PushName
 		}
-		if business == "" {
-			business = contact.BusinessName
+		if project == "" {
+			project = contact.BusinessName
 		}
 	}
-	for _, name := range []string{first, push, business, fallback} {
+	for _, name := range []string{first, push, project, fallback} {
 		if name != "" {
 			return name
 		}

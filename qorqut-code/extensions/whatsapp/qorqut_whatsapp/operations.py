@@ -35,7 +35,7 @@ ARGUMENTS = schema({
 }, ("chat_id", "text"))
 _ACTIVE_ORDUBASHY = (
     "SELECT 1 FROM agent_profiles ap JOIN principals pr ON pr.id=ap.agent_id "
-    "WHERE ap.agent_id=? AND ap.status='active' AND pr.active=1 AND pr.kind='agent' AND ap.home_business_id IS NULL "
+    "WHERE ap.agent_id=? AND ap.status='active' AND pr.active=1 AND pr.kind='agent' AND ap.home_project_id IS NULL "
     "AND json_extract(ap.profile_json,'$.role.id')='ordubashy' AND json_extract(ap.profile_json,'$.scope.kind')='ecosystem'")
 
 
@@ -68,10 +68,10 @@ class WhatsAppSendOperations:
 
     def _access(self, ctx, uow):
         """Exactly the bound, active, Global, non-delegated Ordubashy agent. The owner, every other agent or role, any
-        business scope and any delegated identity are refused; a role grant or a policy override cannot widen this."""
+        project scope and any delegated identity are refused; a role grant or a policy override cannot widen this."""
         ctx = self.app.current_context(ctx, uow)
         if (ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None
-                or ctx.business_id is not None or ctx.home_business_id is not None):
+                or ctx.project_id is not None or ctx.home_project_id is not None):
             raise DomainError("forbidden", "Personal WhatsApp sending is limited to the configured Global Ordubashy")
         settings = self.settings()
         if settings is None:

@@ -14,21 +14,21 @@ from .ports import ABSENT
 TABLE = 'signoff_source_links'
 SOURCE = schema({'type': {'enum': ['task', 'table', 'project', 'reference']},
     'id': {'type': 'string', 'minLength': 1, 'maxLength': 300},
-    'business_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('type', 'id', 'business_id'))
+    'project_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('type', 'id', 'project_id'))
 SCHEMA = (
     '''CREATE TABLE signoff_source_links (
  id TEXT PRIMARY KEY CHECK(length(id)=36),
  signoff_id TEXT NOT NULL REFERENCES signoffs(id),
  source_type TEXT NOT NULL CHECK(source_type IN ('task','table','project','reference')),
  source_id TEXT NOT NULL CHECK(length(source_id) BETWEEN 1 AND 300),
- source_business_id TEXT REFERENCES businesses(id),
- source_namespace TEXT NOT NULL CHECK(source_namespace=CASE WHEN source_business_id IS NULL THEN 'global' ELSE 'business:' || source_business_id END),
+ source_project_id TEXT REFERENCES projects(id),
+ source_namespace TEXT NOT NULL CHECK(source_namespace=CASE WHEN source_project_id IS NULL THEN 'global' ELSE 'project:' || source_project_id END),
  revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>=1),
  created_by TEXT NOT NULL REFERENCES principals(id),
  created_at TEXT NOT NULL,
  UNIQUE(signoff_id,source_type,source_namespace,source_id)
 )''',
-    'CREATE INDEX signoff_source_links_source ON signoff_source_links(source_type,source_id,source_business_id)',
+    'CREATE INDEX signoff_source_links_source ON signoff_source_links(source_type,source_id,source_project_id)',
     # Reuse the Signoff clock for input projections. Attaching a dependency must never revise a Task or a proposal.
     *('CREATE TRIGGER signoff_source_links_' + event + ' AFTER ' + event.upper() + ' ON signoff_source_links '
       "BEGIN UPDATE change_sequences SET value=value+1 WHERE name='signoffs'; END" for event in ('insert', 'delete', 'update')),
@@ -43,7 +43,7 @@ def storage_contribution():
 
 
 def source_key(source):
-    return (source['type'], source['id'], source['business_id'])
+    return (source['type'], source['id'], source['project_id'])
 
 
 def task_projection(task, requests, version):
@@ -67,10 +67,10 @@ class SignoffSources:
         if self.service.ports.sources is ABSENT:
             return ()
         # Both name one Signoff: its review scope is found from the id when the caller selects none.
-        common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
+        common = dict(supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
             global_capability='read_global_context', locate_scope=self.service.lookup,
-            resolve_namespace=lambda c, a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''))
-        fields = {'scope': {'enum': ['business', 'global']}, 'source': SOURCE,
+            resolve_namespace=lambda c, a: 'global' if a.get('scope') == 'global' else 'project:' + (c.project_id or ''))
+        fields = {'scope': {'enum': ['project', 'global']}, 'source': SOURCE,
                   'signoff_id': {'type': 'string', 'format': 'uuid'}}
         return tuple(OperationDescriptor(name, schema({**fields, **extra}, ('source', 'signoff_id', *required)),
             **common, description=description + ' ' + LOCATED,
@@ -94,15 +94,15 @@ class SignoffSources:
 
     def find(self, identity, source, uow):
         row = uow.connection.execute('SELECT * FROM signoff_source_links WHERE signoff_id=? AND source_type=? '
-            'AND source_id=? AND source_business_id IS ?', (identity, *source_key(source))).fetchone()
+            'AND source_id=? AND source_project_id IS ?', (identity, *source_key(source))).fetchone()
         return dict(row) if row else None
 
     def prepare(self, name, ctx, args, uow):
         if args.get('scope') == 'global':
-            ctx = replace(ctx, business_id=None, review_business_id=None)
+            ctx = replace(ctx, project_id=None, review_project_id=None)
         ctx = self.service._context(ctx, uow)
         self.service.app.authorize(ctx, self.service.app.registry.get('signoffs_get'), (), uow,
-            namespace='business:' + ctx.business_id if ctx.business_id else 'global')
+            namespace='project:' + ctx.project_id if ctx.project_id else 'global')
         row = self.service._row(ctx, args['signoff_id'], uow)
         # Unlinking a terminal request is allowed, but requires the same source and proposer/owner authority.
         if name.endswith('_link'):
@@ -129,14 +129,14 @@ class SignoffSources:
         if existing:
             return self.view(existing)
         count = uow.connection.execute('SELECT count(*) FROM signoff_source_links l JOIN signoffs s ON s.id=l.signoff_id '
-            "WHERE l.source_type=? AND l.source_id=? AND l.source_business_id IS ? AND s.state='pending' AND s.superseded_by_id IS NULL",
+            "WHERE l.source_type=? AND l.source_id=? AND l.source_project_id IS ? AND s.state='pending' AND s.superseded_by_id IS NULL",
             source_key(source)).fetchone()[0]
         if count >= 100:
             raise DomainError('result_too_large', 'Resolve or remove existing input requests before adding more to this source')
         uow.connection.execute('INSERT INTO signoff_source_links '
-            '(id,signoff_id,source_type,source_id,source_business_id,source_namespace,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',
+            '(id,signoff_id,source_type,source_id,source_project_id,source_namespace,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',
             (link_id or new_id(), identity, *source_key(source),
-             'business:' + source['business_id'] if source['business_id'] else 'global', ctx.principal_id, self.service.clock()))
+             'project:' + source['project_id'] if source['project_id'] else 'global', ctx.principal_id, self.service.clock()))
         return self.view(self.find(identity, source, uow))
 
     def apply(self, ctx, plan, uow):
@@ -155,7 +155,7 @@ class SignoffSources:
     @staticmethod
     def view(row):
         return {'id': row['id'], 'revision': row['revision'], 'signoff_id': row['signoff_id'],
-                'source': {'type': row['source_type'], 'id': row['source_id'], 'business_id': row['source_business_id']}}
+                'source': {'type': row['source_type'], 'id': row['source_id'], 'project_id': row['source_project_id']}}
 
     def pending(self, ctx, sources, uow):
         """Batch indexed dependencies; canonical Signoff policy independently protects each review scope.
@@ -169,31 +169,31 @@ class SignoffSources:
         candidates = []
         for offset in range(0, len(sources), 150):
             batch = sources[offset:offset + 150]
-            wanted = ' OR '.join('(l.source_type=? AND l.source_id=? AND l.source_business_id IS ?)' for _ in batch)
-            candidates.extend(uow.connection.execute('SELECT l.*,s.review_business_id,s.created_at AS requested_at FROM signoff_source_links l '
+            wanted = ' OR '.join('(l.source_type=? AND l.source_id=? AND l.source_project_id IS ?)' for _ in batch)
+            candidates.extend(uow.connection.execute('SELECT l.*,s.review_project_id,s.created_at AS requested_at FROM signoff_source_links l '
                 'JOIN signoffs s ON s.id=l.signoff_id WHERE (' + wanted + ") AND s.state='pending' AND s.superseded_by_id IS NULL ORDER BY s.created_at,l.id",
                 [value for source in batch for value in source_key(source)]).fetchall())
         visible = self.readable(ctx, candidates, uow)
         for row in candidates:
             entry = {'link_id': row['id'], 'link_revision': row['revision']}
             if row['signoff_id'] in visible:
-                entry.update(type='signoff', id=row['signoff_id'], business_id=row['review_business_id'],
+                entry.update(type='signoff', id=row['signoff_id'], project_id=row['review_project_id'],
                              title=visible[row['signoff_id']], created_at=row['requested_at'])
             else:
                 entry['unavailable'] = True
-            result[(row['source_type'], row['source_id'], row['source_business_id'])].append(entry)
+            result[(row['source_type'], row['source_id'], row['source_project_id'])].append(entry)
         return result
 
     def readable(self, ctx, candidates, uow):
         """``{signoff id: title}`` of the candidate rows' Signoffs the caller may read, each judged in its own review scope."""
         visible = {}
-        for business in {row['review_business_id'] for row in candidates}:
+        for project in {row['review_project_id'] for row in candidates}:
             try:
-                selected = self.service._context(replace(ctx, business_id=business, review_business_id=business), uow)
+                selected = self.service._context(replace(ctx, project_id=project, review_project_id=project), uow)
                 self.service.app.authorize(selected, self.service.app.registry.get('signoffs_get'), (), uow,
-                    namespace='business:' + business if business else 'global')
+                    namespace='project:' + project if project else 'global')
                 where, params = self.service._visibility(selected, uow)
-                ids = list({row['signoff_id'] for row in candidates if row['review_business_id'] == business})
+                ids = list({row['signoff_id'] for row in candidates if row['review_project_id'] == project})
                 for offset in range(0, len(ids), 400):
                     batch = ids[offset:offset + 400]
                     for row in uow.connection.execute('SELECT s.id,json_extract(s.preview_json,\'$.title\') AS title FROM signoffs s WHERE '
@@ -214,23 +214,23 @@ class SignoffSources:
         candidates = []
         for offset in range(0, len(sources), 150):
             batch = sources[offset:offset + 150]
-            wanted = ' OR '.join('(l.source_type=? AND l.source_id=? AND l.source_business_id IS ?)' for _ in batch)
+            wanted = ' OR '.join('(l.source_type=? AND l.source_id=? AND l.source_project_id IS ?)' for _ in batch)
             candidates.extend(uow.connection.execute(
-                'SELECT l.source_type,l.source_id,l.source_business_id,l.signoff_id,s.review_business_id,s.state,s.decision_json,'
+                'SELECT l.source_type,l.source_id,l.source_project_id,l.signoff_id,s.review_project_id,s.state,s.decision_json,'
                 "coalesce(json_extract(s.decision_json,'$.at'),s.updated_at) AS decided_at FROM signoff_source_links l "
                 'JOIN signoffs s ON s.id=l.signoff_id WHERE (' + wanted
                 + ") AND s.decision_json IS NOT NULL AND s.state<>'pending'",
                 [value for source in batch for value in source_key(source)]).fetchall())
         visible, result = self.readable(ctx, candidates, uow), {}
         for row in sorted(candidates, key=lambda row: (row['decided_at'], row['signoff_id']), reverse=True):
-            key = (row['source_type'], row['source_id'], row['source_business_id'])
+            key = (row['source_type'], row['source_id'], row['source_project_id'])
             if key in result:
                 continue
             if row['signoff_id'] not in visible:
                 result[key] = {'unavailable': True}
                 continue
             decision = json.loads(row['decision_json'])
-            result[key] = {'type': 'signoff', 'id': row['signoff_id'], 'business_id': row['review_business_id'],
+            result[key] = {'type': 'signoff', 'id': row['signoff_id'], 'project_id': row['review_project_id'],
                            'title': visible[row['signoff_id']], 'state': row['state'], 'decided_at': row['decided_at'],
                            # What was chosen, in short; the full response is the Signoff's own.
                            **{name: decision[name] for name in ('kind', 'selected_choices') if decision.get(name) is not None}}
@@ -239,7 +239,7 @@ class SignoffSources:
     def project_tasks(self, ctx, tasks, uow):
         if self.service.ports.sources is ABSENT:
             return tasks
-        sources = [{'type': 'task', 'id': task['id'], 'business_id': task['business_id']} for task in tasks]
+        sources = [{'type': 'task', 'id': task['id'], 'project_id': task['project_id']} for task in tasks]
         pending = self.pending(ctx, sources, uow)
         version = uow.connection.execute("SELECT value FROM change_sequences WHERE name='signoffs'").fetchone()[0]
         return [task_projection(task, pending[source_key(source)], version) for task, source in zip(tasks, sources)]

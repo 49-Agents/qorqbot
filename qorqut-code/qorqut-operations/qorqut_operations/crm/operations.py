@@ -63,7 +63,7 @@ class CRMOperations:
     # -- registration ----------------------------------------------------------------------------------------------
 
     def register(self, registry):
-        table_scope = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
+        table_scope = dict(scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
                            resolve_namespace=table_namespace)
         task_scope = {**table_scope, "resolve_namespace": task_namespace}
         create = {key: value for key, value in plain(next(d for d in self.tasks.descriptors() if d.name == "tasks_create")

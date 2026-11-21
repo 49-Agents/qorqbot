@@ -47,7 +47,7 @@ PROJECTS_DIRECTORY = "projects"
 # The directory below ``operations`` that holds the operator-editable working material of optional instruction packages.
 EXTENSIONS_DIRECTORY = "extensions"
 
-# One path segment for a registered business folder or an agent identity. Registered v1 identifiers (UUIDs) are
+# One path segment for a registered project folder or an agent identity. Registered v1 identifiers (UUIDs) are
 # kept at their full length; the character set excludes separators, traversal and hidden names.
 SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
@@ -207,21 +207,21 @@ class InstancePaths:
         except KeyError:
             raise InstancePathError(f"component {name} is not configured") from None
 
-    def business_root(self, folder: str) -> Path:
+    def project_root(self, folder: str) -> Path:
         """The registered project's folder."""
         return self._checked(self._operations / PROJECTS_DIRECTORY / _segment(folder, "project folder"))
 
-    def business_hq(self, folder: str) -> Path:
-        return self._checked(self.business_root(folder) / "hq")
+    def project_hq(self, folder: str) -> Path:
+        return self._checked(self.project_root(folder) / "hq")
 
-    def business_code(self, folder: str) -> Path:
-        return self._checked(self.business_root(folder) / "code")
+    def project_code(self, folder: str) -> Path:
+        return self._checked(self.project_root(folder) / "code")
 
-    def agent_workspace(self, agent_id: str, *, business_folder: str | None = None) -> Path:
+    def agent_workspace(self, agent_id: str, *, project_folder: str | None = None) -> Path:
         """Resolve identity; only an explicitly mapped Ordubashy or Learning Applier uses a readable folder name; workers keep UUID folders."""
         agent = _segment(agent_id, "agent id")
-        base = self._operations if business_folder is None else self.business_root(business_folder)
-        if business_folder is None:
+        base = self._operations if project_folder is None else self.project_root(project_folder)
+        if project_folder is None:
             agent = self.global_agent_workspaces().get(agent, agent)
         return self._checked(base / "agents" / agent)
 
@@ -253,11 +253,11 @@ class InstancePaths:
         except (ValueError, TypeError, AttributeError):
             raise InstancePathError("Invalid fixed global-agent workspace mapping") from None
 
-    def agent_files(self, agent_id: str, *, business_folder: str | None = None) -> Path:
-        return self._checked(self.agent_workspace(agent_id, business_folder=business_folder) / "files")
+    def agent_files(self, agent_id: str, *, project_folder: str | None = None) -> Path:
+        return self._checked(self.agent_workspace(agent_id, project_folder=project_folder) / "files")
 
-    def agent_transcripts(self, agent_id: str, *, business_folder: str | None = None) -> Path:
-        return self._checked(self.agent_workspace(agent_id, business_folder=business_folder) / "transcripts")
+    def agent_transcripts(self, agent_id: str, *, project_folder: str | None = None) -> Path:
+        return self._checked(self.agent_workspace(agent_id, project_folder=project_folder) / "transcripts")
 
     def _checked(self, path: Path) -> Path:
         """Refuse a derived path whose existing parts include a symlink; unwritten paths cannot escape.

@@ -1,7 +1,7 @@
 """Owner-only HTTP surface: /api/root/agents/<uuid>/chat/...
 
 Mounted by the shared transport after owner authentication. ``root`` is only the transport: the resource is the exact agent
-UUID, global or business. An agent bearer credential is refused outright, an agent that is not an active registered profile is
+UUID, global or project. An agent bearer credential is refused outright, an agent that is not an active registered profile is
 not found, and a read never starts or resumes anything. The conversation is derived from the transcript archive; the response
 shapes are described in ``docs/v1.2/NATIVE_CHAT_DTO.md``.
 

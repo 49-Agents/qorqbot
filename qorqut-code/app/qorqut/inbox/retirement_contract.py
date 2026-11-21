@@ -5,7 +5,7 @@ and the host's retirement-backlog reader (``qorqut/inbox/retirement_backlog.py``
 validates the stored record against the same shapes; a focused test pins the two copies together.
 
 One migration-owned system thread entry on the one Global backlog Task carries the frozen lookup manifest in its immutable
-``attribution_json`` under ``MANIFEST_KEY``: identities only (message, event, recipient, business and finding keys), never a
+``attribution_json`` under ``MANIFEST_KEY``: identities only (message, event, recipient, project and finding keys), never a
 body, credential or alternate copy of a private message. Each moved Task gets one deterministic system notice of its own."""
 
 from qorqut_agentic.behavior.seeds import runtime_text as runtime_seed
@@ -25,7 +25,7 @@ FINDING_CODE = "work_review_missing"
 MAX_ENTRIES = 2000
 MAX_FINDINGS = 50
 SUMMARY_LIMIT = 500
-ENTRY_KEYS = ("message_id", "event_id", "recipient_agent_id", "business_id")
+ENTRY_KEYS = ("message_id", "event_id", "recipient_agent_id", "project_id")
 FINDING_KEYS = ("agent_id", "check_key")
 # Engine-shaped change record of a Task thread's system entry for a change of details without a state change.
 NOTICE_CHANGE = '{"details": true, "from": null, "to": null}'
@@ -49,10 +49,10 @@ def backlog_ids(installation_id):
     return {name: str(uuid.uuid5(base, name)) for name in ("task", "assigned_to", "system-entry")}
 
 
-def notice_entry_id(installation_id, business_id, task_id):
-    """The one handoff notice entry of a moved Task; Task ids are scoped, so the business is part of the name."""
+def notice_entry_id(installation_id, project_id, task_id):
+    """The one handoff notice entry of a moved Task; Task ids are scoped, so the project is part of the name."""
     base = uuid.uuid5(uuid.UUID(installation_id), NOTICE_NAMESPACE)
-    return str(uuid.uuid5(base, f"{business_id}/{task_id}/assignment_changed"))
+    return str(uuid.uuid5(base, f"{project_id}/{task_id}/assignment_changed"))
 
 
 def manifest(installation_id, cohort, entries, findings):

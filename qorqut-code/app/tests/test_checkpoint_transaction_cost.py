@@ -22,7 +22,7 @@ class CheckpointTests(unittest.TestCase):
                 self.connection.execute(statement)
         self.connection.execute('CREATE TABLE native_session_owners(agent_id,consumer_id,generation)')
         self.agent, self.registration, self.session, self.turn = (str(uuid4()) for _ in range(4))
-        self.ctx = NS(principal_id=self.agent, principal_kind='agent', business_id=None, inbox_generation=1)
+        self.ctx = NS(principal_id=self.agent, principal_kind='agent', project_id=None, inbox_generation=1)
         self.connection.execute('INSERT INTO native_session_owners VALUES(?,?,1)', (self.agent, self.session))
         self.row = {'session_id': self.session, 'registration_id': self.registration, 'runtime': 'claude-code',
                     'items_json': [], 'work_reviewed_turn': None, 'work_reviewed_sequence': 0}

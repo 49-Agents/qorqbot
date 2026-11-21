@@ -41,7 +41,7 @@ class OpenRouterOperations:
         """The configured Ordubashy, in the Global scope. Resolved from the authoritative profile, never from a caller
         field; a role grant or a policy override cannot widen this."""
         refusal = DomainError("forbidden", "OpenRouter status is for Ordubashy")
-        if ctx.principal_kind != "agent" or ctx.business_id is not None or ctx.home_business_id is not None:
+        if ctx.principal_kind != "agent" or ctx.project_id is not None or ctx.home_project_id is not None:
             raise refusal
         from qorqut.management import ManagementService
         profile, _ = self.runtime.resolver.profile(ctx.principal, connection=uow.connection)

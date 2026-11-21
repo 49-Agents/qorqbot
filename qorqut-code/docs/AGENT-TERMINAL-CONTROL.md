@@ -63,7 +63,7 @@ The lifecycle tools and command issuance accept any mix of:
 
 - `target_agent_id`: one registered agent UUID.
 - `target_agent_ids`: a nonempty list of agent UUIDs.
-- `business_ids`: a nonempty list of project UUIDs. Projects have no resident
+- `project_ids`: a nonempty list of project UUIDs. Projects have no resident
   agents, so this adds no targets; an archived or out-of-scope project is
   refused.
 

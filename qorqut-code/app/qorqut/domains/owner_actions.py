@@ -10,7 +10,7 @@ from qorqut_agentic.behavior.tool_help import text as instruction_text
 import json
 
 from qorqut.agents.engineering import validate_authority
-from qorqut.agents.global_scope import reaches_business
+from qorqut.agents.global_scope import reaches_project
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, utc_clock
@@ -40,12 +40,12 @@ class OwnerActions:
             prepare=self.prepare, apply=self.apply, validate_targets=self.guard))
 
     def guard(self, ctx, plan, uow):
-        if (ctx.principal_kind != "agent" or ctx.home_business_id is not None
+        if (ctx.principal_kind != "agent" or ctx.home_project_id is not None
                 or ctx.role_artifact_ref is None or ctx.role_artifact_ref.id != "ordubashy"
-                or not ctx.business_id or ctx.business_id not in ctx.allowed_business_ids):
+                or not ctx.project_id or ctx.project_id not in ctx.allowed_project_ids):
             raise DomainError("forbidden", "Only scoped Global Ordubashy can propose delegated owner actions")
         # Derived reach of the active global, not an agent membership row.
-        if not reaches_business(uow.connection, ctx.principal_id, ctx.business_id):
+        if not reaches_project(uow.connection, ctx.principal_id, ctx.project_id):
             raise DomainError("forbidden", "Delegated owner actions require current project reach")
 
     def prepare(self, ctx, args, options, uow):
@@ -53,7 +53,7 @@ class OwnerActions:
         if not args["rationale"].strip():
             raise DomainError("validation_error", "Explain the requested owner action")
         action, parameters = args["action"], plain(args["parameters"])
-        before = uow.repository("businesses").get(ctx.business_id, required=True)
+        before = uow.repository("projects").get(ctx.project_id, required=True)
         require_revision(before, options.expected_revision)
         config = plain(before["config_json"])
         if action == ENGINEERING:
@@ -64,7 +64,7 @@ class OwnerActions:
         else:
             raise DomainError("validation_error", "Unsupported delegated owner action")
         builder = PlanBuilder(ctx, OPERATION, args, "Update " + before["name"] + " " + key + " settings", clock=self.clock)
-        builder.record("businesses", ctx.business_id, before, {"config_json": {**config, key: updated}}, label=before["name"])
+        builder.record("projects", ctx.project_id, before, {"config_json": {**config, key: updated}}, label=before["name"])
         # The existing Signoff UI renders effects, not the structured field diff.
         # The actual values must be visible independently of agent-authored prose.
         prior = config.get(key) or {}
@@ -78,6 +78,6 @@ class OwnerActions:
         self.guard(ctx, plan, uow)
         apply_records(ctx, plan, uow)
         action = plan.arguments["action"]
-        business = uow.repository("businesses").get(ctx.business_id, required=True)
+        project = uow.repository("projects").get(ctx.project_id, required=True)
         key = "engineering"
-        return {"action": action, "business_id": ctx.business_id, "revision": business["revision"], key: business["config_json"][key]}
+        return {"action": action, "project_id": ctx.project_id, "revision": project["revision"], key: project["config_json"][key]}

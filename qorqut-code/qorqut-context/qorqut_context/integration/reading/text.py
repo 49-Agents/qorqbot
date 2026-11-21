@@ -7,7 +7,7 @@ them, and the list read as if it were what is known. When the graph has a person
 that record's facts, within their own bound, so every agent starts with what the owner already said about themselves
 and does not ask for it again. It states plainly the states that are not a graph (``not_initialized``,
 ``unavailable``) or an empty one. The published graph is shared by every registered agent, so the text never depends
-on who asks or on a business; the business argument exists only to satisfy the host's text-provider call shape and is
+on who asks or on a project; the project argument exists only to satisfy the host's text-provider call shape and is
 ignored. Rendering never raises: a failed read is reported as ``unavailable`` text, never as an empty graph."""
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ def render_home(dto, *, characters=MAX_CHARACTERS, types=None) -> str:
 
 
 class PublishedContextText:
-    """The host's ``home_text(business_id)`` provider over one shared reader."""
+    """The host's ``home_text(project_id)`` provider over one shared reader."""
 
     def __init__(self, reader: SharedContextReader, *, characters=MAX_CHARACTERS):
         if not isinstance(reader, SharedContextReader):
@@ -124,7 +124,7 @@ class PublishedContextText:
         """The reader's readiness (``ready`` / ``not_initialized`` / ``unavailable``) for callers that report it."""
         return self.reader.status()
 
-    def home_text(self, business_id=None) -> str:
+    def home_text(self, project_id=None) -> str:
         types = None
         try:
             dto = self.reader.home(limit=1)

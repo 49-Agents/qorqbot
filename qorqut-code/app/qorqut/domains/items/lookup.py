@@ -14,7 +14,7 @@ class HostLookup:
         return None
 
     def current_agent(self, uow, row):
-        return row["home_business_id"] is None and active_global(uow.connection, row["agent_id"]) is not None
+        return row["home_project_id"] is None and active_global(uow.connection, row["agent_id"]) is not None
 
     def fallback_subtype(self, table, row):
         return None

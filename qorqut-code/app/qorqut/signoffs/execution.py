@@ -32,7 +32,7 @@ def execution_sql(alias):
         WHEN json_extract(s.execution_json, '$.state') IS NOT NULL THEN
             CASE WHEN json_extract(s.execution_json, '$.state') = 'dispatched' AND EXISTS (
                 SELECT 1 FROM jobs j WHERE j.id=json_extract(s.execution_json, '$.reconcile_job_id')
-                    AND j.business_id=s.review_business_id AND j.state IN ('failed','cancelled'))
+                    AND j.project_id=s.review_project_id AND j.state IN ('failed','cancelled'))
             THEN 'reconciliation_required' ELSE json_extract(s.execution_json, '$.state') END
         WHEN s.superseded_by_id IS NOT NULL OR s.state = 'rejected' THEN 'canceled'
         WHEN s.state = 'pending' THEN 'awaiting_approval'
@@ -41,5 +41,5 @@ def execution_sql(alias):
             WHEN json_extract(j.result_json, '$.dispatch_intent') IS NOT NULL THEN 'reconciliation_required'
             WHEN j.state = 'failed' THEN 'failed'
             WHEN j.state = 'cancelled' THEN 'canceled' ELSE 'queued' END
-            FROM jobs j WHERE j.id=s.execution_job_id AND j.business_id=s.review_business_id), 'queued')
+            FROM jobs j WHERE j.id=s.execution_job_id AND j.project_id=s.review_project_id), 'queued')
         ELSE s.state END)"""

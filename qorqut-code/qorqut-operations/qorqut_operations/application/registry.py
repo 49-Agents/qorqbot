@@ -71,7 +71,7 @@ class OperationDescriptor:
     alias_bindings: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     effect_kind: str = "records"
     supports_signoff: bool = True
-    scope_kinds: frozenset[str] = field(default_factory=lambda: frozenset({"business"}))
+    scope_kinds: frozenset[str] = field(default_factory=lambda: frozenset({"project"}))
     exposure: frozenset[str] = field(default_factory=lambda: frozenset({"mcp", "dashboard", "worker"}))
     owner_only: bool = False
     # Selected dashboard/worker routes may be callable through the
@@ -111,7 +111,7 @@ class OperationDescriptor:
     transport_only: bool = False
     # Read-only widening of the Global gate. A caller in the global namespace is admitted when it holds
     # ``global_capability`` OR one capability named here. The primary stays required of every declaration (it is what
-    # business policy, catalogs and bindings continue to name); an empty set, the default, leaves a descriptor exactly as
+    # project policy, catalogs and bindings continue to name); an empty set, the default, leaves a descriptor exactly as
     # before. Allowed only on a plain read with no composed effects, never on a mutation or platform action.
     global_read_capability_alternatives: frozenset[str] = field(default_factory=frozenset)
     # The standing mode an operation takes when neither the agent's explicit override nor its role default names it.
@@ -160,7 +160,7 @@ class OperationDescriptor:
             raise ValueError("Alias grants and bindings must refer to declared aliases")
         object.__setattr__(self, "plugin_aliases", freeze(self.plugin_aliases))
         object.__setattr__(self, "alias_bindings", freeze(self.alias_bindings))
-        if not self.scope_kinds or not self.scope_kinds <= {"business", "global", "agent_workspace"}:
+        if not self.scope_kinds or not self.scope_kinds <= {"project", "global", "agent_workspace"}:
             raise ValueError("Unknown operation scope kind")
         alternatives = self.global_read_capability_alternatives
         if isinstance(alternatives, (str, bytes)):
@@ -204,7 +204,7 @@ class OperationDescriptor:
         return evidence
 
     @cached_property
-    def business_policy(self):
+    def project_policy(self):
         """Reuse immutable operation metadata; authority is still resolved per call."""
         return (replace(self, global_capability=None, global_read_capability_alternatives=frozenset())
                 if self.global_capability else self)

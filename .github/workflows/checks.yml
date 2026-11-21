@@ -96,7 +96,7 @@ jobs:
         with:
           node-version: '24'
       - name: Run dashboard Node tests
-        run: node --test --test-concurrency=2 qorqut-code/biz-dashboard/tests/*.test.js
+        run: node --test --test-concurrency=2 qorqut-code/dashboard/tests/*.test.js
 
   distribution:
     needs: changes

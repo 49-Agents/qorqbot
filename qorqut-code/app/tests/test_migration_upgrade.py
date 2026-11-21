@@ -329,7 +329,7 @@ class UpgradeTests(unittest.TestCase):
     def test_revert_keeps_delivery_records_unless_told_to_drop_them(self):
         upgrade.apply(self.connection, self.extensions)
         self.connection.execute('PRAGMA foreign_keys=OFF')
-        self.connection.execute("INSERT INTO timeline_deliveries(agent_id,conversation_id,item_type,item_id,business_id,revision,delivered_at) "
+        self.connection.execute("INSERT INTO timeline_deliveries(agent_id,conversation_id,item_type,item_id,project_id,revision,delivered_at) "
                                 "VALUES('agent','conversation','global','global','',1,'now')")
         target = read_objects(self.connection)
         self.assertEqual(upgrade.inspect(self.connection, self.extensions)['held_rows'][DELIVERIES], 1)
@@ -347,7 +347,7 @@ class UpgradeTests(unittest.TestCase):
         before = read_objects(self.connection)
         upgrade.apply(self.connection, self.extensions)
         self.connection.execute('PRAGMA foreign_keys=OFF')
-        self.connection.execute("INSERT INTO table_moves(move_id,table_id,source_business_id,destination_business_id,revision_before,"
+        self.connection.execute("INSERT INTO table_moves(move_id,table_id,source_project_id,destination_project_id,revision_before,"
                                 "actor_id,moved_at) VALUES(?,?,?,?,1,'actor','now')", ('m' * 36, 'table', 'a', 'b'))
         with self.assertRaises(DomainError):
             upgrade.revert(self.connection, self.extensions, to=DELIVERIES)

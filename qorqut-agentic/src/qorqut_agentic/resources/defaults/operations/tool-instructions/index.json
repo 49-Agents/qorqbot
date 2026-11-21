@@ -147,18 +147,18 @@
       "line": 28
     },
     {
-      "id": "business-briefing-one-bounded-snapshot-of-a-project-the",
-      "source": "qorqut-code/app/qorqut/domains/business_briefing.py",
+      "id": "project-briefing-one-bounded-snapshot-of-a-project-the",
+      "source": "qorqut-code/app/qorqut/domains/project_briefing.py",
       "line": 18
     },
     {
-      "id": "business-progress-owner-read-all-time-recorded-totals-and",
-      "source": "qorqut-code/app/qorqut/domains/business_progress.py",
+      "id": "project-progress-owner-read-all-time-recorded-totals-and",
+      "source": "qorqut-code/app/qorqut/domains/project_progress.py",
       "line": 29
     },
     {
-      "id": "business-progress-owner-daily-installation-local-counts-across-authorized",
-      "source": "qorqut-code/app/qorqut/domains/business_progress.py",
+      "id": "project-progress-owner-daily-installation-local-counts-across-authorized",
+      "source": "qorqut-code/app/qorqut/domains/project_progress.py",
       "line": 34
     },
     {
@@ -272,12 +272,12 @@
       "line": 37
     },
     {
-      "id": "compose-the-actual-project-uuid-on-a-business-route",
+      "id": "compose-the-actual-project-uuid-on-a-project-route",
       "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 35
     },
     {
-      "id": "compose-business-on-the-project-route-global-from-the",
+      "id": "compose-project-on-the-project-route-global-from-the",
       "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 37
     },
@@ -1737,7 +1737,7 @@
       "line": 90
     },
     {
-      "id": "operations-list-your-own-notes-with-target-business-id",
+      "id": "operations-list-your-own-notes-with-target-project-id",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
       "line": 91
     },
@@ -1747,7 +1747,7 @@
       "line": 92
     },
     {
-      "id": "operations-create-your-private-note-with-target-business-id",
+      "id": "operations-create-your-private-note-with-target-project-id",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
       "line": 93
     },

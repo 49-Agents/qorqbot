@@ -19,7 +19,7 @@ before any `/integrations/*` route accepts a request.
     "secret": "<random, at least 32 ASCII characters>",
     "workflow_owner": "outreach",
     "allowed_mailboxes": ["mailbox-a"],
-    "business_ids": ["<registered business UUID>"],
+    "project_ids": ["<registered project UUID>"],
     "handoff_destinations": ["qorqut"]
   }
 ]
@@ -28,8 +28,8 @@ before any `/integrations/*` route accepts a request.
 `client_id` and `workflow_owner` match `^[A-Za-z0-9_-]{1,60}$`. `secret` is
 32-200 ASCII characters, unique across every read/send/admin token and every
 other integration client. `allowed_mailboxes` must be non-empty and every ref
-must already be a registered mailbox; `business_ids` is optional and, when
-set, must be a subset of the businesses those mailboxes belong to.
+must already be a registered mailbox; `project_ids` is optional and, when
+set, must be a subset of the projects those mailboxes belong to.
 `handoff_destinations` is optional (default `[]`), a list of other
 `workflow_owner`-shaped strings this client is allowed to hand a thread off
 to via `POST /integrations/threads/{id}/handoff`; see that route below. File
@@ -42,7 +42,7 @@ against every configured client (never the read/send/admin pool, so a legacy
 token cannot call an `/integrations/*` route, and an integration secret cannot
 call a legacy route). As with every other credential in this service, `token`
 in the query string is refused outright and no token is ever logged. A client
-can act only through its own `allowed_mailboxes`/`business_ids` scope; the
+can act only through its own `allowed_mailboxes`/`project_ids` scope; the
 service enforces this on every route, not just at submission.
 
 ## Routes
@@ -66,15 +66,15 @@ intent submit, 64 KiB for handoff). Unknown fields are rejected
   "intent_id": "camp-1-enr-1-step-0",
   "message": {
     "request_id": "<ignored; the server derives the ledger key>",
-    "business_id": "business-a", "mailbox": "mailbox-a",
-    "from_address": "hello@biz-a.example", "to": ["prospect@example.test"],
+    "project_id": "project-a", "mailbox": "mailbox-a",
+    "from_address": "hello@project-a.example", "to": ["prospect@example.test"],
     "subject": "...", "body": "...", "expires_at": "2026-10-01T00:00:00+00:00"
   },
   "correlation": {
-    "workflow_owner": "outreach", "account_id": "acct-1", "business_id": "business-a",
+    "workflow_owner": "outreach", "account_id": "acct-1", "project_id": "project-a",
     "campaign_id": "camp-1", "enrollment_id": "enr-1", "step_index": 0,
     "manifest_digest": "sha256:...",
-    "stop_key": {"contact_key": "prospect@example.test", "business_id": "business-a"}
+    "stop_key": {"contact_key": "prospect@example.test", "project_id": "project-a"}
   },
   "category": "cold_outreach",
   "expires_at": "2026-10-01T00:00:00+00:00"
@@ -98,7 +98,7 @@ so the reply-stop guard's pre-send check always has a real window to act in
 before any provider call. Validation failures are `400 invalid_intent` /
 `invalid_message` (with a `fields` list) / `invalid_intent_request` depending
 on which layer rejected it (envelope schema, wrapped-message schema, or
-cross-field business rule such as an out-of-scope mailbox or a mismatched
+cross-field project rule such as an out-of-scope mailbox or a mismatched
 `expires_at`).
 
 ### Idempotency and conflicts
@@ -189,10 +189,10 @@ recorded yet", not "will never be recorded".
 
 ## Reply-stop guard
 
-Keyed on `(stop_key.contact_key, stop_key.business_id)` — the contact/business
+Keyed on `(stop_key.contact_key, stop_key.project_id)` — the contact/project
 scope, deliberately not the workflow owner, so a reply to either producer's
 cold message silences the other producer's pending cold sends to that contact
-for that business. `workflow_owner` is still recorded on the stop for
+for that project. `workflow_owner` is still recorded on the stop for
 attribution and on the reply annotation. A stop record is written in the same
 transaction as a correlated inbound reply (`EmailService.sync` ->
 `Store.correlate_replies`, run once per mailbox at the end of every completed
@@ -213,13 +213,13 @@ un-trigger it.
 The worker's final send claim (`EmailService.start_send`, before any provider
 call, before capacity reservation) checks the guard for every send whose
 ledger row is still `queued`; the check keys off the *same*
-`(contact_key, business_id)` scope, so it cancels every other pending
+`(contact_key, project_id)` scope, so it cancels every other pending
 `cold_outreach` send that shares that scope — envelope intent or labelled
 legacy `/sends` row alike, whatever their workflow owners — not just the send
 whose reply triggered the guard. Ordinary/conversational sends
 (`Outgoing.category` unset or `"conversational"`, and any legacy `/sends`
 submission without the label) are never touched by the guard. The underlying
-`integration_stops` table is unique per `(contact_key, business_id)`; the
+`integration_stops` table is unique per `(contact_key, project_id)`; the
 write is idempotent (`INSERT OR IGNORE`) and keeps the owner that triggered
 the first stop.
 
@@ -232,13 +232,13 @@ message with three additional `Outgoing` fields:
 {
   "category": "cold_outreach",
   "workflow_owner": "qorqut",
-  "stop_key": {"contact_key": "prospect@example.test", "business_id": "business-a"}
+  "stop_key": {"contact_key": "prospect@example.test", "project_id": "project-a"}
 }
 ```
 
 `workflow_owner` follows the envelope's pattern; `stop_key` is the envelope's
-`StopKey` shape, and its `business_id` must equal the message's own
-`business_id`. `category: "cold_outreach"` without both fields is rejected as
+`StopKey` shape, and its `project_id` must equal the message's own
+`project_id`. `category: "cold_outreach"` without both fields is rejected as
 `400 invalid_message` (the legacy route's existing validation shape); the two
 label fields are likewise rejected when `category` is unset or
 `"conversational"`, so a producer cannot half-label a send and silently
@@ -249,7 +249,7 @@ unaffected and a labelled row carries the unchanged `Store.receipt` shape.
 The Qorqut cold-outbound-marketing batch producer is the implemented caller:
 in `qorqut/background/fastmail_batch.py::_specification` every message the
 batch books gets `workflow_owner: "qorqut"` and a `stop_key` built from the
-recipient's normalized address plus the business ID. Conversational and human
+recipient's normalized address plus the project ID. Conversational and human
 sends through the same `EmailDelivery` path stay unlabelled. Engine-email must
 accept these fields before the Qorqut producer emits them, so the engine
 deploys first.
@@ -302,7 +302,7 @@ A first-time call must also own the SOURCE: `thread_or_message_id` must
 already have a recorded reply correlation (in the caller's
 `allowed_mailboxes`) whose current `workflow_owner` equals the caller's own
 `workflow_owner`, and, when that correlation traces to an envelope intent,
-that intent's `client_id` (and business, if `business_ids` is set) must be
+that intent's `client_id` (and project, if `project_ids` is set) must be
 this same client. Destination legality is not proof of owning the source
 conversation; a client sharing a mailbox with another producer must not be
 able to reassign that producer's correlation.
@@ -355,7 +355,7 @@ for that `thread_or_message_id` (in the caller's `allowed_mailboxes`) has its
 `c_owner` annotation re-pointed to the destination, in the same transaction,
 with the same revision-bump `GET /mailboxes/{mailbox}/messages` re-delivery
 described below for a newly recorded correlation. The reply-stop guard's
-`(contact_key, business_id)` scope is untouched by a handoff.
+`(contact_key, project_id)` scope is untouched by a handoff.
 
 ## Capacity sharing
 
@@ -434,7 +434,7 @@ the server from the envelope correlation rather than by the caller.
    idempotency key are byte-identical, matching "repeated calls return the
    same result" literally.
 9. **Guard scope**: the guard cancels every pending `cold_outreach` send
-   sharing the same `(contact_key, business_id)` scope, across every workflow
+   sharing the same `(contact_key, project_id)` scope, across every workflow
    owner and both submission paths, not only the send whose reply triggered
    it — a contact who replies mid-sequence should stop the whole sequence,
    and a reply to one producer must stop the other producer's sends.
@@ -442,8 +442,8 @@ the server from the envelope correlation rather than by the caller.
    accepts and guards the legacy `/sends` label described above; the Qorqut
    cold-batch producer sets it in
    `qorqut/background/fastmail_batch.py::_specification`.
-11. **Sender/business validation timing**: `submit_intent` fails fast on an
-   unresolvable sender/business combination (mirroring the legacy `/sends`
+11. **Sender/project validation timing**: `submit_intent` fails fast on an
+   unresolvable sender/project combination (mirroring the legacy `/sends`
    validation) rather than leaving a doomed row queued for the worker to
    discover later.
 12. **Handoff `workflow_owner` is the destination**: a producer submits
@@ -490,36 +490,36 @@ the server from the envelope correlation rather than by the caller.
 
 ## Managed outreach routes
 
-A shared sender can serve many businesses while every message stays filed in
-its real business. The trusted core service (admin token only, never an
+A shared sender can serve many projects while every message stays filed in
+its real project. The trusted core service (admin token only, never an
 integration secret or agent) calls:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/integrations/routes/ensure` | Create or re-drive one client/business route (idempotent). |
+| POST | `/integrations/routes/ensure` | Create or re-drive one client/project route (idempotent). |
 | POST | `/integrations/routes/deactivate` | Stop new submissions; cancel queued ones. |
 | GET | `/integrations/routes?client_id=` | List a client's routes. |
-| GET | `/integrations/routes/{business_id}?client_id=` | Read one route. |
+| GET | `/integrations/routes/{project_id}?client_id=` | Read one route. |
 
-`ensure` takes `request_id`, `client_id`, `business_id`, `sender_ref`,
-`generation` (monotonic per business), optional `active` (default `true`) and
+`ensure` takes `request_id`, `client_id`, `project_id`, `sender_ref`,
+`generation` (monotonic per project), optional `active` (default `true`) and
 optional `mailbox_ref` for an explicit verified reuse of an existing mailbox
-of that business. Without `mailbox_ref` the route gets its own archive-only
-mailbox `oa-<hash>` (deterministic per client and business). `deactivate`
-takes `request_id`, `client_id`, `business_id`, `generation`.
+of that project. Without `mailbox_ref` the route gets its own archive-only
+mailbox `oa-<hash>` (deterministic per client and project). `deactivate`
+takes `request_id`, `client_id`, `project_id`, `generation`.
 
-Responses carry `route_id`, `revision`, `generation`, `business_id`,
+Responses carry `route_id`, `revision`, `generation`, `project_id`,
 `mailbox_ref`, `purpose`, `sender_ref`, `active`, `state`
 (`provisioning`/`ready`/`uncertain`/`failed`/`disabled`), `ready`,
 `blocker` and `receipt` (`request_id`, plus `folder_operation` when a folder
 create ran). `ready` also requires the shared sender to be enabled for the
-business (`blocker: sender_unavailable` otherwise). No credential is returned.
+project (`blocker: sender_unavailable` otherwise). No credential is returned.
 
 Rules:
 
 - The client must set `managed_routes: true` in `EMAIL_INTEGRATIONS_FILE`; a
-  non-empty static `business_ids` still restricts which businesses a route may
-  name (`client_business_restricted`). Such a client may omit
+  non-empty static `project_ids` still restricts which projects a route may
+  name (`client_project_restricted`). Such a client may omit
   `allowed_mailboxes`.
 - A reused request ID with a different payload, a generation lower than the
   recorded one, or a different desired state at the same generation is `409`
@@ -538,8 +538,8 @@ Rules:
   immutable binding.
 - One effective grant applies to submit, dispatch, mailbox reads, receipts,
   cancel and handoff: the client's static scope, or an active ready route
-  whose exact mailbox, business and sender match. For submit and dispatch a
-  managed route decides its own binding (mailbox, business and sender) even
+  whose exact mailbox, project and sender match. For submit and dispatch a
+  managed route decides its own binding (mailbox, project and sender) even
   when a static grant names the same mailbox, so a disabled route always stops
   it; other senders on that mailbox keep the static grant. Dispatch rechecks
   it; a queued intent whose grant disappeared is cancelled with

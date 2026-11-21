@@ -28,21 +28,21 @@ class HandoffCase(Fixture):
         super().setUp()
         self.now = START + timedelta(hours=2)
         self.said = []
-        self.business = str(uuid4())
+        self.project = str(uuid4())
         with self.db.transaction() as uow:
-            uow.repository('businesses').insert({'id': self.business, 'name': 'Example project', 'slug': 'example',
+            uow.repository('projects').insert({'id': self.project, 'name': 'Example project', 'slug': 'example',
                                                  'workspace': 'example', 'hq_path': 'hq'})
         runtime = NS(application=self.app, registry=self.registry, domains=NS(tasks=self.tasks),
                      owner_inputs=NS(addressed=self.addressed))
         self.tool = CompactionHandoff(runtime, clock=lambda: self.now).register()
         self.app.review_exceptions = HOST_REVIEW_EXCEPTIONS      # as the service composes the engine
         self.pay = self.task(self.lead, 'Pay creators')['id']
-        made = self.app.invoke(replace(self.ctx(self.lead), business_id=self.business), 'tasks_create', {'title': 'Fix the car'},
+        made = self.app.invoke(replace(self.ctx(self.lead), project_id=self.project), 'tasks_create', {'title': 'Fix the car'},
                                {'idempotency_key': str(uuid4())})
         self.car = self.ok(made)['task']['id']
 
     def ctx(self, who):
-        return replace(super().ctx(who), allowed_business_ids={self.business} if who == self.lead else ())
+        return replace(super().ctx(who), allowed_project_ids={self.project} if who == self.lead else ())
 
     # -- the owner's messages and the calls -------------------------------------------------------------------------
 
@@ -51,7 +51,7 @@ class HandoffCase(Fixture):
 
     def say(self, text, minutes, *, thread=None):
         identity = ('thread:' if thread else 'chat:') + str(uuid4())
-        place = {'type': 'task', 'id': thread, 'business_id': None, 'title': 'Pay creators'} if thread else None
+        place = {'type': 'task', 'id': thread, 'project_id': None, 'title': 'Pay creators'} if thread else None
         self.said.append({'id': identity, 'at': at(minutes), 'channel': 'thread' if thread else 'chat', 'place': place,
                           'text': text, 'redacted': False})
         return identity
@@ -77,9 +77,9 @@ class HandoffCase(Fixture):
             self.tool.opened(uow, opening['id'], opening['unanswered'], **ids)
         return opening['text']
 
-    def seen(self, task_id, business=None):
+    def seen(self, task_id, project=None):
         with self.db.read() as uow:
-            row = uow.repository('tasks', business_id=business).get(task_id)
+            row = uow.repository('tasks', project_id=project).get(task_id)
             notes = [line['body'] for line in uow.connection.execute(
                 "SELECT body FROM thread_messages WHERE item_id=? AND kind='comment' ORDER BY created_at, id", (task_id,))]
         return (row['fields_json'].get('$task') or {}).get('next_step'), notes
@@ -111,14 +111,14 @@ class CompactionHandoffTests(HandoffCase):
                                  'Last action and its result: Sent the Wise transfer to Liam; it was accepted. '
                                  'Next action: Send the transfer to Sanzida. Waiting on: Nothing.'])
         # A Task in a project is found by its id alone.
-        self.assertEqual(self.seen(self.car, self.business), ('Owner drops the car off Friday', ['Handoff: The shop confirmed Friday 10:00.']))
+        self.assertEqual(self.seen(self.car, self.project), ('Owner drops the car off Friday', ['Handoff: The shop confirmed Friday 10:00.']))
         row, = self.rows()
         filing = row['filing_json']
         self.assertEqual((row['reason'], row['agent_id'], row['opened_at']), ('agent', self.lead, None))
         self.assertEqual([(entry['handle'], entry['status'], entry['task'] and entry['task']['id']) for entry in filing['messages']],
                          [('m1', 'partly', self.pay), ('m2', 'done', None)])
-        self.assertEqual(filing['stopped']['task'], {'id': self.pay, 'business_id': None, 'title': 'Pay creators'})
-        self.assertEqual(filing['tasks'][0]['task'], {'id': self.car, 'business_id': self.business, 'title': 'Fix the car'})
+        self.assertEqual(filing['stopped']['task'], {'id': self.pay, 'project_id': None, 'title': 'Pay creators'})
+        self.assertEqual(filing['tasks'][0]['task'], {'id': self.car, 'project_id': self.project, 'title': 'Fix the car'})
         self.assertNotIn('Pay the creators today', str(filing))
 
     def test_a_closed_task_gets_the_note_and_keeps_its_next_step(self):
@@ -220,7 +220,7 @@ class CompactionHandoffTests(HandoffCase):
         listed = self.form()
         self.assertEqual([(message['id'], message['text']) for message in listed], [('m1', 'Pay the creators today.'), ('m2', 'Find me a dentist.')])
         self.assertEqual(listed[0]['open'], {'status': 'partly', 'note': 'Liam is paid; Sanzida is not.', 'next_step': 'Lead pays Sanzida',
-                                             'task': {'id': self.pay, 'business_id': None, 'title': 'Pay creators'}})
+                                             'task': {'id': self.pay, 'project_id': None, 'title': 'Pay creators'}})
         self.filed([{'id': 'm1', 'status': 'done', 'note': 'Everyone is paid.', 'task_id': self.pay},
                     {'id': 'm2', 'status': 'remaining', 'note': 'Not started.', 'task_id': self.car}])
         text = self.open()

@@ -152,12 +152,12 @@ class PreparedFileExecutor:
             row = ApplyReceipts(uow).get(receipt_id)
             invocation = row["progress_json"]["invocation"]
             plan = self._plan(row, invocation["input_hash"])
-            business = plan.target_namespace.removeprefix("business:") if plan.target_namespace.startswith("business:") else None
+            project = plan.target_namespace.removeprefix("project:") if plan.target_namespace.startswith("project:") else None
             if self.context_loader:
                 context = self.context_loader(plan, uow)
             else:
-                context = app.policy.context_for(plan.principal_id, business_id=business,
-                    review_business_id=plan.review_business_id, initiated_by_principal_id=plan.initiated_by_principal_id,
+                context = app.policy.context_for(plan.principal_id, project_id=project,
+                    review_project_id=plan.review_project_id, initiated_by_principal_id=plan.initiated_by_principal_id,
                     job_id=plan.policy_binding.get("job_id"), uow=uow)
             descriptor = app.registry.get(plan.operation_name)
             options = InvocationOptions.from_mapping(invocation["options"])

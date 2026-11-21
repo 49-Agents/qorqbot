@@ -12,7 +12,7 @@ def snapshot(runtime):
     integrations = {}
     with runtime.database.read() as uow:
         rows = uow.connection.execute('SELECT n.*,p.status,b.archived_at FROM native_session_owners n '
-            'JOIN agent_profiles p ON p.agent_id=n.agent_id LEFT JOIN businesses b ON b.id=p.home_business_id LIMIT 1000').fetchall()
+            'JOIN agent_profiles p ON p.agent_id=n.agent_id LEFT JOIN projects b ON b.id=p.home_project_id LIMIT 1000').fetchall()
         for row in rows:
             binding = json.loads(row['binding_json'])
             from qorqut.bootstrap.diagnostics import prepared_helpers

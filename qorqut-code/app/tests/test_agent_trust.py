@@ -149,10 +149,10 @@ class OwnerViewTests(Base):
     def runtime_object(self, intents):
         connection = sqlite3.connect(":memory:", check_same_thread=False)
         connection.row_factory = sqlite3.Row
-        connection.execute("CREATE TABLE agent_profiles (agent_id TEXT, home_business_id TEXT, status TEXT)")
+        connection.execute("CREATE TABLE agent_profiles (agent_id TEXT, home_project_id TEXT, status TEXT)")
         connection.execute("CREATE TABLE native_session_owners (agent_id TEXT, desired_state TEXT)")
         connection.executemany("INSERT INTO agent_profiles VALUES (?,?,?)",
-                               [("lead", None, "active"), ("old", None, "archived"), ("biz", "b1", "active")])
+                               [("lead", None, "active"), ("old", None, "archived"), ("project", "b1", "active")])
         connection.executemany("INSERT INTO native_session_owners VALUES (?,?)", intents)
 
         @contextmanager
@@ -162,7 +162,7 @@ class OwnerViewTests(Base):
 
     def view(self, runtime, change=None, agent_id="lead"):
         with mock.patch("qorqut.agents.global_scope.active_global", lambda connection, identity: {} if identity == "lead" else None), \
-                mock.patch("qorqut.composition.locations.agent_workspace", lambda paths, identity, business: self.root / "agents" / identity):
+                mock.patch("qorqut.composition.locations.agent_workspace", lambda paths, identity, project: self.root / "agents" / identity):
             return trust.owner_view(runtime, change, agent_id, self.environ)
 
     def test_view_without_consent(self):

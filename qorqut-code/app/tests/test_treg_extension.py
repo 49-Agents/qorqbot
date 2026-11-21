@@ -79,7 +79,7 @@ class Base(unittest.TestCase):
         resolver = NS(profile=lambda principal, connection=None: (self.profile, None))
         self.extension.install(NS(paths=NS(instance_root=self.root), registry=self.registry, resolver=resolver))
         self.ops = self.extension.operations
-        self.agent = NS(principal_kind="agent", principal_id="agent-1", principal=object(), business_id=None, home_business_id=None)
+        self.agent = NS(principal_kind="agent", principal_id="agent-1", principal=object(), project_id=None, home_project_id=None)
 
     def invoke(self, name, args, *, worker=True, coordinator=None, context=None):
         with mock.patch("qorqut.agents.worker_access.is_worker", return_value=worker), \
@@ -142,9 +142,9 @@ class AccessTest(Base):
         self.refused("forbidden", self.invoke, operations.SEARCH, {"query": "k"}, worker=False)
         self.profile.data.update(role={"id": "global-worker"}, status="archived")
         self.refused("forbidden", self.invoke, operations.SEARCH, {"query": "k"})
-        owner = NS(principal_kind="human", principal_id="owner", principal=object(), business_id=None, home_business_id=None)
+        owner = NS(principal_kind="human", principal_id="owner", principal=object(), project_id=None, home_project_id=None)
         self.refused("forbidden", self.invoke, operations.SEARCH, {"query": "k"}, context=owner)
-        project = NS(principal_kind="agent", principal_id="agent-1", principal=object(), business_id="b", home_business_id=None)
+        project = NS(principal_kind="agent", principal_id="agent-1", principal=object(), project_id="b", home_project_id=None)
         self.refused("forbidden", self.invoke, operations.SEARCH, {"query": "k"}, context=project)
 
 

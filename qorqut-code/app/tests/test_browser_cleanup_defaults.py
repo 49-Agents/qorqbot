@@ -46,7 +46,7 @@ class DefaultsTest(unittest.TestCase):
         with self.db.transaction() as uow:
             self.principal(uow, identity, "agent")
             profile = {"status": status, "scope": {"kind": "ecosystem"}, "role": {"id": role}, "runtime": runtime}
-            uow.repository("agent_profiles", business_id=None).insert({"agent_id": identity, "principal_id": identity,
+            uow.repository("agent_profiles", project_id=None).insert({"agent_id": identity, "principal_id": identity,
                 "namespace": "ecosystem", "name": identity, "workspace": "/synthetic/" + identity,
                 "status": status, "profile_json": [] if malformed else profile,
                 "created_at": timing.stamp(self.now), "updated_at": timing.stamp(self.now)})
@@ -107,13 +107,13 @@ class DefaultsTest(unittest.TestCase):
     def legacy(self, identity, *, cancelled=False):
         with self.db.transaction() as uow:
             task_id = str(uuid4())
-            uow.repository("tasks", business_id=None).insert({"id": task_id, "title": defaults.LEGACY_TITLE,
+            uow.repository("tasks", project_id=None).insert({"id": task_id, "title": defaults.LEGACY_TITLE,
                 "status": "open", "created_by": self.owner, "created_at": timing.stamp(self.now),
                 "updated_at": timing.stamp(self.now)})
             args = {"recipient_id": identity, "text": "Daily browser cleanup: follow the linked task.",
                     "recurrence": {"schedule": "23 4 * * *", "timezone": "America/La_Paz"}}
             row = self.service.new_row(self.service.caller(self.ctx, uow), args, self.now, uow)
-            row["linked_item_json"] = json.dumps({"type": "task", "id": task_id, "business_id": None})
+            row["linked_item_json"] = json.dumps({"type": "task", "id": task_id, "project_id": None})
             if cancelled:
                 row["state"] = "cancelled"
             self.service.insert(uow, row)
@@ -149,7 +149,7 @@ class DefaultsTest(unittest.TestCase):
         saved = self.legacy(original)
         link = json.loads(saved["linked_item_json"])
         self.service.runtime.focus = SimpleNamespace(resolve=lambda ctx, ref, uow:
-            uow.repository("tasks", business_id=None).get(ref["id"]))
+            uow.repository("tasks", project_id=None).get(ref["id"]))
         self.reconcile()
         newcomer = self.agent()
         self.reconcile()

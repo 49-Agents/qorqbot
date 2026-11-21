@@ -11,7 +11,7 @@ from qorqut_operations.application.plans import schema
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.actions.schema import CATEGORIES, ORIGINS
 
-GLOBAL_AGENT_CATEGORIES = ("global-operational", "business-operational")
+GLOBAL_AGENT_CATEGORIES = ("global-operational", "project-operational")
 AGENT_WORD_LIMIT = 20
 TEXT_LIMIT = 2000
 EVIDENCE_KEYS = ("url", "commit", "pull_request", "signoff", "task", "document", "request", "conversation", "upload")
@@ -24,7 +24,7 @@ RELATED_OBJECTS = {"type": "array", "maxItems": 50, "items": {
               "explanation": {"type": "string", "maxLength": 2000}}, ("kind", "id")),
     "description": instruction_text('models-a-suggested-context-object-this-action-relates-to')}}
 SOURCE_NAMESPACE = uuid.UUID("3f0b7c52-5a3c-4f7e-9d6b-2f1a0e8c4b71")
-SHARING = ("A business-operational action names one or more projects; each named project sees the same shared "
+SHARING = ("A project-operational action names one or more projects; each named project sees the same shared "
            "text once, and scoped reads never reveal other projects or unrelated evidence.")
 
 
@@ -33,7 +33,7 @@ def invalid(message, **fields):
 
 
 def action_key(storage, identity) -> str:
-    return "global/" + identity if storage is None else "business/" + storage + "/" + identity
+    return "global/" + identity if storage is None else "project/" + storage + "/" + identity
 
 
 def source_identity(storage, source_key: str) -> str:
@@ -103,13 +103,13 @@ def refs(values) -> dict:
     return dict(sorted(values.items()))
 
 
-def snapshot(row, *, businesses, tags, operation) -> dict:
+def snapshot(row, *, projects, tags, operation) -> dict:
     """The exact accepted state of one revision, from the Action row after the change. Stored immutably.
 
-    ``tags`` are the ``{id, name, business_id}`` snapshots (stable catalog id and display label; business_id is always
+    ``tags`` are the ``{id, name, project_id}`` snapshots (stable catalog id and display label; project_id is always
     None because ordinary tags are shared labels). They are frozen here so nothing later consults the catalog."""
     return {"text": row["action_text"], "category": row["category"], "origin": row["origin"], "tag_snapshots": list(tags),
-            "related_objects": row["related_objects_json"], "business_ids": sorted(businesses), "refs": row["refs_json"],
+            "related_objects": row["related_objects_json"], "project_ids": sorted(projects), "refs": row["refs_json"],
             "occurred": {"at": row["occurred_at"], "date": row["occurred_date"], "hour": row["occurred_hour"],
                          "precision": row["time_precision"], "time_zone": row["time_zone"]},
             "withdrawn": operation == "remove"}

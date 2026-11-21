@@ -16,7 +16,7 @@ below with rows naming a moved Task is also a blocker, so a dependency added lat
 A blocking binding must name the selected Task itself, not merely a string equal to its id. ``task_references`` therefore
 recognizes only typed references - ``{type: task, id}``, ``{resource_type: tasks, resource_id}``, ``{task_id}``,
 ``{item_type: task, item_id}`` and ``task_ids`` - and pairs each with its effective scope: the scope the reference names
-itself (``business_id``, ``namespace`` or ``scope: global``) or inherits from the enclosing object that does, otherwise the
+itself (``project_id``, ``namespace`` or ``scope: global``) or inherits from the enclosing object that does, otherwise the
 scope of the job, routine, approval or assignment that holds it. Delegated assignments also list bare Task ids
 (``links.tasks``, ``scope.source_ids.tasks``, ``scope.record_ids.tasks``) in their own scope. Free text, and a reference that
 names another scope, are not bindings. The scan of each table is complete or the request fails with ``result_too_large``; a move
@@ -45,12 +45,12 @@ TASK_COLUMNS = {
     "agent_checkpoint_findings.task_id": "historical", "system_incident_impacts.task_id": "historical",
     "task_moves.task_id": "audit", "task_moves.task_created_at": "audit",
     "attention_memberships.task_id": "followed", "attention_memberships.task_created_at": "followed",
-    "attention_memberships.task_business_id": "followed",
+    "attention_memberships.task_project_id": "followed",
     "agent_attention.work_task_json": "followed", "attention_workflows.work_task_json": "followed",
     "attention_membership_events.task_id": "historical", "attention_membership_events.task_created_at": "historical",
-    "attention_membership_events.task_business_id": "historical",
+    "attention_membership_events.task_project_id": "historical",
     # The Task a read-and-acknowledge report belongs to; one row per report, so a move never meets a destination duplicate.
-    "signoff_report_tasks.task_id": "followed", "signoff_report_tasks.task_business_id": "followed",
+    "signoff_report_tasks.task_id": "followed", "signoff_report_tasks.task_project_id": "followed",
     # A timeline belongs to its Task: its entries and questions get the new Project with the move (the one permitted update of an entry).
     "timeline_entries.item_id": "followed", "timeline_questions.item_id": "followed",
 }
@@ -61,7 +61,7 @@ TYPED_REFERENCES = {
     "project_item_links": "followed", "inbox_subscriptions": "followed", "owner_conversations": "followed",
     "focus_cards": "followed", "focus_notes": "historical", "inbox_events": "historical", "inbox_deliveries": "historical",
 }
-# Extension receipts keyed to a Task by ``(business_id, task_id)``: permanent records of how a Task was created, with no
+# Extension receipts keyed to a Task by ``(project_id, task_id)``: permanent records of how a Task was created, with no
 # state of their own. They follow their Task (only the scope changes; the stored payload and response stay as written), so a
 # Task an extension created can move like any other. Paper's ``outreach_handoffs`` is the receipt of one accepted Outreach
 # reply: its duplicate check, the email identity shown on the Task's first note and the owner's repair all read it by the
@@ -74,9 +74,9 @@ ACTIVE_ROUTINE_STATUSES = ("active", "paused")
 MAXIMUM_ROWS = 5_000
 
 
-def source_key(kind, business_id, identity) -> str:
+def source_key(kind, project_id, identity) -> str:
     """The stable per-object key of a private conversation or Focus card (``private_conversations.source_key``)."""
-    return "source:" + (business_id or "global") + ":" + kind + ":" + identity
+    return "source:" + (project_id or "global") + ":" + kind + ":" + identity
 
 
 def strings(value):
@@ -102,9 +102,9 @@ def decoded(text):
 
 
 def explicit_scope(reference, default):
-    """The scope a reference object names itself (``business_id``, ``namespace`` or ``scope: global``), else ``default``."""
-    if "business_id" in reference:
-        return reference["business_id"]
+    """The scope a reference object names itself (``project_id``, ``namespace`` or ``scope: global``), else ``default``."""
+    if "project_id" in reference:
+        return reference["project_id"]
     if isinstance(reference.get("namespace"), str):
         valid, scope = scope_of(reference["namespace"])
         if valid:
@@ -117,7 +117,7 @@ def task_references(value, default):
 
     The effective scope of a dictionary is what it names itself (``explicit_scope``), else the one it inherits from the
     enclosing dictionary or, at the top, ``default``. Its typed ids are emitted in that scope and it is passed to every child,
-    so ``{business_id: A, items: [{type: task, id}]}`` binds the Task in A, while a child that names another scope overrides
+    so ``{project_id: A, items: [{type: task, id}]}`` binds the Task in A, while a child that names another scope overrides
     the inherited one."""
     if isinstance(value, dict):
         scope = explicit_scope(value, default)
@@ -138,10 +138,10 @@ def task_references(value, default):
 
 
 def rewrite(value, source, destination, ids):
-    """``value`` with every exact ``{type: task, id, business_id: source}`` reference moved to the destination; ``(value, n)``."""
+    """``value`` with every exact ``{type: task, id, project_id: source}`` reference moved to the destination; ``(value, n)``."""
     if isinstance(value, dict):
-        if value.get("type") == "task" and value.get("id") in ids and value.get("business_id") == source:
-            return {**value, "business_id": destination}, 1
+        if value.get("type") == "task" and value.get("id") in ids and value.get("project_id") == source:
+            return {**value, "project_id": destination}, 1
         count, result = 0, {}
         for key, item in value.items():
             result[key], found = rewrite(item, source, destination, ids)
@@ -184,7 +184,7 @@ class HostRelocation:
         counts['timeline_rows'] = len(timeline)
         for link in links:
             if connection.execute('SELECT 1 FROM signoff_source_links WHERE signoff_id=? AND source_type=\'task\' '
-                    'AND source_id=? AND source_business_id IS ?',
+                    'AND source_id=? AND source_project_id IS ?',
                     (link['signoff_id'], link['source_id'], relocation.destination)).fetchone():
                 blockers.append(blocker('input_link_exists', 'The destination already has this input dependency', link['source_id']))
         for row in conversations:
@@ -210,7 +210,7 @@ class HostRelocation:
             counts["attention_references"] = len(attention)
         for table, row in attention:
             if table == "attention_memberships" and connection.execute(
-                "SELECT 1 FROM attention_memberships WHERE agent_id=? AND task_business_id IS ? AND task_id=?",
+                "SELECT 1 FROM attention_memberships WHERE agent_id=? AND task_project_id IS ? AND task_id=?",
                 (row["agent_id"], relocation.destination, row["task_id"])).fetchone():
                 blockers.append(blocker("attention_membership_exists", "The destination already has this Attention membership", row["task_id"]))
         return AdapterReport(counts, blockers, material)
@@ -222,7 +222,7 @@ class HostRelocation:
         fields = {"agent_attention": ("focus_json", "work_task_json"),
                   "attention_workflows": ("work_task_json", "related_refs_json")}
         if "attention_memberships" in tables:
-            rows = connection.execute("SELECT * FROM attention_memberships WHERE task_business_id IS ? AND task_id IN "
+            rows = connection.execute("SELECT * FROM attention_memberships WHERE task_project_id IS ? AND task_id IN "
                                       + marks(relocation.ids) + " ORDER BY id", (relocation.source, *relocation.ids)).fetchall()
             result.extend(("attention_memberships", row) for row in rows)
         for table, columns in fields.items():
@@ -242,7 +242,7 @@ class HostRelocation:
             return []
         ids = relocation.ids
         return connection.execute(
-            "SELECT * FROM owner_conversations WHERE source_type='task' AND business_id IS ? AND source_id IN " + marks(ids)
+            "SELECT * FROM owner_conversations WHERE source_type='task' AND project_id IS ? AND source_id IN " + marks(ids)
             + " AND peer_agent_id IS NULL ORDER BY id", (relocation.source, *ids)).fetchall()
 
     @staticmethod
@@ -282,7 +282,7 @@ class HostRelocation:
         for table in TASK_RECEIPTS:
             if table in tables:
                 found += [(table, (row["id"], row["task_id"])) for row in connection.execute(
-                    f'SELECT id, task_id FROM "{table}" WHERE business_id IS ? AND task_id IN ' + marks(relocation.ids) + " ORDER BY id",
+                    f'SELECT id, task_id FROM "{table}" WHERE project_id IS ? AND task_id IN ' + marks(relocation.ids) + " ORDER BY id",
                     (relocation.source, *relocation.ids))]
         return found
 
@@ -299,7 +299,7 @@ class HostRelocation:
                     groups.setdefault(fk["id"], []).append((fk["from"], fk["to"]))
             for pairs in groups.values():
                 id_column = next((source for source, target in pairs if target in (None, "id")), None)
-                scope_column = next((source for source, target in pairs if target == "business_id"), None)
+                scope_column = next((source for source, target in pairs if target == "project_id"), None)
                 if id_column is None:
                     continue
                 clause = f'"{scope_column}" IS ? AND ' if scope_column else ""
@@ -339,29 +339,29 @@ class HostRelocation:
 
         label = "approval proposals"
         hits = []
-        for row in active("signoffs", "state", ACTIVE_SIGNOFF_STATES, ("review_business_id", "change_set", "expected_targets_json"), label):
+        for row in active("signoffs", "state", ACTIVE_SIGNOFF_STATES, ("review_project_id", "change_set", "expected_targets_json"), label):
             plan = decoded(row["change_set"])
             plan = plan if isinstance(plan, dict) else {}
             valid, scope = scope_of(plan.get("target_namespace"))
             if mentions((plan.get("arguments"), plan.get("expected_targets"), plan.get("changes"), decoded(row["expected_targets_json"])),
-                        scope if valid else row["review_business_id"]):
+                        scope if valid else row["review_project_id"]):
                 hits.append(row["id"])
         report("signoffs", label, hits)
         for table, state_column, states, label in (("jobs", "state", ACTIVE_JOB_STATES, "background jobs"),
                                                     ("routines", "status", ACTIVE_ROUTINE_STATUSES, "routines")):
-            rows = active(table, state_column, states, ("business_id", "arguments_json"), label)
-            report(table, label, [row["id"] for row in rows if mentions((decoded(row["arguments_json"]),), row["business_id"])])
+            rows = active(table, state_column, states, ("project_id", "arguments_json"), label)
+            report(table, label, [row["id"] for row in rows if mentions((decoded(row["arguments_json"]),), row["project_id"])])
         label = "delegated assignments"
         hits = []
-        for row in active("operational_assignments", "state", ACTIVE_ASSIGNMENT_STATES, ("business_id", "scope_json", "links_json", "plan_json"), label):
+        for row in active("operational_assignments", "state", ACTIVE_ASSIGNMENT_STATES, ("project_id", "scope_json", "links_json", "plan_json"), label):
             scope, links = decoded(row["scope_json"]) or {}, decoded(row["links_json"]) or {}
-            if mentions((scope, links, decoded(row["plan_json"])), row["business_id"]) or self.listed(row, scope, links, ids, source):
+            if mentions((scope, links, decoded(row["plan_json"])), row["project_id"]) or self.listed(row, scope, links, ids, source):
                 hits.append(row["id"])
         report("operational_assignments", label, hits)
         if "overseer_development_tasks" in tables:
             rows = connection.execute("SELECT request_key, task_id, task_ref_json FROM overseer_development_tasks WHERE task_id IN "
                                       + marks(relocation.ids), relocation.ids).fetchall()
-            count = sum(1 for row in rows if (decoded(row["task_ref_json"]) or {}).get("business_id") == source)
+            count = sum(1 for row in rows if (decoded(row["task_ref_json"]) or {}).get("project_id") == source)
             material["overseer_development_tasks"] = [len(rows), digest([[row["request_key"], row["task_id"]] for row in rows])]
             if count:
                 found.append(blocker("unsupported_binding", f"{count} Overseer development binding(s) point at these Tasks"))
@@ -371,7 +371,7 @@ class HostRelocation:
     def listed(row, scope, links, ids, source):
         """Whether an assignment lists a moved Task among its bare Task ids. The ids belong to the assignment's own reach: its
         project, or for a Global assignment Global and the projects it may work in."""
-        reach = row["business_id"] == source or (row["business_id"] is None and source in (scope.get("allowed_business_ids") or ()))
+        reach = row["project_id"] == source or (row["project_id"] is None and source in (scope.get("allowed_project_ids") or ()))
         if not reach:
             return False
         named = [*(links.get("tasks") or ()), *((scope.get("source_ids") or {}).get("tasks") or ()), *((scope.get("record_ids") or {}).get("tasks") or ())]
@@ -383,7 +383,7 @@ class HostRelocation:
     def input_links(connection, tables, relocation):
         if 'signoff_source_links' not in tables:
             return []
-        return connection.execute("SELECT * FROM signoff_source_links WHERE source_type='task' AND source_business_id IS ? AND source_id IN "
+        return connection.execute("SELECT * FROM signoff_source_links WHERE source_type='task' AND source_project_id IS ? AND source_id IN "
             + marks(relocation.ids) + ' ORDER BY id', (relocation.source, *relocation.ids)).fetchall()
 
     @staticmethod
@@ -391,7 +391,7 @@ class HostRelocation:
         """The reports that belong to a moved Task. They follow it; the reports themselves stay where they were posted."""
         if 'signoff_report_tasks' not in tables:
             return []
-        return connection.execute('SELECT * FROM signoff_report_tasks WHERE task_business_id IS ? AND task_id IN '
+        return connection.execute('SELECT * FROM signoff_report_tasks WHERE task_project_id IS ? AND task_id IN '
             + marks(relocation.ids) + ' ORDER BY signoff_id', (relocation.source, *relocation.ids)).fetchall()
 
     @staticmethod
@@ -401,7 +401,7 @@ class HostRelocation:
         for table in ('timeline_entries', 'timeline_questions'):
             if table in tables:
                 found += [(table, row['id']) for row in connection.execute(
-                    f"SELECT id FROM {table} WHERE item_type='task' AND business_id IS ? AND item_id IN " + marks(relocation.ids) + ' ORDER BY id',
+                    f"SELECT id FROM {table} WHERE item_type='task' AND project_id IS ? AND item_id IN " + marks(relocation.ids) + ' ORDER BY id',
                     (relocation.source, *relocation.ids))]
         return found
 
@@ -411,28 +411,28 @@ class HostRelocation:
         counts = {"private_messages": 0, "focus_cards": 0}
         links = self.input_links(connection, tables, relocation)
         for link in links:
-            connection.execute('UPDATE signoff_source_links SET source_business_id=?,source_namespace=?,revision=revision+1 WHERE id=?',
-                (destination, 'business:' + destination if destination else 'global', link['id']))
+            connection.execute('UPDATE signoff_source_links SET source_project_id=?,source_namespace=?,revision=revision+1 WHERE id=?',
+                (destination, 'project:' + destination if destination else 'global', link['id']))
         counts['input_links'] = len(links)
         reports = self.report_links(connection, tables, relocation)
         for link in reports:
-            connection.execute('UPDATE signoff_report_tasks SET task_business_id=?,revision=revision+1 WHERE signoff_id=?',
+            connection.execute('UPDATE signoff_report_tasks SET task_project_id=?,revision=revision+1 WHERE signoff_id=?',
                 (destination, link['signoff_id']))
         counts['report_links'] = len(reports)
         timeline = self.timeline_rows(connection, tables, relocation)
         for table in ('timeline_entries', 'timeline_questions'):
             if table in tables:
-                connection.execute(f"UPDATE {table} SET business_id=? WHERE item_type='task' AND business_id IS ? AND item_id IN " + marks(ids),
+                connection.execute(f"UPDATE {table} SET project_id=? WHERE item_type='task' AND project_id IS ? AND item_id IN " + marks(ids),
                                    (destination, source, *ids))
         counts['timeline_rows'] = len(timeline)
         counts["extension_receipts"] = len(self.receipts(connection, tables, relocation))
         for table in TASK_RECEIPTS:
             if table in tables:
-                connection.execute(f'UPDATE "{table}" SET business_id=? WHERE business_id IS ? AND task_id IN ' + marks(ids),
+                connection.execute(f'UPDATE "{table}" SET project_id=? WHERE project_id IS ? AND task_id IN ' + marks(ids),
                                    (destination, source, *ids))
         for row in self.conversations(connection, tables, relocation):
             updated = connection.execute(
-                "UPDATE owner_conversations SET business_id=?, source_key=?, revision=revision+1, updated_at=? WHERE id=? AND revision=?",
+                "UPDATE owner_conversations SET project_id=?, source_key=?, revision=revision+1, updated_at=? WHERE id=? AND revision=?",
                 (destination, source_key("task", destination, row["source_id"]), at, row["id"], row["revision"])).rowcount
             if updated != 1:
                 raise_changed()
@@ -460,7 +460,7 @@ class HostRelocation:
             counts["attention_references"] = len(attention)
         for table, row in attention:
             if table == "attention_memberships":
-                updated = connection.execute("UPDATE attention_memberships SET task_business_id=?, revision=revision+1 WHERE id=? AND revision=?",
+                updated = connection.execute("UPDATE attention_memberships SET task_project_id=?, revision=revision+1 WHERE id=? AND revision=?",
                                              (destination, row["id"], row["revision"])).rowcount
             else:
                 fields = ("focus_json", "work_task_json") if table == "agent_attention" else ("work_task_json", "related_refs_json")

@@ -21,7 +21,7 @@ ITEM_TYPES = ("task", "action", "table")
 
 INBOX_SCHEMA = (
     """CREATE TABLE inbox_events (
- id INTEGER PRIMARY KEY AUTOINCREMENT, business_id TEXT REFERENCES businesses(id),
+ id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT REFERENCES projects(id),
  source_type TEXT NOT NULL, source_id TEXT NOT NULL, source_revision INTEGER,
  actor_id TEXT, event_type TEXT NOT NULL, summary TEXT NOT NULL,
  visibility_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
@@ -36,11 +36,11 @@ INBOX_SCHEMA = (
     """CREATE INDEX inbox_pending ON inbox_deliveries(agent_id,acknowledged_at,event_id)""",
     """CREATE TABLE inbox_subscriptions (
  id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id),
- business_id TEXT REFERENCES businesses(id), source_type TEXT NOT NULL,
+ project_id TEXT REFERENCES projects(id), source_type TEXT NOT NULL,
  source_id TEXT NOT NULL, include_related INTEGER NOT NULL DEFAULT 0 CHECK(include_related IN (0,1)),
  created_at TEXT NOT NULL
 )""",
-    """CREATE UNIQUE INDEX inbox_subscription_target ON inbox_subscriptions(agent_id,coalesce(business_id,''),source_type,source_id)""",
+    """CREATE UNIQUE INDEX inbox_subscription_target ON inbox_subscriptions(agent_id,coalesce(project_id,''),source_type,source_id)""",
     """CREATE TRIGGER inbox_events_immutable_update BEFORE UPDATE ON inbox_events BEGIN
  SELECT RAISE(ABORT,'Inbox events are immutable'); END""",
     """CREATE TRIGGER inbox_events_immutable_delete BEFORE DELETE ON inbox_events BEGIN
@@ -55,7 +55,7 @@ BEGIN SELECT RAISE(ABORT,'A delivery keeps the reason it was made'); END""",
 
 THREAD_SCHEMA = (
     """CREATE TABLE thread_messages (
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  id TEXT NOT NULL,
  item_type TEXT NOT NULL CHECK(item_type IN ('task','action','table')),
  item_id TEXT NOT NULL,
@@ -69,32 +69,32 @@ THREAD_SCHEMA = (
  change_json TEXT CHECK(change_json IS NULL OR json_valid(change_json)),
  event_id INTEGER REFERENCES inbox_events(id),
  created_at TEXT NOT NULL,
- reference_namespace TEXT CHECK(reference_namespace IS NULL OR reference_namespace='global' OR reference_namespace LIKE 'business:_%'),
- PRIMARY KEY (business_id, id),
+ reference_namespace TEXT CHECK(reference_namespace IS NULL OR reference_namespace='global' OR reference_namespace LIKE 'project:_%'),
+ PRIMARY KEY (project_id, id),
  CHECK((kind='system') = (author_id IS NULL))
 )""",
-    """CREATE UNIQUE INDEX thread_messages_global_key ON thread_messages(id) WHERE business_id IS NULL""",
-    """CREATE INDEX thread_messages_item ON thread_messages(business_id,item_type,item_id,created_at,id)""",
+    """CREATE UNIQUE INDEX thread_messages_global_key ON thread_messages(id) WHERE project_id IS NULL""",
+    """CREATE INDEX thread_messages_item ON thread_messages(project_id,item_type,item_id,created_at,id)""",
     """CREATE TRIGGER thread_messages_immutable_update BEFORE UPDATE ON thread_messages
-WHEN (OLD.event_id IS NOT NULL OR NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id
+WHEN (OLD.event_id IS NOT NULL OR NEW.id IS NOT OLD.id OR NEW.project_id IS NOT OLD.project_id
  OR NEW.item_type IS NOT OLD.item_type OR NEW.item_id IS NOT OLD.item_id OR NEW.kind IS NOT OLD.kind
  OR NEW.body IS NOT OLD.body OR NEW.summary IS NOT OLD.summary OR NEW.refs_json IS NOT OLD.refs_json
  OR NEW.author_id IS NOT OLD.author_id OR NEW.recorder_id IS NOT OLD.recorder_id
  OR NEW.attribution_json IS NOT OLD.attribution_json OR NEW.change_json IS NOT OLD.change_json
  OR NEW.created_at IS NOT OLD.created_at OR NEW.reference_namespace IS NOT OLD.reference_namespace)
- AND NOT (OLD.item_type IN ('task','table') AND NEW.business_id IS NOT OLD.business_id AND NEW.event_id IS OLD.event_id
+ AND NOT (OLD.item_type IN ('task','table') AND NEW.project_id IS NOT OLD.project_id AND NEW.event_id IS OLD.event_id
  AND NEW.id IS OLD.id AND NEW.item_type IS OLD.item_type AND NEW.item_id IS OLD.item_id AND NEW.kind IS OLD.kind
  AND NEW.body IS OLD.body AND NEW.summary IS OLD.summary AND NEW.refs_json IS OLD.refs_json
  AND NEW.author_id IS OLD.author_id AND NEW.recorder_id IS OLD.recorder_id
  AND NEW.attribution_json IS OLD.attribution_json AND NEW.change_json IS OLD.change_json
  AND NEW.created_at IS OLD.created_at
- AND relocation_permits(OLD.business_id,NEW.business_id,CASE OLD.item_type WHEN 'task' THEN OLD.item_id ELSE 'table:' || OLD.item_id END)
- AND NEW.reference_namespace IS COALESCE(OLD.reference_namespace, CASE WHEN OLD.business_id IS NULL THEN 'global' ELSE 'business:' || OLD.business_id END))
+ AND relocation_permits(OLD.project_id,NEW.project_id,CASE OLD.item_type WHEN 'task' THEN OLD.item_id ELSE 'table:' || OLD.item_id END)
+ AND NEW.reference_namespace IS COALESCE(OLD.reference_namespace, CASE WHEN OLD.project_id IS NULL THEN 'global' ELSE 'project:' || OLD.project_id END))
 BEGIN SELECT RAISE(ABORT,'Thread messages are immutable; only the delivering event is attached once'); END""",
     """CREATE TRIGGER thread_messages_immutable_delete BEFORE DELETE ON thread_messages
 BEGIN SELECT RAISE(ABORT,'Thread messages are immutable'); END""",
     """CREATE TABLE thread_follows (
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  item_type TEXT NOT NULL CHECK(item_type IN ('task','action','table')),
  item_id TEXT NOT NULL,
  principal_id TEXT NOT NULL REFERENCES principals(id),
@@ -103,11 +103,11 @@ BEGIN SELECT RAISE(ABORT,'Thread messages are immutable'); END""",
  reason TEXT NOT NULL CHECK(reason IN ('creator','assignee','commenter','represented','explicit')),
  created_at TEXT NOT NULL,
  updated_at TEXT NOT NULL,
- PRIMARY KEY (business_id, item_type, item_id, principal_id),
+ PRIMARY KEY (project_id, item_type, item_id, principal_id),
  CHECK(following=1 OR (explicit=1 AND reason='explicit'))
 )""",
-    """CREATE UNIQUE INDEX thread_follows_global_key ON thread_follows(item_type,item_id,principal_id) WHERE business_id IS NULL""",
-    """CREATE INDEX thread_follows_principal ON thread_follows(principal_id,following,business_id,item_type,item_id)""",
+    """CREATE UNIQUE INDEX thread_follows_global_key ON thread_follows(item_type,item_id,principal_id) WHERE project_id IS NULL""",
+    """CREATE INDEX thread_follows_principal ON thread_follows(principal_id,following,project_id,item_type,item_id)""",
 )
 
 RELAY_SCHEMA = (
@@ -126,11 +126,11 @@ BEGIN SELECT RAISE(ABORT,'Message attribution is immutable'); END""",
 
 TABLES = {
     "message_attributions": TableSpec(("message_type", "message_id"), mutable=False, revision_column=None),
-    "inbox_events": TableSpec(("id",), "business_id", False, None),
+    "inbox_events": TableSpec(("id",), "project_id", False, None),
     "inbox_deliveries": TableSpec(("agent_id", "event_id"), revision_column=None),
-    "inbox_subscriptions": TableSpec(("id",), "business_id", revision_column=None),
-    "thread_messages": TableSpec(("business_id", "id"), "business_id", False, None),
-    "thread_follows": TableSpec(("business_id", "item_type", "item_id", "principal_id"), "business_id", revision_column=None),
+    "inbox_subscriptions": TableSpec(("id",), "project_id", revision_column=None),
+    "thread_messages": TableSpec(("project_id", "id"), "project_id", False, None),
+    "thread_follows": TableSpec(("project_id", "item_type", "item_id", "principal_id"), "project_id", revision_column=None),
 }
 
 # The host tables these records reference or are written beside.

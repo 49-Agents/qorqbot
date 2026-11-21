@@ -16,7 +16,7 @@ handler lookup. Validation snapshots authored bytes; it does not register, publi
 install or adopt the package. Native registration selects an explicit source map.
 
 Required manifest fields: `schema_version: 1`, a lowercase hyphenated `id`, semantic
-`version`, bounded `description`, `scope_kinds` (business and/or ecosystem),
+`version`, bounded `description`, `scope_kinds` (project and/or ecosystem),
 `config_schema`, `tools`, `rules` and `skills`. Each skill has a unique `id` and a
 relative `path` ending in `SKILL.md`. Its YAML frontmatter must name exactly
 `qorqut-plugin-<skill-id>` with a bounded description. Unknown fields, unsafe paths,

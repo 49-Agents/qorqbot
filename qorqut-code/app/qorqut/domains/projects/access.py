@@ -1,9 +1,9 @@
 """Canonical Project resolution and the one Project-record authority gate.
 
-A Project record is one *existing* Project (`businesses` row), never a Task subtype, a shadow Story or a second
-copy. Its canonical reference is ``{"type": "project", "id": PROJECT_UUID, "business_id": PROJECT_UUID}``: both
+A Project record is one *existing* Project (`projects` row), never a Task subtype, a shadow Story or a second
+copy. Its canonical reference is ``{"type": "project", "id": PROJECT_UUID, "project_id": PROJECT_UUID}``: both
 IDs must agree and name a real Project the caller may currently reach. The name and slug are read from the current
-``businesses`` row, so a rename keeps the same conversation, links and Focus identity.
+``projects`` row, so a rename keeps the same conversation, links and Focus identity.
 
 The new ``project_*`` operations belong to the installation owner and the exact configured active Ordubashy. That
 is an identity gate checked on every call, independently of the transport and of policy: ordinary members, other
@@ -18,7 +18,7 @@ from dataclasses import replace
 
 from qorqut_operations.contracts import DomainError
 
-from qorqut.agents.global_scope import active_business_participant
+from qorqut.agents.global_scope import active_project_participant
 from qorqut.management.identity import private_participants
 
 PROJECT_TYPE = "project"
@@ -26,27 +26,27 @@ PROJECT_TYPE = "project"
 # inferred from a display label, a document kind or an extension's own item type.
 THREAD_KINDS = frozenset({"task", "signoff", "project", "table"})
 UNAVAILABLE = frozenset({"forbidden", "not_found", "policy_denied", "operation_unavailable",
-                         "business_archived", "context_refresh_required"})
+                         "project_archived", "context_refresh_required"})
 
 
 def reference(project_id: str) -> dict:
     """The one canonical Project reference; both identifiers are the actual Project UUID."""
-    return {"type": PROJECT_TYPE, "id": project_id, "business_id": project_id}
+    return {"type": PROJECT_TYPE, "id": project_id, "project_id": project_id}
 
 
-def business_row(ctx, project_id, uow, *, include_archived=False):
+def project_row(ctx, project_id, uow, *, include_archived=False):
     """The stored Project row the caller may currently reach, with no domain read of the Project's records."""
-    row = uow.repository("businesses").get(project_id)
-    if row is None or not business_participant(ctx, project_id, uow):
+    row = uow.repository("projects").get(project_id)
+    if row is None or not project_participant(ctx, project_id, uow):
         raise DomainError("not_found", "Project does not exist or is outside your current access")
     if row["archived_at"] is not None and not include_archived:
-        raise DomainError("business_archived", "This project is archived and is not part of current work")
+        raise DomainError("project_archived", "This project is archived and is not part of current work")
     return row
 
 
-def business_participant(ctx, project_id, uow) -> bool:
+def project_participant(ctx, project_id, uow) -> bool:
     """Current reach of one Project: the active membership (humans) or active supported global reach (agents)."""
-    return active_business_participant(uow.connection, project_id, ctx.principal_id) and project_id in ctx.allowed_business_ids
+    return active_project_participant(uow.connection, project_id, ctx.principal_id) and project_id in ctx.allowed_project_ids
 
 
 def project_id_from(args) -> str:
@@ -58,13 +58,13 @@ def project_id_from(args) -> str:
 
 
 def selected_scope(ctx, args, project_id, uow):
-    """The Project's own invocation context; a business route must agree with ``project_id``."""
-    scope = args.get("scope", "business" if ctx.business_id is not None else "global")
-    if scope not in ("business", "global"):
-        raise DomainError("validation_error", "Scope is business or global")
-    if ctx.business_id is not None and ctx.business_id != project_id:
+    """The Project's own invocation context; a project route must agree with ``project_id``."""
+    scope = args.get("scope", "project" if ctx.project_id is not None else "global")
+    if scope not in ("project", "global"):
+        raise DomainError("validation_error", "Scope is project or global")
+    if ctx.project_id is not None and ctx.project_id != project_id:
         raise DomainError("validation_error", "The selected project must match project_id")
-    return replace(ctx, business_id=project_id, review_business_id=project_id)
+    return replace(ctx, project_id=project_id, review_project_id=project_id)
 
 
 def role(ctx, uow) -> str:
@@ -87,17 +87,17 @@ def guard(ctx, application, uow, *, project_id, operation="project_record_get", 
     """
     current = application.current_context(ctx, uow)
     role(current, uow)
-    row = business_row(current, project_id, uow, include_archived=include_archived)
-    selected = replace(current, business_id=project_id, review_business_id=project_id)
-    application.authorize(selected, application.registry.get(operation), (), uow, namespace="business:" + project_id)
+    row = project_row(current, project_id, uow, include_archived=include_archived)
+    selected = replace(current, project_id=project_id, review_project_id=project_id)
+    application.authorize(selected, application.registry.get(operation), (), uow, namespace="project:" + project_id)
     return selected, row
 
 
 def allow(ctx, args, application, uow, *, project_id, operation, include_archived=False):
     """Identity gate, Project reach and the ordinary read/write gate of one ``project_*`` operation.
 
-    The handler enforces all three for every transport: a business route, the root route with ``scope: "global"``,
-    a direct invocation and a replayed receipt land here, and a business route must agree with ``project_id``."""
+    The handler enforces all three for every transport: a project route, the root route with ``scope: "global"``,
+    a direct invocation and a replayed receipt land here, and a project route must agree with ``project_id``."""
     current = application.current_context(ctx, uow)
     selected = selected_scope(current, args, project_id, uow)
     selected, row = guard(selected, application, uow, project_id=project_id, operation=operation,
@@ -106,7 +106,7 @@ def allow(ctx, args, application, uow, *, project_id, operation, include_archive
 
 
 def canonical_reference(item, *, require_scope=False):
-    """Validate one public canonical Project reference in place: ``id`` and ``business_id`` are the same UUID.
+    """Validate one public canonical Project reference in place: ``id`` and ``project_id`` are the same UUID.
 
     The neutral internal two-field vocabulary (``{type, id}``) may still resolve through the item resolver, which
     canonicalizes it to this full reference. Every public surface (link/get targets, Focus sources and private thread
@@ -114,14 +114,14 @@ def canonical_reference(item, *, require_scope=False):
     """
     if not isinstance(item, dict) or item.get("type") != PROJECT_TYPE:
         return item
-    identity, business = item.get("id"), item.get("business_id")
+    identity, project = item.get("id"), item.get("project_id")
     if not isinstance(identity, str) or not identity:
         raise DomainError("validation_error", "A project reference needs its actual project id")
-    if require_scope and business != identity:
+    if require_scope and project != identity:
         raise DomainError("validation_error", "A project reference must name the project as its own scope")
-    if business is not None and business != identity:
+    if project is not None and project != identity:
         raise DomainError("validation_error", "A project reference must name the project as its own scope")
-    return {**item, "business_id": identity}
+    return {**item, "project_id": identity}
 
 
 def validate_public_reference(item):
@@ -140,13 +140,13 @@ def project_view(row) -> dict:
 
 
 def scope_name(uow, project_id) -> tuple[str | None, str]:
-    """The own-scope slug and name of one item's business, or Global."""
+    """The own-scope slug and name of one item's project, or Global."""
     if project_id is None:
         return None, "Global"
-    row = uow.repository("businesses").get(project_id)
+    row = uow.repository("projects").get(project_id)
     return (row["slug"], row["name"]) if row is not None else (None, project_id)
 
 
-__all__ = ["PROJECT_TYPE", "THREAD_KINDS", "UNAVAILABLE", "allow", "business_participant", "business_row",
+__all__ = ["PROJECT_TYPE", "THREAD_KINDS", "UNAVAILABLE", "allow", "project_participant", "project_row",
            "canonical_reference", "guard", "project_id_from",
            "project_view", "reference", "role", "scope_name", "selected_scope", "validate_public_reference"]

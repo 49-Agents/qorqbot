@@ -32,7 +32,7 @@ class BackgroundAuthority:
         self.programs.require(program_id, available=False)
         return str(uuid5(UUID(self.installation(uow)), "program:" + program_id))
 
-    def register_workers(self, uow, business_ids):
+    def register_workers(self, uow, project_ids):
         uow.require_write()
         ids = []
         for program in self.programs:
@@ -42,21 +42,21 @@ class BackgroundAuthority:
                 uow.repository("principals").insert({"id": identity, "kind": "system", "display_name": program.id + " worker"})
             elif actor["kind"] != "system":
                 raise DomainError("invalid_principal", "Program principal identity is occupied")
-            for business_id in business_ids:
-                membership = uow.repository("business_memberships", business_id=business_id)
+            for project_id in project_ids:
+                membership = uow.repository("project_memberships", project_id=project_id)
                 if membership.get(identity) is None:
                     membership.insert({"principal_id": identity})
             ids.append(identity)
         return ids
 
     @staticmethod
-    def require_worker(principal_id, business_id, uow):
+    def require_worker(principal_id, project_id, uow):
         actor = uow.repository("principals").get(principal_id)
         if not actor or actor["kind"] != "system" or not actor["active"]:
             raise DomainError("invalid_principal", "Registered program worker is missing or inactive",
                               details={'incident_classification':'setup_contract'})
-        if business_id:
-            member = uow.repository("business_memberships", business_id=business_id).get(principal_id)
+        if project_id:
+            member = uow.repository("project_memberships", project_id=project_id).get(principal_id)
             if not member or not member["active"]:
                 raise DomainError("forbidden", "Worker is not registered for this project")
 
@@ -64,18 +64,18 @@ class BackgroundAuthority:
         for program in self.programs:
             if self.worker_id(program.id, uow) == principal_id:
                 self.require_worker(principal_id, None, uow)
-                businesses = frozenset(x[0] for x in uow.connection.execute(
-                    "SELECT business_id FROM business_memberships WHERE principal_id=? AND active=1", (principal_id,)))
+                projects = frozenset(x[0] for x in uow.connection.execute(
+                    "SELECT project_id FROM project_memberships WHERE principal_id=? AND active=1", (principal_id,)))
                 revision = int(program.definition["digest"][:15], 16) + 1
-                return WorkerProfile(program.permissions, businesses, frozenset(program.global_capabilities), revision)
+                return WorkerProfile(program.permissions, projects, frozenset(program.global_capabilities), revision)
         return None
 
     def _job(self, context, uow):
         if context.principal_kind != "system" or context.source != "worker" or context.job_id is None:
             raise DomainError("forbidden", "Declared outputs require an internal job context")
-        row = uow.repository("jobs", business_id=context.business_id).get(context.job_id, required=True)
+        row = uow.repository("jobs", project_id=context.project_id).get(context.job_id, required=True)
         program = self.programs.require(row["kind"])
-        self.require_worker(context.principal_id, context.business_id, uow)
+        self.require_worker(context.principal_id, context.project_id, uow)
         if (row["principal_id"] != context.principal_id or context.principal_id != self.worker_id(program.id, uow)
                 or row["initiated_by_principal_id"] != context.initiated_by_principal_id
                 or row["definition_ref_json"].get("digest") != program.definition["digest"]):
@@ -100,14 +100,14 @@ class BackgroundAuthority:
             return None
         for target in targets:
             resource = getattr(target, "resource", target)
-            # An action's business membership is part of the canonical action record it
+            # An action's project membership is part of the canonical action record it
             # belongs to, so declaring action_logs covers it without changing frozen digests.
-            membership = resource.resource_type == "action_businesses" and "action_logs" in program.resource_types
-            # Tags are installation-wide labels, including on business-owned outputs.
+            membership = resource.resource_type == "action_projects" and "action_logs" in program.resource_types
+            # Tags are installation-wide labels, including on project-owned outputs.
             # The program must still declare tags; item_tags and every other resource
-            # retain the job's business boundary. Keep frozen definitions unchanged.
-            shared_tag = resource.resource_type == "tags" and resource.business_id is None
-            if ((resource.business_id != row["business_id"] and not shared_tag)
+            # retain the job's project boundary. Keep frozen definitions unchanged.
+            shared_tag = resource.resource_type == "tags" and resource.project_id is None
+            if ((resource.project_id != row["project_id"] and not shared_tag)
                     or (resource.resource_type not in program.resource_types and not membership)):
                 raise DomainError("forbidden", "Job output exceeds its declared resource kinds or project")
         return {"job_id": row["id"], "definition_digest": program.definition["digest"]}
@@ -133,6 +133,6 @@ class BackgroundAuthority:
         self.verify_consequence(context, descriptor, plan.expected_targets, uow)
         for change in plan.changes:
             if change.resource.resource_type == "documents":
-                document = uow.repository("documents", business_id=change.resource.business_id).get(change.resource.resource_id)
+                document = uow.repository("documents", project_id=change.resource.project_id).get(change.resource.resource_id)
                 if document and document["kind"] in {"pillar", "shared_instruction", "shared_instructions", "mandatory_brief", "agent_instructions"}:
                     raise DomainError("forbidden", "Automatic context work cannot change mandatory instructions")

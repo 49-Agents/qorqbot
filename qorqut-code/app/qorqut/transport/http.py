@@ -122,7 +122,7 @@ def _etag_for(request, changes, kinds, scope):
     access, so a 304 returns without the caller's real read ever running
     and opens no unit of work. `route_versions` (qorqut/service/changes.py)
     widens the scope lookup for kinds whose bump side cannot always
-    attribute one business; skipping that would risk a stale 304, which
+    attribute one project; skipping that would risk a stale 304, which
     this must never serve. A coarse kind can still cause an unrelated miss
     -- an accepted cost, not a correctness bug. Returns (None, False) if no
     change feed is attached (a bare `Runtime()`, e.g. in a test fixture that
@@ -205,25 +205,25 @@ class HTTPAPI:
 
     def context(self, actor, slug=None, *, owner=False):
         with self.runtime.database.read() as uow:
-            business = uow.connection.execute("SELECT * FROM businesses WHERE slug=? AND archived_at IS NULL", (slug,)).fetchone() if slug else None
-            if slug and business is None:
+            project = uow.connection.execute("SELECT * FROM projects WHERE slug=? AND archived_at IS NULL", (slug,)).fetchone() if slug else None
+            if slug and project is None:
                 raise DomainError("not_found", "Project is not available to this principal")
-            business_id = business["id"] if business else None
-            if business_id:
-                membership = uow.repository("business_memberships", business_id=business_id).get(actor.principal.id)
+            project_id = project["id"] if project else None
+            if project_id:
+                membership = uow.repository("project_memberships", project_id=project_id).get(actor.principal.id)
                 if not membership or not membership["active"]:
                     raise DomainError("not_found", "Project is not available to this principal")
                 if owner and not membership["is_owner"]:
                     raise DomainError("forbidden", "This action requires the current project owner")
-            context = self.runtime.policy.context_for(actor.principal.id, business_id=business_id,
-                review_business_id=business_id, uow=uow)
-        return context, decode_row(business)
+            context = self.runtime.policy.context_for(actor.principal.id, project_id=project_id,
+                review_project_id=project_id, uow=uow)
+        return context, decode_row(project)
 
     def session_data(self, actor):
         with self.runtime.database.read() as uow:
             installation = uow.repository("installation").get("service")
             global_owner = bool(installation and installation["owner_principal_id"] == actor.principal.id)
-            owned = uow.connection.execute("SELECT 1 FROM business_memberships WHERE principal_id=? AND active=1 AND is_owner=1 LIMIT 1", (actor.principal.id,)).fetchone()
+            owned = uow.connection.execute("SELECT 1 FROM project_memberships WHERE principal_id=? AND active=1 AND is_owner=1 LIMIT 1", (actor.principal.id,)).fetchone()
         return {"principal_id": actor.principal.id, "principal_kind": "human", "display_name": actor.principal.display_name,
                 "is_owner": bool(owned) or global_owner, "is_installation_owner": global_owner,
                 "operational_timezone": local_time.TIMEZONE}
@@ -268,8 +268,8 @@ class HTTPAPI:
                 "readiness", "bootstrap", "browser", "focus", "inbox", "checkpoint", "connector-gate", "technical-observation"} else "agent"
         if parts[:2] == ["root", "operations"]:
             return "root.operation"
-        if parts[:1] == ["biz"]:
-            return "business.operation" if "operations" in parts[2:] else "business"
+        if parts[:1] == ["project"]:
+            return "project.operation" if "operations" in parts[2:] else "project"
         return parts[0] if parts and parts[0] in {"session", "me", "root"} else "request"
 
     # Generated record ids (learnings, jobs, signoffs, documents, routines,
@@ -281,12 +281,12 @@ class HTTPAPI:
     # asset's real file path (compatibility.py's `["asset", *path_parts]`
     # branch, unbounded in both length and content) and a context/person
     # slug (`context/person/{slug}`, derived from a person's real name).
-    # Those can start as early as the segment right after "biz"/"{slug}".
+    # Those can start as early as the segment right after "project"/"{slug}".
     #
     # The deepest route built entirely from literal, fixed keywords (no
     # authored or generated value at all) is 4 segments long, e.g.
-    # /api/biz/{slug}/context/file|search|map or /api/biz/{slug}/assets/upload
-    # (see business_get/business_post/document_get/document_post in
+    # /api/project/{slug}/context/file|search|map or /api/project/{slug}/assets/upload
+    # (see project_get/project_post/document_get/document_post in
     # compatibility.py). Every other real endpoint either fits within that
     # same 4-segment envelope before an id/slug appears, or extends past it
     # only through a uuid (already templated) or authored content (asset
@@ -299,19 +299,19 @@ class HTTPAPI:
     @staticmethod
     def _record_position(parts, index):
         """Whether ``parts[index]`` holds a record id because of where it stands, whatever its form: the Task of
-        /api/biz/{slug}/task/{id}[/done] (see ``qorqut_operations.tasks.identity``)."""
-        return index == 3 and parts[:1] == ["biz"] and parts[2] == "task"
+        /api/project/{slug}/task/{id}[/done] (see ``qorqut_operations.tasks.identity``)."""
+        return index == 3 and parts[:1] == ["project"] and parts[2] == "task"
 
     @staticmethod
     def _route_pattern(parts):
-        # Route pattern means the template ("/api/biz/{slug}/notes"), not the
-        # concrete slug: template the one known dynamic segment (a business
-        # slug right after "biz") plus any UUID-shaped segment anywhere, then
+        # Route pattern means the template ("/api/project/{slug}/notes"), not the
+        # concrete slug: template the one known dynamic segment (a project
+        # slug right after "project") plus any UUID-shaped segment anywhere, then
         # collapse anything past `_ROUTE_SEGMENT_CAP` into a single "…" entry
         # so an authored/free-form tail of any length is one bounded row
         # instead of a permanent counter per distinct value ever seen.
         capped = parts[:HTTPAPI._ROUTE_SEGMENT_CAP]
-        templated = ["{slug}" if index == 1 and parts[:1] == ["biz"] else
+        templated = ["{slug}" if index == 1 and parts[:1] == ["project"] else
                      ("{id}" if _UUID_RE.fullmatch(part) or HTTPAPI._record_position(parts, index) else part)
             for index, part in enumerate(capped)]
         if len(parts) > HTTPAPI._ROUTE_SEGMENT_CAP:
@@ -682,15 +682,15 @@ class HTTPAPI:
                 if request.headers.get("sec-fetch-site") not in (None, "same-origin"):
                     raise DomainError("csrf_required", "The change feed stream must originate in this dashboard")
                 return self._events_stream(request)
-            if parts == ["root", "businesses", "archived"] and request.method == "GET":
+            if parts == ["root", "projects", "archived"] and request.method == "GET":
                 context, _ = self.context(actor)
                 result = await anyio.to_thread.run_sync(
-                    lambda: self.runtime.application.invoke(context, "business_archived_list", {}))
+                    lambda: self.runtime.application.invoke(context, "project_archived_list", {}))
                 return response(result)
-            if parts == ["root", "business-restore"] and request.method == "POST":
+            if parts == ["root", "project-restore"] and request.method == "POST":
                 context, _ = self.context(actor)
-                args, options = split_options(await read_json(request), domain_fields=("business_id",))
-                if options.business_id is not None or options.review_business_id is not None:
+                args, options = split_options(await read_json(request), domain_fields=("project_id",))
+                if options.project_id is not None or options.review_project_id is not None:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.domains.archive.restore(context, args, options))
                 return response(result)
@@ -715,27 +715,27 @@ class HTTPAPI:
                     "timeline_view",
                     "side_chats_create", "side_chats_rename", "side_chats_close",
                     # Project record reads and explicit links: the six project_* operations and the narrow reminder read.
-                    # The root route names the Project with scope=global and no business option; a business route must agree
+                    # The root route names the Project with scope=global and no project option; a project route must agree
                     # with project_id, and the engine refuses any target differing from the selected project.
                     "project_record_get", "project_items_list", "project_items_candidates", "project_item_get",
                     "project_items_link", "project_items_unlink", "owner_reminders_list",
-                    # Move to project: the source is the explicit source_business_id argument (null for Global), so the root
-                    # route is allowed and the business route must agree with it. No scope selector is accepted.
+                    # Move to project: the source is the explicit source_project_id argument (null for Global), so the root
+                    # route is allowed and the project route must agree with it. No scope selector is accepted.
                     "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project",
                     "tables_move_to_project_preview", "tables_move_to_project",
                     "notes_move_to_project_preview", "notes_move_to_project",
                     # Parent-detail readers promised to the record pane: a routine's runs and a known job's own safe
-                    # result. Root is Global-source only; the business route reads its Project source. Both are normal
+                    # result. Root is Global-source only; the project route reads its Project source. Both are normal
                     # reads through split_options, argument validation and policy, with no job browser or enumeration.
                     "routines_runs", "jobs_get",
-                    # Global work: the eight neutral relationship operations that take the business-or-Global namespace, and the
+                    # Global work: the eight neutral relationship operations that take the project-or-Global namespace, and the
                     # Task follow and Action discussion/follow and shared-tag operations. Each is the normal application call; Tags and
                     # Actions declare no scope input, so a caller passes none.
                     "relationship_roles_list", "relationships_list", "relationships_get", "relationships_create",
                     "relationships_update", "relationships_remove", "context_items_list", "context_items_get",
                     "tasks_follow", "actions_thread_get", "actions_follow", "actions_comment", "tags_list", "tags_create",
                     "tasks_list", "tasks_get", "tasks_notes_list", "tasks_associated_records", "agents_activity_list", "agent_work_update", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete", "tasks_config_get", "tasks_config_update", "assignees_list",
-                    "business_create", "signoffs_input_create", "signoffs_input_cancel", "signoffs_source_link", "signoffs_source_unlink",
+                    "project_create", "signoffs_input_create", "signoffs_input_cancel", "signoffs_source_link", "signoffs_source_unlink",
                     "context_home", "context_object", "context_expand", "context_find", "context_changes", "context_upload_map", "context_filings", "context_filing_costs", "context_instruct", "context_edit",
                     # Raw Global sources (scope=shared) and the exact-input and document commands of the source status UI: only these eight.
                     "context_list", "context_get", "context_search", "context_retry", "context_retract",
@@ -745,10 +745,10 @@ class HTTPAPI:
                     "notes_get"} and request.method == "POST":
                 context, _ = self.context(actor)
                 # workspace_get is the one owner cross-scope read that names its
-                # target business as a domain field, not a scope selector.
-                domain_fields = ("business_id",) if parts[2] == "workspace_get" else ()
+                # target project as a domain field, not a scope selector.
+                domain_fields = ("project_id",) if parts[2] == "workspace_get" else ()
                 args, options = split_options(await read_json(request), domain_fields=domain_fields)
-                if options.business_id is not None or options.review_business_id is not None:
+                if options.project_id is not None or options.review_project_id is not None:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
                 if parts[2] in {"routines_runs", "jobs_get"} and args.get("scope") != "global":
                     raise DomainError("forbidden", "Global routines and jobs are read with scope=global")
@@ -762,7 +762,7 @@ class HTTPAPI:
                 self.require_terminals()
                 args, options = split_options(await read_json(request, limit=4096))
                 checked_fields(args, {"target_agent_id", "rationale"}, {"target_agent_id", "rationale"})
-                if options.business_id is not None or options.review_business_id is not None:
+                if options.project_id is not None or options.review_project_id is not None:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
@@ -770,7 +770,7 @@ class HTTPAPI:
                     "agents_message_send", "agents_messages_list", "agents_message_recipients"} and request.method == "POST":
                 context, _ = self.context(actor)
                 args, options = split_options(await read_json(request))
-                if options.business_id is not None or args.get("scope", "global") != "global":
+                if options.project_id is not None or args.get("scope", "global") != "global":
                     raise DomainError("forbidden", "Global message endpoint cannot select a project")
                 args["scope"] = "global"
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
@@ -783,7 +783,7 @@ class HTTPAPI:
                     "tables_thread_get", "tables_comment", "tables_follow"} and request.method == "POST":
                 context, _ = self.context(actor)
                 args, options = split_options(await read_json(request))
-                if options.business_id is not None or args.get("scope", "global") != "global":
+                if options.project_id is not None or args.get("scope", "global") != "global":
                     raise DomainError("forbidden", "Global tables cannot select a project")
                 args["scope"] = "global"
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
@@ -829,7 +829,7 @@ class HTTPAPI:
                 context, _ = self.context(actor)
                 notifications = self.runtime.signoffs.notifications
                 if request.method == "GET" and parts in (["me", "attention"], ["me", "attention", "deliveries"]):
-                    # This aggregates across every business the owner belongs
+                    # This aggregates across every project the owner belongs
                     # to, a set an ETag computed before any read cannot know,
                     # so ANY_SCOPE checks every known scope instead of one.
                     from qorqut.service.changes import ANY_SCOPE
@@ -864,8 +864,8 @@ class HTTPAPI:
             if parts[:2] == ["root", "signoffs"]:
                 context, _ = self.context(actor)
                 return await self.signoff_route(request, context, parts[1:])
-            if parts[:1] == ["biz"] and len(parts) >= 2:
-                context, business = await anyio.to_thread.run_sync(lambda: self.context(actor, parts[1], owner=request.method != "GET"))
+            if parts[:1] == ["project"] and len(parts) >= 2:
+                context, project = await anyio.to_thread.run_sync(lambda: self.context(actor, parts[1], owner=request.method != "GET"))
                 tail = parts[2:]
                 if len(tail) == 3 and tail[0] == "data-uploads" and tail[2] == "download" and request.method == "GET":
                     return await self.data_upload_download(context, tail[1])
@@ -887,7 +887,7 @@ class HTTPAPI:
                     for guard in self.guards:
                         if guard.names(tail[1]):
                             options = guard.check(request, tail[1], args, options)
-                    if options.business_id is not None and options.business_id != context.business_id:
+                    if options.project_id is not None and options.project_id != context.project_id:
                         raise DomainError("forbidden", "The body cannot change the URL's selected project")
                     if tail[1] in {"routines_runs", "jobs_get"} and args.get("scope") == "global":
                         raise DomainError("forbidden", "Global routines and jobs are read from the root route")
@@ -896,7 +896,7 @@ class HTTPAPI:
                 if tail[:1] == ["chat"]:
                     raise DomainError("legacy_chat_retired", "Project chat execution is retired; use Chat")
                 if self.compatibility:
-                    return await self.compatibility.business_route(request, context, business, tail)
+                    return await self.compatibility.project_route(request, context, project, tail)
             elif self.compatibility:
                 context, _ = self.context(actor)
                 return await self.compatibility.global_route(request, context, parts)
@@ -931,11 +931,11 @@ class HTTPAPI:
         reject_bad_escapes(request.scope.get("query_string", b""))
         items, action = request.query_params.multi_items(), tail[0]
 
-        def scope(business_id):
-            if business_id is None:
+        def scope(project_id):
+            if project_id is None:
                 return self.context(actor)[0]
             with self.runtime.database.read() as uow:
-                row = uow.connection.execute("SELECT slug FROM businesses WHERE id=? AND archived_at IS NULL", (business_id,)).fetchone()
+                row = uow.connection.execute("SELECT slug FROM projects WHERE id=? AND archived_at IS NULL", (project_id,)).fetchone()
             if row is None:
                 raise DomainError("not_found", "Project is not available to this principal")
             return self.context(actor, row["slug"])[0]
@@ -1140,13 +1140,13 @@ class HTTPAPI:
                     args["states"] = args["states"].split(",")
                 if "execution_states" in args:
                     args["execution_states"] = args["execution_states"].split(",")
-                if "scope" in args and args["scope"] != ("business" if context.business_id else "global"):
+                if "scope" in args and args["scope"] != ("project" if context.project_id else "global"):
                     raise DomainError("forbidden", "Queue scope differs from the URL")
-                args["scope"] = "business" if context.business_id else "global"
+                args["scope"] = "project" if context.project_id else "global"
                 async def produce():
                     result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, "signoffs_list", args))
                     return response(result)
-                return await revalidated_async(request, self.runtime.changes, {"signoffs"}, context.business_id, produce)
+                return await revalidated_async(request, self.runtime.changes, {"signoffs"}, context.project_id, produce)
             if len(tail) == 2:
                 arguments = {}
                 if 'draft_history_before' in request.query_params:
@@ -1297,16 +1297,16 @@ class HTTPAPI:
                             raise DomainError("forbidden", "Technical report session belongs to another registration",
                                               details={"reason": "technical_session_mismatch"})
                         profile = uow.connection.execute(
-                            "SELECT home_business_id FROM agent_profiles WHERE agent_id=? AND status='active'",
+                            "SELECT home_project_id FROM agent_profiles WHERE agent_id=? AND status='active'",
                             (actor.principal.id,)).fetchone()
-                        business_id = profile["home_business_id"] if profile else None
+                        project_id = profile["home_project_id"] if profile else None
                         reporter_id = incidents.reporter_id
                         if reporter_id is None:
                             reporter_id = ensure_system_reporter(uow, incidents.authority)
                             incidents.reporter_id = reporter_id
                         try:
                             observation = incidents.reporter.external_observation(
-                                body["observation"], agent_id=actor.principal.id, business_id=business_id,
+                                body["observation"], agent_id=actor.principal.id, project_id=project_id,
                                 observation_namespace=actor.principal.id)
                         except ValueError as exc:
                             raise DomainError("validation_error", "Technical observation is invalid") from exc

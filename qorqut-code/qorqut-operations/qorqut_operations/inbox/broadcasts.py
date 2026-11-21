@@ -1,8 +1,8 @@
 """Durable fan-out messages and a small scheduler that never starts agents.
 
-A broadcast keeps its owning business (or Global) scope and its timing; its recipients are global identities. Each selected
+A broadcast keeps its owning project (or Global) scope and its timing; its recipients are global identities. Each selected
 agent is addressed in the broadcast's own scope, so one identity means one delivery per occurrence. A recipient must be an
-active supported global that reaches that business now, with no agent membership, saved scope list or business home read;
+active supported global that reaches that project now, with no agent membership, saved scope list or project home read;
 reach is not a permission, and the direct-message contact rules still decide who may be addressed. An agent sender acts,
 manages and delivers only while it is itself an active supported global.
 
@@ -20,7 +20,7 @@ from qorqut_operations.application.plans import PlanBuilder, apply_records, page
 from qorqut_operations.background.schedule import next_slot, zone, parse_cron, RoutineError
 
 UUID = {"type": "string", "format": "uuid"}
-SCOPE = {"scope": {"enum": ["business", "global"]}}
+SCOPE = {"scope": {"enum": ["project", "global"]}}
 TIMING = {"type": "object", "properties": {
     "kind": {"enum": ["once", "interval", "cron"]}, "at": {"type": "string", "format": "date-time"},
     "every": {"type": "integer", "minimum": 1, "maximum": 525600}, "unit": {"enum": ["minutes", "hours", "days"]},
@@ -40,16 +40,16 @@ def _stamp(value):
 
 
 class Broadcasts:
-    def __init__(self, inbox, *, active_global, global_profile_data, reaches_business, owner_directed_target,
+    def __init__(self, inbox, *, active_global, global_profile_data, reaches_project, owner_directed_target,
                  clock=lambda: datetime.now(timezone.utc)):
         self.inbox, self.app, self.clock = inbox, inbox.app, clock
         self.active_global, self.global_profile_data = active_global, global_profile_data
-        self.reaches_business, self.owner_directed_target = reaches_business, owner_directed_target
+        self.reaches_project, self.owner_directed_target = reaches_project, owner_directed_target
 
     def _scope(self, ctx, args):
         requested = args.get("scope") == "global"
         if requested: return None, "global"
-        return ctx.business_id, "business:" + (ctx.business_id or "")
+        return ctx.project_id, "project:" + (ctx.project_id or "")
 
     def _role(self, identity, uow):
         data = self.active_global(uow.connection, identity)
@@ -71,49 +71,49 @@ class Broadcasts:
             return bool(installation and installation["owner_principal_id"] == identity)
         return False  # Agent direct input requires exact terminal-control authorization.
 
-    def _authorized_recipient(self, ctx, recipient, business_id, uow, *, allow_self=True):
-        """``recipient`` addressed in the broadcast's own scope ``business_id`` (None for Global), never its residence."""
+    def _authorized_recipient(self, ctx, recipient, project_id, uow, *, allow_self=True):
+        """``recipient`` addressed in the broadcast's own scope ``project_id`` (None for Global), never its residence."""
         if self.active_global(uow.connection, recipient) is None: raise DomainError("not_found", "Recipient is unavailable")
-        if business_id is None and "read_global_context" not in ctx.global_capabilities:
+        if project_id is None and "read_global_context" not in ctx.global_capabilities:
             raise DomainError("forbidden", "Global recipient is outside your scope")
-        if business_id is not None and business_id not in ctx.allowed_business_ids:
+        if project_id is not None and project_id not in ctx.allowed_project_ids:
             raise DomainError("forbidden", "Recipient project is outside your scope")
-        if business_id is not None and not self.reaches_business(uow.connection, recipient, business_id):
+        if project_id is not None and not self.reaches_project(uow.connection, recipient, project_id):
             raise DomainError("not_found", "Recipient project is unavailable")
-        if recipient == ctx.principal_id and allow_self: return {"agent_id": recipient, "business_id": business_id}
-        selected = replace(ctx, business_id=business_id)
+        if recipient == ctx.principal_id and allow_self: return {"agent_id": recipient, "project_id": project_id}
+        selected = replace(ctx, project_id=project_id)
         # Keep direct-message scope/contact policy as the authoritative peer test.
         self.inbox.messages.peer(selected, recipient, uow)
         if self.owner_directed_target(selected, recipient, uow): raise DomainError("not_found", "Recipient is owner-directed")
-        # Cross-business coordination is reserved for Ordubashy and humans.
-        if ctx.principal_kind == "agent" and business_id != ctx.business_id and self._role(ctx.principal_id, uow) != "ordubashy":
-            raise DomainError("forbidden", "Cross-business broadcasts require global peer authority")
-        return {"agent_id": recipient, "business_id": business_id}
+        # Cross-project coordination is reserved for Ordubashy and humans.
+        if ctx.principal_kind == "agent" and project_id != ctx.project_id and self._role(ctx.principal_id, uow) != "ordubashy":
+            raise DomainError("forbidden", "Cross-project broadcasts require global peer authority")
+        return {"agent_id": recipient, "project_id": project_id}
 
     def _recipients(self, ctx, args, options, uow):
         """The global agents a broadcast in the selected scope may address, each listed once.
 
-        ``all_businesses`` is still accepted but fans out nothing: there are no business rosters, so every scope offers the
-        same globals. The business fields describe the selected message scope, not where an agent lives."""
+        ``all_projects`` is still accepted but fans out nothing: there are no project rosters, so every scope offers the
+        same globals. The project fields describe the selected message scope, not where an agent lives."""
         ctx = self.app.current_context(ctx, uow)
         self._current_sender(ctx, uow)
         target, _ = self._scope(ctx, args)
-        business = uow.repository("businesses").get(target) if target else None
+        project = uow.repository("projects").get(target) if target else None
         values = []
         for row in uow.connection.execute(
-                "SELECT a.agent_id,a.name,a.home_business_id,a.status,a.profile_json,p.kind,p.active FROM agent_profiles a "
-                "JOIN principals p ON p.id=a.agent_id WHERE a.status='active' AND a.home_business_id IS NULL ORDER BY a.name,a.agent_id"):
+                "SELECT a.agent_id,a.name,a.home_project_id,a.status,a.profile_json,p.kind,p.active FROM agent_profiles a "
+                "JOIN principals p ON p.id=a.agent_id WHERE a.status='active' AND a.home_project_id IS NULL ORDER BY a.name,a.agent_id"):
             profile = self.global_profile_data(row)
             if profile is None: continue
             role = profile["role"]["id"]
             if args.get("role_id") and role != args["role_id"]: continue
             try: self._authorized_recipient(ctx, row["agent_id"], target, uow)
             except DomainError: continue
-            values.append({"agent_id": row["agent_id"], "name": row["name"], "role_id": role, "business_id": target,
+            values.append({"agent_id": row["agent_id"], "name": row["name"], "role_id": role, "project_id": target,
                 "display_name": profile.get('display_name', row['name']),
                 "presentation": profile.get('presentation', {}), "role": {"id": role},
-                "business_slug": business["slug"] if business else None,
-                "business_name": business["name"] if business else None,
+                "project_slug": project["slug"] if project else None,
+                "project_name": project["name"] if project else None,
                 "group": "Global"})
         return {"items": values}
 
@@ -144,9 +144,9 @@ class Broadcasts:
             raise DomainError('validation_error', 'Enter a message and name')
         if data["delivery"] == "input" and not self._input_allowed(ctx, uow):
             raise DomainError("forbidden", "Input broadcasts require the installation owner; use authorized terminal-control tools")
-        scope_business, _ = self._scope(ctx, {"scope": scope})
+        scope_project, _ = self._scope(ctx, {"scope": scope})
         # Every recipient is bound to the broadcast's own scope: one selected identity, one delivery per occurrence.
-        recipients = [self._authorized_recipient(ctx, item, scope_business, uow) for item in data["recipients"]]
+        recipients = [self._authorized_recipient(ctx, item, scope_project, uow) for item in data["recipients"]]
         if len({x['agent_id'] for x in recipients}) != len(recipients): raise DomainError("validation_error", "Recipients must be unique")
         try:
             timing = self._timing(data['timing'])
@@ -155,33 +155,33 @@ class Broadcasts:
         return recipients, timing
 
     def _row(self, ctx, args, uow):
-        business, _ = self._scope(ctx, args)
+        project, _ = self._scope(ctx, args)
         self._current_sender(ctx, uow)
-        row = uow.repository("broadcasts", business_id=business).get(args["broadcast_id"], required=True)
+        row = uow.repository("broadcasts", project_id=project).get(args["broadcast_id"], required=True)
         if ctx.principal_id in (row["sender_id"], row['created_by']): return row
         if ctx.principal_kind == "human":
             installation = uow.repository("installation").get("service")
-            member = uow.repository("business_memberships", business_id=business).get(ctx.principal_id) if business else None
+            member = uow.repository("project_memberships", project_id=project).get(ctx.principal_id) if project else None
             if installation and installation["owner_principal_id"] == ctx.principal_id or member and member["active"] and member["is_owner"]: return row
         role = self._role(ctx.principal_id, uow) if ctx.principal_kind == "agent" else None
-        if role == "ordubashy" and (business is None or business in ctx.allowed_business_ids):
-            if all(target['business_id'] is None or target['business_id'] in ctx.allowed_business_ids
+        if role == "ordubashy" and (project is None or project in ctx.allowed_project_ids):
+            if all(target['project_id'] is None or target['project_id'] in ctx.allowed_project_ids
                    for target in row['recipients_json']):
                 return row
         raise DomainError("forbidden", "You cannot manage this broadcast")
 
     def _can_manage(self, ctx, row, uow):
         try:
-            self._row(ctx, {"scope": "global" if row["business_id"] is None else "business", "broadcast_id": row["id"]}, uow)
+            self._row(ctx, {"scope": "global" if row["project_id"] is None else "project", "broadcast_id": row["id"]}, uow)
             return True
         except DomainError:
             return False
 
     def prepare(self, name, ctx, args, options, uow):
         ctx = self.app.current_context(ctx, uow)
-        business, namespace = self._scope(ctx, args)
+        project, namespace = self._scope(ctx, args)
         builder = PlanBuilder(ctx, name, args, name.replace("_", " ").capitalize(), namespace=namespace,
-            affected_scope={"kind": "global"} if business is None else {"kind": "business", "business_id": business})
+            affected_scope={"kind": "global"} if project is None else {"kind": "project", "project_id": project})
         if name == "broadcasts_create":
             recipients, timing = self._definition(ctx, args["definition"], uow, scope=args.get("scope"))
             if args.get("send_now"):
@@ -190,7 +190,7 @@ class Broadcasts:
             builder.record("broadcasts", identity, None, {"id": identity, "sender_id": ctx.principal_id, "created_by": ctx.principal_id,
                 "name": data["name"], "delivery": data["delivery"],
                 "message": data["message"], "recipients_json": recipients, "timing_json": timing, "status": "active",
-                "max_occurrences": data.get("max_occurrences"), "occurrence_count": 0, "manual_count": 0, "next_due_at": timing["next"]}, business_id=business)
+                "max_occurrences": data.get("max_occurrences"), "occurrence_count": 0, "manual_count": 0, "next_due_at": timing["next"]}, project_id=project)
         else:
             row = self._row(ctx, args, uow); require_revision(row, options.expected_revision)
             if row["delivery"] == "input" and ctx.principal_kind != "human" and name not in {"broadcasts_pause", "broadcasts_cancel"}:
@@ -219,7 +219,7 @@ class Broadcasts:
                 values = {"status": "active" if name == "broadcasts_resume" else ("cancelled" if name == "broadcasts_cancel" else "paused")}
                 if name in {"broadcasts_pause", "broadcasts_cancel"}:
                     values["manual_count"] = 0
-            builder.record("broadcasts", row["id"], row, values, business_id=business)
+            builder.record("broadcasts", row["id"], row, values, project_id=project)
         return builder.build()
 
     def validate_control(self, ctx, plan, uow):
@@ -240,10 +240,10 @@ class Broadcasts:
         return {"records": records}
 
     def list(self, ctx, args, options, uow):
-        ctx = self.app.current_context(ctx, uow); business, _ = self._scope(ctx, args)
-        rows = uow.repository("broadcasts", business_id=business).list(limit=200, order_by=("created_at", "id"), descending=True)
+        ctx = self.app.current_context(ctx, uow); project, _ = self._scope(ctx, args)
+        rows = uow.repository("broadcasts", project_id=project).list(limit=200, order_by=("created_at", "id"), descending=True)
         rows = [x for x in rows if self._can_manage(ctx, x, uow)]
-        items, cursor = page(rows, args, business, "broadcasts_list")
+        items, cursor = page(rows, args, project, "broadcasts_list")
         return {"items": items, "next_cursor": cursor}
 
     def get(self, ctx, args, options, uow):
@@ -252,9 +252,9 @@ class Broadcasts:
         return {"broadcast": row, "deliveries": records}
 
     def register(self):
-        common = dict(supports_signoff=False, scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
-            resolve_namespace=lambda ctx,a: "global" if a.get("scope") == "global" else "business:" + (ctx.business_id or ""))
-        self.app.registry.register(OperationDescriptor("broadcast_recipients", schema({**SCOPE, "all_businesses": {"type":"boolean",
+        common = dict(supports_signoff=False, scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
+            resolve_namespace=lambda ctx,a: "global" if a.get("scope") == "global" else "project:" + (ctx.project_id or ""))
+        self.app.registry.register(OperationDescriptor("broadcast_recipients", schema({**SCOPE, "all_projects": {"type":"boolean",
             "description": instruction_text('broadcasts-accepted-for-existing-callers-it-adds-no-per')},
             "role_id": {"type":"string", "maxLength":100}}), effect_kind="read", read=self._recipients, **common))
         self.app.registry.register(OperationDescriptor("broadcasts_list", schema({**SCOPE, "cursor":{"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":200}}), effect_kind="read", read=self.list, **common))
