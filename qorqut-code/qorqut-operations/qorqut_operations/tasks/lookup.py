@@ -21,12 +21,12 @@ project assignment's Task is found in that project and nowhere else, and a Globa
 
 from __future__ import annotations
 
-from dataclasses import replace
 import re
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.records.locate import ScopeReach
 from qorqut_operations.tasks.relocation import moved_location, namespace
 from qorqut_operations.tasks.scope import global_tasks_allowed, task_namespace
 
@@ -36,18 +36,13 @@ SHORT_ID = re.compile(r"[0-9a-f-]{6,}")
 PREFIX_ROWS = 50
 
 
-class Reach:
+class Reach(ScopeReach):
     """The scopes one caller may look a Task up in, with its ``tasks_get`` authority in each (decided once per scope)."""
 
     def __init__(self, tasks, ctx, uow):
-        self.tasks, self.ctx, self.uow = tasks, ctx, uow
-        allowed = sorted(ctx.allowed_project_ids)
-        rows = uow.connection.execute(
-            f"SELECT id, name, slug FROM projects WHERE archived_at IS NULL AND id IN ({','.join('?' * len(allowed))})",
-            allowed).fetchall() if allowed else ()
-        self.names = {row["id"]: row["name"] or row["slug"] for row in rows}
+        super().__init__(tasks.application, ctx, uow, "tasks_get")
+        self.tasks = tasks
         self.global_tasks = ctx.owner_session_project_id is None and global_tasks_allowed(ctx, uow)
-        self.readable = {}
 
     def rows(self, test, values, limit):
         """Task rows matching ``test`` in reachable scopes, Global first, at most ``limit``."""
@@ -63,19 +58,6 @@ class Reach:
             f"SELECT project_id, id, title FROM tasks WHERE {test} AND ({' OR '.join(scopes)}) "
             "ORDER BY project_id IS NOT NULL, project_id, id LIMIT ?", (*values, *params, limit)).fetchall()
         return [dict(row) for row in found]
-
-    def can_read(self, project_id):
-        if project_id not in self.readable:
-            app = self.tasks.application
-            descriptor = app.registry.get("tasks_get")
-            selected = replace(self.ctx, project_id=project_id, review_project_id=project_id)
-            arguments = {"scope": "project" if project_id else "global"}
-            try:
-                app.authorize(selected, descriptor, (), self.uow, namespace=app.namespace(selected, descriptor, arguments))
-                self.readable[project_id] = True
-            except DomainError:
-                self.readable[project_id] = False
-        return self.readable[project_id]
 
     def view(self, row, *, identity=False):
         return {**({"id": row["id"]} if identity else {}), "project_id": row["project_id"],

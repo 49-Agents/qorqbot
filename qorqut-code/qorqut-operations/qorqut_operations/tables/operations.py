@@ -11,6 +11,7 @@ from qorqut_operations.discussion.follows import ThreadItem, auto_follow
 from qorqut_operations.application.plans import (PAGE, TEXT, UUID, PlanBuilder, apply_records, page, prepare_job, ref,
                                                  require_revision, rows, schema, utc_clock)
 from qorqut_operations.records.associations import TASK_IDS, link_new_resource
+from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
 from qorqut_operations.storage.assembly import AssemblyError
 from . import crm_model
 from .history import TableHistory, snapshot
@@ -41,6 +42,12 @@ def table_namespace(ctx, args):
     if args.get("scope") == "global" or (not ctx.project_id and args.get("scope") != "project"):
         return "global"
     return "project:" + (ctx.project_id or "")
+
+
+def table_lookup():
+    """The ``locate_scope`` hook of every operation that names one Table by ``table_id`` (here and in the CRM service)."""
+    return RecordLookup(Family("data_tables", "table_id", "tables_get", "Table",
+                               global_gate=lambda ctx, uow: table_context(ctx, {"scope": "global"}, uow)))
 
 
 def table_context(ctx, args, uow):
@@ -156,8 +163,11 @@ class TableOperations:
             "tables_history_retry": "Queue publication of a pending table version and any earlier pending versions in this project, or in Global with scope=global. Never modifies table data.",
             ARCHIVE: "Archive a table with expected_revision. For Global tables an agent's request always needs the installation owner's approval; restore with tables_update archived=false. Archived tables keep their data but reject row edits.",
         }
+        lookup = table_lookup()
+        located = lambda name, fields: ({"locate_scope": lookup, "description": descriptions[name] + LOCATED}
+                                        if "table_id" in fields else {"description": descriptions[name]})
         for name, (fields, required) in reads.items():
-            registry.register(OperationDescriptor(name, schema({**SCOPE, **fields}, required), description=descriptions[name],
+            registry.register(OperationDescriptor(name, schema({**SCOPE, **fields}, required), **located(name, fields),
                 effect_kind="read", supports_signoff=False, **scoped,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         writes = {
@@ -169,7 +179,7 @@ class TableOperations:
             ARCHIVE: ({"table_id": UUID}, ("table_id",)),
         }
         for name, (fields, required) in writes.items():
-            registry.register(OperationDescriptor(name, schema({**SCOPE, **fields, "rationale": TEXT}, required), description=descriptions[name],
+            registry.register(OperationDescriptor(name, schema({**SCOPE, **fields, "rationale": TEXT}, required), **located(name, fields),
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow), apply=self.apply,
                 validate_targets=self.validate_scope, **scoped))
 

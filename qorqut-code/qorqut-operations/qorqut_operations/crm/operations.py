@@ -18,7 +18,9 @@ from qorqut_operations.contracts import DomainError
 from qorqut_operations.items import ItemResolver
 from qorqut_operations.discussion.threads import BODY, RELAY
 from qorqut_operations.storage.assembly import AssemblyError
-from qorqut_operations.tables.operations import CELLS, KEY, SCOPE, TableOperations, table_context, table_namespace
+from qorqut_operations.records.locate import LOCATED as RECORD_LOCATED
+from qorqut_operations.tables.operations import (CELLS, KEY, SCOPE, TableOperations, table_context, table_lookup,
+                                                 table_namespace)
 from qorqut_operations.tasks.lookup import LOCATED
 from qorqut_operations.tasks.operations import TaskOperations
 from qorqut_operations.tasks.scope import task_namespace
@@ -71,6 +73,8 @@ class CRMOperations:
         cells = {"cells": CELLS, "stage_id": STAGE}
         changes = {**schema(cells), "minProperties": 1}
         refs = self.tasks.note_references().schema
+        lookup = table_lookup()
+        located = dict(locate_scope=lookup)
         reads = {
             "crm_entries_list": ({"table_id": UUID, "query": TEXT, "stage_id": KEY, "include_archived": {"type": "boolean"},
                                   "include_removed": {"type": "boolean"}, "order_by": KEY, "descending": {"type": "boolean"},
@@ -81,7 +85,8 @@ class CRMOperations:
         }
         for name, (fields, required, description) in reads.items():
             registry.register(OperationDescriptor(
-                name, schema({**SCOPE, **fields}, required), description=description, effect_kind="read", supports_signoff=False,
+                name, schema({**SCOPE, **fields}, required), description=description + RECORD_LOCATED, effect_kind="read",
+                supports_signoff=False, **located,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow), **table_scope))
         writes = {
             "crm_entries_add": ({"table_id": UUID, "record": RECORD_REF, "create": schema(create, ("title",)), **cells}, ("table_id",),
@@ -97,7 +102,8 @@ class CRMOperations:
         }
         for name, (fields, required, description, derived) in writes.items():
             registry.register(OperationDescriptor(
-                name, schema({**SCOPE, **fields, "rationale": TEXT}, required), description=description, derived_effects=derived,
+                name, schema({**SCOPE, **fields, "rationale": TEXT}, required), description=description + RECORD_LOCATED,
+                derived_effects=derived, **located,
                 prepare=lambda ctx, args, options, uow, op=name: self.entries.prepare(op, ctx, args, options, uow),
                 apply=self.entries.apply, validate_targets=self.entries.validate,
                 replay_validator=lambda ctx, args, replay, uow, op=name: self.entries.validate_replay(op, ctx, args, replay, uow),
@@ -106,12 +112,12 @@ class CRMOperations:
             "tables_comment", schema({**SCOPE, "table_id": UUID, "text": BODY, "note_refs": refs, "summary": {
                 "type": "string", "minLength": 1, "maxLength": 500, "pattern": r"\S"}, "relay": RELAY, "rationale": TEXT},
                 ("table_id", "text")),
-            description=instruction_text('operations-add-a-message-to-a-table-s-shared'),
+            description=instruction_text('operations-add-a-message-to-a-table-s-shared') + RECORD_LOCATED, **located,
             derived_effects=("tables_rows_write",), prepare=self.threads.prepare_comment, apply=self.threads.apply_comment,
             validate_targets=self.threads.validate_comment, replay_validator=self.threads.validate_comment_replay, **table_scope))
         registry.register(OperationDescriptor(
             "tables_follow", schema({**SCOPE, "table_id": UUID, "following": {"type": "boolean"}}, ("table_id", "following")),
-            description=instruction_text('operations-follow-or-unfollow-a-table-s-discussion-for'),
+            description=instruction_text('operations-follow-or-unfollow-a-table-s-discussion-for') + RECORD_LOCATED, **located,
             derived_effects=("tables_get",), supports_signoff=False, prepare=self.threads.prepare_follow, apply=self.threads.apply_follow,
             replay_validator=self.threads.validate_follow_replay, **table_scope))
         registry.register(OperationDescriptor(

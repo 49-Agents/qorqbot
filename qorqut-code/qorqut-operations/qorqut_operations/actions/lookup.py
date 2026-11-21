@@ -2,7 +2,7 @@
 
 Every Action lives in one owning scope: a project, or Global (``action_logs.project_id``). Action ids are unique across
 all scopes, so ``actions_correct``, ``actions_withdraw``, ``actions_comment`` and ``actions_follow`` take ``action_id``
-alone. ``ActionLookup`` is their ``locate_scope`` hook (see ``Application._locate``), run for every caller source:
+alone. ``ActionLookup`` is their ``locate_scope`` hook (see ``Application._locate``):
 
 * no project selected: an Action the caller may read, by the rules ``actions_get`` applies, runs the operation in the
   scope that stores it, exactly as if it had been selected; an Action that does not exist or that the caller may not read

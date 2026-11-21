@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, OperationResult, canonical_bytes, canonical_hash, new_id
 from qorqut_operations import local_time
 from qorqut_operations.project_lifecycle import owner_may_act
+from qorqut_operations.records.locate import RecordLookup
 from qorqut_operations.storage.database import REQUEST_TIMING, RequestTiming
 from qorqut_operations.storage.repositories import decode_row
 from .auth import AuthenticatedPrincipal
@@ -28,6 +29,14 @@ from .results import failure, response
 # keeping the server waiting for a browser tab that never closes it.
 STOPPING = threading.Event()
 _UUID_RE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+
+# The Table and CRM operations the root route serves: Global tables, and a Table found from its id alone.
+GLOBAL_TABLE_ROUTES = frozenset({
+    "tables_list", "tables_get", "tables_rows_list", "tables_history", "tables_create", "tables_update",
+    "tables_rows_write", "tables_history_retry", "tables_archive",
+    # CRM memberships and the Table team discussion serve the Global Table namespace through the same route.
+    "crm_entries_list", "crm_entries_add", "crm_entries_update", "crm_entries_remove",
+    "tables_thread_get", "tables_comment", "tables_follow"})
 
 
 class RouteCounters:
@@ -212,6 +221,14 @@ class HTTPAPI:
         except DomainError:
             # An operation that is not installed is refused by the application, with its own error.
             return ()
+
+    def record_located(self, operation):
+        """Whether the operation names one existing record by its id and finds that record's project itself (``RecordLookup``),
+        so the root route accepts it with no project: the engine looks the record up within the caller's reach."""
+        try:
+            return isinstance(self.runtime.registry.get(operation).locate_scope, RecordLookup)
+        except DomainError:
+            return False
 
     def context(self, actor, slug=None):
         with self.runtime.database.read() as uow:
@@ -700,7 +717,7 @@ class HTTPAPI:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.domains.archive.restore(context, args, options))
                 return response(result)
-            if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {
+            if len(parts) == 3 and parts[:2] == ["root", "operations"] and (parts[2] in {
                     "broadcast_recipients", "broadcasts_list", "broadcasts_get", "broadcasts_create", "broadcasts_update",
                     "broadcasts_pause", "broadcasts_resume", "broadcasts_cancel", "broadcasts_send_now",
                     "dev_tickets_list", "dev_tickets_status_set", "document_history_get", "files_link",
@@ -749,7 +766,7 @@ class HTTPAPI:
                     "context_queue_get", "context_queue_retry", "context_queue_discard",
                     # The record panel's Global note reader: the existing owner-only READ, which declares only ``document_id`` (the
                     # route supplies the scope). No note write and no scope input is added here.
-                    "notes_get"} and request.method == "POST":
+                    "notes_get"} or (self.record_located(parts[2]) and parts[2] not in GLOBAL_TABLE_ROUTES)) and request.method == "POST":
                 context, _ = self.context(actor)
                 # workspace_get is the one owner cross-scope read that names its
                 # target project as a domain field, not a scope selector. An
@@ -758,7 +775,9 @@ class HTTPAPI:
                 args, options = split_options(await read_json(request), domain_fields=domain_fields)
                 if options.project_id is not None or options.review_project_id is not None:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
-                if parts[2] in {"routines_runs", "jobs_get"} and args.get("scope") != "global":
+                # A routine's runs are located from the routine id when no scope is stated; a stated scope must be Global.
+                if (parts[2] == "jobs_get" and args.get("scope") != "global") or (
+                        parts[2] == "routines_runs" and args.get("scope", "global") != "global"):
                     raise DomainError("forbidden", "Global routines and jobs are read with scope=global")
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
@@ -783,17 +802,14 @@ class HTTPAPI:
                 args["scope"] = "global"
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
-            if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {
-                    "tables_list", "tables_get", "tables_rows_list", "tables_history", "tables_create", "tables_update",
-                    "tables_rows_write", "tables_history_retry", "tables_archive",
-                    # CRM memberships and the Table team discussion serve the Global Table namespace through the same route.
-                    "crm_entries_list", "crm_entries_add", "crm_entries_update", "crm_entries_remove",
-                    "tables_thread_get", "tables_comment", "tables_follow"} and request.method == "POST":
+            if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in GLOBAL_TABLE_ROUTES and request.method == "POST":
                 context, _ = self.context(actor)
                 args, options = split_options(await read_json(request))
                 if options.project_id is not None or args.get("scope", "global") != "global":
                     raise DomainError("forbidden", "Global tables cannot select a project")
-                args["scope"] = "global"
+                # A Table named by its id states no scope here: the engine finds its project (Global when it is there).
+                if "scope" in args or not self.record_located(parts[2]):
+                    args["scope"] = "global"
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
             if parts == ["me", "agents", "activity"] and request.method == "GET":

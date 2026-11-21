@@ -318,17 +318,30 @@ class TaskProjectLookupTests(Harness):
 
     # -- other callers ---------------------------------------------------------------------------------------------
 
-    def test_the_dashboard_still_selects_its_scope_itself(self):
+    def test_the_dashboard_is_located_under_the_same_rules_as_an_agent(self):
         task = self.legacy(self.alpha)
-        for task_id in (task['id'], task['id'][:8]):
-            refused = self.call('tasks_get', {'task_id': task_id}, ctx=self.owner_ctx)
-            self.assertEqual(refused.error['code'], 'not_found')
-            self.assertNotIn('details', refused.error)
+        read = self.call('tasks_get', {'task_id': task['id']}, ctx=self.owner_ctx)
+        self.assertEqual(read.status, 'ok', read.to_dict())
+        self.assertEqual(read.data['task']['project_id'], self.alpha)
+        short = self.call('tasks_get', {'task_id': task['id'][:8]}, ctx=self.owner_ctx)
+        self.assertEqual(short.error['details']['did_you_mean']['id'], task['id'])
         refused = self.call('tasks_get', {'task_id': task['id']}, ctx=self.owner_ctx, project_id=self.beta)
         self.assertEqual(refused.error['code'], 'not_found')
-        self.assertNotIn('details', refused.error)
+        self.assertEqual(refused.error['details']['task']['project_id'], self.alpha)
         self.assertEqual(self.call('tasks_get', {'task_id': task['id']}, ctx=self.owner_ctx,
                                    project_id=self.alpha).status, 'ok')
+
+    def test_an_internal_worker_still_selects_its_scope_itself(self):
+        task = self.legacy(self.alpha)
+        worker = replace(self.owner_ctx, source='worker')
+        with patch.object(TaskLookup, '__call__', side_effect=AssertionError('lookup for a worker')):
+            refused = self.call('tasks_get', {'task_id': task['id']}, ctx=worker)
+            self.assertEqual(refused.error['code'], 'not_found')
+            self.assertNotIn('details', refused.error)
+            refused = self.call('tasks_get', {'task_id': task['id']}, ctx=worker, project_id=self.beta)
+            self.assertEqual(refused.error['code'], 'not_found')
+            self.assertNotIn('details', refused.error)
+            self.assertEqual(self.call('tasks_get', {'task_id': task['id']}, ctx=worker, project_id=self.alpha).status, 'ok')
 
     def test_an_owner_session_stays_in_its_bound_project(self):
         mine, elsewhere = self.legacy(self.alpha), self.legacy(self.beta)

@@ -7,6 +7,7 @@ from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.background.schedule import RoutineError, next_slot, parse_cron, zone
 from qorqut_operations.contracts import DomainError, canonical_hash, new_id, plain
+from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
 from qorqut_operations.application.plans import (IDENTITY, PAGE, TEXT, UUID, PlanBuilder, apply_records, page, ref,
     require_revision, rows, schema, page_position)
 from qorqut_operations.storage.repositories import decode_row
@@ -263,6 +264,9 @@ class RoutineOperations:
     def descriptors(self):
         descriptors = []
         common = dict(scope_kinds=frozenset({"project", "global"}), global_capability="manage_global_routines", resolve_namespace=namespace)
+        # A routine named by its id runs where it is; a Global one has the Global scope stated for it (``scope``).
+        lookup = RecordLookup(Family("routines", "routine_id", "routines_get", "Routine", state_global=True))
+        located = dict(locate_scope=lookup, description=LOCATED.lstrip())
         for name, properties, handler in (
             ("routines_list", PAGE, self.list), ("routines_get", {"routine_id": IDENTITY}, self.get),
             ("routines_runs", {**PAGE, "routine_id": IDENTITY, "since": SINCE,
@@ -273,7 +277,7 @@ class RoutineOperations:
                                   "after": {"type": "string", "format": "date-time"}}, self.preview)):
             required = ["routine_id"] if name == "routines_get" else (["schedule", "timezone"] if name == "routines_preview" else [])
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), effect_kind="read",
-                supports_signoff=False, read=handler, **common))
+                supports_signoff=False, read=handler, **common, **(located if "routine_id" in properties else {})))
         for name in ("routines_create", "routines_update", "routines_pause", "routines_resume", "routines_delete", "routines_run", "routines_stop"):
             properties, required = {**SCOPE}, []
             if name != "routines_create":
@@ -284,5 +288,6 @@ class RoutineOperations:
                 properties.update(job_id=UUID, target_project_id=UUID)
                 required.append("job_id")
             descriptors.append(OperationDescriptor(name, schema(properties, required),
-                prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply, **common))
+                prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply, **common,
+                **(located if "routine_id" in properties else {})))
         return tuple(descriptors)

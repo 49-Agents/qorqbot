@@ -260,17 +260,26 @@ class SignoffScopeLookupTests(Harness):
 
     # -- other callers ---------------------------------------------------------------------------------------------
 
-    def test_the_dashboard_and_workers_still_select_their_scope_themselves(self):
+    def test_the_dashboard_is_located_and_internal_workers_select_their_scope_themselves(self):
         signoff = self.ask(self.alpha)
-        with patch.object(SignoffLookup, '__call__', side_effect=AssertionError('lookup outside agent MCP')):
-            refused = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx)
+        # The dashboard is located under the same rules as an agent: nothing selected runs where the Signoff is reviewed,
+        # and a selection stands, saying where the Signoff is.
+        found = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx)
+        self.assertEqual(found.status, 'ok', found.to_dict())
+        elsewhere = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx, project_id=self.beta)
+        self.assertEqual((elsewhere.status, elsewhere.error['code']), ('error', 'not_found'))
+        self.assertEqual(elsewhere.error['details']['signoff']['review_project_id'], self.alpha)
+        # An internal worker is never looked up: its namespaces are the ones stored with its work.
+        worker = replace(self.owner_ctx, source='worker')
+        with patch.object(SignoffLookup, '__call__', side_effect=AssertionError('lookup for a worker')):
+            refused = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=worker)
             self.assertEqual(refused.status, 'error', refused.to_dict())
             self.assertNotEqual(refused.error['message'], ELSEWHERE)
-            self.refused(self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx, project_id=self.beta), HERE)
-            read = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx, project_id=self.alpha)
+            self.refused(self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=worker, project_id=self.beta), HERE)
+            read = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=worker, project_id=self.alpha)
             self.assertEqual(read.status, 'ok', read.to_dict())
             # The service's own readers are not operations and never consult it.
-            direct = self.signoffs.get(replace(self.owner_ctx, project_id=self.alpha, review_project_id=self.alpha),
+            direct = self.signoffs.get(replace(worker, project_id=self.alpha, review_project_id=self.alpha),
                                        signoff['id'])
             self.assertEqual(direct.status, 'ok', direct.to_dict())
 
