@@ -239,6 +239,22 @@ class MCPTests(Harness):
         self.assertEqual(receipts, ['project:' + self.alpha])
         self.assertEqual(links, [(self.alpha, 'project', self.beta)])
 
+    def test_a_link_names_its_item_by_type_and_id(self):
+        linked = self.send('project_items_link', {'project_id': self.alpha, 'idempotency_key': str(uuid4()),
+                                                  'item': {'type': 'project', 'id': self.beta}})
+        self.assertEqual(linked['status'], 'ok', linked)
+        with self.db.read() as uow:
+            links = [tuple(row) for row in uow.connection.execute(
+                'SELECT project_id, target_type, target_id, target_project_id FROM project_item_links')]
+        self.assertEqual(links, [(self.alpha, 'project', self.beta, self.beta)])
+        # A project reference that states another project is refused, and a project outside the reach answers the same.
+        stated = self.send('project_items_link', {'project_id': self.alpha, 'idempotency_key': str(uuid4()),
+                                                  'item': {'type': 'project', 'id': self.beta, 'project_id': self.alpha}})
+        outside = self.send('project_items_link', {'project_id': self.alpha, 'idempotency_key': str(uuid4()),
+                                                   'item': {'type': 'project', 'id': self.gamma}})
+        self.assertEqual((stated['status'], outside['status']), ('error', 'error'))
+        self.assertEqual(stated['error']['code'], outside['error']['code'])
+
     def test_a_record_operation_without_or_beyond_its_project_is_refused(self):
         missing = self.send('project_record_get', {})
         self.assertEqual(missing['error']['code'], 'validation_error', missing)

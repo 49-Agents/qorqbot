@@ -170,6 +170,34 @@ class SideChatRenameTests(unittest.TestCase):
         assert invoke(runtime, 'side_chats_close', {'scope': 'project', 'signoff_id': s['id']}, ctx=selected)['signoff']['state'] == 'cancelled'
         assert queue(runtime, runtime.owner)['side_chats'] == []
 
+    def test_a_private_source_names_its_signoff_by_type_and_id_in_global(self):
+        runtime = self.runtime
+        project = new_id()
+        with runtime.database.transaction() as uow:
+            uow.repository('projects').insert({'id': project, 'slug': 'project', 'name': 'Project',
+                'workspace': str(self.tmp_path / 'project')})
+        runtime.owner = replace(runtime.owner, allowed_project_ids={project})
+        selected = replace(runtime.owner, project_id=project, review_project_id=project)
+        s = invoke(runtime, 'side_chats_create', {'scope': 'project', 'text': 'Project question'}, ctx=selected)['signoff']
+        stated = {'type': 'signoff', 'id': s['id'], 'project_id': project}
+        bare = {'type': 'signoff', 'id': s['id']}
+        thread = invoke(runtime, 'owner_conversation_get', {'source': stated})
+        # Global scope: the project is found from the id; a selected project keeps meaning the selected one.
+        assert invoke(runtime, 'owner_conversation_get', {'source': bare}) == thread
+        assert invoke(runtime, 'owner_conversation_get', {'scope': 'project', 'source': bare}, ctx=selected) == thread
+        before = len(thread['messages'])
+        invoke(runtime, 'owner_conversation_send', {'source': bare, 'text': 'Reply'})
+        assert len(invoke(runtime, 'owner_conversation_get', {'source': stated})['messages']) == before + 1
+        assert invoke(runtime, 'owner_conversation_get', {'source': stated}) == invoke(runtime, 'owner_conversation_get', {'source': bare})
+        # A Signoff in a project the caller does not reach reads as an unknown id; a stated project that does not hold it
+        # is refused.
+        def code(ctx, source):
+            result = runtime.application.invoke(ctx, 'owner_conversation_get', {'scope': 'global', 'source': source}, InvocationOptions())
+            assert result.status == 'error'
+            return result.error
+        assert code(runtime.coordinator, bare) == code(runtime.coordinator, {**bare, 'id': new_id()})
+        assert code(runtime.owner, {**stated, 'project_id': None})['code'] == code(runtime.owner, {**stated, 'id': new_id()})['code']
+
     def test_rename_rejects_invalid_names(self):
         runtime = self.runtime
         for title in ('', ' \t\n ', 'x' * 201):

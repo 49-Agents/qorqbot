@@ -344,6 +344,37 @@ class TimelineTests(Fixture):
         self.assertEqual(self.read(self.global_item, self.worker)['state']['decisions'][0]['text'], 'Everyone sees this.')
         self.assertTrue(self.read(self.global_item, self.worker)['text'].startswith('Global — what holds now'))
 
+    # -- an item named by its type and id -------------------------------------------------------------------------
+
+    @staticmethod
+    def bare(item):
+        return {key: value for key, value in item.items() if key != 'project_id'}
+
+    def test_an_item_without_its_project_is_the_item_with_it(self):
+        inside = self.inside('Inside')
+        for item in (self.item, inside, self.project, self.global_item):
+            self.add('fact', 'Held for ' + item['type'], item)
+            stated = self.read(item)
+            self.assertEqual(self.read(self.bare(item)), stated)
+            self.assertEqual(self.read(self.bare(item), history=True)['entries'], self.read(item, history=True)['entries'])
+        self.filed(self.bare(inside), [{'action': 'add', 'kind': 'decision', 'text': 'Filed without the project.'}])
+        self.assertEqual([row['text'] for row in self.read(inside)['state']['decisions']], ['Filed without the project.'])
+        self.assertEqual(self.rows('SELECT project_id FROM timeline_entries WHERE item_id=?', inside['id']),
+                         [(self.project_id,), (self.project_id,)])
+
+    def test_an_item_in_a_project_out_of_reach_answers_as_an_unknown_id_does(self):
+        inside = self.inside('Inside')
+        self.add('fact', 'Inside the project.', inside)
+        unknown = {'type': 'task', 'id': 'missing'}
+        for item in (inside, self.project):
+            answer = self.get(self.worker, self.bare(item))
+            self.assertEqual(self.code(answer), 'not_found')
+            self.assertEqual(answer.error, self.get(self.worker, unknown).error)
+        self.reach = frozenset({self.project_id})
+        self.assertEqual(self.read(self.bare(inside), self.worker)['state']['facts'][0]['text'], 'Inside the project.')
+            # A stated project that does not hold the Task is refused.
+        self.assertEqual(self.code(self.get(self.lead, {**inside, 'project_id': None})), 'not_found')
+
     # -- a Task move -----------------------------------------------------------------------------------------------
 
     def test_a_task_that_moves_takes_its_timeline_along(self):

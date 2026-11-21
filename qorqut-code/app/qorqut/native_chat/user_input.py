@@ -23,6 +23,8 @@ from qorqut_operations.application.plans import schema
 from qorqut_operations.contracts import DomainError
 from qorqut.errors import domain_error_from_agentic
 from qorqut_operations.items import UNAVAILABLE, authorize_item_read
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import reference_kind
 
 from qorqut.management.identity import configured_ordubashy
 
@@ -47,8 +49,11 @@ class UserInput:
         self.runtime, self.app = runtime, runtime.application
 
     def register(self):
+        # A reference names its record by type and id; a record in a project the caller reaches is completed with that
+        # project, and any other (a Global record, a browser, a delta, a tab) keeps no project_id and reads as Global.
+        found = References(Ref(("references", "*"), absent="keep"), kinds={**KINDS, "signoff": reference_kind(self.app.signoffs)})
         self.runtime.registry.register(OperationDescriptor(
-            NAME, SCHEMA, supports_signoff=False, scope_kinds=frozenset({"global"}), global_capability="read_global_context",
+            NAME, SCHEMA, complete_references=found, supports_signoff=False, scope_kinds=frozenset({"global"}), global_capability="read_global_context",
             resolve_namespace=lambda ctx, args: "global", exposure=frozenset({"mcp"}), effect_kind="read",
             description=DESCRIPTION, read=self.read))
         self.runtime.user_input = self
@@ -83,7 +88,7 @@ class UserInput:
                 if error.code not in UNAVAILABLE:
                     raise
                 raise DomainError("not_found", f"Reference {position} ({reference['type']}) is not available; read it first and "
-                                  "use its exact id and project_id") from None
+                                  "use its exact id") from None
         return {"user_input": shown}
 
     # ----- resolution ----------------------------------------------------------------------------------------------------

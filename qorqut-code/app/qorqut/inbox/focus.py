@@ -11,6 +11,8 @@ from qorqut_operations.application.plans import PlanBuilder, schema, timestamp
 from qorqut.agents.global_scope import active_global
 from qorqut.agents.roles import ORDUBASHY_ROLE
 from qorqut_operations.items import UNAVAILABLE
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import reference_kind
 
 UUID = {'type': 'string', 'format': 'uuid'}
 TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 2000}
@@ -20,7 +22,7 @@ def item_schema(kinds):
     """A Focus reference of any registered item kind (the neutral kinds and the selected extensions' typed ones)."""
     return schema({'type': {'enum': list(kinds)}, 'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
         'project_id': {'anyOf': [UUID, {'type': 'null'}]}, 'reason': TEXT, 'needs_input': {'type': 'boolean'}},
-        ('type', 'id', 'project_id', 'reason'))
+        ('type', 'id', 'reason'))
 
 
 class FocusService:
@@ -43,9 +45,12 @@ class FocusService:
                 'tab': {'type': 'string', 'minLength': 1, 'maxLength': 500}}, ('prompt', 'app', 'tab'),
                 instruction_text('focus-ask-the-owner-for-browser-input-on-the')),
         }
+        # A card names its record by type and id; its project is found from the id.
+        cards = References(Ref(('items', '*')), kinds={**KINDS, 'signoff': reference_kind(self.signoffs)})
         for name, (fields, required, description) in operations.items():
             self.app.registry.register(OperationDescriptor(name, schema({**shared, **fields},
                 ('consumer_id', 'expected_focus_revision', *required)), **common, description='Ordubashy only: ' + description,
+                complete_references=cards if name == 'focus_show' else None,
                 prepare=lambda c, a, o, u, op=name: self.prepare(op, c, a, u), apply=self.apply))
         from .attention import AttentionBoard
         self.board = AttentionBoard(self).register()

@@ -56,6 +56,20 @@ class ThreadPinsToolTests(unittest.TestCase):
         self.pin(src, False)
         self.assertEqual(self.pins(), [])
 
+    def test_a_source_named_by_type_and_id_is_stored_with_its_project(self):
+        src = source(create(self.runtime, "Did the supplier confirm?"))
+        bare = {"type": src["type"], "id": src["id"]}
+        done = self.pin(bare)
+        self.assertEqual(done["source"], src)
+        self.assertEqual(self.pins(), [{"source": src, "title": "Supplier question"}])
+        self.pin(bare, title="Same pin")
+        self.assertEqual(self.pins(), [{"source": src, "title": "Same pin"}])
+        self.pin({**src, "project_id": None}, False)
+        self.assertEqual(self.pins(), [])
+        # An unknown id is refused whether or not a project is stated.
+        for missing in ({"type": "signoff", "id": new_id()}, {"type": "signoff", "id": new_id(), "project_id": None}):
+            self.assertEqual(self.refused(self.runtime.coordinator, "thread_pins_set", {"source": missing, "pinned": True}), "not_found")
+
     def test_a_worker_and_a_delegated_identity_are_refused(self):
         src = source(create(self.runtime))
         self.assertEqual(self.refused(self.runtime.worker, "thread_pins_list", {}), "forbidden")
