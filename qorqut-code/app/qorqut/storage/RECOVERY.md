@@ -78,8 +78,8 @@ complete generation is sealed; a proof lost mid-capture fails the generation and
 `create` uses SQLite's backup API, validates integrity, foreign
 keys and migration checksums, and writes a private temporary generation. It
 captures registered document hashes, complete pinned artifact packages, registered
-bootstrap files and scoped credentials, owned project `hq` trees and shared
-authored context. Root and registered HQ `.qorqut/legacy/` retirement archives
+bootstrap files and scoped credentials, owned project folders and shared
+authored context. Root and registered project `.qorqut/legacy/` retirement archives
 are included completely as private historical bytes, including nested private
 files; they are never traversed by exports or Git versioning. Project `code`
 siblings, Git internals, generated exports and
@@ -109,7 +109,7 @@ secrets and must stay private; they are never Git inputs.
 
 `verify(generation_uuid)` rechecks the saved DB, archive and manifests without
 depending on today's authored files, binds the authored projects to the captured database and the target
-`projects/<slug>/hq` layout, and verifies the Context capture against its recorded digest and this
+`projects/<slug>` layout, and verifies the Context capture against its recorded digest and this
 instance's Context identity; a missing, altered or foreign Context makes the generation invalid.
 `restore(generation_uuid, empty_directory)`
 rehearses into a separate empty root and verifies operational row counts. The SQLite maintenance gate
@@ -136,7 +136,7 @@ project. See [Tables](../../../docs/TABLES.md#git-history) and
 
 `build_exports(snapshot_path, root)` selects the fixed public operational table
 catalog from one SQLite snapshot. `publish_exports(bundle, root)` replaces only
-known JSON projections under each `hq/exports/` and root `exports/`, with scope
+known JSON projections under each project's `exports/` and root `exports/`, with scope
 manifests last. Every file is marked generated, SQLite-authoritative and not
 importable. Unchanged state produces byte-identical files. Credentials, sessions,
 signoffs, apply/idempotency receipts and raw jobs are excluded. Current profile

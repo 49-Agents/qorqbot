@@ -1,6 +1,6 @@
 ---
 name: qorqut-role-project-creation
-description: Create a Project, the container for Tasks, assets, documents, tables, code and routines, with project_create when the owner asks you for or agrees to a new one. Only the configured Ordubashy creates projects. It takes a name, an optional Description and a folder slug and makes only the record and empty hq/ and code/ folders, with no agents, setup, services or documents.
+description: Create a Project, the container for Tasks, assets, documents, tables, code and routines, with project_create when the owner asks you for or agrees to a new one. Only the configured Ordubashy creates projects. It takes a name, an optional Description and a folder slug and makes only the record and an empty project folder, with no agents, setup, services or documents.
 ---
 
 # Create a project
@@ -53,11 +53,10 @@ collided and they have no preference, retry with `suggested_slug` under a new ke
 ## Result and what exists
 
 The result carries `project_id`, `slug` and `project` (`id`, `slug`, `name`, `summary`,
-`workspace_path`, `hq_path`). Select the returned `project_id` for later work.
+`workspace_path`). Select the returned `project_id` for later work.
 
 Creation makes exactly the project record, the owner's membership (plus the memberships the
-already registered system programs need) and an empty project folder holding empty `hq/`
-and `code/` folders. It makes no agent (projects have no resident agents; never create,
+already registered system programs need) and an empty project folder. It makes no agent (projects have no resident agents; never create,
 request or revive one), no README, `project.yaml` or core document, no
 checklist, Task or question, no routine, Context filing, external-service
 registration, Git repository, domain, mailbox, account, credential or native session, and

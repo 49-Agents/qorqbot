@@ -7,7 +7,7 @@ segments, the catalog of exported rows, the area provider and the clock. The loc
 becomes the same ``DomainError`` (or blocked area) as before; nothing resolved here is remembered.
 """
 from qorqut_operations.contracts import DomainError, utc_now
-from qorqut_operations.history_exports import (ProjectHeadquarters, GlobalAgentFiles, GlobalFiles,
+from qorqut_operations.history_exports import (ProjectFolder, GlobalAgentFiles, GlobalFiles,
                                                History, HistoryObserver, ResolvedArea)
 
 from qorqut.instance_paths import SEGMENT, InstancePathError, InstancePaths
@@ -26,9 +26,9 @@ def registered_areas(uow):
     projects = {row["id"]: row["slug"] for row in uow.connection.execute("SELECT id,slug FROM projects")}
     areas.extend(GlobalAgentFiles(row["agent_id"])
                  for row in uow.connection.execute("SELECT agent_id FROM agent_profiles ORDER BY agent_id"))
-    # These are projections or independently protected sources, not authored HQ
+    # These are projections or independently protected sources, not authored
     # working notes. Runtime/config/nested repositories also have capture rules.
-    areas.extend(ProjectHeadquarters(slug, excluded=("exports", "tables", "context/email", "context/agent-memory",
+    areas.extend(ProjectFolder(slug, excluded=("exports", "tables", "context/email", "context/agent-memory",
                                                     "agents", "code", "sessions", "transcripts", "logs", "browser"))
                  for slug in sorted(projects.values()))
     return areas
@@ -60,7 +60,7 @@ def area_resolver(paths):
                 elif isinstance(area, GlobalAgentFiles):
                     folder = paths.agent_files(area.agent_id)
                 else:
-                    folder = paths.project_hq(area.project)
+                    folder = paths.project_root(area.project)
             except InstancePathError:
                 resolved.append(ResolvedArea.refused(area))
                 continue

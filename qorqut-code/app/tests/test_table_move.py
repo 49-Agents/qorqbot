@@ -39,7 +39,7 @@ class TableMoveTests(unittest.TestCase):
                                                        owner_principal_id=self.owner, created_at=STAMP, updated_at=STAMP))
             for project, slug in ((self.source, 'launch'), (self.destination, 'product')):
                 uow.repository('projects').insert({'id': project, 'name': slug.title(), 'slug': slug,
-                                                     'workspace': slug, 'hq_path': 'hq-' + slug})
+                                                     'workspace': slug})
         self.ctx = InvocationContext(Principal(self.owner, 'human'), source='dashboard', project_id=self.source,
                                      allowed_project_ids=frozenset({self.source, self.destination}))
         self.engine = TableRelocation((TableHostRelocation(),))

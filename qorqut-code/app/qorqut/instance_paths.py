@@ -15,8 +15,8 @@ Layout under ``instance_root``::
       agentic/                            authored agentic Git tree (explicitly initialized)
       agents/{agent_id}/                  global agent workspace (Ordubashy and Learning Applier may use configured names)
       extensions/{name}/                  owner-editable guidance of an optional instruction package (seeded once)
-      projects/{folder}/{hq,code}         project notes/documents and project source code
-      projects/{folder}/agents/{id}/      historical per-project agent workspace (retired agents; no new ones are created)
+      projects/{folder}/                  the project's notes, documents, tables, context and assets
+      projects/{folder}/code/             optional project source code (never created by the application)
       .runtime/operations.sqlite3         the one operational database
       .runtime/locks/                     application claims, apply locks and the recovery lock
       .runtime/context/                   Context-owned execution and index state
@@ -210,9 +210,6 @@ class InstancePaths:
     def project_root(self, folder: str) -> Path:
         """The registered project's folder."""
         return self._checked(self._operations / PROJECTS_DIRECTORY / _segment(folder, "project folder"))
-
-    def project_hq(self, folder: str) -> Path:
-        return self._checked(self.project_root(folder) / "hq")
 
     def project_code(self, folder: str) -> Path:
         return self._checked(self.project_root(folder) / "code")

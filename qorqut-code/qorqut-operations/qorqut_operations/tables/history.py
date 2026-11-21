@@ -33,19 +33,19 @@ def snapshot(table, children):
 
 
 class TableHistory:
-    """``operations_root`` is the existing operations-root Git repository; ``project_hq(project_row)`` is the
-    trusted host callable that names a project's headquarters directory. Neither is resolved from any default."""
+    """``operations_root`` is the existing operations-root Git repository; ``project_root(project_row)`` is the
+    trusted host callable that names a project's folder. Neither is resolved from any default."""
 
-    def __init__(self, database, operations_root, project_hq, *, runner=None):
-        self.database, self.root, self.project_hq = database, Path(operations_root), project_hq
+    def __init__(self, database, operations_root, project_root, *, runner=None):
+        self.database, self.root, self.project_root = database, Path(operations_root), project_root
         self.runner = runner or subprocess.run
 
     def location(self, project_id, table_id, uow):
-        """Project tables live under their project's hq; Global tables under the operations root's files/tables."""
+        """Project tables live under their project's folder; Global tables under the operations root's files/tables."""
         if project_id is None:
             return registered_path(self.root, GLOBAL_DIRECTORY + "/" + table_id + ".json")
         project = uow.repository("projects").get(project_id, required=True)
-        return self.project_hq(project) / "tables" / (table_id + ".json")
+        return self.project_root(project) / "tables" / (table_id + ".json")
 
     def prepare(self, builder, table_id, identity, uow):
         path = self.location(builder.ctx.project_id, table_id, uow).relative_to(self.root).as_posix()

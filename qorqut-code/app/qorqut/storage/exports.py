@@ -13,7 +13,7 @@ from qorqut.composition.schema import record_contributions
 from qorqut.composition.tables import TABLE_SPECS
 from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.storage.safe_io import atomic_write
-from qorqut.composition.locations import project_hq
+from qorqut.composition.locations import project_root
 
 # Every table exists in a target store: the version-gated skips of the migrated v1 databases are gone.
 # The engine's operational-record tables (Tasks, threads, tags, Actions, the Context queue) are specified by their owners.
@@ -95,8 +95,7 @@ def build_exports(snapshot, paths):
         for table in GLOBAL_TABLES:
             add("exports", table, export_rows(connection, table, None if TABLES[table].scope_column else ...), "global")
         for project in projects:
-            hq = project_hq(paths, project)
-            directory = hq.relative_to(root).as_posix() + "/exports"
+            directory = project_root(paths, project).relative_to(root).as_posix() + "/exports"
             add(directory, "projects", [project], project["id"])
             for table in PROJECT_TABLES:
                 add(directory, table, export_rows(connection, table, project["id"]), project["id"])

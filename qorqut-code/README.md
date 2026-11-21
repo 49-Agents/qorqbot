@@ -41,7 +41,7 @@ qorqut-code/
   `app/scripts/` are source-component resources reached through the explicit `app` component, not wheel
   contents.
 - There is no project-template component. The three initial shared instructions are package resources of
-  the host (`app/qorqut/bootstrap/instructions/`), and a new project is an empty `hq/` and `code/` folder
+  the host (`app/qorqut/bootstrap/instructions/`), and a new project is an empty folder
   created only by the configured Ordubashy ([Project creation](docs/PROJECT-CREATION.md)).
 - Owned startup validates the database and enables WAL before admitting work or starting background
   services. Assembling or inspecting an instance never changes its journal mode.

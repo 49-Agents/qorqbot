@@ -158,7 +158,7 @@ class SideChatRenameTests(unittest.TestCase):
         project = new_id()
         with runtime.database.transaction() as uow:
             uow.repository('projects').insert({'id': project, 'slug': 'project', 'name': 'Project',
-                'workspace': str(tmp_path / 'project'), 'hq_path': str(tmp_path / 'hq')})
+                'workspace': str(tmp_path / 'project')})
             uow.repository('project_memberships', project_id=project).insert({
                 'principal_id': runtime.owner.principal_id, 'active': 1, 'is_owner': 1})
         runtime.owner = replace(runtime.owner, allowed_project_ids={project})

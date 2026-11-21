@@ -41,7 +41,7 @@ class JournalLoadingTests(unittest.TestCase):
             uow.repository('principals').insert({'id': cls.owner_id, 'kind': 'human', 'display_name': 'Owner'})
             uow.repository('installation').insert({'id': 'service', 'installation_id': new_id(), 'owner_principal_id': cls.owner_id})
             uow.repository('projects').insert({'id': cls.project_id, 'slug': 'project', 'name': 'Project',
-                'workspace': str(cls.root / 'project'), 'hq_path': str(cls.root / 'project/hq')})
+                'workspace': str(cls.root / 'project')})
             for index in range(84):
                 identity = cls.add_document(uow, 'global_note', {'title': f'Note {index}'})
                 cls.note_ids.append(identity)

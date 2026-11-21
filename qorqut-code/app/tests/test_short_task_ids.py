@@ -52,7 +52,7 @@ class ShortTaskIdTests(unittest.TestCase):
                                                        owner_principal_id=self.owner, created_at=STAMP, updated_at=STAMP))
             for project, slug in ((self.first, 'first'), (self.second, 'second')):
                 uow.repository('projects').insert({'id': project, 'name': slug.title() + ' project', 'slug': slug,
-                                                     'workspace': slug, 'hq_path': 'hq-' + slug})
+                                                     'workspace': slug})
                 uow.repository('project_memberships', project_id=project).insert({'principal_id': self.owner,
                                                                                     'is_owner': True})
             # What older installations hold: a UUID, a slug id repeated in two projects, and ids already in the new

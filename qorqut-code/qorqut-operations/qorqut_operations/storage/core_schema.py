@@ -20,7 +20,6 @@ CORE_SCHEMA = (
     id TEXT PRIMARY KEY,
     slug TEXT NOT NULL UNIQUE,
     workspace TEXT NOT NULL UNIQUE,
-    hq_path TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     config_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(config_json)),
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),

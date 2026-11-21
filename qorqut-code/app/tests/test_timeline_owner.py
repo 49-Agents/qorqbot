@@ -33,11 +33,11 @@ class OwnerViewTests(Fixture):
         self.project_id = str(uuid4())
         with self.db.transaction() as uow:
             uow.repository('projects').insert({'id': self.project_id, 'name': 'Example project', 'slug': 'example',
-                                                 'workspace': 'example', 'hq_path': 'hq'})
+                                                 'workspace': 'example'})
         self.other = str(uuid4())
         with self.db.transaction() as uow:
             uow.repository('projects').insert({'id': self.other, 'name': 'Closed project', 'slug': 'closed',
-                                                 'workspace': 'closed', 'hq_path': 'hq2'})
+                                                 'workspace': 'closed'})
             uow.repository('project_memberships', project_id=self.project_id).insert({'principal_id': self.owner, 'is_owner': True})
         self.work = self.task(self.lead, 'Pay creators')
         self.item = {'type': 'task', 'id': self.work['id'], 'project_id': None}

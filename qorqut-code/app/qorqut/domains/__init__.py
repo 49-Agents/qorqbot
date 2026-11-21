@@ -23,7 +23,7 @@ from qorqut_operations.tags import TagOperations
 from qorqut_operations.tables import DataUploadOperations, TableOperations
 from qorqut_operations.tasks import TaskOperations
 from qorqut_operations.relationships import ContextReviews, RelationshipOperations
-from qorqut.composition.locations import project_hq, project_root, relative_to_operations
+from qorqut.composition.locations import project_root, relative_to_operations
 from qorqut.instance_paths import PROJECTS_DIRECTORY
 from qorqut.extensions import NO_EXTENSIONS
 from .items.compose import build_neutral_items
@@ -85,7 +85,7 @@ def register_project_domains(registry, application, paths, *, agent_resolver, qu
     both are required."""
     if queue is None:
         raise TypeError("The domains need the composed Context queue (ContextComposition.queue)")
-    tables = TableOperations(application.database, paths.operations, lambda project: project_hq(paths, project), clock=clock, job_programs=job_programs)
+    tables = TableOperations(application.database, paths.operations, lambda project: project_root(paths, project), clock=clock, job_programs=job_programs)
     activity = ActionWriteback(clock=clock)
     documents = DocumentOperations(application.database, paths, clock=clock, job_programs=job_programs, filing=filing)
     assets = AssetOperations(documents.store, additional_references=no_additional_asset_references, clock=clock)
@@ -133,7 +133,6 @@ def register_project_domains(registry, application, paths, *, agent_resolver, qu
         operations_root=paths.operations,
         staging_root=paths.runtime / "staging" / PROJECTS_DIRECTORY,
         project_root=lambda row: project_root(paths, row),
-        project_hq=lambda row: project_hq(paths, row),
         relative_path=lambda path: relative_to_operations(paths, path),
         projects_directory=PROJECTS_DIRECTORY,
         creator_actor=creator_actor,

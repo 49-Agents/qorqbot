@@ -116,7 +116,7 @@ class Harness(unittest.TestCase):
                 created_at=STAMP, updated_at=STAMP))
             for project, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta'), (self.gamma, 'Gamma')):
                 uow.repository('projects').insert({'id': project, 'slug': name.lower(), 'name': name,
-                                                     'workspace': name.lower(), 'hq_path': name.lower() + '/hq'})
+                                                     'workspace': name.lower()})
                 uow.repository('project_memberships', project_id=project).insert(
                     {'principal_id': self.owner, 'active': 1, 'is_owner': 1})
         everything = frozenset({self.alpha, self.beta, self.gamma})

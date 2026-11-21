@@ -123,9 +123,8 @@ class ProjectBadgesTests(unittest.TestCase):
             uow.repository('principals').insert({'id':self.owner, 'kind':'human', 'display_name':'Example owner'})
             uow.repository('installation').insert({'id':'service', 'installation_id':new_id(), 'owner_principal_id':self.owner})
             for identity, slug in [(self.project, 'example'), (self.archived, 'archived'), (self.denied, 'denied')]:
-                (self.root / 'projects' / slug / 'hq').mkdir(parents=True)
-                uow.repository('projects').insert({'id':identity, 'slug':slug, 'name':slug.title(), 'workspace':slug,
-                    'hq_path':slug + '/hq', 'config_json':{'one_liner':'Current project description'},
+                (self.root / 'projects' / slug / 'notes').mkdir(parents=True)
+                uow.repository('projects').insert({'id':identity, 'slug':slug, 'name':slug.title(), 'workspace':slug, 'config_json':{'one_liner':'Current project description'},
                     'archived_at':'2026-01-01T00:00:00Z' if identity == self.archived else None})
                 uow.repository('project_memberships', project_id=identity).insert({'principal_id':self.owner, 'is_owner':True})
             for i, (status, archived, kind, snoozed) in enumerate([
@@ -169,7 +168,7 @@ class ProjectBadgesTests(unittest.TestCase):
             'open_tasks':3, 'signoffs':1, 'subprojects':None})
         self.assertIsNone(projects['archived'])
         self.assertIsNone(projects['denied'])
-        nested = explorer.directory(self.viewer, [('path', 'projects/example/hq')])
+        nested = explorer.directory(self.viewer, [('path', 'projects/example/notes')])
         self.assertEqual(nested['project'], projects['example'])
         with self.db.transaction() as uow:
             uow.connection.execute("UPDATE tasks SET status='done' WHERE id='t0'")

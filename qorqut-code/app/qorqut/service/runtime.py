@@ -370,7 +370,7 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
 
     The operational root is ``paths.operations`` and the database only ``paths.database``: an already initialised
     target store, validated (never created or converted) by the engine. ``workspace`` is the absolute owner-controlled
-    protected configuration and package-source base, not a source, database, HQ or agent-workspace locator.
+    protected configuration and package-source base, not a source, database, project folder or agent-workspace locator.
     The returned registry is still open for the service assembler's last trusted registrations; whoever serves
     traffic calls ``Runtime.freeze_registry`` first.
 
@@ -633,7 +633,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.workspaces import WorkspaceService
     runtime.workspaces = WorkspaceService(application, types=selection.workspace_types()).register(registry)
     from qorqut.owner_bootstrap import OwnerSessionBootstrap
-    runtime.owner_bootstrap = OwnerSessionBootstrap(domains.documents).register(registry)
+    runtime.owner_bootstrap = OwnerSessionBootstrap(domains.documents, paths).register(registry)
     from qorqut.agents.activity import AgentActivity
     runtime.activity = AgentActivity(runtime).register()
     resolver.activity = runtime.activity

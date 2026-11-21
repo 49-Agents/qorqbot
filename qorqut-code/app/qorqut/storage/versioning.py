@@ -29,7 +29,7 @@ from .recovery import BackupStore, ROOT_AUTHORED, SKIP_DIRECTORIES, _identity
 HISTORY_REF = "refs/heads/qorqut-history"
 PROGRAM = "maintenance.nightly"
 PENDING_SECONDS = 5  # how soon a yielded nightly job looks again for its capture
-HQ_ENTRIES = frozenset({"project.yaml", "CLAUDE.md", "README.md", ".gitignore", ".gitattributes",
+PROJECT_ENTRIES = frozenset({"project.yaml", "CLAUDE.md", "README.md", ".gitignore", ".gitattributes",
     "context", "assets", "agents", "notes", "journal", "tasks",
     "log", "analytics", "learnings", "routines", "exports", "tables"})
 PRIVATE_PARTS = SKIP_DIRECTORIES - {"exports"} | {"sessions", "transcripts", "logs", "cache", ".cache", "work", "code"}
@@ -49,15 +49,11 @@ def public_path(name, projects):
         if parts[position + 1:position + 2] != ("skills",):
             return False
     for project in projects:
-        agents = (*Path(project["root"]).parts, "agents")
-        if parts[:len(agents)] == agents:
-            # A project's registered agents sit beside its HQ; the same exclusions above apply to them.
-            return len(parts) > len(agents)
-        hq = Path(project["hq"]).parts
-        if parts[:len(hq)] == hq:
-            if parts[len(hq):len(hq) + 2] == ("context", "email"):
+        folder = Path(project["root"]).parts
+        if parts[:len(folder)] == folder:
+            if parts[len(folder):len(folder) + 2] == ("context", "email"):
                 return False
-            return len(parts) > len(hq) and parts[len(hq)] in HQ_ENTRIES
+            return len(parts) > len(folder) and parts[len(folder)] in PROJECT_ENTRIES
     return parts[0] in (*ROOT_AUTHORED, "exports")
 
 

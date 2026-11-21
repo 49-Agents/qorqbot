@@ -93,7 +93,7 @@ review project; stop targets a registered routine/job, never the whole worker.
 ## Local And External Ports
 
 Global environment defaults live in `<root>/.env`; project overrides live in
-each registered HQ's `.env`. Owner-only GET/POST `/api/root/env` manages shared
+each registered project folder's `.env`. Owner-only GET/POST `/api/root/env` manages shared
 defaults; `/api/project/<slug>/env` returns local `pairs` plus `inherited` Global pairs,
 and POST replaces only local pairs. Removing an override restores inheritance.
 Responses are no-store and writes are atomic, mode 0600, with identity keys

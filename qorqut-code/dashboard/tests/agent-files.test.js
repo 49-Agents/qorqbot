@@ -72,9 +72,9 @@ async function fixture() {
     '':[dir('projects'), dir('notes'), dir('agents'), {name:'CLAUDE.md', path:'CLAUDE.md', kind:'file', size:200}],
     notes:[file('ideas.md', 'notes')],
     projects:[dir('example', 'projects', {project}), dir('archived', 'projects', {project:null}), dir(hostile, 'projects', {project:null})],
-    'projects/example':[dir('agents', 'projects/example'), dir('code', 'projects/example'), dir('context', 'projects/example'), dir('hq', 'projects/example'),
+    'projects/example':[dir('agents', 'projects/example'), dir('code', 'projects/example'), dir('context', 'projects/example'), dir('research', 'projects/example'),
       file('AGENTS.md', 'projects/example'), file('CLAUDE.md', 'projects/example'), file('project.yaml', 'projects/example'), file('plan.md', 'projects/example')],
-    'projects/example/hq':[file('notes.md', 'projects/example/hq')],
+    'projects/example/research':[file('notes.md', 'projects/example/research')],
     'projects/example/code':Array.from({length:105}, (_, index) => file(`file-${String(index).padStart(3, '0')}.txt`, 'projects/example/code')),
     agents:[],
   };
@@ -88,8 +88,8 @@ async function fixture() {
       return route.fulfill({json:{status:'ok', data:{path:selected, entries:entries.slice(offset, offset + 100), total:entries.length,
         project:selected.startsWith('projects/example') ? project : null, next_cursor:entries.length > offset + 100 ? 'next' : null}}});
     }
-    if (url.pathname === '/api/root/files/metadata') return route.fulfill({json:{status:'ok', data:{name:'notes.md', path:'projects/example/hq/notes.md', size:200,
-      modified_at:'2026-01-01T00:00:00Z', current:true, managed:null, binary:false, preview_kind:'markdown', urls:{view:'/files/view?path=projects/example/hq/notes.md', download:'/api/root/files/download?path=projects/example/hq/notes.md', copy:'/files/view?path=projects/example/hq/notes.md'}}}});
+    if (url.pathname === '/api/root/files/metadata') return route.fulfill({json:{status:'ok', data:{name:'notes.md', path:'projects/example/research/notes.md', size:200,
+      modified_at:'2026-01-01T00:00:00Z', current:true, managed:null, binary:false, preview_kind:'markdown', urls:{view:'/files/view?path=projects/example/research/notes.md', download:'/api/root/files/download?path=projects/example/research/notes.md', copy:'/files/view?path=projects/example/research/notes.md'}}}});
     if (url.pathname === '/api/root/files/content') return route.fulfill({json:{status:'ok', data:{kind:'markdown', size:200, truncated:false,
       html:'<h1>Project notes</h1><p>Readable preview.</p><script>parent.alert(1)</script><img src=x onerror=parent.alert(1)><a href="javascript:alert(1)">unsafe</a>', text:'# Project notes\n\nReadable preview.'}}});
     if (url.pathname === '/') return route.fulfill({contentType:'text/html', body:`<!doctype html><html data-theme="dark"><head><meta charset="utf-8">
@@ -131,7 +131,7 @@ browserTest('tree expands real directory responses, paginates, filters and handl
     const search = page.getByRole('searchbox');
     await search.fill('file-104');
     assert.equal(await page.locator('.agfiles-tree [data-row]').count(), 0);
-    await search.fill('hq');
+    await search.fill('research');
     assert.equal(await page.locator('.agfiles-tree [data-row]').count(), 1);
     await search.fill('');
     const project = page.locator('[data-row="projects/example"]');
@@ -157,16 +157,16 @@ browserTest('only projects and notes show until system files are switched on', a
     assert.deepEqual(await page.locator('.agfiles-crumbs button').allInnerTexts(), ['Files', 'Projects']);
     assert.equal(await page.locator('[data-row="projects"] .agfiles-count').innerText(), '3');
     await page.locator('.agfiles-tree [data-select="projects/example"]').click();
-    await page.locator('[data-row="projects/example/hq"]').waitFor();
+    await page.locator('[data-row="projects/example/research"]').waitFor();
     // A project's agent folders and instruction files stay out of the tree and the folder list.
-    assert.deepEqual((await treeRows()).filter(row => row.startsWith('projects/example/')), ['projects/example/code', 'projects/example/hq']);
-    assert.deepEqual(await page.locator('.agfiles-detail .agfiles-child span').allInnerTexts(), ['code', 'hq', 'plan.md']);
+    assert.deepEqual((await treeRows()).filter(row => row.startsWith('projects/example/')), ['projects/example/code', 'projects/example/research']);
+    assert.deepEqual(await page.locator('.agfiles-detail .agfiles-child span').allInnerTexts(), ['code', 'research', 'plan.md']);
     assert.match(await page.locator('.agfiles-hidden-note').innerText(), /5 system items hidden here/);
     // A folder with no subfolders has nothing to expand.
-    assert.equal(await page.locator('[data-row="projects/example/hq"] .agfiles-toggle').count(), 1);
-    await page.locator('.agfiles-tree [data-select="projects/example/hq"]').click();
-    await page.locator('.agfiles-detail [data-select="projects/example/hq/notes.md"]').waitFor();
-    assert.equal(await page.locator('[data-row="projects/example/hq"] .agfiles-toggle').count(), 0);
+    assert.equal(await page.locator('[data-row="projects/example/research"] .agfiles-toggle').count(), 1);
+    await page.locator('.agfiles-tree [data-select="projects/example/research"]').click();
+    await page.locator('.agfiles-detail [data-select="projects/example/research/notes.md"]').waitFor();
+    assert.equal(await page.locator('[data-row="projects/example/research"] .agfiles-toggle').count(), 0);
     await page.locator('.agfiles-tree [data-select="notes"]').click();
     await page.locator('.agfiles-detail [data-select="notes/ideas.md"]').waitFor();
     // The note's link and the footer switch show everything; switching off leaves no selection inside system files.
@@ -190,8 +190,8 @@ browserTest('file preview reuses the inert reader, supports Source and follows p
   try {
     const {page} = h;
     await page.locator('.agfiles-tree [data-select="projects/example"]').click();
-    await page.locator('.agfiles-tree [data-select="projects/example/hq"]').click();
-    await page.locator('.agfiles-detail [data-select="projects/example/hq/notes.md"]').click();
+    await page.locator('.agfiles-tree [data-select="projects/example/research"]').click();
+    await page.locator('.agfiles-detail [data-select="projects/example/research/notes.md"]').click();
     const frame = page.frameLocator('.agfiles-viewer');
     await frame.locator('.fv-md h1').waitFor();
     assert.equal(await frame.locator('.fv-md h1').innerText(), 'Project notes');

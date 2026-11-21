@@ -2,11 +2,11 @@
 
 `FullRecoveryStore` creates one encrypted recovery generation for the whole
 installation. It composes the existing `BackupStore` validation of authoritative
-SQLite, registered HQ data, artifacts and credential projections with a pinned
+SQLite, registered project data, artifacts and credential projections with a pinned
 [restic 0.19.1](https://restic.readthedocs.io/en/stable/) snapshot of the state
 that `BackupStore` intentionally excludes: every registered project's `code/`
-tree (including `.git` and worktrees) and Git metadata the authority snapshot
-skips. Restic records symbolic links as links and
+tree when it has one (including `.git` and worktrees) and Git metadata the authority snapshot
+skips. A project without a `code/` folder is complete without it. Restic records symbolic links as links and
 does not follow them, so a checkout link outside the project mount is preserved
 without making that external location part of the backup.
 

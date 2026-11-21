@@ -49,7 +49,7 @@ class SignoffSourceTests(unittest.TestCase):
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': self.owner, 'kind': 'human', 'display_name': 'Synthetic owner'})
             uow.repository('installation').insert({'id': 'service', 'installation_id': new_id(), 'owner_principal_id': self.owner})
-            uow.repository('projects').insert({'id': self.project, 'name': 'Example project', 'slug': 'example', 'workspace': 'example', 'hq_path': 'hq'})
+            uow.repository('projects').insert({'id': self.project, 'name': 'Example project', 'slug': 'example', 'workspace': 'example'})
             uow.repository('project_memberships', project_id=self.project).insert({'principal_id': self.owner, 'is_owner': True})
             for project in (None, self.project):
                 uow.repository('tasks', project_id=project).insert({'id': 'work', 'title': 'Example work', 'status': 'working', 'created_by': self.owner})

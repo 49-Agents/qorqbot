@@ -93,7 +93,7 @@ failed Context model call or bypass any provider approval.
 | `context.instruct` | Completion program (version 1) for one focused owner instruction. Same shape as `context.file`: the instruction is frozen as its own source version under `foundation/instructions/{job-id}.txt`. |
 | `learnings.extract` | Preserved transcript pruning, repeated extraction, exact speaker evidence checks, deduplication, variants/votes, candidates and scan/run provenance. Acceptance never applies a learning. Global only (v1.2 G022): one Global stream, no project job, routine target or worker membership; project learning records stay readable and reviewable as history. |
 | `learnings.engine_extract` (removed) | The standalone procedural learning engine and its review-issue program are not registered in this target. Its historical jobs, candidates and decisions stay readable as history, but no routine, configuration or worker can resolve or run it, and no engine evidence or package is imported. Factual Global learning stays with `learnings.extract`; procedural work belongs to Overseer. |
-| `repository.status` | Fixed read-only `git status --short` in the registered project HQ. No argv input, hooks, commits, or global Git configuration. |
+| `repository.status` | Fixed read-only `git status --short` in the registered project folder. No argv input, hooks, commits, or global Git configuration. |
 | `tables.version` | Publish a captured shared-table revision to the projects-root version branch, without changing the owner's branch or index. |
 | `tables.global-version` | Internal Global-only twin of `tables.version` (same runner and recovery, own worker principal): publishes Global table revisions under `global/tables/`, never a project's. |
 

@@ -38,17 +38,17 @@ class NoteMoveFixture(unittest.TestCase):
                                                        owner_principal_id=self.owner, created_at=STAMP, updated_at=STAMP))
             for project, slug in ((self.source, 'launch'), (self.destination, 'product')):
                 uow.repository('projects').insert({'id': project, 'name': slug.title(), 'slug': slug,
-                                                     'workspace': slug, 'hq_path': str(self.folder / slug / 'hq')})
+                                                     'workspace': slug})
         self.ctx = InvocationContext(Principal(self.owner, 'human'), source='dashboard', project_id=self.source,
                                      allowed_project_ids=frozenset({self.source, self.destination}))
-        self.engine = DocumentRelocation(lambda project, path: Path(project['hq_path']))
+        self.engine = DocumentRelocation(lambda project, path: self.folder / project['slug'])
 
-    def hq(self, project):
-        return self.folder / ('launch' if project == self.source else 'product') / 'hq'
+    def folder_of(self, project):
+        return self.folder / ('launch' if project == self.source else 'product')
 
     def note(self, body=b'# Launch brief\n', *, kind='project_owned_note', path=None, versions=2):
         identity, path = str(uuid4()), path or f'notes/{uuid4().hex[:8]}.md'
-        target = self.hq(self.source) / path
+        target = self.folder_of(self.source) / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(body)
         with self.db.transaction() as uow:
@@ -78,7 +78,7 @@ class NoteMoveTests(NoteMoveFixture):
     def test_a_note_moves_with_its_file_and_earlier_versions(self):
         identity, path = self.note()
         self.assertEqual(self.move(identity)['counts']['versions'], 2)
-        self.assertEqual((self.hq(self.destination) / path).read_bytes(), b'# Launch brief\n')
+        self.assertEqual((self.folder_of(self.destination) / path).read_bytes(), b'# Launch brief\n')
         with self.db.read() as uow:
             row = uow.connection.execute('SELECT project_id, namespace, path FROM documents WHERE id=?', (identity,)).fetchone()
             self.assertEqual(tuple(row), (self.destination, self.destination, path))
@@ -88,10 +88,10 @@ class NoteMoveTests(NoteMoveFixture):
             self.assertEqual(len(spaces), 4)
             self.assertEqual(moved_location(uow, 'document', self.source, identity), self.destination)
         # The source copy stays until the move is committed and then is retired by the sweep.
-        self.assertTrue((self.hq(self.source) / path).exists())
+        self.assertTrue((self.folder_of(self.source) / path).exists())
         with self.db.read() as uow:
             self.assertEqual(self.engine.sweep(uow), 1)
-        self.assertFalse((self.hq(self.source) / path).exists())
+        self.assertFalse((self.folder_of(self.source) / path).exists())
 
     def test_a_failed_transaction_leaves_the_source_untouched_and_the_retry_reuses_the_copy(self):
         identity, path = self.note()
@@ -101,7 +101,7 @@ class NoteMoveTests(NoteMoveFixture):
                 self.engine.relocate(self.ctx, uow, self.source, self.destination, [identity], inspection.fingerprint(self.owner),
                                      move_id=str(uuid4()), at=LATER)
                 raise RuntimeError('crash after the copy')
-        self.assertTrue((self.hq(self.source) / path).exists())
+        self.assertTrue((self.folder_of(self.source) / path).exists())
         with self.db.read() as uow:
             self.assertEqual(self.engine.sweep(uow), 0)
             self.assertEqual(uow.connection.execute('SELECT project_id FROM documents WHERE id=?', (identity,)).fetchone()[0], self.source)
@@ -109,10 +109,10 @@ class NoteMoveTests(NoteMoveFixture):
 
     def test_an_edited_file_a_taken_path_and_other_kinds_block(self):
         edited, path = self.note()
-        (self.hq(self.source) / path).write_bytes(b'changed outside the service')
+        (self.folder_of(self.source) / path).write_bytes(b'changed outside the service')
         taken, taken_path = self.note()
-        (self.hq(self.destination) / taken_path).parent.mkdir(parents=True, exist_ok=True)
-        (self.hq(self.destination) / taken_path).write_bytes(b'someone else')
+        (self.folder_of(self.destination) / taken_path).parent.mkdir(parents=True, exist_ok=True)
+        (self.folder_of(self.destination) / taken_path).write_bytes(b'someone else')
         journal, _ = self.note(kind='project_note')
         codes = {item['code'] for item in self.preview(edited, taken, journal).blockers}
         self.assertEqual(codes, {'document_changed', 'path_exists', 'unsupported_document'})
@@ -150,7 +150,7 @@ class NoteMoveTests(NoteMoveFixture):
             result = tables.apply(self.ctx, uow, self.source, self.destination, table_ids, both.fingerprint(self.owner),
                                   move_id=str(uuid4()), at=LATER)
         self.assertEqual(result['counts']['uploads'], 1)
-        self.assertTrue((self.hq(self.destination) / path).exists())
+        self.assertTrue((self.folder_of(self.destination) / path).exists())
         with self.db.read() as uow:
             self.assertEqual(uow.connection.execute('SELECT project_id FROM documents WHERE id=?', (upload,)).fetchone()[0], self.destination)
             self.assertIsNone(uow.connection.execute('PRAGMA foreign_key_check(data_rows)').fetchone())
@@ -206,11 +206,11 @@ class MoveOperationTests(NoteMoveFixture):
         status, data = self.call('notes_move_to_project', {'document_ids': [identity], 'preview_token': preview['token']})
         self.assertEqual(status, 'ok', data)
         self.assertEqual(data['moved'], [{'id': identity, 'project_id': self.destination}])
-        self.assertTrue((self.hq(self.destination) / path).exists())
+        self.assertTrue((self.folder_of(self.destination) / path).exists())
         # The next preview retires the committed move's source file.
         other, _ = self.note()
         self.call('notes_move_to_project_preview', {'document_ids': [other]})
-        self.assertFalse((self.hq(self.source) / path).exists())
+        self.assertFalse((self.folder_of(self.source) / path).exists())
 
     def test_a_denied_destination_permission_stops_the_preview(self):
         identity, _ = self.note()

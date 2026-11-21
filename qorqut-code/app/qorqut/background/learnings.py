@@ -9,7 +9,7 @@ from qorqut_operations.contracts import DomainError, new_id, utc_now
 from qorqut.domains.learnings import analysis, sources, verification
 from qorqut.domains.learnings.scope import require_global
 from qorqut_operations.application.plans import rows
-from qorqut.composition.locations import project_hq
+from qorqut.composition.locations import project_root
 from qorqut_operations.background.programs import ProgramResult
 from .providers import ProviderError
 
@@ -20,7 +20,7 @@ MAX_PASS_BYTES = 64 * 1024 * 1024    # The most saved-session content one pass o
 class ProjectBrief:
     row: dict
     profiles: list
-    root: str = ""  # the project's registered HQ, which transcript-relative paths are shown against
+    root: str = ""  # the project's registered folder, which transcript-relative paths are shown against
 
     @property
     def id(self): return self.row["id"]
@@ -153,7 +153,7 @@ class LearningProgram:
             project_row = (uow.repository("projects").get(control.project_id, required=True) if control.project_id else
                 {"id": None, "slug": "Global", "name": "Global", "config_json": {}})
             project = ProjectBrief(project_row, uow.repository("agent_profiles").list(limit=200),
-                                str(project_hq(control.service.paths, project_row)) if control.project_id else "")
+                                str(project_root(control.service.paths, project_row)) if control.project_id else "")
             scan = {row['session_id']: row for row in rows(uow, 'learning_scan_state', control.project_id)}
             seen = {key: row['transcript_hash'] for key, row in scan.items() if sources.counted(row['state_json'], args.get('retry_failed'))}
             decisions = {row["candidate_id"]: row for row in

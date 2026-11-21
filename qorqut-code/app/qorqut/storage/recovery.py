@@ -18,7 +18,7 @@ from qorqut.migration.snapshots import (SourceManifest, _digest, _fsync_director
     restore_snapshot, verify_snapshot)
 from qorqut_operations.storage.paths import registered_path
 from qorqut_operations.storage.safe_io import TEMPORARY_PREFIXES, atomic_write
-from qorqut.composition.locations import project_hq, project_root, document_root
+from qorqut.composition.locations import project_root, document_root
 from qorqut_context.integration.recovery import CAPTURE_DIRECTORY, ContextRecovery
 from .exports import build_exports, snapshot_connection
 from qorqut_operations.storage.repositories import decode_row
@@ -39,9 +39,10 @@ def _identity(value):
     return value
 
 
-# Older installations kept a removed per-project browser's live Chrome profile, downloads and setup projection here.
-# They are private runtime state: not authored context, and full of sockets, links and cookies a backup must never read.
-PRIVATE_HQ_DIRECTORIES = frozenset({"browser"})
+# A browser folder at the top of a project holds a live Chrome profile, downloads and setup projection.
+# It is private runtime state: not authored context, and full of sockets, links and cookies a backup must never read.
+# A folder named ``code`` at the top of a project holds source checkouts and is not authored material.
+PRIVATE_PROJECT_DIRECTORIES = frozenset({"browser", "code"})
 
 
 def _inside(path, base):
@@ -77,19 +78,17 @@ def external_worker(root, row) -> bool:
 def project_entries(connection, instance):
     """The registered projects as the authored manifest records them, from the instance's own path contract.
 
-    Pure derivation from the registered rows and ``InstancePaths``: a project's folder, HQ and root are
-    ``projects/<slug>``-relative, exactly the shape a target backup emits and verification demands."""
+    Pure derivation from the registered rows and ``InstancePaths``: a project's folder is
+    ``projects/<slug>``-relative, exactly the shape a backup emits and verification demands."""
     root = instance.operations
-    return [{"slug": project["slug"], "hq": project_hq(instance, project).relative_to(root).as_posix(),
-             "root": project_root(instance, project).relative_to(root).as_posix()}
+    return [{"slug": project["slug"], "root": project_root(instance, project).relative_to(root).as_posix()}
             for project in connection.execute("SELECT * FROM projects ORDER BY id")]
 
 
 def require_target_projects(manifest, database_path, instance):
-    """Raise ``ValueError`` unless the authored manifest's projects are exactly this database's, in the target layout.
+    """Raise ``ValueError`` unless the authored manifest's projects are exactly this database's.
 
-    ``SourceManifest`` also parses historical source archives; recognizing a shape is not enough to certify a
-    generation, so a current backup's projects must equal what its captured database and the instance paths derive."""
+    A backup's projects must equal what its captured database and the instance paths derive."""
     connection = snapshot_connection(database_path)
     try:
         expected = project_entries(connection, instance)
@@ -109,12 +108,10 @@ def authored_inventory(snapshot, instance, *, skip_external_workers=False):
         projects = {row["id"]: decode_row(row) for row in connection.execute("SELECT * FROM projects ORDER BY id")}
         project_manifest = project_entries(connection, instance)
         for project in projects.values():
-            hq = project_hq(instance, project)
-            if not hq.is_dir():
+            folder = project_root(instance, project)
+            if not folder.is_dir():
                 raise DomainError("backup_incomplete", "Registered project data folder is missing")
-            paths.update(_walk(hq, top_skip=PRIVATE_HQ_DIRECTORIES))
-            # The agents of a project sit beside its HQ and are authored material of the same project.
-            paths.update(_walk(project_root(instance, project) / "agents"))
+            paths.update(_walk(folder, top_skip=PRIVATE_PROJECT_DIRECTORIES))
         graph = instance.context
         for name in (*ROOT_AUTHORED, *PRIVATE_RUNTIME_FILES):
             # The Context repository's authority is the generation's required Context component (Git objects, refs and

@@ -91,7 +91,7 @@ class ActionEvidenceTests(unittest.TestCase):
             uow.repository("installation").insert({"id": "service", "installation_id": new_id(),
                                                    "owner_principal_id": self.owner})
             uow.repository("projects").insert({"id": self.project, "name": "Example", "slug": "example",
-                                                 "workspace": "example", "hq_path": "hq"})
+                                                 "workspace": "example"})
             uow.repository("project_memberships", project_id=self.project).insert(
                 {"principal_id": self.owner, "is_owner": True})
             uow.repository("tasks", project_id=None).insert({"id": "evidence-task", "title": "Example request",

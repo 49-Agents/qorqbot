@@ -196,7 +196,7 @@ operation. `story_ids` is rejected at Global with `validation_error` "Stories ar
 project"; an empty list is accepted. Everything above (encounter fields, participant
 linkage, archived-participant failure, `context_retry`) applies the same way, against
 Global Persons and Global topics under the projects root rather than a project's
-`hq/context`. A project Person ID is not a Global participant and fails with
+`context`. A project Person ID is not a Global participant and fails with
 `not_found`, and `context_people_list`/`context_people_get` never cross the project/Global
 boundary in either direction.
 

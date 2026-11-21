@@ -12,7 +12,7 @@ import anyio
 from markdown_it import MarkdownIt
 from starlette.responses import JSONResponse, Response
 
-from qorqut.composition.locations import project_hq
+from qorqut.composition.locations import project_root
 from qorqut_operations.contracts import DomainError, InvocationOptions, canonical_hash, new_id, plain
 from qorqut_operations.team_channel import is_installation_owner
 from qorqut_operations.storage.repositories import decode_row
@@ -266,7 +266,7 @@ class DashboardCompatibility:
             projects = []
             for row in registered:
                 metadata = json.loads(row["config_json"])
-                projects.append({"slug": row["slug"], "path": str(project_hq(self.runtime.paths, row)), "name": row["name"], "id": row["id"], "project_id": row["id"],
+                projects.append({"slug": row["slug"], "path": str(project_root(self.runtime.paths, row)), "name": row["name"], "id": row["id"], "project_id": row["id"],
                     "one_liner": metadata.get("one_liner", metadata.get("description", "")), "website": metadata.get("website"),
                     "owner": context.principal.display_name})
             return JSONResponse(projects)
