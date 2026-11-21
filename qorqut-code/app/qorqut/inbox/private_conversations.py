@@ -20,6 +20,8 @@ from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock
 from qorqut_operations.conversations import SUMMARY, author, normalize_summary, participants
 from qorqut_operations.discussion.threads import RELAY, attribution, read_attribution, save_attribution
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import reference_kind
 from qorqut_operations.signoffs.notes import note_refs_schema
 from qorqut.agents.global_scope import active_project_participant
 from qorqut.management.identity import installation_owner, private_participants
@@ -123,7 +125,11 @@ class PrivateConversations:
 
     def register(self, registry=None):
         registry = registry or self.app.registry
-        common = dict(supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
+        found = References(Ref(('source',), absent='keep'), kinds={**KINDS, 'signoff': reference_kind(self.app.signoffs)})
+        # In Global the source names its record by type and id and its project is found from the id; with a selected
+        # project a source without project_id is the selected project's, so nothing is looked up.
+        complete = lambda app, ctx, arguments, uow: arguments if ctx.project_id is not None else found(app, ctx, arguments, uow)
+        common = dict(supports_signoff=False, scope_kinds=frozenset({'project', 'global'}), complete_references=complete,
             global_capability='read_global_context',
             resolve_namespace=lambda c, a: 'global' if a.get('scope') == 'global' else 'project:' + (c.project_id or ''))
         registry.register(OperationDescriptor('owner_conversation_peers', schema(FIELDS, ('source',)),
@@ -141,7 +147,7 @@ class PrivateConversations:
             description=instruction_text('private-conversations-send-one-private-message-to-the-owner')))
         registry.register(OperationDescriptor('owner_conversation_mark_read', schema({**FIELDS,
             'sequence': {'type': 'integer', 'minimum': 0}}, ('source', 'sequence')),
-            supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
+            supports_signoff=False, scope_kinds=frozenset({'project', 'global'}), complete_references=complete,
             global_capability='read_global_context', owner_only=True,
             exposure=frozenset({'dashboard', 'worker'}),
             resolve_namespace=common['resolve_namespace'], prepare=self.prepare_mark, apply=self.apply_mark,

@@ -22,6 +22,8 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import UUID, PlanBuilder, ref, schema, utc_clock
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.projects.links import ProjectItemLinks, ProjectTarget, view as link_view
+from qorqut_operations.records.references import KINDS, Kind, Ref, References
+from qorqut_operations.signoffs.lookup import reference_kind
 
 from . import access
 
@@ -37,7 +39,7 @@ SCOPE_FIELDS = {
     "project_id": {**UUID, "description": instruction_text('compose-the-actual-project-uuid-on-a-project-route')},
     "scope": {"enum": ["project", "global"],
               "description": instruction_text('compose-project-on-the-project-route-global-from-the')}}
-ITEM_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["type", "id", "project_id"],
+ITEM_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["type", "id"],
                "properties": {"type": {"type": "string", "minLength": 1, "maxLength": 64},
                               "id": {"type": "string", "minLength": 1, "maxLength": 300},
                               "project_id": {"anyOf": [UUID, {"type": "null"}]}},
@@ -67,6 +69,11 @@ class ProjectRecords:
 
     def register(self, registry=None):
         registry = registry or self.application.registry
+        # An item names its record by type and id; its project is found from the id for the kinds whose id is unique
+        # across the installation and whose read operation decides who may read it. Any other kind reads as Global
+        # unless its project is stated.
+        item = References(Ref(("item",)), kinds={**KINDS, "signoff": reference_kind(self.application.signoffs),
+                                                 "routine": Kind("routines", "routines_get")})
         registry.register(OperationDescriptor(READ, schema(SCOPE_FIELDS, ("project_id",)), **COMMON, effect_kind="read",
             read=lambda ctx, args, options, uow: self.record_get(ctx, args, uow),
             description=instruction_text('compose-owner-and-configured-ordubashy-one-existing-project-s')))
@@ -83,10 +90,10 @@ class ProjectRecords:
             **COMMON, effect_kind="read", read=lambda ctx, args, options, uow: self.candidates(ctx, args, uow),
             description=instruction_text('compose-owner-and-configured-ordubashy-actual-readable-records-of')))
         registry.register(OperationDescriptor(ITEM, schema({**SCOPE_FIELDS, "item": ITEM_SCHEMA}, ("project_id", "item")),
-            **COMMON, effect_kind="read", read=lambda ctx, args, options, uow: self.item_get(ctx, args, uow),
+            **COMMON, complete_references=item, effect_kind="read", read=lambda ctx, args, options, uow: self.item_get(ctx, args, uow),
             description=instruction_text('compose-owner-and-configured-ordubashy-one-authorized-project-item')))
         registry.register(OperationDescriptor(LINK, schema({**SCOPE_FIELDS, "item": ITEM_SCHEMA}, ("project_id", "item")),
-            **COMMON, prepare=self.prepare_link, apply=self.apply_link, replay_validator=self.validate_link_replay,
+            **COMMON, complete_references=item, prepare=self.prepare_link, apply=self.apply_link, replay_validator=self.validate_link_replay,
             description=instruction_text('compose-owner-and-configured-ordubashy-explicitly-associate-one-currently')))
         registry.register(OperationDescriptor(UNLINK, schema({**SCOPE_FIELDS, "link_id": UUID,
             "expected_revision": {"type": "integer", "minimum": 1}},

@@ -10,13 +10,15 @@ from qorqut_operations.conversations import SUMMARY, normalize_summary
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import reference_kind
 from qorqut_operations.team_channel import reject_owner_team_write
 from qorqut.management.service import ManagementService
 from qorqut.read_admission import may_read
 
 ID={'type':'string','minLength':1,'maxLength':200}
 TEXT={'type':'string','maxLength':2000}
-SOURCE=schema({'type':{'enum':['task','signoff','project','table']},'id':ID,'project_id':{'type':['string','null']}},('type','id','project_id'))
+SOURCE=schema({'type':{'enum':['task','signoff','project','table']},'id':ID,'project_id':{'type':['string','null']}},('type','id'))
 TARGET=schema({'type':{'type':'string'},'id':ID,'project_id':{'type':['string','null']},'url':{'type':'string','maxLength':4000}},('type',))
 REFERENCE=schema({'key':ID,'title':TEXT,'target':TARGET},('key','title','target'))
 FIELDS={'display_name':{'type':'string','maxLength':200,
@@ -66,6 +68,11 @@ class AttentionBoard:
         from qorqut.domains.tasks import NOTE_REFS
         common=dict(supports_signoff=False,scope_kinds=frozenset({'global'}),exposure=frozenset({'dashboard'}),
             global_capability='read_global_context',resolve_namespace=lambda c,a:'global')
+        # A source, context or reference names its record by type and id; its project is found from the id. A typed target
+        # that names no project keeps none until ``named`` reads it as Global; a URL or desktop target never gets one.
+        kinds={**KINDS,'signoff':reference_kind(self.legacy.signoffs)}
+        sources=(Ref(('source',)),Ref(('context',)),Ref(('references','*')),Ref(('changes','references','*')))
+        targets=(Ref(('reference','target'),absent='keep'),Ref(('changes','target'),absent='keep'))
         self.app.registry.register(OperationDescriptor('focus_get',schema({'scope':{'const':'global'},
             'item_id':ID,'include_archived':{'type':'boolean'},'include_deferred':{'type':'boolean'},
             'conversation':{'type':'boolean'},'before':{'type':'integer','minimum':1},'cursor':{'type':'string','maxLength':4096},
@@ -83,7 +90,8 @@ class AttentionBoard:
         }
         for name,(fields,required) in ops.items():
             self.app.registry.register(OperationDescriptor(name,schema({'scope':{'const':'global'},**fields},required),
-                **common,description=instruction_text('attention-curate-persistent-focus-presentation-source-permissions-and-conversations'),
+                **common,complete_references=References(*sources,*targets,kinds=kinds) if name in {'focus_present','focus_edit'} else None,
+                description=instruction_text('attention-curate-persistent-focus-presentation-source-permissions-and-conversations'),
                 prepare=lambda c,a,o,u,op=name:self.prepare(op,c,a,o,u),apply=self.apply))
         self.app.attention = self
         return self
@@ -117,8 +125,15 @@ class AttentionBoard:
         for peer in self.participants(ctx,uow): self.legacy.resolve(peer,source,uow)
         return result
 
+    @staticmethod
+    def named(target):
+        """A typed target with its project: Global (``null``) when none was found for it."""
+        if isinstance(target,dict) and target.get('type') not in {'desktop','url'} and 'project_id' not in target:
+            return {**target,'project_id':None}
+        return target
+
     def target(self,ctx,target,uow):
-        target=self.public(target)
+        target=self.public(self.named(target))
         if target['type']=='desktop':
             from .focus import valid_desktop_url
             url=valid_desktop_url(self.legacy.desktop_url())
@@ -129,8 +144,8 @@ class AttentionBoard:
             if parsed.scheme not in {'http','https'} or not parsed.hostname or parsed.username or parsed.password:
                 raise DomainError('validation_error','Reference URLs must be HTTP(S) without embedded credentials')
             return target
-        if target['type'] not in self.legacy.items.kinds or 'id' not in target or 'project_id' not in target:
-            raise DomainError('validation_error','Choose a typed existing target with id and project_id, or a URL/desktop target')
+        if target['type'] not in self.legacy.items.kinds or 'id' not in target:
+            raise DomainError('validation_error','Choose a typed existing target with an id, or a URL/desktop target')
         return self.resolve(ctx,target,uow)
 
     def row(self,identity,uow):
@@ -360,6 +375,7 @@ class AttentionBoard:
             return {**result,'conversation':binding}
         if op=='focus_present':
             source=args.get('source');reference=args.get('reference');context=args.get('context')
+            if reference: reference={**reference,'target':self.named(reference['target'])}
             key=('source:'+str(source['project_id'] or 'global')+':'+source['type']+':'+source['id']) if source else 'reference:'+reference['key']
             row=decode(uow.connection.execute('SELECT * FROM focus_cards WHERE source_key=?',(key,)).fetchone())
             if row and (row['context']!=context or row['source']!=source): raise DomainError('validation_error','Conversation binding cannot be changed; present a distinct Reference key')
@@ -376,7 +392,7 @@ class AttentionBoard:
             if 'title' in changes or 'target' in changes:
                 reference=dict(row['reference'])
                 for k in ('title','target'):
-                    if k in changes: reference[k]=changes.pop(k)
+                    if k in changes: reference[k]=self.named(changes.pop(k)) if k=='target' else changes.pop(k)
                 changes['reference_json']=json.dumps(reference)
         elif op=='focus_set_archived':
             if bool(row['archived'])==args['archived']: return {'item':self.projection(ctx,row,uow)}

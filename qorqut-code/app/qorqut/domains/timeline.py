@@ -1,8 +1,9 @@
 """The timelines of Tasks, Projects and Global as agent tools.
 
 ``timeline_get`` reads what holds now on one item (or its whole history); ``timeline_file`` is how the configured coordinator
-changes it. An item is ``{type, id, project_id}`` as ``thread_pins_set`` names a record: a Task (``task``, its id, its Project
-or null), a Project (``project``, its id as both id and project_id) or Global (``global``, id ``global``, project_id null).
+changes it. An item is named by its type and id as ``thread_pins_set`` names a record: a Task (``task`` and its id), a Project
+(``project`` and its id) or Global (``global``, id ``global``). Its project is found from the id: ``project_id`` is the Task's
+Project (null for a Global Task) or the Project's own id, and may be stated.
 
 Who may read: a Task's timeline follows the ordinary ``tasks_get`` read of that Task; a Project's needs the caller to be a
 participant of that Project; Global's is open to every agent. Who may file: the configured coordinator in person, never a
@@ -20,6 +21,7 @@ from dataclasses import replace
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, ref, schema, timestamp
 from qorqut_operations.contracts import DomainError, FieldChange, PreviewResource, StructuredPreview, plain
+from qorqut_operations.records.references import References, Ref
 from qorqut_operations.tasks.scope import task_namespace
 from qorqut_operations.timeline import filing, state as timeline_state
 from qorqut_operations.timeline.schema import ENTRIES, ITEM_TYPES, KINDS, QUESTIONS
@@ -29,8 +31,7 @@ from qorqut.management.identity import configured_ordubashy, installation_owner
 
 GET_DESCRIPTION = (
     "Reads the timeline of a Task, a Project or Global: what holds now, or its whole history. item names it: type (task, project "
-    "or global), id (the Task id, the Project id, or \"global\") and project_id (the Project a Task is in, the Project's own id "
-    "for a project, null for Global or a Global Task). By default it returns the state with the ids of its entries and questions "
+    "or global) and id (the Task id, the Project id, or \"global\"); the item's project is found from its id. By default it returns the state with the ids of its entries and questions "
     "(the ids timeline_file removes, answers and drops by): the latest goal, every decision and fact added and not removed, the "
     "latest progress note and the open questions for the owner, plus the same as text and the item's revision. With history true it "
     "pages every entry oldest first (limit, cursor), removed ones marked, with the owner's quoted words and their links, and the "
@@ -63,7 +64,7 @@ ANSWER_DESCRIPTION = (
 REVIEW_NOTICE = ("Submitted for the owner's review. It is filed by itself when the owner approves it; do not file it again. "
                  "timeline_get lists the filings still waiting.")
 
-ITEM = {"type": "object", "additionalProperties": False, "required": ["type", "id", "project_id"], "properties": {
+ITEM = {"type": "object", "additionalProperties": False, "required": ["type", "id"], "properties": {
     "type": {"enum": list(ITEM_TYPES)},
     "id": {"type": "string", "minLength": 1, "maxLength": 300},
     "project_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200}}}
@@ -101,7 +102,9 @@ class Timeline:
         self.runtime, self.app = runtime, runtime.application
 
     def register(self):
-        common = dict(global_capability="read_global_context", exposure=frozenset({"mcp"}))
+        # The item names its record by type and id; its project is found from the id (Global's is null).
+        common = dict(global_capability="read_global_context", exposure=frozenset({"mcp"}),
+                      complete_references=References(Ref(("item",))))
         self.runtime.registry.register(OperationDescriptor(
             "timeline_get", GET_SCHEMA, description=GET_DESCRIPTION, effect_kind="read", read=self.get, supports_signoff=False,
             scope_kinds=frozenset({"project", "global"}), resolve_namespace=task_namespace, **common))

@@ -25,6 +25,8 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page_position, schema, timestamp, utc_clock
 from qorqut_operations.project_lifecycle import is_archived_project
 from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import reference_kind
 from qorqut_operations.contracts import DomainError, canonical_bytes, new_id, plain
 from qorqut.agents.global_scope import active_global
 from qorqut.management.identity import configured_ordubashy, is_active_installation_owner
@@ -56,7 +58,7 @@ RECURRENCE = {"anyOf": [schema({"schedule": {"type": "string", "minLength": 9, "
                                 "timezone": {"type": "string", "minLength": 1, "maxLength": 100,
                                              "description": instruction_text('service-iana-timezone-name-for-example-america-new-york')}},
                                ("schedule", "timezone")), {"type": "null"}]}
-LINK = {"anyOf": [schema({"type": ID, "id": ID, "project_id": {"anyOf": [UUID, {"type": "null"}]}}, ("type", "id", "project_id")),
+LINK = {"anyOf": [schema({"type": ID, "id": ID, "project_id": {"anyOf": [UUID, {"type": "null"}]}}, ("type", "id")),
                   {"type": "null"}]}
 
 
@@ -115,9 +117,12 @@ class ReminderService:
         lookup = RecordLookup(Family("reminders", "reminder_id", "reminders_get", "Reminder", scope_argument=None,
                                      refuses_elsewhere=False))
         located = dict(locate_scope=lookup)
+        # A linked item names its record by type and id; its project is found from the id.
+        links = References(Ref(("linked_item",)), kinds={**KINDS, "signoff": reference_kind(self.app.signoffs)})
         for name, (fields, required, description) in write_fields.items():
             self.app.registry.register(OperationDescriptor(name, schema(fields, required), **common,
                 **({**located, "description": description + LOCATED} if "reminder_id" in fields else {"description": description}),
+                **({"complete_references": links} if "linked_item" in fields else {}),
                 replay_validator=lambda ctx, args, replay, uow, op=name: self.replay(op, ctx, args, replay, uow),
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, uow), apply=self.apply))
         self.app.registry.register(OperationDescriptor(GET, schema({"reminder_id": UUID}, ("reminder_id",)), **common, **located,
