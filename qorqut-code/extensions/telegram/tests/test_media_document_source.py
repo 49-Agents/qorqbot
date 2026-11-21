@@ -96,4 +96,5 @@ class DocumentSourceTests(unittest.TestCase):
         self.assertEqual(self.complete(source), source)
 
 
-if __name__ == '__main__': unittest.main()
+if __name__ == '__main__':
+    unittest.main()

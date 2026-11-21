@@ -48,6 +48,13 @@ class TabReferenceTest(unittest.TestCase):
                 self.one({"type": "tab", "id": GOOD, "project_id": project})
             self.assertIn("delta or tab reference is {type, id} only", str(raised.exception))
 
+    def test_a_project_reference_names_itself(self):
+        full = [{"type": "project", "id": PROJECT, "project_id": PROJECT}]
+        self.assertEqual(self.one({"type": "project", "id": PROJECT}), full)
+        self.assertEqual(self.one(full[0]), full)
+        for other in (AGENT, None):
+            self.assertIn("a stated project_id is that same UUID", self.refusal({"type": "project", "id": PROJECT, "project_id": other}))
+
     def test_nothing_but_type_id_and_project_id_is_taken(self):
         for extra in ("label", "url", "title", "agent_id", "tab_id", "viewer_url"):
             with self.assertRaises(refs.InputError, msg=extra):

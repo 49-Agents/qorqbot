@@ -1,5 +1,5 @@
 'use strict';
-// /?open_task=<id> with the id alone reads the Task by its id and opens it with the project the Task reports; the stated forms read as before.
+// /?open_task=<id> with the id alone reads the Task by its id and opens it with the project the Task reports; a stated scope or project names where the Task is.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

@@ -28,7 +28,7 @@ test('a Task link with the id alone is found from its id', () => {
     assert.deepEqual(plain(openTaskRoute(`?open_task=${taskId}`)), {taskId});
     assert.equal(safeLinkUrl(`/?open_task=${taskId}#/global/agents`), `/?open_task=${taskId}#/global/agents`);
   }
-  // The stated forms are read as before.
+  // A stated scope or project names where the Task is.
   assert.deepEqual(plain(openTaskRoute('?open_task=ab3cd&scope=global')), {taskId: 'ab3cd', projectId: null});
   assert.deepEqual(plain(openTaskRoute(`?open_task=ab3cd&project_id=${PROJECT}`)), {taskId: 'ab3cd', projectId: PROJECT});
   assert.equal(openTaskRoute('?other=1'), null);

@@ -70,10 +70,10 @@ installation, so the record's project is found from its id. An operation that
 takes references declares it (`complete_references`, `records/references.py`),
 and before the call is checked or planned each reference without a
 `project_id` gets the project that holds the record, when the caller could have
-named that project itself: it is active, the caller may use the kind's read
-operation there, and an owner session or delegated worker is bound to it. A
-reference that carries a `project_id` (a project id, or `null` for Global) is
-left as given. In every other case (an unknown id, a record in Global, a
+named that project itself: it is active, in the caller's reach, and the caller
+may use the kind's read operation there. An owner session gets only its own
+project and a delegated worker only its assignment's. A reference that carries
+a `project_id` (a project id, or `null` for Global) is left as given. In every other case (an unknown id, a record in Global, a
 project the caller cannot reach) the reference gets `null` or stays as it is,
 and nothing says where the record is or whether it exists.
 

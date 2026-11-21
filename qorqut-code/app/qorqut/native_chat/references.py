@@ -40,6 +40,8 @@ def _reference(raw: Any) -> dict:
     if not isinstance(raw, dict) or set(raw) - {"type", "id", "project_id"} or not {"type", "id"} <= set(raw):
         raise InputError("Each reference is {type, id} with an optional project_id")
     kind, identity, project = raw["type"], raw["id"], raw.get("project_id")
+    if kind == TYPE_PROJECT and "project_id" not in raw:
+        project = identity  # A Project names itself.
     if kind not in TYPES:
         raise InputError("Reference type must be task, signoff, browser, project, delta or tab")
     pattern = SURFACE_ID if kind == TYPE_BROWSER else TASK_ID if kind == TYPE_TASK else TAB if kind == TYPE_TAB else UUID
@@ -52,7 +54,7 @@ def _reference(raw: Any) -> dict:
     if project is not None and (not isinstance(project, str) or not UUID.fullmatch(project)):
         raise InputError("project_id is the record's owning project UUID, or null for Global")
     if kind == TYPE_PROJECT and project != identity:
-        raise InputError("A project reference is {type: project, id: PROJECT_UUID, project_id: PROJECT_UUID}")
+        raise InputError("A project reference is {type: project, id: PROJECT_UUID}; a stated project_id is that same UUID")
     return {"type": kind, "id": identity, "project_id": project}
 
 
