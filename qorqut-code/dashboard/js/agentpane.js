@@ -119,6 +119,7 @@ const AGPAD_RETIRED_PANE_VIEWS = new Set(["project", "campaign_review", "status"
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
 function agentPaneViewAllowed(roleId, view) {
   if (view === "files" || view === "timeline") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
+  if (view === "explorer") return roleId === "ordubashy";
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
 }
@@ -132,7 +133,7 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
-  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
+  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["explorer", "files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
     .filter(view => agentPaneViewAllowed(roleId, view));
 }
 // The agent workspace app's compact header keeps Viewbox beside Focus; an embedded page has no header to arrange.
@@ -202,6 +203,7 @@ if (typeof testingModeSubscribe === 'function') testingModeSubscribe(() => {
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
   if (view === "files") { agentFilesMount(p); return; }
+  if (view === "explorer") { agentExplorerMount(p); return; }
   if (view === "timeline" && p.workspaceRole === "ordubashy") { agentTimelineMount(p); return; }
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
@@ -381,11 +383,13 @@ function agentPaneDividerMount(root) {
   };
 }
 
+// The views whose record reader can show a thread in the Chat area beside the pane: leaving one hands that area back.
+const agpadPairedView = p => p?.view === 'focus' || p?.view === 'explorer';
 function agpadDispose() {
   if (_agpad) agpadSurfaceDispose(_agpad);
   _agpad?.focusDetail?.dispose?.();
   if (_agpad?.workspaceFrame && typeof agentWorkspacePairedDetach === 'function') agentWorkspacePairedDetach(_agpad.workspaceFrame.contentWindow);
-  else if (_agpad?.view === 'focus' && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
+  else if (agpadPairedView(_agpad) && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
   _agpad?.workspaceDispose?.();
   for (const renderer of WORKSPACE_RENDERERS.values()) if (_agpad && renderer.dispose) renderer.dispose(_agpad);
   _agpad?.dividerDispose?.();
@@ -419,7 +423,7 @@ function agpadMount(name, el, options = {}) {
   if (_agpad) agpadSurfaceDispose(_agpad);
   _agpad?.focusDetail?.dispose?.();
   if (_agpad?.workspaceFrame && typeof agentWorkspacePairedDetach === 'function') agentWorkspacePairedDetach(_agpad.workspaceFrame.contentWindow);
-  else if (_agpad?.view === 'focus' && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
+  else if (agpadPairedView(_agpad) && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
   _agpad?.workspaceDispose?.();
   _agpad?.dividerDispose?.();
   if (_agpad) _agpad.focusDetail = null;
@@ -480,8 +484,8 @@ function agpadSetView(p, view, leaveChecked = false) {
     if (AGPAD_FOCUS_SURFACES.has(view)) return agpadSurfaceRequest(p, view, leaveChecked);
     if (view === "focus" && p.view === "focus" && p.surface) return agpadSurfaceClose(p);
   }
-  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.()
-      || (p.view === 'focus' && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy())) && typeof agentWorkspaceCanLeave === 'function') {
+  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.() || p.explorerWorkspace?.isOpen?.()
+      || (agpadPairedView(p) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy())) && typeof agentWorkspaceCanLeave === 'function') {
     // Resume only against the exact screen the guard inspected: a replaced frame or Journal mount was
     // never checked for unsaved edits, so its own guard has to run instead of this one's result.
     const frame = p.workspaceFrame, journal = p.journalMount, surface = p.surface, priorView = p.view;
@@ -490,7 +494,7 @@ function agpadSetView(p, view, leaveChecked = false) {
     });
   }
   if (p.workspaceFrame && typeof agentWorkspacePairedDetach === 'function') agentWorkspacePairedDetach(p.workspaceFrame.contentWindow);
-  else if (p.view === 'focus' && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
+  else if (agpadPairedView(p) && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
   if (p.view === 'focus' && view !== p.view) p.focusScroll = $('.agfocus-layout', p.el)?.scrollTop || 0;
   agpadSurfaceDispose(p);
   p.focusDetail?.dispose?.();
