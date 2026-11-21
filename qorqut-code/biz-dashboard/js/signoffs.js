@@ -981,7 +981,7 @@ function sgCreateView(options) {
         }
         const appearance = {...(business?.agent_meta?.[agentName] || {}), ...(agent || {})};
         const proposerPortrait = identityAvatar(s.proposer_agent_id ? 'agent' : s.proposer_principal_id === owner() ? 'founder' : 'unknown', proposer, appearance, proposer + initiator, true);
-        html(row.querySelector(".sg-rowmeta"), options.inline ? `<span class="sg-inline-kind">${sgIsDraftReview(s) ? "Draft review" : sgIsAcknowledge(s) ? "To read" : "Signoff"}</span>${businessPortrait}` : `${businessPortrait}${proposerPortrait}`);
+        html(row.querySelector(".sg-rowmeta"), options.inline ? `<span class="sg-inline-kind">${sgIsDraftReview(s) ? "Draft review" : sgIsAcknowledge(s) ? "For your attention" : "Signoff"}</span>${businessPortrait}` : `${businessPortrait}${proposerPortrait}`);
         row.dataset.input = s.input ? "1" : "";
         row.dataset.kind = sgIsAcknowledge(s) ? "acknowledge" : "";
         if (options.inline) {
@@ -1356,7 +1356,7 @@ function sgCreateView(options) {
     body.classList.toggle("sg-inline", !!options.inline);
     body.classList.toggle("sg-chat", !!options.chatLayout);
     body.classList.toggle("sg-single", !!options.item);
-    body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section><section class="sg-toread" hidden><h2>To read</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
+    body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section><section class="sg-toread" hidden><h2>For your attention</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
       if (event.target.matches('.sg-draft-editor')) return;
       if(event.target.matches('.sg-message-editor'))return;

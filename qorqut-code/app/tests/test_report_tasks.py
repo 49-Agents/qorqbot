@@ -1,4 +1,4 @@
-"""Every read-and-acknowledge report belongs to a Task, and that link is not the Task's wait on the owner."""
+"""A read-and-acknowledge report may belong to a Task, and that link is not the Task's wait on the owner."""
 import unittest
 
 from qorqut_operations.contracts import new_id, plain
@@ -31,10 +31,19 @@ class ReportTaskTests(unittest.TestCase):
             row = uow.connection.execute('SELECT * FROM signoff_report_tasks WHERE signoff_id=?', (identity,)).fetchone()
         return dict(row) if row else None
 
-    def test_a_report_without_a_task_is_refused_and_says_what_to_name(self):
-        result = self.post(self.coordinator())
-        self.refused(result, 'validation_error')
-        self.assertIn('report_task', result.error['message'])
+    def test_a_report_without_a_task_is_created_and_reads_without_one(self):
+        ctx = self.coordinator()
+        signoff = self.posted(ctx)
+        self.assertIsNone(signoff['report_task'])
+        self.assertIsNone(self.link(signoff['id']))
+        self.assertIsNone(self.invoke('signoffs_get', {'signoff_id': signoff['id']})['signoff']['report_task'])
+        # The same report again is the same request; naming a Task the report does not have is not.
+        self.assertEqual(self.posted(ctx)['id'], signoff['id'])
+
+    def test_a_malformed_task_is_still_refused(self):
+        ctx = self.coordinator()
+        for task in ({'id': 'work'}, {'id': '', 'business_id': None}, 'work', None):
+            self.assertNotEqual(self.post(ctx, report_task=task).status, 'ok', task)
 
     def test_a_report_with_a_readable_task_is_created_and_read_back_with_it(self):
         ctx = self.coordinator()
@@ -81,6 +90,7 @@ class ReportTaskTests(unittest.TestCase):
         # The same report again is the same request; the same key for another Task is a conflict, not a silent relink.
         self.assertEqual(self.posted(ctx, report_task=self.GLOBAL)['id'], first['id'])
         self.refused(self.post(ctx, report_task={'id': 'other', 'business_id': None}), 'request_conflict')
+        self.refused(self.post(ctx), 'request_conflict')
         replacement = self.app.invoke(ctx, 'signoffs_input_create', {'scope': 'global', 'request_key': 'daily-report',
             'form': {**REPORT, 'title': 'Daily report, next day'}, 'report_task': {'id': 'other', 'business_id': None}},
             {'idempotency_key': new_id()})
