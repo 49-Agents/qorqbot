@@ -36,7 +36,8 @@ request_user_input(message="Here is the cold outreach project.",
     click. The owner sees the page's title and opens its live view; it is refused once the tab is closed.
 - When the owner asks you to refer, link, open or show a Project, Task or Signoff ("refer the
   project", "where is the thread"), answer with its card. Chat makes only file links from
-  `files_link`, `/tables/view` links and website addresses clickable; a Project or Signoff
+  `files_link`, `/tables/view` links and website addresses clickable (a table link is
+  `/tables/view?table_id=<table id>`: the table is found from its id); a Project or Signoff
   has no written link, so a file, a folder or another record is never a substitute.
 - The card asks nothing and waits for nothing, so it is not one of the owner's questions:
   showing records this way is allowed even when the owner wants questions only as Signoffs.

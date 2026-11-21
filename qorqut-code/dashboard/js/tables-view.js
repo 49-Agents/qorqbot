@@ -23,9 +23,10 @@
     if (!response.ok || !payload || payload.status !== 'ok' || !payload.data) throw new Error('The table could not be loaded.');
     return payload.data;
   };
-  // Project operations route by slug; Global omits project_id and uses the root scope. Never /project/null.
+  // Project operations route by slug. A link with the id alone uses the root route, which finds the table's project from its id
+  // (Global included). Never /project/null.
   const scope = async () => {
-    if (projectId === null) return { path: '/root/operations/', extra: { scope: 'global' } };
+    if (projectId === null) return { path: '/root/operations/', extra: {} };
     let response;
     try { response = await fetch('/api/project'); } catch (_) { throw new Error('The table could not be reached.'); }
     const list = response.ok ? await response.json() : null;

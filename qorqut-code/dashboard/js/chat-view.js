@@ -240,7 +240,7 @@ function chatViewExtractTableLinks(body) {
     if (url.origin !== location.origin || url.pathname !== '/tables/view' || url.hash) continue;
     const route = tableViewRoute(url.search);
     if (!route) continue;
-    const value = {type: 'table', id: route.tableId, project_id: route.projectId};
+    const value = {type: 'table', id: route.tableId, ...(route.projectId === undefined ? {} : {project_id: route.projectId})};
     const key = chatViewReferenceKey(value);
     link.remove();
     if (seen.has(key)) continue;
@@ -311,7 +311,8 @@ const chatViewReferenceKey = ref => {
   return JSON.stringify([ref?.type || '', scope, ref?.id ?? null]);
 };
 const chatViewReferenceScope = ref => {
-  if (!Object.hasOwn(ref || {}, 'project_id')) return null;
+  // A table link with its id alone is read from the root route, which finds the table's project from its id.
+  if (!Object.hasOwn(ref || {}, 'project_id')) return ref?.type === 'table' && ref.id && !ref.project_slug ? {key: 'located', path: '/root'} : null;
   if (ref.project_id === null) return ref.project_slug ? null : {key: 'global', path: '/root'};
   if (typeof ref.project_id !== 'string' || !ref.project_id) return null;
   const project = (typeof state !== 'undefined' ? state.projects || [] : []).find(item => item.id === ref.project_id || item.project_id === ref.project_id);
@@ -342,6 +343,11 @@ function chatViewReferenceRuntime() {
       if (!item) { item = {key, ref, status:'queued', subscribers:new Map(), result:null}; reads.set(key,item); queue.push(item); pump(); }
       if (item.status === 'settled') { if (element?.isConnected) update(item.result); return item.result; }
       if (element) item.subscribers.set(element,update); return null;
+    },
+    // The project a settled read of a table named by its id alone reported (null is Global), or undefined before it settles.
+    projectOf(ref) {
+      const item = reads.get(chatViewReferenceKey(ref)), data = item?.status === 'settled' ? item.result?.data : null;
+      return data && Object.hasOwn(data, 'project_id') ? data.project_id ?? null : undefined;
     },
     retain(keys) { const keep = new Set(keys); for (const [key,item] of reads) if (!keep.has(key)) { reads.delete(key); item.subscribers.clear(); }
       for (let i=queue.length-1;i>=0;i--) if (reads.get(queue[i].key)!==queue[i]) queue.splice(i,1); },
@@ -1322,7 +1328,12 @@ function mountChatView(host, options = {}) {
     const ref = event.target.closest('[data-ref-key]');
     if (ref && entryNode) {
       const reference = entryNode._referenceByKey?.get(ref.dataset.refKey) || entryNode._entry?.references?.find(item => item.key === ref.dataset.refKey);
-      if (reference && !reference.disabled && !ref.disabled) emit('onReference', reference.value, entryNode.dataset.id);
+      let value = reference?.value;
+      if (value?.type === 'table' && !Object.hasOwn(value, 'project_id') && !value.project_slug) {
+        const project = referenceRuntime.projectOf(value);
+        value = project === undefined ? null : {...value, project_id: project};
+      }
+      if (reference && value && !reference.disabled && !ref.disabled) emit('onReference', value, entryNode.dataset.id);
       return;
     }
     const entryAction = event.target.closest('[data-entry-action]');
