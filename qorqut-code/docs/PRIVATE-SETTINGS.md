@@ -10,7 +10,7 @@ The operation is denied by default for every agent. An owner can explicitly set
 `environment_get: allow` with the existing `permissions_set` workflow. The grant
 covers ordinary non-reserved keys in that scope; private overlays additionally
 require the registered role to be allowed for the key.
-Explicit denial and current membership/capabilities are rechecked on every call.
+Explicit denial and current project reach and capabilities are rechecked on every call.
 Reads do not support signoff. No role pins or live permissions change on deploy.
 
 Global calls require the existing `read_global_context` capability as well as

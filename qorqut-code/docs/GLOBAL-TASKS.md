@@ -50,10 +50,10 @@ dashboard) and workers are unchanged.
 
 Only the installation owner or an active ecosystem agent with
 `read_global_context` and the relevant task operation grant can access them.
-Project agents and system principals cannot opt into Global tasks, even with a
+System principals cannot opt into Global tasks, even with a
 task-policy override. Existing role grants continue to apply; this is not an
 implicit grant to all global roles. Assignments accept the installation owner
-and active global agents, never project agents. Agents still cannot assign
+and active global agents. Agents still cannot assign
 Learning Applier; the owner can.
 
 The same create/get/list/update/assign/comment/complete/config operations,

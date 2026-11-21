@@ -2,7 +2,7 @@
 
 `browser_turn` version 2 keeps reservation credentials on the server. This is the
 MCP path used by Ordubashy, explicit native Codex helpers and durable workers;
-the project agent's shell launcher is unchanged.
+the agents' shell launcher is unchanged.
 
 A native caller acquires once:
 

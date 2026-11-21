@@ -50,7 +50,7 @@ qorqut-code/
 
 The host composes the following retained capabilities. Each links to its contract.
 
-- **Projects and records.** Projects own resources (files, records, code, integrations), not resident agents;
+- **Projects and records.** Projects own resources (files, records, code, integrations);
   creation, [archive and restore](docs/PROJECT-ARCHIVE.md), [settings](docs/PROJECT-SETTINGS.md),
   [backups](docs/PROJECT-BACKUPS.md), [tables](docs/TABLES.md) and [document history](docs/DOCUMENT-HISTORY.md).
   Project notes are ordinary documents (`notes_create`, `notes_list`) filed under `notes/<date>-<slug>.md`; a tag
@@ -74,7 +74,7 @@ The host composes the following retained capabilities. Each links to its contrac
   [person details](docs/person-details.md).
 - **Roster and agents.** The active roster is Ordubashy (the stable coordinator name), any number of ordinary
   global workers and the Learning Applier, with at most one active registration of Ordubashy and of the
-  Learning Applier. Each reaches every active project through derived access; a saved project list is never authority. Agents cannot create agents (Ordubashy registers workers). See
+  Learning Applier. Each reaches every active project through derived access. Agents cannot create agents (Ordubashy registers workers). See
   [agent platform decisions](docs/agent-platform/README.md), [agent management coordination](docs/AGENT-MANAGEMENT-COORDINATION.md),
   [agent inbox](docs/AGENT-INBOX.md), [messaging and the keyless local API](docs/AGENT-MESSAGING.md),
   [Viewbox](docs/AGENT-VIEWBOX.md),

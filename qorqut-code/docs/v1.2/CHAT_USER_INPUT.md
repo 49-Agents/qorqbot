@@ -273,6 +273,6 @@ service or network is started and no operational data is read.
 - `browser_turn action=list` names only the browsers that can be controlled: the configured Global desktops and each reachable
   project's browser. A reference may still name any configured surface Chat can show.
 - A retired Global agent still resolves under `agents_get` semantics (the archival profile is readable), so a reference to it shows its last
-  name; a project-home historical agent is unavailable at Global scope.
+  name.
 - This repository change has no dashboard or browser rendering work; the dashboard worktree and the gitlinks are untouched.
 - The test environment is not part of the repository.

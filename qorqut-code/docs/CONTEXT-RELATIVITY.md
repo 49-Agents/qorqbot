@@ -69,7 +69,7 @@ and summaries. Ambiguous identity matches remain separate. It cannot overwrite
 human-written descriptions or notes, appoint managers, change assignments, edit
 task instructions or agent profiles, or create Stories. It can relate material to
 existing Stories and maintain their Background. Story Details belongs to humans
-and project agents; Background belongs to filing. No standalone Fact type.
+and agents; Background belongs to filing. No standalone Fact type.
 
 Filing has a narrow input schema and may create only descriptive/provenance edges
 such as concerns, mentions, extracted_from, and part_of. It is not granted general

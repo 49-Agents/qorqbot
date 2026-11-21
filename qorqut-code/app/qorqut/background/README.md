@@ -1,7 +1,7 @@
 # Bounded Background Work
 
 Agents run as managed sessions (or, in Terminals mode, in terminals). These programs
-never launch, wake, schedule, or impersonate a project agent. They run fixed,
+never launch, wake, schedule, or impersonate an agent. They run fixed,
 bounded application work through the shared backend.
 
 ## Assembly

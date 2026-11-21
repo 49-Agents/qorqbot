@@ -12,7 +12,7 @@ gitlink or the receipt, and the pin/receipt discrepancy recorded earlier stays a
 `relationships_remove`, `context_items_list` and `context_items_get` declare `scope_kinds {project, global}`, the
 `read_global_context` capability and an optional `scope` input (`"project"` | `"global"`). They reuse the Task namespace
 rule (`tasks/scope.py`): a Global call is the installation owner or an active ecosystem agent holding `read_global_context`,
-never a project agent, and then needs the operation's own grant like any other mutation. Scope is normalized in the reads,
+and then needs the operation's own grant like any other mutation. Scope is normalized in the reads,
 in preparation and again in fresh prepared-target validation and apply, so a retained Signoff re-resolves both endpoints in the
 one namespace before it applies. Global rows are stored with `project_id` NULL (and, by the existing storage constraint, only as
 `concerns` edges to a Task); a project row is never visible to a Global operation and the other way round, and no link spans
@@ -45,7 +45,7 @@ are unchanged. Policy, role grants and the retained refusals are unchanged: an o
 * An email message endpoint is accepted as an exact `material` id and is stored and returned as its conversation; the Global
   mailbox still needs account authority, so a Global agent without the private-account grant is refused.
 * The owner's project route also accepts `scope: "global"` for these operations, exactly as it already does for Tasks (the
-  owner holds the Global capability); a project agent does not.
+  owner holds the Global capability); an agent without it does not.
 
 ## Focused checks
 
@@ -62,7 +62,7 @@ header) over a disposable host and the exact Operations wheel:
 * `tasks_follow`, `actions_record` / `actions_thread_get` / `actions_follow`, `tags_create` / `tags_list` reach their handlers
   with their own schemas; a scope on Tags/Actions is a schema error; the owner's Action comment is refused (`channel_required`);
 * nothing else of the Context family is reachable from the root;
-* project agent: `scope: "global"` is `forbidden` for each operation; a Global agent without the capability is refused all
+* agent working in a project: `scope: "global"` is `forbidden` for each operation; a Global agent without the capability is refused all
   eight (and is not even orientable for ordinary work); with the capability an explicit deny gives `policy_denied` and an
   explicit allow opens exactly that operation; a Global agent cannot see or link a project row or a foreign endpoint;
 * a protected (Signoff-grade) relationship change stages a Signoff, the exact hash is approved, `run_pending()` applies it once,

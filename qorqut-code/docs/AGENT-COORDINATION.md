@@ -77,8 +77,7 @@ Shared role instructions require current-work updates at meaningful checkpoints.
 Where a client's completion checkpoint protocol is off, the local hook can remind
 an agent after actions at most once per 15 minutes; recent work updates suppress
 the reminder. With protocol 1 the Stop checkpoint replaces it with at most one
-reminder per substantive turn ([management coordination](AGENT-MANAGEMENT-COORDINATION.md)). The project agent receives a bounded project
-team summary; Ordubashy receives authorized project agents. Managers finish continuation
+reminder per substantive turn ([management coordination](AGENT-MANAGEMENT-COORDINATION.md)). Ordubashy receives a bounded team summary of the other active agents. Managers finish continuation
 pages through `agents_activity_list` when there are more than 20 agents. Unblocking
 others is prioritized within owner instructions and existing authority.
 Team summaries travel in the existing `work_briefing.rendered` field so currently

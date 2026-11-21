@@ -21,8 +21,8 @@ Foundation tests use temporary roots and never access operational project data.
 JSON values are defensively copied/frozen, not references to caller-owned dicts.
 
 - `Principal(id, kind, display_name='', active=True)`: canonical UUID; kind is
-  `human`, `agent`, or `system`. An owner remains a human with membership rights.
-- `InvocationContext(principal, ...)`: selected and home project UUIDs, allowed
+  `human`, `agent`, or `system`. An owner remains a human.
+- `InvocationContext(principal, ...)`: selected project UUID, allowed
   projects, global capabilities, profile/policy revisions, pinned role/plugin
   refs, source, request/session/initiator identity, and review project. Optional
   `job_id` is a trusted claimed-job UUID, allowed only for system worker contexts.
@@ -69,7 +69,7 @@ Reads and preparation receive a query-only SQLite unit of work. Apply receives a
 short write transaction. Handlers must not start subprocess logic, mutate global
 cwd/environment, dispatch network work, or wait for models within a transaction.
 Describe background work as exact durable job effects; workers perform it later.
-All writes performed by apply, including compound identity/membership/config
+All writes performed by apply, including compound identity/config
 writes, must be represented in the prepared change set and preview.
 
 ## Registry and Invocation

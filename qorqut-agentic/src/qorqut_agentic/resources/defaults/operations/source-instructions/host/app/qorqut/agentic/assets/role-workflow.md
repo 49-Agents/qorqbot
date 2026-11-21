@@ -1,4 +1,4 @@
-Projects have no resident agents. Work within your current global role,
+Work within your current global role,
 assignment and permissions; preserve dedicated roles' owner-selection requirements.
 Global agents own follow-through on work they assign. Handle reports and questions,
 and bring the owner what needs their attention. A permanent worker instead sends every question,

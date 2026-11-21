@@ -13,8 +13,8 @@ A project routine belongs to its project and is reviewed there. The owner no
 longer selects “Review in 49” when managing a global routine.
 
 Ordubashy can propose global work when its registered ecosystem profile grants
-the relevant capability. Project agents cannot create or
-move routines into Global, even if they request it. The backend enforces this.
+the relevant capability. Only agents holding `manage_global_routines` create or
+move routines into Global, even if others request it. The backend enforces this.
 
 Keep the interface simple: the pinned Global workspace uses the existing main
 navigation and familiar routine/signoff cards. No additional navigation layer or
@@ -78,15 +78,13 @@ are not evidence of authority.
 
 | Actor | Project work | Global routines |
 | --- | --- | --- |
-| Project agent | Its registered project, subject to policy | Denied |
-| Ecosystem agent / Ordubashy | Explicitly allowed projects, subject to policy | Requires `manage_global_routines` and operation policy |
+| Ecosystem agent / Ordubashy | Every active project, subject to policy | Requires `manage_global_routines` and operation policy |
 | Installation owner | Current authorized project access | Owner's current global authority |
 | Background system principal | Declared program authority and targets | Explicit program authority; no inherited unrestricted owner rights |
 
 For agent global mutations require all of: active registered ecosystem scope,
 the specific global capability, and the operation's effective policy. Check these
-on preparation and application. Profile validation already excludes global grants
-from project-scope profiles; invocation must also reject forged scope or stale
+on preparation and application. Invocation must reject forged scope or stale
 grants. An `allow` override or plugin assignment cannot enlarge scope.
 
 Only the active installation owner can decide Global signoffs in this delivery,
@@ -95,7 +93,7 @@ Agents cannot approve their own proposals. Recheck proposer authority, current
 target access, policy bindings, revisions, and hashes before applying exactly the
 stored change. Preserve existing conflict, rejection, receipt, and recovery rules.
 
-A project agent can propose an escalation through an authorized project-owned
+An agent without the Global capability can propose an escalation through an authorized project-owned
 task or existing communication mechanism. Ordubashy independently evaluates it and
 creates a new global proposal under its own identity and rights. Escalation neither
 grants permission nor wakes an agent. Do not overload external-action requests as
@@ -207,9 +205,9 @@ Use temporary databases, isolated services, and injected programs/providers.
 
 | Scenario | Expected result |
 | --- | --- |
-| Project agent creates a global routine, directly or through a root/alias route | Denied before staging; no record or signoff |
-| Project agent spoofs ecosystem scope, global grant, or review destination | Registered identity wins; denied |
-| Project agent tries to move a project routine to Global | Rejected; original unchanged |
+| An agent without `manage_global_routines` creates a global routine, directly or through a root/alias route | Denied before staging; no record or signoff |
+| An agent spoofs ecosystem scope, global grant, or review destination | Registered identity wins; denied |
+| An agent without the capability tries to move a project routine to Global | Rejected; original unchanged |
 | Ordubashy has ecosystem scope but lacks routine capability | Global routine mutation denied |
 | Authorized Ordubashy proposes a global routine under signoff policy | One pending Global signoff; no project copy |
 | Ordubashy changes a project routine | That project's policy and queue |
@@ -237,7 +235,7 @@ Use temporary databases, isolated services, and injected programs/providers.
   signoff DTOs expose the explicit review descriptor. MCP signoff reads accept an
   explicit `scope: global`; absence of a project is not a scope grant.
 - New global proposals cannot mutate unrelated project content. Routine run/stop
-  execution records and ecosystem profile membership grants remain effects of their
+  execution records and ecosystem profile grants remain effects of their
   globally owned definition or profile; they retain target authorization checks.
 - Project routine history keeps its existing authorized global-run summaries.
   The Global routine endpoint returns only global definitions and executions.

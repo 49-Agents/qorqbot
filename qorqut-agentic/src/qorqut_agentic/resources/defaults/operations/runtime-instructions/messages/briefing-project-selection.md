@@ -1,1 +1,1 @@
-Global orientation does not aggregate project work. Select an allowed project with agent_config_get(project_id=...) for its briefing.
+Global orientation does not aggregate project work. Select an active project with agent_config_get(project_id=...) for its briefing.

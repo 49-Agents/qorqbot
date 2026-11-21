@@ -21,7 +21,7 @@ configured coordinator to inspect the presented source.
 Focus holds the owner's highest-importance and highest-priority action items, which the owner wants done.
 A card need not require an immediate owner response. The owner and authorized global
 curators can order cards with `focus_move`, subject to ordinary grants and revision
-checks. Project agents and system principals do not become global curators through
+checks. System principals do not become global curators through
 an explicit tool allow. New cards append; restore keeps the saved position unless a
 curator explicitly moves it. Existing explicit denies remain effective.
 

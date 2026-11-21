@@ -32,15 +32,15 @@ but there is one shared service and no MCP server or model runner per agent.
 
 The application supplies Claude with tools; it does not replace Claude Code's
 conversation loop. Qorqbot runs Claude Code and Codex as managed sessions. Background DeepSeek jobs are explicitly named workloads such as filing
-or extraction, not members of the project-agent roster.
+or extraction, not agents.
 
 ## Four independent concepts
 
 | Concept | Example | Meaning |
 | --- | --- | --- |
-| Role | `project-agent` | The job, default operations and short essential instructions. |
+| Role | `global-worker` | The job, default operations and short essential instructions. |
 | Plugin | Scoped email | Additional registered tools, procedures and target data. |
-| Scope | One project, or explicit Ordubashy authority | Which records/resources the caller may operate on. |
+| Scope | Global agent; each project it works in | Which records/resources the caller may operate on. |
 | Permission mode | `allow`, `signoff`, `deny` | Whether a particular operation executes, requires a prepared review, or is refused. |
 
 A role does not imply every plugin. A plugin does not widen project scope.
@@ -48,7 +48,7 @@ A task does not change either. An approved policy change is an ordinary managed
 configuration operation evaluated under the current policy until it applies.
 
 The role/profile model does not require inheritance from the organization chart.
-Ordubashy and the project agent have different roles and scopes. They receive selected
+Ordubashy and a global worker have different roles. They receive selected
 applicable instructions rather than one generic restrictive prompt followed by
 exceptions. Shared ancestor instructions contain only universally applicable
 orientation.

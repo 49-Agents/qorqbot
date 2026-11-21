@@ -31,7 +31,7 @@ Both operation registrars install their custom target resolvers. The shared
 FileApplier resolver dispatches artifact_files to CatalogOperations.
 resolve_file_target and agent_bootstrap_files to AgentOperations.
 resolve_file_target; other registered document resources go to their document
-adapter. Every profile principal, membership, credential revocation, initial
+adapter. Every profile principal, credential revocation, initial
 plan, and artifact file effect is represented in the frozen ChangeSet.
 AgentOperations.validate_targets verifies the exact authored source bytes and
 artifact integrity again on approval/application. Preparation never replaces
@@ -148,9 +148,8 @@ and trusts exactly those hashes for that session through launch options.
 Claude account connectors (Gmail, Calendar, Drive and others) belong to the
 owner's Claude account. Qorqbot does not list or set them up; when an agent
 has one, `qorqut/connector_gate.py` blocks its calls that change something
-until the owner approves them. Project-scoped agents run Claude with
-`dontAsk` and the prepared allow list, so a connector's tools reach Global
-agents such as Ordubashy first. Agents browse with Qorqbot's own browser
+until the owner approves them. Every agent runs Claude in bypass mode with
+the prepared settings file. Agents browse with Qorqbot's own browser
 control (`browser_turn`, docs/BROWSER-CONTROL.md), not with local connectors.
 
 Codex reviews the exact hook definition, including its command. Embedding an
@@ -178,8 +177,8 @@ the old conversation until recovery has been verified.
 
 Project creation is the Global `project_create` operation (the configured Ordubashy is its only caller), not a bootstrap
 step: it registers the project and makes the empty `projects/<slug>` folder. It
-creates and prepares no agent, document, Task, routine or external registration: projects have no resident
-agents, and the global agents reach a new project at once with no profile write. There is no
+creates and prepares no agent, document, Task, routine or external registration; the global agents reach a
+new project at once with no profile write. There is no
 seed CLI or template scaffold. Existing preparation preserves current pins and authored content.
 
 register_context_sources registers authored metadata_json.bootstrap_key values:

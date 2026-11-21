@@ -19,16 +19,16 @@ based on `915cd3f`, template on `eb13150`, and root context on `328b426`.
 
 `agent-roles/roles/learning-applier/role.yaml` selects a single role and
 its learning-application skill/reference. No plugin or Ordubashy dependency.
-New profiles use ecosystem scope with explicit allowed project IDs and these
+New profiles use ecosystem scope and these
 global capabilities: read_global_context, manage_shared_instructions,
 publish_roles and publish_plugins. A profile is prepared under
-`<projects-root>/agents/learning-applier`, outside the project dashboard roster.
+`<projects-root>/agents/learning-applier`.
 The owner subsequently selected the Global dashboard's Agents tab as its entry
 point. Global → Agents lists registered active root profiles and opens the same
-tmux shell mirror used by project agents. The owner types `claude` to begin or
+tmux shell mirror used by every agent. The owner types `claude` to begin or
 `claude --continue` to resume. Selecting an agent never starts Claude automatically.
-The prepared folder and global role remain the same. No application routine,
-project-agent migration, or role publication is needed for this entry point.
+The prepared folder and global role remain the same. No application routine
+or role publication is needed for this entry point.
 
 `GET /api/root/agents` delegates to `agents_list` with explicit `scope: global`;
 ordinary calls still require a selected project. Global reads require the
@@ -37,7 +37,7 @@ Root terminal list, stream, input, resize, start and stop routes require the
 current installation owner. Terminal identity is bound to the registered root
 profile and workspace, separate from every project session even for equal names.
 They use no project environment. Exact-session transcript saving is enabled by
-default for global and project agents in each agent's own `sessions/` folder;
+default for every agent in each agent's own `sessions/` folder;
 global transcript processing remains out of scope. Streams
 recheck owner/profile access and navigation disconnects only the mirror.
 

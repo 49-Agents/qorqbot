@@ -21,9 +21,9 @@ bootstrap and MCP discovery after deployment.
 
 Agent-facing lifecycle tools are scoped separately from the owner queue:
 
-- `dev_tickets_agent_list` returns the caller's reports. The project agent also sees open
-  and closed reports for its selected project; Ordubashy sees reports for its
-  authorized projects and Global when that capability is granted.
+- `dev_tickets_agent_list` returns the caller's reports. An agent also sees open
+  and closed reports for its selected project, and Global reports when it holds
+  `read_global_context`.
 - `dev_tickets_get(ticket_id, history_limit?, history_offset?)` returns one
   authorized report and a bounded page of its durable follow-up/resolution
   history. The default page is 50 events (maximum 100); use the returned

@@ -27,7 +27,7 @@ The result is the same delivery receipt as `telegram_send` plus `attachment: {fi
 Only the exact configured, active Global Ordubashy bound to the owner's Telegram topic. The role grant (Ordubashy 1.63.1) is
 necessary but never sufficient: the operation rechecks the configured chat binding, the agent's active status, the caller's
 grant and its source read access in `prepare`, in `apply`, in the replay validator and just before every upload. Another global
-agent, a project or historical agent, the owner context and a delegated context are refused before anything is copied or
+agent, the owner context and a delegated context are refused before anything is copied or
 queued. Disabled or not yet configured Telegram refuses with `operation_unavailable` and creates neither a row nor a directory.
 
 ## One call

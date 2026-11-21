@@ -30,12 +30,12 @@ The diagram shows ownership, not separate processes. Engines are libraries compo
 
 | Responsibility | Final owner | Source strategy |
 | --- | --- | --- |
-| Principal IDs, memberships, registered agents, project namespaces and role-policy evaluation | Operations | Extract/adapt v1; do not install the donor's all-global catalog or tag-derived scope |
+| Principal IDs, registered agents, project namespaces and role-policy evaluation | Operations | Extract/adapt v1; do not install the donor's all-global catalog or tag-derived scope |
 | Database units of work, typed repositories, revision checks, idempotency and prepared application | Operations | Preserve v1 semantics and exact reviewed-plan/recovery bindings |
 | Task/Action state, revisions, tags and canonical item discussion | Operations | Adapt selected v2.2 implementation to v1 identity, one owning scope and prepared application |
 | DM privacy, follows, inbox events/acknowledgment and nudge eligibility | Operations | New durable mechanisms with retained recipients and role contact rules |
 | Native session detection, input arbitration, provider adapters and transcript capture | Host | Adapt v2.2 native mechanisms and preserve existing lifecycle/control authority |
-| Chat reply identity/completion indexing, read positions and owner notification projection | Host, with declared metadata in Operations | Derive content from raw bytes; preserve durable identity/read state, attention acknowledgments and project `nav_only` behavior |
+| Chat reply identity/completion indexing, read positions and owner notification projection | Host, with declared metadata in Operations | Derive content from raw bytes; preserve durable identity/read state, attention acknowledgments |
 | Signoff decisions, frozen plans, application/retry and domain-independent input/notification rules | Operations | Move the v1 implementation; preserve behavior |
 | Routine definitions, schedule/slot state, jobs, worker authority, costs and recovery transitions | Operations | Move the v1 registered-program implementation; preserve behavior |
 | Actual routine computation and external integrations | Host/retained domains | Register existing trusted program definitions and callbacks; no arbitrary script execution |
@@ -63,7 +63,7 @@ The starting source inventory is below. Split files by responsibility when a cur
 | `application/catalog.py` | Engine-owned definitions in Operations; domain-specific registrations supplied by host composition |
 | `storage/{database,repositories,receipts,files}.py` | Operations storage and generic prepared file execution; host supplies registered target resolution |
 | `policy/resolver.py` | Operations policy logic; domain-specific defaults/restrictions become trusted registered policy contributions |
-| `agents` identity/profile/membership and effective-grant calculation | Operations; separate actual package loading, browser helpers and native lifecycle into host adapters |
+| `agents` identity/profile and effective-grant calculation | Operations; separate actual package loading, browser helpers and native lifecycle into host adapters |
 | `domains/tasks`, canonical `domains/activity` behavior, neutral `relationships` | Operations target Task/Action/relationship model |
 | `inbox` records, recipients, subscriptions and private conversation identity | Operations; presentation/transport wiring remains host-owned |
 | `signoffs` | Generic v1 lifecycle into Operations; platform-specific presentation/execution integrations stay domain-owned |
@@ -101,7 +101,7 @@ Required invariants:
 - Existing retained producers and new producers have one agreed event identity. Inventory old SQL triggers and callbacks to prevent duplicate fanout after new finalizers are installed.
 - Read-only units cannot mutate. Revision conflicts, revocation, busy outcomes and uncertain effects retain their explicit meanings.
 - Build the target schema and trusted extension catalog once before opening service traffic. Each table, index, trigger, repository, event hook and history exporter has one owner; duplicate or missing registrations fail clearly.
-- Freezing operation/schema definitions does not freeze principal memberships, role adoption, overrides or current grants. Their revisions and authority are still refreshed at the same execution boundaries as v1, including approval application and retry.
+- Freezing operation/schema definitions does not freeze principal role adoption, overrides or current grants. Their revisions and authority are still refreshed at the same execution boundaries as v1, including approval application and retry.
 - Retained domains use the same unit of work. There is no auxiliary v1 database hidden behind a permanent “adapter.”
 
 Context publication is a separate Git commit boundary. Operations records its verified outcome and a pending completion receipt atomically, then the registered program applies that result through its declared authorized output. An enqueue receipt is not a publication or upload-completion receipt. The [completion contract](CONTRACTS.md#context-completion-for-uploads-and-registered-jobs) specifies revision races, deferred jobs and each recovery gap without pretending Git and SQLite share a transaction.
@@ -160,7 +160,7 @@ These are direct interfaces in the final application, not translation between tw
 
 ## Architecture completion evidence
 
-Before calling the extraction complete, show a small vertical slice from an installed host through the installed Operations package: a synthetic project agent proposes a protected mutation, the owner approves it, the v1 executor applies the exact plan, an inbox event is available, and the history exporter reads the committed outcome. A separate registered routine proves current scheduling/authority. Use injected external boundaries, no live records or provider sessions.
+Before calling the extraction complete, show a small vertical slice from an installed host through the installed Operations package: a synthetic agent proposes a protected mutation, the owner approves it, the v1 executor applies the exact plan, an inbox event is available, and the history exporter reads the committed outcome. A separate registered routine proves current scheduling/authority. Use injected external boundaries, no live records or provider sessions.
 
 An installed-package check must run outside source trees with no old-checkout `PYTHONPATH` or `sys.path` fallback. It must prove Operations imports without the host, the host composes both engines, and a retained domain operation still works. This catches accidental success caused by the old monolith remaining on the developer path.
 

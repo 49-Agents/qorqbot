@@ -48,7 +48,7 @@ handled. Events that arrive while your session is closed wait. Qorqbot opens it 
 itself unless you are turned off or run in a terminal; then they wait until you are started. Nothing needs to be installed, started or polled; there is no Monitor or
 watcher.
 
-Projects have no resident agents. The Global agents (Ordubashy, Learning Applier and
+The Global agents (Ordubashy, Learning Applier and
 the reusable workers Ordubashy assigns) work with each project's files, resources,
 accounts and integrations, and the Global that assigns work keeps its follow-up.
 Only the configured active Ordubashy creates a project, at the owner's request:

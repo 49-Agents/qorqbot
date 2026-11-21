@@ -20,8 +20,6 @@ account identity fields remain outside this operation.
 `context_people_affiliation_set` uses ordinary role defaults and explicit profile
 overrides, including for compound person edits. There are no role-name exceptions:
 `allow` applies directly, `signoff` proposes an exact change, and `deny` blocks it.
-The project-agent role denies Person creation, updates, affiliations and merges
-by default; an explicit owner override can allow them or require signoff.
 Current scope, policy and target revisions
 are still checked, including when applying an existing signoff. Classification
 never changes account identity or access rights.

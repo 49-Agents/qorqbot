@@ -29,9 +29,8 @@ that the running installation supports this route.
   revocation only touches rows with this purpose and project.
 - Every request — including calls inside an established MCP session — rechecks
   credential validity and expiry, the project's `owner_sessions.enabled`
-  configuration, that the project exists and is not archived, and the owner's
-  active owning membership. Revocation, disablement, archival and membership
-  removal therefore fail cleanly mid-session.
+  configuration, that the project exists and is not archived. Revocation, disablement and
+  archival therefore fail cleanly mid-session.
 - All domain effects receive the owner's human identity. Ordubashy and the
   dashboard see an ordinary owner author; request/session correlation stays
   transport-internal diagnostics.
@@ -100,7 +99,7 @@ registered repositories and code root (`engineering`, no credential values),
 or `inactive_or_out_of_scope` when unavailable) and the message/task operation
 names (`operations`), short `guidance` naming the owner by registered display
 name (project direction belongs to the owner with Ordubashy; the project's notes
-via `notes_list`/`notes_get`; projects have no resident agents), and
+via `notes_list`/`notes_get`), and
 explicit `missing` diagnostics for any source that could not be read. It
 contains no task, Story, Signoff, inbox, message history or lifecycle data,
 starts nothing, and never claims completeness it cannot show. Sessions read

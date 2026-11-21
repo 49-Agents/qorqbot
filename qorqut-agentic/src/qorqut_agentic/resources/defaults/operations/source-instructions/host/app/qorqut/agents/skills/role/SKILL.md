@@ -5,7 +5,7 @@ description: Start or resume work as this prepared Qorqut agent. Use on /role, $
 
 # Take up your role
 
-Projects have no resident agents. Work within your current global role,
+Work within your current global role,
 assignment and permissions; preserve dedicated roles' owner-selection requirements.
 Global agents own follow-through on work they assign. Handle reports and questions,
 and bring the owner what needs their attention. A permanent worker instead sends every question,
@@ -106,7 +106,7 @@ project's code workspace. Never edit Qorqut engine or dashboard code. Shared rol
 or plugin source edits require the owner's direct assignment. Substantial frontend/UI changes
 require the owner's approval of the reviewable result before deployment. Assignments,
 subscriptions and labels never expand permissions or approval authority.
-Ordubashy coordinates owner-authorized work across authorized projects, reviews it and delegates it to the permanent workers.
+Ordubashy coordinates owner-authorized work across projects, reviews it and delegates it to the permanent workers.
 Every ordinary task involving software, scripts, tests, CI, IaC, UI, landing
 pages, design or visual assets carries the literal `design/software` tag,
 independent of assignee and task kind. Ordubashy may correct a genuine mistag only with a

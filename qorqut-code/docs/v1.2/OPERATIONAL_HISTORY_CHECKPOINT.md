@@ -58,8 +58,8 @@ normalized relative POSIX path. Those subtrees are skipped (`generated_projectio
 `database/manifest.json` (the export manifest: format, schema identity, coverage, per-table key/columns/structured
 schemas/omitted column names, classified exclusions), `database/<table>.jsonl` or `database/<table>/<hex>.jsonl` for sharded
 tables (canonical JSON lines in key order; the shard is the declared fixed hash-prefix of the stable key), and the authored
-files at their operations-relative paths under `files/`, `agents/{id}/files/`, `projects/{slug}/` and
-`projects/{slug}/agents/{id}/files/` with exact bytes and the owner-execute bit. No clock value enters any file, so identical
+files at their operations-relative paths under `files/`, `agents/{id}/files/` and `projects/{slug}/`
+with exact bytes and the owner-execute bit. No clock value enters any file, so identical
 state produces identical bytes. Not captured: Context, generated instructions/provider configuration, native archives and
 transcripts, `.runtime`, project `code/`, role/source repositories, unregistered folders and the SQLite file. The donor's name
 and header exclusions remain (symlinks, special files, nested Git or bare repositories, virtualenvs, caches, `node_modules`,
@@ -147,7 +147,7 @@ ref. Host tests import the sibling Operations worktree of this same branch throu
 
 - `app/tests/test_operations_history.py` (22): inert construction; explicit private local initialization and refusal of
   directory/plain-repository/file/symlink/remote locations untouched; replaced runtime root refused before and during an
-  operation; one read unit shared by rows and areas and closed before Git; global, global-agent, project-agent and project-folder
+  operation; one read unit shared by rows and areas and closed before Git; global, agent and project-folder
   files included and Context/transcripts/generated instructions/provider configuration/runtime/code/roles/unregistered
   folders/other-project paths absent; safe selected rows with the private direct-message row, secrets and nested event data
   absent from every Git object; unchanged snapshot makes no commit; change, execute bit, row change in one shard file and
@@ -185,7 +185,7 @@ temporary directory); the snapshot and installed-composition files were not reru
 - Final per-domain export definitions and classifications for every composed table (including engine-owned tables) with owner
   review of secret and private payload fields; until then every real table is "missing coverage" and a real snapshot would be
   `complete=false`.
-- The real registration area provider (global agents, project agents, project slugs from the composed registrations) and the
+- The real registration area provider (agents, project slugs from the composed registrations) and the
   decision which generated projections each domain excludes.
 - Host lifecycle: construct and call `initialize()` explicitly, start/stop the observer in the ordered service owner, and feed
   `notify_commit()` from the post-commit half of the change publisher; surface `status()` in health. None of that exists yet.
