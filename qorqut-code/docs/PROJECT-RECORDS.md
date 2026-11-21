@@ -19,9 +19,9 @@ when it can read the raw `projects` row; a denied record never emits its title, 
 
 From the root route name the Project and pass `scope: "global"`; the engine switches this invocation to the Project's
 own scope. A project route must agree with `project_id` (`forbidden`) even when the JSON body says
-`scope: "global"`. The same wire arguments work through MCP: `split_options` moves `project_id`,
-`expected_revision` and `idempotency_key` into the invocation options, so `project_items_unlink` receives its
-`expected_revision` exactly as the dashboard HTTP route does. Reads and links never send notifications or start
+`scope: "global"`. The same wire arguments work through MCP: `project_id` is these operations' own argument and
+reaches the handler, while `split_options` moves `expected_revision` and `idempotency_key` into the invocation
+options, so `project_items_unlink` receives its `expected_revision` exactly as the dashboard HTTP route does. Reads and links never send notifications or start
 product agents.
 
 The narrow **Project reminder read** `owner_reminders_list` uses the existing owner-reminder decision and reads only

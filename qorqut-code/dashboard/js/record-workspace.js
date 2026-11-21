@@ -91,7 +91,7 @@ function rwRecordFromItem(item, options = {}) {
     : item.source && Object.hasOwn(item.source, 'project_id') ? item.source.project_id
     : item.conversation && Object.hasOwn(item.conversation, 'project_id') ? item.conversation.project_id : null;
   // A link or reference can carry a project id without a slug. Resolve the slug from the loaded
-  // project list instead of falling back to the Project's or a fixed local slug.
+  // project list instead of falling back to the context's or a fixed local slug.
   const knownSlug = projectId != null && typeof state !== 'undefined'
     ? (state.projects || []).find(b => b.id === projectId || b.project_id === projectId || b.slug === projectId)?.slug || null
     : null;

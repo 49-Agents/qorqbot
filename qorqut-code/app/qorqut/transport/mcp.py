@@ -126,6 +126,16 @@ def split_options(arguments, *, domain_fields=()):
     return {key: value for key, value in arguments.items() if key not in options}, InvocationOptions.from_mapping(options)
 
 
+def own_project(descriptor):
+    """Whether ``project_id`` is this operation's own argument and not the scope option, so it stays in the arguments.
+
+    A project operation that requires ``project_id`` names the Project it works on: its handler receives the value and
+    the engine selects that project from it. ``agentic_access`` takes it as routing context, which it checks itself
+    against the caller's native access. For every other operation ``project_id`` is the option that selects the scope."""
+    return descriptor.name == "agentic_access" or (
+        "project" in descriptor.scope_kinds and "project_id" in descriptor.input_schema.get("required", ()))
+
+
 # Argument names agents commonly guess, per canonical operation: {given name: the operation's real name}. Only exact
 # synonyms belong here (the value means the same thing and is passed through unchanged); a guessed name with no
 # equivalent stays rejected, and the validation error lists what the operation accepts. Each entry is justified by
@@ -651,9 +661,12 @@ class MCPTransport:
             arguments, sections = mcp_presentation.split_sections(canonical_name, arguments, detail)
             arguments, read_token = mcp_reads.split(canonical_name, arguments, detail)
             # A Global-only operation may target a project without selecting its
-            # scope (for example project_archive). Preserve its declared inputs;
-            # ordinary project selectors, including agent_config_get, still route.
-            domain_fields = descriptor.input_schema.get("properties", {}) if descriptor.scope_kinds == {"global"} else ()
+            # scope (for example project_archive). Preserve its declared inputs.
+            # An operation that takes project_id as its own argument keeps that
+            # one field; ordinary project selectors, including agent_config_get,
+            # still route.
+            domain_fields = (descriptor.input_schema.get("properties", {}) if descriptor.scope_kinds == {"global"}
+                             else ("project_id",) if own_project(descriptor) else ())
             args, options = split_options(arguments, domain_fields=domain_fields)
             self.caller.validate_options(actor, canonical_name, options)
             self.caller.validate_arguments(actor, canonical_name, args)

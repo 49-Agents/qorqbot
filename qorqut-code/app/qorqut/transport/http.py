@@ -20,7 +20,7 @@ from qorqut_operations import local_time
 from qorqut_operations.storage.database import REQUEST_TIMING, RequestTiming
 from qorqut_operations.storage.repositories import decode_row
 from .auth import AuthenticatedPrincipal
-from .mcp import split_options
+from .mcp import own_project, split_options
 from .results import failure, response
 
 # Set when the service has been asked to stop (``service/main.py``): an event stream ends at its next turn of the loop instead of
@@ -202,6 +202,15 @@ class HTTPAPI:
         if not mode.is_terminal(getattr(self.runtime, "paths", None)):
             raise DomainError("terminal_mode_off", "Agents run as managed sessions on this installation.")
         raise DomainError("operation_unavailable", "Agent terminals are not available on this installation")
+
+    def own_project_fields(self, operation):
+        """The ``domain_fields`` of an operation that takes ``project_id`` as its own argument: the body's value reaches
+        its handler and is not read as the scope option."""
+        try:
+            return ("project_id",) if own_project(self.runtime.registry.get(operation)) else ()
+        except DomainError:
+            # An operation that is not installed is refused by the application, with its own error.
+            return ()
 
     def context(self, actor, slug=None, *, owner=False):
         with self.runtime.database.read() as uow:
@@ -715,8 +724,9 @@ class HTTPAPI:
                     "timeline_view",
                     "side_chats_create", "side_chats_rename", "side_chats_close",
                     # Project record reads and explicit links: the six project_* operations and the narrow reminder read.
-                    # The root route names the Project with scope=global and no project option; a project route must agree
-                    # with project_id, and the engine refuses any target differing from the selected project.
+                    # project_id is the six operations' own argument. The root route names the Project with it and
+                    # scope=global; on a project route it must be the URL's project, and the engine refuses any target
+                    # differing from the selected project.
                     "project_record_get", "project_items_list", "project_items_candidates", "project_item_get",
                     "project_items_link", "project_items_unlink", "owner_reminders_list",
                     # Move to project: the source is the explicit source_project_id argument (null for Global), so the root
@@ -745,8 +755,9 @@ class HTTPAPI:
                     "notes_get"} and request.method == "POST":
                 context, _ = self.context(actor)
                 # workspace_get is the one owner cross-scope read that names its
-                # target project as a domain field, not a scope selector.
-                domain_fields = ("project_id",) if parts[2] == "workspace_get" else ()
+                # target project as a domain field, not a scope selector. An
+                # operation that takes project_id as its own argument keeps it too.
+                domain_fields = ("project_id",) if parts[2] == "workspace_get" else self.own_project_fields(parts[2])
                 args, options = split_options(await read_json(request), domain_fields=domain_fields)
                 if options.project_id is not None or options.review_project_id is not None:
                     raise DomainError("forbidden", "This endpoint requires Global scope")
@@ -883,7 +894,7 @@ class HTTPAPI:
                         return response(result)
                 if len(tail) == 2 and tail[0] == "operations" and request.method == "POST":
                     body = await read_json(request, limit=28 * 1024 * 1024 if tail[1] == "data_uploads_upload" else 2 * 1024 * 1024)
-                    args, options = split_options(body)
+                    args, options = split_options(body, domain_fields=self.own_project_fields(tail[1]))
                     for guard in self.guards:
                         if guard.names(tail[1]):
                             options = guard.check(request, tail[1], args, options)
