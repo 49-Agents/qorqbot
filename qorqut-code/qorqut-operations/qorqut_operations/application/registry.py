@@ -104,6 +104,11 @@ class OperationDescriptor:
     # its stored form, and, for an operation that selects Global through an argument, that argument stating the Global
     # scope it found (the Signoff tools' ``scope``), returned with namespace ``global``. Never consulted for a prepared plan.
     locate_scope: Callable | None = None
+    # Optional, for every caller: ``(application, context, arguments, uow) -> arguments``. Writes the project into each
+    # record reference in the arguments that names none (``records/references.py``), before ``locate_scope``, namespace
+    # resolution, authorization and idempotency hashing, so the call is the one with full references in every respect.
+    # It changes nothing else and never refuses. Never consulted for a prepared plan.
+    complete_references: Callable | None = None
     # Optional current-authority check run before a saved idempotency receipt is returned: (context, arguments, result, uow).
     # It may only refuse; a replay never reapplies the mutation. Absent for operations whose receipts carry no private data.
     replay_validator: Callable | None = None

@@ -177,7 +177,15 @@ class Application:
         An operation that takes its Global selection from an argument (the Signoff tools' ``scope``) has no project to
         select for a record found in Global, so its hook states that scope in the arguments it returns, with namespace
         ``global``. Those arguments are then the call's own for namespace resolution, the input hash and the plan, so it
-        is the explicit ``scope=global`` call in every respect too."""
+        is the explicit ``scope=global`` call in every respect too.
+
+        First, for every caller source, a descriptor with ``complete_references`` has the project written into each record
+        reference of the arguments that names none; those arguments are the call's own from here on."""
+        if descriptor.complete_references is not None:
+            # A record reference that names no project gets the project that holds the record (``records/references.py``).
+            completed = descriptor.complete_references(self, context, arguments, uow)
+            if completed is not arguments:
+                arguments = plain(completed)
         if descriptor.locate_scope is None or context.source == "worker":
             return context, arguments, options
         attach = getattr(descriptor.locate_scope, "attach", None)
