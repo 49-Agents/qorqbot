@@ -194,7 +194,7 @@ class SignoffBridge:
             draft_review = (dto.get('input') or {}).get('kind') == 'draft_review'
             grouped = is_questionnaire(dto.get('input'))
             reading = (dto.get('input') or {}).get('kind') == 'acknowledge'
-            head = [f"{'Draft review' if draft_review else 'To read' if reading else KINDS.get(dto['category'], 'Approval')}: {dto['title']}",
+            head = [f"{'Draft review' if draft_review else 'For your attention' if reading else KINDS.get(dto['category'], 'Approval')}: {dto['title']}",
                     f"{dto.get('business_name') or 'Global'} · requested by {dto.get('proposer_display_name') or 'an agent'}"]
             tail = []
             if attention.get("reason"):

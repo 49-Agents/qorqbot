@@ -65,15 +65,15 @@ between them; a surface carries no browser-versus-desktop switch or reconnect of
 own. Viewbox links still open their existing Focus detail.
 Check: `node tests/test_focus_signoff_queue_browser.js`.
 
-A read-and-acknowledge Signoff (`input.kind: acknowledge`) is something to read, not
-a decision. The Signoffs view lists these in their own **To read** group below the
+A read-and-acknowledge Signoff (`input.kind: acknowledge`) is something for the owner's
+attention, not a decision. The Signoffs view lists these in their own **For your attention** group below the
 decisions, renders the text as Markdown, and shows one **Acknowledge** button with no
 answer field. Below it the card mounts the Signoff's private conversation with
 Ordubashy as a comment box; commenting and acknowledging are independent. An inline
 card in Chat or a record shows the button only, since a conversation is already
 beside it. These items are left out of the Signoffs count; the tab shows an outlined
-to-read count only when no decision is waiting. Their Focus chips read "Read" and
-come after the decisions, and their notification is titled "To read".
+to-read count only when no decision is waiting. Their Focus chips show an eye, read "Attention" and
+come after the decisions, and their notification is titled "For your attention".
 Check: `node --test tests/signoff-acknowledge.test.js`.
 
 ## Setup and lifecycle
