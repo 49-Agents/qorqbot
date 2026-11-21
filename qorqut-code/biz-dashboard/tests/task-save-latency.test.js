@@ -5,7 +5,7 @@ const stateSource=fs.readFileSync(require.resolve('../js/task-state.js'),'utf8')
 const between=(from,to)=>{const a=tasksSource.indexOf(from),b=tasksSource.indexOf(to,a);assert.ok(a>=0&&b>a,from);return tasksSource.slice(a,b);};
 const line=prefix=>tasksSource.split('\n').find(l=>l.startsWith(prefix));
 const slices=[line('let tGen = 0;'),line('let tPersonalLoaded'),line('let tPrincipal'),
- between('const tAssignees','const tClosed'),between('const tBusiness =','const tPersonalRows'),between('const tBiz =','// the business owner'),line('const tHuman'),
+ between('const tAssignees','const tClosed'),between('const tBusiness =','const tPersonalRows'),between('const tBizBySlug =','// the business owner'),line('const tHuman'),
  between('let tRefreshPending','async function tFetchTask'),between('function tRelease()','// Reload the lists'),between('// Reload the lists without','// ---------------------------------------------------------------- search')].join('\n');
 
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};

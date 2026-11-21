@@ -46,7 +46,7 @@ def validate_selection(selection, component, installation):
         if 'artifacts' in path.parts or 'skills' in path.parts:
             raise ReleaseError('binding/data cannot be in immutable artifacts or skill subtrees')
         if any(Path(p) == path or path.is_relative_to(Path(p)) for p in forbidden if p):
-            raise ReleaseError('binding/data cannot be in releases or business projects')
+            raise ReleaseError('binding/data cannot be in releases or businesses')
     sha = selection['contract_sha256']
     if not isinstance(sha, str) or len(sha) != 64 or any(c not in '0123456789abcdef' for c in sha):
         raise ReleaseError('contract_sha256 must bind exact sidecar bytes')

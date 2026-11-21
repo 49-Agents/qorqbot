@@ -81,15 +81,15 @@ if (T_VIEWS.indexOf(tView) < 0) tView = "tasks";
 // uploads view state (upForm/upDone/...) lives in js/uploads.js; it has no editor, so nothing to flush.
 
 const tPanelOpen = () => { const w = $("#taskswrap"); return !!w && w.classList.contains("open"); };
-const tBusiness = t => t.business || (t.business_id && (state.bizs || []).find(b => b.id === t.business_id || b.business_id === t.business_id)) || tBiz();
+const tBusiness = t => t.business || (t.business_id && (state.bizs || []).find(b => b.id === t.business_id || b.business_id === t.business_id)) || tBizBySlug();
 const tSlug = t => tBusiness(t).slug;
 const tKey = t => JSON.stringify([t.business_id || tBusiness(t).id || tSlug(t), t.id]);
 const taskById = (id, biz = state.biz) => typeof id === 'object' ? id : [...(state.myTasks || []), ...(state.tasks || [])].find(t => tKey(t) === id || t.id === id && tSlug(t) === biz);
 const tPersonalRows = () => (state.myTasks || []).filter(t => state.scope === 'global' || tSlug(t) === state.biz);
-const tBiz = (biz = state.biz) => (state.bizs || []).find(x => x.slug === biz) || {};
-// the business owner, as biztask spells it: `human:<owner from business.yaml>` (server's owner_actor fallback)
-const tHuman = () => "human:" + (tBiz().owner || "dashboard");
-const tAgents = () => (tBiz().agents || []).map(a => "agent:" + a);
+const tBizBySlug = (biz = state.biz) => (state.bizs || []).find(x => x.slug === biz) || {};
+// the business owner: `human:<owner from business.yaml>` (server's owner_actor fallback)
+const tHuman = () => "human:" + (tBizBySlug().owner || "dashboard");
+const tAgents = () => (tBizBySlug().agents || []).map(a => "agent:" + a);
 
 // A repaint replaces every row, so it must not fire while a dropdown is open: it would lose its anchor.
 function tEditingNow() { return !!document.querySelector(".menu"); }
@@ -146,7 +146,7 @@ async function tLoadTasks(localNeeded) {
 async function tFetchTask(biz, id) {
   const result = await api(`/biz/${encodeURIComponent(biz)}/task/${encodeURIComponent(id)}`);
   if (!result?.task) throw new Error('Task is no longer available.');
-  return {...result.task, business: tBiz(biz)};
+  return {...result.task, business: tBizBySlug(biz)};
 }
 
 
@@ -205,7 +205,7 @@ async function twrite(identity, body, onError) {
 }
 
 async function tadd(fields) {
-  const slug = state.biz, business = tBiz(slug);
+  const slug = state.biz, business = tBizBySlug(slug);
   tGen++;
   const r = await post(`/biz/${slug}/task`, {owner: tHuman(), ...fields});
   if (r && r.error) { toast("Couldn't save. Try again"); return null; }
@@ -243,16 +243,16 @@ function tWhoKind(o) {
 
 // the dot: dashed ring unassigned, a plain dot for an agent, cream for the owner (may carry
 // their initial), gray for anyone else
-function tWhoDot(o, biz = state.biz) {
+function tWhoDot(o, slug = state.biz) {
   const kind = o?.startsWith('human:') ? 'founder' : o?.startsWith('agent:') ? 'agent' : 'unknown';
-  const name = tShort(o), business = tBiz(biz);
+  const name = tShort(o), business = tBizBySlug(slug);
   const key = Object.keys(business.agent_meta || {}).find(key => key.toLowerCase() === name.toLowerCase());
-  const agent = biz === state.biz && (state.agents || []).find(a => a.name?.toLowerCase() === name.toLowerCase());
+  const agent = slug === state.biz && (state.agents || []).find(a => a.name?.toLowerCase() === name.toLowerCase());
   return identityAvatar(kind, name, agent || business.agent_meta?.[key] || {}, name);
 }
 function tAssigneeLabel(o, biz = state.biz) {
   if (!o) return 'Unassigned';
-  if (o.startsWith('human:')) return tBiz(biz).owner || 'Owner';
+  if (o.startsWith('human:')) return tBizBySlug(biz).owner || 'Owner';
   if (o.startsWith('agent:')) return o.slice(6) || 'Agent';
   return 'Unavailable assignee';
 }
@@ -261,7 +261,7 @@ function tAssigneeAvatars(task) {
   return `<span class="task-assignee-column">${owners.slice(0, 2).map(actor => `<button type="button" class="task-assignee-avatar" data-task-assignees title="Assigned to ${esc(tAssigneeLabel(actor,tSlug(task)))}">${tWhoDot(actor, tSlug(task))}</button>`).join('')}${owners.length > 2 ? `<button type="button" class="task-assignee-avatar task-assignee-more" data-task-assignees title="${tWhoTip(task)}">+${owners.length - 2}</button>` : ''}</span>`;
 }
 function tAssignerAvatars(task) {
-  const business = {...tBiz(tSlug(task)), ...tBusiness(task)};
+  const business = {...tBizBySlug(tSlug(task)), ...tBusiness(task)};
   const actors = task.created_by ? [{id: task.created_by, name: task.created_by_name, kind: task.created_by_kind}] : [];
   return `<span class="task-assigner-column" aria-label="Created by">${(actors.length ? actors : [{name:'Unknown creator'}]).map(actor => {
     const name = actor.name || globalAgentProfile(actor.id)?.display_name || 'Unknown creator';
@@ -667,11 +667,11 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
   const startMove = () => {
     const box = m.el.querySelector('#td-error');
     if (m.dirty?.()) { box.textContent = 'Save or discard your edits before moving this task.'; box.hidden = false; return; }
-    const business = tBusiness(t);
-    const sourceBusinessId = Object.hasOwn(t, 'business_id') ? t.business_id : (business.id ?? business.business_id);
+    const businessRow = tBusiness(t);
+    const sourceBusinessId = Object.hasOwn(t, 'business_id') ? t.business_id : (businessRow.id ?? businessRow.business_id);
     if (moveDialog) return;
     const open = reference => { if (!m.el.isConnected) return; m.close(); void taskMoveOpenReference(reference); };
-    const handle = taskMoveOpen({task: t, sourceBusinessId, sourceSlug: tSlug(t), sourceName: business.name || '',
+    const handle = taskMoveOpen({task: t, sourceBusinessId, sourceSlug: tSlug(t), sourceName: businessRow.name || '',
       onClosed: () => { if (moveDialog === handle || !handle) moveDialog = null; },
       onSourceLost: () => { if (m.el.isConnected) { m.close(); toast('Task is no longer available.'); } },
       onSourceMoved: () => { if (m.el.isConnected) { box.textContent = 'This task has moved. Reopen it from its new project.'; box.hidden = false; } },
@@ -1195,11 +1195,11 @@ async function taskCreateProjectOpen(request, onCreated = null) {
 }
 window.taskCreateProjectOpen = taskCreateProjectOpen;
 
-function taskCreateDialog(biz, {parentId=null, onCreated=null, initial={}} = {}) {
-  if (biz && !parentId) {
-    const project = (state.bizs || []).find(b => b.slug === biz);
+function taskCreateDialog(slug, {parentId=null, onCreated=null, initial={}} = {}) {
+  if (slug && !parentId) {
+    const project = (state.bizs || []).find(b => b.slug === slug);
     if (!project || (project.id ?? project.business_id) == null) { toast('This task’s project is unavailable.'); return null; }
-    return taskCreateProjectOpen({business_slug:biz,business_id:project.id ?? project.business_id,initial}, onCreated);
+    return taskCreateProjectOpen({business_slug:slug,business_id:project.id ?? project.business_id,initial}, onCreated);
   }
   let editor, submission=null, busy=false;
   modal({title:'New task',width:620,stack:true,body:`<form data-task-create><label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(initial.title || '')}" autocomplete="off"></label>${taskTypeFields(initial)}<button type="submit" hidden>Create</button><p class="ferr" role="alert" hidden></p></form>`,
@@ -1211,16 +1211,16 @@ function taskCreateDialog(biz, {parentId=null, onCreated=null, initial={}} = {})
           if(!form.reportValidity())return;
           const fields=editor.values(),title=form.elements.title.value.trim();
           busy=true;
-          const {assignees}=await workCall(biz,'assignees_list');
+          const {assignees}=await workCall(slug,'assignees_list');
           const owner=assignees.find(person=>person.is_owner);
           submission={title,...fields,assignee_ids:owner?[owner.id]:[],...(parentId?{parent_id:parentId}:{}),idempotency_key:newRequestId()};
         }
         busy=true;error.hidden=true;form.querySelectorAll('input,select,textarea,button').forEach(e=>e.disabled=true);
-        const {task}=await workCall(biz,'tasks_create',submission);
+        const {task}=await workCall(slug,'tasks_create',submission);
         close();refreshTasks();onCreated?.(task);
       }catch(err){error.textContent=submission?uiFailure(err):err.message;error.hidden=false;if(['validation_error','forbidden','not_found','revision_conflict'].includes(err.code))submission=null;}
       finally{busy=false;if(!submission)form.querySelectorAll('input,select,textarea,button').forEach(e=>e.disabled=false);}
-    }}],onOpen:el=>{editor=taskTypeMount(el,biz,initial);el.querySelector('input').focus();el.querySelector('form').onsubmit=e=>{e.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};}});
+    }}],onOpen:el=>{editor=taskTypeMount(el,slug,initial);el.querySelector('input').focus();el.querySelector('form').onsubmit=e=>{e.preventDefault();el.querySelector('.mfoot button:last-child')?.click();};}});
 }
 
 // The owner drawer and its background polling have been retired.

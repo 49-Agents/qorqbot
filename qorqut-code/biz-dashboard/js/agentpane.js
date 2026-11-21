@@ -107,7 +107,7 @@ function workspaceViewsFor(roleId) { return roleId ? workspaceTypes().filter(typ
 // through the registry (or shown as an honest unsupported placeholder).
 function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 
-// The old Business (Project management) entry, extension-declared campaign_review type and the removed
+// The old Business entry, extension-declared campaign_review type and the removed
 // Activity/Inbox overview never add a right-pane tab or restore a stale pane selection; Business keeps its
 // stable key so links work. Project data stays reachable through
 // Project records and status/inbox delivery through the

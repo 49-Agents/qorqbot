@@ -1840,15 +1840,15 @@ async function rwTableBody(host, record, ctx, call) {
   const description = table.description ? rwNode('p', 'muted', table.description) : null;
   const biz = record.biz || null;
   const tableBusinessId=Object.hasOwn(table,'business_id') ? table.business_id
-    : (biz ? (state.bizs || []).find(project=>project.slug===biz)?.id : null);
+    : (biz ? (state.bizs || []).find(candidate=>candidate.slug===biz)?.id : null);
   const canonicalScope=ref=>{
-    const named=ref?.business_slug ? (state.bizs || []).find(project=>project.slug===ref.business_slug) : null;
+    const named=ref?.business_slug ? (state.bizs || []).find(candidate=>candidate.slug===ref.business_slug) : null;
     const hasId=Object.hasOwn(ref || {},'business_id');
     const businessId=hasId ? ref.business_id : named?.id ?? (ref?.business_slug ? ref.business_slug : tableBusinessId);
-    const project=businessId == null ? null : (state.bizs || []).find(candidate=>candidate.id===businessId
+    const projectRow=businessId == null ? null : (state.bizs || []).find(candidate=>candidate.id===businessId
       || candidate.business_id===businessId || candidate.slug===businessId);
-    const mismatch=hasId && businessId != null && named && project && named.id!==project.id;
-    return {businessId:businessId ?? null,businessSlug:businessId == null ? null : (mismatch ? null : (project?.slug || (businessId===tableBusinessId ? biz : null))),invalid:!!mismatch};
+    const mismatch=hasId && businessId != null && named && projectRow && named.id!==projectRow.id;
+    return {businessId:businessId ?? null,businessSlug:businessId == null ? null : (mismatch ? null : (projectRow?.slug || (businessId===tableBusinessId ? biz : null))),invalid:!!mismatch};
   };
   const parentCrm={type:'table',id:table.id,business_id:tableBusinessId,label:table.title || record.label || 'CRM'};
   // The Table team thread is the shared discussion; the private Chat tab stays its own conversation.
@@ -2222,8 +2222,8 @@ async function rwProjectDashboard(host, record, ctx) {
 
 function rwProjectLinkDialog(project, onLinked) {
   let submission = null, pending = false;
-  const projects = (state.bizs || []).filter(biz => biz.slug);
-  const scopeOptions = `<option value="">Global</option>${projects.map(biz => `<option value="${esc(biz.business_id || biz.id)}" ${(biz.business_id || biz.id) === project.id ? 'selected' : ''}>${esc(biz.name || biz.slug)}${biz.archived ? ' (archived)' : ''}</option>`).join('')}`;
+  const projects = (state.bizs || []).filter(candidate => candidate.slug);
+  const scopeOptions = `<option value="">Global</option>${projects.map(candidate => `<option value="${esc(candidate.business_id || candidate.id)}" ${(candidate.business_id || candidate.id) === project.id ? 'selected' : ''}>${esc(candidate.name || candidate.slug)}${candidate.archived ? ' (archived)' : ''}</option>`).join('')}`;
   modal({title: 'Link an existing item', width: 640, stack: true,
     body: `<div class="rw-link-dialog"><label>Scope<select class="inp" data-link-scope>${scopeOptions}</select></label>
       <label>Kind<select class="inp" data-link-type><option value="">Any kind</option><option value="task">Work</option><option value="signoff">Signoff</option><option value="action">Action</option><option value="material">Material</option><option value="person">Person</option><option value="topic">Topic</option><option value="table">Table</option><option value="reminder">Reminder</option><option value="routine">Routine</option><option value="project">Project</option></select></label>
@@ -2239,9 +2239,9 @@ function rwProjectLinkDialog(project, onLinked) {
         const own = ++generation;
         error.hidden = true;
         if (!append) { results.replaceChildren(); cursor = null; }
-        const businessId = scope.value || null;
+        const sourceBusinessId = scope.value || null;
         try {
-          const data = await rwProjectCall('project_items_candidates', {project_id: project.id, source_business_id: businessId,
+          const data = await rwProjectCall('project_items_candidates', {project_id: project.id, source_business_id: sourceBusinessId,
             ...(type.value ? {type: type.value} : {}), ...(search.value.trim() ? {query: search.value.trim()} : {}),
             limit: 25, ...(append && cursor ? {cursor} : {})});
           if (!el.isConnected || own !== generation) return;
@@ -2257,7 +2257,7 @@ function rwProjectLinkDialog(project, onLinked) {
             row.querySelector('.rw-project-scope').textContent = label;
             row.onclick = async () => {
               if (pending) return;
-              const signature = JSON.stringify([businessId, item.type, item.id]);
+              const signature = JSON.stringify([sourceBusinessId, item.type, item.id]);
               if (submission?.signature !== signature) submission = {signature, key: newRequestId()};
               pending = true; row.disabled = true; error.hidden = true;
               try {

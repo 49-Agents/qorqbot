@@ -18,7 +18,7 @@ None recorded yet. Add each one here in the owner's words, with the date, as the
   Use an alias-to-Project association only where the owner wrote it in `inboxes/`; never invent one.
   When that and the conversation do not settle the sender, ask.
 - Before drafting or sending, check the existing conversation (which address it reached, who is
-  writing) and the intended Project or business. Set From explicitly and show it in the proposal.
+  writing) and the intended Project. Set From explicitly and show it in the proposal.
 
 ### Access methods
 

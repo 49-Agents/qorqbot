@@ -18,7 +18,7 @@ before any `/integrations/*` route accepts a request.
     "client_id": "outreach",
     "secret": "<random, at least 32 ASCII characters>",
     "workflow_owner": "outreach",
-    "allowed_mailboxes": ["biz-a"],
+    "allowed_mailboxes": ["mailbox-a"],
     "business_ids": ["<registered business UUID>"],
     "handoff_destinations": ["qorqut"]
   }
@@ -66,7 +66,7 @@ intent submit, 64 KiB for handoff). Unknown fields are rejected
   "intent_id": "camp-1-enr-1-step-0",
   "message": {
     "request_id": "<ignored; the server derives the ledger key>",
-    "business_id": "business-a", "mailbox": "biz-a",
+    "business_id": "business-a", "mailbox": "mailbox-a",
     "from_address": "hello@biz-a.example", "to": ["prospect@example.test"],
     "subject": "...", "body": "...", "expires_at": "2026-10-01T00:00:00+00:00"
   },

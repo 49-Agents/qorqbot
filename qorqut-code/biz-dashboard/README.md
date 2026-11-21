@@ -84,7 +84,7 @@ Copy `.env.dashboard.example` to `.env.dashboard` (gitignored) and fill it in.
 `COMPONENT_OPERATIONS_ENGINE`, `COMPONENT_CONTEXT_ENGINE` and `COMPONENT_ROLES`.
 Every selection is an absolute, normalized path; nothing is discovered. It
 forwards them as `--workspace`, `--instance-root` and `--component NAME=PATH` to
-`python -I -m qorqut.service`. `BIZ_ROOT` and `BIZ_DIRS` are retired.
+`python -I -m qorqut.service`.
 
 ```sh
 ./start.sh argv        # print the command without starting anything

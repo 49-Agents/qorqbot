@@ -875,8 +875,8 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (pairedConversation?.canLeave?.() === false) return false;
       pairedGeneration = generation;
       if (takeover?.kind === 'side' && (!await leaveSide() || generation !== pairedGeneration || disposed)) return false;
-      const biz=source.business_id == null ? null : (state.bizs || []).find(project =>
-        project.id===source.business_id || project.business_id===source.business_id || project.slug===source.business_id)?.slug || null;
+      const biz=source.business_id == null ? null : (state.bizs || []).find(candidate =>
+        candidate.id===source.business_id || candidate.business_id===source.business_id || candidate.slug===source.business_id)?.slug || null;
       if(source.business_id != null && !biz)return false;
       pairedConversation?.dispose?.(); pairedConversation = null;
       endTakeover(takeover);
@@ -905,8 +905,8 @@ function mountGlobalChat(pane, agent, options = {}) {
       pairedHost = document.createElement('div'); pairedHost.className = 'gchat-paired-record';
       shell.body.append(pairedHost);
       pane.replaceChildren(shell.node);
-      const business = source.business_id ?? null;
-      const privateSource = {type: source.type, id: source.id, ...(business == null ? {} : {business_id: business})};
+      const businessId = source.business_id ?? null;
+      const privateSource = {type: source.type, id: source.id, ...(businessId == null ? {} : {business_id: businessId})};
       pairedConversation = conversationMount(pairedHost, {type: source.type, id: source.id, biz, revision: null}, {
         inlineComposer: true, related: true, dismissOnOutside: false, privateGlobal: true, privateSource,
         isVisible: () => live() && pairedHost?.isConnected && !pane.closest('[hidden]') && !document.hidden,

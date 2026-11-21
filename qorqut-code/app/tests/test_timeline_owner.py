@@ -25,23 +25,23 @@ class OwnerViewTests(Fixture):
         return plain(Fixture.ok(self, result))
 
     def ctx(self, who):
-        return replace(Fixture.ctx(self, who), allowed_business_ids=frozenset({self.business, self.other}) if who == self.lead else self.reach)
+        return replace(Fixture.ctx(self, who), allowed_business_ids=frozenset({self.business_id, self.other}) if who == self.lead else self.reach)
 
     def setUp(self):
         Fixture.setUp(self)
         self.tool = Timeline(NS(application=self.app, registry=self.registry)).register()
-        self.business = str(uuid4())
+        self.business_id = str(uuid4())
         with self.db.transaction() as uow:
-            uow.repository('businesses').insert({'id': self.business, 'name': 'Example project', 'slug': 'example',
+            uow.repository('businesses').insert({'id': self.business_id, 'name': 'Example project', 'slug': 'example',
                                                  'workspace': 'example', 'hq_path': 'hq'})
         self.other = str(uuid4())
         with self.db.transaction() as uow:
             uow.repository('businesses').insert({'id': self.other, 'name': 'Closed project', 'slug': 'closed',
                                                  'workspace': 'closed', 'hq_path': 'hq2'})
-            uow.repository('business_memberships', business_id=self.business).insert({'principal_id': self.owner, 'is_owner': True})
+            uow.repository('business_memberships', business_id=self.business_id).insert({'principal_id': self.owner, 'is_owner': True})
         self.work = self.task(self.lead, 'Pay creators')
         self.item = {'type': 'task', 'id': self.work['id'], 'business_id': None}
-        self.project = {'type': 'project', 'id': self.business, 'business_id': self.business}
+        self.project = {'type': 'project', 'id': self.business_id, 'business_id': self.business_id}
         self.global_item = {'type': 'global', 'id': 'global', 'business_id': None}
         patcher = patch('qorqut.domains.timeline.timestamp', lambda: test_timeline.DAY)
         patcher.start()
@@ -50,7 +50,7 @@ class OwnerViewTests(Fixture):
         self.owner_view = TimelineOwner(self.runtime).register()
 
     def dash(self, who):
-        return replace(self.ctx(who), source='dashboard', allowed_business_ids=frozenset({self.business}))
+        return replace(self.ctx(who), source='dashboard', allowed_business_ids=frozenset({self.business_id}))
 
     def view(self, who, item, **more):
         return self.app.invoke(self.dash(who), 'timeline_view', {'scope': 'global', 'item': item, **more}, {})

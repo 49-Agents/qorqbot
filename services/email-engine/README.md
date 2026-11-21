@@ -87,7 +87,7 @@ of just the database file. To rebuild mail, reset saved folders with
 `EmailService.reset_sync`; preserve the revision counter, bindings and send ledger.
 
 The opt-in private archive can capture future observed changes across the entire
-Fastmail account, including personal and nonbusiness folders. It retains raw MIME,
+Fastmail account, including personal and non-business folders. It retains raw MIME,
 attachments, provider metadata and folder catalogs in an encrypted SQLite archive
 for independent research and data science. Its collection scope does not grant
 business inbox access. See the [archive format and limits](docs/HISTORY.md).

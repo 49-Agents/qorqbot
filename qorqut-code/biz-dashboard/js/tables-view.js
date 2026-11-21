@@ -42,8 +42,8 @@
       for (let i = 0; i < tableColumns + 2; i++) td();
       return;
     }
-    const ref = row.record_ref, project = ref.business_id == null ? null : ref.business_id;
-    const href = typeof ref.id === 'string' && (project === null || UUID.test(String(project))) ? safeLinkUrl(openTaskHref(ref.id, project)) : null;
+    const ref = row.record_ref, refBusinessId = ref.business_id == null ? null : ref.business_id;
+    const href = typeof ref.id === 'string' && (refBusinessId === null || UUID.test(String(refBusinessId))) ? safeLinkUrl(openTaskHref(ref.id, refBusinessId)) : null;
     const name = cell(row.record.title || row.record.name || ref.id);
     const first = td();
     if (href) { const a = document.createElement('a'); a.href = href; a.textContent = name; first.appendChild(a); } else first.textContent = name;

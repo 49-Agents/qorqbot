@@ -69,23 +69,23 @@ class FocusService:
             raise DomainError('inbox_consumer_required', 'Use the consumer_id supplied by this prepared session startup')
 
     def resolve(self, ctx, item, uow):
-        business = item['business_id']
-        if business is not None and (business not in ctx.allowed_business_ids
-                or not self.inbox.business_member(ctx, business, uow)):
+        business_id = item['business_id']
+        if business_id is not None and (business_id not in ctx.allowed_business_ids
+                or not self.inbox.business_member(ctx, business_id, uow)):
             raise DomainError('not_found', 'Focus item is unavailable')
-        selected = replace(ctx, business_id=business, review_business_id=business)
+        selected = replace(ctx, business_id=business_id, review_business_id=business_id)
         if (handler := self.inbox.sources.for_type(item['type'])) is not None and handler.reference is not None:
-            resolved = handler.reference(self.inbox, ctx, item, business, uow)
+            resolved = handler.reference(self.inbox, ctx, item, business_id, uow)
         elif item['type'] == 'signoff':
             self.items.authorize(selected, 'signoffs_get', uow)
             row = self.signoffs._row(selected, item['id'], uow)
-            if row['review_business_id'] != business:
+            if row['review_business_id'] != business_id:
                 raise DomainError('not_found', 'Choose the signoff’s actual review scope')
             resolved = {'label': row['display_title'] or row['preview_json']['title'], 'state': row['state'], 'revision': row['status_revision'], 'category': row['category'],
                 'resource_type': 'signoffs', 'resource_id': item['id']}
         else:
             resolved = self.items.resolve(selected, {'type': item['type'], 'id': item['id']}, uow, allow_busy=True)
-        biz = uow.repository('businesses').get(business) if business else None
+        biz = uow.repository('businesses').get(business_id) if business_id else None
         card = {**item, 'label': resolved.get('label', item['id']), 'state': resolved.get('state'),
             'revision': resolved['revision'], 'resource_type': resolved['resource_type'],
             'category': resolved.get('category'), 'summary': resolved.get('summary', ''),
@@ -97,7 +97,7 @@ class FocusService:
         if item['type'] == 'table':
             # A CRM and a general Table are one native source kind; the kind lets a client choose its expansion. The row is
             # read only after the item resolver has authorized this caller's read of the Table.
-            card['table_kind'] = uow.repository('data_tables', business_id=business).get(item['id'], required=True)['table_kind']
+            card['table_kind'] = uow.repository('data_tables', business_id=business_id).get(item['id'], required=True)['table_kind']
         if resolved.get('deep_link'):
             card['deep_link'] = resolved['deep_link']
         return card

@@ -45,13 +45,13 @@ def task_context(service, ctx, source, uow, audience=None):
 
     The one canonical ``tasks_get`` read in the source's own scope (the caller's read policy for it was already checked by
     ``service.resolve``), so field projection, note authors, dates and references are exactly the Task's own. Writes nothing."""
-    business = source['business_id']
-    selected = service.select(ctx, business, uow)
+    business_id = source['business_id']
+    selected = service.select(ctx, business_id, uow)
     task = service.app.registry.get('tasks_get').read(
         selected, {'task_id': source['id'], 'notes_limit': CONTEXT_NOTES, **({'audience': audience} if audience else {}),
-                   **({'scope': 'global'} if business is None else {})},
+                   **({'scope': 'global'} if business_id is None else {})},
         InvocationOptions(), uow)['task']
-    project = uow.repository('businesses').get(business) if business else None
+    project = uow.repository('businesses').get(business_id) if business_id else None
     return {'title': task['title'], 'task_type': task['task_type'], 'status': task['status'], 'overview': task['overview'],
             'revision': task['revision'], 'business_slug': project['slug'] if project else None,
             **{key: task[key] for key in ('input_requests', 'input_needed', 'input_version', 'input_request_missing', 'work_status')},
@@ -117,7 +117,7 @@ def related(service, ctx, args, uow):
         if not args.get('offset', 0):
             result.update(timeline_part(service, ctx, {'type': 'project', 'id': source['id'], 'business_id': source['id']}, uow))
         return result
-    kind, identity, business = source['type'], source['id'], source['business_id']
+    kind, identity, business_id = source['type'], source['id'], source['business_id']
     # All candidates come from stored links, never guessed from matching titles/text. Each candidate is independently
     # authorized below. UNION/GROUP BY collapse records linked in several ways; the earliest stored link places the row.
     rows = uow.connection.execute("""
@@ -152,7 +152,7 @@ def related(service, ctx, args, uow):
         ) SELECT type,id,business_id,min(created_at) AS created_at FROM canonical
           WHERE type IS NOT NULL AND id IS NOT NULL AND NOT(type=:kind AND id=:id AND business_id IS :business)
           GROUP BY type,id,business_id ORDER BY created_at DESC,type,id,business_id LIMIT :limit OFFSET :offset
-        """, {'kind': kind, 'id': identity, 'business': business, 'limit': args.get('limit', 50) + 1,
+        """, {'kind': kind, 'id': identity, 'business': business_id, 'limit': args.get('limit', 50) + 1,
               'offset': args.get('offset', 0)}).fetchall()
     limit, items = args.get('limit', 50), []
     for row in rows[:limit]:
@@ -168,5 +168,5 @@ def related(service, ctx, args, uow):
               'input_requests': inputs}
     if kind == 'task' and not args.get('offset', 0):
         result['context'] = task_context(service, ctx, source, uow, args.get('notes_audience'))
-        result.update(timeline_part(service, ctx, {'type': 'task', 'id': source['id'], 'business_id': business}, uow))
+        result.update(timeline_part(service, ctx, {'type': 'task', 'id': source['id'], 'business_id': business_id}, uow))
     return result

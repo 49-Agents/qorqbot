@@ -6,7 +6,7 @@ Use the [operating guide](../../../docs/v1.2/OPERATING_GUIDE.md) and the explici
 
 ## Runtime and assembly
 
-`build_runtime(workspace, *, paths, ...)` receives explicit `InstancePaths`, composed Operations storage, and the shared Context interfaces. See [the factory](runtime.py) for its full signature. `workspace` supplies trusted package/configuration locations; `paths` supplies instance/component locations. The live service uses `--instance-root` and explicit `--component` selectors, not the removed `--root`/`BIZ_ROOT` contract.
+`build_runtime(workspace, *, paths, ...)` receives explicit `InstancePaths`, composed Operations storage, and the shared Context interfaces. See [the factory](runtime.py) for its full signature. `workspace` supplies trusted package/configuration locations; `paths` supplies instance/component locations. The live service uses `--instance-root` and explicit `--component` selectors.
 
 The database is `operations/.runtime/operations.sqlite3`; published Context is `operations/context-graph/`, with separate `operations/.runtime/context/`. Ordinary startup validates the existing composed target; it does not initialize or migrate it. The host owns one application, policy, HTTP/MCP registry, and the lifecycle of background, Context, native Chat and inbox-nudge services. Assembly itself does not start a native agent. Failed drains must be reconciled; do not treat a timed-out shutdown as complete.
 
@@ -39,7 +39,7 @@ Global → Agents reads the canonical `agents_list` operation with explicit
 `scope: global` through `GET /api/root/agents`. In managed mode every agent runs as a managed session and is reached through Chat, and the terminal routes (`/api/root/terminals`, `/api/root/terminal/<agent-id>/...`, `/api/root/workspace-terminal/...`) refuse. In Terminals mode they answer. The owner reads and changes the mode through `GET/POST /api/root/agents/runtime`. All owner
 writes retain same-origin checks.
 
-- Configure `BIZ_ROOT`, `HOST`, `PORT` and explicit `BIZ_SERVICE_ORIGINS` in the
+- Configure `HOST`, `PORT` and explicit `BIZ_SERVICE_ORIGINS` in the
   existing `.env.dashboard`. The live port remains 1049; test fixtures forbid it.
 - `QORQUT_MCP_URL` selects the advertised shared endpoint for generated folders.
 - The private, single-owner dashboard has no browser authentication. Owner API

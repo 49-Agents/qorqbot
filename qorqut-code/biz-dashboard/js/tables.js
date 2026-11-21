@@ -25,17 +25,17 @@ const dataCell = (row, key) => row && Object.hasOwn(row.cells, key) ? row.cells[
 const dataDownload = (biz, id) => `/api/biz/${encodeURIComponent(biz)}/data-uploads/${encodeURIComponent(id)}/download`;
 // The standalone read-only page for one table; Global tables carry no business_id.
 const dataViewLink = (biz, tableId) => {
-  const business = biz === null ? null : state.bizs.find(entry => entry.slug === biz);
-  if (biz !== null && !business) return null;
-  return `${location.origin}/tables/view?table_id=${encodeURIComponent(tableId)}${business ? `&business_id=${encodeURIComponent(business.id)}` : ''}`;
+  const businessRow = biz === null ? null : state.bizs.find(entry => entry.slug === biz);
+  if (biz !== null && !businessRow) return null;
+  return `${location.origin}/tables/view?table_id=${encodeURIComponent(tableId)}${businessRow ? `&business_id=${encodeURIComponent(businessRow.id)}` : ''}`;
 };
 // Move to project: a project's own table only (a Global table never moves). The list reloads once the move is confirmed.
 const dataMoveButton = biz => biz === null || typeof recordMoveOpen !== 'function' ? '' : dataIconButton('data-move', 'Move to project…', RECORD_MOVE_ICON);
 const dataMoveBind = (root, biz, table) => {
   const button = root.querySelector('#data-move'); if (!button) return;
-  const business = state.bizs.find(entry => entry.slug === biz);
+  const businessRow = state.bizs.find(entry => entry.slug === biz);
   button.onclick = () => recordMoveOpen({kind: 'table', record: {id: table.id, title: table.title}, sourceSlug: biz,
-    sourceBusinessId: business?.id || business?.business_id, onMoved: () => { _crmMount?.dispose?.(); _crmMount = null; dataBack(); }});
+    sourceBusinessId: businessRow?.id || businessRow?.business_id, onMoved: () => { _crmMount?.dispose?.(); _crmMount = null; dataBack(); }});
 };
 const dataCopyLink = async (text, button) => {
   try { await navigator.clipboard.writeText(text); }
@@ -504,8 +504,8 @@ async function tablesOpen(biz, id, mode = 'tables') {
     const link = {scope: biz == null ? 'global' : biz, id: id || '', mode};
     if (embeddedAgentPane) return window.parent.agentWorkspaceEscape?.({table: link});
     if(!id){toast('Open a table from Focus or a chat reference.');return;}
-    const business=biz == null ? null : state.bizs.find(b=>b.slug===biz);
-    return agentOpenRecordReference({type:mode === 'uploads' ? 'reference' : 'table',id,business_id:business ? (business.id || business.business_id) : null,business_slug:biz,resource_type:mode === 'uploads' ? 'documents' : 'data_tables'});
+    const businessRow=biz == null ? null : state.bizs.find(b=>b.slug===biz);
+    return agentOpenRecordReference({type:mode === 'uploads' ? 'reference' : 'table',id,business_id:businessRow ? (businessRow.id || businessRow.business_id) : null,business_slug:biz,resource_type:mode === 'uploads' ? 'documents' : 'data_tables'});
   }
   if (biz == null) {
     if (!dataGlobal()) await selectGlobal('tables');

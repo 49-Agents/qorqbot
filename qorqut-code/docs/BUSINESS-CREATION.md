@@ -99,5 +99,4 @@ document is seeded into a new project; existing project documents and ordinary d
 ## Layout
 
 The project root is `{operations}/projects/{slug}` (`InstancePaths.business_root`); the runtime
-tree stays under `.runtime`. Global material stays directly below `operations/`. A previous
-`businesses/` layout is not probed or adopted; moving existing projects is a migration concern.
+tree stays under `.runtime`. Global material stays directly below `operations/`.

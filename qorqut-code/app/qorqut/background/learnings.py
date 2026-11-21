@@ -150,10 +150,10 @@ class LearningProgram:
         # or supersession touches the business's historical learning.
         require_global(control.business_id)
         with control.service.database.read() as uow:
-            business = (uow.repository("businesses").get(control.business_id, required=True) if control.business_id else
+            business_row = (uow.repository("businesses").get(control.business_id, required=True) if control.business_id else
                 {"id": None, "slug": "Global", "name": "Global", "stage": "", "config_json": {}})
-            biz = BusinessBrief(business, rows(uow, "agent_profiles", control.business_id),
-                                str(business_hq(control.service.paths, business)) if control.business_id else "")
+            biz = BusinessBrief(business_row, rows(uow, "agent_profiles", control.business_id),
+                                str(business_hq(control.service.paths, business_row)) if control.business_id else "")
             scan = {row['session_id']: row for row in rows(uow, 'learning_scan_state', control.business_id)}
             seen = {key: row['transcript_hash'] for key, row in scan.items() if sources.counted(row['state_json'], args.get('retry_failed'))}
             decisions = {row["candidate_id"]: row for row in

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------- uploads (right panel tab)
 // The "Uploads" tab of the tasks panel (see js/tasks.js T_VIEWS/tSetView): one paste box that takes either
-// text, media or data files, never mixed. Text goes the normal context route (POST /biz/<b>/context/upload -> bizctx dump
+// text, media or data files, never mixed. Text goes the normal context route (POST /biz/<b>/context/upload -> context dump
 // -> a registered source document, accepted into the Context filing queue). Media goes to assets/<polished|drafted>/[<topic>/] through
 // POST /biz/<b>/assets/upload, one multipart call per file, every file of one submit sharing the same
 // notes, topic and batch id. Data files use the shared data_uploads_upload operation. tasks.js calls in:

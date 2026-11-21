@@ -75,7 +75,6 @@ read_conf() {
         component_known "$name" || die "unknown component in $CONF: $key (known: ${COMPONENT_NAMES[*]})"
         [ -z "${COMPONENTS[$name]:-}" ] || die "component $name is selected more than once in $CONF"
         COMPONENTS[$name]=$val ;;
-      BIZ_ROOT|BIZ_DIRS) die "$key is retired and no longer selects anything; set INSTANCE_ROOT in $CONF" ;;
       *) ENV_ARGS+=("$key=$val") ;;
     esac
   done < "$CONF"

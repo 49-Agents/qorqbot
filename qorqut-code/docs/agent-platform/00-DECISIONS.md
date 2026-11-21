@@ -31,7 +31,7 @@ implemented behavior; historical implementation plans do not override current po
 | Signoff execution | The owner approves a prepared change. The service automatically applies that exact change without waiting for the agent. |
 | Review UI | Signoffs uses the existing right-side pop-out panel alongside Notes. Show the selected business's queue, or Global's own queue. No separate modal or aggregate business inbox. |
 | Review interaction | Focus/select a proposal to reveal an inline feedback area. No editing of the proposal in this UI. Approve discards draft feedback; Reject saves feedback for the agent to read. |
-| Signoff records | Persist proposals, outcomes, and rejection feedback as needed for correctness and agent access. Do not create business journal/bizlog entries for the signoff lifecycle. No separate audit-log product is requested. |
+| Signoff records | Persist proposals, outcomes, and rejection feedback as needed for correctness and agent access. Do not create business journal entries for the signoff lifecycle. No separate audit-log product is requested. |
 | Storage | Reconsider operational storage. Git should provide versioning, potentially nightly commits, rather than define whether an operation happened. |
 | Isolation | Enforce identity, business scope, tool permissions, and signoffs in the application. Strong filesystem isolation against a same-user agent is not required. Do not claim a sandbox boundary that is not implemented. |
 

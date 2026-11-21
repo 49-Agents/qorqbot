@@ -109,7 +109,7 @@ secrets and must stay private; they are never Git inputs.
 
 `verify(generation_uuid)` rechecks the saved DB, archive and manifests without
 depending on today's authored files, binds the authored projects to the captured database and the target
-`projects/<slug>/hq` layout (a previous `businesses/<slug>/hq` archive is recognized but is never restored into this layout without an explicit conversion), and verifies the Context capture against its recorded digest and this
+`projects/<slug>/hq` layout, and verifies the Context capture against its recorded digest and this
 instance's Context identity; a missing, altered or foreign Context makes the generation invalid.
 `restore(generation_uuid, empty_directory)`
 rehearses into a separate empty root and verifies operational row counts. The SQLite maintenance gate

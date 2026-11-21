@@ -42,7 +42,7 @@ from types import MappingProxyType
 COMPONENTS = ("app", "operations_engine", "context_engine", "dashboard", "roles")
 # The engine-owned published Context repository below ``operations``; no authored document path may name it.
 GRAPH_DIRECTORY = "context-graph"
-# The directory below ``operations`` that holds every registered project (the internal ``business`` records) by slug.
+# The directory below ``operations`` that holds every registered project by slug.
 PROJECTS_DIRECTORY = "projects"
 # The directory below ``operations`` that holds the operator-editable working material of optional instruction packages.
 EXTENSIONS_DIRECTORY = "extensions"
@@ -208,7 +208,7 @@ class InstancePaths:
             raise InstancePathError(f"component {name} is not configured") from None
 
     def business_root(self, folder: str) -> Path:
-        """The registered project's folder; the internal ``business`` names and identifiers are unchanged."""
+        """The registered project's folder."""
         return self._checked(self._operations / PROJECTS_DIRECTORY / _segment(folder, "project folder"))
 
     def business_hq(self, folder: str) -> Path:

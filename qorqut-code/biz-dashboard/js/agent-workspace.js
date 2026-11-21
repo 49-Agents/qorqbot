@@ -348,7 +348,7 @@ function agentWorkspaceMount(p, view) {
   const paint = async () => {
     select.value = business;
     $('.agent-business-sections', body).innerHTML = offered().map(([key, label]) =>
-      `<button type="button" data-business-section="${key}" aria-label="${label}" aria-pressed="${key === section}">${agentWorkspaceSectionIcon(key)}</button>`).join('');
+      `<button type="button" data-workspace-section="${key}" aria-label="${label}" aria-pressed="${key === section}">${agentWorkspaceSectionIcon(key)}</button>`).join('');
     if (p.workspaceFrame) {
       const frame = p.workspaceFrame;
       if (!await frame.workspaceReady) return;
@@ -377,8 +377,8 @@ function agentWorkspaceMount(p, view) {
   };
   select.onchange = () => change(select.value, agentWorkspaceSection(select.value, undefined, p.workspaceRole));
   $('.agent-business-sections', body).onclick = event => {
-    const button = event.target.closest('[data-business-section]');
-    if (button && button.dataset.businessSection !== section) change(business, button.dataset.businessSection);
+    const button = event.target.closest('[data-workspace-section]');
+    if (button && button.dataset.workspaceSection !== section) change(business, button.dataset.workspaceSection);
   };
   p.workspaceDispose = () => { picker.remove(); head.classList.remove('agent-business-head'); p.workspaceFrame?.remove(); p.workspaceFrame = null; };
   paint();

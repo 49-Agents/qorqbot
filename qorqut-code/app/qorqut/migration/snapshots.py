@@ -101,11 +101,9 @@ class SourceManifest:
                 raise AuthorityError("snapshot_invalid", "Invalid business discovery metadata.")
             slug = business["slug"]
             hq = _relative(business.get("hq"))
-            # Three recognized archive shapes: an offline v1 source archive (<slug>/hq), a previous-layout instance
-            # archive (businesses/<slug>/hq) and a current target-instance archive (projects/<slug>/hq). None is
-            # translated into another here, and one archive uses one shape. A previous-layout archive can be read and
-            # fingerprinted; restoring it into the current layout requires an explicit conversion, never a fallback.
-            shape = {(slug, "hq"): "source", ("businesses", slug, "hq"): "previous", ("projects", slug, "hq"): "target"}.get(hq.parts)
+            # Two recognized archive shapes: an offline v1 source archive (<slug>/hq) and a target-instance archive
+            # (projects/<slug>/hq). Neither is translated into the other here, and one archive uses one shape.
+            shape = {(slug, "hq"): "source", ("projects", slug, "hq"): "target"}.get(hq.parts)
             if shape is None or slug in businesses:
                 raise AuthorityError("snapshot_invalid", "Duplicate or invalid business discovery metadata.")
             businesses.add(slug)

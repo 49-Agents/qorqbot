@@ -13,8 +13,7 @@ from qorqut_operations.application.plans import rows
 from qorqut_operations.storage import safe_io
 
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-IDENTITY_KEYS = frozenset({"BIZ_ACTOR", "BIZ_AGENT", "BIZLOG_ACTOR", "BIZ_DIR", "BIZTASK_DIR", "BIZLOG_DIR",
-    "BIZCTX_DIR", "BIZLEDGER_DIR", "BIZMETRICS_DIR", "BIZREQ_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"})
+IDENTITY_KEYS = frozenset({"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"})
 SESSION_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.jsonl$")
 # What one capture's archive read can expected-fail with; anything else (cancellation, timeout, service stop, storage or
 # programming faults) is not a property of that capture and propagates.

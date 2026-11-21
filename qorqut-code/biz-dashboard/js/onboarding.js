@@ -29,7 +29,7 @@ const onboarding = (() => {
       body: 'Your notes, saved as you type. Keep plans and loose thoughts here, next to the work.',
       target: pane},
     {id: 'projects', chapter: 'projects', title: 'start a project',
-      body: 'Projects keep the work, records and context for one client or business apart. You create them by asking.',
+      body: 'Projects keep the work, records and context for one client or company apart. You create them by asking.',
       instructions: ['In Chat, ask Ordubashy: “Create a project for …” with a name and what it is for.', 'He prepares it and asks for your signoff before anything is created.'],
       hint: 'Opening a project from a link or record switches the whole workspace to it.',
       target: () => document.querySelector('#global-agent-chat .gchat-composer')},

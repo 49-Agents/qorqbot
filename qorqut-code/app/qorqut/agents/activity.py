@@ -552,25 +552,25 @@ class AgentActivity:
             (native['root_turn_id'] if native else None, native['dirty_sequence'] if native else 0, agent_id, session_id))
 
     def work_item(self, ctx, item, uow, access):
-        business = item['business_id']
+        business_id = item['business_id']
         try:
-            self.allowed(ctx,business,'agents_activity_list',uow,**access)
-            biz = uow.repository('businesses').get(business) if business else None
+            self.allowed(ctx,business_id,'agents_activity_list',uow,**access)
+            biz = uow.repository('businesses').get(business_id) if business_id else None
             result = {**item,'task_id':item.get('task_id'),'title':None,'task_status':None,
                 'business_slug':biz['slug'] if biz else None,'business_name':biz['name'] if biz else 'Global',
                 'blocked':bool(item.get('blocked_reason')),'blockers':[]}
             if not item.get('task_id'):
                 return result
-            selected = self.allowed(ctx,business,'tasks_get',uow,**access)
-            task = uow.repository('tasks',business_id=business).get(item['task_id'],required=True)
+            selected = self.allowed(ctx,business_id,'tasks_get',uow,**access)
+            task = uow.repository('tasks',business_id=business_id).get(item['task_id'],required=True)
             config,_ = self.runtime.domains.tasks.configuration(selected,uow)
             states = {s['name']:s for s in config['states']}
             result.update(title=task['title'],task_status=task['status'])
-            for edge in uow.connection.execute("SELECT to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? AND role='blocked_by'",(business,task['id'])):
-                parent = uow.repository('tasks',business_id=business).get(edge[0])
+            for edge in uow.connection.execute("SELECT to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? AND role='blocked_by'",(business_id,task['id'])):
+                parent = uow.repository('tasks',business_id=business_id).get(edge[0])
                 if not parent or states[parent['status']]['kind']=='closed':
                     continue
-                assignees=[r[0] for r in uow.connection.execute("SELECT to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? AND role='assigned_to'",(business,parent['id']))]
+                assignees=[r[0] for r in uow.connection.execute("SELECT to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? AND role='assigned_to'",(business_id,parent['id']))]
                 result['blockers'].append({'task_id':parent['id'],'title':parent['title'],'status':parent['status'],'assignee_ids':assignees})
             result['blocked'] = result['blocked'] or bool(result['blockers']) or bool(states[task['status']].get('paused'))
             return result
