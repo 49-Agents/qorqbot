@@ -411,7 +411,7 @@ and is followed, verbatim, by what the owner wrote in that turn. After the owner
 text a turn may carry a digest of what the agent then did:
 
   AGENT tools (12 calls, 1 error):
-    Bash  biztask show draft-post ...  -> error, 1167 B: "Exit code 1 / id not found"
+    Bash  cat notes/draft-post.md ...  -> error, 1167 B: "Exit code 1 / No such file or directory"
     Read  context/product.md           -> ok, 2005 B
 
 and the agent's own words:
@@ -463,14 +463,14 @@ Example of context: "we charge nothing for the self-host build; the cloud tier w
 be paid." Example to drop: "never open a pull request without running the tests
 first."
 
-3. Facts about the system itself are not items. How qorqut works, what biztask
+3. Facts about the system itself are not items. How qorqut works, what a tool
 does, what a request is, how the dashboard behaves, where a CLI stores its files:
 none of that is context. It is the machinery you are standing inside, and it is
 already documented in the repo. Requests for that machinery to change, and
 instructions about when an agent must use it, are also not items on this route:
 they are procedural and the Overseer route owns them.
 Example to drop: "requests are immutable, you supersede them." Example to drop too:
-"requests should be immutable, change bizreq so editing is impossible."
+"requests should be immutable, change the tool so editing is impossible."
 
 4. Tags, one of fact, decision, idea, question on this route. A fact is something
 that is simply true of the world and does not tell anyone to do anything: "our

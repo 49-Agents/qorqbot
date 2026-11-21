@@ -135,10 +135,9 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   and history support, and the shell works with no registered projects. Project
   entries can be dragged into a custom order, saved by stable id in browser local
   storage.
-- **Projects.** The owner UI calls the container a Project everywhere;
-  identifiers, routes, storage keys and `business_id` are unchanged. The dashboard
-  has no project-creation control and never calls `business_create`: with zero
-  projects it says "No projects yet. Ask Ordubashy to create one." Checks:
+- **Projects.** The dashboard has no project-creation control and never calls
+  `business_create`: with zero projects it says "No projects yet. Ask Ordubashy
+  to create one." Checks:
   `tests/test_project_creation_absent_browser.js`,
   `tests/test_agent_pane_destinations_browser.js`.
 - **Archive and restore.** Applied project-archive Signoffs refresh the workspace

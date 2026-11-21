@@ -75,7 +75,7 @@ def external_worker(root, row) -> bool:
 
 
 def business_entries(connection, instance):
-    """The registered projects (the internal business rows) as the authored manifest records them, from the instance's own path contract.
+    """The registered projects as the authored manifest records them, from the instance's own path contract.
 
     Pure derivation from the registered rows and ``InstancePaths``: a project's folder, HQ and root are
     ``projects/<slug>``-relative, exactly the shape a target backup emits and verification demands."""
