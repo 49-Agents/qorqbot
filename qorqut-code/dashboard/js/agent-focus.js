@@ -215,28 +215,34 @@ async function agfocusOpenRecord(p,ref) {
 
 function agfocusActive(p) { return !!p && agpadActive(p) && p.view==='focus'; }
 
-// A one-time canonical Task link (/?open_task=...&scope=global|project_id=<uuid>#/global/agents) from the standalone CRM
-// viewer. It validates the whole route before any read, consumes it, reads the authorized Task and opens it in the shared
-// record workspace. It never selects, creates or pins a Focus card, and an invalid, mixed or unknown target never falls
+// A one-time canonical Task link (/?open_task=...[&scope=global|project_id=<uuid>]#/global/agents). It validates the whole
+// route before any read, consumes it, reads the authorized Task and opens it in the shared record workspace. A link with the
+// id alone reads the Task by its id and continues with the project the Task reports. It never selects, creates or pins a Focus card, and an invalid, mixed or unknown target never falls
 // through to another scope or record.
 async function agfocusOpenTaskLink(p,url) {
   const route=openTaskRoute(url.search);
   const consume=()=>{url.search='';history.replaceState(null,'',url);};
   const refuse=message=>{consume();if(agpadActive(p)){p.focusError=p.focusLinkError=message;agfocusPaint(p);}};
   if(route.invalid || url.searchParams.has('focus_item'))return refuse('This record link is not valid.');
+  const located=route.projectId===undefined, projectOf=id=>(state.projects || []).find(b=>b.id===id || b.project_id===id);
   let slug=null;
-  if(route.projectId!==null) {
-    const project=(state.projects || []).find(b=>b.id===route.projectId || b.project_id===route.projectId);
+  if(!located && route.projectId!==null) {
+    const project=projectOf(route.projectId);
     if(!project?.slug)return refuse('This project is unavailable.');
     slug=project.slug;
   }
   consume();
   try {
-    const data=await crmCall(slug,'tasks_get',{task_id:route.taskId});
+    const data=located ? coreData(await post('/root/operations/tasks_get',{task_id:route.taskId})) : await crmCall(slug,'tasks_get',{task_id:route.taskId});
     if(!agpadActive(p) || p.view!=='focus' || !p.focusMount?.isConnected)return;
     if(!data.task)throw new Error('missing');
     const task=data.task;
-    const record=rwRecordFromItem({source:{type:'task',id:task.id,project_id:route.projectId,project_slug:slug,label:task.title,task_type:task.task_type,state:task.status}},{can_thread:true});
+    const projectId=located ? task.project_id ?? null : route.projectId;
+    if(located && projectId!==null) {
+      slug=projectOf(projectId)?.slug || null;
+      if(!slug)throw new Error('missing');
+    }
+    const record=rwRecordFromItem({source:{type:'task',id:task.id,project_id:projectId,project_slug:slug,label:task.title,task_type:task.task_type,state:task.status}},{can_thread:true});
     if(!record || record.scopeMissing)throw new Error('missing');
     if(!await agfocusWorkspaceMode(p,false))return;
     agfocusShowDock(p);

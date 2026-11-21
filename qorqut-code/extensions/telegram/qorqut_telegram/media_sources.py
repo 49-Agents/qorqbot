@@ -5,8 +5,9 @@ and from where? It names no bytes and sends nothing. A source is one of two clos
 
 ``{"type": "workspace", "path": "exports/report.pdf"}``
     a relative POSIX path below the caller's own registered workspace, in ``exports/`` or ``downloads/`` only;
-``{"type": "document", "document_id": "<uuid>", "project_id": "<uuid>" | null}``
-    one registered document in an explicit scope (``null`` is Global), of a kind with a canonical reader:
+``{"type": "document", "document_id": "<uuid>"}``
+    one registered document, of a kind with a canonical reader. Its project is found from its id; a ``project_id`` (a project
+    id, or ``null`` for Global) may be given and then has to be the document's own. The kinds and readers are:
     ``asset`` (``assets_get``), ``data_upload`` (``data_uploads_get``), ``agent_note`` and the project-owned note
     (``notes_get``), and ``content`` and ``context_note`` (``content_get``). Every other kind is refused.
 
@@ -46,6 +47,7 @@ import unicodedata
 
 from qorqut_operations.application.plans import schema
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.records.references import Kind, Ref, References
 
 from qorqut.agents.global_scope import reaches_project
 from qorqut.composition import locations
@@ -69,7 +71,7 @@ SOURCE_SCHEMA = {
         schema({"type": {"const": "workspace"}, "path": {"type": "string", "minLength": 1, "maxLength": MAX_PATH_CHARS}},
                ("type", "path")),
         schema({"type": {"const": "document"}, "document_id": _UUID_SCHEMA,
-                "project_id": {"anyOf": [_UUID_SCHEMA, {"type": "null"}]}}, ("type", "document_id", "project_id")),
+                "project_id": {"anyOf": [_UUID_SCHEMA, {"type": "null"}]}}, ("type", "document_id")),
     ],
 }
 EXPECTED_SHA256_SCHEMA = {"type": "string", "pattern": "^[0-9a-f]{64}$", "minLength": 64, "maxLength": 64,
@@ -84,6 +86,25 @@ _READER_ARGUMENT = {"assets_get": "asset_id", "data_uploads_get": "upload_id", "
 _HIDDEN_PATH_CATEGORIES = {"Cc", "Cs", "Zl", "Zp"}
 _WORKSPACE_KEYS = {"version", "type", "principal_id", "scope", "workspace", "workspace_root", "path"}
 _DOCUMENT_KEYS = {"version", "type", "principal_id", "scope", "document_id", "document_kind", "reader"}
+
+
+def complete_document_source(application, ctx, arguments, uow):
+    """The arguments with a document source that names no project completed with the project that holds the document.
+
+    This is the ``complete_references`` step of the send operation. The document's id is unique across the installation, and
+    the reader of its kind (``READERS``) decides where the caller may read it. A document that is in Global, that is unknown,
+    or whose project the caller cannot read through that reader stays as given: a source without ``project_id`` names Global."""
+    source = arguments.get("source") if isinstance(arguments, Mapping) else None
+    if not isinstance(source, Mapping) or source.get("type") != "document" or "project_id" in source:
+        return arguments
+    identity = source.get("document_id")
+    row = uow.connection.execute("SELECT kind FROM documents WHERE id=?", (identity,)).fetchone() if isinstance(identity, str) else None
+    reader = READERS.get(row["kind"]) if row is not None else None
+    if reader is None:
+        return arguments
+    shapes = References(Ref(("source",), kind="document", id_key="document_id", absent="keep"),
+                        kinds={"document": Kind("documents", reader, scope_stated=False)})
+    return shapes(application, ctx, arguments, uow)
 
 
 def _changed(message="The authorized source no longer matches its binding"):
@@ -155,7 +176,8 @@ def normalize_workspace_path(path):
 
 
 def parse_source(value):
-    """The normalized, closed source: ``{"type": "workspace", "path"}`` or ``{"type": "document", "document_id", "project_id"}``.
+    """The normalized, closed source: ``{"type": "workspace", "path"}`` or ``{"type": "document", "document_id", "project_id"}``
+    (``project_id`` is ``null`` for Global and when the source names none).
 
     Unknown or missing keys, other types, non-canonical (non lowercase) UUIDs and unsafe paths are ``validation_error``."""
     if not isinstance(value, Mapping):
@@ -165,8 +187,8 @@ def parse_source(value):
         _closed(value, {"type", "path"}, "source")
         return {"type": "workspace", "path": normalize_workspace_path(value["path"])}
     if kind == "document":
-        _closed(value, {"type", "document_id", "project_id"}, "source")
-        document_id, project_id = value["document_id"], value["project_id"]
+        _closed(value, {"type", "document_id"} | ({"project_id"} & set(value)), "source")
+        document_id, project_id = value["document_id"], value.get("project_id")
         if not isinstance(document_id, str) or not _UUID.fullmatch(document_id):
             raise invalid("document_id must be a lowercase UUID", "source.document_id")
         if project_id is not None and (not isinstance(project_id, str) or not _UUID.fullmatch(project_id)):

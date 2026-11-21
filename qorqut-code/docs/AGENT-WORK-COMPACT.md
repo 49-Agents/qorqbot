@@ -28,10 +28,9 @@ accepts a small `patch` array when only some items changed:
   "expected_work_revision": 4,
   "patch": [
     {"action": "replace", "item_key": "<key from the focused read>",
-     "item": {"project_id": "<project UUID>", "task_id": "<task ID>",
+     "item": {"task_id": "<task ID>",
               "summary": "Verify the handoff"}},
-    {"action": "add", "item": {"project_id": null,
-                                  "summary": "Review the Global handoff"}}
+    {"action": "add", "item": {"summary": "Review the Global handoff"}}
   ]
 }
 ```

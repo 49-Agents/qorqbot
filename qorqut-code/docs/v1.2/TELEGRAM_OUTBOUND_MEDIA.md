@@ -12,7 +12,7 @@ the Global capability `read_global_context`. Arguments, plus the framework `idem
 
 | Argument | Meaning |
 | --- | --- |
-| `source` | `{"type":"workspace","path":"exports/…"}` (a regular file below `exports/` or `downloads/` of the caller's own workspace) or `{"type":"document","document_id":…,"project_id":…|null}` (a stored document the caller may read: asset, data upload, agent or project note, content or context note) |
+| `source` | `{"type":"workspace","path":"exports/…"}` (a regular file below `exports/` or `downloads/` of the caller's own workspace) or `{"type":"document","document_id":…}` (a stored document the caller may read, its project found from the id: asset, data upload, agent or project note, content or context note) |
 | `expected_sha256` | required, 64 lowercase hex characters, the digest of the exact bytes meant to be sent |
 | `send_as` | `document` (1 to 50,000,000 bytes, bytes preserved) or `photo` (a static JPEG or PNG, 1 to 10,000,000 bytes, width plus height at most 10000, long side at most 20 times the short side, one frame; never converted, resized or sent as a document instead) |
 | `purpose` | `reply` or `update` (`blocking_input` is for `telegram_send` only) |

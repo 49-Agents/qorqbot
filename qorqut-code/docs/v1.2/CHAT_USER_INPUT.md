@@ -22,12 +22,11 @@ dashboard half of the feature is not described here beyond the transport contrac
 
 ### Minimal transport contract (shared by backend and UI workers)
 
-Tool input is `{message: string, references: [{type, id, project_id?}]}`.
+Tool input is `{message: string, references: [{type, id}]}`.
 A Task `id` is the Task's id as stored (a short code for new Tasks, a UUID or other
 text for older ones); a Signoff `id` is its UUID; browser `id` is a validated,
-configured surface ID. `project_id` is the record's owning/review scope (null or
-omitted for Global). For a sandbox project browser whose synthetic surface ID
-is shared, its project_id disambiguates it. Reject arbitrary URLs, labels, HTML,
+configured surface ID. A reference is the record's type and id; its project is found
+from the id. Reject arbitrary URLs, labels, HTML,
 status/decision fields and unrelated fields. Bound message to 4000 characters and
 references to 8; a message must not be blank. Keep reference order; coalesce exact
 duplicates. No new discovery tool: existing Task/Signoff reads and the browser
@@ -169,17 +168,16 @@ allows it. The handler additionally requires the configured active Ordubashy age
 ```
 request_user_input(message="Please sign in below, then reply here.",
                    references=[{"type": "browser", "id": "example-browser"},
-                               {"type": "signoff", "id": "<uuid>", "project_id": "<project uuid>"},
+                               {"type": "signoff", "id": "<uuid>"},
                                {"type": "task", "id": "<task id>"}])
 -> {"status": "ok", "data": {"user_input": {"version": 1, "message": "...", "references": [
      {"type": "browser", "id": "example-browser", "project_id": null}, ...]}}}
 ```
 
 The contract lives once in `native_chat/references.py` (message 1-4000 characters after trimming, at most 8 references, strict
-`{type, id, project_id}` keys, a Task's stored id (1-200 characters, no blanks or control characters), lowercase canonical
+`{type, id}` keys, a Task's stored id (1-200 characters, no blanks or control characters), lowercase canonical
 UUIDs for Signoffs, configured surface ids for browsers, order kept, exact duplicates coalesced). Every reference is resolved through an existing read before the call returns: Tasks and
-Signoffs through `FocusService.resolve` (exact project and review scope; Signoffs exist only in a project, so a Signoff
-reference needs its `project_id`), browsers through `BrowserTargets.resolve`. Any target that is missing, unreadable or in the
+Signoffs through `FocusService.resolve` (the project and review scope are found from the id), browsers through `BrowserTargets.resolve`. Any target that is missing, unreadable or in the
 wrong scope is `not_found` ("Reference N (type) is not available"), with no detail about the target. The result carries no URL,
 label, state, endpoint, credential, approval or answer, and the call writes nothing (every table is unchanged).
 

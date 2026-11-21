@@ -84,7 +84,8 @@ pending reads and removes the frame and listeners.
 ## Table viewer
 
 `/tables/view?table_id=<uuid>[&project_id=<uuid>]` is a minimal owner-only read-only page (50-row pages, Load
-more) over `tables_get` / `tables_rows_list`. Global tables omit `project_id`. Unknown, duplicate or non-UUID
+more) over `tables_get` / `tables_rows_list`. With the table's id alone the page finds the table's project from the id (Global
+included); a stated `project_id` names it. Unknown, duplicate or non-UUID
 selectors return 400. The Tables screen has a Copy link button for the canonical URL.
 
 ## Discovery

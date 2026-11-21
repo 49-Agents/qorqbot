@@ -22,7 +22,7 @@ guide documents the implemented core contract.
 | Agent discussion (team) | Existing source-authorized readers and agents | Existing source-authorized writers; the owner is read-only |
 
 Applies to project and Global tasks, Stories, Signoffs,
-standalone Focus References and existing Projects (`{type: "project", id: PROJECT_UUID, project_id: PROJECT_UUID}`,
+standalone Focus References and existing Projects (`{type: "project", id: PROJECT_UUID}`,
 keyed as `source:<PROJECT_UUID>:project:<PROJECT_UUID>`; the Project itself has no team discussion — see
 [Project records](PROJECT-RECORDS.md)). A Project source is re-authorized through the one Project read guard on every
 read, directory projection and Focus card; an archived Project makes it unavailable without
@@ -57,7 +57,7 @@ owner can still read (empty or historical) and send (stored; not delivered).
 
 ## Canonical source binding
 
-`source = {type: 'task'|'story'|'signoff'|'table'|'reference', id, project_id?}`. (`email` remains in the stored `source_type`
+`source = {type: 'task'|'story'|'signoff'|'table'|'reference', id}`: the record's type and id, its project found from the id. (`email` remains in the stored `source_type`
 vocabulary as retired history: the host serves no email source.)
 
 - Project-scoped call: `source.project_id` must be omitted or equal to it,
@@ -125,7 +125,7 @@ POST /api/project/<slug>/operations/owner_conversation_get
    "read_state": {"last_read_sequence": 2, "unread": true}}
 
 POST /api/root/operations/owner_conversation_send
-{"scope": "global", "source": {"type": "task", "id": "<task-id>", "project_id": "<project-uuid>"},
+{"scope": "global", "source": {"type": "task", "id": "<task-id>"},
  "text": "Hold the price change until Friday."}
 → {"message": {"id": "...", "sequence": 4, "body": "...", "author_role": "owner", ...},
    "conversation": {"id": "...", "revision": 4, "latest_sequence": 4, "message_count": 4}}

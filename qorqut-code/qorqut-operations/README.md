@@ -236,8 +236,8 @@ still reuse an existing one) and is not widened.
 
 ### Links between Tasks, Stories, Customers and Email Tasks
 
-`tasks_update.changes.related_task` accepts `{project_id: UUID|null, task_id,
-linked: boolean}`. A Task can link to multiple other Task records across project
+`tasks_update.changes.related_task` accepts `{task_id, linked: boolean}`: the
+Task is named by its id and its project is found from the id. A Task can link to multiple other Task records across project
 and Global scopes. Every type uses the same identity and operation; linking does
 not move either item, set a parent, propagate state, or subscribe participants.
 Plain tags remain independent labels. Self-links are rejected; existing links,

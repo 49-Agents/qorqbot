@@ -23,6 +23,25 @@ test('short, UUID and slug Task ids open in Global and in a Project', () => {
   }
 });
 
+test('a Task link with the id alone is found from its id', () => {
+  for (const taskId of ['ab3cd', '3f2c4d5e-1a2b-4c3d-8e9f-0a1b2c3d4e5f', 'seo-autopilot']) {
+    assert.deepEqual(plain(openTaskRoute(`?open_task=${taskId}`)), {taskId});
+    assert.equal(safeLinkUrl(`/?open_task=${taskId}#/global/agents`), `/?open_task=${taskId}#/global/agents`);
+  }
+  // The stated forms are read as before.
+  assert.deepEqual(plain(openTaskRoute('?open_task=ab3cd&scope=global')), {taskId: 'ab3cd', projectId: null});
+  assert.deepEqual(plain(openTaskRoute(`?open_task=ab3cd&project_id=${PROJECT}`)), {taskId: 'ab3cd', projectId: PROJECT});
+  assert.equal(openTaskRoute('?other=1'), null);
+});
+
+test('a table link names its project only when it states one', () => {
+  const {tableViewRoute} = context, TABLE = '3f2c4d5e-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
+  assert.deepEqual(plain(tableViewRoute(`?table_id=${TABLE}`)), {tableId: TABLE});
+  assert.deepEqual(plain(tableViewRoute(`?table_id=${TABLE}&project_id=${PROJECT}`)), {tableId: TABLE, projectId: PROJECT});
+  for (const search of [`?table_id=${TABLE}&project_id=x`, `?table_id=x`, `?project_id=${PROJECT}`, `?table_id=${TABLE}&table_id=${TABLE}`,
+                        `?table_id=${TABLE}&scope=global`]) assert.equal(tableViewRoute(search), null, search);
+});
+
 test('malformed Task links stay refused', () => {
   const refused = [
     '?open_task=&scope=global',                                   // empty id
@@ -32,7 +51,6 @@ test('malformed Task links stay refused', () => {
     '?open_task=ab3cd&scope=project',                            // scope other than global
     '?open_task=ab3cd&project_id=ab3cd',                         // a Project is named by its UUID
     `?open_task=ab3cd&scope=global&project_id=${PROJECT}`,       // both scopes
-    '?open_task=ab3cd',                                           // no scope
     '?open_task=ab3cd&open_task=k7m2p&scope=global',              // repeated id
     '?open_task=ab3cd&scope=global&next=x',                       // unknown key
   ];

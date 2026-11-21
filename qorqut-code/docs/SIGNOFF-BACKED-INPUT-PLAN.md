@@ -5,9 +5,9 @@ Status: implemented in `codex/signoff-input-implementation`; deployment and live
 ## Implemented behavior
 
 Collect explicit owner questions, clarifications, missing information and access requests through an owner-only Signoff.
-`signoffs_input_create` accepts an optional `source: {type, id, project_id}` and creates the question and dependency
+`signoffs_input_create` accepts an optional `source: {type, id}` and creates the question and dependency
 atomically. The source may be a Task, Table, Project or standalone Focus Reference. Both endpoints keep their own
-scope: `project_id` is an explicit project UUID or `null` for Global. Omit `source` for a standalone request.
+scope: a reference is the record's type and id, and its project is found from the id. Omit `source` for a standalone request.
 Source-linked forms default to `owner_only` and reject `management_allowed`; internal delegated questions keep their
 existing behavior. An input answer never authorizes a separate action.
 

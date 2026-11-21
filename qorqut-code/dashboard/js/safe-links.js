@@ -15,34 +15,36 @@ function safeFileReference(raw) {
   return `/files/view?path=${encodeURIComponent(path)}`;
 }
 
-// The one-time record link the standalone CRM viewer uses: /?open_task=<task id>&scope=global#/global/agents or
-// /?open_task=<task id>&project_id=<uuid>#/global/agents. Returns {taskId, projectId} (projectId null = Global), {invalid: true}
-// when the route is present but malformed, or null when `open_task` is absent. It validates only; nothing is read here.
+// The one-time record link: /?open_task=<task id>#/global/agents finds the Task from its id; /?open_task=<task id>&scope=global#/global/agents
+// and /?open_task=<task id>&project_id=<uuid>#/global/agents name where it is. Returns {taskId, projectId} (projectId null = Global),
+// {taskId} for an id alone, {invalid: true} when the route is present but malformed, or null when `open_task` is absent.
+// It validates only; nothing is read here.
 // Projects and Tables have UUIDs. A Task id has no fixed shape (new ones are five characters, older ones UUIDs or slugs),
 // so it is held only to the length and character rules of a stored id.
 const SAFE_LINK_RECORD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// The read-only table route: /tables/view?table_id=<id>[&project_id=<id>].
-// An omitted project_id explicitly means Global; repeated, unknown, or malformed parameters are invalid.
+// The read-only table route: /tables/view?table_id=<id>[&project_id=<id>]. Returns {tableId, projectId} for a stated project and
+// {tableId} for an id alone, which finds the table from its id; repeated, unknown, or malformed parameters are invalid.
 function tableViewRoute(search) {
   const params = new URLSearchParams(search), keys = [...params.keys()];
   const count = name => keys.filter(key => key === name).length;
   const tableId = params.get('table_id'), projectId = params.get('project_id');
   if (count('table_id') !== 1 || count('project_id') > 1 || keys.some(key => !['table_id', 'project_id'].includes(key))
     || !SAFE_LINK_RECORD_UUID.test(tableId || '') || (count('project_id') === 1 && !SAFE_LINK_RECORD_UUID.test(projectId || ''))) return null;
-  return {tableId, projectId: count('project_id') ? projectId : null};
+  return count('project_id') ? {tableId, projectId} : {tableId};
 }
 function openTaskRoute(search) {
   const params = new URLSearchParams(search), keys = [...params.keys()];
   if (!keys.includes('open_task')) return null;
   const count = name => keys.filter(key => key === name).length;
   const taskId = params.get('open_task');
-  if (count('open_task') !== 1 || keys.some(key => !['open_task', 'scope', 'project_id'].includes(key)) || count('scope') + count('project_id') !== 1
+  if (count('open_task') !== 1 || keys.some(key => !['open_task', 'scope', 'project_id'].includes(key)) || count('scope') + count('project_id') > 1
     || !taskId || !taskId.trim() || taskId.length > 200 || /[\u0000-\u001f\u007f-\u009f]/u.test(taskId)) return {invalid: true};
+  if (!count('scope') && !count('project_id')) return {taskId};
   if (count('scope')) return params.get('scope') === 'global' ? {taskId, projectId: null} : {invalid: true};
   const projectId = params.get('project_id');
   return SAFE_LINK_RECORD_UUID.test(projectId) ? {taskId, projectId} : {invalid: true};
 }
-// The same-origin href for a scoped Task, or null: Global is explicit, a Project needs its UUID; never inferred.
+// The same-origin href for a Task in a stated scope, or null: Global is explicit, a Project needs its UUID.
 function openTaskHref(taskId, projectId) {
   const url = new URL('/', 'http://local.invalid');
   url.searchParams.set('open_task', String(taskId ?? ''));

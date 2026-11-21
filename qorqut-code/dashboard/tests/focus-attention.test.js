@@ -292,7 +292,7 @@ test('ordinary reminder Create prompts for retry or deliberate separate creation
   }
   const makeHost=()=>{
     const host=new Node(),form=new Node(),message=new Node(),pending=new Node(),confirm=new Node(),save=new Node(),cancel=new Node(),stay=new Node(),discard=new Node();
-    const fields=[['text','same'],['repeat','once'],['at','2099-01-01T10:00'],['weekday','0'],['time','09:00'],['cron',''],['timezone','UTC'],['critical',''],['linktype',''],['linkscope',''],['linkid','']].map(([name,value])=>({name,value,type:name==='critical'?'checkbox':'text',checked:false}));
+    const fields=[['text','same'],['repeat','once'],['at','2099-01-01T10:00'],['weekday','0'],['time','09:00'],['cron',''],['timezone','UTC'],['critical',''],['linktype',''],['linkid','']].map(([name,value])=>({name,value,type:name==='critical'?'checkbox':'text',checked:false}));
     for(const f of fields)fields[f.name]=f;form.elements=fields;form.querySelector=()=>message;form.querySelectorAll=()=>[];
     confirm.querySelector=selector=>selector==='[data-stay]'?stay:discard;
     const nodes={'.rem-form':form,'.rem-editor-confirm':confirm,'.rem-editor-pending':pending,'.rem-editor-save':save,'.rem-editor-cancel':cancel};
