@@ -26,7 +26,10 @@ from qorqut_operations.contracts import DomainError
 from qorqut_operations.inbox_nudges.contracts import Binding as NudgeBinding, TRANSPORTS as NUDGE_TRANSPORTS
 
 from qorqut.bootstrap.terminal_chat import process_fields
+from qorqut.composition import compactions
+from qorqut.domains.compaction_handoff import CompactionHandoff
 from qorqut.managed_runtime.manager import CLOSED_VIEW, ManagedError, ManagedRuntime
+from qorqut.native_archive import CaptureError
 from qorqut.native_chat import arbiter as arbiter_module, chat as chat_module, commands, nudges, schema, store
 from qorqut.native_chat.arbiter import AgentLocks, InputArbiter
 from qorqut.native_chat.chat import MANAGED_FIELDS, NativeChat
@@ -606,6 +609,83 @@ class SessionViewTests(ChatCase):
         self.assertEqual((data["managed"]["phase"], data["managed"]["activity"], data["managed"]["can_stop"]),
                          ("working", "Reading a file", True))
         self.assertEqual(self.chat.events(OWNER, AGENT, latest), ([], latest))
+
+# ===== the conversation before a compaction ======================================================================================
+
+class ContinuesTests(ChatCase):
+    """``conversation.continues`` of the state: the conversation a compaction closed to open the one shown. The log of
+    compactions is the real table and the real lookup of the handoff domain; the captures are rows with nothing archived."""
+
+    OPENED_AT = "2026-11-20T10:00:00.000000Z"
+
+    def setUp(self):
+        super().setUp()
+        for statement in compactions.SCHEMA:
+            self.db.connection.execute(statement)
+        self.runtime.compaction_handoff = CompactionHandoff(self.runtime)
+
+    def capture(self, conversation, updated, provider="claude", receipt=None):
+        self.db.connection.execute(
+            "INSERT INTO native_captures(agent_id,provider,conversation_id,transcript_path,receipt_id,created_at,updated_at) "
+            "VALUES(?,?,?,?,?,?,?)", (AGENT, provider, conversation, f"/nonexistent/{conversation}.jsonl", receipt, updated, updated))
+
+    def compacted(self, closed, session, agent=AGENT, at=OPENED_AT):
+        """One opened row of the log, as ``CompactionHandoff.opened`` leaves it."""
+        self.db.connection.execute(
+            "INSERT INTO compactions(id,agent_id,reason,requested_at,request_json,listed_from,listed_until,opened_at,opened_json) "
+            "VALUES(?,?,'context',?,'{}',?,?,?,?)", (f"{agent}:{closed}:{session}:{at}", agent, at, at, at, at, json.dumps(
+                {"unanswered": [], "closed": closed, "session": session})))
+
+    def shown(self, **selection):
+        return self.chat.state(OWNER, AGENT, **selection)["conversation"]
+
+    def test_a_conversation_a_compaction_opened_points_back_to_the_captured_one_it_replaced(self):
+        self.capture("old", "2026-11-20T09:00:00Z")
+        self.capture("new", "2026-11-20T11:00:00Z")
+        self.compacted("old", "new")
+        earlier = {"conversation_id": "old", "provider": "claude", "at": self.OPENED_AT}
+        shown = self.shown()                               # nothing of the fresh conversation is archived yet
+        self.assertEqual((shown["conversation_id"], shown["continues"]), ("new", earlier))
+        # The one it points to is an ordinary conversation, and can be asked for by exactly that pair.
+        before = self.shown(conversation="old", provider="claude")
+        self.assertEqual((before["conversation_id"], before["continues"]), ("old", None))
+        # It is part of the conversation's info whether the page is read, cannot be read, or has nothing yet.
+        self.db.connection.execute("UPDATE native_captures SET receipt_id='r1' WHERE conversation_id='new'")
+        receipt = SimpleNamespace(archive_id="archive", source_path="/nonexistent/new.jsonl")
+        self.chat.indexer.archive = lambda profile: SimpleNamespace(load_receipt=lambda identity: receipt)
+        self.chat.reader = SimpleNamespace(window=lambda *args, **options: SimpleNamespace(entries=[], older=None))
+        self.assertEqual(self.shown()["continues"], earlier)
+
+        def unreadable(*args, **options):
+            raise CaptureError("archive_unavailable", "The archive cannot be read now")
+        self.chat.reader = SimpleNamespace(window=unreadable)
+        shown = self.shown()
+        self.assertEqual((shown["error"], shown["continues"]), ("archive_unavailable", earlier))
+
+    def test_an_ordinary_conversation_continues_nothing(self):
+        self.capture("old", "2026-11-20T09:00:00Z")
+        self.capture("new", "2026-11-20T11:00:00Z")
+        self.assertIsNone(self.shown()["continues"])
+        self.compacted("old", "new", agent="agent-2")      # another agent's compaction says nothing about this one
+        self.assertEqual((self.shown()["conversation_id"], self.shown()["continues"]), ("new", None))
+        self.assertIsNone(self.shown(conversation="new", provider="claude")["continues"])
+
+    def test_a_conversation_whose_earlier_one_was_not_captured_under_the_same_provider_continues_nothing(self):
+        self.capture("new", "2026-11-20T11:00:00Z")
+        self.compacted("old", "new")
+        self.assertEqual((self.shown()["conversation_id"], self.shown()["continues"]), ("new", None))      # never captured
+        self.capture("old", "2026-11-20T09:00:00Z", provider="codex")
+        self.assertIsNone(self.shown()["continues"])       # captured, but as another client's conversation of that id
+        self.capture("old", "2026-11-20T09:00:00Z")
+        self.assertEqual(self.shown()["continues"]["conversation_id"], "old")
+
+    def test_without_the_handoff_domain_the_key_is_there_and_empty(self):
+        self.capture("old", "2026-11-20T09:00:00Z")
+        self.capture("new", "2026-11-20T11:00:00Z")
+        self.compacted("old", "new")
+        del self.runtime.compaction_handoff
+        self.assertEqual((self.shown()["conversation_id"], self.shown()["continues"]), ("new", None))
+
 
 # ===== uploads ===================================================================================================================
 

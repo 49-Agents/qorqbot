@@ -55,7 +55,8 @@ No schema, transcript format, runtime input adapter or agent lifecycle change is
              binding: SessionBinding | null,  // the exact open binding a fresh observation matches; see below
              detail: string },          // owner-readable status line
   revision: int, cursor: int,           // durable visible-change counter; the same number is the event-stream position
-  conversation: { conversation_id, provider, complete, finalized, error: string | null, captured_length } | null,
+  conversation: { conversation_id, provider, complete, finalized, error: string | null, captured_length,
+                  continues: { conversation_id, provider, at: iso } | null } | null,  // the conversation before a compaction; see below
   conversations: [ { conversation_id, provider, updated_at, current: bool } ],  // current = the default conversation, never the selected one
   entries: [ Entry ],                   // oldest first, at most `limit`
   older: int | null,                    // pass as `before` for the next older page; null = start of the conversation
@@ -80,6 +81,13 @@ updated capture) by its full `{provider, conversation_id}` pair. Selecting an ar
 stays view-only. A native conversation id alone is ambiguous across providers, so a selection needs both (one without the other
 is `validation_error`, as is a provider other than `claude`/`codex`), and a pair this agent never captured is `not_found`; it
 never falls back to another conversation.
+
+`conversation.continues` is always present. It names the conversation that Qorqut's own compaction closed to open this one
+(`docs/COMPACTION.md`): its `conversation_id`, its `provider` (the same as this conversation's) and `at`, when this conversation
+was opened. It is `null` for a conversation no compaction opened, and when the earlier conversation was not captured for this
+agent under the same provider. A client shows the earlier conversation above this one by reading it as a selected archive:
+its newest page with `GET chat?conversation=&provider=` and older pages with `chat/history`. The earlier conversation has a
+`continues` of its own when a compaction opened it too.
 
 Pages come from a small in-process window cache shared by all agents. Receipt ids repeat across agents and lineages, so a cached
 page is reused only for the same agent, archive, receipt id and record hash, the same provider and conversation, and the same
