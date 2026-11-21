@@ -339,7 +339,6 @@ function remindersEditor(reminder = null, opts = {}) {
     <label class="rem-check rem-wide"><input type="checkbox" name="critical" ${reminder?.time_critical ? 'checked' : ''}> Time-critical (may interrupt unrelated focus)</label>
     ${link ? `<p class="muted rem-wide">Linked: ${esc(remLinkText(link))}<label class="rem-inline"><input type="checkbox" name="unlink"> Remove link</label></p>`
       : `<details class="rem-wide rem-more"><summary>Link to an item</summary><div class="rem-link"><label>Link to<select class="inp" name="linktype"><option value="">Nothing</option>${[['task', 'Work'], ['email', 'Email'], ['project', 'Project'], ['table', 'Table']].map(([v, l]) => option(v, l, false)).join('')}</select></label>
-      <label data-link-field hidden>Project<select class="inp" name="linkscope"><option value="">Global</option>${(state.projects || []).filter(b => b.id || b.project_id).map(b => option(b.id || b.project_id, b.name || b.slug, false)).join('')}</select></label>
       <label class="rem-wide" data-link-field hidden>Item ID<input class="inp" name="linkid"></label></div></details>`}
     <p class="ferr rem-wide" role="alert" hidden></p></form>`;
   let initialSchedule = null;
@@ -477,7 +476,7 @@ function remindersEditor(reminder = null, opts = {}) {
     else if (f.linktype.value) {
       const id = f.linkid.value.trim();
       if (!id) return fail('Enter the ID of the item to link, or choose Nothing.');
-      linked = {type: f.linktype.value, id, project_id: f.linkscope.value || null};
+      linked = {type: f.linktype.value, id};
     }
     const recipient = f.recipient && !f.recipient.disabled ? f.recipient.value : null;
     let args;
