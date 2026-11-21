@@ -17,12 +17,13 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page, schema, timestamp, utc_clock
 from qorqut_operations.contracts import DomainError, InvocationOptions, Principal, new_id, plain
 from qorqut_operations.discussion import emit_event
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.tasks.events import STEP_EVENTS
 from qorqut.management.identity import configured_ordubashy, is_active_installation_owner
 
 ID = {'type': 'string', 'minLength': 1, 'maxLength': 200}
-REF = schema({'type': ID, 'id': ID, 'project_id': {'type': ['string', 'null']}}, ('type', 'id', 'project_id'))
-TASK = schema({'type': {'const': 'task'}, 'id': ID, 'project_id': {'type': ['string', 'null']}}, ('type', 'id', 'project_id'))
+REF = schema({'type': ID, 'id': ID, 'project_id': {'type': ['string', 'null']}}, ('type', 'id'))
+TASK = schema({'type': {'const': 'task'}, 'id': ID, 'project_id': {'type': ['string', 'null']}}, ('type', 'id'))
 REV = {'type': 'integer', 'minimum': 0}
 OPEN_WORK_LIMIT = 50
 # Delegated work the coordinator's reminder calls quiet, and how many such Tasks it lists.
@@ -153,8 +154,13 @@ class Attention:
                 'reason': {'type': 'string', 'maxLength': 2000}, 'resume_context': {'type': 'string', 'maxLength': 4000},
                 'related_refs': {'type': 'array', 'maxItems': 100, 'items': REF}}, ('run_id', 'expected_revision', 'state')),
         }
+        # A reference names its record by type and id; the record's project is found from the id.
+        references = {'attention_add': (Ref(('task',), kind='task'),),
+                      'attention_focus_set': (Ref(('focus',)), Ref(('task',), kind='task')),
+                      'attention_workflow_update': (Ref(('related_refs', '*')),)}
         for name, (fields, required) in ops.items():
             self.app.registry.register(OperationDescriptor(name, schema({**shared, **fields}, required), **common,
+                complete_references=References(*references[name]) if name in references else None,
                 prepare=lambda c,a,o,u,op=name:self.prepare(op,c,a,u), apply=self.apply))
         # Same records and policy checks under the current product vocabulary.
         # Keep the old operations for saved clients and policy overrides.

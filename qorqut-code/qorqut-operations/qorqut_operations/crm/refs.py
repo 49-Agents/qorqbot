@@ -1,7 +1,7 @@
 """Typed references, scoped identities and the recorded-source contract of the CRM domain.
 
-A public reference always carries ``project_id`` (null is the Global scope): scope is never derived from a display name
-or inferred from a missing field. Recorded sources are data. Nothing here fetches a URL, opens a path or contacts a
+A public reference names its record by type and id; ``project_id`` (null is the Global scope) is the record's project,
+found from the id when it is not stated and never derived from a display name. Recorded sources are data. Nothing here fetches a URL, opens a path or contacts a
 provider; a URL is only checked to be a plain http(s) link without embedded credentials.
 """
 
@@ -15,7 +15,7 @@ from qorqut_operations.application.plans import IDENTITY, UUID, schema, timestam
 from qorqut_operations.contracts import DomainError
 
 NULLABLE_PROJECT = {"anyOf": [UUID, {"type": "null"}]}
-RECORD_REF = schema({"type": {"const": "task"}, "id": IDENTITY, "project_id": NULLABLE_PROJECT}, ("type", "id", "project_id"))
+RECORD_REF = schema({"type": {"const": "task"}, "id": IDENTITY, "project_id": NULLABLE_PROJECT}, ("type", "id"))
 TABLE_REF = schema({"type": {"const": "table"}, "id": UUID, "project_id": NULLABLE_PROJECT}, ("type", "id", "project_id"))
 
 IDENTIFIER_LIMIT, URL_LIMIT, TITLE_LIMIT, EVENT_KEY_LIMIT = 500, 4000, 500, 300

@@ -10,8 +10,8 @@ from qorqut_operations.contracts import DomainError
 from qorqut_operations.tasks.types import attributes
 
 KEY = "$task_links"
-REFERENCE = schema({"task_id": IDENTITY, "project_id": {"anyOf": [UUID, {"type": "null"}]}}, ("task_id", "project_id"))
-EDIT = schema({**REFERENCE["properties"], "linked": {"type": "boolean"}}, ("task_id", "project_id", "linked"))
+REFERENCE = schema({"task_id": IDENTITY, "project_id": {"anyOf": [UUID, {"type": "null"}]}}, ("task_id",))
+EDIT = schema({**REFERENCE["properties"], "linked": {"type": "boolean"}}, ("task_id", "linked"))
 HIDDEN = {"forbidden", "policy_denied", "not_found", "invalid_principal", "operation_unavailable"}
 
 

@@ -18,7 +18,8 @@ from qorqut_operations.contracts import InvocationContext, PolicyDecision, Princ
 from qorqut_operations.items import ItemContribution, ItemResolver
 from qorqut_operations.roles import GLOBAL_WORKER_ROLE
 from qorqut_operations.signoffs import ABSENT, SignoffPorts
-from qorqut_operations.signoffs.lookup import LOCATED, SignoffLookup
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import LOCATED, SignoffLookup, reference_kind
 from qorqut_operations.signoffs.service import SignoffService
 from qorqut_operations.storage.database import Database
 from qorqut_operations.storage.locks import LockPaths
@@ -406,6 +407,31 @@ class TransportLookupTests(Harness):
         self.assertEqual(wrong['error']['details']['signoff']['review_project_id'], self.alpha)
         missing = self.send('signoffs_get', {'signoff_id': str(uuid4())})
         self.assertEqual((missing['error']['code'], missing['error']['message']), ('not_found', ELSEWHERE))
+
+    # -- a reference to a Signoff -------------------------------------------------------------------------------------
+
+    def test_a_signoff_reference_is_completed_only_for_a_signoff_the_caller_may_read(self):
+        references = References(Ref(('item',)), kinds={**KINDS, 'signoff': reference_kind(self.signoffs)})
+        visible, in_global = self.ask(self.alpha), self.ask(None)
+        outside = self.ask(self.gamma, ctx=self.owner_ctx, key='outside')
+        denied = self.ask(self.beta, key='denied')
+        self.policy.modes[(self.agent, self.beta, 'signoffs_get')] = 'deny'
+
+        def project_of(signoff_id, kinds=references):
+            with self.db.read() as uow:
+                done = kinds(self.app, self.agent_ctx, {'item': {'type': 'signoff', 'id': signoff_id}}, uow)
+            return plain(done)['item']['project_id']
+        self.assertEqual(project_of(visible['id']), self.alpha)
+        unknown = project_of(str(uuid4()))
+        self.assertIsNone(unknown)
+        for signoff in (in_global, outside, denied):
+            self.assertEqual(project_of(signoff['id']), unknown, signoff['request_key'])
+        # The Signoff visibility rule is applied to the one record: where it says the caller may not read it, the
+        # reference reads as Global, while the same record is completed by a kind without that rule.
+        blind = NS(sources=NS(readable=lambda ctx, candidates, uow: {}))
+        withheld = References(Ref(('item',)), kinds={**KINDS, 'signoff': reference_kind(blind)})
+        self.assertIsNone(project_of(visible['id'], withheld))
+        self.assertEqual(project_of(visible['id'], References(Ref(('item',)))), self.alpha)
 
 
 class AnyRecord:

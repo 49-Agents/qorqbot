@@ -13,6 +13,7 @@ from qorqut_operations.application.plans import PlanBuilder, schema
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.conversations import SUMMARY
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.storage.repositories import decode_row
 from .lookup import LOCATED
 from .ports import ABSENT
@@ -133,6 +134,9 @@ class InputRequests:
             # An operation that names one Signoff finds its review scope from the id when the caller selects none.
             located = (dict(locate_scope=self.service.lookup, description=description + ' ' + LOCATED)
                        if 'signoff_id' in properties else dict(description=description))
+            # A source and a report's Task name their records by type and id; their projects are found from the ids.
+            if name == 'signoffs_input_create':
+                located['complete_references'] = References(Ref(('source',)), Ref(('report_task',), kind='task'))
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), **common, **located,
                 prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply))
         # Delegated management answers need the management domain; without it the operation is not installed.

@@ -19,6 +19,7 @@ from qorqut_operations.items import ItemResolver
 from qorqut_operations.discussion.threads import BODY, RELAY
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.records.locate import LOCATED as RECORD_LOCATED
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.tables.operations import (CELLS, KEY, SCOPE, TableOperations, table_context, table_lookup,
                                                  table_namespace)
 from qorqut_operations.tasks.lookup import LOCATED
@@ -88,6 +89,7 @@ class CRMOperations:
                 name, schema({**SCOPE, **fields}, required), description=description + RECORD_LOCATED, effect_kind="read",
                 supports_signoff=False, **located,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow), **table_scope))
+        references = {"crm_entries_add": dict(complete_references=References(Ref(("record",), kind="task")))}
         writes = {
             "crm_entries_add": ({"table_id": UUID, "record": RECORD_REF, "create": schema(create, ("title",)), **cells}, ("table_id",),
                                 instruction_text('operations-add-an-entry-to-a-crm-table-with'), ("tables_rows_write",)),
@@ -103,7 +105,7 @@ class CRMOperations:
         for name, (fields, required, description, derived) in writes.items():
             registry.register(OperationDescriptor(
                 name, schema({**SCOPE, **fields, "rationale": TEXT}, required), description=description + RECORD_LOCATED,
-                derived_effects=derived, **located,
+                derived_effects=derived, **located, **references.get(name, {}),
                 prepare=lambda ctx, args, options, uow, op=name: self.entries.prepare(op, ctx, args, options, uow),
                 apply=self.entries.apply, validate_targets=self.entries.validate,
                 replay_validator=lambda ctx, args, replay, uow, op=name: self.entries.validate_replay(op, ctx, args, replay, uow),

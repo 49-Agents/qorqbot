@@ -6,6 +6,7 @@ from qorqut_operations.application.plans import PlanBuilder, schema
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.global_agents import is_coordinator
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.storage.assembly import StorageContribution
 from qorqut_operations.storage.specs import TableSpec
 from .lookup import LOCATED
@@ -14,7 +15,7 @@ from .ports import ABSENT
 TABLE = 'signoff_source_links'
 SOURCE = schema({'type': {'enum': ['task', 'table', 'project', 'reference']},
     'id': {'type': 'string', 'minLength': 1, 'maxLength': 300},
-    'project_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('type', 'id', 'project_id'))
+    'project_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('type', 'id'))
 SCHEMA = (
     '''CREATE TABLE signoff_source_links (
  id TEXT PRIMARY KEY CHECK(length(id)=36),
@@ -69,6 +70,9 @@ class SignoffSources:
         # Both name one Signoff: its review scope is found from the id when the caller selects none.
         common = dict(supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
             global_capability='read_global_context', locate_scope=self.service.lookup,
+            # The source names its record by type and id; its project is found from the id (a reference thread is Global).
+            # This writes into the source only: the Signoff's own review scope is found by ``locate_scope``.
+            complete_references=References(Ref(('source',))),
             resolve_namespace=lambda c, a: 'global' if a.get('scope') == 'global' else 'project:' + (c.project_id or ''))
         fields = {'scope': {'enum': ['project', 'global']}, 'source': SOURCE,
                   'signoff_id': {'type': 'string', 'format': 'uuid'}}

@@ -42,7 +42,7 @@ class ReportTaskTests(unittest.TestCase):
 
     def test_a_malformed_task_is_still_refused(self):
         ctx = self.coordinator()
-        for task in ({'id': 'work'}, {'id': '', 'project_id': None}, 'work', None):
+        for task in ({'project_id': None}, {'id': '', 'project_id': None}, 'work', None):
             self.assertNotEqual(self.post(ctx, report_task=task).status, 'ok', task)
 
     def test_a_report_with_a_readable_task_is_created_and_read_back_with_it(self):
@@ -135,6 +135,36 @@ class ReportTaskTests(unittest.TestCase):
             uow.connection.execute('DELETE FROM signoff_report_tasks')
         got = self.invoke('signoffs_get', {'signoff_id': signoff['id']})['signoff']
         self.assertIsNone(got['report_task'])
+
+    # -- the Task is named by its id ----------------------------------------------------------------------------------
+
+    def test_a_task_without_a_project_gets_the_project_that_holds_it(self):
+        from dataclasses import replace
+        ctx = self.coordinator()
+        stated = self.posted(ctx, report_task=self.GLOBAL)
+        bare = self.posted(ctx, key='bare', report_task={'id': 'work'})
+        self.assertEqual(bare['report_task'], stated['report_task'])
+        self.assertEqual({key: value for key, value in self.link(bare['id']).items() if key in ('task_id', 'task_project_id')},
+                         {'task_id': 'work', 'task_project_id': None})
+        project = replace(ctx, project_id=self.project, review_project_id=self.project)
+        scoped = self.posted(project, scope='project', report_task={'id': 'project-work'})
+        self.assertEqual((scoped['report_task']['project_id'], self.link(scoped['id'])['task_project_id']),
+                         (self.project, self.project))
+
+    def test_a_task_of_another_scope_is_refused_as_when_its_project_is_stated(self):
+        ctx = self.coordinator()
+        refused = self.post(ctx, report_task={'id': 'project-work'})
+        self.refused(refused, 'validation_error')
+        self.assertEqual(refused.error, self.post(ctx, report_task={'id': 'project-work', 'project_id': self.project}).error)
+        self.refused(self.post(ctx, key='stated', report_task={'id': 'work', 'project_id': self.project}), 'validation_error')
+
+    def test_a_task_outside_the_reach_is_answered_like_an_unknown_id(self):
+        from dataclasses import replace
+        ctx = self.coordinator()
+        outside = replace(ctx, allowed_project_ids=frozenset())
+        unknown = self.post(outside, report_task={'id': 'nothing'})
+        self.refused(unknown, 'validation_error')
+        self.assertEqual(self.post(outside, key='hidden', report_task={'id': 'project-work'}).error, unknown.error)
 
 
 if __name__ == '__main__':

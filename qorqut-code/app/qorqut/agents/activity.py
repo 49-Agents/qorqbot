@@ -18,6 +18,7 @@ from qorqut.agents.worker_access import is_worker, require_worker_manager
 from qorqut.composition.locations import agent_workspace_of
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, Principal, plain
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.discussion import ThreadItem, can_follow, set_follow
 from qorqut_operations.application.plans import PAGE, UUID, PlanBuilder, apply_records, page, schema, timestamp, utc_clock
 from qorqut_operations.project_lifecycle import active_project_ids
@@ -37,7 +38,7 @@ WORKER_WORD_LIMIT = 100
 LEGACY_TEXT_LIMIT = 300
 WORK_ITEM = schema({'project_id': {'anyOf': [UUID, {'type': 'null'}]},
     'task_id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
-    'summary': {'type': 'string'}, 'blocked_reason': {'type': 'string'}}, ('project_id',))
+    'summary': {'type': 'string'}, 'blocked_reason': {'type': 'string'}}, ())
 WORK_PATCH = schema({'action': {'enum': ['add', 'replace', 'remove']},
     'item_key': {'type': 'string', 'pattern': '^[0-9a-f]{16}$'}, 'item': WORK_ITEM}, ('action',))
 
@@ -89,6 +90,9 @@ class AgentActivity:
                 {'required': ['items'], 'not': {'required': ['patch']}},
                 {'required': ['patch'], 'not': {'required': ['items']}}]}, **common,
             description=instruction_text('activity-replace-or-explicitly-confirm-your-session-s-current'),
+            # An item names its Task by ``task_id``; the Task's project is found from it, and an item without a Task is Global.
+            complete_references=References(Ref(('items', '*'), kind='task', id_key='task_id'),
+                                           Ref(('patch', '*', 'item'), kind='task', id_key='task_id')),
             prepare=self.prepare, apply=self.apply))
         return self
 
