@@ -94,12 +94,17 @@ import time
 from qorqut_operations.application.plans import PlanBuilder, ref, schema
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, canonical_bytes, plain, utc_now
+from qorqut_operations.records.references import Ref, References
 from qorqut.management.identity import configured_ordubashy
 from qorqut.transport.auth import AuthenticatedPrincipal, current_agent_credential
 
 _SYNC_OPERATIONS = ('workflows.start', 'workflows.resume', 'workflows.pause', 'workflows.cancel', 'workflows.complete_step')
 _TASK = schema({'type': {'const': 'task'}, 'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                 'project_id': {'type': ['string', 'null']}}, ('type', 'id', 'project_id'))
+# The ``task`` a caller names to ``attention_workflow_context`` states its project or leaves it to be found from the id;
+# the signed context always carries the full reference (``_TASK``).
+_TASK_ARGUMENT = schema({'type': {'const': 'task'}, 'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
+                         'project_id': {'type': ['string', 'null']}}, ('type', 'id'))
 _BINDING = {'scope': {'const': 'global'}, 'operation': {'enum': list(_SYNC_OPERATIONS)},
             'operation_id': {'type': 'string', 'minLength': 1, 'maxLength': 200}, 'consumer_id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
             'binding_generation': {'type': 'integer', 'minimum': 1}, 'run_id': {'type': 'string', 'minLength': 1, 'maxLength': 200}}
@@ -216,9 +221,9 @@ class WorkflowAttention:
         common = dict(supports_signoff=False, exposure=frozenset({'mcp'}), scope_kinds=frozenset({'global'}),
                       global_capability='read_global_context', resolve_namespace=lambda c, a: 'global')
         self.app.registry.register(OperationDescriptor('attention_workflow_context',
-            schema({**_BINDING, 'task': _TASK, 'intent': {'type': 'string', 'maxLength': 1000}},
+            schema({**_BINDING, 'task': _TASK_ARGUMENT, 'intent': {'type': 'string', 'maxLength': 1000}},
                    ('scope', 'operation', 'operation_id', 'consumer_id', 'binding_generation')),
-            effect_kind='read', read=self.context, **common))
+            effect_kind='read', read=self.context, complete_references=References(Ref(('task',), kind='task')), **common))
         self.app.registry.register(OperationDescriptor('attention_workflow_sync',
             schema({'scope': _BINDING['scope'], 'operation': _BINDING['operation'], 'operation_id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
                     'run_id': _BINDING['run_id'], 'context': _CONTEXT_ENVELOPE},

@@ -424,6 +424,60 @@ class TaskProjectLookupTests(Harness):
                                  'tasks_follow'})
 
 
+class RelatedTaskReferenceTests(Harness):
+    """``tasks_update.changes.related_task`` names the linked Task by its id; its project is found from the id."""
+
+    def link(self, source, target, **options):
+        arguments = {'task_id': source['id'], 'changes': {'related_task': {'task_id': target, 'linked': True}}}
+        with self.db.read() as uow:
+            revision = uow.repository('tasks', project_id=source['project_id']).get(source['id'])['revision']
+        return self.call('tasks_update', arguments, expected_revision=revision, **options)
+
+    def stored(self, task):
+        with self.db.read() as uow:
+            return (uow.repository('tasks', project_id=task['project_id']).get(task['id'])['fields_json'] or {}).get('$task_links')
+
+    def test_a_linked_task_without_a_project_is_stored_with_the_project_that_holds_it(self):
+        source, in_beta, in_global = self.create(self.alpha), self.create(self.beta), self.create(None)
+        for target in (in_beta, in_global):
+            linked = self.link(source, target['id'])
+            self.assertEqual(linked.status, 'ok', linked.to_dict())
+        self.assertEqual(self.stored(source), [{'project_id': self.beta, 'task_id': in_beta['id']},
+                                               {'project_id': None, 'task_id': in_global['id']}])
+
+    def test_the_stored_link_is_the_same_as_when_the_project_is_stated(self):
+        first, second, target = self.create(self.alpha), self.create(self.alpha, 'Second'), self.create(self.beta)
+        self.assertEqual(self.link(first, target['id']).status, 'ok')
+        explicit = {'task_id': second['id'], 'changes': {'related_task': {'task_id': target['id'], 'project_id': self.beta,
+                                                                          'linked': True}}}
+        self.assertEqual(self.call('tasks_update', explicit, expected_revision=second['revision']).status, 'ok')
+        self.assertEqual(self.stored(first), self.stored(second))
+        # Linking again, named either way, is the same link.
+        again = self.link(first, target['id'])
+        self.assertEqual(again.status, 'ok', again.to_dict())
+        self.assertEqual(self.stored(first), [{'project_id': self.beta, 'task_id': target['id']}])
+
+    def test_a_task_cannot_link_to_itself_however_it_is_named(self):
+        task = self.create(self.alpha)
+        self.assertEqual(self.link(task, task['id']).error['code'], 'validation_error')
+
+    def test_a_task_outside_the_reach_is_answered_like_an_unknown_id(self):
+        source, outside = self.create(self.alpha), self.create(self.gamma)
+        unknown = self.link(source, str(uuid4()))
+        self.assertEqual(unknown.status, 'error')
+        hidden = self.link(source, outside['id'])
+        self.assertEqual((hidden.status, hidden.error), (unknown.status, unknown.error))
+        self.assertIsNone(self.stored(source))
+
+    def test_a_stated_project_or_global_is_checked_as_given(self):
+        source, target = self.create(self.alpha), self.create(self.beta)
+        for stated in (None, self.alpha):
+            arguments = {'task_id': source['id'], 'changes': {'related_task': {'task_id': target['id'], 'project_id': stated,
+                                                                               'linked': True}}}
+            self.assertEqual(self.call('tasks_update', arguments, expected_revision=source['revision']).status, 'error', stated)
+        self.assertIsNone(self.stored(source))
+
+
 class TransportLookupTests(Harness):
     """The registered-agent MCP route: the agent's context carries only what the call's options select."""
 

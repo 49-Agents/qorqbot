@@ -377,6 +377,75 @@ class SignoffSourceTests(unittest.TestCase):
         result = self.app.invoke(self.ctx, 'signoffs_source_unlink', args, options)
         self.assertEqual(result.status, 'ok', result.error)
 
+    # -- a source names its record by type and id ----------------------------------------------------------------------
+
+    def links(self):
+        with self.db.read() as uow:
+            return [tuple(row) for row in uow.connection.execute(
+                'SELECT source_type,source_id,source_project_id,source_namespace FROM signoff_source_links ORDER BY source_id')]
+
+    def create_result(self, key, source, ctx=None, **extra):
+        return self.app.invoke(ctx or self.ctx, 'signoffs_input_create', {'scope': 'global', 'request_key': key,
+            'form': self.form, 'source': source, **extra}, {'idempotency_key': new_id()})
+
+    def test_a_source_without_a_project_is_stored_with_the_project_that_holds_the_record(self):
+        for key, identity, project in (('global', 'work', None), ('project', 'project-work', self.project)):
+            stated = {'type': 'task', 'id': identity, 'project_id': project}
+            bare = {'type': 'task', 'id': identity}
+            created = self.create(key, source=bare)
+            self.assertEqual(self.create(key, source=stated)['link'], created['link'])
+        self.assertEqual(self.links(), [('task', 'project-work', self.project, 'project:' + self.project),
+                                        ('task', 'work', None, 'global')])
+        self.assertTrue(self.task()['input_needed'])
+        self.assertTrue(self.task(self.project)['input_needed'])
+
+    def test_the_source_project_does_not_move_the_review_scope_of_the_signoff(self):
+        created = self.create(source={'type': 'task', 'id': 'project-work'})
+        self.assertIsNone(created['signoff']['review_project_id'])
+        scoped = self.invoke('signoffs_input_create', {'request_key': 'in-project', 'form': self.form,
+                                                       'source': {'type': 'task', 'id': 'work'}}, project=self.project)
+        self.assertEqual(scoped['signoff']['review_project_id'], self.project)
+        self.assertEqual(self.links(), [('task', 'project-work', self.project, 'project:' + self.project),
+                                        ('task', 'work', None, 'global')])
+
+    def test_a_stated_project_or_global_is_checked_as_given(self):
+        for source in ({'type': 'task', 'id': 'work', 'project_id': self.project},
+                       {'type': 'task', 'id': 'project-work', 'project_id': None}):
+            self.assertEqual(self.create_result('wrong', source).status, 'error', source)
+        self.assertEqual(self.links(), [])
+
+    def test_a_record_outside_the_reach_is_answered_like_an_unknown_id(self):
+        outside = replace(self.ctx, allowed_project_ids=frozenset())
+        unknown = self.create_result('unknown', {'type': 'task', 'id': 'nothing'}, outside)
+        hidden = self.create_result('hidden', {'type': 'task', 'id': 'project-work'}, outside)
+        self.assertEqual(unknown.status, 'error')
+        self.assertEqual(hidden.error, unknown.error)
+        self.assertEqual(self.links(), [])
+
+    def test_linking_and_unlinking_take_a_source_without_a_project(self):
+        bare = {'type': 'task', 'id': 'project-work'}
+        row = self.create(source=False, response_policy='owner_only')['signoff']
+        linked = self.invoke('signoffs_source_link', {'source': bare, 'signoff_id': row['id']})
+        self.assertEqual(self.links(), [('task', 'project-work', self.project, 'project:' + self.project)])
+        again = self.invoke('signoffs_source_link', {'source': {**bare, 'project_id': self.project}, 'signoff_id': row['id']})
+        self.assertEqual(again, linked)
+        self.invoke('signoffs_source_unlink', {'source': bare, 'signoff_id': row['id'], 'link_id': linked['link']['id'],
+                                               'expected_link_revision': linked['link']['revision']})
+        self.assertEqual(self.links(), [])
+
+    def test_each_kind_of_source_is_completed_its_own_way(self):
+        completion = self.registry.get('signoffs_input_create').complete_references
+        sources = [{'type': 'project', 'id': self.project}, {'type': 'project', 'id': new_id()},
+                   {'type': 'reference', 'id': 'conversation:1'}, {'type': 'task', 'id': 'project-work'}]
+        with self.db.read() as uow:
+            done = plain(completion(self.app, self.ctx, {'source': sources[0]}, uow))['source']
+            others = [plain(completion(self.app, self.ctx, {'source': source}, uow))['source'] for source in sources[1:]]
+        self.assertEqual(done, {**sources[0], 'project_id': self.project})
+        self.assertEqual([source['project_id'] for source in others], [None, None, self.project])
+        for operation in ('signoffs_input_create', 'signoffs_source_link', 'signoffs_source_unlink'):
+            self.assertIsNotNone(self.registry.get(operation).complete_references, operation)
+            self.assertNotIn('project_id', self.registry.get(operation).input_schema['properties']['source']['required'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -29,6 +29,7 @@ from qorqut_operations.discussion.threads import (AUDIENCE, BODY, FOR_OWNER, REL
 from qorqut_operations.global_agents import global_agent_ids, is_global_agent
 from qorqut_operations.items import ItemResolver
 from qorqut_operations.relationships import create_edge, related_rows
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.storage.assembly import AssemblyError
 from qorqut_operations.tags.catalog import LABELS_SCHEMA, distinct_labels, label_key, plan_item_tags
 from qorqut_operations.tasks import customers, events, lifecycle, links
@@ -206,6 +207,10 @@ class TaskOperations:
                 options = {**common, "description": lifecycle.DELEGATE}
             if "task_id" in properties:
                 options = {**options, "locate_scope": self.lookup, "description": options["description"] + LOCATED}
+            if name == "tasks_update":
+                # The linked Task is named by its id; its project is found from the id.
+                options = {**options, "complete_references": References(
+                    Ref(("changes", "related_task"), kind="task", id_key="task_id"))}
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties, "rationale": TEXT}, required), **options,
                 normalize_arguments=normalize_arguments if name in {"tasks_create", "tasks_update"} else None,

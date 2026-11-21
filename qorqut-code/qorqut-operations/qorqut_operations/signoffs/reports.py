@@ -18,7 +18,7 @@ from qorqut_operations.storage.specs import TableSpec
 
 TABLE = 'signoff_report_tasks'
 REPORT_TASK = schema({'id': {'type': 'string', 'minLength': 1, 'maxLength': 300},
-    'project_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('id', 'project_id'))
+    'project_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('id',))
 SCHEMA = (
     '''CREATE TABLE signoff_report_tasks (
  signoff_id TEXT PRIMARY KEY REFERENCES signoffs(id),
