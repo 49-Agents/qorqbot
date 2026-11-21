@@ -82,6 +82,13 @@ function globalChatReadable(agentId) {
   return !!scroll && scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 48;
 }
 const GLOBAL_CHAT_PAGE = 50;
+// The record thread the Chat area shows now (null: none). The record reader's thread button (js/record-workspace.js) follows it.
+let globalChatPaired = null;
+function globalChatPairedSource() { return globalChatPaired; }
+function globalChatPairedNotify(source) {
+  globalChatPaired = source ? {type: source.type, id: source.id, business_id: source.business_id ?? null} : null;
+  window.dispatchEvent(new CustomEvent('global-chat-paired', {detail: globalChatPaired}));
+}
 const GLOBAL_CHAT_MAX = 17000;
 // Refusals store no input; any other failure leaves the outcome unknown and keeps the send identity.
 const GLOBAL_CHAT_REFUSALS = new Set(['capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
@@ -843,6 +850,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     t.dead = true;
     for (const fn of t.cleanups.splice(0)) { try { fn(); } catch (_) { /* one cleanup cannot stop the others */ } }
     if (takeover === t) takeover = null;
+    if (t.kind === 'paired') globalChatPairedNotify(null);
   }
   function restoreChat() {
     if (disposed) return;
@@ -906,6 +914,7 @@ function mountGlobalChat(pane, agent, options = {}) {
         openReference: ref => onReference?.(ref),
       });
       pairedConversation?.expand?.();
+      globalChatPairedNotify(source);
       return true;
     },
     pairedCanLeave() { return pairedConversation?.canLeave?.() !== false; },

@@ -25,20 +25,20 @@ const HISTORY={entries:[
 test('the state shows goal, decisions, facts, progress and open questions with blocking marked, all escaped',()=>{
   const {api}=load();
   const html=api.timelineHtml(DATA,{});
-  for(const text of ['What holds now','Pay every creator.','One provider &lt;only&gt;.','The hold was cleared.','9 of 14 paid.','15 Nov','Dollars or local currency?','Which month next?'])
+  for(const text of ['Pay every creator.','One provider &lt;only&gt;.','The hold was cleared.','9 of 14 paid.','15 Nov','Dollars or local currency?','Which month next?'])
     assert.ok(html.includes(text),text);
-  assert.equal(html.includes('<only>'),false);
+  assert.equal(html.includes('<only>'),false);assert.equal(/holds now|tlp-title/.test(html),false);
   assert.equal((html.match(/Blocks work/g)||[]).length,1);
   assert.ok(html.indexOf('Blocks work')<html.indexOf('Dollars or local'));
   assert.ok(html.includes('data-tlp-switch'));assert.ok(html.includes('>History<'));
 });
-test('an item with no timeline shows nothing, and one with only removed entries says nothing holds now',()=>{
+test('an item with no timeline shows nothing, and one with only removed entries says nothing is current',()=>{
   const {api}=load();
   const none={goal:null,decisions:[],facts:[],progress:null,questions:[]};
   assert.equal(api.timelineHtml({...DATA,state:none,revision:0},{}),'');
   assert.equal(api.timelineHtml(null,{}),'');
   const gone=api.timelineHtml({...DATA,state:none,revision:3},{});
-  assert.ok(gone.includes('Nothing holds now.'));assert.ok(gone.includes('data-tlp-switch'));
+  assert.ok(gone.includes('Nothing current.'));assert.ok(gone.includes('data-tlp-switch'));
 });
 test('the history lists every entry oldest first, strikes removed ones with what removed them and shows the quoted words',()=>{
   const {api}=load();
@@ -101,10 +101,11 @@ test('the history error clears on a later success, and a failed context reload s
   assert.equal(el.hidden,false);assert.ok(el.innerHTML.includes('tlp-error'));assert.equal(el.innerHTML.includes('Pay every creator.'),false);assert.equal(el.innerHTML.includes('Old way.'),false);
   panel.update(DATA);assert.equal(el.innerHTML.includes('tlp-error'),false);assert.ok(el.innerHTML.includes('Pay every creator.'));
 });
-test('a Global Task reaches the panel with an explicit null business',()=>{
-  const conversation=read('conversation.js');
-  assert.match(conversation,/type:'task',id:source\.id,business_id:recordSource\.business_id \?\? null/);
-  assert.match(conversation,/timelinePanel\?\.fail\(\)/);
+test('the record reader owns the timeline: a Global Task is read with an explicit null business, and a thread carries no timeline',()=>{
+  const reader=read('record-workspace.js');
+  assert.match(reader,/type: 'task', id: source\.id, business_id: source\.business_id \?\? null/);
+  assert.match(reader,/item\.timeline\.fail\(\)/);
+  assert.equal(/timelinePanel/.test(read('conversation.js')),false);
 });
 function host() {
   const h={hidden:true,innerHTML:'',handlers:{},addEventListener(type,fn){this.handlers[type]=fn;},setAttribute(){},contains:()=>true,replaceChildren(){this.innerHTML='';}};
@@ -164,9 +165,9 @@ test('open questions are question Signoffs in the sign-off strip, with their own
   assert.equal(fs.existsSync(require.resolve('../index.html').replace('index.html','js/agent-questions.js')),false);
 });
 test('the pane has no separate questions view, and the panel and block are wired',()=>{
-  const pane=read('agentpane.js'),conversation=read('conversation.js'),globalChat=read('global-chat.js');
+  const pane=read('agentpane.js'),conversation=read('conversation.js'),globalChat=read('global-chat.js'),reader=read('record-workspace.js');
   assert.doesNotMatch(pane,/"questions"/);assert.doesNotMatch(pane,/agentQuestionsMount|agentQuestionsTick/);
-  assert.match(conversation,/timelinePanelMount\(timelineEl/);assert.match(conversation,/timelinePanel\?\.update\(/);
+  assert.match(reader,/timelinePanelMount\(panel/);assert.match(reader,/item\.timeline\.update\(data\)/);assert.doesNotMatch(conversation,/timelinePanelMount/);
   assert.doesNotMatch(globalChat,/globalTimelineBlockMount\(/);
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   for(const asset of ['/js/timeline-panel.js','/css/timeline-panel.css'])assert.ok(html.includes(asset),asset);

@@ -5,9 +5,11 @@ Focus uses the shared record workspace: `recordWorkspaceMount(host, options)` in
 from Focus expands it in the board below the persistent launcher row, filling the board's
 height, and shows exactly one full-width pane:
 
+- **Timeline** — the timeline of a Task or a Project (`js/timeline-panel.js`). This is the
+  tab an ordinary Task and a Project open on. A Story, Customer or Email opens on its own page.
 - **Chat** — the record's existing private Ordubashy conversation
-  (`js/conversation.js` → `js/chat-view.js`). This is the fresh-selection default for
-  every source that has a private thread: Task, Story, Signoff, Reference and Project.
+  (`js/conversation.js` → `js/chat-view.js`). It is a tab only where no Chat area sits
+  beside the workspace, and the default there for a record with a thread and no timeline.
 - **Dashboard** — the icon tab named for the record type (`Story dashboard`,
   `Signoff dashboard`, `Project dashboard`, …). Selecting it replaces the chat area; the
   panes are never side by side.
@@ -18,12 +20,13 @@ height, and shows exactly one full-width pane:
 
 The Focus header leads with a pill Close (the same control a Browser/Desktop surface
 carries), then Back, the canonical title, a pin button (only when the source has a
-private thread; it pins that thread to Focus's launcher row), the record-type icon tab,
-the Chat icon tab (only when the source has a private thread), and an Activity icon tab
-for task-backed records. When the main Chat sits beside Focus, a record with a private
-thread opens paired instead: its thread takes over that Chat area (with "‹ Chat" and the
-title above it), the workspace shows the dashboard with no Chat tab, and closing either
-side closes both.
+private thread; it pins that thread to Focus's launcher row), the Timeline icon tab, the
+record-type icon tab (a folder for a Project), and an Activity icon tab for task-backed
+records. When the main Chat sits beside Focus there is no Chat tab: a thread button after
+the tabs shows the record's thread in that Chat area (with "‹ Chat" and the title above
+it) and, pressed again, hands the area back to the main conversation. The button stays
+pressed while that thread is shown (`globalChatPairedSource` and the `global-chat-paired`
+event in `js/global-chat.js`). Elsewhere the Chat icon tab follows the record-type tab.
 Elsewhere the workspace keeps Close as its trailing icon. A record with no thread (an
 email reading, table, document or generic reference) opens its reader directly and has
 no Chat tab. Related records open in the same workspace on a bounded stack (20 entries), so Back
@@ -82,11 +85,11 @@ private conversation.
 
 ## Timeline panel
 
-A Task or Project thread shows a panel above its messages (`js/timeline-panel.js`, mounted by `js/conversation.js`, read-only). It shows what holds now: the latest goal, every decision and fact not removed, the latest progress note and the open questions, blocking ones marked. A goal or progress note that was removed shows nothing. An item that never had a timeline shows no panel.
+A Task or Project shows its timeline in the workspace's Timeline tab (`js/timeline-panel.js`, mounted by `mountTimeline` in `js/record-workspace.js`, read-only, read from `timeline_view` each time the tab is shown). A thread shows no timeline. The panel has no heading. It shows the current state: the latest goal, every decision and fact not removed, the latest progress note and the open questions, blocking ones marked. A goal or progress note that was removed shows nothing. An item that never had a timeline shows "Nothing on the timeline yet.".
 
-The History switch lists every entry oldest first. A removed entry is struck through (from the server's `removed_by`, so it is marked before the page with its removal has loaded) and shows what removed it. The owner's quoted words show on every entry that has them, removals included. Below the entries, Closed questions lists each answered or dropped question, with the answering entry's text when that entry is loaded, followed by the item's subtasks, approvals and reports; a link without a title reads "Approval" or "Report". Subtasks open their own thread. More entries load on request. A failed history load shows one error line that clears on the next success; a failed reload of the thread context replaces the panel with that error line until the next successful read.
+The History switch lists every entry oldest first. A removed entry is struck through (from the server's `removed_by`, so it is marked before the page with its removal has loaded) and shows what removed it. The owner's quoted words show on every entry that has them, removals included. Below the entries, Closed questions lists each answered or dropped question, with the answering entry's text when that entry is loaded, followed by the item's subtasks, approvals and reports; a link without a title reads "Approval" or "Report". Subtasks open in the same workspace. More entries load on request. A failed history load shows one error line that clears on the next success; a failed read of the timeline replaces the panel with that error line until the next successful read.
 
-Global has the same panel as a block above Ordubashy's main chat (`globalTimelineBlockMount` in `js/workflow-panel.js`), read at most every 20 seconds and hidden when empty.
+`globalTimelineBlockMount` in `js/workflow-panel.js` is the same panel for Global, read at most every 20 seconds and hidden when empty. No screen mounts it now.
 
 ## Chat behavior
 
