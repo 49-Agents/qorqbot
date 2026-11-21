@@ -175,6 +175,9 @@ function recordWorkspaceMount(host, options = {}) {
   const recordsHost = rwNode('div', 'rw-records');
   host.append(recordsHost);
   let stack = [], disposed = false, pendingEviction = false;
+  // The Chat area that shows record threads: this window's, or the parent's when Focus runs in its frame.
+  const chatWindow = (() => { try { return window.parent !== window && typeof window.parent.globalChatPairedSource === 'function' ? window.parent : window; } catch (_) { return window; } })();
+  chatWindow.addEventListener?.('global-chat-paired', onPairedThread);
   const api = {
     open, navigate, back, close, dispose, current, refresh, hasUnsaved, updateTitle, isOpen: () => stack.length > 0,
     entry, root: () => stack[0] || null, alive: () => !disposed, replace, invalidate, parentTable: () => {
@@ -269,9 +272,25 @@ function recordWorkspaceMount(host, options = {}) {
   }
   function entry() { return stack[stack.length - 1] || null; }
   function current() { const item = entry(); return item && item.alive ? item.record : null; }
+  // A Task or a Project has a timeline, and its reader opens on it. Story, Customer and Email records open on their own page.
+  function timelineItem(record) {
+    const source = record?.source || {};
+    if (record?.scopeMissing || typeof timelinePanelMount !== 'function') return null;
+    if (source.type === 'task') return {type: 'task', id: source.id, business_id: source.business_id ?? null};
+    if (source.type === 'project') return {type: 'project', id: source.id, business_id: source.id};
+    return null;
+  }
+  function defaultTab(record) {
+    if (timelineItem(record) && !taskTypeIcon(record.task_type || record.source?.task_type)) return 'timeline';
+    return options.paired || !record.can_thread ? 'dashboard' : 'chat';
+  }
+  // The Project page's tab is a folder; every other record keeps its type icon.
+  function tabTypeIcon(record) { return (record.source?.type === 'project' && T_VIEW_ICON.files) || rwTypeIcon(record); }
+  function pairedNow() { try { return chatWindow.globalChatPairedSource?.() || null; } catch (_) { return null; } }
+  function onPairedThread() { for (const item of stack) paintOpenThread(item); }
   function makeEntry(record) {
     const item = {
-      record, alive: true, tab: options.paired ? 'dashboard' : record.can_thread ? 'chat' : 'dashboard', dashboardLoaded: false, dashboard: null,
+      record, alive: true, tab: defaultTab(record), dashboardLoaded: false, dashboard: null,
       scroll: 0, recordEl: null, dashHost: null, chatHost: null, chat: null,
     };
     item.recordEl = rwNode('article', 'rw-record');
@@ -286,18 +305,20 @@ function recordWorkspaceMount(host, options = {}) {
       <button type="button" class="quiet rw-back" aria-label="Back" hidden>← Back</button>
       <span class="rw-context" hidden>CRM /</span><span class="rw-title" role="heading" aria-level="2"></span>
       <button type="button" class="quiet rw-move" hidden>Move to project…</button>
-      <button type="button" class="quiet rw-open-thread" hidden>Open thread</button>
       <button type="button" class="quiet rw-pin" aria-pressed="false" hidden>${RW_PIN_ICON}</button>
-      <div class="rw-tabs" role="tablist" aria-label="Record views"></div>${closeIcon}
-    </header><div class="rw-body"><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0"></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
+      <div class="rw-tabs" role="tablist" aria-label="Record views"></div>
+      <button type="button" class="quiet rw-open-thread" aria-pressed="false" hidden>${RW_CHAT_ICON}</button>${closeIcon}
+    </header><div class="rw-body"><div class="rw-pane rw-timeline" role="tabpanel" tabindex="0" hidden><section class="tlp" aria-label="Timeline" hidden></section><p class="muted rw-timeline-empty" hidden>Nothing on the timeline yet.</p></div><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
     item.dashHost = item.recordEl.querySelector('.rw-dashboard');
     item.chatHost = item.recordEl.querySelector('.rw-chat');
     item.activityHost = item.recordEl.querySelector('.rw-activity');
+    item.timelineHost = item.recordEl.querySelector('.rw-timeline');
     item.conversationHost = item.recordEl.querySelector('.rw-conversation');
     item.panelId = 'rw-' + (++rwPanelSequence);
     item.dashHost.id = item.panelId + '-dashboard';
     item.chatHost.id = item.panelId + '-chat';
     item.activityHost.id = item.panelId + '-activity';
+    item.timelineHost.id = item.panelId + '-timeline';
     item.tabs = item.recordEl.querySelector('.rw-tabs');
     item.tabs.innerHTML = tabsHtml(record, item);
     // The record title is the canonical label; Project cards never use a Focus display-name override.
@@ -313,7 +334,11 @@ function recordWorkspaceMount(host, options = {}) {
       const button = item.openThreadButton;
       if (button.disabled) return;
       button.disabled = true;
-      try { await openOwnThread(item); }
+      try {
+        // Pressed: the Chat area shows this thread, and the button takes it back to the main chat.
+        if (button.getAttribute('aria-pressed') === 'true') await options.onPairedSource?.(null, null);
+        else await openOwnThread(item);
+      }
       catch (error) { toast(error.message || 'This thread is unavailable.'); }
       finally { if (item.alive) button.disabled = false; }
     };
@@ -326,13 +351,14 @@ function recordWorkspaceMount(host, options = {}) {
       tab.onclick = () => selectTab(item, tab.dataset.rwTab);
       tab.onkeydown = event => tabKey(item, event);
     });
-    if (item.tab === 'dashboard') item.dashHost.hidden = false; else item.chatHost.hidden = false;
+    for (const [name, pane] of [['timeline', item.timelineHost], ['dashboard', item.dashHost], ['chat', item.chatHost], ['activity', item.activityHost]]) pane.hidden = item.tab !== name;
     item.recordEl.dataset.tab = item.tab;
     return item;
   }
   function tabsHtml(record, item) {
     const tabs = [];
-    tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="dashboard" id="${item.dashHost.id}-tab" aria-controls="${item.dashHost.id}" aria-label="${rwEsc(rwTypeLabel(record))} dashboard" title="${rwEsc(rwTypeLabel(record))} dashboard">${rwTypeIcon(record)}</button>`);
+    if (timelineItem(record)) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="timeline" id="${item.timelineHost.id}-tab" aria-controls="${item.timelineHost.id}" aria-label="Timeline" title="Timeline">${T_VIEW_ICON.timeline || ''}</button>`);
+    tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="dashboard" id="${item.dashHost.id}-tab" aria-controls="${item.dashHost.id}" aria-label="${rwEsc(rwTypeLabel(record))} dashboard" title="${rwEsc(rwTypeLabel(record))} dashboard">${tabTypeIcon(record)}</button>`);
     if (record.can_thread && !options.paired) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="chat" id="${item.chatHost.id}-tab" aria-controls="${item.chatHost.id}" aria-label="Chat" title="Chat">${RW_CHAT_ICON}</button>`);
     if (record.source.type === 'task') tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="activity" id="${item.activityHost.id}-tab" aria-controls="${item.activityHost.id}" aria-label="Activity" title="Activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.7-6.4L3 8M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></button>`);
     return tabs.join('');
@@ -356,7 +382,7 @@ function recordWorkspaceMount(host, options = {}) {
     if (!tab) return;
     tab.setAttribute('aria-label', rwTypeLabel(item.record) + ' dashboard');
     tab.title = rwTypeLabel(item.record) + ' dashboard';
-    tab.innerHTML = rwTypeIcon(item.record);
+    tab.innerHTML = tabTypeIcon(item.record);
     paintMove(item);
   }
   // Move to project belongs to a saved ordinary Task, Story or Customer; its scope is the record's own canonical business_id.
@@ -582,6 +608,7 @@ function recordWorkspaceMount(host, options = {}) {
     if (!options.paired) mountChat(item);
     if (item.tab === 'chat') { showChat(item); void item.chat?.refresh?.(); }
     if (item.tab === 'activity') mountActivity(item);
+    if (item.tab === 'timeline') mountTimeline(item);
     options.onTitleChange?.(item.record);
     syncChatVisibility();
   }
@@ -590,7 +617,7 @@ function recordWorkspaceMount(host, options = {}) {
     paintTabs(item);
     paintBack();
     if (tab) item.tab = tab;
-    else if (item.tab === 'chat' && (!item.record.can_thread || options.paired)) item.tab = 'dashboard';
+    else if (item.tab === 'chat' && (!item.record.can_thread || options.paired)) item.tab = defaultTab(item.record);
     selectTab(item, item.tab, {initial: true});
     options.onTitleChange?.(item.record);
   }
@@ -612,8 +639,15 @@ function recordWorkspaceMount(host, options = {}) {
     if (item.report) return item.reportThread;
     return item.record?.can_thread ? item.record : null;
   }
+  // The thread button shows or hides this record's thread in the Chat area, and stays pressed while it is shown there.
   function paintOpenThread(item) {
-    if (item.openThreadButton) item.openThreadButton.hidden = !(options.paired && options.independentChat && threadRecord(item));
+    const button = item.openThreadButton;
+    if (!button) return;
+    const thread = threadRecord(item), shown = pairedNow();
+    button.hidden = !(options.paired && options.independentChat && thread);
+    const on = !!thread && !!shown && rwSourceKey(shown) === rwSourceKey(thread.source);
+    const label = on ? 'Hide thread' : 'Show thread';
+    button.setAttribute('aria-pressed', String(on)); button.setAttribute('aria-label', label); button.title = label;
   }
   function openOwnThread(item) {
     const thread = threadRecord(item);
@@ -668,6 +702,8 @@ function recordWorkspaceMount(host, options = {}) {
     item.chatMounted = false;
     try { item.activity?.dispose(); } catch (_) { /* idem */ }
     item.activity = null;
+    try { item.timeline?.dispose(); } catch (_) { /* idem */ }
+    item.timeline = null;
     const focusedOutside = !item.recordEl.contains(document.activeElement);
     item.recordEl.remove();
     if (!focusedOutside) entry()?.tabs.querySelector('[data-rw-tab]')?.focus({preventScroll: true});
@@ -679,12 +715,14 @@ function recordWorkspaceMount(host, options = {}) {
     if (!item?.recordEl || item.recordEl.hidden) return;
     if (!item.dashHost?.hidden) item.scroll = item.dashHost?.scrollTop || 0;
     if (!item.activityHost?.hidden) item.activityScroll = item.activityHost?.scrollTop || 0;
+    if (!item.timelineHost?.hidden) item.timelineScroll = item.timelineHost?.scrollTop || 0;
   }
   function restoreScroll(item) {
     if (!item?.dashHost) return;
     // A hidden/detached pane can lose its scroll position; restore the retained value when shown.
     item.dashHost.scrollTop = item.scroll || 0;
     if (!item.activityHost?.hidden) item.activityHost.scrollTop = item.activityScroll || 0;
+    if (!item.timelineHost?.hidden) item.timelineHost.scrollTop = item.timelineScroll || 0;
   }
   async function back() {
     if (disposed || stack.length < 2) return false;
@@ -744,6 +782,7 @@ function recordWorkspaceMount(host, options = {}) {
     if (item?.alive) {
       item.chat?.refresh?.();
       if (item.tab === 'activity') item.activity?.refresh();
+      if (item.tab === 'timeline') mountTimeline(item);
     }
   }
   function updateTitle(record) {
@@ -764,6 +803,7 @@ function recordWorkspaceMount(host, options = {}) {
   function dispose() {
     if (disposed) return;
     disposed = true;
+    try { chatWindow.removeEventListener?.('global-chat-paired', onPairedThread); } catch (_) { /* the parent window is gone */ }
     clearEntries();
     host.replaceChildren();
     host.classList.remove('rw');
@@ -773,7 +813,8 @@ function recordWorkspaceMount(host, options = {}) {
   function selectTab(item, tab, {initial = false, restore = false} = {}) {
     if (!item?.alive) return;
     if (tab === 'activity' && item.record.source.type !== 'task') tab = 'dashboard';
-    if (tab === 'chat' && (!item.record.can_thread || options.paired)) tab = 'dashboard';
+    if (tab === 'timeline' && !timelineItem(item.record)) tab = 'dashboard';
+    if (tab === 'chat' && (!item.record.can_thread || options.paired)) tab = defaultTab(item.record);
     // A hidden dashboard is at scrollTop 0; never let the return toggle overwrite its saved position.
     if (!restore) captureScroll(item);
     const previous = item.tab;
@@ -782,6 +823,7 @@ function recordWorkspaceMount(host, options = {}) {
     item.dashHost.hidden = tab !== 'dashboard';
     item.chatHost.hidden = tab !== 'chat';
     item.activityHost.hidden = tab !== 'activity';
+    item.timelineHost.hidden = tab !== 'timeline';
     const dashTab = item.tabs.querySelector('[data-rw-tab="dashboard"]');
     if (dashTab) dashTab.setAttribute('aria-selected', String(tab === 'dashboard'));
     paintTabs(item);
@@ -795,6 +837,7 @@ function recordWorkspaceMount(host, options = {}) {
       showChat(item);
     } else if (previous === 'chat' || item.chat) collapseChat(item);
     if (tab === 'activity') { mountActivity(item); restoreScroll(item); }
+    if (tab === 'timeline') { mountTimeline(item); restoreScroll(item); }
     syncChatVisibility();
     options.onToggleTab?.(tab);
   }
@@ -805,6 +848,26 @@ function recordWorkspaceMount(host, options = {}) {
   }
   function collapseChat(item) {
     item.chat?.collapse?.();
+  }
+
+  // The timeline pane: the shared panel (js/timeline-panel.js), read again each time the pane is shown.
+  function mountTimeline(item) {
+    const target = item?.alive ? timelineItem(item.record) : null;
+    if (!target) return;
+    const read = async extra => coreData(await post('/root/operations/timeline_view', {scope: 'global', item: target, ...extra}));
+    const panel = item.timelineHost.querySelector('.tlp'), none = item.timelineHost.querySelector('.rw-timeline-empty');
+    item.timeline ||= timelinePanelMount(panel, {
+      readHistory: args => read({history: true, limit: 50, ...args}),
+      openTask: ref => { const task = rwRecordFromItem({source: {type: 'task', id: ref.id, business_id: ref.business_id || null}}); if (task) void navigate(task); },
+    });
+    const mine = item.timelineRead = (item.timelineRead || 0) + 1;
+    read().then(data => {
+      if (!item.alive || mine !== item.timelineRead) return;
+      item.timeline.update(data); none.hidden = !timelineEmpty(data);
+    }, () => {
+      if (!item.alive || mine !== item.timelineRead) return;
+      item.timeline.fail(); none.hidden = true;
+    });
   }
 
   function mountActivity(item) {
@@ -1024,6 +1087,7 @@ function recordWorkspaceMount(host, options = {}) {
     try { item.dashHost?.replaceChildren(); } catch (_) {}
     try { item.conversationHost?.replaceChildren(); } catch (_) {}
     item.activityHost?.replaceChildren();
+    item.timelineHost?.replaceChildren();
     item.record = null;
     if (!stack.length) { dispose(); options.onClose?.(); return; }
     if (wasTop) reveal();
@@ -1971,7 +2035,7 @@ async function rwProjectDashboard(host, record, ctx) {
     open.setAttribute('aria-label', [item.label, scope, item.state].filter(Boolean).join(', '));
     open.onclick = () => {
       const target = rwRecordFromProjectItem(item, project);
-      if (target) void ctx.navigate(target, {tab: target.can_thread ? 'chat' : 'dashboard'});
+      if (target) void ctx.navigate(target);
     };
     row.append(open);
     if (item.association?.linked && item.association?.link_id) {

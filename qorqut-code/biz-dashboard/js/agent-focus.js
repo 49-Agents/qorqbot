@@ -93,7 +93,7 @@ async function agfocusOpenTarget(p,target,{root=true,paired,parentTable=null}={}
   if (p.surface) { await agpadSurfaceClose(p); if (p.surface || _agpad !== p) return false; }
   const record=rwRecordFromItem(target,{can_thread:target?.can_thread});
   if(!record)throw new Error('This item is no longer available.');
-  // A record with a private thread keeps its details here; Open thread explicitly selects the left chat.
+  // A record with a private thread keeps its details here; its thread button shows or hides the thread in the left chat.
   if(paired===undefined)paired=target?._workKind==='crm' || (!!record.can_thread && agfocusLeftChatReady());
   if(!await agfocusWorkspaceMode(p,paired))return false;
   agfocusShowDock(p);
@@ -240,7 +240,7 @@ async function agfocusOpenTaskLink(p,url) {
     if(!record || record.scopeMissing)throw new Error('missing');
     if(!await agfocusWorkspaceMode(p,false))return;
     agfocusShowDock(p);
-    await p.focusWorkspace?.open(record,{root:true,tab:'dashboard'});
+    await p.focusWorkspace?.open(record,{root:true});
   } catch(error){
     // The ordinary unavailable state: no identity or cached data from the link is repeated.
     if(agpadActive(p)){p.focusError=p.focusLinkError='This record is unavailable.';agfocusPaint(p);}

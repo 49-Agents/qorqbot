@@ -1,4 +1,4 @@
-// What holds now on a Task, a Project or Global: goal, decisions, facts, latest progress and open questions, with a History
+// The timeline of a Task, a Project or Global: goal, decisions, facts, latest progress and open questions, with a History
 // switch that shows every entry (removed ones struck, the owner's quoted words, links to subtasks, approvals and reports).
 // Read-only: only Ordubashy writes timelines. An item with no timeline shows nothing.
 const TIMELINE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -8,7 +8,7 @@ function timelineDay(stamp) {
   const match = /^\d{4}-(\d\d)-(\d\d)/.exec(String(stamp || ''));
   return match && TIMELINE_MONTHS[Number(match[1]) - 1] ? `${Number(match[2])} ${TIMELINE_MONTHS[Number(match[1]) - 1]}` : '';
 }
-// True when nothing holds now and nothing was ever filed.
+// True when nothing is current and nothing was ever filed.
 function timelineEmpty(data) {
   const s = data?.state;
   return !s || !(s.goal || s.decisions?.length || s.facts?.length || s.progress || s.questions?.length || data.revision > 0);
@@ -16,7 +16,7 @@ function timelineEmpty(data) {
 const timelineStanding = state => !!(state.goal || state.decisions?.length || state.facts?.length || state.progress || state.questions?.length);
 const timelineLine = row => `<li>${timelineEsc(row.text)}${timelineDay(row.created_at) ? ` <span class="tlp-day">${timelineEsc(timelineDay(row.created_at))}</span>` : ''}</li>`;
 function timelineStateHtml(state) {
-  if (!timelineStanding(state)) return '<p class="tlp-none">Nothing holds now.</p>';
+  if (!timelineStanding(state)) return '<p class="tlp-none">Nothing current.</p>';
   const list = (label, rows) => rows?.length ? `<section class="tlp-block"><h4>${label}</h4><ul>${rows.map(timelineLine).join('')}</ul></section>` : '';
   const one = (label, row) => row ? `<section class="tlp-block"><h4>${label}</h4><p>${timelineEsc(row.text)}${timelineDay(row.created_at) && label === 'Progress' ? ` <span class="tlp-day">${timelineEsc(timelineDay(row.created_at))}</span>` : ''}</p></section>` : '';
   const questions = state.questions?.length ? `<section class="tlp-block"><h4>Open questions</h4><ul>${state.questions.map(q =>
@@ -54,7 +54,7 @@ function timelineHistoryHtml(history) {
 function timelineHtml(data, view = {}) {
   if (timelineEmpty(data)) return view.error ? `<p class="tlp-error" role="alert">${timelineEsc(view.error)}</p>` : '';
   const open = !!view.open;
-  return `<div class="tlp-head"><h3 class="tlp-title">What holds now</h3><button type="button" class="quiet tlp-switch" data-tlp-switch aria-pressed="${open}">${open ? 'Hide history' : 'History'}</button></div>`
+  return `<div class="tlp-head"><button type="button" class="quiet tlp-switch" data-tlp-switch aria-pressed="${open}">${open ? 'Hide history' : 'History'}</button></div>`
     + (open ? (view.history ? timelineHistoryHtml(view.history) : view.error ? '' : '<p class="tlp-none">Loading…</p>') : timelineStateHtml(data.state))
     + (view.error ? `<p class="tlp-error" role="alert">${timelineEsc(view.error)}</p>` : '');
 }
@@ -99,10 +99,10 @@ function timelinePanelMount(host, {readHistory, openTask} = {}) {
       paint();
       if (open && changed) void load(false);
     },
-    // The thread context could not be read again: show the panel's own error line, not the old content.
+    // The timeline could not be read again: show the panel's own error line, not the old content.
     fail(message) {
       data = null; history = null; open = false; error = ''; generation++;
-      contextError = message || "Couldn't load what holds now. Try again";
+      contextError = message || "Couldn't load the timeline. Try again";
       paint();
     },
     dispose() { disposed = true; generation++; host.replaceChildren(); host.hidden = true; },
