@@ -41,7 +41,7 @@ class CoordinatorReach(unittest.TestCase):
                     'agent_id': identity, 'principal_id': identity, 'name': name,
                     'workspace': str(root / name), 'status': status,
                     'profile_json': {'name': name, 'status': status, 'runtime': 'claude-code', 'role': {'id': role},
-                        'scope': {'kind': 'ecosystem', 'allowed_project_ids': [],
+                        'scope': {'kind': 'ecosystem',
                                   'global_capabilities': ['read_global_context', 'manage_delegated_assignments']}}})
             uow.repository('installation').insert({'id': 'service', 'installation_id': new_id(),
                 'owner_principal_id': self.owner, 'management_coordinator_id': self.ids['coordinator']})
@@ -116,8 +116,42 @@ class CoordinatorReach(unittest.TestCase):
 
     def agent_context(self):
         def profile(principal, connection=None):
-            return NS(data={'status': 'active'}, scope=NS(kind='ecosystem', projects=frozenset())), None
+            return NS(data={'status': 'active'}, scope=NS(kind='ecosystem')), None
         return AgentContext(NS(), NS(profile=profile))
+
+    def projects(self):
+        """One active and one archived project."""
+        active, archived = new_id(), new_id()
+        with self.database.transaction() as uow:
+            for identity, slug in ((active, 'open'), (archived, 'closed')):
+                uow.repository('projects').insert({'id': identity, 'slug': slug, 'name': slug.title(), 'workspace': slug})
+            uow.connection.execute('UPDATE projects SET archived_at=? WHERE id=?', (STAMP, archived))
+        return active, archived
+
+    def test_a_worker_is_inspected_in_an_active_project_and_never_in_an_archived_one(self):
+        reader, (active, archived) = self.agent_context(), self.projects()
+        with self.database.read() as uow:
+            def selected(project):
+                return self.context('coordinator', project_id=project, allowed_project_ids=frozenset({active, archived}))
+            self.assertEqual(reader.access(selected(active), {'agent_id': self.ids['worker']}, uow), self.ids['worker'])
+            self.assertEqual(self.refused(lambda: reader.access(selected(archived), {'agent_id': self.ids['worker']}, uow)),
+                             'forbidden')
+            # A project outside the caller's own reach is refused even though the worker reaches it.
+            outside = self.context('coordinator', project_id=active, allowed_project_ids=frozenset())
+            self.assertEqual(self.refused(lambda: reader.access(outside, {'agent_id': self.ids['worker']}, uow)), 'forbidden')
+
+    def test_the_global_context_lists_every_active_project_and_no_archived_one(self):
+        reader, (active, archived) = self.agent_context(), self.projects()
+
+        def unavailable(ctx, operation, uow):
+            raise DomainError('forbidden', 'not part of this test')
+        reader.authorize = unavailable
+        with self.database.read() as uow:
+            result = reader.context(self.context('worker'), self.ids['worker'], uow)
+            self.assertEqual(result['projects'], [{'project_id': active, 'name': 'Open'}])
+            self.assertIsNone(result['project_after'])
+            # An identity that is not an active global agent is shown no project.
+            self.assertEqual(reader.context(self.context('former'), self.ids['former'], uow)['projects'], [])
 
     def test_the_coordinator_inspects_a_worker_and_nobody_inspects_the_learning_applier(self):
         reader = self.agent_context()

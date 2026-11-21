@@ -4,6 +4,7 @@ from qorqut_agentic.behavior.tool_help import text as instruction_text
 import json
 
 from qorqut.agents import roles
+from qorqut.agents.global_scope import effective_project_ids, reaches_project
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, Principal, canonical_hash
 from qorqut_operations.application.plans import schema, UUID, timestamp, utc_clock
@@ -61,13 +62,9 @@ class AgentContext:
         profile, _ = self.resolver.profile(Principal(identity, 'agent'), connection=uow.connection)
         if profile.data['status'] != 'active':
             raise DomainError('forbidden', 'Agent context requires an active agent')
-        if ctx.project_id is None:
-            if profile.scope.kind != 'ecosystem':
-                raise DomainError('forbidden', 'Project agents have no Global context')
-        else:
-            # The resolver's profile carries the derived scope (every active project); no membership row.
-            if ctx.project_id not in profile.scope.projects or ctx.project_id not in ctx.allowed_project_ids:
-                raise DomainError('forbidden', 'Agent context is outside current project scope')
+        if ctx.project_id is not None and (ctx.project_id not in ctx.allowed_project_ids
+                                           or not reaches_project(uow.connection, identity, ctx.project_id)):
+            raise DomainError('forbidden', 'Agent context is outside current project scope')
         return identity
 
     def read(self, ctx, args, uow):
@@ -137,9 +134,7 @@ class AgentContext:
         if omitted:
             result['notices'].append(f'{len(omitted)} additional attention items omitted; read source tools for full queues.')
         if ctx.project_id is None:
-            profile, _ = self.resolver.profile(Principal(identity, 'agent'), connection=uow.connection)
-            from qorqut_operations.project_lifecycle import active_project_ids
-            allowed = sorted(profile.scope.projects & active_project_ids(uow.connection))
+            allowed = sorted(effective_project_ids(uow.connection, identity))
             after = args.get('project_after', '')
             selected = [i for i in allowed if i > after][:21]
             directory = []

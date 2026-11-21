@@ -320,8 +320,7 @@ class BrowserAccess:
             if row is None or row["kind"] != "agent" or not row["active"]:
                 raise DomainError("forbidden", "Browser selection requires an active agent")
             profile, _row = resolver.profile(actor.principal, connection=uow.connection)
-            if (profile.scope.kind != "ecosystem" or profile.scope.project_id is not None
-                    or profile.data["role"]["id"] not in GLOBAL_ROLES):
+            if profile.data["role"]["id"] not in GLOBAL_ROLES:
                 raise DomainError("forbidden", "Browser selection is limited to active Global agents")
             if configured_ordubashy(uow) != actor.principal.id:
                 raise DomainError("forbidden", "Browser selection by id is limited to the configured Ordubashy")
