@@ -38,7 +38,7 @@ PROFILE_ROWS = ("SELECT p.agent_id,p.name,p.workspace,p.profile_json,p.revision,
 
 def operating_global(row) -> bool:
     """Only an active supported global operates natively (``global_scope.global_profile_data``): an active agent principal
-    whose profile row and stored profile are active, in ecosystem scope with a supported role. A malformed profile fails
+    whose profile row and stored profile are active, with a supported role. A malformed profile fails
     closed."""
     return global_profile_data({"status": row["profile_status"],
                                 "kind": row["principal_kind"], "active": row["principal_active"],

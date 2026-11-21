@@ -112,7 +112,7 @@ class Harness(unittest.TestCase):
             uow.repository('agent_profiles', project_id=None).insert(dict(agent_id=self.agent, principal_id=self.agent,
                 name='ordubashy', workspace='/tmp/ordubashy',
                 status='active', profile_json={'status': 'active', 'role': {'id': GLOBAL_WORKER_ROLE}, 'scope': {
-                    'kind': 'ecosystem', 'project_id': None, 'global_capabilities': ['read_global_context']}},
+                    'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}},
                 created_at=STAMP, updated_at=STAMP))
             for project, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta'), (self.gamma, 'Gamma')):
                 uow.repository('projects').insert({'id': project, 'slug': name.lower(), 'name': name,

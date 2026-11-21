@@ -66,7 +66,7 @@ SIGNOFF_FIELDS = ("id", "review_project_id", "review_scope", "proposal_revision"
     "title", "report_task", "proposer_principal_id", "proposer_agent_id", "proposer_display_name",
     "initiated_by_principal_id", "initiated_by_display_name", "attention", "job_id",
     "created_at", "updated_at", "updated_sequence", "supersedes_id", "superseded_by_id", "legacy_review_routing")
-MESSAGE_RECEIPT_FIELDS = ("id", "event_id", "thread_id", "created_at", "recipient_id", "recipient_name", "terminal_delivery")
+MESSAGE_RECEIPT_FIELDS = ("id", "event_id", "thread_id", "created_at", "recipient_id", "recipient_name")
 # Index rows keep identities/revisions the agent passes back and the human-readable
 # columns; duplicated identity spellings, per-row attribution and echoed parent IDs
 # are read through the full-detail escape hatch or the record's own read tool.
@@ -84,7 +84,7 @@ REMINDER_VALUE_LIMIT = 200
 MESSAGE_ITEM_FIELDS = ("id", "event_id", "thread_id", "reply_to", "sender_id", "sender_name",
     "recipient_id", "recipient_name", "current_sender_id", "current_sender_name", "current_recipient_id",
     "current_recipient_name", "counterpart_id", "body", "summary", "created_at", "acknowledged_at", "outcome",
-    "delegation_attribution", "author_id", "recorder_id", "recorder_name", "attribution", "terminal_delivery", "read_only", "retirement_backlog")
+    "delegation_attribution", "author_id", "recorder_id", "recorder_name", "attribution", "read_only", "retirement_backlog")
 ACTIVITY_AGENT_FIELDS = ("agent_id", "name", "role_id", "project_id", "project_slug",
     "state", "last_seen_at", "sessions", "inbox", "current_work")
 ACTIVITY_SESSION_FIELDS = ("session_id", "runtime", "state", "last_seen_at", "work_revision",

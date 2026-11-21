@@ -263,9 +263,9 @@ class TaskOperations:
             return
         actor = uow.repository("principals").get(identity)
         if actor and actor["kind"] == "agent":
-            # Only an active global agent takes new work, in every active project without a membership row; its principal
+            # Only an active global agent takes new work, in every active project; its principal
             # and profile are the facts this assignment depends on, so a retirement or deactivation before application
-            # invalidates it. A project-home profile is history and never a new assignee.
+            # invalidates it.
             if not is_global_agent(uow.connection, identity) or ctx.project_id not in active_project_ids(uow.connection):
                 raise DomainError("invalid_assignee", "Agent assignees must be active global agents")
             if builder:

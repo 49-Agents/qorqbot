@@ -34,7 +34,6 @@ MAX_TARGETS = 100
 SELECTORS = {
     'target_agent_id': UUID,
     'target_agent_ids': {'type':'array', 'items':UUID, 'minItems':1, 'maxItems':MAX_TARGETS},
-    'project_ids': {'type':'array', 'items':UUID, 'minItems':1, 'maxItems':MAX_TARGETS},
 }
 
 
@@ -73,16 +72,6 @@ class TerminalControl:
         self.app.terminal_control = self
         self.stop_event, self.thread = Event(), None
 
-    def message_target(self, ctx, identity, uow):
-        """Direct messages are refused for every caller; inbox delivery carries them."""
-        if ctx.principal_kind == 'human':
-            self.owner(ctx, uow)
-        raise DomainError('forbidden', 'Direct messages targeted retired project Dev agents; use inbox delivery')
-
-    def queue_message(self, ctx, message, uow):
-        """The target check refuses every caller."""
-        self.message_target(ctx, message['recipient_id'], uow)
-
     def owner(self, ctx, uow):
         owner = uow.repository('installation').get('service')
         if ctx.principal_kind != 'human' or not owner or owner['owner_principal_id'] != ctx.principal_id:
@@ -112,18 +101,11 @@ class TerminalControl:
         return dict(row)
 
     def select_targets(self, ctx, args, uow):
-        """Resolve once; never expand a project again after owner approval."""
+        """Resolve the selected agents once, when the request is prepared."""
         self.actor(ctx, uow)
         identities = set(args.get('target_agent_ids', []))
         if args.get('target_agent_id'):
             identities.add(args['target_agent_id'])
-        for project_id in sorted(set(args.get('project_ids', []))):
-            if project_id not in ctx.allowed_project_ids:
-                raise DomainError('forbidden', 'Selected project is outside current scope')
-            project = uow.repository('projects').get(project_id)
-            if not project or project['archived_at'] is not None:
-                raise DomainError('forbidden', 'Selected project is unavailable')
-            # Projects have no resident agents, so a project selection adds no targets.
         if not identities or len(identities) > MAX_TARGETS:
             raise DomainError('validation_error', f'Select between 1 and {MAX_TARGETS} active agents')
         # Invalid explicit IDs or unauthorized selections reject the whole request.
@@ -418,8 +400,7 @@ class TerminalControl:
                     actions.update(item['id'], {'state':'failed','detail':detail}, expected_revision=item['revision'])
                 return True
             try:
-                binding = {k:v for k,v in action['binding_json'].items() if k != 'message_id'}
-                if self.binding(target) != binding:
+                if self.binding(target) != action['binding_json']:
                     raise DomainError('revision_conflict', 'Target session changed before execution')
             except DomainError as exc:
                 actions.update(action['id'], {'state':'failed','detail':exc.message}, expected_revision=action['revision'])
@@ -445,18 +426,6 @@ class TerminalControl:
 
     def _authorized(self, action, uow):
         """The saved action's current proposer permission and target authorization."""
-        if action['binding_json'].get('message_id'):
-            message = uow.connection.execute('SELECT * FROM agent_messages WHERE id=?',
-                (action['binding_json']['message_id'],)).fetchone()
-            if (not message or action['action'] != 'ping' or message['sender_id'] != action['proposer_id']
-                    or message['recipient_id'] != action['target_id']
-                    or message['current_sender_id'] != message['sender_id']
-                    or message['current_recipient_id'] != message['recipient_id']):
-                raise DomainError('forbidden', 'Terminal message participants changed')
-            ctx = self.app.policy.context_for(action['proposer_id'], project_id=message['project_id'], review_project_id=None, uow=uow)
-            self.app.authorize(ctx, self.app.registry.get('agents_message_send'), [], uow,
-                               namespace='project:' + message['project_id'])
-            return self.message_target(ctx, action['target_id'], uow)
         ctx = self.app.policy.context_for(action['proposer_id'], project_id=None, review_project_id=None, uow=uow)
         descriptor = self.app.registry.get(PREFIX + ('ping' if action['action']=='ping' else action['action']))
         decision = self.app.authorize(ctx, descriptor, [], uow, namespace='global')

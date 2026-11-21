@@ -7,7 +7,7 @@ two sets are independent: an optional follower who has unfollowed never receives
 state ever removes a required one. The acting principal is never woken by its own change, exactly as in v1.
 
 Recipient eligibility: only an active global agent is addressed, in Global when it holds a global capability and in
-every active project without a membership row. Project-home profiles are never addressed.
+every active project.
 The writer runs inside the caller's write transaction; a failure rolls the record and its notifications back
 together."""
 
@@ -26,8 +26,7 @@ SUMMARY_LIMIT = 500
 def eligible_agents(uow, project_id, agents: Iterable[str]) -> set[str]:
     """The registered agents that may currently be addressed about a record of this namespace.
 
-    Only an active global agent is addressable: in Global with a global capability, and in every active project without
-    a membership row. A project-home or non-ecosystem profile is never addressable, whatever its membership rows say."""
+    Only an active global agent is addressable: in Global with a global capability, and in every active project."""
     active, projects = set(), None
     for agent in sorted({a for a in agents if a}):
         found = global_profile(uow.connection, agent)

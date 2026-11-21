@@ -40,7 +40,7 @@ def prepare_learning_applier(runtime, owner_context, *, role_ref, endpoint, clau
             if json.loads(row["profile_json"]).get("role", {}).get("id") == "learning-applier"]
     if existing:
         profile = json.loads(existing[0]["profile_json"])
-        if (len(existing) > 1 or profile["role"] != plain(role_ref) or profile["scope"]["kind"] != "ecosystem"
+        if (len(existing) > 1 or profile["role"] != plain(role_ref)
                 or sorted(profile["scope"]["global_capabilities"]) != scope["global_capabilities"]
                 or profile["plugins"] or profile["assignment_brief"] != ASSIGNMENT
                 or profile["tool_policy"]["overrides"]):

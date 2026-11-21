@@ -23,8 +23,8 @@ def ordubashy_profile(uow, identity):
     """True when `identity` is a current supported global holding the Ordubashy role.
 
     Current means the shared global eligibility (``global_scope.active_global``):
-    an active agent principal with an active, homeless ecosystem profile. A
-    project-home, inactive or malformed registration never qualifies. The
+    an active agent principal with an active ecosystem profile. An
+    inactive or malformed registration never qualifies. The
     runtime is not part of the identity: the owner may start Ordubashy with any
     supported CLI, and every session shares the same records and history.
     """
@@ -112,7 +112,7 @@ def require_protected_control(uow, principal_id, principal_kind, agent_ids, *, a
             "ON a.agent_id=p.id WHERE p.id=?", (principal_id,)).fetchone()
         if row and row['active'] and row['status'] == 'active':
             profile = json.loads(row['profile_json'])
-            if profile['role']['id'] == 'ordubashy' and profile['scope']['kind'] == 'ecosystem':
+            if profile['role']['id'] == 'ordubashy':
                 return
     protected = sorted({identity for identity in agent_ids if protected_control_target(uow, identity)})
     if protected:

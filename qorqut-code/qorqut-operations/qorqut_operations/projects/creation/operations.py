@@ -5,7 +5,7 @@ optional description (``summary``) and an optional folder slug. The only caller 
 Ordubashy holding ``coordinate_projects`` (plus the ordinary operation grant and policy). The installation owner, every other
 human or agent (including a worker with an old setup capability or an explicit allow) and every system program are refused at
 preparation, validation and application, and again on recovery: the owner asks Ordubashy. The owner is still the new project's
-owner member. Nothing here starts a session, a provider action, a resident agent or any provisioning."""
+owner member. Nothing here starts a session, a provider action or any provisioning."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from qorqut_operations.application import OperationDescriptor

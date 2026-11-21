@@ -76,7 +76,6 @@ def durable_delegation_enabled(data: dict, *, delegate_operations: bool) -> bool
     role = data.get("role") or {}
     scope = data.get("scope") or {}
     return (delegate_operations and supports_durable_delegation_version(role.get("version"), role.get("id"))
-        and scope.get("kind") == "ecosystem"
         and "manage_delegated_assignments" in scope.get("global_capabilities", []))
 
 
@@ -203,8 +202,6 @@ def _coordinator_workspace(resolver) -> Path | None:
 
 def _project_code_root(resolver, data, project) -> Path | None:
     """The project's existing code tree, or ``None`` when it has none; every global may carry out explicitly assigned code work."""
-    if data["scope"]["kind"] != "ecosystem":
-        return None
     code = project_code(resolver.paths, project)
     if path_has_symlink(code) or (code.exists() and not code.is_dir()):
         raise DomainError("preparation_error", "Project code directory must be a local directory inside its registered workspace")
@@ -348,7 +345,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         raise DomainError("invalid_configuration", "Transcript capture selection must be a boolean")
     data = config.to_dict()
     if codex_permission_mode is None:
-        codex_permission_mode = "bypass" if data["scope"]["kind"] == "ecosystem" else "scoped"
+        codex_permission_mode = "bypass"
     workspace = Path(data["workspace"])
     terminal = _terminal_mode(resolver)
     registration_path = workspace / ".qorqut/registration.json"
@@ -409,7 +406,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
                  resolver.paths.runtime, resolver.paths.context, resolver.paths.operations / "CLAUDE.md"]
     read_roots = []
     code_roots = []
-    ordubashy = data["role"]["id"] == "ordubashy" and data["scope"]["kind"] == "ecosystem"
+    ordubashy = data["role"]["id"] == "ordubashy"
     delegate_operations = ordubashy and any(
         skill["name"] == "qorqut-role-operations-delegation"
         and skill.get("owner") == {"kind": "role", "id": data["role"]["id"]}
@@ -444,12 +441,11 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         connection = extension_connections.get(server)
         tools = connection.tools if connection and connection.tools else ("*",)
         local["permissions"]["allow"] += ["mcp__" + server + "__" + tool for tool in tools]
-    if data["scope"]["kind"] == "ecosystem":
-        # Claude refuses project-local bypass defaults. The prepared terminal
-        # passes a trusted --settings file; local dontAsk also prevents popups
-        # when starting outside the prepared terminal.
-        local["permissions"]["allow"] += ["Bash", "Edit", "Write", "Agent"]
-        local["permissions"]["deny"] = []
+    # Claude refuses project-local bypass defaults. The prepared terminal
+    # passes a trusted --settings file; local dontAsk also prevents popups
+    # when starting outside the prepared terminal.
+    local["permissions"]["allow"] += ["Bash", "Edit", "Write", "Agent"]
+    local["permissions"]["deny"] = []
     local["permissions"]["deny"] = [*local["permissions"]["deny"], *connector_gate_guard(workspace)]
     if capture_transcripts:
         snapshot_command = shlex.join(helper('qorqut.bootstrap.transcript_snapshot', '--registration', str(registration_path)))
@@ -459,7 +455,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     # This setting is agent-folder-local, never a personal/global CLI setting.
     local.setdefault('env', {})['MCP_TIMEOUT'] = '240000'
     from .codex_config import add_activity_hooks, configuration, role_model_default, worker_model_default
-    model_default = role_model_default(data["scope"]["kind"], data["role"]["id"])
+    model_default = role_model_default(data["role"]["id"])
     if model_default is not None and data["role"]["id"] == GLOBAL_WORKER_ROLE:
         model_default = worker_model_default(workspace, _coordinator_workspace(resolver), model_default)
     # Codex trusts the exact hook definition. Keep release-specific interpreter
@@ -558,8 +554,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             "checkpoint_protocol": dict(checkpoint_protocol or {}),
             "read_operations": read_operations, **({"runtime_mode": "terminal"} if terminal else {})}),
     }
-    claude_mode = "bypassPermissions" if data["scope"]["kind"] == "ecosystem" else "dontAsk"
-    files[".qorqut/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": claude_mode}})
+    files[".qorqut/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": "bypassPermissions"}})
     if terminal:
         # The prepared shell exists only while terminals are the mode, so a managed projection (and its hash) is untouched.
         from qorqut.agent_trust import marker_path
@@ -697,8 +692,7 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
         raise DomainError("registration_conflict", "Prepared folder is already bound to a different principal")
     old = registration["projection_json"] if registration else {}
     if codex_permission_mode is None:
-        codex_permission_mode = old.get("codex_permission_mode",
-            "bypass" if data["scope"]["kind"] == "ecosystem" else "scoped")
+        codex_permission_mode = old.get("codex_permission_mode", "bypass")
     if codex_permission_mode not in {"scoped", "bypass"}:
         raise DomainError("validation_error", "Codex permission mode must be scoped or bypass")
     unmanaged = []

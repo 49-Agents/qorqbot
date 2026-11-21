@@ -33,7 +33,7 @@ class CoordinatorControlsAssignments(unittest.TestCase):
                     'workspace': str(root / identity), 'status': 'active',
                     'profile_json': {'name': identity, 'status': 'active', 'runtime': 'claude-code',
                         'role': {'id': 'ordubashy' if identity == self.coordinator else 'global-worker'},
-                        'scope': {'kind': 'ecosystem', 'allowed_project_ids': [],
+                        'scope': {'kind': 'ecosystem',
                                   'global_capabilities': ['manage_delegated_assignments']}}})
             uow.repository('installation').insert({'id': 'service', 'installation_id': new_id(),
                 'owner_principal_id': self.owner, 'management_coordinator_id': self.coordinator})

@@ -34,8 +34,6 @@ function readBroadcastDraft(context) {
       ...blank,
       ...(JSON.parse(ls(broadcastDraftKey(context)) || "null") || {}),
     };
-    // Project agents are not resident: drafts saved under the old Onbashy/Dev filter send to every selection.
-    delete saved.filter;
     return saved;
   } catch (_) {
     return blank;
@@ -123,7 +121,6 @@ async function renderBroadcast(c, context) {
     recipients = coreData(
       await post(`${path}/operations/broadcast_recipients`, {
         scope: context.scope,
-        all_projects: context.scope === "global",
       }),
     ).items;
     if (!Array.isArray(recipients))
@@ -169,29 +166,9 @@ async function renderBroadcast(c, context) {
     }
     save();
   };
-  const projectRows = () =>
-    recipients.filter(
-      (r) =>
-        r.project_id != null,
-    );
-  const groups = () =>
-    Object.values(
-      projectRows().reduce((o, r) => {
-        const k = r.project_id || r.project_slug;
-        (o[k] ||= {
-          label: r.project_name || r.project_slug || "Project",
-          rows: [],
-        }).rows.push(r);
-        return o;
-      }, {}),
-    );
   const agentTile = (r) => {
     const name = r.display_name || r.name;
     return `<label class="broadcast-recipient ${selected.has(r.agent_id) ? "selected" : ""}"><input type="checkbox" data-recipient="${esc(r.agent_id)}" ${selected.has(r.agent_id) ? "checked" : ""}><span>${identityAvatar("agent", name, { ...r, ...r.presentation, role: r.role || { id: r.role_id } })}<span><strong>${esc(name)}</strong><small>${esc(r.role_id || r.role?.id || "Agent")}</small></span></span></label>`;
-  };
-  const projectTile = (g) => {
-    const on = g.rows.length && g.rows.every((r) => selected.has(r.agent_id));
-    return `<button type="button" class="broadcast-project-tile ${on ? "selected" : ""}" data-project-group="${esc(g.rows[0].project_id)}" aria-pressed="${on}"><span class="broadcast-tile-check">${on ? "✓" : ""}</span><span><strong>${esc(g.label)}</strong><small>${g.rows.length} ${g.rows.length === 1 ? "agent" : "agents"}</small></span></button>`;
   };
   const timingFields = () =>
     draft.timing === "now"
@@ -203,9 +180,8 @@ async function renderBroadcast(c, context) {
           : `<div class="broadcast-inline"><label>Cron expression<input id="broadcast-cron" class="inp" value="${esc(draft.cron)}" placeholder="0 9 * * 1-5"></label><label>Timezone<input id="broadcast-timezone" class="inp" value="${esc(draft.timezone)}" placeholder="UTC"></label></div>`;
   const recipientCount=()=>[...selected].filter(id=>recipients.some(r=>r.agent_id===id)).length;
   const paintCompose = () => {
-    const globalRows = recipients.filter((r) => r.project_id == null),
-      projectGroups = groups();
-    body.innerHTML = `<form id="broadcast-form" novalidate><section class="broadcast-delivery"><span>Delivery</span><div role="group" aria-label="Delivery"><button type="button" class="btn ${draft.delivery === "inbox" ? "on" : ""}" data-delivery="inbox" aria-pressed="${draft.delivery === "inbox"}">Inbox</button><button type="button" class="btn ${draft.delivery === "input" ? "on" : ""}" data-delivery="input" aria-pressed="${draft.delivery === "input"}">Terminal input</button></div></section>${context.scope === "global" ? `<section class="broadcast-recipient-section"><h2>${globalIcon("globe")} Global</h2><div class="broadcast-recipient-grid">${globalRows.map(agentTile).join("") || '<p class="muted">No Global agents are available.</p>'}</div></section><section class="broadcast-recipient-section"><div class="broadcast-section-heading"><h2>Projects</h2><button class="btn quiet" type="button" id="broadcast-select-all">Select all</button><button class="btn quiet" type="button" id="broadcast-clear-all">Clear all</button></div><div class="broadcast-project-grid">${projectGroups.map(projectTile).join("") || '<p class="muted">No matching projects are available.</p>'}</div></section>` : `<section class="broadcast-recipient-section"><div class="broadcast-section-heading"><h2>Recipients</h2><button class="btn quiet" type="button" id="broadcast-select-all">Select all</button><button class="btn quiet" type="button" id="broadcast-clear-all">Clear all</button></div><div class="broadcast-recipient-grid">${recipients.map(agentTile).join("") || '<p class="muted">No agents are available.</p>'}</div></section>`}<label class="broadcast-message-label">Message<textarea id="broadcast-message" class="inp" maxlength="16000" required>${esc(draft.message)}</textarea></label><fieldset><legend>When</legend><label><input type="radio" name="broadcast-timing" value="now" ${draft.timing === "now" ? "checked" : ""}> Send now</label><label><input type="radio" name="broadcast-timing" value="once" ${draft.timing === "once" ? "checked" : ""}> Once</label><label><input type="radio" name="broadcast-timing" value="interval" ${draft.timing === "interval" ? "checked" : ""}> Repeat</label><label><input type="radio" name="broadcast-timing" value="cron" ${draft.timing === "cron" ? "checked" : ""}> Cron</label></fieldset><div class="broadcast-timing-fields">${timingFields()}</div>${["interval", "cron"].includes(draft.timing) ? `<label class="broadcast-max-label">Maximum occurrences (optional)<input id="broadcast-max" class="inp" type="number" min="1" value="${esc(draft.max)}"></label>` : ""}<p id="broadcast-error" class="broadcast-error" role="alert"></p><div class="broadcast-actions"><span class="muted" data-recipient-count>${recipientCount()} recipients</span><button class="primary" type="submit">${editing ? "Save changes" : draft.timing === "now" ? "Send now" : "Schedule"}</button>${editing ? '<button class="btn" type="button" id="broadcast-cancel-edit">Cancel edit</button>' : ""}</div></form>`;
+    const globalRows = recipients.filter((r) => r.project_id == null);
+    body.innerHTML = `<form id="broadcast-form" novalidate><section class="broadcast-delivery"><span>Delivery</span><div role="group" aria-label="Delivery"><button type="button" class="btn ${draft.delivery === "inbox" ? "on" : ""}" data-delivery="inbox" aria-pressed="${draft.delivery === "inbox"}">Inbox</button><button type="button" class="btn ${draft.delivery === "input" ? "on" : ""}" data-delivery="input" aria-pressed="${draft.delivery === "input"}">Terminal input</button></div></section>${context.scope === "global" ? `<section class="broadcast-recipient-section"><h2>${globalIcon("globe")} Global</h2><div class="broadcast-recipient-grid">${globalRows.map(agentTile).join("") || '<p class="muted">No Global agents are available.</p>'}</div></section>` : `<section class="broadcast-recipient-section"><div class="broadcast-section-heading"><h2>Recipients</h2><button class="btn quiet" type="button" id="broadcast-select-all">Select all</button><button class="btn quiet" type="button" id="broadcast-clear-all">Clear all</button></div><div class="broadcast-recipient-grid">${recipients.map(agentTile).join("") || '<p class="muted">No agents are available.</p>'}</div></section>`}<label class="broadcast-message-label">Message<textarea id="broadcast-message" class="inp" maxlength="16000" required>${esc(draft.message)}</textarea></label><fieldset><legend>When</legend><label><input type="radio" name="broadcast-timing" value="now" ${draft.timing === "now" ? "checked" : ""}> Send now</label><label><input type="radio" name="broadcast-timing" value="once" ${draft.timing === "once" ? "checked" : ""}> Once</label><label><input type="radio" name="broadcast-timing" value="interval" ${draft.timing === "interval" ? "checked" : ""}> Repeat</label><label><input type="radio" name="broadcast-timing" value="cron" ${draft.timing === "cron" ? "checked" : ""}> Cron</label></fieldset><div class="broadcast-timing-fields">${timingFields()}</div>${["interval", "cron"].includes(draft.timing) ? `<label class="broadcast-max-label">Maximum occurrences (optional)<input id="broadcast-max" class="inp" type="number" min="1" value="${esc(draft.max)}"></label>` : ""}<p id="broadcast-error" class="broadcast-error" role="alert"></p><div class="broadcast-actions"><span class="muted" data-recipient-count>${recipientCount()} recipients</span><button class="primary" type="submit">${editing ? "Save changes" : draft.timing === "now" ? "Send now" : "Schedule"}</button>${editing ? '<button class="btn" type="button" id="broadcast-cancel-edit">Cancel edit</button>' : ""}</div></form>`;
     body.querySelectorAll("[data-delivery]").forEach(
       (b) =>
         (b.onclick = () => {
@@ -238,28 +214,11 @@ async function renderBroadcast(c, context) {
           );
         }),
     );
-    body.querySelectorAll("[data-project-group]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          capture();
-          const g = groups().find(
-              (x) => String(x.rows[0].project_id) === b.dataset.projectGroup,
-            ),
-            all = g.rows.every((r) => selected.has(r.agent_id));
-          g.rows.forEach((r) =>
-            all ? selected.delete(r.agent_id) : selected.add(r.agent_id),
-          );
-          save();
-          paintCompose();
-        }),
-    );
     const all = $("#broadcast-select-all", body);
     if (all)
       all.onclick = () => {
         capture();
-        (context.scope === "global" ? projectRows() : recipients).forEach(
-          (r) => selected.add(r.agent_id),
-        );
+        recipients.forEach((r) => selected.add(r.agent_id));
         save();
         paintCompose();
       };
@@ -267,9 +226,7 @@ async function renderBroadcast(c, context) {
     if (clear)
       clear.onclick = () => {
         capture();
-        (context.scope === "global" ? projectRows() : recipients).forEach(
-          (r) => selected.delete(r.agent_id),
-        );
+        recipients.forEach((r) => selected.delete(r.agent_id));
         save();
         paintCompose();
       };

@@ -415,7 +415,7 @@ function agpadGroups(tasks, name) {
 // the default visible check and the exact same mounted agent pane.
 function agpadActive(p, allowHidden = false) {
   return p && _agpad === p && p.agent && p.open && (allowHidden || !document.hidden) &&
-    (p.isCurrent ? p.isCurrent() : state.tab === "agents" && state.project === p.project && state.agent === p.agent) &&
+    p.isCurrent() &&
     p.el.isConnected && $("#agpad") === p.el;
 }
 

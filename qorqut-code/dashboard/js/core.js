@@ -183,16 +183,14 @@ function taskProjectLabel(name, global = false) {
 const NAV_PROGRESS_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6m-5 3h4M9 15c0-2-3-3-3-7a6 6 0 0 1 12 0c0 4-3 5-3 7H9Z"/></svg>';
 const NAV_SETTINGS_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>';
 
-// A project opens on its Tasks. Project agents are not resident, so an old
-// saved Agents tab lands there too.
+// A project opens on its Tasks; a saved tab that is not listed here falls back to Tasks.
 const TABS = { tasks: c => renderProjectTasks(c), context: c => renderContext(c),
   progress: c => renderProjectProgress(c),
   settings: c => renderSettings(c) };
 let tab0 = ls("tab");
-if (tab0 === "agents") tab0 = "tasks";
 const contextTab0 = {tables: "_tables"}[tab0];
 if (contextTab0) tab0 = "context";
-const state = { scope: "project", globalTab: "agents", project: null, projects: [], tab: TABS[tab0] ? tab0 : "tasks", agent: null, ctx: contextTab0 || null };
+const state = { scope: "project", globalTab: "agents", project: null, projects: [], tab: TABS[tab0] ? tab0 : "tasks", ctx: contextTab0 || null };
 // Per-URL {etag, body} cache for GET reads (Stage 2 PR4): a matching
 // If-None-Match lets the server return 304 without redoing the read, so an
 // unchanged pane costs a small header round trip instead of a full body.
@@ -652,7 +650,7 @@ async function selectProject(slug) {
   if(!await ntFlush())return;
   const b = state.projects.find(x => x.slug === slug); if (!b) return;
   workspaceNavigation++;
-  // An old project agent link opens the project Tasks; no project agent is selected or started.
+  // A project link that carries an agent parameter drops it and opens the project Tasks.
   if(location.hash==='#'+slug && new URLSearchParams(location.search).has('agent')){
     const url=new URL(location.href);url.searchParams.delete('agent');history.replaceState(null,'',url);
     state.tab='tasks';
@@ -677,7 +675,6 @@ function workspaceProjects() {
 }
 async function goTab(name) {
   if (typeof agentWorkspaceCanLeave === 'function' && !await agentWorkspaceCanLeave(_agpad)) return;
-  if (name === "agents") name = "tasks";
   if (state.scope === "global") return;
   const contextPage = name === "tables" ? "_tables" : null;
   if (contextPage) name = "context";

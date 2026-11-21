@@ -36,8 +36,7 @@ class Rejection:
         ctx = self.service._context(ctx, uow)
         row = decode_row(uow.connection.execute('SELECT * FROM agent_profiles WHERE agent_id=?', (ctx.principal_id,)).fetchone())
         if (ctx.principal_kind != 'agent' or not row or row['status'] != 'active'
-                or row['profile_json']['role']['id'] != 'ordubashy'
-                or row['profile_json']['scope']['kind'] != 'ecosystem'):
+                or row['profile_json']['role']['id'] != 'ordubashy'):
             raise DomainError('forbidden', 'Delegated review requires active Ordubashy authority')
         return ctx
 

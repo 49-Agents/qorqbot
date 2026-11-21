@@ -45,7 +45,7 @@ async function selectGlobal(tab = ls('global-tab') || 'agents') {
     if (navigation !== workspaceNavigation) return;
     jClearTimers(); clearTimeout(_ctxTimer);
     if (rtDialog) { rtDialog.close(); rtDialog = null; }
-    state.scope = 'global'; state.project = null; state.agent = null; state.ctx = null;
+    state.scope = 'global'; state.project = null; state.ctx = null;
     clearEtagCache();
     tLastProject = null; tGen++; rtGeneration++; rtProject = null;
     state.tasks = [];

@@ -19,7 +19,7 @@ script is run from an unrelated working directory with a clean ``sys.path``. The
   file executor: an empty layout is published once under its receipt, the same key replays, and an existing
   directory, even an identical empty tree, is never adopted.
 
-The Signoff slice acts as an active global agent (a supported role, an ecosystem scope, no home project): its project
+The Signoff slice acts as an active global agent (a supported role, an ecosystem scope): its project
 access is the active project directory, exactly as the engine requires of every agent.
 
 The build needs ``setuptools`` and ``wheel`` available to ``pip`` (pip fetches them into the isolated build

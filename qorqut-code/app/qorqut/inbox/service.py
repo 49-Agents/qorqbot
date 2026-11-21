@@ -41,7 +41,7 @@ class HostInbox:
         require_worker_manager(ctx, uow, target)
         return self.inbox.resolver.runtime_context(Principal(target, 'agent'), project_id=ctx.project_id)
 
-    def project_member(self, ctx, project, uow):
+    def reaches_project(self, ctx, project, uow):
         """Current project access: the installation owner or a system worker in an active project, or an active supported global's derived access."""
         from qorqut.agents.global_scope import active_project_participant
         return active_project_participant(uow.connection, project, ctx.principal_id)

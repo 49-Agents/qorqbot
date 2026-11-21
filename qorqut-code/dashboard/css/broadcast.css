@@ -63,8 +63,7 @@
   font-size: 12px;
   color: var(--fg-2);
 }
-.broadcast-recipient-grid,
-.broadcast-project-grid {
+.broadcast-recipient-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -81,8 +80,7 @@
   background: var(--wash);
   cursor: pointer;
 }
-.broadcast-recipient.selected,
-.broadcast-project-tile.selected {
+.broadcast-recipient.selected {
   border-color: var(--accent, #7dd3fc);
   background: var(--hover);
 }
@@ -92,45 +90,16 @@
   gap: 8px;
 }
 .broadcast-recipient strong,
-.broadcast-recipient small,
-.broadcast-project-tile strong,
-.broadcast-project-tile small {
+.broadcast-recipient small {
   display: block;
 }
-.broadcast-recipient small,
-.broadcast-project-tile small {
+.broadcast-recipient small {
   font-size: 10px;
   color: var(--fg-3);
   margin-top: 2px;
 }
 .broadcast-recipient input {
   accent-color: var(--accent, #7dd3fc);
-}
-.broadcast-project-tile {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 9px;
-  min-width: 160px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 12px;
-  color: var(--fg);
-  background: var(--wash);
-  text-align: left;
-  cursor: pointer;
-}
-.broadcast-tile-check {
-  width: 16px;
-  height: 16px;
-  border: 1px solid var(--fg-3);
-  border-radius: 4px;
-  text-align: center;
-  line-height: 14px;
-  color: var(--accent, #7dd3fc);
-}
-.broadcast-project-tile.selected .broadcast-tile-check {
-  border-color: var(--accent, #7dd3fc);
 }
 .broadcast-message-label,
 .broadcast-max-label {
@@ -275,9 +244,9 @@
 .broadcast-modal #broadcast-body {padding:0;max-width:none;}
 .broadcast-modal .broadcast form {gap:16px;}
 .broadcast-modal .broadcast-tabs .on,.broadcast-modal .broadcast-delivery .on {background:var(--wash);color:var(--fg);border-color:var(--fg-3);}
-.broadcast-modal .broadcast-recipient.selected,.broadcast-modal .broadcast-project-tile.selected {border-color:var(--fg-3);background:var(--wash);}
+.broadcast-modal .broadcast-recipient.selected {border-color:var(--fg-3);background:var(--wash);}
 .broadcast-modal button {height:auto;min-height:30px;}
-.broadcast-modal .broadcast-recipient strong,.broadcast-modal .broadcast-project-tile strong {font-size:12px;font-weight:500;}
+.broadcast-modal .broadcast-recipient strong {font-size:12px;font-weight:500;}
 .broadcast-modal .broadcast-message-label textarea {min-height:130px;}
 
 .broadcast-actions {justify-content:flex-end;padding-top:8px;}

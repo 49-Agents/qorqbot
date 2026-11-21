@@ -85,7 +85,7 @@ class ClaudeDispatchIntegration(unittest.TestCase):
                 uow.repository('agent_profiles', project_id=None).insert({'agent_id': parent, 'principal_id': parent,
                     'name': 'Coordinator', 'workspace': str(workspace),
                     'profile_json': {'runtime': 'claude-code', 'role': {'id': 'ordubashy'},
-                        'scope': {'kind': 'ecosystem', 'allowed_project_ids': [project],
+                        'scope': {'kind': 'ecosystem',
                                   'global_capabilities': ['manage_delegated_assignments']}},
                     'status': 'active', 'created_at': stamp, 'updated_at': stamp})
                 uow.repository('machine_registrations').insert({'id': registration, 'principal_id': parent,

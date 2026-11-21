@@ -2,7 +2,7 @@
 
 This module is the one current-global eligibility authority of the engine and the host; it imports nothing from the
 host. A current global is an active ``agent`` principal whose registered profile row is active and stores a decoded
-profile that is itself active, has an ecosystem scope and holds one of the supported global roles. Missing or
+profile that is itself active, has a scope and holds one of the supported global roles. Missing or
 malformed profile JSON and wrong field types fail closed. Its project access is every project active in the reading
 transaction: a project registered later is included immediately and an archived project is excluded. A missing,
 inactive or retired principal or profile and an unknown or retired role is never global, so a retained historical row
@@ -48,7 +48,7 @@ def current_global_data(profile) -> dict | None:
     role, scope = data.get("role"), data.get("scope")
     if not isinstance(role, dict) or not isinstance(role.get("id"), str) or role["id"] not in SUPPORTED_GLOBAL_ROLES:
         return None
-    if not isinstance(scope, dict) or scope.get("kind") != "ecosystem":
+    if not isinstance(scope, dict):
         return None
     if "global_capabilities" in scope and not _strings(scope["global_capabilities"]):
         return None

@@ -39,7 +39,7 @@ LATER = '2026-12-01T09:00:00.000000Z'
 
 def profile(role):
     return json.dumps({'status': 'active', 'role': {'id': role},
-                       'scope': {'kind': 'ecosystem', 'project_id': None, 'global_capabilities': ['read_global_context']}})
+                       'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}})
 
 
 class Fixture(unittest.TestCase):

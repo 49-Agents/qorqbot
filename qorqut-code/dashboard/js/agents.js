@@ -1,5 +1,4 @@
 // Shared agent navigation helpers: the nav toggle, the new-tab link and the right-click menu.
-// Agents are global; projects have no resident agent page.
 const agentNavKey = scope => `agent-nav:${scope || state.project || 'global'}`;
 function agentNavButton() {
   return '<button type="button" class="quiet agent-nav-toggle" data-agent-nav-toggle aria-expanded="true" aria-label="Hide agent navigation">' +

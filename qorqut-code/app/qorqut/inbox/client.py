@@ -28,7 +28,6 @@ def main(argv=None):
     scope.add_argument('--global', dest='global_scope', action='store_true')
     commands = parser.add_subparsers(dest='command', required=True)
     recipients = commands.add_parser('recipients')
-    recipients.add_argument('--all-projects', action='store_true')
     recipients.add_argument('--role-id')
     send = commands.add_parser('send')
     send.add_argument('--to', dest='to_agent_id')
@@ -56,7 +55,7 @@ def main(argv=None):
         if args.counterpart_id: body['counterpart_id'] = args.counterpart_id
         operation = 'agents_messages_list'
     else:
-        body = {'all_projects': args.all_projects}
+        body = {}
         if args.role_id: body['role_id'] = args.role_id
         operation = 'agents_message_recipients'
     try:
