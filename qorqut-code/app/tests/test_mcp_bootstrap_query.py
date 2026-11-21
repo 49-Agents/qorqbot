@@ -86,7 +86,7 @@ class BootstrapQueryTests(unittest.TestCase):
     def test_only_needed_bootstrap_rows_are_read_and_registered(self):
         self.seed_sources()
         self.document('d4', {})
-        self.document('d5', {'bootstrap_key': 'project-agent'})
+        self.document('d5', {'bootstrap_key': 'unused-key'})
         self.document('d6', {'bootstrap_key': None})
         self.document('d7', {'kind': 'note'}, project=PROJECT)
         self.document('d8', {'bootstrap_key': 'foundation'}, project=OTHER_PROJECT)  # not visible from either scope

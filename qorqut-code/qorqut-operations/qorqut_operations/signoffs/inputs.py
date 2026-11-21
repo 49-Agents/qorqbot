@@ -213,8 +213,7 @@ class InputRequests:
         if ctx.principal_kind != 'agent':
             return False
         profile = uow.repository('agent_profiles', project_id=None).get(ctx.principal_id)
-        return bool(profile and profile['status'] == 'active' and profile['profile_json']['role']['id'] == 'ordubashy'
-                    and profile['profile_json']['scope']['kind'] == 'ecosystem')
+        return bool(profile and profile['status'] == 'active' and profile['profile_json']['role']['id'] == 'ordubashy')
 
     def authorize_update(self, ctx, row, name, uow):
         if row['category'] == 'side_chat':

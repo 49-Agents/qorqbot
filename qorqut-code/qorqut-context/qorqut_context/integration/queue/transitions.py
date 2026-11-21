@@ -5,7 +5,7 @@ or racing control cannot produce a second outcome or a second notification. None
 model: the driver does that outside any operational transaction and records the observed result here.
 
 These are internal calls, not registered operations. ``driver_id`` must be an active registered ``system`` principal
-(the Context worker); nothing a project agent, the owner or a public caller can invoke reaches them, and a public
+(the Context worker); nothing an agent, the owner or a public caller can invoke reaches them, and a public
 caller cannot supply publication or attempt results.
 """
 

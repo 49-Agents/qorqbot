@@ -70,7 +70,7 @@ class CalendarOperations:
             profile, _ = self.runtime.resolver.profile(ctx.principal, connection=uow.connection)
             from qorqut.management import ManagementService
             coordinator = profile.data["role"]["id"] == "ordubashy" and ManagementService._coordinator(uow) == ctx.principal_id
-            if (profile.data["status"] == "active" and profile.scope.kind == "ecosystem"
+            if (profile.data["status"] == "active"
                     and (coordinator or is_worker(uow.connection, ctx.principal_id))):
                 return
         raise DomainError("forbidden", "Private calendars belong to the owner, configured Ordubashy and granted global workers")

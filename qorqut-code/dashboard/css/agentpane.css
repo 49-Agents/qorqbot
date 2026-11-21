@@ -1,19 +1,15 @@
-/* Agent overview: scope the third column to Agents; other .split views keep their layout. */
+/* Agent overview: scope the third column to Agents; other .split views keep their layout. The column widths are set by the .global-agents rules below. */
 .split.agsplit {
   --ag-chat-fr: 1fr;
   --ag-pane-fr: 1.15fr;
   --ag-divider-width: 12px;
-  grid-template-columns: 228px minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr));
   min-width: 0;
 }
-.split.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
-.split.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
-.split.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
 .split.global-agents.agsplit { grid-template-columns: 114px minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.global-agents.agsplit.pad-off { grid-template-columns: 114px minmax(0, 1fr) 0; }
 .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
-/* Global and per-project agents share one navigation column; it is a compact icon strip, slightly wider where the screen has room.
+/* Agents share one navigation column; it is a compact icon strip, slightly wider where the screen has room.
    The nav-off rules above still win (higher specificity), and narrower screens keep 114px. */
 @media (min-width: 1000px) {
   .split.global-agents.agsplit { grid-template-columns: 134px minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }

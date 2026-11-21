@@ -52,8 +52,7 @@ def table_context(ctx, args, uow):
         allowed = installation and installation["owner_principal_id"] == ctx.principal_id
     else:
         profile = uow.repository("agent_profiles", project_id=None).get(ctx.principal_id)
-        allowed = (ctx.principal_kind == "agent" and profile and profile["status"] == "active"
-                   and profile["profile_json"]["scope"]["kind"] == "ecosystem")
+        allowed = (ctx.principal_kind == "agent" and profile and profile["status"] == "active")
     if not allowed or "read_global_context" not in ctx.global_capabilities:
         raise DomainError("forbidden", "Global tables require the owner or an authorized global agent")
     return replace(ctx, project_id=None, review_project_id=None)
@@ -147,7 +146,7 @@ class TableOperations:
         }
         scoped = dict(scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context", resolve_namespace=table_namespace)
         descriptions = {
-            "tables_list": "Find shared project tables by title, topic or table_kind (general or crm). All project agents use the same tables. Use scope=global for Global tables.",
+            "tables_list": "Find shared project tables by title, topic or table_kind (general or crm). All agents use the same tables. Use scope=global for Global tables.",
             "tables_get": "Read a table's kind (general or crm), columns, CRM stages, revision, associations and Git history status before editing it. Global tables need scope=global.",
             "tables_rows_list": "Read paginated table rows, optionally searching values or matching cells exactly. Pagination restarts if the table changes. For a CRM table the rows are its entries (same as crm_entries_list).",
             "tables_history": "Read the saved Git commit or pending snapshot for each table revision. Does not return raw upload contents.",

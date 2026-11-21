@@ -8,8 +8,7 @@ else can be fetched on demand (docs/plans/OWNER-DIRECTED-CODE-SESSIONS.md §4,
 of `AgentConfigResolver`: there is no managed profile, no role work loop, no
 task/Signoff/inbox inventory, no watcher and no write. Identities (owner,
 coordinator) come from current data, never from literals. Projects own
-resources only: the ``project_agent`` and ``dev`` entries stay in the shape and
-always report the retired project peers as unavailable.
+resources only; the one coordinating agent is the configured Ordubashy (``coordination``).
 
 The one current Context brief is the shared published graph: the runtime supplies the published-Context ``home_text``
 provider (the same one managed-agent bootstrap uses) and its bounded text of the one shared graph is the ``context_home``
@@ -111,7 +110,7 @@ class OwnerSessionBootstrap:
 
     @staticmethod
     def _peer_line():
-        return ("Projects have no resident project agent or Dev; do not assign this project's work to any"
+        return ("This project's work is carried out by the global agents when the owner directs it; do not assign it to any"
                 " other agent without the owner's instruction. This session remains the owner's own code session.")
 
     def _engineering(self, project, missing):

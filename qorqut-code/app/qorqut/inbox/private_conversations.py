@@ -232,8 +232,7 @@ class PrivateConversations:
 
     @staticmethod
     def project_participant(ctx, project_id, uow):
-        """Read now, in this unit of work: an agent through the effective scope of an active supported global (no
-        project home, an active project); the installation owner or a system worker through the active project.
+        """Read now, in this unit of work: an agent through the effective scope of an active supported global (an active project); the installation owner or a system worker through the active project.
         Reach alone never selects a peer channel."""
         return active_project_participant(uow.connection, project_id, ctx.principal_id)
 

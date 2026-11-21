@@ -7,7 +7,7 @@ from copy import deepcopy
 
 from qorqut_operations.contracts import DomainError
 
-# Generated guidance for every global agent. Projects have no resident builder.
+# Generated guidance for every global agent.
 SOFTWARE_OWNERSHIP_BOUNDARY = (
     bundled("host", "app/qorqut/agentic/assets/software-ownership.md"))
 

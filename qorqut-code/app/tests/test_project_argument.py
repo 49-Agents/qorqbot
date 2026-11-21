@@ -110,7 +110,7 @@ class Harness(unittest.TestCase):
         ProjectRecords(self.app, items).register(self.registry)
         self.selections = []
         profile = NS(agent_id=self.agent, revision=1,
-                     scope=NS(projects=frozenset({self.alpha}), global_capabilities=frozenset()))
+                     scope=NS(global_capabilities=frozenset()))
 
         def selection(profile, **context):
             self.selections.append(context)

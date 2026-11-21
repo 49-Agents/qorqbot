@@ -190,7 +190,7 @@ def instruction_block(project: dict, endpoint: str, owner_name=None) -> str:
         "- Fetch deeper context on demand with `context_list`, `context_search` and `context_get`; project",
         "  notes are listed with `notes_list` (target_project_id) and read with `notes_get`.",
         "- Project direction belongs to the owner with Ordubashy, who coordinates execution through the permanent",
-        "  workers. Projects have no resident agents.",
+        "  workers.",
         "- Use `agents_message_recipients`, `agents_message_send` and `agents_messages_list` for direct",
         "  same-project messages; use `tasks_create` and `tasks_assign` for durable work. Direct messages are",
         "  not the same as owner private conversations on objects.",

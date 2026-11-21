@@ -1,7 +1,7 @@
 """Host side of the direct messages; the message flow itself is Operations' ``Messages``.
 
 ``MessageHost`` is the adapter the flow calls at fixed points: owner-directed contacts, the delegated worker's assignment
-binding and attribution, forwarding of an owner message to Ordubashy, terminal delivery and the retirement handoff read.
+binding and attribution, forwarding of an owner message to Ordubashy and the retirement handoff read.
 ``Messages`` is that flow with this adapter bound, so ``InboxService`` constructs it from the inbox alone."""
 from qorqut.agents.contact import owner_directed_target
 from qorqut_operations.contracts import DomainError
@@ -84,26 +84,6 @@ class MessageHost:
     def retirement_backlog(self, messages, ctx, args, uow):
         from .retirement_backlog import read
         return read(messages, ctx, args, uow)
-
-    def validate_terminal(self, ctx, recipient, message, uow):
-        if any(ord(c) < 32 and c not in '\n\t' or ord(c) == 127 for c in message):
-            raise DomainError('validation_error', 'Terminal messages cannot contain control characters')
-        controller = getattr(self.app, 'terminal_control', None)
-        if controller is None:
-            raise DomainError('operation_unavailable', 'Terminal message delivery is unavailable; use inbox delivery')
-        # Direct messages to a retired project Dev are refused for every caller; inbox delivery is the way.
-        controller.message_target(ctx, recipient, uow)
-
-    def queue_terminal(self, ctx, row, uow):
-        self.app.terminal_control.queue_message(ctx, row, uow)
-
-    def terminal_projection(self, row, uow):
-        terminal = uow.connection.execute(
-            "SELECT id,state,detail FROM terminal_actions WHERE id=? AND json_extract(binding_json,'$.message_id')=?",
-            (row['id'], row['id'])).fetchone()
-        if terminal:
-            return {'action_id': terminal['id'], 'state': terminal['state'], 'detail': terminal['detail']}
-        return None
 
 
 class Messages(OperationsMessages):

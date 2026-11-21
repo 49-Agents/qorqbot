@@ -164,7 +164,6 @@ def agent_surfaces(registry, agent_id, *, desktop_allowed, fallback_desktop_url=
 
 
 def global_profile(profile):
-    """A stored profile of one of the supported Global roles with ecosystem scope; retired project roles never qualify."""
+    """A stored profile of one of the supported Global roles."""
     data = json.loads(profile) if isinstance(profile, str) else profile
-    return (isinstance(data, dict) and (data.get("scope") or {}).get("kind") == "ecosystem"
-            and (data.get("role") or {}).get("id") in GLOBAL_ROLES)
+    return isinstance(data, dict) and (data.get("role") or {}).get("id") in GLOBAL_ROLES

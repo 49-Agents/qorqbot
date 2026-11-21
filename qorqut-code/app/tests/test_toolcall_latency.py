@@ -251,7 +251,7 @@ class ResolverReuseTests(unittest.TestCase):
     def test_ordinary_resolution_shares_the_composed_configuration(self):
         resolver = self.resolver()
         composed = []
-        data = {'scope': {'kind': 'ecosystem', 'project_id': None, 'allowed_project_ids': [], 'global_capabilities': []},
+        data = {'scope': {'kind': 'ecosystem', 'global_capabilities': []},
                 'project_id': None, 'profile_revision': 3, 'plugins': [],
                 'role': {'id': 'ordubashy', 'version': '1.0.0', 'digest': DIGEST, 'kind': 'role'},
                 'effective_config_id': DIGEST, 'preparation': {}, 'delivery': None, 'context_refresh_required': False}

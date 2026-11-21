@@ -63,7 +63,7 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
             continue  # Retained internal reader; never part of an agent's effective configuration.
         decision = resolve_operation_policy(metadata.name, defaults, overrides, registry, role_id=profile.data["role"]["id"])
         modes = None
-        if (metadata.name in (GLOBAL_DISCOVERY_OPERATIONS | getattr(registry, "extension_global_discovery", frozenset())) and profile.scope.kind == "ecosystem"
+        if (metadata.name in (GLOBAL_DISCOVERY_OPERATIONS | getattr(registry, "extension_global_discovery", frozenset()))
                 and "read_global_context" in profile.scope.global_capabilities):
             # Shared table and contributed provider tools may have a distinct Global scope rule.
             # Project grants stay as they were; evaluate both namespaces without broadening either.
@@ -536,7 +536,7 @@ class AgentConfigResolver:
             software = render(view, "host", "app/qorqut/agentic/assets/software-ownership.md")
             if not isinstance(software, str) or not software.strip():
                 raise DomainError("agentic_resource_unavailable", "Managed software ownership guidance is empty")
-            ordubashy = data["role"]["id"] == "ordubashy" and data["scope"]["kind"] == "ecosystem"
+            ordubashy = data["role"]["id"] == "ordubashy"
             connections = []
             for name in external_connections(self, data):
                 connection = self.native_connections.get(name)

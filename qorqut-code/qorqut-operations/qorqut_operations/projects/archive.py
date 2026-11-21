@@ -1,14 +1,12 @@
 """Owner-reviewed archive and owner restore of project resources; nothing is deleted.
 
-Restore returns only the project: historical
-agent identities stay inactive, and the supported globals reach it again through
-their derived scope without profile or membership writes.
+Restore returns only the project; the supported globals reach it again through their derived scope.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from qorqut_operations.application import OperationDescriptor
-from qorqut_operations.contracts import DomainError, ExpectedTarget, PolicyDecision, ResourceRef, canonical_hash
+from qorqut_operations.contracts import DomainError, PolicyDecision
 from qorqut_operations.policy.rules import PolicyRules
 from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, UUID, TEXT
@@ -53,12 +51,11 @@ class ProjectArchive:
             scope_kinds=frozenset({"global"}), global_capability="read_global_context", owner_only=True,
             supports_signoff=False, exposure=frozenset({"dashboard"}),
             description=instruction_text('archive-owner-restore-an-archived-project-s-resources-to'),
-            prepare=self.prepare_restore, apply=self.apply_restore, validate_targets=self.validate_restore))
+            prepare=self.prepare_restore, apply=self.apply_restore))
         registry.register(OperationDescriptor(ARCHIVED, schema({}, ()), effect_kind="read", supports_signoff=False,
             scope_kinds=frozenset({"global"}), global_capability="read_global_context", owner_only=True,
             exposure=frozenset({"dashboard"}), description=instruction_text('archive-owner-list-archived-projects-that-can-be-restored'),
             read=self.archived))
-        self.application.register_target_resolver("project_archive_agents", self.snapshot)
 
     @staticmethod
     def archived(ctx, args, options, uow):
@@ -68,9 +65,6 @@ class ProjectArchive:
             "WHERE b.archived_at IS NOT NULL ORDER BY b.archived_at DESC, b.slug")
         return {"items": [{"project_id": row["id"], "slug": row["slug"], "name": row["name"], "revision": row["revision"],
                            "archived_at": row["archived_at"]} for row in rows]}
-
-    def snapshot(self, ctx, resource, uow):
-        return {"content_hash": canonical_hash([])}
 
     @staticmethod
     def guard(ctx, plan, uow):
@@ -104,11 +98,8 @@ class ProjectArchive:
                               namespace="global", affected_scope={"kind": "project", "project_id": before["id"]})
         builder.record("projects", before["id"], before,
             {"archived_at": builder.at, "archived_by": ctx.principal_id}, project_id=None, namespace="global", label=before["name"])
-        target = ResourceRef("project_archive_agents", before["id"], None, "global")
-        builder.targets[target] = ExpectedTarget(target, exists=True, content_hash=canonical_hash([]))
-        builder.policy_effect(target, OPERATION, "Reset this project's registered terminal sessions")
         builder.effects.extend([
-            "Remove " + before["name"] + " (" + before["slug"] + ") from the active project menu, agent directory and normal project discovery.",
+            "Remove " + before["name"] + " (" + before["slug"] + ") from the active project menu and normal project discovery.",
             "Take this project's tasks off every agent's Todo board. Restoring the project does not put them back.",
             "Retain project records and files. No domain, mailbox or external-service changes."])
         plan = builder.build()
@@ -124,7 +115,7 @@ class ProjectArchive:
         saved = uow.repository("projects").get(project["id"], required=True)
         return {"project_id": saved["id"], "archived": True, "revision": saved["revision"]}
 
-    # Restore: the project resources return; no agent identity is touched.
+    # Restore: the project resources return.
     def restore(self, ctx, arguments, options):
         return self.application.invoke(ctx, RESTORE, arguments, options)
 
@@ -142,17 +133,11 @@ class ProjectArchive:
                                       project_id=None, namespace="global", label=before["name"])
         builder.effects.extend([
             f"Return {before['name']} ({before['slug']}) and its records, files and integrations to the active project menu.",
-            "No agent is created, reactivated or prepared and no session starts; historical agents stay inactive.",
-            "Every active global agent reaches the project again through derived access, without membership changes."])
+            "No agent is created or prepared and no session starts.",
+            "Every active global agent reaches the project again through derived access."])
         return builder.build()
 
-    @staticmethod
-    def validate_restore(ctx, plan, uow):
-        if any(item.action == "restore_roster" for item in plan.changes):
-            raise DomainError("invalid_plan", "Projects own resources only; prepare the restore again")
-
     def apply_restore(self, ctx, plan, uow):
-        self.validate_restore(ctx, plan, uow)
         project_id = plan.arguments["project_id"]
         apply_records(ctx, plan, uow)
         return {"project_id": project_id, "restored": True}

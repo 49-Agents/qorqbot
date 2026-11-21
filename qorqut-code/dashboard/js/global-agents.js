@@ -1,5 +1,4 @@
 // The Global Agents page lists the supported global agents (including every permanent worker).
-// Project agents are not resident: they are never listed, selected or started here.
 let globalAgentsGeneration = 0;
 let globalTestingModeUnsubscribe = null;
 let globalRosterUnsubscribe = null;

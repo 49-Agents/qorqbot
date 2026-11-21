@@ -9,7 +9,7 @@ reaches only the session its pin names)
 * "read" is a boundary on the agent's per-agent completion sequence, owned by the installation owner.
 
 Every method re-validates, in its own transaction, that the caller is the installation owner, that the agent is an active
-registered profile and, for a project agent, that its project is live and the owner holds it.
+registered profile.
 """
 
 from __future__ import annotations

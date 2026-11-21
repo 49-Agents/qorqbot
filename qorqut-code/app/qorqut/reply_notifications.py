@@ -82,7 +82,7 @@ def replies(runtime, ctx, include_communications=False, communications_after=Non
             items.append({'id': 'gchat:' + reply['id'], 'kind': 'global', 'chat': True, 'agent_id': reply['agent_id'],
                           'agent_name': data.get('display_name') or data.get('name') or reply['agent_name'] or 'Agent',
                           'text': reply['preview'][:180], 'created_at': reply['completed_at'], 'unread': True,
-                          'sequence': reply['completion_sequence'], 'nav_only': False})
+                          'sequence': reply['completion_sequence']})
         for extension in runtime.selection.extensions:
             items.extend(extension.reply_notifications(uow))
         communications = _communications(uow, communications_after) if include_communications else None

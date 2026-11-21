@@ -51,7 +51,7 @@ class InboxHost(Protocol):
     def managed_subject(self, ctx, target, uow):
         """The runtime context of the global worker ``target`` that ``ctx`` may manage; refuses a caller who may not."""
 
-    def project_member(self, ctx, project, uow) -> bool:
+    def reaches_project(self, ctx, project, uow) -> bool:
         """Whether ``ctx`` currently has access to ``project`` (the installation owner or a system worker in an active project, or an active global's derived access)."""
 
     def private_visible(self, ctx, source_type, identity, project, uow):
@@ -76,7 +76,7 @@ class InboxHost(Protocol):
         """``result`` (the listed subscriptions) with the host's automatic follows merged in."""
 
 
-HOST_METHODS = ('managed_subject', 'project_member', 'private_visible', 'integration_visible', 'event_visible',
+HOST_METHODS = ('managed_subject', 'reaches_project', 'private_visible', 'integration_visible', 'event_visible',
                 'decorate_before_extensions', 'decorate_after_extensions', 'active_event_claim', 'augment_subscriptions')
 
 
@@ -145,9 +145,9 @@ class InboxService:
             return self.context(ctx, uow)
         return self.context(self.host.managed_subject(ctx, target, uow), uow)
 
-    def project_member(self, ctx, project, uow):
+    def reaches_project(self, ctx, project, uow):
         """Current project access, decided by the host at every call."""
-        return self.host.project_member(ctx, project, uow)
+        return self.host.reaches_project(ctx, project, uow)
 
     def visible(self, ctx, source_type, identity, project, uow):
         """Use current domain authorization; unavailable objects disclose no summary."""
@@ -160,7 +160,7 @@ class InboxService:
         if source_type not in self.visible_types: return False
         try:
             selected = ctx.select_project(project)
-            if project is not None and not self.host.project_member(ctx, project, uow):
+            if project is not None and not self.host.reaches_project(ctx, project, uow):
                 return False
             if project is None and 'read_global_context' not in selected.global_capabilities:
                 return False
@@ -205,7 +205,7 @@ class InboxService:
                 return True
         if row['event_type'] != 'deleted' or row['source_type'] not in {'tasks', 'documents'}:
             return False
-        if row['project_id'] is not None and not self.host.project_member(ctx, row['project_id'], uow):
+        if row['project_id'] is not None and not self.host.reaches_project(ctx, row['project_id'], uow):
             return False
         if row_for(uow, row['source_type'], row['project_id'], row['source_id']):
             return False  # Never use historical metadata to bypass current access.

@@ -2,7 +2,7 @@
 
 The generic message flow lives here: validation order, the durable ``inbox_events``/``agent_messages``/``inbox_deliveries``
 writes, history pagination and the message view. Everything that depends on the host (owner-directed contacts, delegated
-worker bindings and their attribution, forwarding to the owner, terminal delivery, the retirement handoff read) is a
+worker bindings and their attribution, forwarding to the owner, the retirement handoff read) is a
 named call on a required host adapter, made at the point the flow always made it. There is no default adapter."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -45,18 +45,9 @@ class MessageHost(Protocol):
     def retirement_backlog(self, messages, ctx, args, uow):
         """The page returned for a ``retirement_backlog`` read."""
 
-    def validate_terminal(self, ctx, recipient, message, uow) -> None:
-        """Refuse a terminal delivery that cannot be made."""
-
-    def queue_terminal(self, ctx, row, uow) -> None:
-        """Queue the terminal delivery of the stored message ``row``."""
-
-    def terminal_projection(self, row, uow):
-        """The ``terminal_delivery`` mapping of ``row``, or None when it has none."""
-
 
 HOST_METHODS = ('owner_directed_target', 'binding', 'validate_recipient', 'attribution', 'history_scope', 'forward_owner_message',
-                'retirement_backlog', 'validate_terminal', 'queue_terminal', 'terminal_projection')
+                'retirement_backlog')
 
 
 class Messages:
@@ -69,7 +60,6 @@ class Messages:
     def register(self, common):
         self.app.registry.register(OperationDescriptor('agents_message_send', schema({
             'scope': {'enum': ['project', 'global']}, 'to_agent_id': UUID, 'reply_to': UUID, 'summary': SUMMARY,
-            'delivery': {'enum': ['inbox', 'terminal'], 'description': instruction_text('messages-default-inbox-terminal-targeted-retired-project-dev-agents')},
             'message': {'type': 'string', 'minLength': 1, 'maxLength': 16000}, 'relay': RELAY}, ('message',)),
             **common, description=instruction_text('messages-send-a-durable-internal-message-to-a-scoped'),
             prepare=self.prepare, apply=self.apply))
@@ -78,7 +68,7 @@ class Messages:
             'retirement_backlog': {'type': 'boolean'}, **PAGE}),
             **common, effect_kind='read', description=instruction_text('messages-read-your-sent-and-received-message-history-in'), read=self.history))
         self.app.registry.register(OperationDescriptor('agents_message_recipients', schema({
-            'scope': {'enum': ['project', 'global']}, 'all_projects': {'type': 'boolean'},
+            'scope': {'enum': ['project', 'global']},
             'role_id': {'type': 'string', 'minLength': 1, 'maxLength': 100}}), **common, effect_kind='read',
             description=instruction_text('messages-find-active-agents-in-the-selected-scope-or'), read=self.recipients))
 
@@ -151,8 +141,6 @@ class Messages:
                               f"{len(args['message'])}. Lead with the question, blocker or result and put the details on "
                               'the Task (its result or a thread note) or in a linked file')
         peer = self.peer(ctx, recipient, uow, allow_owner=bool(parent))
-        if args.get('delivery') == 'terminal':
-            self.host.validate_terminal(ctx, recipient, args['message'], uow)
         return ctx, peer, parent
 
     def prepare(self, ctx, args, options, uow):
@@ -178,8 +166,6 @@ class Messages:
             self.host.forward_owner_message(uow, kind='agent_message', source_id=identity, sender_id=ctx.principal_id,
                                             worker_id=peer.principal_id, body=args['message'], accepted_at=now)
         row = uow.connection.execute('SELECT * FROM agent_messages WHERE id=?', (identity,)).fetchone()
-        if args.get('delivery') == 'terminal':
-            self.host.queue_terminal(ctx, row, uow)
         return {'message': self.view(row, uow, ctx.principal_id)}
 
     def view(self, row, uow, viewer=None):
@@ -211,9 +197,6 @@ class Messages:
         delivery = uow.connection.execute('SELECT acknowledged_at,outcome FROM inbox_deliveries WHERE agent_id=? AND event_id=?',
             (row['current_recipient_id'], row['event_id'])).fetchone()
         result.update(acknowledged_at=delivery['acknowledged_at'] if delivery else None, outcome=delivery['outcome'] if delivery else None)
-        terminal = self.host.terminal_projection(row, uow)
-        if terminal is not None:
-            result['terminal_delivery'] = terminal
         return result
 
     def history(self, ctx, args, options, uow):
@@ -238,23 +221,21 @@ class Messages:
     def recipients(self, ctx, args, options, uow):
         ctx = self.app.current_context(ctx, uow)
         result = []
-        targets = sorted(ctx.allowed_project_ids) if args.get('all_projects') else [ctx.project_id]
         projects = []
-        for project_id in targets:
-            selected = replace(ctx, project_id=project_id)
-            project = uow.repository('projects').get(project_id) if project_id else None
-            if project and project['archived_at'] is not None:
+        project_id = ctx.project_id
+        project = uow.repository('projects').get(project_id) if project_id else None
+        if project and project['archived_at'] is not None:
+            return {'items': result, 'projects': projects}
+        slug = project['slug'] if project else None
+        projects.append({'project_id': project_id, 'project_slug': slug})
+        for row in uow.connection.execute("SELECT agent_id,name,profile_json FROM agent_profiles WHERE status='active' AND agent_id!=? ORDER BY name,agent_id", (ctx.principal_id,)):
+            role = json.loads(row['profile_json']).get('role', {}).get('id')
+            if args.get('role_id') and role != args['role_id']:
                 continue
-            slug = project['slug'] if project else None
-            projects.append({'project_id': project_id, 'project_slug': slug})
-            for row in uow.connection.execute("SELECT agent_id,name,profile_json FROM agent_profiles WHERE status='active' AND agent_id!=? ORDER BY name,agent_id", (ctx.principal_id,)):
-                role = json.loads(row['profile_json']).get('role', {}).get('id')
-                if args.get('role_id') and role != args['role_id']:
-                    continue
-                try:
-                    peer = self.peer(selected, row['agent_id'], uow)
-                except DomainError:
-                    continue
-                result.append({'agent_id': peer.principal_id, 'name': row['name'], 'display_name': peer.principal.display_name,
-                    'role_id': role, 'project_id': project_id, 'project_slug': slug})
+            try:
+                peer = self.peer(ctx, row['agent_id'], uow)
+            except DomainError:
+                continue
+            result.append({'agent_id': peer.principal_id, 'name': row['name'], 'display_name': peer.principal.display_name,
+                'role_id': role, 'project_id': project_id, 'project_slug': slug})
         return {'items': result, 'projects': projects}

@@ -2,8 +2,7 @@
 
 These are the retained v1 rules, moved as they were: a project-selected caller without ``read_global_context`` records
 for that project; the owner and granted global agents use Global storage; a Global project-operational Action names the
-projects allowed to read its shared text. Only global agents act, so no caller has a home project here; Actions that
-project-home agents recorded remain history in their owning scope. Recorder, owner and grants decide who may change
+projects allowed to read its shared text. Only global agents act; Actions recorded in a project stay in that project's scope. Recorder, owner and grants decide who may change
 one, never a link or a tag."""
 
 from __future__ import annotations

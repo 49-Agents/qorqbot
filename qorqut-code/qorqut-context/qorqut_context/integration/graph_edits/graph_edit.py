@@ -337,7 +337,7 @@ class GraphEditAuthority:
         for project_id in sorted(needed - {ctx.project_id}, key=lambda item: item or ""):
             other = self.application.policy.refresh_context(replace(ctx, project_id=project_id), uow)
             if other.project_id != project_id:
-                # A project agent re-selected to its home project is not in the Global namespace; a registration that
+                # An agent re-selected to a project is not in the Global namespace; a registration that
                 # resolves elsewhere has no authority in the namespace the object belongs to.
                 raise DomainError("forbidden", "The agent's registration has no authority in the namespace of an object this edit changes")
             self._namespace(self.with_delegation(other, delegation), uow, arguments)

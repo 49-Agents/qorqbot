@@ -72,8 +72,6 @@ class OwnerSessionCaller:
         # when their initial context is project-bound.
         if args.get("scope") == "global":
             raise DomainError("forbidden", "Owner sessions cannot select Global operational scope")
-        if canonical_name == "agents_message_recipients" and args.get("all_projects"):
-            raise DomainError("forbidden", "Owner-session recipients are limited to the bound project")
 
     def validate_options(self, actor, canonical_name, options):
         for value in (options.project_id, options.review_project_id):

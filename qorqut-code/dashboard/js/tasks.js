@@ -89,7 +89,6 @@ const tPersonalRows = () => (state.myTasks || []).filter(t => state.scope === 'g
 const tProjectBySlug = (project = state.project) => (state.projects || []).find(x => x.slug === project) || {};
 // the project owner: `human:<owner from project.yaml>` (server's owner_actor fallback)
 const tHuman = () => "human:" + (tProjectBySlug().owner || "dashboard");
-const tAgents = () => (tProjectBySlug().agents || []).map(a => "agent:" + a);
 
 // A repaint replaces every row, so it must not fire while a dropdown is open: it would lose its anchor.
 function tEditingNow() { return !!document.querySelector(".menu"); }
@@ -233,11 +232,10 @@ function tVisSig() {
 }
 
 // ---------------------------------------------------------------- assignee
-// none | agent (one of the project's agents) | human (the owner) | other (any other actor)
+// none | human (the owner) | other (any other actor)
 function tWhoKind(o) {
   if (!o) return "none";
   if (o === tHuman()) return "human";
-  if (tAgents().indexOf(o) >= 0) return "agent";
   return "other";
 }
 

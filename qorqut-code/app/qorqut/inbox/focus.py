@@ -71,7 +71,7 @@ class FocusService:
     def resolve(self, ctx, item, uow):
         project_id = item['project_id']
         if project_id is not None and (project_id not in ctx.allowed_project_ids
-                or not self.inbox.project_member(ctx, project_id, uow)):
+                or not self.inbox.reaches_project(ctx, project_id, uow)):
             raise DomainError('not_found', 'Focus item is unavailable')
         selected = replace(ctx, project_id=project_id, review_project_id=project_id)
         if (handler := self.inbox.sources.for_type(item['type'])) is not None and handler.reference is not None:

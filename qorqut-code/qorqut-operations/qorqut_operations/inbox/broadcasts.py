@@ -2,7 +2,7 @@
 
 A broadcast keeps its owning project (or Global) scope and its timing; its recipients are global identities. Each selected
 agent is addressed in the broadcast's own scope, so one identity means one delivery per occurrence. A recipient must be an
-active supported global that reaches that project now, with no agent membership, saved scope list or project home read;
+active supported global that reaches that project now, through derived project access;
 reach is not a permission, and the direct-message contact rules still decide who may be addressed. An agent sender acts,
 manages and delivers only while it is itself an active supported global.
 
@@ -10,7 +10,6 @@ The host decides who is an active global, where one reaches and who is directed 
 as functions, called again whenever they are needed and never cached. ``BroadcastDispatch`` (``dispatch``) delivers what is due.
 """
 
-from qorqut_agentic.behavior.tool_help import text as instruction_text
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -93,8 +92,8 @@ class Broadcasts:
     def _recipients(self, ctx, args, options, uow):
         """The global agents a broadcast in the selected scope may address, each listed once.
 
-        ``all_projects`` is still accepted but fans out nothing: there are no project rosters, so every scope offers the
-        same globals. The project fields describe the selected message scope, not where an agent lives."""
+        Every scope offers the same globals. The project fields describe the selected message scope, not where an
+        agent lives."""
         ctx = self.app.current_context(ctx, uow)
         self._current_sender(ctx, uow)
         target, _ = self._scope(ctx, args)
@@ -253,8 +252,7 @@ class Broadcasts:
     def register(self):
         common = dict(supports_signoff=False, scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
             resolve_namespace=lambda ctx,a: "global" if a.get("scope") == "global" else "project:" + (ctx.project_id or ""))
-        self.app.registry.register(OperationDescriptor("broadcast_recipients", schema({**SCOPE, "all_projects": {"type":"boolean",
-            "description": instruction_text('broadcasts-accepted-for-existing-callers-it-adds-no-per')},
+        self.app.registry.register(OperationDescriptor("broadcast_recipients", schema({**SCOPE,
             "role_id": {"type":"string", "maxLength":100}}), effect_kind="read", read=self._recipients, **common))
         self.app.registry.register(OperationDescriptor("broadcasts_list", schema({**SCOPE, "cursor":{"type":"string"}, "limit":{"type":"integer","minimum":1,"maximum":200}}), effect_kind="read", read=self.list, **common))
         self.app.registry.register(OperationDescriptor("broadcasts_get", schema({**SCOPE, "broadcast_id": UUID}, ("broadcast_id",)), effect_kind="read", read=self.get, **common))

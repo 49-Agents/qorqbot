@@ -83,7 +83,7 @@ def queue(runtime, ctx, change=None):
                        for ids in change.values())
                 or not all(recent_calendar_key(x) for x in change.get('discarded', []))):
             raise DomainError('validation_error', 'Supply viewed or unviewed attention IDs or recent discarded calendar keys')
-    candidates = [item for item in replies(runtime, ctx)['items'] if not item.get('nav_only')]
+    candidates = list(replies(runtime, ctx)['items'])
     with runtime.database.read() as uow:
         # Match the visible history of each current supported global; listing a board does not mark it read. Boards of
         # other registrations stay readable to the owner but raise no attention.

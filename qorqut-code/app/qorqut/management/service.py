@@ -88,7 +88,7 @@ class ManagementService:
         elif ctx.project_id is not None and project_id != ctx.project_id:
             raise DomainError('forbidden','Management source project is unavailable')
         elif ctx.principal_kind == 'agent':
-            # An agent reaches a project only as a current supported global; no project home is consulted.
+            # An agent reaches a project only as a current supported global.
             if not reaches_project(uow.connection, ctx.principal_id, project_id):
                 raise DomainError('forbidden', 'Management source project is unavailable')
         elif not active_project_participant(uow.connection, project_id, ctx.principal_id):
@@ -185,7 +185,7 @@ class ManagementService:
     def prepare_message(self, ctx, args, options, uow):
         normalize_summary(args.get('summary'))
         if ctx.principal_kind != 'agent':
-            raise DomainError('forbidden', 'Management intake is for project agents')
+            raise DomainError('forbidden', 'Management intake is for agents')
         coordinator = self._coordinator(uow)
         if coordinator == ctx.principal_id:
             raise DomainError('validation_error', 'Coordinator cannot send management messages to itself')
