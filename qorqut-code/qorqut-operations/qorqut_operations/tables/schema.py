@@ -91,8 +91,8 @@ VALUES('data_tables','insert',inbox_actor(),NULL,json_object('project_id',NEW.pr
     """CREATE TRIGGER inbox_capture_data_tables_update AFTER UPDATE ON data_tables
 BEGIN INSERT INTO inbox_changes(source_type,action,actor_id,before_json,after_json)
 VALUES('data_tables','update',inbox_actor(),json_object('project_id',OLD.project_id,'id',OLD.id,'title',OLD.title,'description',OLD.description,'columns_json',OLD.columns_json,'tags_json',OLD.tags_json,'archived',OLD.archived,'table_kind',OLD.table_kind,'crm_config_json',OLD.crm_config_json,'revision',OLD.revision),json_object('project_id',NEW.project_id,'id',NEW.id,'title',NEW.title,'description',NEW.description,'columns_json',NEW.columns_json,'tags_json',NEW.tags_json,'archived',NEW.archived,'table_kind',NEW.table_kind,'crm_config_json',NEW.crm_config_json,'revision',NEW.revision)); END""",
-    """CREATE UNIQUE INDEX data_tables_global_key ON data_tables(id) WHERE project_id IS NULL""",
-    """CREATE UNIQUE INDEX data_rows_global_key ON data_rows(id) WHERE project_id IS NULL""",
+    """CREATE UNIQUE INDEX data_tables_id_unique ON data_tables(id)""",
+    """CREATE UNIQUE INDEX data_rows_id_unique ON data_rows(id)""",
     """CREATE UNIQUE INDEX data_rows_global_position ON data_rows(table_id,position) WHERE project_id IS NULL""",
     """CREATE UNIQUE INDEX table_versions_global_key ON table_versions(id) WHERE project_id IS NULL""",
     """CREATE UNIQUE INDEX table_versions_global_revision ON table_versions(table_id,table_revision) WHERE project_id IS NULL""",

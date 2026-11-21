@@ -44,7 +44,7 @@ SCHEMA = (
     PRIMARY KEY(project_id,id),
     CHECK(parent_id IS NULL OR parent_id <> id)
 )""",
-    """CREATE UNIQUE INDEX tasks_global_key ON tasks(id) WHERE project_id IS NULL""",
+    """CREATE UNIQUE INDEX tasks_id_unique ON tasks(id)""",
     """CREATE INDEX tasks_queue ON tasks(project_id,archived,status,due,id)""",
     """CREATE INDEX tasks_working_attention ON tasks(project_id,archived,updated_at DESC,id)""",
     """CREATE INDEX tasks_parent ON tasks(project_id,parent_id) WHERE parent_id IS NOT NULL""",

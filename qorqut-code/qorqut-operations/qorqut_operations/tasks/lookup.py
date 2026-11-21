@@ -1,14 +1,14 @@
 """Find a Task's owning scope from its id alone, for an agent that selected no project.
 
-Every Task lives in one owning scope: a project, or Global. Task ids are unique across scopes going forward, so an agent
+Every Task lives in one owning scope: a project, or Global. Task ids are unique across scopes, so an agent
 calling a Task tool over MCP may name the Task by ``task_id`` alone. ``TaskLookup`` is the ``locate_scope`` hook of the
 operations that take a ``task_id`` (see ``Application._locate``). It looks the id up only in the scopes the caller can
 reach - its allowed active projects, and Global when it may use Global Tasks at all (never for an owner session) - and,
 in each, only where its ``tasks_get`` authority lets it read Tasks:
 
-* no project selected (no ``project_id``, no ``scope``): one match runs the operation in that scope, exactly as if it had
-  been selected; several (an id reused before ids were unique) are refused with ``validation_error`` listing them;
-* a project selected: the selection stands. A Task that is not there but in one other reachable scope is refused with
+* no project selected (no ``project_id``, no ``scope``): the match runs the operation in its scope, exactly as if it had
+  been selected;
+* a project selected: the selection stands. A Task that is not there but in another reachable scope is refused with
   ``not_found`` saying where; a Task moved out of the selected scope keeps the operation's own ``record_moved`` answer;
 * no exact match: an id with upper-case letters is looked up again in lower case (Task ids are lower case), and an input
   of at least six ``[0-9a-f-]`` characters that begins exactly one reachable Task id is refused with ``not_found`` and
@@ -33,7 +33,6 @@ from qorqut_operations.tasks.scope import global_tasks_allowed, task_namespace
 # Appended to the description of every operation that takes this hook.
 LOCATED = instruction_text('operations-pass-task-id-alone-its-project-is-found')
 SHORT_ID = re.compile(r"[0-9a-f-]{6,}")
-CANDIDATES = 20
 PREFIX_ROWS = 50
 
 
@@ -102,13 +101,8 @@ class TaskLookup:
             return self.selected(ctx, arguments, task_id, reach, uow), None
         found, task_id = self.exact(reach, task_id)
         arguments = {**arguments, "task_id": task_id}
-        if len(found) == 1:
-            return arguments, namespace(found[0]["project_id"])
         if found:
-            raise DomainError(
-                "validation_error", "This task id is in more than one project; call again with the project_id of the one "
-                "you mean (scope=global for Global)", field_errors={"project_id": "required: the task id is in more than one project"},
-                details={"task_id": task_id, "candidates": [reach.view(row) for row in found[:CANDIDATES]]})
+            return arguments, namespace(found[0]["project_id"])
         self.suggest(reach, task_id)
         return arguments, None
 
@@ -141,22 +135,18 @@ class TaskLookup:
         if moved_location(uow, here, task_id) is not None:
             return arguments  # The operation answers record_moved, to a caller who may read it where it is now.
         found, task_id = self.exact(reach, task_id)
-        if len(found) == 1:
+        if found:
             raise DomainError("not_found", f"Task is not in the selected scope; it is in {reach.view(found[0])['project_name']}. "
                               "Call again without project_id and scope, or select that scope",
                               details={"task": reach.view(found[0], identity=True)})
-        if found:
-            raise DomainError("not_found", "Task is not in the selected scope; its id is in more than one other project. "
-                              "Call again with the project_id of the one you mean",
-                              details={"task_id": task_id, "candidates": [reach.view(row) for row in found[:CANDIDATES]]})
         self.suggest(reach, task_id)
         return arguments
 
     def find(self, ctx, uow, task_id):
         """``(task_id, places)``: the id as stored, and each scope in the caller's reach that holds a Task with it which
         the caller may read, as ``Reach.view`` shows it. For an operation that links a Task without running in the
-        Task's scope (``actions_record``): nothing is selected or refused here, and that operation decides what none or
-        several places mean."""
+        Task's scope (``actions_record``): nothing is selected or refused here, and that operation decides what none
+        means."""
         reach = Reach(self.tasks, ctx, uow)
         found, task_id = self.exact(reach, task_id)
         return task_id, [reach.view(row) for row in found]

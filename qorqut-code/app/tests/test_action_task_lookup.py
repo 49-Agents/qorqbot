@@ -2,7 +2,6 @@
 from dataclasses import replace
 from types import SimpleNamespace as NS
 import unittest
-from unittest.mock import patch
 from uuid import uuid4
 
 from qorqut_operations.actions.operations import ActionOperations
@@ -157,27 +156,6 @@ class ActionTaskLookupTests(Harness):
         self.refused(self.record(task_id=denied['id']), 'validation_error',
                      'Linked task does not exist, or is in a project outside your reach', 'task_id')
         self.assertEqual(self.stored(), 0)
-
-    def test_a_reused_id_means_the_scope_the_call_names(self):
-        slug = 'founding-email-preparation'
-        # New ids are unique across projects; an id held in several scopes predates that rule.
-        with patch('qorqut_operations.tasks.operations.taken', return_value=False):
-            for project in (None, self.alpha, self.beta, self.gamma):
-                self.create(project, id=slug)
-        refused = self.record(task_id=slug)
-        self.assertEqual(refused.error['code'], 'validation_error', refused.to_dict())
-        self.assertEqual(refused.error['field_errors'], {'project_ids': 'required: the task id is in more than one project'})
-        self.assertEqual(plain(refused.error['details']), {'task_id': slug, 'candidates': [
-            {'project_id': None, 'project_name': 'Global', 'title': 'Prepare the founding email'},
-            {'project_id': self.alpha, 'project_name': 'Alpha', 'title': 'Prepare the founding email'},
-            {'project_id': self.beta, 'project_name': 'Beta', 'title': 'Prepare the founding email'}]})
-        # Two projects named: still not one Task.
-        self.assertEqual(self.record(task_id=slug, project_ids=[self.alpha, self.beta]).error['code'], 'validation_error')
-        chosen = self.recorded(task_id=slug, project_ids=[self.beta])
-        self.assertEqual(self.classification(chosen), ('project-operational', [self.beta]))
-        chosen = self.recorded(task_id=slug, category='global-operational')
-        self.assertEqual(self.classification(chosen), ('global-operational', []))
-        self.assertEqual(chosen['refs'], {'task': slug})
 
     # -- a staged record ---------------------------------------------------------------------------------------------
 

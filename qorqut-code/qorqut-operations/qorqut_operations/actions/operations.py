@@ -75,8 +75,6 @@ COMMENT_DESCRIPTION = (
     instruction_text('operations-add-a-comment-to-an-action-s-discussion'))
 FOLLOW = schema({"action_id": ACTION_ID, "following": {"type": "boolean"}}, ("action_id", "following"))
 COMMENT_EVENT = "note_added"
-# The most scopes named when a linked Task's id is held in several (an id reused before ids were unique).
-CANDIDATES = 20
 
 
 class ActionOperations:
@@ -186,8 +184,7 @@ class ActionOperations:
         A caller that records in its own project links a Task of that project, and a delegated worker one of the Action's
         own scope, as before. The owner and a global agent record in Global whatever project the work was for, so their
         Task is looked for in their whole reach (``TaskLookup.find``: Global, and every allowed project where they may read
-        Tasks). An id held in several of those scopes means the one the call names, a project in ``project_ids`` or
-        Global by ``category`` global-operational, when it names exactly one; nothing outside the reach is disclosed."""
+        Tasks); nothing outside the reach is disclosed."""
         task_id = args.get("task_id")
         if not task_id:
             return None
@@ -198,18 +195,6 @@ class ActionOperations:
                                   field_errors={"task_id": "not found"})
             return task
         task_id, places = self.tasks.lookup.find(ctx, uow, task_id)
-        if len(places) > 1:
-            named = set(args.get("project_ids") or ())
-            if args.get("category") == "global-operational":
-                named.add(None)
-            chosen = [place for place in places if place["project_id"] in named]
-            if len(chosen) != 1:
-                raise DomainError(
-                    "validation_error", "This task id is in more than one project; name the project of the one you mean in "
-                    "project_ids (category global-operational for the Global one)",
-                    field_errors={"project_ids": "required: the task id is in more than one project"},
-                    details={"task_id": task_id, "candidates": places[:CANDIDATES]})
-            places = chosen
         if not places:
             raise DomainError("validation_error", "Linked task does not exist, or is in a project outside your reach",
                               field_errors={"task_id": "not found"})

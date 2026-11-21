@@ -286,6 +286,7 @@ BEGIN SELECT RAISE(ABORT, 'immutable job outputs'); END""",
     CHECK ((scope = 'project' AND project_id IS NOT NULL AND namespace = project_id)
         OR (scope = 'global' AND project_id IS NULL))
 )""",
+    """CREATE UNIQUE INDEX routines_id_unique ON routines(id)""",
     """CREATE TABLE routine_runs (
     id TEXT PRIMARY KEY,
     namespace TEXT NOT NULL,
@@ -342,7 +343,7 @@ BEGIN SELECT RAISE(ABORT, 'immutable job outputs'); END""",
     PRIMARY KEY (project_id, id)
 )""",
     """CREATE INDEX relationships_from ON relationships(project_id,from_type,from_id,role)""",
-    """CREATE UNIQUE INDEX relationships_global_key ON relationships(id) WHERE project_id IS NULL""",
+    """CREATE UNIQUE INDEX relationships_id_unique ON relationships(id)""",
     """CREATE INDEX relationships_memory_observe ON relationships(project_id,from_type,from_id,id)""",
     """CREATE INDEX relationships_role ON relationships(project_id,role,updated_at,id)""",
     """CREATE INDEX relationships_to ON relationships(project_id,to_type,to_id,role)""",

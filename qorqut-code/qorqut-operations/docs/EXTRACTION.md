@@ -434,7 +434,7 @@ before it was extended):
 * `context_reviews` (append-only; `mutable=False`, no revision column) and `context_review_states` (one mutable row
   per `(project_id, relationship_id, item_type, item_id)`, FK to `relationships ON DELETE CASCADE` and to
   `context_reviews`). Removing a relationship therefore removes its review state and keeps the decisions.
-* Indexes kept: `relationships_from`, `relationships_global_key`, `relationships_memory_observe`,
+* Indexes: `relationships_from`, `relationships_id_unique` (one id names one relationship in the whole store), `relationships_memory_observe`,
   `relationships_role`, `relationships_to`, `context_reviews_history`. Triggers kept: `context_reviews_no_update`,
   `context_reviews_no_delete`.
 * Specs (`storage/specs.py`): `relationships` `(("project_id","id"), "project_id")`, `context_reviews`

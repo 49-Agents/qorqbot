@@ -55,10 +55,10 @@ class ShortTaskIdTests(unittest.TestCase):
                                                      'workspace': slug, 'hq_path': 'hq-' + slug})
                 uow.repository('project_memberships', project_id=project).insert({'principal_id': self.owner,
                                                                                     'is_owner': True})
-            # What older installations hold: a UUID, a slug id repeated in two projects, and ids already in the new
-            # format in another project, in Global and on an archived Task.
+            # Stored Tasks: a UUID, slug ids, and ids in the short format in another project, in Global and on an
+            # archived Task.
             legacy = ((self.first, LEGACY_UUID, False), (self.first, 'seo-autopilot', False),
-                      (self.second, 'seo-autopilot', False), (self.second, 'abcde', False), (None, 'fghjk', False),
+                      (self.second, 'seo-copy', False), (self.second, 'abcde', False), (None, 'fghjk', False),
                       (self.first, 'mnpqr', True), (self.second, 'k7m2p', False))
             for project, task_id, archived in legacy:
                 uow.repository('tasks', project_id=project).insert({'id': task_id, 'title': 'Legacy ' + task_id,
@@ -138,7 +138,7 @@ class ShortTaskIdTests(unittest.TestCase):
         # The same project keeps its earlier answer, which names the current revision.
         same = self.invoke('tasks_create', {'title': 'Copy', 'id': 'seo-autopilot'}, self.first)
         self.assertEqual(same.error['code'], 'revision_conflict')
-        self.assertEqual(self.ids('seo-autopilot'), sorted([self.first, self.second]))
+        self.assertEqual(self.ids('seo-autopilot'), [self.first])
         # An unused id is still accepted as given.
         self.assertEqual(self.create(self.second, id='chosen-id')['id'], 'chosen-id')
 
@@ -175,7 +175,7 @@ class ShortTaskIdTests(unittest.TestCase):
         self.assertEqual((generated.exception.code, generated.exception.retryable), ('revision_conflict', True))
         self.assertEqual((named.exception.code, named.exception.field_errors), ('validation_error', {'id': 'already in use'}))
 
-    def test_legacy_uuid_and_slug_ids_still_read_and_update(self):
+    def test_uuid_and_slug_ids_read_and_update(self):
         for task_id in (LEGACY_UUID, 'seo-autopilot'):
             read = self.invoke('tasks_get', {'task_id': task_id}, self.first)
             self.assertEqual(read.status, 'ok', read.to_dict())
@@ -186,10 +186,10 @@ class ShortTaskIdTests(unittest.TestCase):
             self.assertEqual(updated.data['task']['id'], task_id)
             commented = self.invoke('tasks_comment', {'task_id': task_id, 'text': 'Still here.'}, self.first)
             self.assertEqual(commented.status, 'ok', commented.to_dict())
-        # The same slug in the other project is a different Task and is untouched.
-        other = self.invoke('tasks_get', {'task_id': 'seo-autopilot'}, self.second)
-        self.assertEqual(other.data['task']['title'], 'Legacy seo-autopilot')
-        # A new child of a legacy Task gets a short id and keeps the legacy parent.
+        # The slug Task in the other project is untouched.
+        other = self.invoke('tasks_get', {'task_id': 'seo-copy'}, self.second)
+        self.assertEqual(other.data['task']['title'], 'Legacy seo-copy')
+        # A new child of a slug Task gets a short id and keeps its parent.
         child = self.create(self.first, parent_id='seo-autopilot', blocked_by=[LEGACY_UUID])
         self.assertEqual(len(child['id']), identity.TASK_ID_LENGTH)
         self.assertEqual((child['parent']['id'], list(child['blocked_by'])), ('seo-autopilot', [LEGACY_UUID]))
@@ -226,10 +226,6 @@ class ShortTaskIdTests(unittest.TestCase):
         self.assertEqual(refused.error['field_errors'], {'id': 'already in use'})
         refused = self.invoke('tasks_create', {'title': 'Copy', 'id': task['id']}, None)
         self.assertEqual(refused.error['field_errors'], {'id': 'already in use'})
-        # An older id held in two projects still cannot be moved onto its twin; the move reports it before writing.
-        blockers = self.move(self.first, self.second, 'seo-autopilot')
-        self.assertIn('task_id_exists', [blocker['code'] for blocker in blockers])
-        self.assertEqual(self.ids('seo-autopilot'), sorted([self.first, self.second]))
 
     def test_task_id_path_segments_are_one_metric_route(self):
         for task_id in ('k7m2p', 'seo-autopilot', LEGACY_UUID):

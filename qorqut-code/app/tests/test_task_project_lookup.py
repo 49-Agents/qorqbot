@@ -263,22 +263,6 @@ class TaskProjectLookupTests(Harness):
         self.assertEqual(refused.error['code'], 'not_found')
         self.assertNotIn('details', refused.error)
 
-    def test_a_reused_id_asks_for_the_project_listing_only_reachable_candidates(self):
-        slug = 'founding-email-preparation'
-        # New ids are unique across projects; an id held in several projects predates that rule.
-        with patch('qorqut_operations.tasks.operations.taken', return_value=False):
-            for project in (self.alpha, self.beta, self.gamma):
-                self.create(project, id=slug)
-        refused = self.call('tasks_get', {'task_id': slug})
-        self.assertEqual(refused.error['code'], 'validation_error', refused.to_dict())
-        self.assertIn('project_id', refused.error['field_errors'])
-        self.assertEqual(plain(refused.error['details']), {'task_id': slug, 'candidates': [
-            {'project_id': self.alpha, 'project_name': 'Alpha', 'title': 'Prepare the founding email'},
-            {'project_id': self.beta, 'project_name': 'Beta', 'title': 'Prepare the founding email'}]})
-        self.assertEqual(self.call('tasks_comment', {'task_id': slug, 'text': 'x'}).error['code'], 'validation_error')
-        chosen = self.call('tasks_get', {'task_id': slug}, project_id=self.beta)
-        self.assertEqual(chosen.data['task']['project_id'], self.beta)
-
     def test_a_wrong_project_says_where_the_task_is(self):
         task = self.create(self.alpha, title='Book the venue')
         for operation, arguments in (('tasks_get', {}), ('tasks_comment', {'text': 'Booked.'})):

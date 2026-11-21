@@ -223,7 +223,7 @@ class TaskRelocation:
                              for row in (rows[item] for item in ordered)]
         material["roots"] = list(roots)
 
-        # Destination identity: a Task id is unique only inside its scope, so another record there with the same id blocks.
+        # Destination identity: another record there with the same id blocks.
         for row in connection.execute("SELECT id FROM tasks WHERE project_id IS ? AND id IN " + marks(ids) + " ORDER BY id", (destination, *ids)):
             blockers.append(blocker("task_id_exists", "The destination project already has a Task with this id", row["id"]))
 

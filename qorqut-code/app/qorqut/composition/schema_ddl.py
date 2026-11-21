@@ -147,6 +147,7 @@ END""",
     PRIMARY KEY(project_id, id),
     UNIQUE(project_id, agent_id, workspace_key)
 )""",
+        """CREATE UNIQUE INDEX workspace_presentations_id_unique ON workspace_presentations(id)""",
         """CREATE INDEX workspace_presentations_agent ON workspace_presentations(agent_id, project_id, workspace_key)""",
     ),
     # One serialized group, in its committed order: Operations' documents, the host's working memory and jobs index, Operations'
@@ -497,6 +498,7 @@ WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
     PRIMARY KEY (project_id, id)
 )""",
         """CREATE UNIQUE INDEX learning_candidates_workspace ON learning_candidates(scope_key, id)""",
+        """CREATE UNIQUE INDEX learning_candidates_id_unique ON learning_candidates(id)""",
         """CREATE TABLE "learning_decisions" (
     project_id TEXT,
     candidate_id TEXT NOT NULL,
@@ -521,6 +523,7 @@ WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
     PRIMARY KEY (project_id, id)
 )""",
         """CREATE UNIQUE INDEX learning_runs_workspace ON learning_runs(scope_key, id)""",
+        """CREATE UNIQUE INDEX learning_runs_id_unique ON learning_runs(id)""",
         """CREATE TABLE "learning_scan_state" (
     project_id TEXT REFERENCES projects(id),
     session_id TEXT NOT NULL,

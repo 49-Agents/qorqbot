@@ -51,8 +51,8 @@ class SignoffSourceTests(unittest.TestCase):
             uow.repository('installation').insert({'id': 'service', 'installation_id': new_id(), 'owner_principal_id': self.owner})
             uow.repository('projects').insert({'id': self.project, 'name': 'Example project', 'slug': 'example', 'workspace': 'example', 'hq_path': 'hq'})
             uow.repository('project_memberships', project_id=self.project).insert({'principal_id': self.owner, 'is_owner': True})
-            for project in (None, self.project):
-                uow.repository('tasks', project_id=project).insert({'id': 'work', 'title': 'Example work', 'status': 'working', 'created_by': self.owner})
+            for project, identity in ((None, 'work'), (self.project, 'project-work')):
+                uow.repository('tasks', project_id=project).insert({'id': identity, 'title': 'Example work', 'status': 'working', 'created_by': self.owner})
         ports = SignoffPorts(execution=HostExecution(), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                             platform=ABSENT, email=ABSENT, management=ABSENT, focus=ABSENT, sources=HostInputSources())
         self.signoffs = SignoffService(self.db, ports, locks=LockPaths.under(self.root / 'locks'))
@@ -98,7 +98,7 @@ class SignoffSourceTests(unittest.TestCase):
         return self.invoke('signoffs_input_create', args)
 
     def task(self, project=None):
-        return self.invoke('tasks_get', {'task_id': 'work'}, project=project)['task']
+        return self.invoke('tasks_get', {'task_id': 'work' if project is None else 'project-work'}, project=project)['task']
 
     def answer(self, signoff):
         result = self.signoffs.respond(self.ctx, signoff['id'], proposal_revision=signoff['proposal_revision'],
@@ -150,7 +150,7 @@ class SignoffSourceTests(unittest.TestCase):
             self.assertEqual(uow.connection.execute('SELECT count(*) FROM signoff_source_links').fetchone()[0], 0)
 
     def test_cross_scope_identity_visibility_and_cache_invalidation(self):
-        project_source = {**self.source, 'project_id': self.project}
+        project_source = {**self.source, 'id': 'project-work', 'project_id': self.project}
         initial = self.feed.route_versions({'tasks'}, self.project)
         created = self.create(source=project_source)
         self.assertNotEqual(self.feed.route_versions({'tasks'}, self.project), initial)
@@ -271,11 +271,11 @@ class SignoffSourceTests(unittest.TestCase):
             uow.repository('principals').insert({'id': worker, 'kind': 'agent', 'display_name': 'Example worker'})
             uow.repository('agent_profiles', project_id=None).insert({'agent_id': worker, 'principal_id': worker,
                 'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
-            task = uow.repository('tasks', project_id=self.project).get('work')
+            task = uow.repository('tasks', project_id=self.project).get('project-work')
             uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_project_id,task_id,task_created_at,'
-                'created_at) VALUES(?,?,?,?,?,?)', (new_id(), worker, self.project, 'work', task['created_at'], task['created_at']))
+                'created_at) VALUES(?,?,?,?,?,?)', (new_id(), worker, self.project, 'project-work', task['created_at'], task['created_at']))
             # A worker is reminded only of a Task that names it.
-            uow.connection.execute('UPDATE tasks SET worker_ids_json=? WHERE project_id=? AND id=?', (json.dumps([worker]), self.project, 'work'))
+            uow.connection.execute('UPDATE tasks SET worker_ids_json=? WHERE project_id=? AND id=?', (json.dumps([worker]), self.project, 'project-work'))
         ctx = replace(self.ctx, principal=Principal(worker, 'agent'), source='mcp', profile_revision=1)
         self.policy.context_for = lambda principal_id, project_id=None, review_project_id=None, **_: replace(
             ctx if principal_id == worker else self.ctx, project_id=project_id, review_project_id=review_project_id)

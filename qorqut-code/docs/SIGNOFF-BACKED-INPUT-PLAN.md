@@ -201,8 +201,7 @@ Use the same source reference for a non-task record thread; such a record need
 not acquire a Task status just to show a pending question.
 
 The schema must enforce unique source/Signoff/role bindings, including NULL
-Global scope. Signoff IDs are globally unique; Task IDs are only unique within
-their owning scope. Index both source lookup and reverse Signoff lookup.
+Global scope. Signoff IDs and Task IDs are each unique across the whole store. Index both source lookup and reverse Signoff lookup.
 Authorization must check each endpoint; a link must never expand visibility.
 
 Why prefer separate storage after investigation:
