@@ -285,7 +285,7 @@ class DashboardCompatibility:
                 profiles = self.data(selected, "agents_list")["agents"]
                 metadata = json.loads(row["config_json"])
                 projects.append({"slug": row["slug"], "path": str(project_hq(self.runtime.paths, row)), "name": row["name"], "id": row["id"], "project_id": row["id"],
-                    "one_liner": metadata.get("one_liner", metadata.get("description", "")), "stage": row["stage"], "website": metadata.get("website"),
+                    "one_liner": metadata.get("one_liner", metadata.get("description", "")), "website": metadata.get("website"),
                     "owner": context.principal.display_name, "agents": [profile["name"] for profile in profiles],
                     "agent_meta": {profile["name"]: self.appearance(profile) for profile in profiles}})
             return JSONResponse(projects)

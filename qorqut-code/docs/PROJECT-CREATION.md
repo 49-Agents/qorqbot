@@ -60,8 +60,7 @@ proven staging tree.
 
 One plan creates, atomically from the caller's view:
 
-- the project row (stage `idea` and timezone `UTC` are inert storage defaults; no lifecycle form or
-  workflow reads them) with `config_json = {one_liner, code: []}`;
+- the project row with `config_json = {one_liner, code: []}`;
 - the owner's membership and the memberships of the already registered, project-scoped bounded system
   programs (no principal is created);
 - the empty folders `projects/{slug}/hq` and `projects/{slug}/code`, made with the Operations

@@ -75,7 +75,6 @@ class OwnerSessionBootstrap:
         owner = (f"{principal['display_name']}, the installation owner"
                  if principal and principal["display_name"].strip() else OWNER_FALLBACK)
         return {"project": {"id": project["id"], "slug": project["slug"], "name": project["name"],
-                             "stage": project["stage"], "timezone": project["timezone"],
                              "revision": project["revision"]},
                 "engineering": engineering, "briefs": briefs,
                 "context_index": self._index(ctx, uow, missing),

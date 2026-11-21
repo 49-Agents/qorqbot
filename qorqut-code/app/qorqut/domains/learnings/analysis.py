@@ -397,7 +397,7 @@ parts of it are worth keeping after the session is over.
 The user message has two parts.
 
 First a small JSON block taken from the project repo: the project (id, name,
-one_liner, stage, owner), every agent that works for it with its kind (the plugin
+one_liner, owner), every agent that works for it with its kind (the plugin
 that runs it), and which agent this session belongs to. That block is trusted; it
 tells you what "this project" and "this agent" mean.
 

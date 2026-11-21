@@ -102,7 +102,7 @@ job revision and refuse already-started dispatch, closing the rejection/send rac
 ## Storage
 
 `projects.config_json` is the sole general project configuration. Indexed
-name/stage/timezone update atomically; legacy config `id` is not the project UUID.
+name update atomically; legacy config `id` is not the project UUID.
 This is ordinary agent-visible data; secrets belong in provider/connection
 configuration, referenced by stable IDs, not in project settings or proposals.
 `project_configs.domain` names the domain of an operational setting (for example `tasks`). Document namespaces remain raw project UUIDs

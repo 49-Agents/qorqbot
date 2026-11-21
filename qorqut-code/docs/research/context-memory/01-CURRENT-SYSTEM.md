@@ -23,7 +23,7 @@ There are four places where knowledge can live. Only the first is "the context b
 |---|---|---|---|
 | **Shared Context graph** | Nodes, edges, notes, sources, events. One Git repo per installation. | A single serial filing queue (LLM propagator), plus explicit `context_edit`. | 6,000-character "Context Home" index at session start; everything else by tool call. |
 | **Working memory** | One private handoff per agent per scope, 4,000 characters at most. | The agent itself (`working_memory_update`), or the owner in the dashboard. | Injected at session start, resume, clear, compact, fork. |
-| **Project directory** | Per project: name, ID, stage, aliases, one-liner (300 characters). | Project settings. | Always injected at session start. |
+| **Project directory** | Per project: name, ID, aliases, one-liner (300 characters). | Project settings. | Always injected at session start. |
 | **Older item stores** | Documents, Materials, People documents, notes (`context_list/get/search`, `context_items_list`, `context_people_*`, `notes_*`). | Various explicit tools. | Tool call only. Not part of the graph. |
 
 Chat transcripts are archived but agents have no tool to search them. Only the learnings pipeline reads them [C].

@@ -93,7 +93,7 @@ def project_aliases(row) -> list[str]:
 
 
 def project_directory(projects, *, agentic_view=None) -> str:
-    """One entry per active project: name, ID, stage and one-liner."""
+    """One entry per active project: name, ID and one-liner."""
     lines = []
     def name(row):
         return row.get("display_name") or row.get("name") or row["id"]
@@ -105,7 +105,7 @@ def project_directory(projects, *, agentic_view=None) -> str:
         if len(one_liner) > 300:
             one_liner = one_liner[:299].rsplit(" ", 1)[0] + "…"
         aliases = project_aliases(item)
-        line = (f"- {name(item)} ({item['id']}); stage: {item.get('stage') or 'unknown'}."
+        line = (f"- {name(item)} ({item['id']})."
                 + (f" Also called: {', '.join(aliases)}." if aliases else "") + (f" {one_liner}" if one_liner else ""))
         lines.append(line)
     if not lines:
@@ -182,7 +182,7 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
         # ICP and Brand documents stay ordinary scoped sources read through their document APIs; they are neither an
         # always-injected brief nor a fallback for an unreadable graph.
         aliases = project_aliases(project)
-        derived("Selected Project", render(agentic_view, "host", "app/qorqut/agentic/assets/selected-project.md", PROJECT_NAME=str(project['display_name']), PROJECT_ID=str(project['id']), STAGE=str(project['stage']), PROJECT_REVISION=str(project['revision']))
+        derived("Selected Project", render(agentic_view, "host", "app/qorqut/agentic/assets/selected-project.md", PROJECT_NAME=str(project['display_name']), PROJECT_ID=str(project['id']), PROJECT_REVISION=str(project['revision']))
                 + (f" Also called: {', '.join(aliases)}." if aliases else "") + render(agentic_view, "host", "app/qorqut/agentic/assets/selected-scope.md"),
                 "project:" + project["id"], "Explicit permitted project orientation")
     if context_home:
