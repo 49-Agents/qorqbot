@@ -69,7 +69,7 @@ KIND_BY_TABLE = {
     "action_logs": "action_logs", "action_businesses": "action_logs",
     "agent_profiles": "agents", "principals": "agents", "business_memberships": "agents",
     "data_tables": "tables", "data_rows": "tables",
-    # A timeline row belongs to the Task, Project or Global it names; Global rows land at the global scope.
+    # A timeline row belongs to the Task or Project it names; the rows of a Global Task land at the global scope.
     "timeline_entries": "timeline", "timeline_questions": "timeline",
     # CRM memberships belong to their Table's views; a recorded observation belongs to its Task's activity.
     "crm_entries": "tables", "crm_activity_events": "tasks",

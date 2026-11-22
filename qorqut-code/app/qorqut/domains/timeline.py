@@ -1,12 +1,17 @@
-"""The timelines of Tasks, Projects and Global as agent tools.
+"""The timelines of Tasks and Projects as agent tools.
 
 ``timeline_get`` reads what holds now on one item (or its whole history); ``timeline_file`` is how the configured coordinator
 changes it. An item is ``{type, id, business_id}`` as ``thread_pins_set`` names a record: a Task (``task``, its id, its Project
-or null), a Project (``project``, its id as both id and business_id) or Global (``global``, id ``global``, business_id null).
+or null for a Global Task) or a Project (``project``, its id as both id and business_id).
+
+Global has no timeline (the owner's decision, 22 November 2026): what holds for all work is a standing instruction and goes
+through an agentic change. A call that names Global (``global``, id ``global``, business_id null) is still accepted by the
+schemas so that it is answered with that advice (``NO_GLOBAL``) instead of a bare schema refusal; nothing is read or filed.
+Entries filed on Global before the decision stay in the store and are not read.
 
 Who may read: a Task's timeline follows the ordinary ``tasks_get`` read of that Task; a Project's needs the caller to be a
-participant of that Project; Global's is open to every agent. Who may file: the configured coordinator in person, never a
-delegated identity, never the dashboard.
+participant of that Project. Who may file: the configured coordinator in person, never a delegated identity, never the
+dashboard.
 
 Filing is split so that a later review step can sit between the two halves: ``check`` is the caller's gate, the item's
 existence and ``filing.check`` of the changes (it is what ``prepare`` runs and what lists the rows a removal or answer depends
@@ -28,18 +33,19 @@ from qorqut.domains.projects.access import business_participant
 from qorqut.management.identity import configured_ordubashy, installation_owner
 
 GET_DESCRIPTION = (
-    "Reads the timeline of a Task, a Project or Global: what holds now, or its whole history. item names it: type (task, project "
-    "or global), id (the Task id, the Project id, or \"global\") and business_id (the Project a Task is in, the Project's own id "
-    "for a project, null for Global or a Global Task). By default it returns the state with the ids of its entries and questions "
+    "Reads the timeline of a Task or a Project: what holds now, or its whole history. item names it: type (task or project), "
+    "id (the Task id or the Project id) and business_id (the Project a Task is in, the Project's own id for a project, null "
+    "for a Global Task). Global has no timeline. By default it returns the state with the ids of its entries and questions "
     "(the ids timeline_file removes, answers and drops by): the latest goal, every decision and fact added and not removed, the "
     "latest progress note and the open questions for the owner, plus the same as text and the item's revision. With history true it "
     "pages every entry oldest first (limit, cursor), removed ones marked, with the owner's quoted words and their links, and the "
     "first page lists the questions already answered or dropped and the item's subtasks, approvals and reports as one-line links "
     "(approval and report titles are shown to the coordinator and the owner only). You may read a Task's timeline when you may "
-    "read the Task, a Project's when you take part in the Project, and Global's always. Changes nothing.")
+    "read the Task and a Project's when you take part in the Project. Changes nothing.")
 FILE_DESCRIPTION = (
-    "Coordinator write. Changes the timeline of a Task, a Project or Global, which every agent that opens the item is then told. "
-    "item names it as in timeline_get. changes is 1 to 10 of: {action: add, kind: goal|decision|fact|progress, text, refs?} "
+    "Coordinator write. Changes the timeline of a Task or a Project, which every agent that opens the item is then told. "
+    "item names it as in timeline_get. Global has no timeline: a rule every agent must keep in mind is a standing instruction, "
+    "proposed as an agentic change with agentic_change_propose. changes is 1 to 10 of: {action: add, kind: goal|decision|fact|progress, text, refs?} "
     "(text 1 to 400 characters, one or two sentences; a goal and a progress note replace the previous one, a decision and a fact "
     "hold until removed; an add that repeats what already stands is skipped and listed under filed.skipped); {action: remove, "
     "entry_id, reason?} (takes out an entry that no longer holds, and removing the current goal or progress note leaves none; read the ids with "
@@ -56,13 +62,25 @@ ANSWER_DESCRIPTION = (
     "Coordinator write. Files the owner's answer to one of your question Signoffs on a timeline, at once and without review, "
     "since the words are the owner's: signoff_id is the answered question (signoffs_input_create, now answered), kind is "
     "decision or fact, text is the answer as it should hold (1 to 400 characters, one or two sentences). item names where it "
-    "holds as in timeline_get; without it, the Task or Project the question was asked about, else Global or the Signoff's "
-    "Project. The owner's own answer is quoted on the entry and linked to the Signoff. Each answer is filed once. File only "
+    "holds as in timeline_get; without it, the Task or Project the question was asked about, else the Signoff's Project. A "
+    "question asked about no Task or Project needs item, since Global has no timeline. The owner's own answer is quoted on "
+    "the entry and linked to the Signoff. Each answer is filed once. File only "
     "an answer that settles a decision or fact; when the owner says the question is not needed or was settled already, file "
     "nothing. If unclear, please ask the user.")
+# Global has no timeline. A call that names it is told where its content belongs, so the caller is not left to guess.
+NO_GLOBAL = ("Global has no timeline. Why should this hold at Global? A rule every agent must keep in mind is a standing "
+             "instruction: consider proposing it as an agentic change with agentic_change_propose. What holds for one Project "
+             "or Task is filed on that Project or Task.")
+NO_GLOBAL_READ = ("Global has no timeline. What holds for all work is in the standing instructions; read the timeline of a "
+                  "Project or a Task.")
+NO_GLOBAL_ANSWER = ("This question was asked about no Task or Project, and Global has no timeline. Name the Task or Project "
+                    "the answer holds on with item. If the answer is a rule every agent must keep in mind, consider proposing "
+                    "it as an agentic change with agentic_change_propose; otherwise file nothing: the answered Signoff is the "
+                    "record.")
 REVIEW_NOTICE = ("Submitted for the owner's review. It is filed by itself when the owner approves it; do not file it again. "
                  "timeline_get lists the filings still waiting.")
 
+# ``global`` stays in the accepted types only so that a call naming it reaches ``grounded`` and its advice.
 ITEM = {"type": "object", "additionalProperties": False, "required": ["type", "id", "business_id"], "properties": {
     "type": {"enum": list(ITEM_TYPES)},
     "id": {"type": "string", "minLength": 1, "maxLength": 300},
@@ -124,11 +142,17 @@ class Timeline:
     # -- the item and who may read it ------------------------------------------------------------------------------
 
     @staticmethod
+    def grounded(item, message=NO_GLOBAL):
+        """Refuse Global, which has no timeline, with ``message``: where what was meant for it belongs."""
+        if item["type"] == "global":
+            raise DomainError("validation_error", message)
+
+    @staticmethod
     def exists(item, uow):
-        """The item's title when it exists, without any caller's authority (``''`` for Global, which has none); else None."""
+        """The item's title when it exists, without any caller's authority; else None. Global is no item."""
         kind, identity, business = item["type"], item["id"], item["business_id"]
         if kind == "global":
-            return "" if identity == "global" and business is None else None
+            return None
         if kind == "project":
             row = uow.connection.execute("SELECT name FROM businesses WHERE id=?", (identity,)).fetchone() if business == identity else None
             return row["name"] if row else None
@@ -136,14 +160,12 @@ class Timeline:
         return row["title"] if row else None
 
     def readable(self, ctx, item, uow):
-        """The item's title (None for Global) once the caller's own read of it succeeds; ``not_found`` otherwise."""
+        """The item's title once the caller's own read of it succeeds; ``not_found`` otherwise."""
         current = self.app.current_context(ctx, uow)
         title = self.exists(item, uow)
         if title is None:
             raise DomainError("not_found", NOT_READABLE)
         kind, business = item["type"], item["business_id"]
-        if kind == "global":
-            return None
         if kind == "project":
             if not business_participant(current, business, uow):
                 raise DomainError("not_found", NOT_READABLE)
@@ -168,7 +190,7 @@ class Timeline:
 
     @staticmethod
     def further_reading(item, uow):
-        """``{subtasks, approvals, reports}`` counts for a Task; empty for a Project or Global."""
+        """``{subtasks, approvals, reports}`` counts for a Task; empty for a Project."""
         if item["type"] != "task":
             return {}
         connection, business, identity = uow.connection, item["business_id"], item["id"]
@@ -213,6 +235,7 @@ class Timeline:
 
     def get(self, ctx, args, options, uow):
         item = args["item"]
+        self.grounded(item, NO_GLOBAL_READ)
         title = self.readable(ctx, item, uow)
         held = timeline_state.state(uow.connection, item)
         result = {"item": held["item"], "revision": held["revision"]}
@@ -260,6 +283,7 @@ class Timeline:
         """The gate of a filing and the rows its changes depend on: ``(title, pins)`` where ``pins`` lists, as
         ``{'entries': [...], 'questions': [...]}``, the stored rows a removal, answer or drop closes."""
         self.filer(ctx, uow)
+        self.grounded(args["item"])
         title = self.readable(ctx, args["item"], uow)
         self.current(args["item"], uow)
         return title, filing.check(uow.connection, args["item"], args["changes"])
@@ -304,7 +328,7 @@ class Timeline:
     def prepare(self, ctx, args, options, uow):
         title, pins = self.check(ctx, args, uow)
         item = args["item"]
-        builder = PlanBuilder(ctx, "timeline_file", args, f"File on the timeline of {item['type']} \"{title}\"" if title else "File on the Global timeline")
+        builder = PlanBuilder(ctx, "timeline_file", args, f"File on the timeline of {item['type']} \"{title}\"")
         self.pin(builder, item, pins)
         lines = plain(self.lines(args["changes"], pins))
         # The same changes already waiting on this item would only make the owner decide them twice.
@@ -367,6 +391,8 @@ class Timeline:
         self.permit(principal_id, uow)
         args = plain(args)
         item = args["item"]
+        # A filing on Global that was held for review before Global lost its timeline ends here when it is approved.
+        self.grounded(item)
         title = self.exists(item, uow)
         if title is None:
             raise DomainError("not_found", "The item no longer exists")
@@ -374,8 +400,8 @@ class Timeline:
         made = filing.write(uow.connection, item, args["changes"], args.get("sources", []), created_by=principal_id, at=timestamp())
         held = timeline_state.state(uow.connection, item)
         result = {"item": held["item"], "revision": held["revision"], "filed": made, "state": held,
-                  "text": timeline_state.render(held, title or None, self.further_reading(item, uow))}
-        size = timeline_state.standing_size(held, title or None)
+                  "text": timeline_state.render(held, title, self.further_reading(item, uow))}
+        size = timeline_state.standing_size(held, title)
         if size > timeline_state.WARNING_CHARACTERS:
             result["warning"] = (f"This item's standing state is now {size} characters; about {timeline_state.WARNING_CHARACTERS} "
                                  "is the most worth carrying. Remove the entries that no longer hold.")
@@ -411,13 +437,14 @@ class Timeline:
 
     @staticmethod
     def asked_about(row, uow):
-        """The item a question Signoff was asked about: its Task or Project source, else its Project, else Global."""
+        """The item a question Signoff was asked about: its Task or Project source, else its Project, else None (a question
+        asked at Global about no Task or Project, which has no timeline to hold its answer)."""
         for link in uow.connection.execute(
                 "SELECT source_type, source_id, source_business_id FROM signoff_source_links WHERE signoff_id=? "
                 "AND source_type IN ('task','project') ORDER BY source_type DESC, created_at, id", (row["id"],)).fetchall():
             return {"type": link["source_type"], "id": link["source_id"], "business_id": link["source_business_id"]}
         business = row["review_business_id"]
-        return {"type": "project", "id": business, "business_id": business} if business else {"type": "global", "id": "global", "business_id": None}
+        return {"type": "project", "id": business, "business_id": business} if business else None
 
     def answered(self, ctx, args, uow):
         """``(row, item, title, quote)`` for a filing of the owner's answer: the caller is the coordinator in person, the Signoff
@@ -435,6 +462,9 @@ class Timeline:
         if uow.connection.execute(f"SELECT 1 FROM {ENTRIES} WHERE sources_json LIKE ? LIMIT 1", (f'%"{reference}"%',)).fetchone():
             raise DomainError("validation_error", "This answer is already on a timeline")
         item = args.get("item") or self.asked_about(row, uow)
+        if item is None:
+            raise DomainError("validation_error", NO_GLOBAL_ANSWER)
+        self.grounded(item)
         title = self.readable(ctx, item, uow)
         self.current(item, uow)
         return row, item, title, self.owner_words(row, uow)
@@ -442,7 +472,7 @@ class Timeline:
     def prepare_answer(self, ctx, args, options, uow):
         row, item, title, _ = self.answered(ctx, args, uow)
         builder = PlanBuilder(ctx, "timeline_file_answer", args,
-                              f"File the owner's answer on the timeline of {item['type']} \"{title}\"" if title else "File the owner's answer on the Global timeline")
+                              f"File the owner's answer on the timeline of {item['type']} \"{title}\"")
         return builder.build()
 
     def apply_answer(self, ctx, plan, uow):
