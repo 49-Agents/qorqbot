@@ -35,14 +35,14 @@
 /* A subtask's title is as light as its parent's. */
 .agwork-children .record-child-title { font-weight: 300; }
 .agwork-row:focus-visible, .agwork-card:focus-visible { outline: 2px solid var(--fg-2); outline-offset: -2px; }
-/* The Board: four columns that scroll sideways inside the pane when it is narrower than they are. */
-.agwork-board { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 12px; align-items: start; margin-bottom: 26px; overflow-x: auto; }
+/* The Board: four columns, all in view at the pane's usual width; they scroll sideways inside a narrower pane. */
+.agwork-board { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; align-items: start; margin-bottom: 26px; overflow-x: auto; }
 .agwork-column { margin-bottom: 0 !important; min-width: 0; }
 .agwork-column .tsi { gap: 8px; }
 .agwork-body .agwork-column .agfiles-status { padding: 4px; }
 .agwork-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); min-width: 0; cursor: pointer; }
 .agwork-card:hover { background: var(--hover); }
-.agwork-card .ttl { margin: 0; font-size: 13px; line-height: 1.4; color: var(--fg); overflow-wrap: anywhere;
+.agwork-card .ttl { margin: 0; font-size: 13px; font-weight: 300; letter-spacing: -.025em; line-height: 1.4; color: var(--fg); overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: normal; }
 .agwork-card .agwork-line { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 .agwork-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }
