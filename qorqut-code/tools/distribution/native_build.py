@@ -27,6 +27,8 @@ import tarfile
 import tempfile
 import zipfile
 
+import payload_signing
+
 
 def sha(path):
     h = hashlib.sha256()
@@ -186,11 +188,46 @@ def ship_agent_browser(system, machine, target, license_target):
         raise ValueError('The bundled agent-browser does not run on this machine')
 
 
-def strip_wheel(source, target):
+SIGNED_PROGRAM_CHECKS = (
+    (('native/bin/git', '--version'), 'git'),
+    (('native/bin/agent-browser', '--version'), 'agent-browser'),
+    (('venv/bin/python3.12', '-I', '-B', '-c',
+      'import ctypes, _cffi_backend, cryptography.hazmat.bindings._rust, pydantic_core._pydantic_core, '
+      'psutil._psutil_osx, rpds, websockets.speedups, yaml._yaml'), 'Python with its compiled libraries'),
+)
+
+
+def sign_shipped_programs(runtime, identity):
+    """Sign the Python, git and agent-browser files that no wheel brought, then prove the package is ready for Apple.
+
+    Compiled files of installed libraries were signed inside their wheels, so they are only checked here. Every
+    compiled file must read back as signed with the Developer ID certificate, a secure timestamp and (for a
+    program) the hardened runtime, and the signed programs must still start: a missing entitlement shows up
+    now, not on a user's Mac or after Apple's queue.
+    """
+    native, venv = runtime / 'native', runtime / 'venv'
+    signed = (payload_signing.sign_tree(native, identity)
+              + payload_signing.sign_tree(venv, identity, skip=(payload_signing.INSTALLED_PACKAGES,)))
+    problems = payload_signing.check_tree(native) + payload_signing.check_tree(venv)
+    if problems:
+        raise ValueError('Signing check failed:\n' + '\n'.join(problems[:20]))
+    for command, label in SIGNED_PROGRAM_CHECKS:
+        argv = [runtime / command[0], *command[1:]]
+        result = subprocess.run(argv, cwd=runtime.parent, env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'},
+                                capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+        if result.returncode != 0:
+            raise ValueError(f'The signed {label} does not start (exit {result.returncode}): {(result.stderr or result.stdout)[-500:]}')
+    return {'programs': sum(kind == 'program' for _, kind in signed), 'libraries': sum(kind == 'library' for _, kind in signed),
+            'files': sorted(str(path.relative_to(runtime)) for path, _ in signed)}
+
+
+def strip_wheel(source, target, identity=None):
     """Strip third-party test/development trees and regenerate the wheel RECORD.
 
     The original wheel hash stays in the private build report. License files and
     metadata are retained, and pip verifies the new RECORD at installation.
+    With a Developer ID identity, each compiled file in the wheel is signed first, so the RECORD
+    and the recorded wheel hash describe the signed files (Apple's notary opens wheels too).
     """
     removed, files = [], {}
     with zipfile.ZipFile(source) as wheel:
@@ -204,7 +241,10 @@ def strip_wheel(source, target):
                     or path.name in {'RECORD', 'RECORD.jws', 'RECORD.p7s'}):
                 removed.append(item.filename)
                 continue
-            files[item.filename] = (item, wheel.read(item))
+            data = wheel.read(item)
+            if identity:
+                data = payload_signing.sign_bytes(path.name, data, identity)
+            files[item.filename] = (item, data)
         records = [name for name in wheel.namelist() if name.endswith('.dist-info/RECORD')]
         if len(records) != 1:
             raise ValueError('Wheel needs exactly one RECORD')
@@ -228,10 +268,14 @@ def main(argv=None):
     parser.add_argument('--version', required=True)
     parser.add_argument('--target', choices=tuple(TARGETS), default='ubuntu24-x86_64')
     parser.add_argument('--bundled-tools', type=Path, help='macos_tools.py output for this Mac chip; makes the package self-contained')
+    parser.add_argument('--sign-identity', help='Developer ID Application certificate (name or SHA-1) that signs every program and '
+                        'library in the package, as Apple notarization requires; needs --bundled-tools')
     args = parser.parse_args(argv)
     platform_name, platform_tag = TARGETS[args.target]
     if args.bundled_tools and (platform_tag is None or sys.platform != 'darwin'):
         raise ValueError('A self-contained package is built for a Mac target, on a Mac')
+    if args.sign_identity and not args.bundled_tools:
+        raise ValueError('Signing applies to a self-contained Mac package: add --bundled-tools')
     if not re.fullmatch(r'[0-9A-Za-z][0-9A-Za-z._-]{0,79}', args.version):
         raise ValueError('Invalid package version')
     prepared, output, report = (p.resolve() for p in (args.prepared, args.output, args.report))
@@ -278,7 +322,7 @@ def main(argv=None):
     subprocess.run([python, '-I', '-m', 'pip', 'download', '--only-binary=:all:', '--no-deps', '--dest', downloads,
                     *download_options, *requirements], check=True)
     (runtime / 'wheelhouse').mkdir()
-    wheel_records = [strip_wheel(w, runtime / 'wheelhouse' / w.name) for w in sorted(downloads.glob('*.whl'))]
+    wheel_records = [strip_wheel(w, runtime / 'wheelhouse' / w.name, args.sign_identity) for w in sorted(downloads.glob('*.whl'))]
     shutil.copy2(Path(__file__).with_name('native_launch.py'), runtime / 'launch.py')
     shutil.copy2(Path(__file__).with_name('native_update.py'), runtime / 'update.py')
     shutil.copy2(Path(__file__).with_name('native_extension.py'), runtime / 'extension_install.py')
@@ -313,6 +357,8 @@ def main(argv=None):
         tools = args.bundled_tools.resolve()
         shipped_tools = bundle_tools(tools, runtime, args.target)
         environment_record = ready_made_environment(tools, runtime, platform_tag)
+        if args.sign_identity:
+            environment_record['signed'] = sign_shipped_programs(runtime, args.sign_identity)
     else:
         # A package that uses the computer's own Python and git still ships the agents' browser tool: one program with
         # nothing to install around it, so agents can browse after a first launch without a network.

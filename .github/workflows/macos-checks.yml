@@ -71,13 +71,44 @@ jobs:
             python qorqut-code/tools/distribution/macos_tools.py --output "$tools/out" --work "$RUNNER_TEMP/mac-tools-work"
           fi
           cat "$tools/out/TOOLS.json"
+      # The certificate comes first: Apple's notary opens the package inside the app, so native_build.py signs
+      # every program and library in it while the package is built.
+      - name: Prepare the Developer ID certificate and notary profile
+        if: inputs.version != '' && inputs.notarize
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID; do
+            test -n "${!name}" || { echo "Missing secret $name"; exit 1; }
+          done
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$DEVELOPER_ID_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -P "$DEVELOPER_ID_P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/Developer ID Application/ {print $2; exit}')"
+          test -n "$identity" || { echo "No valid Developer ID Application identity in the keychain"; exit 1; }
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          xcrun notarytool store-credentials qorqbot-notary --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --keychain "$keychain"
       - name: Export and build this exact commit
         run: |
           mkdir -p "$RELEASE_WORK"
           python qorqut-code/tools/export-unified.py --repository "$GITHUB_WORKSPACE" --commit "$GITHUB_SHA" --with-fastmail --output "$RELEASE_WORK/source"
           python qorqut-code/tools/distribution/runtime_source.py project --source "$RELEASE_WORK/source" --output "$RELEASE_WORK/runtime-source" --report "$RELEASE_WORK/projection.json"
           python qorqut-code/tools/prepare-local.py --source-root "$RELEASE_WORK/runtime-source" --output "$RELEASE_WORK/prepared" --with-google-calendar --with-treg --with-openrouter
-          python qorqut-code/tools/distribution/native_build.py --prepared "$RELEASE_WORK/prepared" --target macos14-arm64 --bundled-tools "$HOME/.cache/qorqbot/mac-tools/out" --output "$RELEASE_WORK/package" --report "$RELEASE_WORK/build.json" --version "$QORQBOT_BUILD_VERSION"
+          sign=()
+          if [ "${{ inputs.notarize }}" = "true" ]; then
+            sign=(--sign-identity "$SIGN_IDENTITY")
+          fi
+          python qorqut-code/tools/distribution/native_build.py --prepared "$RELEASE_WORK/prepared" --target macos14-arm64 --bundled-tools "$HOME/.cache/qorqbot/mac-tools/out" --output "$RELEASE_WORK/package" --report "$RELEASE_WORK/build.json" --version "$QORQBOT_BUILD_VERSION" "${sign[@]}"
       - name: Check exact Mac archive lifecycle
         run: |
           python qorqut-code/tools/distribution/check_posix.py --archive "$RELEASE_WORK/package/qorqbot-${QORQBOT_BUILD_VERSION}-macos14-arm64.tar.gz" --output "/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -131,31 +162,6 @@ jobs:
         run: |
           npm test --prefix qorqut-code/tools/distribution/macos_app/electron
           python -B -m unittest discover -s qorqut-code/tools/distribution/macos_app/tests
-      - name: Prepare the Developer ID certificate and notary profile
-        if: inputs.version != '' && inputs.notarize
-        env:
-          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
-          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          for name in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID; do
-            test -n "${!name}" || { echo "Missing secret $name"; exit 1; }
-          done
-          keychain="$RUNNER_TEMP/signing.keychain-db"
-          keychain_password="$(uuidgen)"
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          printf '%s' "$DEVELOPER_ID_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
-          security import "$RUNNER_TEMP/developer-id.p12" -P "$DEVELOPER_ID_P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/Developer ID Application/ {print $2; exit}')"
-          test -n "$identity" || { echo "No valid Developer ID Application identity in the keychain"; exit 1; }
-          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
-          xcrun notarytool store-credentials qorqbot-notary --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --keychain "$keychain"
       - name: Build the downloadable DMG from the checked archive
         if: inputs.version != ''
         run: |
