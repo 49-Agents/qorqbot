@@ -44,7 +44,7 @@ async function fixture(browser, {paired = false} = {}) {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setContent('<body style="margin:0"><aside class="tasks agpad" id="agpad" style="display:flex;flex-direction:column;height:700px;width:1100px"><div class="tbody" id="agpad-body" style="flex:1;min-height:0"></div></aside></body>');
-  for (const file of ['app.css', 'css/tasks.css', 'css/agent-files.css', 'css/agent-explorer.css', 'css/status-ball.css', 'css/record-workspace.css', 'css/timeline-panel.css'])
+  for (const file of ['app.css', 'css/tasks.css', 'css/agent-files.css', 'css/agent-explorer.css', 'css/status-ball.css', 'css/record-workspace.css', 'css/agent-timeline.css'])
     await page.addStyleTag({path: path.join(root, file)});
   await page.evaluate(paired => {
     window.esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -70,7 +70,8 @@ async function fixture(browser, {paired = false} = {}) {
     window.calls = [];
     window.post = async (url, body) => {
       calls.push([url, body]);
-      if (url.endsWith('/timeline_view')) return {item: body.item, title: 'T', revision: 1, further: {}, state: {goal: {id: 'g', text: 'Goal of ' + body.item.type + ' ' + body.item.id}, decisions: [], facts: [], progress: null, questions: []}};
+      if (url.endsWith('/timeline_view')) return {item: body.item, title: 'T', revision: 1, further: {}, state: {goal: {id: 'g', text: 'Goal of ' + body.item.type + ' ' + body.item.id}, decisions: [], facts: [], progress: null, questions: []},
+        entries: [{id: 'g', sequence: 1, action: 'add', kind: 'goal', text: 'Goal of ' + body.item.type + ' ' + body.item.id, created_at: '2026-11-13T10:00:00Z', sources: [], refs: []}], links: {}, closed_questions: [], next_cursor: null};
       const match = /^(\/root|\/biz\/[^/]+)\/operations\/tasks_list$/.exec(url);
       if (!match) throw new Error('unexpected ' + url);
       let rows;
@@ -169,7 +170,7 @@ test('a row opens the record reader on its timeline; Global shows its own timeli
     const {page, errors} = await fixture(browser, {paired: true});
     assert.match(await page.locator('.agfiles-detail').textContent(), /Select a project or a task/);
     await page.click('[data-select="p:alpha"]');
-    await page.locator('.agfiles-detail .rw-timeline .tlp-block').first().waitFor();
+    await page.locator('.agfiles-detail .rw-timeline .agent-timeline-row').first().waitFor();
     assert.equal(await page.locator('.agfiles-detail .rw-title').textContent(), 'Alpha');
     assert.match(await page.locator('.agfiles-detail .rw-timeline').textContent(), /Goal of project id-alpha/);
     assert.equal(await page.locator('[data-row="p:alpha"]').getAttribute('aria-selected'), 'true');

@@ -275,7 +275,7 @@ function recordWorkspaceMount(host, options = {}) {
   // A Task or a Project has a timeline, and its reader opens on it. Story, Customer and Email records open on their own page.
   function timelineItem(record) {
     const source = record?.source || {};
-    if (record?.scopeMissing || typeof timelinePanelMount !== 'function') return null;
+    if (record?.scopeMissing || typeof timelineJournalMount !== 'function') return null;
     if (source.type === 'task') return {type: 'task', id: source.id, business_id: source.business_id ?? null};
     if (source.type === 'project') return {type: 'project', id: source.id, business_id: source.id};
     return null;
@@ -308,7 +308,7 @@ function recordWorkspaceMount(host, options = {}) {
       <button type="button" class="quiet rw-pin" aria-pressed="false" hidden>${RW_PIN_ICON}</button>
       <div class="rw-tabs" role="tablist" aria-label="Record views"></div>
       <button type="button" class="quiet rw-open-thread" aria-pressed="false" hidden>${RW_CHAT_ICON}</button>${closeIcon}
-    </header><div class="rw-body"><div class="rw-pane rw-timeline" role="tabpanel" tabindex="0" hidden><section class="tlp" aria-label="Timeline" hidden></section><p class="muted rw-timeline-empty" hidden>Nothing on the timeline yet.</p></div><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
+    </header><div class="rw-body"><div class="rw-pane rw-timeline" role="tabpanel" tabindex="0" hidden><section class="agent-timeline" aria-label="Timeline"></section></div><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
     item.dashHost = item.recordEl.querySelector('.rw-dashboard');
     item.chatHost = item.recordEl.querySelector('.rw-chat');
     item.activityHost = item.recordEl.querySelector('.rw-activity');
@@ -850,24 +850,14 @@ function recordWorkspaceMount(host, options = {}) {
     item.chat?.collapse?.();
   }
 
-  // The timeline pane: the shared panel (js/timeline-panel.js), read again each time the pane is shown.
+  // The timeline pane: the item's journal (js/timeline-panel.js), read again each time the pane is shown.
   function mountTimeline(item) {
     const target = item?.alive ? timelineItem(item.record) : null;
     if (!target) return;
-    const read = async extra => coreData(await post('/root/operations/timeline_view', {scope: 'global', item: target, ...extra}));
-    const panel = item.timelineHost.querySelector('.tlp'), none = item.timelineHost.querySelector('.rw-timeline-empty');
-    item.timeline ||= timelinePanelMount(panel, {
-      readHistory: args => read({history: true, limit: 50, ...args}),
-      openTask: ref => { const task = rwRecordFromItem({source: {type: 'task', id: ref.id, business_id: ref.business_id || null}}); if (task) void navigate(task); },
+    item.timeline ||= timelineJournalMount(item.timelineHost.querySelector('.agent-timeline'), {
+      read: async args => coreData(await post('/root/operations/timeline_view', {scope: 'global', item: target, history: true, limit: 50, ...args})),
     });
-    const mine = item.timelineRead = (item.timelineRead || 0) + 1;
-    read().then(data => {
-      if (!item.alive || mine !== item.timelineRead) return;
-      item.timeline.update(data); none.hidden = !timelineEmpty(data);
-    }, () => {
-      if (!item.alive || mine !== item.timelineRead) return;
-      item.timeline.fail(); none.hidden = true;
-    });
+    void item.timeline.refresh();
   }
 
   function mountActivity(item) {
