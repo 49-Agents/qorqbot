@@ -382,15 +382,19 @@ function notify(n) {
   }
   notePump();
 }
-// Compact reply card: the shared agent glyph, the agent name and one preview line. Text is escaped; the
-// icon comes only from the trusted glyph renderer.
-function replyToastHTML(n) {
-  return `<span class="reply-icon">${agentGlyph({agent_id:n.replyAgentId}, 28)}</span><span class="reply-copy"><span class="reply-name">${esc(n.text)}</span><span class="reply-preview">${esc(n.sub || "")}</span></span>`;
+// Every note is the same card as a Signoff notice (signoff-attention.js): an icon, a bold heading and one grey line under it.
+// Text is escaped; the icons are fixed markup or come from the trusted glyph renderer.
+const NOTE_BELL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg>';
+const NOTE_INFO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5h.01"/></svg>';
+function noteCardHTML(icon, heading, line) {
+  return `<span class="reply-icon" aria-hidden="true">${icon}</span><span class="reply-copy"><span class="reply-name">${esc(heading)}</span>${line ? `<span class="reply-preview">${esc(line)}</span>` : ""}</span>`;
 }
-// Reminder pill: a plain bell and one ellipsized line; the accessible label keeps the full text.
-function reminderToastHTML(n) {
-  return `<span class="reminder-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#eee" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg></span><span class="reminder-text">${esc(n.text)}</span>`;
-}
+// A reply: the agent's glyph, its name, and one preview line of the reply.
+const replyToastHTML = n => noteCardHTML(agentGlyph({agent_id:n.replyAgentId}, 28), n.text, n.sub || "");
+// A reminder: a bell, "Reminder", and the reminder's text; the accessible label keeps the full text.
+const reminderToastHTML = n => noteCardHTML(NOTE_BELL, "Reminder", n.text);
+// Any other note: its text as the heading and `sub` under it; `color` tints the icon (an error is red).
+const plainToastHTML = n => noteCardHTML(NOTE_INFO, n.text, n.sub || "");
 // The close button on the right of every note; it only closes the note and never opens or changes anything.
 const TOAST_X = `<button type="button" class="toast-x" aria-label="Close notification"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3.5 3.5l7 7M10.5 3.5l-7 7"/></svg></button>`;
 function notePump() {
@@ -398,10 +402,10 @@ function notePump() {
   while (_notes.live < NOTE_MAX && _notes.queue.length) {
     const n = _notes.queue.shift(); _notes.live++;
     const el = document.createElement("div");
-    el.className = "toast in has-x" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : "") + (n.replyAgentId ? " reply-toast" : "");
+    el.className = "toast in has-x reply-toast" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : n.replyAgentId ? "" : " plain-toast");
     if (n.color) el.style.setProperty("--c", n.color);
     if (n.reminder) { el.setAttribute("aria-label", `Reminder: ${n.text}`); }
-    el.innerHTML = n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : `<div class="tx">${esc(n.text)}</div>${n.sub ? `<div class="tsub">${esc(n.sub)}</div>` : ""}`;
+    el.innerHTML = n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : plainToastHTML(n);
     el.innerHTML += TOAST_X;
     box.appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("in")));
