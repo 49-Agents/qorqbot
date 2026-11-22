@@ -59,10 +59,12 @@ class ViewTest(unittest.TestCase):
         self.addCleanup(view.close)
         return view
 
-    def test_opening_brings_the_tab_forward_and_starts_the_pictures(self):
+    def test_opening_brings_the_tab_forward_keeps_it_drawn_and_focused_and_starts_the_pictures(self):
         self.open()
-        self.assertEqual(self.socket.methods(), ["Page.bringToFront", "Page.startScreencast"])
-        self.assertEqual(self.socket.sent[1]["params"]["format"], "jpeg")
+        self.assertEqual(self.socket.methods(), ["Page.bringToFront", "Emulation.setFocusEmulationEnabled", "Page.startScreencast"])
+        # Agents bring their own tabs to the front with every command; without this the watched tab stopped sending pictures.
+        self.assertEqual(self.socket.sent[1]["params"], {"enabled": True})
+        self.assertEqual(self.socket.sent[2]["params"]["format"], "jpeg")
 
     def test_a_tab_that_cannot_be_reached_is_reported_and_leaves_no_view(self):
         def refuse(_port, _tab):
@@ -75,7 +77,7 @@ class ViewTest(unittest.TestCase):
     def test_each_picture_is_acknowledged_and_returned_with_the_page_size(self):
         view = self.open([{"id": 1, "result": {}}, frame(7, 1000, 600)])
         self.assertEqual(view.next(1), {"data": "jpeg-7", "width": 1000, "height": 600})
-        self.assertEqual(self.socket.sent[-1], {"id": 3, "method": "Page.screencastFrameAck", "params": {"sessionId": 7}})
+        self.assertEqual(self.socket.sent[-1], {"id": 4, "method": "Page.screencastFrameAck", "params": {"sessionId": 7}})
 
     def test_pictures_faster_than_the_dashboard_rate_are_acknowledged_and_only_the_newest_is_kept(self):
         view = self.open([frame(1), frame(2), frame(3)])
@@ -136,8 +138,8 @@ class ViewTest(unittest.TestCase):
         view.send([{"type": "mouse", "action": "down", "x": 10, "y": 20, "button": "left", "buttons": 1, "clicks": 1},
                    {"type": "mouse", "action": "up", "x": 10, "y": 20, "button": "left", "clicks": 1},
                    {"type": "text", "text": "héllo"}])
-        self.assertEqual(self.socket.methods()[2:], ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent", "Input.insertText"])
-        self.assertEqual(self.socket.sent[2]["params"], {"x": 10, "y": 20, "modifiers": 0, "type": "mousePressed", "button": "left",
+        self.assertEqual(self.socket.methods()[3:], ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent", "Input.insertText"])
+        self.assertEqual(self.socket.sent[3]["params"], {"x": 10, "y": 20, "modifiers": 0, "type": "mousePressed", "button": "left",
                                                          "buttons": 1, "clickCount": 1})
 
     def test_one_invalid_event_stops_the_whole_batch_before_the_page_sees_any_of_it(self):
@@ -146,7 +148,7 @@ class ViewTest(unittest.TestCase):
             with self.subTest(events=events), self.assertRaises(DomainError) as refused:
                 view.send(events)
             self.assertEqual(refused.exception.code, "validation_error")
-        self.assertEqual(len(self.socket.sent), 2)
+        self.assertEqual(len(self.socket.sent), 3)
 
     def test_input_to_a_closed_tab_is_reported(self):
         view = self.open()
