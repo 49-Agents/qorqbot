@@ -16,7 +16,7 @@ const between = (from, to) => {
   return source.slice(start, end);
 };
 const line = pattern => source.match(pattern)[0];
-const moduleSource = [line(/^const GLOBAL_CHAT_ECHO_SLACK = .*;$/m), line(/^const globalChatText = .*;$/m), line(/^const GLOBAL_CHAT_PAGE = .*;$/m),
+const moduleSource = [line(/^const GLOBAL_CHAT_ECHO_SLACK = .*;$/m), line(/^const globalChatText = .*;$/m), line(/^const GLOBAL_CHAT_PAGE = .*;$/m), line(/^const GLOBAL_CHAT_OLDER = .*;$/m),
   between('const globalChatKey = ', 'function globalChatReadable'), between('const GLOBAL_CHAT_INPUT_LABEL = ', 'const globalChatBase')].join('\n');
 const mountSource = [between('  const entries = new Map();', '  let session = null'), between('  function renderedBoundary() {', '  function scheduleRead'),
   between('  const presentEntry = entry =>', '  // The live session'), between('  function acceptedBubbles(visibleIds) {', '  function presentReceipts'),
@@ -108,23 +108,23 @@ test('a continued conversation with no entries yet still shows its marker and of
   assert.deepEqual(c.keys(), ['b3', 'b4', MARK_C]);
 });
 
-test('Load older messages is offered at the top of a continued conversation, asks for the earlier one by its exact provider and id, then pages it', async () => {
+test('Older messages are offered (by scrolling up) at the top of a continued conversation, asks for the earlier one by its exact provider and id, then pages it', async () => {
   const c = chain();
   await c.load();
   assert.equal(c.olderAbove(), true);
   assert.match(between('  function paint(patch = {}, scroll', '  const paintEntries'), /older: \{visible: olderAbove\(\), disabled: olderBusy\}/);
   await c.loadOlder();
-  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat?limit=50&conversation=conv-b&provider=claude');
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat?limit=10&conversation=conv-b&provider=claude');
   assert.deepEqual(c.keys(), ['b3', 'b4', MARK_C, 'c1', 'c2'], 'the earlier conversation stands above the marker; its own top is not loaded yet');
   assert.equal(c.calls.paints.at(-1).scroll, 'prepend');
   assert.equal(c.olderAbove(), true);
   await c.loadOlder();
-  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=7000&limit=50&conversation=conv-b&provider=claude');
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=7000&limit=10&conversation=conv-b&provider=claude');
   assert.deepEqual(c.keys(), [MARK_B, 'b1', 'b2', 'b3', 'b4', MARK_C, 'c1', 'c2']);
   assert.equal(c.rows()[0].timestamp, AT_B);
   assert.equal(c.olderAbove(), true, 'its top is reached and it continues one more');
   await c.loadOlder();
-  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat?limit=50&conversation=conv-a&provider=codex');
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat?limit=10&conversation=conv-a&provider=codex');
   assert.equal(c.olderAbove(), false);
   await c.loadOlder();
   assert.equal(c.calls.urls.length, 4, 'the first conversation has nothing above it');
@@ -147,7 +147,7 @@ test('the older page of a current conversation is still its own history page, an
     : {conversation: C, entries: [entry('c2', 20)], older: 20, session: null, inputs: [], cursor: 1});
   await c.load();
   await c.loadOlder();
-  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=20&limit=50&conversation=conv-c&provider=claude');
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=20&limit=10&conversation=conv-c&provider=claude');
   assert.deepEqual(c.keys(), [MARK_C, 'c0', 'c2']);
   assert.equal(c.earlier.length, 0);
   assert.equal(c.olderCursor(), null);
@@ -259,4 +259,13 @@ test('pending bubbles are matched only against the current conversation', async 
   c.entries.set('c2', {id: 'c2', speaker: 'user', text: 'hello', position: 20, timestamp: new Date().toISOString()});
   assert.equal(c.acceptedBubbles(new Set()).length, 0);
   assert.equal(c.openingBubble().length, 0);
+});
+
+test('older requests ask for 10 entries while the state load asks for 50', async () => {
+  const c = chain();
+  await c.load();
+  assert.match(c.calls.urls[0], /\?limit=50/);
+  await c.loadOlder(); await c.loadOlder();
+  assert.deepEqual(c.calls.urls.slice(1).map(url => url.match(/limit=(\d+)/)[1]), ['10', '10'], 'one earlier-conversation read and one history page');
+  assert.ok(c.calls.urls.slice(1).some(url => url.includes('/history?')));
 });

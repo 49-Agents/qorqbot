@@ -82,6 +82,8 @@ function globalChatReadable(agentId) {
   return !!scroll && scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 48;
 }
 const GLOBAL_CHAT_PAGE = 50;
+// Older messages arrive in small chunks as the reader scrolls up.
+const GLOBAL_CHAT_OLDER = 10;
 // The record thread the Chat area shows now (null: none). The record reader's thread button (js/record-workspace.js) follows it.
 let globalChatPaired = null;
 function globalChatPairedSource() { return globalChatPaired; }
@@ -740,7 +742,7 @@ function mountGlobalChat(pane, agent, options = {}) {
 
   view = mountChatView(root, {
     logLabel: `Conversation with ${label}`, composerLabel: `Message ${label}`, placeholder: `Message ${label}…`, maxLength: GLOBAL_CHAT_MAX,
-    olderLabel: 'Load older messages', footer: sessionLine,
+    olderOnScroll: true, footer: sessionLine,
     onDraft: () => {
       saveDraft();
       const pending = GLOBAL_CHAT_SENDS.get(composerScope);
@@ -831,8 +833,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     if ((before == null && !previous) || !target || olderBusy) return;
     olderBusy = true; paint();
     try {
-      const data = coreData(await api(previous ? `${base}?limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(previous)}`
-        : `${base}/history?before=${before}&limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(target)}`, {signal: reads.signal}));
+      const data = coreData(await api(previous ? `${base}?limit=${GLOBAL_CHAT_OLDER}${globalChatQuery(previous)}`
+        : `${base}/history?before=${before}&limit=${GLOBAL_CHAT_OLDER}${globalChatQuery(target)}`, {signal: reads.signal}));
       // Applied only to the exact provider/conversation it asked for, even if the live conversation changed on its own.
       if (!live() || mine !== generation || epoch !== clears || viewedKey() !== requested) return;
       if (previous) {
