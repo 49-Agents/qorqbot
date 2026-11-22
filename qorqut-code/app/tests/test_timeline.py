@@ -1,4 +1,5 @@
-"""Timelines of Tasks, Projects and Global: filing, what holds now, questions, who may read and file, and a Task move."""
+"""Timelines of Tasks and Projects: filing, what holds now, questions, who may read and file, and a Task move. Global has no
+timeline: a call that names it is answered with advice, and rows filed on it before stay in the store unread."""
 from dataclasses import replace
 from types import SimpleNamespace as NS
 import unittest
@@ -11,7 +12,7 @@ from qorqut_operations.tasks.relocation import Relocation
 from qorqut_operations.timeline import state as timeline_state
 
 from qorqut.domains.tasks.relocation import HostRelocation
-from qorqut.domains.timeline import Timeline
+from qorqut.domains.timeline import NO_GLOBAL, NO_GLOBAL_READ, Timeline
 
 from test_single_source import Fixture
 
@@ -180,8 +181,9 @@ class TimelineTests(Fixture):
         self.assertEqual(self.read(self.item)['revision'], 3)
         self.add('fact', 'Four.')
         # Another item draws on the same sequence, and its own revision is the highest of its own rows.
-        self.add('fact', 'Elsewhere.', self.global_item)
-        self.assertEqual((self.read(self.item)['revision'], self.read(self.global_item)['revision']), (4, 5))
+        elsewhere = {'type': 'task', 'id': self.task(self.lead, 'Elsewhere')['id'], 'project_id': None}
+        self.add('fact', 'Elsewhere.', elsewhere)
+        self.assertEqual((self.read(self.item)['revision'], self.read(elsewhere)['revision']), (4, 5))
         self.assertEqual(self.read(self.project)['revision'], 0)
 
     def test_entries_are_never_edited_or_deleted_and_only_the_project_follows_a_move(self):
@@ -333,16 +335,59 @@ class TimelineTests(Fixture):
             self.assertEqual(refused.exception.code, 'project_archived')
         self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
 
-    def test_a_project_timeline_needs_a_participant_and_global_is_open(self):
+    def test_a_project_timeline_needs_a_participant(self):
         self.add('decision', 'Ship in spring.', self.project)
-        self.add('decision', 'Everyone sees this.', self.global_item)
         self.assertEqual(self.code(self.get(self.worker, self.project)), 'not_found')
         self.reach = frozenset({self.project_id})
         self.assertEqual(self.read(self.project, self.worker)['state']['decisions'][0]['text'], 'Ship in spring.')
         self.assertTrue(self.read(self.project, self.worker)['text'].startswith('Project "Example project"'))
-        self.reach = frozenset()
-        self.assertEqual(self.read(self.global_item, self.worker)['state']['decisions'][0]['text'], 'Everyone sees this.')
-        self.assertTrue(self.read(self.global_item, self.worker)['text'].startswith('Global — what holds now'))
+
+    # -- Global has no timeline --------------------------------------------------------------------------------------
+
+    def old_global_row(self, text='Filed before Global lost its timeline.'):
+        """A row filed on Global before it lost its timeline, written as the store layer still accepts it."""
+        return self.asked(self.global_item, [{'action': 'add', 'kind': 'decision', 'text': text}])['filed']['entries'][0]
+
+    def refused(self, result, message):
+        self.assertEqual(self.code(result), 'validation_error', result.to_dict())
+        self.assertEqual(result.error['message'], message)
+
+    def test_reading_global_is_answered_with_advice_for_every_caller(self):
+        self.old_global_row()
+        for who in (self.lead, self.worker, self.owner):
+            self.refused(self.get(who, self.global_item), NO_GLOBAL_READ)
+            self.refused(self.get(who, self.global_item, history=True), NO_GLOBAL_READ)
+
+    def test_filing_on_global_is_refused_with_advice_after_the_filer_check(self):
+        change = [{'action': 'add', 'kind': 'decision', 'text': 'Reply in plain words.'}]
+        self.refused(self.file(self.lead, self.global_item, change), NO_GLOBAL)
+        self.assertIn('agentic_change_propose', NO_GLOBAL)
+        # Who is not the coordinator is told so first, whatever item the call names.
+        self.assertEqual(self.code(self.file(self.worker, self.global_item, change)), 'forbidden')
+        self.assertEqual(self.code(self.file(self.owner, self.global_item, change)), 'forbidden')
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
+
+    def test_a_filing_held_for_review_on_global_ends_refused_when_it_is_approved(self):
+        change = [{'action': 'add', 'kind': 'decision', 'text': 'Reply in plain words.'}]
+        with self.assertRaises(DomainError) as refused, self.db.transaction() as uow:
+            self.tool.file(self.lead, {'item': self.global_item, 'changes': change}, uow)
+        self.assertEqual((refused.exception.code, refused.exception.message), ('validation_error', NO_GLOBAL))
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
+
+    def test_global_is_no_item_that_exists(self):
+        with self.db.read() as uow:
+            self.assertIsNone(self.tool.exists(self.global_item, uow))
+            self.assertEqual(self.tool.exists(self.item, uow), 'Pay creators')
+
+    def test_a_row_filed_on_global_earlier_stays_in_the_store_and_is_never_read(self):
+        entry = self.old_global_row()
+        self.assertEqual(self.state(self.global_item)['decisions'][0]['id'], entry)
+        self.refused(self.get(self.lead, self.global_item), NO_GLOBAL_READ)
+        # A Task's own read carries nothing of it.
+        self.add('fact', 'Task fact.')
+        self.assertNotIn('Filed before', str(self.read(self.item, history=True)))
+        self.assertNotIn('Filed before', self.read(self.item)['text'])
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries WHERE item_type=?', 'global'), [(1,)])
 
     # -- an item named by its type and id -------------------------------------------------------------------------
 
@@ -352,11 +397,12 @@ class TimelineTests(Fixture):
 
     def test_an_item_without_its_project_is_the_item_with_it(self):
         inside = self.inside('Inside')
-        for item in (self.item, inside, self.project, self.global_item):
+        for item in (self.item, inside, self.project):
             self.add('fact', 'Held for ' + item['type'], item)
             stated = self.read(item)
             self.assertEqual(self.read(self.bare(item)), stated)
             self.assertEqual(self.read(self.bare(item), history=True)['entries'], self.read(item, history=True)['entries'])
+        self.refused(self.get(self.lead, self.bare(self.global_item)), NO_GLOBAL_READ)
         self.filed(self.bare(inside), [{'action': 'add', 'kind': 'decision', 'text': 'Filed without the project.'}])
         self.assertEqual([row['text'] for row in self.read(inside)['state']['decisions']], ['Filed without the project.'])
         self.assertEqual(self.rows('SELECT project_id FROM timeline_entries WHERE item_id=?', inside['id']),
@@ -382,7 +428,7 @@ class TimelineTests(Fixture):
         self.asked(self.item, [{'action': 'ask', 'text': 'Where next?', 'blocking': False}])
         stay = self.task(self.lead, 'Stays')
         self.add('fact', 'Stays behind.', {'type': 'task', 'id': stay['id'], 'project_id': None})
-        self.add('fact', 'Global stays.', self.global_item)
+        self.old_global_row('Global stays.')
         relocation = Relocation(None, self.project_id, (self.work['id'],), (self.work['id'],))
         adapter = HostRelocation(self.app)
         with self.db.transaction() as uow:

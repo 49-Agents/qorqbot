@@ -1,4 +1,4 @@
-"""The owner's view of timelines: one item for a thread or the Global block. Its open questions are question Signoffs (see test_timeline_review)."""
+"""The owner's view of timelines: one Task or Project (Global has no timeline). Its open questions are question Signoffs (see test_timeline_review)."""
 from dataclasses import replace
 from types import SimpleNamespace as NS
 import unittest
@@ -60,7 +60,6 @@ class OwnerViewTests(Fixture):
         self.filed(self.item, [{'action': 'remove', 'entry_id': gone, 'reason': 'Replaced.'}],
                    sources=[{'quote': 'Do it the new way.', 'ref': 'thread:3'}])
         self.add('fact', 'Project fact.', self.project)
-        self.add('progress', 'Started.', self.global_item)
         shown = self.ok(self.view(self.owner, self.item))
         self.assertEqual((shown['title'], shown['state']['goal']['text'], shown['state']['decisions']), ('Pay creators', 'Pay everyone.', []))
         self.assertNotIn('entries', shown)
@@ -70,7 +69,13 @@ class OwnerViewTests(Fixture):
         self.assertEqual(history['entries'][2]['sources'], [{'quote': 'Do it the new way.', 'ref': 'thread:3'}])
         self.assertEqual(history['links'], {'subtasks': [], 'approvals': [], 'reports': []})
         self.assertEqual(self.ok(self.view(self.owner, self.project))['state']['facts'][0]['text'], 'Project fact.')
-        self.assertEqual(self.ok(self.view(self.owner, self.global_item))['state']['progress']['text'], 'Started.')
+
+    def test_the_owner_view_of_global_is_not_found_even_with_old_rows(self):
+        test_timeline.TimelineTests.asked(self, self.global_item, [{'action': 'add', 'kind': 'progress', 'text': 'Started.'}])
+        self.assertEqual(self.code(self.view(self.owner, self.global_item)), 'not_found')
+        self.assertEqual(self.code(self.view(self.owner, self.global_item, history=True)), 'not_found')
+        with self.db.read() as uow:
+            self.assertEqual(timeline_part(NS(app=self.app), self.dash(self.owner), self.global_item, uow), {})
 
     def test_the_thread_view_attaches_the_timeline_to_tasks_and_projects_only_when_readable(self):
         self.add('fact', 'Kept.')

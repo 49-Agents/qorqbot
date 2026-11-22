@@ -89,7 +89,7 @@ A Task or Project shows its timeline in the workspace's Timeline tab (`timelineJ
 
 A removed entry stays on its own date, struck through (from the server's `removed_by`), and its note says when and why it was removed; a removal whose entry is missing is a row of its own. An open question is a row at the time it was asked ("Open question", "Blocks work" when it blocks); one with no date leads the list. A closed question is a row at the time it was closed ("Question answered" or "Question dropped"). A row with the owner's quoted words, or a closed question with its answer, opens on its chevron to show them. The server pages entries oldest first, so the journal reads every page before it paints. A repaint keeps open rows open. A failed read shows one error line with Retry. The journal does not list the item's subtasks, approvals and reports.
 
-`timelinePanelMount` in the same file is the older panel (current state with a History switch), kept for the Global block. `globalTimelineBlockMount` in `js/workflow-panel.js` is the same panel for Global, read at most every 20 seconds and hidden when empty. No screen mounts it now.
+`timelinePanelMount` in the same file is the older panel (current state with a History switch); no screen mounts it now. Global has no timeline: only Tasks and Projects do.
 
 ## Chat behavior
 

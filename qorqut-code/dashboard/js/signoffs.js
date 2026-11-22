@@ -887,7 +887,7 @@ function sgCreateView(options) {
     let controls = "";
     const withFeedback = !s.input && !!draft(s).trim();
     const plainDecisionControls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id
-      ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}${withFeedback ? "Send and approve" : "Approve"}</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}${withFeedback ? "Send and reject" : "Reject"}</button></div>` : "";
+      ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}Approve</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}Reject</button></div>` : "";
     if (s.input) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-approve${sgIsAcknowledge(s) ? ' sg-primary-action' : ''}" data-sg="respond"${disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '')}>${sgIsAsk(s) ? 'Send' : sgIsDraftReview(s) ? 'Return draft' : sgIsAcknowledge(s) ? `${SVG_CHECK}Acknowledge` : 'Submit'}</button></div>` : "";
     else controls = plainDecisionControls;
     if (busy) controls += `<p class="sg-notice" role="status">${busy.unknown ? "The response was lost. Checking the saved decision..." : "Saving decision..."}</p>${busy.unknown ? `<button type="button" class="sg-command" data-sg="reconcile"${busy.checking ? " disabled" : ""}>Check decision</button>` : ""}`;
@@ -1448,7 +1448,9 @@ function sgCreateView(options) {
       const submitKey = event.ctrlKey && !event.metaKey || event.metaKey && !event.ctrlKey && event.target.matches('.sg-question-notes');
       if (event.key === 'Enter' && submitKey && !event.shiftKey && !event.altKey && !event.isComposing && event.target.matches('.sg-feedback')) {
         event.preventDefault(); event.stopPropagation();
-        if (!event.repeat) event.target.closest('.sg-detail')?.querySelector('.sg-approve:not(:disabled)')?.click();
+        // A decision with a note has Reject highlighted, and the shortcut presses that one.
+        const detail = event.target.closest('.sg-detail'), main = detail?.querySelector('.sg-reject.sg-primary-action') || detail?.querySelector('.sg-approve:not(:disabled)');
+        if (!event.repeat && main && !main.disabled) main.click();
         return;
       }
       const choice = event.target.closest('[role="radio"]');
@@ -1459,7 +1461,7 @@ function sgCreateView(options) {
         choices[(choices.indexOf(choice)+delta+choices.length)%choices.length]?.click();
       }
     };
-    // Typing a decision message updates the Send and approve/reject labels.
+    // Typing a decision message moves the highlight, and the shortcut, from Approve to Reject.
     body.oninput = event => {
       if (event.target.matches('.sg-question-notes')) {
         const s = sg.items.get(event.target.closest('.sg-row').dataset.id);

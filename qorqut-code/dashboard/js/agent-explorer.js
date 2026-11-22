@@ -157,11 +157,10 @@ function agentExplorerMount(p) {
   }
 
   // ---- the right side: the record reader, beside the Chat area when this is Ordubashy's pane.
-  let workspace = null, globalPanel = null;
+  let workspace = null;
   const paired = () => p.workspaceRole === 'ordubashy' && typeof agfocusLeftChatReady === 'function' && agfocusLeftChatReady();
   function reader() {
     if (workspace?.alive?.()) return workspace;
-    globalPanel?.dispose(); globalPanel = null;
     detail.replaceChildren();
     const mount = document.createElement('div');
     mount.className = 'agexplorer-record';
@@ -181,30 +180,15 @@ function agentExplorerMount(p) {
     return rwRecordFromItem({source: {type: 'task', id: node.task.id, project_id: project ? project.id || project.project_id || project.slug : null,
       ...(project ? {project_slug: project.slug, project_name: project.name} : {}), label: node.name, task_type: node.type, state: node.status}}, {can_thread: true});
   }
-  // Global has no record page: its row shows Global's timeline.
-  function paintGlobal() {
-    workspace?.dispose?.(); workspace = p.explorerWorkspace = null;
-    globalPanel?.dispose();
-    detail.innerHTML = `<div class="rw agexplorer-record"><div class="rw-records"><article class="rw-record" data-tab="timeline"><header class="rw-head"><span class="rw-title" role="heading" aria-level="2">Global</span></header>
-      <div class="rw-body"><div class="rw-pane rw-timeline" tabindex="0"><section class="agent-timeline" aria-label="Timeline"></section></div></div></article></div></div>`;
-    const item = {type: 'global', id: 'global', project_id: null};
-    globalPanel = timelineJournalMount(detail.querySelector('.agent-timeline'), {
-      read: async args => coreData(await post('/root/operations/timeline_view', {scope: 'global', item, history: true, limit: 50, ...args})),
-    });
-    void globalPanel.refresh();
-  }
   function paintDetail() {
-    if (workspace?.alive?.() || globalPanel) return;
+    if (workspace?.alive?.()) return;
     detail.innerHTML = '<p class="agfiles-status agexplorer-empty">Select a project or a task to read it.</p>';
   }
   async function select(id) {
     const node = s.nodes.get(id);
     if (!node) return;
-    if (node.kind === 'global') {
-      if (workspace?.isOpen?.()) { await workspace.close(); if (workspace?.isOpen?.()) return; }
-      s.selected = id; paintTree(); paintGlobal();
-      return;
-    }
+    // Global has no record page and no timeline: its row only opens and closes, like its arrow.
+    if (node.kind === 'global') { toggle(id); return; }
     const record = recordOf(node);
     if (!record || record.scopeMissing) { toast('This record is unavailable.'); return; }
     const opened = await reader().open(record, {root: true});
@@ -212,7 +196,7 @@ function agentExplorerMount(p) {
     if (opened === false) { paintDetail(); return; }
     s.selected = id; paintTree();
   }
-  // A record named by the Chat area or the Global timeline opens here, whether or not its row is loaded.
+  // A record named by the Chat area opens here, whether or not its row is loaded.
   async function openReference(ref) {
     if (!ref?.type || !ref.id) return false;
     const record = rwRecordFromItem({source: {type: ref.type, id: ref.id, project_id: ref.project_id ?? null, project_slug: ref.project_slug,
@@ -293,7 +277,6 @@ function agentExplorerMount(p) {
     p.explorerState = {expanded: [...s.expanded], selected: null, finished: s.finished};
     s.closed = true;
     clearTimeout(s.searchTimer);
-    globalPanel?.dispose(); globalPanel = null;
     workspace?.dispose?.(); workspace = p.explorerWorkspace = null;
     p.explorerMount = null; p.explorerCanLeave = null;
     if (window.agentWorkspacePairedUnavailable === pairedUnavailable) delete window.agentWorkspacePairedUnavailable;

@@ -73,7 +73,7 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # before a role file or an override is looked at, and the handler still proves the exact configured Ordubashy.
 # So do thread_pins_list and thread_pins_set, the owner's pinned-threads row in Focus: the handler admits only the owner or the
 # configured coordinator in person, writes only the owner's file, and pins only a record the caller may read.
-# So does timeline_get, the timelines of Tasks, Projects and Global: the reader needs the ordinary read of the item. timeline_file
+# So does timeline_get, the timelines of Tasks and Projects: the reader needs the ordinary read of the item. timeline_file
 # is not here: it declares its own standing mode (approval during the trial) and the handler admits only the coordinator in person.
 # Nor is timeline_file_answer: it declares allow (the owner's own answer to a question Signoff) and admits only the coordinator.
 CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",

@@ -17,7 +17,7 @@ from qorqut_operations.signoffs.service import SignoffService
 from qorqut_operations.storage.locks import LockPaths
 
 from qorqut.composition.policy import resolve_operation_policy
-from qorqut.domains.timeline import REVIEW_NOTICE, Timeline
+from qorqut.domains.timeline import NO_GLOBAL, NO_GLOBAL_ANSWER, REVIEW_NOTICE, Timeline
 from qorqut.domains.timeline_owner import TimelineOwner
 from qorqut.inbox.private_conversations import PrivateConversations
 from qorqut.signoffs.ports import HostExecution, HostInputSources, HostPeers, HostReferences, HostTasks
@@ -291,8 +291,12 @@ class TimelineReviewTests(Fixture):
         self.assertEqual([(row['text'], row['blocking'], row.get('signoff_id')) for row in questions],
                          [('Which bank?', True, first['id']), ('Which currency?', False, later['id']),
                           ('Asked on the timeline before?', False, None)])
-        self.assertEqual([row['text'] for row in self.view({'type': 'global', 'id': 'global', 'project_id': None})['state']['questions']],
-                         ['Global rule?'])
+        # A question asked about no Task or Project belongs to no timeline: Global has none, and no view lists it.
+        for item in (self.item, {'type': 'task', 'id': other['id'], 'project_id': None}):
+            self.assertNotIn('Global rule?', [row['text'] for row in self.view(item)['state']['questions']])
+        gone = self.app.invoke(replace(self.ctx(self.owner), source='dashboard'), 'timeline_view',
+                               {'scope': 'global', 'item': {'type': 'global', 'id': 'global', 'project_id': None}}, {})
+        self.assertEqual((gone.status, gone.error['code']), ('error', 'not_found'), gone.to_dict())
         # Answered, it leaves the list; the timeline itself holds no question for it.
         self.respond(first, selected_choices=['usd'])
         self.assertEqual([row['text'] for row in self.view()['state']['questions']], ['Which currency?', 'Asked on the timeline before?'])
@@ -319,6 +323,28 @@ class TimelineReviewTests(Fixture):
         self.assertEqual((again.status, again.error['code']), ('error', 'validation_error'), again.to_dict())
         self.assertEqual(self.count(), 1)
         self.assertEqual(self.registry.get('timeline_file_answer').default_mode, 'allow')
+
+    def test_an_answer_to_a_question_asked_about_no_task_or_project_needs_an_item_since_global_has_no_timeline(self):
+        asked = self.ask('Global rule?', source=False)
+        self.respond(asked, selected_choices=['usd'])
+        result = self.file_answer(asked, 'Pay in dollars.')
+        self.assertEqual((result.status, result.error['code'], result.error['message']),
+                         ('error', 'validation_error', NO_GLOBAL_ANSWER), result.to_dict())
+        result = self.file_answer(asked, 'Pay in dollars.', item={'type': 'global', 'id': 'global', 'project_id': None})
+        self.assertEqual((result.status, result.error['code'], result.error['message']),
+                         ('error', 'validation_error', NO_GLOBAL), result.to_dict())
+        self.assertEqual(self.count(), 0)
+        # Naming a Task with item still files it, and the answer is then used up.
+        filed = self.file_answer(asked, 'Pay in dollars.', item=self.item)
+        self.assertEqual(filed.status, 'ok', filed.to_dict())
+        self.assertEqual(self.rows('SELECT kind,item_type,item_id FROM timeline_entries'), [('decision', 'task', self.item['id'])])
+
+    def test_a_filing_on_global_is_refused_for_the_coordinator_and_held_nothing(self):
+        item = {'type': 'global', 'id': 'global', 'project_id': None}
+        result = self.app.invoke(self.ctx(self.lead), 'timeline_file', {'scope': 'global', 'item': item,
+                                 'changes': [{'action': 'add', 'kind': 'fact', 'text': 'x'}]}, {'idempotency_key': str(uuid4())})
+        self.assertEqual((result.status, result.error['code'], result.error['message']), ('error', 'validation_error', NO_GLOBAL))
+        self.assertEqual((self.count(), self.count('signoffs')), (0, 0))
 
     def test_only_an_answered_owner_question_of_the_caller_is_filed(self):
         pending = self.ask('Which currency?')

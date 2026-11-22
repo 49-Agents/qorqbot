@@ -774,7 +774,7 @@ class MCPTransport:
                 presented = self.read_revalidation.present(requested=read_token, binding=binding,
                     canonical=result.to_dict(), presented=presented)
             if canonical_name == "tasks_get" and result.status == "ok" and isinstance(self.caller, RegisteredAgentCaller):
-                # The timelines above the Task ride with the read: Global, the Project, each parent Task, the Task. Agent
+                # The timelines above the Task ride with the read: the Project, each parent Task, the Task. Agent
                 # reads only; the dashboard's and internal reads of a Task stay as they are. Best effort after the read.
                 try:
                     request = self.server.request_context

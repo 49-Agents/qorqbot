@@ -1,10 +1,11 @@
 """What an agent conversation is told of the timelines above a Task, once per conversation.
 
-A Task read through the agent tools carries the state of Global, the Project, each parent Task and the Task itself. A level
+A Task read through the agent tools carries the state of the Project, each parent Task and the Task itself. A level
 this conversation already received at the same revision is replaced by one line that says since when. The record
 (``timeline_deliveries``) is kept per agent and conversation; the conversation's start hook empties it when its context is
 sent again (startup, clear, compact, fork) or the session is recovering, and a resume keeps it. A conversation that cannot be
-identified gets every level in full and nothing is recorded. Global's state is also part of the start-up briefing.
+identified gets every level in full and nothing is recorded. Global has no timeline, so nothing of it is sent: not with a
+Task read and not in the start-up briefing.
 """
 from __future__ import annotations
 
@@ -17,7 +18,6 @@ from qorqut_operations.timeline import state as timeline_state
 
 from qorqut.domains.timeline import Timeline
 
-GLOBAL = {"type": "global", "id": "global", "project_id": None}
 MAX_DEPTH = 50
 RESET_EVENTS = frozenset({"startup", "clear", "compact", "fork"})
 RETENTION = timedelta(days=30)
@@ -48,7 +48,8 @@ class TimelineDelivery:
 
     @staticmethod
     def levels(task, uow):
-        """``[(item, title)]`` from Global down to the Task: Global, the Project, each parent Task root first, the Task."""
+        """``[(item, title)]`` from the top down to the Task: the Project (none for a Global Task), each parent Task root first,
+        the Task."""
         connection, project = uow.connection, task["project_id"]
         chain, seen, parent = [], {task["id"]}, task.get("parent_id")
         while parent and parent not in seen and len(seen) <= MAX_DEPTH:
@@ -59,7 +60,7 @@ class TimelineDelivery:
             seen.add(parent)
             chain.append(({"type": "task", "id": parent, "project_id": project}, row["title"]))
             parent = row["parent_id"]
-        levels = [(GLOBAL, None)]
+        levels = []
         if project:
             row = connection.execute("SELECT name FROM projects WHERE id=?", (project,)).fetchone()
             levels.append(({"type": "project", "id": project, "project_id": project}, row["name"] if row else None))
@@ -125,26 +126,10 @@ class TimelineDelivery:
         return self.deliver(agent, conversation, lines, sent)
 
     def chain_if_changed(self, agent, conversation, task):
-        """The chain for a read that came back ``not_modified``: the Task itself is unchanged, but a parent Task, the Project or
-        Global may not be. ``None`` when this conversation already holds every level as it is now, so the short result stays
+        """The chain for a read that came back ``not_modified``: the Task itself is unchanged, but a parent Task or the Project
+        may not be. ``None`` when this conversation already holds every level as it is now, so the short result stays
         short; the full chain when the conversation is unknown, as for an ordinary read."""
         lines, sent = self.build(agent, conversation, task)
         if conversation and not sent:
             return None
         return self.deliver(agent, conversation, lines, sent)
-
-    def compose(self, agent, conversation, reserve):
-        """``(text, sent)`` for Global's state in the start-up briefing: ``('', [])`` when Global holds nothing, the conversation
-        is unknown or the text would not fit in ``reserve`` characters. Records nothing: the caller records ``sent`` with
-        ``record`` once the text is part of what the hook returns."""
-        with self.database.read() as uow:
-            text, revision = self.level(uow, agent, conversation, GLOBAL, None)
-        if revision is None or not conversation or len(text) > reserve:
-            return "", []
-        return text, [(GLOBAL, revision)]
-
-    def brief(self, agent, conversation, reserve):
-        """``compose`` and record at once, for a caller that always keeps the text."""
-        text, sent = self.compose(agent, conversation, reserve)
-        self.record(agent, conversation, sent)
-        return text

@@ -188,8 +188,9 @@ active Story and no copying child conversations into parent Stories.
 Focus, task, Global task, Story and signoff views share a collapsed Comment/Send
 component. Drafts are keyed by canonical source; new views start collapsed.
 Participant identity, author grouping, relative timestamps, older pages and
-exact Send retries are shared. Signoff decisions with unsent text are explicitly
-labelled “Send and reject” or “Send and approve.” Visual polish is a separate task.
+exact Send retries are shared. A Signoff decision sends unsent text with it: the
+buttons stay “Approve” and “Reject”, and while there is text Reject is the
+highlighted one that Ctrl+Enter presses. Visual polish is a separate task.
 Focus refreshes once per minute while active, manually, or after a mutation.
 Reads and opening a card write no viewing telemetry.
 
