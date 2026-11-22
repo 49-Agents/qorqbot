@@ -16,7 +16,7 @@ Layout under ``instance_root``::
       agents/{agent_id}/                  global agent workspace (Ordubashy and Learning Applier may use configured names)
       extensions/{name}/                  owner-editable guidance of an optional instruction package (seeded once)
       projects/{folder}/                  the project's notes, documents, tables, context and assets
-      projects/{folder}/code/             optional project source code (never created by the application)
+      projects/{folder}/code/             project source code (empty when the project is created)
       .runtime/operations.sqlite3         the one operational database
       .runtime/locks/                     application claims, apply locks and the recovery lock
       .runtime/context/                   Context-owned execution and index state

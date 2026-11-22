@@ -129,13 +129,13 @@ entries:
   description: Create a Project, the container for Tasks, assets, documents, tables,
     code and routines, with project_create when the owner asks you for or agrees
     to a new one. Only the configured Ordubashy creates projects. It takes a name,
-    an optional Description and a folder slug and makes only the record and an
-    empty project folder, with no agents, setup, services or documents.
+    an optional Description and a folder slug and makes only the record and a
+    project folder with an empty code folder, with no agents, setup, services or documents.
   when_to_use: Create a Project, the container for Tasks, assets, documents, tables,
     code and routines, with project_create when the owner asks you for or agrees
     to a new one. Only the configured Ordubashy creates projects. It takes a name,
-    an optional Description and a folder slug and makes only the record and an
-    empty project folder, with no agents, setup, services or documents.
+    an optional Description and a folder slug and makes only the record and a
+    project folder with an empty code folder, with no agents, setup, services or documents.
   path: native/skills/project-creation/SKILL.md
 - id: asset-d604a5d406a4deaa0e2c
   kind: skill

@@ -1,6 +1,6 @@
 # Project creation
 
-`project_create` creates one empty local project at the owner's request. A project is a named
+`project_create` creates one local project, with an empty `code` folder, at the owner's request. A project is a named
 container for work: Tasks, documents, tables, assets, routines and its own Settings. Creating one
 does not set anything else up.
 
@@ -58,7 +58,7 @@ proven staging tree.
 One plan creates, atomically from the caller's view:
 
 - the project row with `config_json = {one_liner, code: []}`;
-- the empty folder `projects/{slug}`, made with the Operations
+- the folder `projects/{slug}` holding an empty `code` folder, made with the Operations
   `create_directory_tree` file effect (a receipt-bound private staging area published with a
   no-replace rename and recognized afterwards only by its recorded inode identity; see
   Operations `docs/DIRECTORY_EFFECT.md`). A folder that appears after preparation refuses the apply;

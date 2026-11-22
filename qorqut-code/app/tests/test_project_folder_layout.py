@@ -1,10 +1,11 @@
-"""A project's files sit directly in its folder, and a code folder is only ever a folder that already exists.
+"""A project's files sit directly in its folder, and a new project's folder holds an empty code folder.
 
 Locations, the permissions prepared for an agent, the code a preparation leaves alone, the shape of a created project
 and full recovery of a project without a code folder."""
 import isolated_cli_environment
 
 import json
+import os
 import shutil
 import sqlite3
 import sys
@@ -22,6 +23,7 @@ from qorqut.instance_paths import InstancePaths
 from qorqut.storage import full_recovery, recovery
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.projects.creation import creation as project_creation
+from qorqut_operations.storage.directories import DirectoryEffects
 from qorqut_operations.storage.directory_layout import checked_values, directory_values
 
 from test_preparation_modes import Fixture as PreparationFixture
@@ -78,19 +80,18 @@ class Permissions(PreparationFixture):
         self.assertEqual(allowed, [f"Read(/{self.folder}/{name}/**)" for name in ("context", "analytics", "assets")])
         self.assertNotIn("additionalDirectories", claude)
         self.assertNotIn("write", filesystem.values())
-        self.assertNotIn("project_code_roots", projection.metadata)
+        self.assertEqual(projection.metadata["project_code_roots"], [])
         self.assertFalse((self.folder / "code").exists())
 
-    def test_an_existing_code_folder_gets_no_permission(self):
+    def test_an_existing_code_folder_is_the_only_project_write_root(self):
         (self.folder / "code").mkdir(parents=True)
         projection, claude, codex = self.prepared()
         allowed, filesystem = self.project_rules(claude, codex)
-        self.assertEqual(allowed, [f"Read(/{self.folder}/{name}/**)" for name in ("context", "analytics", "assets")])
-        self.assertEqual([rule for rule in claude["allow"] if "/code" in rule], [])
-        self.assertNotIn("additionalDirectories", claude)
-        self.assertNotIn("write", filesystem.values())
-        self.assertFalse([path for path in codex if str(self.folder / "code") in path])
-        self.assertNotIn("project_code_roots", projection.metadata)
+        self.assertIn(f"Edit(/{self.folder}/code/**)", allowed)
+        self.assertEqual([rule for rule in allowed if rule.startswith("Edit(")], [f"Edit(/{self.folder}/code/**)"])
+        self.assertEqual(claude["additionalDirectories"], [str(self.folder / "code")])
+        self.assertEqual({path for path, mode in filesystem.items() if mode == "write"}, {str(self.folder / "code")})
+        self.assertEqual(projection.metadata["project_code_roots"], [str(self.folder / "code")])
 
     def test_protected_entries_are_read_only_names_in_the_project_folder(self):
         for code in (False, True):
@@ -101,13 +102,21 @@ class Permissions(PreparationFixture):
                              {str(self.folder / name): "read" for name in ("project.yaml", "CLAUDE.md", "context", "tasks", "log")})
             self.assertNotIn(str(self.folder), codex)
 
-    def test_the_instruction_documents_do_not_mention_a_code_folder(self):
-        (self.folder / "code").mkdir(parents=True)
-        projection, _, _ = self.prepared()
-        for name in ("CLAUDE.md", "AGENTS.md"):
-            text = projection.files[name].decode()
-            self.assertNotIn(str(self.folder / "code"), text)
-            self.assertNotIn("code root", text.lower())
+    def test_the_instruction_text_names_code_roots_only_when_there_are_some(self):
+        with mock.patch("qorqut_agentic.behavior.workspace.documents", return_value={"CLAUDE.md": b"c", "AGENTS.md": b"a"}) as documents:
+            self.prepared()
+            self.assertEqual(documents.call_args.kwargs["code_roots"], [])
+            (self.folder / "code").mkdir(parents=True)
+            self.prepared()
+            self.assertEqual(documents.call_args.kwargs["code_roots"], [self.folder / "code"])
+
+    def test_a_code_folder_that_is_a_link_is_refused(self):
+        self.folder.mkdir(parents=True)
+        (self.root / "elsewhere").mkdir()
+        os.symlink(self.root / "elsewhere", self.folder / "code")
+        with self.assertRaises(DomainError):
+            self.prepared()
+
 
 class PreparationLeavesCodeAlone(PreparationFixture):
     def test_applying_a_preparation_creates_no_code_folder(self):
@@ -117,6 +126,7 @@ class PreparationLeavesCodeAlone(PreparationFixture):
         folder.mkdir(parents=True)
         projection = preparation.build_projection(
             self.resolver, self.config, registration_id="reg-1", endpoint="http://127.0.0.1:1096", interpreter=sys.executable)
+        projection.metadata["project_code_roots"] = [str(folder / "code")]
         repositories = {
             "machine_registrations": SimpleNamespace(list=lambda **kwargs: [], insert=lambda values: None),
             "credentials": SimpleNamespace(insert=lambda values: None)}
@@ -147,9 +157,21 @@ class PreparationLeavesCodeAlone(PreparationFixture):
 
 
 class CreatedProject(unittest.TestCase):
-    def test_creation_makes_the_project_folder_and_nothing_inside_it(self):
-        self.assertEqual(project_creation.LAYOUT, ())
-        self.assertEqual(checked_values(directory_values(project_creation.LAYOUT)), ())
+    def test_creation_makes_the_project_folder_with_an_empty_code_folder(self):
+        self.assertEqual(project_creation.LAYOUT, ("code",))
+        self.assertEqual(checked_values(directory_values(project_creation.LAYOUT)), ("code",))
+
+    def test_the_created_code_folder_exists_and_is_empty(self):
+        root = Path(tempfile.mkdtemp(prefix="created project ")).resolve()
+        self.addCleanup(shutil.rmtree, root, True)
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            DirectoryEffects._build(descriptor, checked_values(directory_values(project_creation.LAYOUT)))
+        finally:
+            os.close(descriptor)
+        self.assertEqual(sorted(path.name for path in root.iterdir()), ["code"])
+        self.assertTrue((root / "code").is_dir())
+        self.assertEqual(list((root / "code").iterdir()), [])
 
     def test_the_project_row_has_no_second_location(self):
         root = Path("/instance/operations/projects")
@@ -171,10 +193,10 @@ class CreatedProject(unittest.TestCase):
         project = recorded[0][3]["project"]
         self.assertEqual(project["workspace"], str(root / "alpha"))
         self.assertEqual(set(project), {"id", "slug", "workspace", "name", "config_json"})
-        self.assertEqual(recorded[0][3]["directories"], [])
-        self.assertEqual(checked_values(builder.changes[0].values), ())
-        self.assertEqual(builder.previews[0].fields[0].after, ("projects/alpha",))
-        self.assertNotIn("code/", builder.effects[0])
+        self.assertEqual(recorded[0][3]["directories"], ["code"])
+        self.assertEqual(checked_values(builder.changes[0].values), ("code",))
+        self.assertEqual(builder.previews[0].fields[0].after, ("projects/alpha", "projects/alpha/code"))
+        self.assertIn("an empty code folder", builder.effects[0])
 
 
 class CodeIsOptionalInFullRecovery(unittest.TestCase):

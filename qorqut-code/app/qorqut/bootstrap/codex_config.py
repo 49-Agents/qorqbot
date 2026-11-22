@@ -56,7 +56,7 @@ def add_activity_hooks(hooks, command, runtime):
 
 
 def configuration(*, workspace, endpoint, header_command, command, snapshot_command,
-                  protected, read_denied, delegate_operations=False,
+                  protected, read_denied, write_roots=(), delegate_operations=False,
                   external_servers=None, permission_mode="scoped", model_default=None,
                   preserved_servers=None, mcp_command=None):
     if permission_mode not in {"scoped", "bypass"}:
@@ -74,6 +74,7 @@ def configuration(*, workspace, endpoint, header_command, command, snapshot_comm
         hooks[event] = [{"hooks": [{"type": "command", "command": snapshot_command,
                                     "timeout": 3}]}]
     filesystem = {"/": "read", str(workspace / "work"): "write", "/tmp": "write"}
+    filesystem.update({str(path): "write" for path in write_roots})
     filesystem.update({str(path): "read" for path in protected})
     filesystem.update({str(path): "deny" for path in read_denied})
     # MCP and hook helpers run in the host, not in model-issued shell commands.

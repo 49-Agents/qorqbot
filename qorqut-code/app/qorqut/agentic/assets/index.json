@@ -236,6 +236,14 @@
       "source_site": "app/qorqut/agents/context.py:compose_context"
     },
     {
+      "id": "code-root",
+      "path": "app/qorqut/agentic/assets/code-root.md",
+      "parameters": [
+        "WORKSPACE"
+      ],
+      "source_site": "app/qorqut/agents/context.py:compose_context"
+    },
+    {
       "id": "toolkit",
       "path": "app/qorqut/agentic/assets/toolkit.md",
       "parameters": [
