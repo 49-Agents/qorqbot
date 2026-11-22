@@ -6,10 +6,6 @@ For the downloadable Linux application, use the [native distribution guide](dist
 For a single publication repository, export the exact commit with `tools/export-unified.py`; its output uses the same
 source manifest and preparation contract below.
 
-
-Existing installations retiring the procedural learning engine use the separately reviewed
-[offline learning-removal transition](LEGACY-LEARNING-REMOVAL.md); fresh initialization is not a migration path.
-
 This guide prepares a Qorqbot v1.3 **source tree and Python environments** on one machine and creates one fresh
 instance from them. It has four separate stages; the first two build the code, the third is the owner's
 configuration, and the fourth is one initialization command followed by a start that only the owner performs.

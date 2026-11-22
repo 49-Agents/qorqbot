@@ -2,17 +2,16 @@
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
-import sqlite3
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
 from uuid import uuid4
 
-from qorqut_operations.contracts import DomainError, InvocationContext, Principal
+from qorqut_operations.contracts import InvocationContext, Principal
 from qorqut_operations.storage.database import Database
 from qorqut.composition.assembly import host_assembly
-from qorqut.reminders import defaults, defaults_upgrade, timing
+from qorqut.reminders import defaults, timing
 from qorqut.reminders.service import ReminderService
 from qorqut.service.changes import ChangeFeed
 
@@ -242,48 +241,6 @@ class DefaultsTest(unittest.TestCase):
         self.now += timedelta(hours=24)
         self.assertEqual(self.reconcile()["fired"], 1)
         self.assertEqual(len(self.reminders()), 1)
-
-
-class UpgradeTest(unittest.TestCase):
-    def test_exact_upgrade_is_read_only_on_inspect_and_idempotent_on_apply(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory).resolve() / "store.sqlite3"
-            predecessor, target = defaults_upgrade.compositions()
-            db = Database(path, assembly=predecessor).initialize_target()
-            db.close()
-            with sqlite3.connect(path, isolation_level=None) as connection:
-                self.assertEqual(defaults_upgrade.inspect(connection)["store"], "predecessor")
-                self.assertFalse(connection.execute("SELECT 1 FROM sqlite_master WHERE name=?", (defaults.TABLE,)).fetchone())
-                self.assertEqual(defaults_upgrade.apply(connection)["schema"], "created")
-                self.assertEqual(defaults_upgrade.apply(connection)["schema"], "already_current")
-                self.assertEqual(defaults_upgrade.inspect(connection)["store"], "target")
-                self.assertEqual(connection.execute("SELECT count(*) FROM reminders").fetchone()[0], 0)
-            db = Database(path, assembly=target)
-            db.open_existing()
-            db.close()
-
-    def test_unknown_schema_is_refused_without_partial_ddl(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory).resolve() / "store.sqlite3"
-            db = Database(path, assembly=defaults_upgrade.compositions()[0]).initialize_target()
-            db.close()
-            with sqlite3.connect(path, isolation_level=None) as connection:
-                connection.execute("CREATE TABLE unexpected (id TEXT)")
-                with self.assertRaises(DomainError):
-                    defaults_upgrade.apply(connection)
-                self.assertFalse(connection.execute("SELECT 1 FROM sqlite_master WHERE name=?", (defaults.TABLE,)).fetchone())
-
-    def test_failure_after_ddl_rolls_back_schema_identity_and_table(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory).resolve() / "store.sqlite3"
-            db = Database(path, assembly=defaults_upgrade.compositions()[0]).initialize_target()
-            db.close()
-            with sqlite3.connect(path, isolation_level=None) as connection:
-                with mock.patch.object(defaults_upgrade, "recognise", side_effect=["predecessor", DomainError("invalid_database", "probe")]):
-                    with self.assertRaises(DomainError):
-                        defaults_upgrade.apply(connection)
-                self.assertEqual(defaults_upgrade.inspect(connection)["store"], "predecessor")
-                self.assertFalse(connection.execute("SELECT 1 FROM sqlite_master WHERE name=?", (defaults.TABLE,)).fetchone())
 
 
 if __name__ == "__main__":

@@ -124,17 +124,7 @@ New agents also link to that standing task when it is uniquely identified, open 
 otherwise the default reminder carries its own cleanup instructions without exposing an unreadable task.
 Ordubashy should honor cancelled cleanup reminders rather than recreating them during a coverage check.
 
-Existing installations need the explicit offline schema upgrade before running this release:
-
-```sh
-python -m qorqut.reminders.defaults_upgrade inspect --instance-root /path/to/instance
-python -m qorqut.reminders.defaults_upgrade apply --instance-root /path/to/instance
-```
-
-Use the installation's exact extension selection with `--extensions-config` when applicable. `inspect` is read-only; `apply`
-requires the exclusive instance lock and refuses an unexpected schema. It adds only the enrollment table and retention
-triggers, verifies the target and references, and advances the schema identity in one transaction. Repeating it is a no-op.
-It preserves all existing reminders. Fresh installations already include the table. Enrollment links, like reminders, are
+The enrollment table and its retention triggers are part of the target schema. Enrollment links, like reminders, are
 private operational state and excluded from general Git history.
 
 ## Legacy compatibility
@@ -144,13 +134,3 @@ wrappers: the target is always the installation owner, mutation needs the owner 
 its `reminder_id`. Each call is also authorized as the matching shared operation (`reminders_create`, `_list`, `_update`,
 `_cancel`), so an explicit deny there is not bypassed; with no explicit grant that operation follows the `owner_reminder` grant. The Project inventory and reader project owner reminders from the new table. A legacy Telegram outbox row
 that was imported is cancelled at admission; one that was never imported keeps the old creator recheck and sends once.
-
-## Offline upgrade
-
-The new tables change the composed target schema, so an existing store must be upgraded offline (normal startup never does
-DDL). `python -m qorqut.reminders.upgrade inspect|apply --instance-root ROOT` recognises the exact predecessor schema, creates
-the two tables, advances the stored target identity and imports only still-queued legacy owner reminders (same id, revision,
-text, time, scope and creator, who is also the initial authorizing principal; the owner is the recipient), cancelling each
-imported outbox row in the same transaction. Sent, failed and cancelled history is left alone and nothing is replayed.
-In-flight (`dispatching`/`uncertain`) or malformed legacy rows refuse the upgrade until resolved through the existing Telegram
-delivery resolution. It is idempotent and rolls back as a whole on any failure. See `reminders/upgrade.py` for the exact checks.
