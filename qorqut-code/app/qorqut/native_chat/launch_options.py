@@ -143,10 +143,12 @@ def _apply_live(managed, agent_id: str, model, effort) -> bool:
 
 
 def models_view(chat, runtime, principal_id: str, agent_id: str, *, ready=None, catalog=None) -> dict:
-    """The models and efforts the agent's client reports. ``client`` is the client an open would use now."""
+    """The models and efforts the agent's client reports, and what it uses when nothing is chosen (``current``, see
+    ``model_catalog``). ``client`` is the client an open would use now."""
     from qorqut.managed_runtime import model_catalog
     profile = _guard(chat, principal_id, agent_id)
     ready = ready or stored.ready_function()
     client = stored.effective_client(runtime.paths, agent_id, profile, ready)
     found = (catalog or model_catalog.catalog)(client) if client else None
-    return {"client": client, "models": (found or {}).get("models") or []}
+    found = found or {}
+    return {"client": client, "models": found.get("models") or [], "current": found.get("current") or dict(model_catalog.NO_CURRENT)}
