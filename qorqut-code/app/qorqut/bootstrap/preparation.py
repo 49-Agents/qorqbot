@@ -41,6 +41,9 @@ LEGACY_PLUGINS = {"biz-agents-manager@bazarlyk", "biz-agents-marketing@bazarlyk"
 # declare one by name, and any name that no installed extension provides is refused (see external_connections). A
 # previously prepared entry stays managed (see previous_connections) and is removed on the next authorized preparation.
 INTEGRATION_DIRECTORY = ".qorqut/integrations"
+# Claude Code's own tools for session lists, review reports, timed wake-ups and workflow scripts. Ordubashy works through
+# Qorqut's tools instead; a denied tool is not described to him at all.
+ORDUBASHY_DENIED_CLAUDE_TOOLS = ("ListAgents", "ReportFindings", "ScheduleWakeup", "Workflow")
 
 def compatibility_report(version: str) -> dict:
     match = re.fullmatch(r"(?:Claude Code\s+)?(\d+)\.(\d+)\.(\d+)(?: \(Claude Code\))?", version.strip())
@@ -563,7 +566,10 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             "read_operations": read_operations, **({"runtime_mode": "terminal"} if terminal else {})}),
     }
     claude_mode = "bypassPermissions" if data["scope"]["kind"] == "ecosystem" else "dontAsk"
-    files[".qorqut/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": claude_mode}})
+    claude_permissions = {"defaultMode": claude_mode}
+    if ordubashy:
+        claude_permissions["deny"] = list(ORDUBASHY_DENIED_CLAUDE_TOOLS)
+    files[".qorqut/claude-launch-settings.json"] = _bytes({"permissions": claude_permissions})
     if terminal:
         # The prepared shell exists only while terminals are the mode, so a managed projection (and its hash) is untouched.
         from qorqut.agent_trust import marker_path
