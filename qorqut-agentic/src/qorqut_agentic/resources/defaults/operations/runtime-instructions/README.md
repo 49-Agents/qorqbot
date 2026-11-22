@@ -69,9 +69,6 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [overseer-extraction-due](messages/overseer-extraction-due.md) | overseer/due.py | conditional |
 | [plugin-discovery](messages/plugin-discovery.md) | agents/preferences.py | conditional |
 | [project-briefing-evidence](messages/project-briefing-evidence.md) | domains/project_briefing.py | conditional |
-| [retirement-inbox-history](messages/retirement-inbox-history.md) | inbox/retirement_contract.py | conditional |
-| [retirement-inbox-reading](messages/retirement-inbox-reading.md) | inbox/retirement_contract.py | conditional |
-| [retirement-review-history](messages/retirement-review-history.md) | inbox/retirement_contract.py | conditional |
 | [runtime-diagnostic-guidance](messages/runtime-diagnostic-guidance.md) | agents/diagnostics.py | conditional |
 | [skills-header](messages/skills-header.md) | always skills | conditional |
 | [skills-omitted](messages/skills-omitted.md) | always skills | conditional |
