@@ -793,8 +793,6 @@ function mountGlobalChat(pane, agent, options = {}) {
     contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{agent,visible:contextVisible,onChange:paintSession,workingTag});
     cleanups.push(()=>contextStatus.dispose());
   }
-  // The Global timeline is not shown above the main chat (the owner's choice, 18 November 2026): agents still receive what
-  // holds at the Global level, and its standing rules stay readable through the timeline views.
 
   // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
   // Chat always follows the backend's current conversation.

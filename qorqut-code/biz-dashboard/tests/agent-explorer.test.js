@@ -165,7 +165,7 @@ test('search lists matching Projects and Tasks from every scope as flat rows', {
   } finally { await browser.close(); }
 });
 
-test('a row opens the record reader on its timeline; Global shows its own timeline', {skip: !available}, async () => {
+test('a row opens the record reader on its timeline; Global has no timeline and only opens or closes', {skip: !available}, async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const {page, errors} = await fixture(browser, {paired: true});
@@ -186,10 +186,16 @@ test('a row opens the record reader on its timeline; Global shows its own timeli
     await page.locator('.agfiles-detail .agent-timeline-empty').waitFor();
     assert.match(await page.locator('.agfiles-detail .agent-timeline-empty').textContent(), /This timeline is empty\./);
     assert.equal(await page.locator('.agfiles-detail .agent-timeline-caption').isVisible(), false);
+    // The Global row only opens and closes: nothing opens on the right, the open Task stays, and the row is never selected.
+    const timelineReads = await page.evaluate(() => calls.filter(([url]) => url.endsWith('/timeline_view')).length);
     await page.click('[data-select="global"]');
-    await page.waitForFunction(() => /Goal of global global/.test(document.querySelector('.agfiles-detail .rw-timeline')?.textContent || ''));
-    assert.equal(await page.locator('.agfiles-detail .rw-title').textContent(), 'Global');
-    assert.equal(await page.locator('[data-row="global"]').getAttribute('aria-selected'), 'true');
+    await page.waitForFunction(() => document.querySelector('[data-row="global"]').getAttribute('aria-expanded') === 'false');
+    await page.click('[data-select="global"]');
+    await page.waitForFunction(() => document.querySelector('[data-row="global"]').getAttribute('aria-expanded') === 'true');
+    assert.equal(await page.locator('.agfiles-detail .rw-title').textContent(), 'Global chore');
+    assert.equal(await page.locator('[data-row="global"]').getAttribute('aria-selected'), 'false');
+    assert.equal(await page.evaluate(() => calls.filter(([url]) => url.endsWith('/timeline_view')).length), timelineReads);
+    assert.equal(await page.evaluate(() => calls.some(([url, body]) => url.endsWith('/timeline_view') && body.item.type === 'global')), false);
     // Closing the reader clears the selection.
     await page.click('[data-select="p:beta"]');
     await page.locator('.agfiles-detail .rw-close').waitFor();

@@ -1,4 +1,5 @@
-"""Timeline delivery: a Task read carries the state of Global, the Project, each parent Task and the Task, once per conversation."""
+"""Timeline delivery: a Task read carries the state of the Project, each parent Task and the Task, once per conversation.
+Global has no timeline: nothing of it is sent, whatever an earlier filing left in the store."""
 import asyncio
 from dataclasses import replace
 from types import SimpleNamespace as NS
@@ -8,6 +9,7 @@ from uuid import uuid4
 
 from qorqut_operations.contracts import Principal, plain
 from qorqut.agents.resolver import AgentConfigResolver as AgentResolver
+from qorqut_operations.timeline import filing
 from qorqut.domains.timeline import Timeline
 from qorqut.domains.timeline_delivery import TimelineDelivery
 from qorqut.transport import mcp
@@ -16,6 +18,7 @@ from test_single_source import Fixture
 
 DAY = '2026-11-13T10:00:00.000000Z'
 GLOBAL = {'type': 'global', 'id': 'global', 'business_id': None}
+OLD = 'Reply to the owner in plain words.'
 FIRST, SECOND = str(uuid4()), str(uuid4())
 
 
@@ -75,6 +78,11 @@ class DeliveryTests(Fixture):
             'scope': 'global', 'item': item, 'changes': [{'action': 'add', 'kind': kind, 'text': text}]},
             {'idempotency_key': str(uuid4())}))
 
+    def old_global(self, text=OLD):
+        """A row filed on Global before it lost its timeline, written as the store layer still accepts it."""
+        with self.db.transaction() as uow:
+            filing.write(uow.connection, GLOBAL, [{'action': 'add', 'kind': 'decision', 'text': text}], [], created_by=self.lead, at=DAY)
+
     def item(self, task):
         return {'type': 'task', 'id': task['id'], 'business_id': None}
 
@@ -109,19 +117,16 @@ class DeliveryTests(Fixture):
     def test_a_task_read_carries_the_chain_and_the_second_read_shows_unchanged_lines(self):
         parent = self.task(self.lead, 'Pay creators')
         child = self.task(self.lead, 'Pay October creators', parent_id=parent['id'])
-        self.file(GLOBAL, 'decision', 'Reply to the owner in plain words.')
         self.file(self.item(parent), 'fact', 'The hold on creator R. was cleared.')
         self.file(self.item(child), 'progress', '9 of 14 paid.')
         self.conversation()
         first = self.chain(child['id'])
         self.assertEqual(first.split('\n\n'), [
-            'Global — what holds now (revision 1)\nDecisions:\n- [%s] Reply to the owner in plain words. (13 Nov)' % self.entry(GLOBAL),
-            'Task "Pay creators" — what holds now (revision 2)\nFacts:\n- [%s] The hold on creator R. was cleared. (13 Nov)\n'
+            'Task "Pay creators" — what holds now (revision 1)\nFacts:\n- [%s] The hold on creator R. was cleared. (13 Nov)\n'
             'Further reading: 1 subtask (timeline_get with history)' % self.entry(self.item(parent)),
-            'Task "Pay October creators" — what holds now (revision 3)\nProgress: 9 of 14 paid. (13 Nov)'])
-        self.assertEqual(len(self.recorded()), 3)
+            'Task "Pay October creators" — what holds now (revision 2)\nProgress: 9 of 14 paid. (13 Nov)'])
+        self.assertEqual(len(self.recorded()), 2)
         self.assertEqual(self.chain(child['id']).split('\n\n'), [
-            'Global: unchanged since 14:02; timeline_get reads it again',
             'Task "Pay creators": unchanged since 14:02; timeline_get reads it again',
             'Task "Pay October creators": unchanged since 14:02; timeline_get reads it again'])
 
@@ -131,7 +136,7 @@ class DeliveryTests(Fixture):
     def test_a_level_without_entries_or_questions_is_its_title_only_and_needs_no_record(self):
         task = self.task(self.lead, 'Plain work')
         self.conversation()
-        self.assertEqual(self.chain(task['id']), 'Global\n\nTask "Plain work"')
+        self.assertEqual(self.chain(task['id']), 'Task "Plain work"')
         self.assertEqual(self.recorded(), [])
 
     def test_a_level_that_changed_since_is_sent_again_in_full(self):
@@ -143,10 +148,10 @@ class DeliveryTests(Fixture):
         self.clock[0] = '2026-11-13T15:30:00.000000Z'
         self.file(self.item(parent), 'decision', 'Pay on the 20th.')
         again = self.chain(child['id']).split('\n\n')
-        self.assertEqual(again[0], 'Global')
-        self.assertIn('Pay on the 20th.', again[1])
-        self.assertIn('One provider only.', again[1])
-        self.assertEqual(self.chain(child['id']).split('\n\n')[1],
+        self.assertEqual(len(again), 2)
+        self.assertIn('Pay on the 20th.', again[0])
+        self.assertIn('One provider only.', again[0])
+        self.assertEqual(self.chain(child['id']).split('\n\n')[0],
                          'Task "Pay creators": unchanged since 15:30; timeline_get reads it again')
 
     def test_every_conversation_of_an_agent_is_sent_its_own_copy(self):
@@ -165,14 +170,33 @@ class DeliveryTests(Fixture):
         self.chain(task['id'])
         self.ok(self.app.invoke(self.ctx(self.lead), 'timeline_file', {'scope': 'global', 'item': self.item(task),
                 'changes': [{'action': 'remove', 'entry_id': gone}]}, {'idempotency_key': str(uuid4())}))
-        self.assertEqual(self.chain(task['id']), 'Global\n\nTask "Pay creators" — nothing holds now (revision 2)')
+        self.assertEqual(self.chain(task['id']), 'Task "Pay creators" — nothing holds now (revision 2)')
 
-    def test_a_project_task_carries_the_project_level_between_global_and_the_task(self):
+    def test_a_project_task_carries_the_project_level_then_each_parent_root_first_then_the_task(self):
         project = {'type': 'project', 'id': self.business, 'business_id': self.business}
         self.file(project, 'decision', 'Reusable cards for every shop.')
         levels = self.delivery.levels({'id': 'x', 'business_id': self.business, 'parent_id': None, 'title': 'Cards'}, self.read_uow())
+        self.assertEqual([(item['type'], title) for item, title in levels], [('project', 'Example project'), ('task', 'Cards')])
+
+        def inside(title, **extra):
+            made = self.app.invoke(replace(self.ctx(self.lead), business_id=self.business), 'tasks_create', {'title': title, **extra},
+                                   {'idempotency_key': str(uuid4())})
+            return self.ok(made)['task']
+        root = inside('Root')
+        middle = inside('Middle', parent_id=root['id'])
+        levels = self.delivery.levels({'id': 'x', 'business_id': self.business, 'parent_id': middle['id'], 'title': 'Leaf'}, self.read_uow())
         self.assertEqual([(item['type'], title) for item, title in levels],
-                         [('global', None), ('project', 'Example project'), ('task', 'Cards')])
+                         [('project', 'Example project'), ('task', 'Root'), ('task', 'Middle'), ('task', 'Leaf')])
+
+    def test_a_global_task_carries_each_parent_root_first_then_the_task_and_no_project_level(self):
+        root = self.task(self.lead, 'Root')
+        middle = self.task(self.lead, 'Middle', parent_id=root['id'])
+        task = {'id': 'x', 'business_id': None, 'parent_id': middle['id'], 'title': 'Leaf'}
+        levels = self.delivery.levels(task, self.read_uow())
+        self.assertEqual([(item['type'], title) for item, title in levels], [('task', 'Root'), ('task', 'Middle'), ('task', 'Leaf')])
+        self.assertEqual([item['business_id'] for item, title in levels], [None, None, None])
+        alone = self.delivery.levels({'id': 'y', 'business_id': None, 'parent_id': None, 'title': 'Alone'}, self.read_uow())
+        self.assertEqual([(item['type'], title) for item, title in alone], [('task', 'Alone')])
 
     def read_uow(self):
         manager = self.db.read()
@@ -243,25 +267,29 @@ class DeliveryTests(Fixture):
         self.delivery.start(self.lead, SECOND, 'compact', 'c')
         self.assertEqual({row[0] for row in self.recorded()}, {SECOND})
 
-    # -- Global at the start ----------------------------------------------------------------------------------------
+    # -- Global has no timeline -------------------------------------------------------------------------------------
 
-    def test_global_rides_with_the_briefing_and_the_first_task_read_shows_it_unchanged(self):
-        self.file(GLOBAL, 'decision', 'Reply to the owner in plain words.')
+    def test_an_old_global_row_is_not_sent_in_a_chain_and_is_never_recorded(self):
+        self.old_global()
         task = self.task(self.lead, 'Pay creators')
-        brief = self.delivery.brief(self.worker, FIRST, 10000)
-        self.assertIn('Reply to the owner in plain words.', brief)
         self.conversation()
-        self.assertEqual(self.chain(task['id']).split('\n\n')[0], 'Global: unchanged since 14:02; timeline_get reads it again')
-        # An unchanged Global is not briefed twice, and a compaction brings it back.
-        self.assertEqual(self.delivery.brief(self.worker, FIRST, 10000), '')
-        self.delivery.start(self.worker, FIRST, 'compact', 'c')
-        self.assertEqual(self.delivery.brief(self.worker, FIRST, 10000), brief)
+        self.assertEqual(self.chain(task['id']), 'Task "Pay creators"')
+        self.assertEqual(self.recorded(), [])
+        self.file(self.item(task), 'fact', 'The hold was cleared.')
+        text = self.chain(task['id'])
+        self.assertNotIn(OLD, text)
+        self.assertNotIn('Global', text)
+        self.assertEqual({row[1] for row in self.recorded()}, {'task'})
+        self.assertFalse(hasattr(TimelineDelivery, 'compose') or hasattr(TimelineDelivery, 'brief'))
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries WHERE item_type=?', 'global'), [(1,)])
 
-    def test_global_is_not_briefed_when_empty_unknown_or_too_long(self):
-        self.assertEqual(self.delivery.brief(self.worker, FIRST, 10000), '')
-        self.file(GLOBAL, 'decision', 'Reply to the owner in plain words.')
-        self.assertEqual(self.delivery.brief(self.worker, None, 10000), '')
-        self.assertEqual(self.delivery.brief(self.worker, FIRST, 10), '')
+    def test_an_old_global_row_is_not_in_the_start_up_briefing(self):
+        self.old_global()
+        self.conversation()
+        for event, last in (('startup', None), ('resume', 'config-1'), ('compact', 'config-1')):
+            with self.subTest(event=event):
+                result = self.bootstrap(event, last)
+                self.assertEqual(result['work_briefing']['rendered'], 'Briefing.')
         self.assertEqual(self.recorded(), [])
 
     # -- the start hook's report ------------------------------------------------------------------------------------
@@ -277,22 +305,22 @@ class DeliveryTests(Fixture):
             return AgentResolver._bootstrap(resolver, Principal(self.worker, 'agent'), registration_id='reg', session_id=session,
                                             event=event, last_effective_config_id=last, runtime='codex')
 
-    def test_the_start_hook_resets_on_a_new_context_and_briefs_global_in_the_work_briefing(self):
-        self.file(GLOBAL, 'decision', 'Reply to the owner in plain words.')
+    def test_the_start_hook_resets_on_a_new_context_and_adds_no_timeline_to_the_work_briefing(self):
+        self.old_global()
         task = self.task(self.lead, 'Pay creators')
         self.file(self.item(task), 'fact', 'The hold was cleared.')
         self.conversation()
         briefing = self.bootstrap('startup', None)['work_briefing']['rendered']
-        self.assertTrue(briefing.startswith('Briefing.\n\nGlobal — what holds now'))
-        self.assertEqual(self.chain(task['id']).split('\n\n')[0], 'Global: unchanged since 14:02; timeline_get reads it again')
+        self.assertEqual(briefing, 'Briefing.')
+        self.assertIn('The hold was cleared.', self.chain(task['id']))
         for event, last, kept in (('prompt', 'config-1', True), ('resume', 'config-1', True), ('compact', 'config-1', False),
                                   ('fork', 'config-1', False), ('clear', 'config-1', False), ('prompt', None, False)):
             with self.subTest(event=event, last=last):
                 self.chain(task['id'])
                 result = self.bootstrap(event, last)
-                # A resume sends its context again but keeps the record, so Global is not briefed twice.
-                self.assertEqual(len(self.recorded()), 2 if kept else 1, self.recorded())
-                self.assertEqual('Global' in result.get('work_briefing', {}).get('rendered', ''), not kept)
+                # A resume sends its context again but keeps the record; the briefing never carries a timeline.
+                self.assertEqual(len(self.recorded()), 1 if kept else 0, self.recorded())
+                self.assertNotIn(OLD, result.get('work_briefing', {}).get('rendered', ''))
                 self.delivery.reset(self.worker, FIRST)
 
     def test_a_refused_start_does_not_reset(self):
@@ -329,9 +357,9 @@ class DeliveryTests(Fixture):
         third = self.reread(child['id'], token)
         self.assertTrue(third['data']['not_modified'])
         lines = third['data']['timeline'].split('\n\n')
-        self.assertEqual(lines[0], 'Global')
-        self.assertIn('Pay on the 20th.', lines[1])
-        self.assertTrue(lines[2].startswith('Task "Pay October creators": unchanged since 14:02'))
+        self.assertEqual(len(lines), 2)
+        self.assertIn('Pay on the 20th.', lines[0])
+        self.assertTrue(lines[1].startswith('Task "Pay October creators": unchanged since 14:02'))
         # It was recorded, so the next re-read is short again.
         self.assertEqual(self.reread(child['id'], token)['data'], {'not_modified': True})
 
@@ -380,29 +408,11 @@ class DeliveryTests(Fixture):
         self.delivery.start(self.worker, SECOND, 'resume', 'c')
         self.assertEqual(len(self.recorded()), 1)
 
-    def test_a_failing_start_or_briefing_does_not_fail_the_start_hook(self):
-        self.file(GLOBAL, 'decision', 'Reply to the owner in plain words.')
+    def test_a_failing_start_does_not_fail_the_start_hook(self):
         with patch.object(TimelineDelivery, 'start', side_effect=RuntimeError('locked')), self.assertLogs('qorqut.agents.resolver', 'ERROR'):
             result = self.bootstrap('startup', None)
         self.assertTrue(result['ready'])
-        self.assertIn('Briefing.', result['work_briefing']['rendered'])
-        with patch.object(TimelineDelivery, 'compose', side_effect=RuntimeError('locked')), self.assertLogs('qorqut.agents.resolver', 'ERROR'):
-            result = self.bootstrap('startup', None)
-        self.assertTrue(result['ready'])
         self.assertEqual(result['work_briefing']['rendered'], 'Briefing.')
-
-    def test_global_is_recorded_only_when_its_text_is_kept_in_the_briefing(self):
-        self.file(GLOBAL, 'decision', 'Reply to the owner in plain words.')
-        with patch('qorqut.agents.resolver.MAX_CONTEXT_CHARACTERS', 2048 + len('Mandatory.') + 20):
-            result = self.bootstrap('startup', None)
-        self.assertNotIn('Global', result['work_briefing']['rendered'])
-        self.assertEqual(self.recorded(), [])
-        # A record that fails after the text was kept does not take the text away.
-        with patch.object(TimelineDelivery, 'record', side_effect=RuntimeError('locked')), self.assertLogs('qorqut.agents.resolver', 'ERROR'):
-            result = self.bootstrap('startup', None)
-        self.assertIn('Reply to the owner in plain words.', result['work_briefing']['rendered'])
-        self.assertTrue(self.bootstrap('startup', None)['work_briefing']['rendered'].startswith('Briefing.\n\nGlobal'))
-        self.assertEqual(len(self.recorded()), 1)
 
     # -- the three replays ------------------------------------------------------------------------------------------
 

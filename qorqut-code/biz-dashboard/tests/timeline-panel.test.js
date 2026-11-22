@@ -8,7 +8,7 @@ function load(extra={}) {
   const ctx={window:{},document:{},T_VIEW_LABEL:{},T_VIEW_ICON:{},state:{bizs:[{id:'p1',slug:'example'}]},coreData:x=>x,...extra};
   vm.createContext(ctx);
   vm.runInContext(read('timeline-panel.js')+'\n'+read('workflow-panel.js')
-    +'\nglobalThis.api={timelineHtml,timelinePanelMount,globalTimelineBlockMount,timelineJournalRows,timelineJournalRow,timelineJournalMount};',ctx);
+    +'\nglobalThis.api={timelineHtml,timelinePanelMount,timelineJournalRows,timelineJournalRow,timelineJournalMount};',ctx);
   return {api:ctx.api,ctx};
 }
 const entry=(id,text,more={})=>({id,text,created_at:'2026-11-13T10:00:00.000000Z',sequence:1,...more});
@@ -135,25 +135,6 @@ test('a failed history read says so in plain words',async()=>{
   panel.update(DATA);el.click('data-tlp-switch');await settle();
   assert.ok(el.innerHTML.includes('Couldn&#39;t load the history. Try again'));assert.equal(el.innerHTML.includes('Loading'),false);assert.equal(el.innerHTML.includes('boom'),false);
 });
-test('the Global block reads the Global item at most every twenty seconds and shows nothing when it is empty',async()=>{
-  const reads=[];
-  const {api}=load();
-  const el=host();
-  const block=api.globalTimelineBlockMount(el,{read:async(extra)=>{reads.push(extra||{});return reads.length===1?{...DATA,item:{type:'global',id:'global',business_id:null}}:{...DATA,state:{goal:null,decisions:[],facts:[],progress:null,questions:[]},revision:0};}});
-  await block.refresh(true);
-  assert.equal(el.hidden,false);assert.ok(el.innerHTML.includes('Pay every creator.'));
-  await block.refresh();assert.equal(reads.length,1);
-  await block.refresh(true);assert.equal(el.hidden,true);
-  block.dispose();
-});
-test('the Global block asks for the Global item through the owner read',async()=>{
-  const posts=[];
-  const {api}=load({post:async(path,body)=>{posts.push([path,body]);return {data:{...DATA}};},coreData:x=>x.data});
-  const el=host();
-  const block=api.globalTimelineBlockMount(el);
-  await block.refresh(true);
-  assert.deepEqual(JSON.parse(JSON.stringify(posts)),[['/root/operations/timeline_view',{scope:'global',item:{type:'global',id:'global',business_id:null}}]]);
-});
 test('open questions are question Signoffs in the sign-off strip, with their own icon and no separate card',()=>{
   const queue=read('attention-queue.js'),signoffs=read('signoffs.js'),workspace=read('record-workspace.js');
   assert.doesNotMatch(queue,/timeline_questions_list|agentQuestionOpen|data-question-key/);
@@ -168,7 +149,7 @@ test('the pane has no separate questions view, and the panel and block are wired
   const pane=read('agentpane.js'),conversation=read('conversation.js'),globalChat=read('global-chat.js'),reader=read('record-workspace.js');
   assert.doesNotMatch(pane,/"questions"/);assert.doesNotMatch(pane,/agentQuestionsMount|agentQuestionsTick/);
   assert.match(reader,/timelineJournalMount\(item\.timelineHost\.querySelector\('\.agent-timeline'\)/);assert.match(reader,/history: true, limit: 50/);assert.doesNotMatch(reader,/timelinePanelMount|class="tlp"/);assert.doesNotMatch(conversation,/timelinePanelMount/);
-  assert.doesNotMatch(globalChat,/globalTimelineBlockMount\(/);
+  assert.doesNotMatch(globalChat,/globalTimelineBlockMount\(/);assert.equal(fs.readFileSync(require.resolve('../js/workflow-panel.js'),'utf8').includes('globalTimelineBlockMount'),false);
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   for(const asset of ['/js/timeline-panel.js','/css/timeline-panel.css','/css/agent-timeline.css'])assert.ok(html.includes(asset),asset);
   assert.equal(html.includes('/js/agent-questions.js'),false);

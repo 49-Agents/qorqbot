@@ -908,19 +908,6 @@ class AgentConfigResolver:
                         rendered = 'Before work, finish agent_context_get(inventory=true) and agents_activity_list continuation pages.'
                     result['work_briefing'] = {**briefing, 'rendered': rendered,
                         'character_count': len(rendered), 'bundle_hash': content_hash(rendered.encode())}
-        if delivery and (event != "prompt" or changed):
-            # Global's timeline rides with the briefing and is recorded as sent to this conversation.
-            reserve = MAX_CONTEXT_CHARACTERS - len(data['mandatory_context']['rendered']) - 2048
-            try:
-                held, sent = delivery.compose(principal.id, session_id, reserve - len(result['work_briefing'].get('rendered', '')))
-                if held:
-                    rendered = result['work_briefing'].get('rendered', '') + '\n\n' + held
-                    result['work_briefing'] = {**result['work_briefing'], 'rendered': rendered,
-                        'character_count': len(rendered), 'bundle_hash': content_hash(rendered.encode())}
-                    # Recorded only now that the text is part of the briefing the hook returns.
-                    delivery.record(principal.id, session_id, sent)
-            except Exception:
-                logging.getLogger(__name__).exception('Timeline delivery briefing failed for %s', principal.id)
         # On every event, prompts included: the hook puts it first at startup and adds it to each prompt, so it reaches
         # the model even when a CLI shows only the start of a long startup context.
         management = getattr(self, 'management', None)
