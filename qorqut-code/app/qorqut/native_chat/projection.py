@@ -179,7 +179,8 @@ def _result_receipts(content: Any) -> list[str]:
 
 def _user_input(text: Any) -> dict | None:
     """The presentation of one successful ``request_user_input`` result, or ``None``. Only a text that is itself the JSON success
-    envelope counts (``status`` ok and ``data`` holding exactly ``user_input``), never quoted or embedded JSON."""
+    envelope counts (``status`` ok and ``data`` holding ``user_input`` and at most ``tabs``, the page titles told to the agent only and never shown),
+    never quoted or embedded JSON."""
     if not isinstance(text, str) or len(text) > MAX_RECEIPT_CHARS or '"user_input"' not in text:
         return None  # the cheap tests first: nearly every tool result is some other output
     try:
@@ -187,7 +188,7 @@ def _user_input(text: Any) -> dict | None:
     except (ValueError, RecursionError):
         return None
     data = value.get("data") if isinstance(value, dict) and value.get("status") == "ok" else None
-    if not isinstance(data, dict) or set(data) != {"user_input"}:
+    if not isinstance(data, dict) or not {"user_input"} <= set(data) <= {"user_input", "tabs"}:
         return None
     return user_input.presentation(data["user_input"])
 

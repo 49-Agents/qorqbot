@@ -24,6 +24,9 @@ from qorqut.service import browser_surfaces
 DESKTOP_DIRECTORY = Path("/etc/qorqut-browser-desktops")
 # The managed Global desktops and the operator config each is run from (``desktop_session.py``); order is the catalog order.
 DESKTOP_TARGETS = {"ordubashy-browser": "ordubashy", "outlook-browser": "outlook"}
+# What an agent is told it can select: the Shared browser is the agents' browser, and the Outlook desktop is the email engine's, so
+# it stays out of the list. It stays in ``DESKTOP_TARGETS``: the engine, the owner's views and a handle that names it still use it.
+AGENT_LISTED = ("ordubashy-browser",)
 DESKTOP_KEY = "desktop:"
 SESSION_MODULE = "qorqut_desktop_session"
 
@@ -63,14 +66,15 @@ class BrowserTargets:
         return found
 
     def catalog(self, uow, principal_id):
-        """Every browser the agent can name, as ``{id, label}``: the managed Global desktops the registry configures. Empty
+        """Every browser the agent can name, as ``{id, label}``: the managed Global desktops the registry configures, except the
+        email engine's (``AGENT_LISTED``). Empty
         when no registry is configured."""
         if sys.platform != 'linux':
             return []
         registry = self.registry()
         entries = []
         if registry is not None:
-            for surface_id in DESKTOP_TARGETS:
+            for surface_id in AGENT_LISTED:
                 surface = registry["surfaces"].get(surface_id)
                 if surface and surface["kind"] == "browser":
                     entries.append({"id": surface_id, "label": surface["label"]})

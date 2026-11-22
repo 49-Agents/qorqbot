@@ -516,16 +516,19 @@ def is_command(command):
     return True
 
 
-def owner_reply(outcome, instance, reply):
+def owner_reply(outcome, instance, reply, endpoint=None):
     """The reply with the tab's ``reference`` added, and ``next`` saying what to do with it, where the outcome leaves the
     captcha to the owner and the tab is known. Any other reply is returned as it is. The agent named is the one whose browser
-    this is (``tab_reference.browser_agent``), which is not always the caller."""
+    this is (``tab_reference.browser_agent``), which is not always the caller. The tab's current ``title`` and ``url`` come
+    beside the reference when its browser (``endpoint``) gives them, so the agent can check which page it is naming."""
     named = None
     if outcome.get("next") in (ASK_OWNER, NOT_FOUND) and outcome.get("tab"):
         named = tab_reference.reference(tab_reference.browser_agent(instance), outcome["tab"])
     if named is None:
         return reply
-    return {**reply, "next": f"{reply['next']} {tab_reference.SHOW_FIELD}", "reference": named}
+    port = _port(endpoint) if endpoint else None
+    label = tab_reference.describe(port, outcome["tab"]) if port else {}
+    return {**reply, "next": f"{reply['next']} {tab_reference.SHOW_FIELD}", "reference": named, **label}
 
 
 def runner(runtime, agent_id):
@@ -555,5 +558,5 @@ def runner(runtime, agent_id):
         record(runtime.paths.runtime, entry)
         logger.info("Captcha %s", json.dumps(entry, sort_keys=True))
         reply = {name: outcome[name] for name in ("captcha", "type", "method", "reason", "next") if name in outcome}
-        return (0 if outcome["captcha"] == "solved" else 1), json.dumps(owner_reply(outcome, instance, reply)) + "\n", ""
+        return (0 if outcome["captcha"] == "solved" else 1), json.dumps(owner_reply(outcome, instance, reply, endpoint)) + "\n", ""
     return run
