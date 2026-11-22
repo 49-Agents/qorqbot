@@ -155,17 +155,19 @@ python3.12 tools/distribution/macos_app/build_dmg.py \
 The DMG is about 145 MB because Electron includes Chromium. Electron's license
 and Chromium's third-party notices are copied into the app's Resources.
 
-The default signature is ad-hoc. A copy that was downloaded is quarantined, so
-macOS blocks the first open; users choose **System Settings > Privacy &
-Security > Open Anyway** once (right-click > Open no longer bypasses this on
-macOS 15 and newer). Opening without that prompt requires an Apple Developer ID:
-pass `--identity "Developer ID Application: ..."` and `--notary-profile NAME`
-(from `xcrun notarytool store-credentials`) to sign with the hardened runtime
-(`entitlements.plist`), notarize and staple. The Mac workflow's `notarize`
-input does this with the repository's Developer ID secrets, then checks the
-ticket with `stapler validate` and `spctl`. The notarized path is untested
-here; the bundled wheels' native libraries may also need Developer ID
-signatures before Apple accepts it.
+Without an identity the signature is ad-hoc. A downloaded copy of such a build
+is quarantined, so macOS blocks the first open; users choose **System Settings
+> Privacy & Security > Open Anyway** once (right-click > Open no longer bypasses
+this on macOS 15 and newer). Opening without that block requires an Apple
+Developer ID. Apple's notary service opens the package inside the app and the
+wheels inside the package, so every program and library in them must be signed
+too: pass `--sign-identity` to `native_build.py` when the package is built, then
+`--identity "Developer ID Application: ..."` and `--notary-profile NAME` (from
+`xcrun notarytool store-credentials`) to `build_dmg.py` to sign the app with the
+hardened runtime (`entitlements.plist`), notarize and staple. The Mac workflow's
+`notarize` input does all of this with the repository's Developer ID secrets,
+then checks the ticket with `stapler validate` and `spctl`. Release downloads
+are built this way since 1.6.0.
 
 Tests (macOS):
 
