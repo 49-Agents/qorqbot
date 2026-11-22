@@ -19,7 +19,8 @@ concurrency:
 jobs:
   macos:
     runs-on: macos-15
-    timeout-minutes: 40
+    # Apple's notary service can take well over 30 minutes to accept a new package; the build itself needs about 20.
+    timeout-minutes: 120
     outputs:
       version: ${{ steps.select.outputs.version }}
     steps:
