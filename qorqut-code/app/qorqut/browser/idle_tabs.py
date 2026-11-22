@@ -97,6 +97,13 @@ def note_use(session, directories=None):
     return tab
 
 
+def is_new(session, directories=None):
+    """Whether ``session`` has never had a tab: no session directory holds its ``.target`` file. Only such a session is given
+    a tab by ``agent-browser`` at its first command (``bootstrap.browser.run`` reads this)."""
+    return not any((directory / f"{session}.target").exists()
+                   for directory in (session_directories() if directories is None else directories))
+
+
 def recent_uses(now, directories=None):
     """``{tab id: time of its last use}`` for the tabs some session used within the idle limit."""
     used = {}
