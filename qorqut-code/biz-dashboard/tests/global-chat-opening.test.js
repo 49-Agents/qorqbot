@@ -32,7 +32,7 @@ function chat({session = asleep, files = [], admit, binding = 'binding-9999', dr
   const entries = new Map();
   const view = {draft, getDraft: () => view.draft, setDraft: v => { view.draft = v; }, scrollToBottom() {}};
   const state = {composerScope: SCOPE, session};
-  const make = new Function('GLOBAL_CHAT_OPENING', 'agentId', 'agentRuntime', 'session', 'composerScope', 'GLOBAL_CHAT_DRAFTS', 'view', 'live', 'coreData', 'api', 'stateUrl', 'reads',
+  const make = new Function('GLOBAL_CHAT_OPENING', 'GLOBAL_CHAT_INFLIGHT', 'agentId', 'agentRuntime', 'session', 'composerScope', 'GLOBAL_CHAT_DRAFTS', 'view', 'live', 'coreData', 'api', 'stateUrl', 'reads',
     'globalChatText', 'entries', 'GLOBAL_CHAT_INPUT_STATE',
     `${stateSource.replace('const GLOBAL_CHAT_INPUT_STATE', 'const UNUSED')}; ${openingSource}; ${bubbleSource}; return {opening, openingBubble};`);
   const api = async (url, request) => {
@@ -40,7 +40,7 @@ function chat({session = asleep, files = [], admit, binding = 'binding-9999', dr
     return {data: {session: {binding: binding ? {binding_id: binding} : null}}};
   };
   const states = new Function(`${stateSource}; return GLOBAL_CHAT_INPUT_STATE;`)();
-  const parts = make(opened, 'agent-1', agentRuntime, session, SCOPE, drafts, view, () => true, r => r.data, api, () => '/state', {signal: null}, globalChatText, entries, states);
+  const parts = make(opened, inflight, 'agent-1', agentRuntime, session, SCOPE, drafts, view, () => true, r => r.data, api, () => '/state', {signal: null}, globalChatText, entries, states);
   const names = ['composerScope', 'selectedFiles', 'canSend', 'session', 'slashCommands', 'commandCatalog', 'label', 'showBanner', 'GLOBAL_CHAT_SENDS', 'GLOBAL_CHAT_INFLIGHT',
     'GLOBAL_CHAT_DRAFTS', 'GLOBAL_CHAT_FILES', 'GLOBAL_CHAT_MAX', 'GLOBAL_CHAT_REFUSALS', 'liveBinding', 'newRequestId', 'newestPosition', 'api', 'base', 'coreData', 'admit',
     'globalChatAccept', 'live', 'view', 'takeInput', 'load', 'paintSession', 'refusalText', 'opening', 'agentRuntime'];
@@ -102,6 +102,47 @@ test('text typed while the session opens is kept, with the failed text ahead of 
   c.view.setDraft('and also');
   fail(); await sending;
   assert.equal(c.view.getDraft(), 'hello\nand also');
+});
+
+test('once the session runs, the composer is free while the opening message is still being confirmed, and what is sent then goes after it', async () => {
+  const session = {...asleep, managed: {...asleep.managed}};
+  let release;
+  const c = chat({session, admit: text => text === 'hello' ? new Promise(resolve => { release = () => resolve(ok()); }) : ok()});
+  const first = c.submit('hello');
+  await later();
+  assert.equal(c.opening.holds(), true, 'while the session is still closed, the composer waits');
+  await c.submit('too early');
+  assert.deepEqual(c.calls.admitted.map(item => item[0]), ['hello'], 'nothing is sent while the session is still starting');
+  session.managed.open = true;
+  assert.equal(c.opening.holds(), false);
+  assert.equal(c.opening.busy(SCOPE), false, 'the opening request no longer holds Send once the session runs');
+  c.view.setDraft('and also');
+  const second = c.submit('and also');
+  await later();
+  assert.deepEqual(c.calls.admitted.map(item => item[0]), ['hello'], 'the second message waits for the first');
+  assert.equal(c.opening.busy(SCOPE), true, 'a third send waits too');
+  release(); await first; await second;
+  assert.deepEqual(c.calls.admitted.map(item => item[0]), ['hello', 'and also']);
+  assert.equal(c.opened.size, 0);
+  assert.equal(c.opening.busy(SCOPE), false);
+  assert.equal(c.view.getDraft(), '');
+});
+
+test('when the opening message fails after the session came up, the message that waited for it is not sent and both texts are back', async () => {
+  const session = {...asleep, managed: {...asleep.managed}};
+  let fail;
+  const c = chat({session, admit: text => text === 'hello'
+    ? new Promise((_, reject) => { fail = () => reject(Object.assign(new Error('x'), {code: 'driver_unavailable'})); }) : ok()});
+  const first = c.submit('hello');
+  await later();
+  session.managed.open = true;
+  c.view.setDraft('and also');
+  const second = c.submit('and also');
+  await later();
+  fail(); await first; await second;
+  assert.deepEqual(c.calls.admitted.map(item => item[0]), ['hello']);
+  assert.equal(c.view.getDraft(), 'hello\nand also');
+  assert.equal(c.opening.busy(SCOPE), false);
 });
 
 test('the bubble is hidden the moment the transcript already holds the message, so it is never shown twice', async () => {
