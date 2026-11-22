@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+<title>Getting Started</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <div class="brand">
+    <img src="mark.svg" alt="">
+    <div>
+      <h1>Getting started</h1>
+      <p class="sub">From the first launch to your first conversation with Ordubashy</p>
+    </div>
+  </div>
+
+  <h2>How it fits together</h2>
+  <div class="card">
+    <p>Qorqbot does not run an AI model itself. Each agent runs on Claude Code or Codex, which you sign in to with
+      your own account. Qorqbot starts the agent on this computer when you message it and gives it its instructions and
+      tools. You talk to every agent in the dashboard's chat; there is no terminal to open.</p>
+    <p>An agent that has been idle for a while goes to sleep and starts again by itself the next time it has something
+      to do.</p>
+  </div>
+
+  <h2>1. Connect Claude Code or Codex once</h2>
+  <div class="card">
+    <p>Every agent, Ordubashy included, runs on either one. In <b>Settings</b>, download the one you use and sign in
+      to it in your browser:</p>
+    <table>
+      <tr><td>Claude Code</td><td>Anthropic account</td></tr>
+      <tr><td>OpenAI Codex</td><td>ChatGPT or OpenAI account</td></tr>
+    </table>
+    <p class="hint spaced">You can mix them: choose the client, model and effort of each agent in Settings.</p>
+  </div>
+
+  <h2>2. Sign in to Qorqbot</h2>
+  <div class="card">
+    <p>The first time the dashboard opens, enter your email. Qorqbot sends you a code; type it in and say whether you
+      use Qorqbot personally or for work. You do this once on this computer.</p>
+    <p class="hint spaced">Qorqbot's servers learn only your email and that Qorqbot is in use, never your
+      conversations, files or what your agents do.</p>
+  </div>
+
+  <h2>3. Follow the walkthrough</h2>
+  <div class="card">
+    <p>It starts by itself after you sign in. It shows you around the workspace, projects, signoffs and Settings, and
+      ends in Ordubashy's chat. Sending your first message there starts him.</p>
+  </div>
+
+  <h2>4. Say hello</h2>
+  <div class="card">
+    <p>The walkthrough ends in Ordubashy's chat. Type <b>hi, help me get set up</b> and send it. He asks a few quick
+      questions about you, keeps the answers on this computer, then connects the tools you want him to use, such as the
+      websites you sign in to through his browser.</p>
+  </div>
+
+  <h2>Starting him again</h2>
+  <div class="card">
+    <p>Point at the mark at the top left of the dashboard. Its menu lists your agents, then <b>Walkthrough</b> and
+      <b>Settings</b>. Choose <b>Ordubashy</b> and send a message: he starts by himself, after every restart too.
+      <b>End session</b> above the chat turns an agent off until you message it again.</p>
+  </div>
+
+  <h2>The walkthrough again</h2>
+  <div class="card">
+    <p>Skipped or finished, you can take it again, whole or one chapter: choose <b>Walkthrough</b> in that menu or in
+      <b>Settings</b>, or <b>Help &rsaquo; Show Walkthrough</b>.</p>
+  </div>
+
+  <h2>Use it in your browser</h2>
+  <div class="card">
+    <p>Choose <b>Help &rsaquo; Install Terminal Command</b> once. Then <code>qorqbot</code> in any terminal window opens the
+      same dashboard in your browser, starting Qorqbot first if it is not running. <code>qorqbot stop</code> and
+      <code>qorqbot status</code> work from any folder.</p>
+    <p class="hint">The app and the browser share one server. Quitting the app leaves a server started from a terminal
+      running.</p>
+  </div>
+
+  <p class="actions spaced"><button data-action="help">How Qorqbot Works</button></p>
+</main>
+<script src="start.js"></script>
+</body>
+</html>

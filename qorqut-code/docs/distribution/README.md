@@ -1,5 +1,8 @@
 # Qorqbot for Linux
 
+This page covers the `.tar.gz` that you start from a terminal and open in your browser. For the desktop app
+(an AppImage or a `.deb` with its own window, tray icon and menu entry) see [LINUX.md](LINUX.md).
+
 Ubuntu 24.04 on Intel/AMD 64-bit. Install Python 3.12 with venv support and Git
 using Ubuntu's package manager before running Qorqbot:
 

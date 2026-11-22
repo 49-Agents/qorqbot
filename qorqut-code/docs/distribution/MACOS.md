@@ -1,6 +1,7 @@
 # Qorqbot for Mac — native preparation
 
-First target: Apple silicon (M1 or newer), macOS 14 or newer.
+First target: Apple silicon (M1 or newer), macOS 14 or newer. An Intel build
+(`macos14-x86_64`) comes from the same code; see **Intel Macs** below.
 This is a native Python application in a folder, with the existing browser UI.
 It does not use a Linux VM. Native Mac acceptance is pending; do not present the
 prepared archive as a tested Mac release until the Mac check passes.
@@ -126,8 +127,21 @@ and agent-browser, so the app needs nothing installed on the Mac.
   on port 1049 (or the next free port on the first launch) and shows the dashboard.
   It remembers that port across restarts so existing agents keep their server address.
   If the saved port is occupied, close the other program and retry.
-- Closing the window hides it; the Dock icon brings it back. **Quit** stops the
-  local server first. Opening the app again focuses the existing window.
+- Closing the window hides it; the Dock icon or the menu bar item brings it
+  back. **Quit** stops the local server first. Opening the app again focuses
+  the existing window.
+- The menu bar item is the Qorqbot mark as a monochrome template image, so it
+  follows light and dark menu bars. Its menu shows the status (running at the
+  address, stopped, needs attention) and has Show Qorqbot, Open in Browser,
+  Start, Stop and Restart Server and Quit Qorqbot, worded like the **Server**
+  menu. `build_dmg.py` renders the two icon files (`trayTemplate.png`, `@2x`)
+  from `biz-dashboard/css/brand/qorqbot-mark.svg`; a development run
+  (`npm start`) has none and shows no menu bar item.
+- The Dock icon shows a badge with how many items are waiting for you. The app
+  reads the same answer the dashboard polls (`GET /api/root/attention-queue`:
+  sign-offs and questions not yet opened, due reminders, unread replies and
+  side chats) every 30 seconds while the server runs; no badge means none, and
+  it clears when the server stops. The dashboard and server are unchanged.
 - The **Server** menu shows the status and can stop, start or restart the
   server, open the app and server logs, and reveal the install folder.
   **Help > How Qorqbot Works** explains all of this, including removal.
@@ -167,9 +181,25 @@ ticket with `stapler validate` and `spctl`. The notarized path is untested
 here; the bundled wheels' native libraries may also need Developer ID
 signatures before Apple accepts it.
 
+### Intel Macs
+
+`macos_tools.py` and `native_build.py --target macos14-x86_64` build for the
+chip they run on, so the Intel archive is built on an Intel Mac. `build_dmg.py`
+takes either `qorqbot-VERSION-macos14-arm64.tar.gz` or
+`qorqbot-VERSION-macos14-x86_64.tar.gz`, refuses an archive whose recorded
+platform differs from its name, builds the app for that chip (electron-builder
+`--arm64` or `--x64`) and writes `Qorqbot-VERSION-macos14-arm64.dmg` or
+`Qorqbot-VERSION-macos14-x86_64.dmg`; build the DMG on a Mac of the archive's
+chip. The Apple silicon names and steps are unchanged.
+
+An Intel archive cannot be built at present: the pinned `cryptography` release
+publishes no Intel Mac wheel (the 2026-11-19 trial on `macos-15-intel` stopped
+there, before the DMG step). The workflow therefore has no Intel job; add one
+once the pin has an `x86_64` macOS wheel again.
+
 Tests (macOS):
 
 ```sh
-(cd tools/distribution/macos_app/electron && npm ci && npm test)   # install/start/stop engine
+(cd tools/distribution/macos_app/electron && npm ci && npm test)   # engine, menus, Dock badge
 python3.12 -m unittest discover -s tools/distribution/macos_app/tests   # builder, full DMG build
 ```
