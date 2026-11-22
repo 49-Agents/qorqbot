@@ -237,3 +237,5 @@
 .rw-timeline{overflow:auto;overscroll-behavior:contain;padding:10px 20px 18px}
 /* The journal brings the rail Timeline page's look; the pane already has the padding. */
 .rw-timeline .agent-timeline{padding:0 2px}
+.rw-timeline .agent-timeline-empty{margin-top:4px}
+.rw-timeline .agent-timeline-empty p{margin:0;font-size:13px;line-height:1.5}
