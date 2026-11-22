@@ -70,6 +70,7 @@ async function fixture(browser, {paired = false} = {}) {
     window.calls = [];
     window.post = async (url, body) => {
       calls.push([url, body]);
+      if (url.endsWith('/timeline_view') && body.item.id === 'g1') return {item: body.item, title: 'T', revision: 0, further: {}, state: {goal: null, decisions: [], facts: [], progress: null, questions: []}, entries: [], links: {}, closed_questions: [], next_cursor: null};
       if (url.endsWith('/timeline_view')) return {item: body.item, title: 'T', revision: 1, further: {}, state: {goal: {id: 'g', text: 'Goal of ' + body.item.type + ' ' + body.item.id}, decisions: [], facts: [], progress: null, questions: []},
         entries: [{id: 'g', sequence: 1, action: 'add', kind: 'goal', text: 'Goal of ' + body.item.type + ' ' + body.item.id, created_at: '2026-11-13T10:00:00Z', sources: [], refs: []}], links: {}, closed_questions: [], next_cursor: null};
       const match = /^(\/root|\/project\/[^/]+)\/operations\/tasks_list$/.exec(url);
@@ -181,6 +182,10 @@ test('a row opens the record reader on its timeline; Global shows its own timeli
     await page.click('[data-select="t::g1"]');
     await page.waitForFunction(() => document.querySelector('.agfiles-detail .rw-record:not([hidden]) .rw-title')?.textContent === 'Global chore');
     assert.deepEqual(await page.evaluate(() => calls.filter(([url]) => url.endsWith('/timeline_view')).at(-1)[1].item), {type: 'task', id: 'g1', project_id: null});
+    // A Task with nothing filed says its timeline is empty.
+    await page.locator('.agfiles-detail .agent-timeline-empty').waitFor();
+    assert.match(await page.locator('.agfiles-detail .agent-timeline-empty').textContent(), /This timeline is empty\./);
+    assert.equal(await page.locator('.agfiles-detail .agent-timeline-caption').isVisible(), false);
     await page.click('[data-select="global"]');
     await page.waitForFunction(() => /Goal of global global/.test(document.querySelector('.agfiles-detail .rw-timeline')?.textContent || ''));
     assert.equal(await page.locator('.agfiles-detail .rw-title').textContent(), 'Global');

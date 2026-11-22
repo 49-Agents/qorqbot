@@ -204,7 +204,7 @@ test('a journal row uses the rail Timeline markup: time, text, meta, and the quo
 });
 function journalHost() {
   const node=()=>({hidden:false,textContent:'',innerHTML:'',querySelector(){return node();},querySelectorAll(){return [];}});
-  const parts={'[data-status]':node(),'.agent-timeline-error':node(),ol:node()};const alert=node();parts['.agent-timeline-error'].querySelector=()=>alert;
+  const parts={'[data-status]':node(),'.agent-timeline-caption':node(),'.agent-timeline-error':node(),'.agent-timeline-empty':node(),ol:node()};const alert=node();parts['.agent-timeline-error'].querySelector=()=>alert;
   return {parts,alert,handlers:{},innerHTML:'',querySelector(sel){return parts[sel];},addEventListener(type,fn){this.handlers[type]=fn;},replaceChildren(){this.innerHTML='';}};
 }
 test('the journal reads every page before it paints, counts its rows, and a failed read offers Retry',async()=>{
@@ -215,12 +215,15 @@ test('the journal reads every page before it paints, counts its rows, and a fail
   assert.ok(el.innerHTML.includes('class="agent-timeline-caption"'));assert.ok(el.innerHTML.includes('class="agent-timeline-list"'));
   await journal.refresh();
   assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{},{cursor:'2'}]);
-  assert.equal(el.parts['[data-status]'].textContent,'6 entries');assert.ok(el.parts.ol.innerHTML.includes('Kept fact.'));assert.equal(el.parts['.agent-timeline-error'].hidden,true);
+  assert.equal(el.parts['[data-status]'].textContent,'6 entries');assert.ok(el.parts.ol.innerHTML.includes('Kept fact.'));assert.equal(el.parts['.agent-timeline-error'].hidden,true);assert.equal(el.parts['.agent-timeline-empty'].hidden,true);assert.equal(el.parts['.agent-timeline-caption'].hidden,false);
   fail=true;await journal.refresh();
-  assert.equal(el.parts.ol.innerHTML,'');assert.equal(el.parts['.agent-timeline-error'].hidden,false);assert.equal(el.alert.textContent,"Couldn't load the timeline. Try again");
+  assert.equal(el.parts.ol.innerHTML,'');assert.equal(el.parts['.agent-timeline-error'].hidden,false);assert.equal(el.parts['.agent-timeline-empty'].hidden,true);assert.equal(el.alert.textContent,"Couldn't load the timeline. Try again");
   fail=false;el.handlers.click({target:{closest:sel=>sel==='[data-retry]'?{}:null}});await settle();await settle();
   assert.equal(el.parts['.agent-timeline-error'].hidden,true);assert.equal(el.parts['[data-status]'].textContent,'6 entries');
   const empty=journalHost(),none=api.timelineJournalMount(empty,{read:async()=>({...DATA,state:{goal:null,decisions:[],facts:[],progress:null,questions:[]},entries:[],next_cursor:null})});
-  await none.refresh();assert.equal(empty.parts['[data-status]'].textContent,'Nothing on the timeline yet.');assert.equal(empty.parts.ol.hidden,true);
+  await none.refresh();
+  // An empty timeline says so in its own line; the count line is hidden.
+  assert.ok(empty.innerHTML.includes('This timeline is empty. Ordubashy has not filed anything here yet.'));
+  assert.equal(empty.parts['.agent-timeline-empty'].hidden,false);assert.equal(empty.parts['.agent-timeline-caption'].hidden,true);assert.equal(empty.parts.ol.hidden,true);assert.equal(empty.parts['[data-status]'].textContent,'');
   journal.dispose();assert.equal(el.innerHTML,'');
 });

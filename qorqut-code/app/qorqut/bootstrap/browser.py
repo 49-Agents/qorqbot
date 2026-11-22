@@ -898,6 +898,11 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
             preflight(endpoint)
         from qorqut.browser import idle_tabs
         idle_tabs.before_command(endpoint, session, pinned)      # a tab unloaded for idleness is loaded again first
+        if pinned and args[0] == "tab-new" and len(args) == 2 and idle_tabs.is_new(session):
+            # A pinned session that never had a tab is given one, blank, by agent-browser at its first command. ``tab-new``
+            # would open a second tab beside it and leave the blank one open for good, one per agent and browser, since
+            # no agent closes a tab it did not open. So the first page of such a session loads in the session's own tab.
+            args = ["goto", args[1]]
         if observation_request is not None:
             env["QORQUT_OBSERVATION_CDP"] = endpoint
             return _run_observation(workspace, directory, executable, session, observation_request, env, capture=capture,

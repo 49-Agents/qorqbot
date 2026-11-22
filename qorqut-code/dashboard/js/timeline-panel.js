@@ -150,8 +150,10 @@ function timelineJournalMount(host, {read} = {}) {
   let generation = 0, disposed = false, painted = null;
   host.innerHTML = `<div class="agent-timeline-caption"><p role="status" aria-live="polite" data-status>Loading…</p></div>
     <div class="agent-timeline-error" hidden><p role="alert"></p><button type="button" class="quiet" data-retry>Retry</button></div>
+    <div class="agent-timeline-empty" hidden><p class="muted">This timeline is empty. Ordubashy has not filed anything here yet.</p></div>
     <ol class="agent-timeline-list" aria-label="Timeline entries, newest first"></ol>`;
-  const status = host.querySelector('[data-status]'), problem = host.querySelector('.agent-timeline-error'), list = host.querySelector('ol');
+  const status = host.querySelector('[data-status]'), caption = host.querySelector('.agent-timeline-caption'), problem = host.querySelector('.agent-timeline-error');
+  const none = host.querySelector('.agent-timeline-empty'), list = host.querySelector('ol');
   async function refresh() {
     const mine = ++generation;
     try {
@@ -168,11 +170,12 @@ function timelineJournalMount(host, {read} = {}) {
         list.innerHTML = painted = html;
         for (const node of list.querySelectorAll('details')) if (open.has(node.closest('[data-entry-id]')?.dataset.entryId)) node.open = true;
       }
-      problem.hidden = true; list.hidden = !rows.length;
-      status.textContent = rows.length ? `${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}` : 'Nothing on the timeline yet.';
+      // An empty timeline says so in its own line, in place of the count.
+      problem.hidden = true; list.hidden = caption.hidden = !rows.length; none.hidden = !!rows.length;
+      status.textContent = rows.length ? `${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}` : '';
     } catch (_) {
       if (disposed || mine !== generation) return;
-      painted = null; list.innerHTML = ''; list.hidden = true; status.textContent = '';
+      painted = null; list.innerHTML = ''; list.hidden = none.hidden = true; caption.hidden = false; status.textContent = '';
       problem.querySelector('p').textContent = "Couldn't load the timeline. Try again"; problem.hidden = false;
     }
   }
