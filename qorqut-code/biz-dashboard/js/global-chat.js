@@ -493,11 +493,12 @@ function mountGlobalChat(pane, agent, options = {}) {
     syncManaged();
     if (options.openTerminal && typeof agentTerminalView !== 'undefined') agentTerminalView.syncChat(root, session, options, terminalSync);
     sessionLine.hidden = !sessionText.textContent && (workingTag.hidden || workingTag.parentElement !== sessionLine);
-    const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId);
-    // A message that opens the session is on its way: every control that is off says the one thing, "Starting <agent>…", until the session is open.
-    const opening = !terminal && (GLOBAL_CHAT_OPENING.has(agentId) || (agentRuntime.closed(session) && GLOBAL_CHAT_INFLIGHT.has(composerScope)));
+    const enabled = canSend(), sending = opening.busy(composerScope) || opening.holds();
+    // A message that opens the session is on its way: every control that is off says the one thing, "Starting <agent>…", until the
+    // session is open. Once it runs, nothing says it is starting, and the composer is free again (see `opening.after`).
+    const starting = !terminal && agentRuntime.closed(session) && (GLOBAL_CHAT_OPENING.has(agentId) || GLOBAL_CHAT_INFLIGHT.has(composerScope));
     const unavailable = () => terminal ? agentTerminalView.unavailableText(session, label, {finished, paired: !!pairedHost})
-      : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost, opening});
+      : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost, opening: starting});
     const pending = presentInputs();
     view.render({
       ...patch, pending,
@@ -505,7 +506,7 @@ function mountGlobalChat(pane, agent, options = {}) {
         stop: !terminal && !finished && !pairedHost && viewingLive() && agentRuntime.activity(session).stop,
         stopDisabled: !!managedBar?.stopping, stopTitle: managedBar?.stopping ? 'Stopping…' : `Stop what ${label} is doing`,
         disabledReason: enabled ? '' : unavailable(),
-        sendingReason: GLOBAL_CHAT_OPENING.has(agentId) ? `Starting ${label}…` : 'Sending your message…', filesReason: opening ? `Starting ${label}…` : 'Wait until your message is sent.',
+        sendingReason: starting ? `Starting ${label}…` : 'Sending your message…', filesReason: starting ? `Starting ${label}…` : 'Wait until your message is sent.',
         attachments: selectedFiles().map(file => ({key: file.key, name: file.file.name})),
         placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : unavailable()},
       older: {visible: olderAbove(), disabled: olderBusy},
@@ -556,15 +557,27 @@ function mountGlobalChat(pane, agent, options = {}) {
   // The owner's explicit choice to start a fresh conversation instead of the one that can't be continued: the next request (and its
   // retries, which keep their key) is sent with ``new_conversation``; ``key`` is bound when that request is first made.
   // A message to a closed session: the owner sees it at once, the composer is empty meanwhile, and a failed open puts the text back.
+  // The request that opens the session can take a while to be confirmed after the session already runs (the server waits for the
+  // session to be bound). The composer is held only while the session is still closed; once it runs, the owner can type and send,
+  // and what is sent then waits for the opening message and goes after it (`after`), so the two never swap places.
   const opening = {
-    active: () => GLOBAL_CHAT_OPENING.has(agentId),
+    holds: () => GLOBAL_CHAT_OPENING.has(agentId) && agentRuntime.closed(session),
+    // A send in flight holds its composer, except the one that opened the session once the session runs.
+    busy(scope) {
+      const sending = GLOBAL_CHAT_INFLIGHT.get(scope);
+      return !!sending && !(sending.opening && !agentRuntime.closed(session));
+    },
+    // The opening that is still being confirmed while the session already runs: {promise, sent}, or null.
+    after: () => (agentRuntime.closed(session) ? null : GLOBAL_CHAT_OPENING.get(agentId) || null),
+    // The opening's record ({text, probe, at, position}, then `promise` and `sent`), or false when this message opens nothing.
     start(text, attempt) {
       if (attempt.pin !== null || !agentRuntime.closed(session)) return false;
       const names = attempt.files.map(item => item.file.name).join(', ');
-      GLOBAL_CHAT_OPENING.set(agentId, {text: text.trim() ? text : names, probe: text.trim() ? text : '', at: Date.now(), position: attempt.position});
+      const record = {text: text.trim() ? text : names, probe: text.trim() ? text : '', at: Date.now(), position: attempt.position, sent: false};
+      GLOBAL_CHAT_OPENING.set(agentId, record);
       if (composerScope) GLOBAL_CHAT_DRAFTS.delete(composerScope);
       if (view.getDraft() === text) view.setDraft('');
-      return true;
+      return record;
     },
     // Nothing the owner typed is lost: the text returns to the composer (ahead of anything typed meanwhile).
     restore(scope, text) {
@@ -613,7 +626,21 @@ function mountGlobalChat(pane, agent, options = {}) {
   async function submit(text) {
     const mine = composerScope;
     const files = [...selectedFiles()], fileKey = files.map(file => file.key).join(',');
-    if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine) || opening.active()) return;
+    if (!mine || !text.trim() && !files.length || !canSend() || opening.busy(mine) || opening.holds()) return;
+    // The session runs but the message that opened it is not confirmed yet: this one is sent after it, never before it, and only when it
+    // went through (a failed open puts its text back in the composer ahead of this one, and the owner sends them again).
+    const earlier = opening.after();
+    if (earlier) {
+      const waiting = {text, promise: Promise.resolve(earlier.promise).then(() => earlier.sent === true)};
+      GLOBAL_CHAT_INFLIGHT.set(mine, waiting);
+      paintSession();
+      const sent = await waiting.promise;
+      if (GLOBAL_CHAT_INFLIGHT.get(mine) === waiting) GLOBAL_CHAT_INFLIGHT.delete(mine);
+      if (!live()) return;
+      paintSession();
+      if (sent) await submit(text);
+      return;
+    }
     // A known slash command is judged for the session it is sent to, before anything is uploaded or sent. A shared Codex server
     // cannot run it: the draft and attachments stay as they are and the owner is told where it runs (the backend refuses it too).
     const slash = slashCommands.command(commandCatalog() || [], text);
@@ -625,6 +652,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (!attempt || attempt.text !== text || attempt.fileKey !== fileKey) attempt = {text, fileKey, files, key: newRequestId(), pin: liveBinding()?.binding_id ?? null, position: newestPosition()};
     GLOBAL_CHAT_SENDS.set(mine, attempt);
     const opened = opening.start(text, attempt);
+    // Recorded before the request starts, so a request that ends at once (nothing awaited) also clears it.
+    const flight = {text, opening: !!opened};
+    GLOBAL_CHAT_INFLIGHT.set(mine, flight);
     const run = (async () => {
       try {
         const references = [];
@@ -653,6 +683,7 @@ function mountGlobalChat(pane, agent, options = {}) {
           const error = new Error('Message too long'); error.attachment = true; error.code = 'message_too_long'; throw error;
         }
         const result = await admit(payload, attempt.key, attempt.pin);
+        if (opened) opened.sent = true;
         globalChatAccept(mine, payload, result.input, attempt.position, !!slash);
         if (typeof agentTerminalView !== 'undefined') agentTerminalView.finishInTerminal(slash, text, session, label, options.openTerminal, toast);
         // A first message opens the conversation, so the composer may have moved to its scope meanwhile: the bubble follows it.
@@ -676,12 +707,13 @@ function mountGlobalChat(pane, agent, options = {}) {
           : GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem) : "Couldn't confirm. Try again");
         if (problem.code === 'capture_not_ready' || problem.code === 'terminal_changed' || problem.code === 'terminal_offline') void load();
       } finally {
-        GLOBAL_CHAT_INFLIGHT.delete(mine);
+        if (GLOBAL_CHAT_INFLIGHT.get(mine) === flight) GLOBAL_CHAT_INFLIGHT.delete(mine);
         if (opened) opening.end();
         if (live()) paintSession();
       }
     })();
-    GLOBAL_CHAT_INFLIGHT.set(mine, {text, promise: run});
+    flight.promise = run;
+    if (opened) opened.promise = run;
     paintSession();
     if (opened && live()) view.scrollToBottom();
     await run;
@@ -720,17 +752,20 @@ function mountGlobalChat(pane, agent, options = {}) {
     onReference: openReference,
     onFilePreview: ref => agentFilePreviewOpen(ref),
     onFiles: files => {
-      if (!composerScope || !canSend() || GLOBAL_CHAT_INFLIGHT.has(composerScope) || opening.active() || !files.length) return;
+      if (!composerScope || !canSend() || opening.busy(composerScope) || opening.holds() || !files.length) return;
       if (files.length + selectedFiles().length > 10 || files.some(file => file.size > 25 * 1024 * 1024)) {
         showBanner('Choose up to 10 files, each 25 MB or smaller.'); return;
       }
       GLOBAL_CHAT_FILES.set(composerScope, [...selectedFiles(), ...files.map(file => ({key: newRequestId(), file}))]);
-      GLOBAL_CHAT_SENDS.delete(composerScope); showBanner(''); paintSession();
+      // The opening message still being confirmed keeps its request (and key) for a retry.
+      if (!GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
+      showBanner(''); paintSession();
     },
     onAttachmentRemove: key => {
-      if (!composerScope || GLOBAL_CHAT_INFLIGHT.has(composerScope)) return;
+      if (!composerScope || opening.busy(composerScope) || opening.holds()) return;
       GLOBAL_CHAT_FILES.set(composerScope, selectedFiles().filter(file => file.key !== key));
-      GLOBAL_CHAT_SENDS.delete(composerScope); paintSession();
+      if (!GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
+      paintSession();
     },
     onOlder: () => loadOlder(),
     // A Signoff reference is the existing single-item Signoff view: the owner session, exact proposal and decisions stay its own.
