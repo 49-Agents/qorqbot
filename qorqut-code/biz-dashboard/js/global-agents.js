@@ -367,8 +367,8 @@ async function renderGlobalAgents(c) {
         return true;
       }
     }
-    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && (_agpad?.workspaceFrame || _agpad?.journalMount || _agpad?.surface?.beforeLeave || _agpad?.focusWorkspace?.isOpen?.() || _agpad?.explorerWorkspace?.isOpen?.()
-        || (['focus', 'explorer'].includes(_agpad?.view) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy()))) {
+    if (!leaveChecked && typeof agentWorkspaceCanLeave === 'function' && (_agpad?.workspaceFrame || _agpad?.journalMount || _agpad?.surface?.beforeLeave || _agpad?.focusWorkspace?.isOpen?.() || _agpad?.explorerWorkspace?.isOpen?.() || _agpad?.workWorkspace?.isOpen?.()
+        || (['focus', 'explorer', 'work'].includes(_agpad?.view) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy()))) {
       const previous = _agpad, frame = previous.workspaceFrame, journal = previous.journalMount;
       return agentWorkspaceCanLeave(previous).then(ok => {
         if (ok && selection === selectionVersion && _agpad === previous && previous.workspaceFrame === frame && previous.journalMount === journal)

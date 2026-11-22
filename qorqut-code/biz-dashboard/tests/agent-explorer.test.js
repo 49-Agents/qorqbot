@@ -25,7 +25,7 @@ test('the Explorer is Ordubashy’s tab, with or without Testing mode, and sits 
     assert.equal(context.agentPaneViewAllowed(role, 'explorer'), false);
   }
   // Calendar and Journal lead it in the rail.
-  assert.match(read('js/agentpane.js'), /\['calendar', 'journal'\]\.includes\(view\)\), \.\.\.\(roleId === "ordubashy" \? \["explorer", "files"\] : \[\]\)/);
+  assert.match(read('js/agentpane.js'), /\['calendar', 'journal'\]\.includes\(view\)\), \.\.\.\(roleId === "ordubashy" \? \["work", "explorer", "files"\] : \[\]\)/);
   const html = read('index.html');
   for (const asset of ['/js/agent-explorer.js', '/css/agent-explorer.css']) assert.ok(html.includes(asset), asset);
   assert.ok(html.indexOf('/js/agent-files.js') < html.indexOf('/js/agent-explorer.js'));
@@ -33,9 +33,9 @@ test('the Explorer is Ordubashy’s tab, with or without Testing mode, and sits 
 
 test('the Explorer’s reader pairs with the Chat area the way Focus does, and leaving it is guarded', () => {
   const pane = read('js/agentpane.js'), workspace = read('js/agent-workspace.js');
-  assert.match(pane, /const agpadPairedView = p => p\?\.view === 'focus' \|\| p\?\.view === 'explorer';/);
+  assert.match(pane, /const agpadPairedView = p => p\?\.view === 'focus' \|\| p\?\.view === 'explorer' \|\| p\?\.view === 'work';/);
   assert.equal((pane.match(/agpadPairedView\((_agpad|p)\) && typeof agentWorkspacePairedRecord === 'function'/g) || []).length, 3);
-  assert.match(workspace, /\(p\.view === 'explorer' \? p\.explorerMount : p\.focusMount\)\?\.isConnected === true/);
+  assert.match(workspace, /\(p\.view === 'explorer' \? p\.explorerMount : p\.view === 'work' \? p\.workMount : p\.focusMount\)\?\.isConnected === true/);
   assert.match(workspace, /p\?\.view === 'explorer' && p\.explorerCanLeave && !await p\.explorerCanLeave\(\)/);
 });
 
