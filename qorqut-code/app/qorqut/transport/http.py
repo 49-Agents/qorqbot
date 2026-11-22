@@ -597,6 +597,16 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "display-preferences"] and request.method == "GET":
+                # Theme, text size and desktop alerts the coordinator set for the owner (``settings_set``). Read only: a
+                # browser applies them to its own stored choice; the owner's own changes stay in the browser.
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Display choices are for the owner's dashboard")
+                from qorqut.dashboard_preferences import display
+                data = await anyio.to_thread.run_sync(partial(display, self.runtime.paths.runtime, actor.principal.id))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "calendar-statuses"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Calendar statuses are for the owner's dashboard")

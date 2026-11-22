@@ -119,7 +119,7 @@ const AGPAD_RETIRED_PANE_VIEWS = new Set(["project", "campaign_review", "status"
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
 function agentPaneViewAllowed(roleId, view) {
   if (view === "files" || view === "timeline") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
-  if (view === "explorer") return roleId === "ordubashy";
+  if (view === "explorer" || view === "work") return roleId === "ordubashy";
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
 }
@@ -133,7 +133,7 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
-  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["explorer", "files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
+  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["work", "explorer", "files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
     .filter(view => agentPaneViewAllowed(roleId, view));
 }
 // The agent workspace app's compact header keeps Viewbox beside Focus; an embedded page has no header to arrange.
@@ -203,6 +203,7 @@ if (typeof testingModeSubscribe === 'function') testingModeSubscribe(() => {
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
   if (view === "files") { agentFilesMount(p); return; }
+  if (view === "work") { agentWorkMount(p); return; }
   if (view === "explorer") { agentExplorerMount(p); return; }
   if (view === "timeline" && p.workspaceRole === "ordubashy") { agentTimelineMount(p); return; }
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
@@ -382,7 +383,7 @@ function agentPaneDividerMount(root) {
 }
 
 // The views whose record reader can show a thread in the Chat area beside the pane: leaving one hands that area back.
-const agpadPairedView = p => p?.view === 'focus' || p?.view === 'explorer';
+const agpadPairedView = p => p?.view === 'focus' || p?.view === 'explorer' || p?.view === 'work';
 function agpadDispose() {
   if (_agpad) agpadSurfaceDispose(_agpad);
   _agpad?.focusDetail?.dispose?.();
@@ -482,7 +483,7 @@ function agpadSetView(p, view, leaveChecked = false) {
     if (AGPAD_FOCUS_SURFACES.has(view)) return agpadSurfaceRequest(p, view, leaveChecked);
     if (view === "focus" && p.view === "focus" && p.surface) return agpadSurfaceClose(p);
   }
-  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.() || p.explorerWorkspace?.isOpen?.()
+  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.() || p.explorerWorkspace?.isOpen?.() || p.workWorkspace?.isOpen?.()
       || (agpadPairedView(p) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy())) && typeof agentWorkspaceCanLeave === 'function') {
     // Resume only against the exact screen the guard inspected: a replaced frame or Journal mount was
     // never checked for unsaved edits, so its own guard has to run instead of this one's result.

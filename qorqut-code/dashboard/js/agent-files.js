@@ -12,6 +12,7 @@ const AGFILES_ICONS = {
   search: 'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
   external: 'M14 3h7v7m0-7L10 14M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5',
   copy: 'M9 9h12v12H9ZM5 15H3V3h12v2',
+  board: 'M4 4h4v16H4ZM10 4h4v9h-4ZM16 4h4v13h-4Z',
 };
 function agentFilesIcon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${AGFILES_ICONS[name] || AGFILES_ICONS.file}"/></svg>`;

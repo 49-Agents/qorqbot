@@ -174,8 +174,8 @@ function agentWorkspacePairedValidSource(source) {
 function agentWorkspacePairedCurrent(child) {
   const p = _agpad;
   if (!p || !p.open || p.workspaceRole !== 'ordubashy' || !p.agentId || state.scope !== 'global'
-      || state.globalTab !== 'agents' || !['focus', 'explorer'].includes(p.view) || p.isCurrent?.() === false) return false;
-  if (child === window) return (p.view === 'explorer' ? p.explorerMount : p.focusMount)?.isConnected === true;
+      || state.globalTab !== 'agents' || !['focus', 'explorer', 'work'].includes(p.view) || p.isCurrent?.() === false) return false;
+  if (child === window) return (p.view === 'explorer' ? p.explorerMount : p.view === 'work' ? p.workMount : p.focusMount)?.isConnected === true;
   const frame = p.workspaceFrame;
   return !!frame?.isConnected && frame.contentWindow === child && p.el?.contains(frame);
 }
@@ -389,12 +389,13 @@ function agentWorkspaceMount(p, view) {
 // Native editors retain their save/leave contract when hosted in a pane.
 async function agentWorkspaceCanLeave(p) {
   // Leaving Focus closes the thread it opened in the Chat area, which must not drop a send or a signoff.
-  if ((p?.view === 'focus' || p?.view === 'explorer' || p?.workspaceFrame) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy()) {
+  if ((p?.view === 'focus' || p?.view === 'explorer' || p?.view === 'work' || p?.workspaceFrame) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy()) {
     if (typeof toast === 'function') toast(typeof PAIRED_THREAD_BUSY === 'string' ? PAIRED_THREAD_BUSY : 'Wait for the message to send, or save the signoff, before leaving this thread.');
     return false;
   }
   if (p?.view === 'focus' && !await agpadFocusCanLeave(p)) return false;
   if (p?.view === 'explorer' && p.explorerCanLeave && !await p.explorerCanLeave()) return false;
+  if (p?.view === 'work' && p.workCanLeave && !await p.workCanLeave()) return false;
   if (p?.journalMount) return p.journalMount.flush();
   const child = p?.workspaceFrame?.contentWindow;
   if (child?.agentWorkspaceLeaveEmbedded) return child.agentWorkspaceLeaveEmbedded();

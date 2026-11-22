@@ -71,14 +71,19 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # So does timeline_get, the timelines of Tasks and Projects: the reader needs the ordinary read of the item. timeline_file
 # is not here: it declares its own standing mode (approval during the trial) and the handler admits only the coordinator in person.
 # Nor is timeline_file_answer: it declares allow (the owner's own answer to a question Signoff) and admits only the coordinator.
+# settings_get and settings_set, the owner's Settings page as tools: the handler admits only the configured coordinator in
+# person and changes a setting through the function behind the owner's own route, so that function's checks still apply.
 CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
                                   "agent_context_get",
                                   "agents_activity_list", "agent_work_update", "project_briefing", "files_link", "agentic_access",
                                   "records_health", "records_reconcile", "conversation_history_search",
                                   "conversation_history_get",
-                                  "work_review_get", "thread_pins_list", "thread_pins_set", "timeline_get"})
+                                  "work_review_get", "thread_pins_list", "thread_pins_set", "timeline_get",
+                                  "settings_get", "settings_set"})
 # What the owner and the agents wrote to each other, across every chat and thread.
 ORDUBASHY_READS = frozenset({"conversation_history_search", "conversation_history_get"})
+# The owner's Settings page as tools, Ordubashy's alone in the same way: no other role sees or calls them.
+ORDUBASHY_SETTINGS = frozenset({"settings_get", "settings_set"})
 
 
 def _extension_policy(name, defaults, overrides, registry, **scope):
@@ -118,6 +123,8 @@ def _ordubashy_reads(name, defaults, overrides, registry, *, role_id, scope, res
     # another role. Ordubashy's own decision follows below, so an explicit deny on it is still respected.
     if name in ORDUBASHY_READS and role_id != ORDUBASHY_ROLE:
         return PolicyDecision("deny", "conversation_history_ordubashy_only")
+    if name in ORDUBASHY_SETTINGS and role_id != ORDUBASHY_ROLE:
+        return PolicyDecision("deny", "owner_settings_ordubashy_only")
 
 
 def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, resolve):

@@ -1,6 +1,6 @@
 schema_version: 1
 id: ordubashy
-version: 1.85.0
+version: 1.86.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
@@ -34,6 +34,8 @@ skills:
   path: operations/imported-role-skills/native/skills/calendar/SKILL.md
 - id: personal-record
   path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
+- id: owner-settings
+  path: operations/imported-role-skills/native/skills/owner-settings/SKILL.md
 default_tool_policy:
   agentic_change_propose: allow
   agentic_change_get: allow
