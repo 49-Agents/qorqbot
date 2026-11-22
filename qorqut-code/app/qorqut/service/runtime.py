@@ -419,7 +419,8 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     """The inert common composition body of ``build_runtime``: everything after the explicit inputs are validated and the
     store is opened. ``registry`` is the still open operation registry the host then registers every handler on; the
     ordinary runtime passes the strict target registry. ``database`` is whatever store the caller opened for its own
-    exact composition (``build_runtime`` validates it against the selected target). Nothing here starts a service, takes ownership or admits a mutation."""
+    exact composition (``build_runtime`` validates it against the selected target). Nothing here starts a service,
+    takes ownership or admits a mutation."""
     root, workspace = paths.operations, Path(workspace).resolve()
     from qorqut.agents.terminal_control import validate_package as validate_terminal_package
     from qorqut.bootstrap.email_guidance import validate_package as validate_email_guidance_package
