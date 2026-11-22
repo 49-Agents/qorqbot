@@ -1,7 +1,7 @@
-"""Exact local project creation: one registered row and an empty project folder, and nothing else.
+"""Exact local project creation: one registered row and a project folder holding an empty ``code`` folder, and nothing else.
 
 Creation is a global aggregate: the new project does not exist at preparation time. Its frozen change holds the selected
-identity, slug, metadata, owner and the empty project folder. The folder is
+identity, slug, metadata, owner and the project folder with its empty ``code`` folder. The folders are
 made by the Operations ``create_directory_tree`` file effect (a receipt-bound private staging area published with no-replace
 semantics, and recognized afterwards only by its recorded inode identity), then the row commits in the normal final
 transaction. Creation writes no document, Task, routine, checklist, agent, Context input or external registration, starts no
@@ -20,7 +20,7 @@ from qorqut_operations.storage.directory_layout import ACTION as DIRECTORY_ACTIO
 ACTION = "create_project"
 DIRECTORIES = "project_creation_directories"
 NAMES = "project_creation_names"
-LAYOUT = ()
+LAYOUT = ("code",)
 SLUG = re.compile(r"[a-z][a-z0-9-]{0,63}")
 FALLBACK_SLUG = "project"
 SUGGESTION_LIMIT = 1000
@@ -155,9 +155,9 @@ class Creation:
         projects = self.operations.projects_directory
         shown = PreviewResource(DIRECTORIES, slug, f"{projects}/{slug}")
         builder.resources.append(shown)
-        builder.previews.append(StructuredPreview(shown, (FieldChange("folders", None, [f"{projects}/{slug}"]),)))
-        builder.effects.append("Creates only this new project and the empty folder "
-                               f"{projects}/{slug}. "
+        builder.previews.append(StructuredPreview(shown, (FieldChange("folders", None, [f"{projects}/{slug}", f"{projects}/{slug}/code"]),)))
+        builder.effects.append("Creates only this new project and the folder "
+                               f"{projects}/{slug} with an empty code folder in it. "
                                "It creates no agents, documents, Tasks, routines, Context inputs, external accounts, domains, "
                                "repositories or sessions. Every active global agent reaches the new project at once.")
         return builder.build()

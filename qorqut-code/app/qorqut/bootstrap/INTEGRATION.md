@@ -176,7 +176,7 @@ this exact session, binding and generation; old lock files do not establish an o
 the old conversation until recovery has been verified.
 
 Project creation is the Global `project_create` operation (the configured Ordubashy is its only caller), not a bootstrap
-step: it registers the project and makes the empty `projects/<slug>` folder. It
+step: it registers the project and makes the `projects/<slug>` folder with an empty `code` folder. It
 creates and prepares no agent, document, Task, routine or external registration; the global agents reach a
 new project at once with no profile write. There is no
 seed CLI or template scaffold. Existing preparation preserves current pins and authored content.

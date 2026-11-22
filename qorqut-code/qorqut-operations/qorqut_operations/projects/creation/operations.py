@@ -1,4 +1,4 @@
-"""Project creation: the configured Ordubashy creates one empty local project.
+"""Project creation: the configured Ordubashy creates one local project with an empty ``code`` folder.
 
 The one Global operation ``project_create`` (the internal operation, route and table names keep ``project``) takes a name, an
 optional description (``summary``) and an optional folder slug. The only caller is the installation's configured, active

@@ -1,4 +1,4 @@
-"""A project's files sit directly in its folder, and a code folder is only ever a folder that already exists.
+"""A project's files sit directly in its folder, and a new project's folder holds an empty code folder.
 
 Locations, the permissions prepared for an agent, the code a preparation leaves alone, the shape of a created project
 and full recovery of a project without a code folder."""
@@ -23,6 +23,7 @@ from qorqut.instance_paths import InstancePaths
 from qorqut.storage import full_recovery, recovery
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.projects.creation import creation as project_creation
+from qorqut_operations.storage.directories import DirectoryEffects
 from qorqut_operations.storage.directory_layout import checked_values, directory_values
 
 from test_preparation_modes import Fixture as PreparationFixture
@@ -156,9 +157,21 @@ class PreparationLeavesCodeAlone(PreparationFixture):
 
 
 class CreatedProject(unittest.TestCase):
-    def test_creation_makes_the_project_folder_and_nothing_inside_it(self):
-        self.assertEqual(project_creation.LAYOUT, ())
-        self.assertEqual(checked_values(directory_values(project_creation.LAYOUT)), ())
+    def test_creation_makes_the_project_folder_with_an_empty_code_folder(self):
+        self.assertEqual(project_creation.LAYOUT, ("code",))
+        self.assertEqual(checked_values(directory_values(project_creation.LAYOUT)), ("code",))
+
+    def test_the_created_code_folder_exists_and_is_empty(self):
+        root = Path(tempfile.mkdtemp(prefix="created project ")).resolve()
+        self.addCleanup(shutil.rmtree, root, True)
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            DirectoryEffects._build(descriptor, checked_values(directory_values(project_creation.LAYOUT)))
+        finally:
+            os.close(descriptor)
+        self.assertEqual(sorted(path.name for path in root.iterdir()), ["code"])
+        self.assertTrue((root / "code").is_dir())
+        self.assertEqual(list((root / "code").iterdir()), [])
 
     def test_the_project_row_has_no_second_location(self):
         root = Path("/instance/operations/projects")
@@ -180,10 +193,10 @@ class CreatedProject(unittest.TestCase):
         project = recorded[0][3]["project"]
         self.assertEqual(project["workspace"], str(root / "alpha"))
         self.assertEqual(set(project), {"id", "slug", "workspace", "name", "config_json"})
-        self.assertEqual(recorded[0][3]["directories"], [])
-        self.assertEqual(checked_values(builder.changes[0].values), ())
-        self.assertEqual(builder.previews[0].fields[0].after, ("projects/alpha",))
-        self.assertNotIn("code/", builder.effects[0])
+        self.assertEqual(recorded[0][3]["directories"], ["code"])
+        self.assertEqual(checked_values(builder.changes[0].values), ("code",))
+        self.assertEqual(builder.previews[0].fields[0].after, ("projects/alpha", "projects/alpha/code"))
+        self.assertIn("an empty code folder", builder.effects[0])
 
 
 class CodeIsOptionalInFullRecovery(unittest.TestCase):
