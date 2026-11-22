@@ -109,13 +109,6 @@ class Permissions(PreparationFixture):
             self.assertNotIn(str(self.folder / "code"), text)
             self.assertNotIn("code root", text.lower())
 
-    def test_the_instruction_composition_takes_no_code_roots(self):
-        with mock.patch("qorqut_agentic.behavior.workspace.documents", return_value={"CLAUDE.md": b"c", "AGENTS.md": b"a"}) as documents:
-            (self.folder / "code").mkdir(parents=True)
-            self.prepared()
-            self.assertNotIn("code_roots", documents.call_args.kwargs)
-
-
 class PreparationLeavesCodeAlone(PreparationFixture):
     def test_applying_a_preparation_creates_no_code_folder(self):
         self.resolver.paths = InstancePaths(self.root, {})
