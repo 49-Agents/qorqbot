@@ -137,6 +137,14 @@ class WorkerBrowserSelectionTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "forbidden")
         self.assertEqual(self.ran, [])
 
+    def test_the_list_leaves_out_the_email_engine_s_outlook_desktop_which_stays_selectable_by_the_engine(self):
+        registry = {"agents": {}, "surfaces": {name: {"kind": "browser", "label": name} for name in ("ordubashy-browser", "outlook-browser")}}
+        with mock.patch.object(self.access.targets, "registry", return_value=registry):
+            listed = self.access.targets.catalog(None, ORDUBASHY)
+        self.assertEqual(listed, [{"id": "ordubashy-browser", "label": "ordubashy-browser"}])
+        from qorqut.browser import targets
+        self.assertIn("outlook-browser", targets.DESKTOP_TARGETS)
+
     def test_the_list_names_each_workers_browser(self):
         with mock.patch.object(self.access.targets, "catalog", return_value=[{"id": "ordubashy-browser", "label": "Ordubashy"}]):
             listed = self.access.tool(actor(ORDUBASHY), "list", {"action": "list"})["browsers"]

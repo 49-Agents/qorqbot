@@ -76,15 +76,21 @@ class UserInput:
         except refs.InputError as error:
             raise DomainError("validation_error", str(error)) from None
         listed = {}      # each agent's open tabs, listed once however many of its tabs are named
+        named = []       # what the agent is told about each tab it showed, in order
         for position, reference in enumerate(shown["references"], 1):
             try:
-                self.resolve(ctx, reference, uow, tabs=listed)
+                found = self.resolve(ctx, reference, uow, tabs=listed)
+                if reference["type"] == refs.TYPE_TAB:
+                    named.append({"id": reference["id"], "title": found["title"], "url": found["url"]})
             except DomainError as error:
                 if error.code not in UNAVAILABLE:
                     raise
                 raise DomainError("not_found", f"Reference {position} ({reference['type']}) is not available; read it first and "
                                   "use its exact id and business_id") from None
-        return {"user_input": shown}
+        # A reference is only an id: the page's title and address, as the tab has them now, let the agent check that the tab it
+        # named is the page it told the owner about. They are the agent's alone: Chat keeps ``user_input`` and nothing else
+        # (``projection._user_input``). A tab that is no longer open is already refused above, by its place in the list.
+        return {"user_input": shown, "tabs": named} if named else {"user_input": shown}
 
     # ----- resolution ----------------------------------------------------------------------------------------------------
 

@@ -26,7 +26,8 @@ COMMAND = "tab-reference"
 # A target's ``instance`` (``access._worker_target``) is ``configured:<agent id>`` for that agent's tabs in the Shared browser (not
 # always the caller: Ordubashy may work in a worker's) and ``desktop:<surface>`` for a managed desktop, which is no agent's.
 OWN = "configured:"
-SHOW = "Pass this reference to request_user_input, or give it to Ordubashy, to show the owner this tab in Chat."
+SHOW = ("Pass this reference to request_user_input, or give it to Ordubashy, to show the owner this tab in Chat. "
+        "title and url say which page it is: check that they match what you tell the owner.")
 SHOW_FIELD = SHOW.replace("this reference", "reference")      # the same advice in a reply that names the reference as a field
 NO_TAB = "You have no tab open. Open the page first, then run tab-reference again."
 NOT_AN_AGENT_BROWSER = "This browser is not the agents' browser, so its tabs cannot be named. Show the owner a browser reference instead."
@@ -38,6 +39,19 @@ def reference(agent_id, tab_id):
     ``request_user_input`` takes."""
     identity = f"{agent_id}:{tab_id}"
     return {"type": references.TYPE_TAB, "id": identity} if agent_id and references.TAB.fullmatch(identity) else None
+
+
+def describe(port, tab_id):
+    """``{"title", "url"}`` of the open tab ``tab_id`` in the browser on ``port``, as Chrome lists it now, or ``{}`` when the
+    browser does not answer or the tab is not listed. A reference is only an id, so an agent that holds several cannot tell
+    them apart (it once gave the owner a PayPal tab as the Mercury sign-in); the page's own words are what it can compare. They
+    are siblings of the reference, never part of it, and never a reason for the command to fail."""
+    from . import live
+    try:
+        tab = next((item for item in live.tabs(port) if item["id"] == tab_id), None)
+    except Exception:
+        return {}
+    return {"title": tab["title"], "url": tab["url"]} if tab else {}
 
 
 def browser_agent(instance):
@@ -89,5 +103,5 @@ def runner():
         named = reference(owner, found) if found else None
         if named is None:
             return _refused(NO_TAB)
-        return 0, json.dumps({"reference": named, "next": SHOW}) + "\n", ""
+        return 0, json.dumps({"reference": named, **describe(port, found), "next": SHOW}) + "\n", ""
     return run
