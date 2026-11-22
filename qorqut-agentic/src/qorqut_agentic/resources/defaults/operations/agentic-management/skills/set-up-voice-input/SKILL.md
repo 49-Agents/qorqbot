@@ -25,7 +25,16 @@ Call `openrouter_status`.
 
 ## Connecting
 
-Tell the owner, in a few lines:
+Connect it yourself when a key is already at hand: call `environment_list` and
+look in Global Settings for an OpenRouter key (a name such as
+`OPENROUTER_API_KEY`). If there is one, or the owner gives you one (save it
+with `environment_set` first), call `settings_set` with setting
+`extension_key` and value `{extension: openrouter, environment_key: <name>}`.
+OpenRouter checks the key before it is saved; if it refuses, tell the owner
+why in one line. Never repeat a key in Chat.
+
+Without a key, the owner signs in on OpenRouter's own page. Tell the owner, in
+a few lines:
 
 1. Open Settings, Connections and find OpenRouter under Extensions.
 2. Press Connect. OpenRouter opens in the same tab; sign in or create an

@@ -43,8 +43,9 @@ Tell the owner plainly, once, and only for tools they asked about:
 
 - **Connectors in the owner's Claude account** are not part of Qorqbot and
   are not shown in Settings. Do not suggest them; offer the agent browser.
-- **API keys and other secrets** are entered by the owner in Settings. Never
-  ask for one in Chat, and do not repeat one that is pasted there.
+- **API keys and other secrets**: never ask for one in Chat, and do not repeat
+  one that is pasted there. When the owner gives you one anyway, save it in
+  Global Settings with `environment_set`.
 - **OpenRouter** (voice input) has its own step after this one. Do not offer it
   here.
 - **Telegram, WhatsApp and Fastmail** are optional parts of the installation

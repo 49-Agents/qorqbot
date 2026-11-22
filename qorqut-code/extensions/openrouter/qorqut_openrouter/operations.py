@@ -23,8 +23,9 @@ ROLES = frozenset({"ordubashy"})
 USES = ("Voice input: the owner speaks a Chat message instead of typing it.",)
 HOW_TO_CONNECT = ("The owner opens Settings, Connections, finds OpenRouter under Extensions and presses Connect. "
                   "OpenRouter opens in their browser, they sign in or create an account there and approve, and the "
-                  "key is saved on this computer. An OpenRouter key can also be pasted in the same place. Never ask "
-                  "for the key in Chat.")
+                  "key is saved on this computer. An OpenRouter key can also be pasted in the same place. When Global "
+                  "Settings already holds a key, connect it yourself with settings_set (setting extension_key). Never "
+                  "ask for the key in Chat.")
 DESCRIPTION = ("Whether the owner has connected OpenRouter, what it is used for here, and how the owner connects it. "
                "Once connected it also reports the key's spending limit and use in US dollars. It never returns the key.")
 

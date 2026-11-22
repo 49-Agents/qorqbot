@@ -18,6 +18,14 @@ const desktopNotify = (() => {
     try { localStorage.setItem(KEY, JSON.stringify(next)); } catch (_) { /* Not remembered on this browser. */ }
     return next;
   }
+  // A choice made outside this browser (Ordubashy's settings_set, js/display-sync.js). The operating system's permission is
+  // only asked for by the owner's own click, so a kind turned on here stays off until this browser is allowed to notify.
+  function set(kind, on) {
+    if (!KINDS.includes(kind)) return prefs();
+    const next = {...prefs(), [kind]: !!on && permission() === 'granted'};
+    try { localStorage.setItem(KEY, JSON.stringify(next)); } catch (_) { /* Not remembered on this browser. */ }
+    return next;
+  }
   // `force` (the Settings test button) shows it even while the dashboard is in front.
   function send({kind, title, body = '', tag, onClick, force = false}) {
     if (!supported() || Notification.permission !== 'granted') return null;
@@ -30,6 +38,6 @@ const desktopNotify = (() => {
       return note;
     } catch (_) { return null; }
   }
-  return {prefs, permission, enable, send, supported, KINDS};
+  return {prefs, permission, enable, set, send, supported, KINDS};
 })();
 if (typeof module !== 'undefined') module.exports = desktopNotify;
