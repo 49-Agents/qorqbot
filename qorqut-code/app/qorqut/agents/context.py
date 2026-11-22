@@ -167,6 +167,8 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
     add("Role Brief", ContextSource(f"role:{role.id}@{role.version}", brief["body"],
         brief["revision"], brief["sha256"], brief["path"], "agentic"), "Current authored mandatory responsibilities")
     role_instructions = render(agentic_view, "host", "app/qorqut/agentic/assets/role-workflow.md")
+    if role.id == 'ordubashy':
+        role_instructions = role_workflow.for_ordubashy(role_instructions)
     add("Role Work Loop", ContextSource("core:role-workflow", role_instructions, 1,
         content_hash(role_instructions.encode()), "qorqut-core:role-workflow", "core"),
         "Standing startup, continuation and idle behavior")

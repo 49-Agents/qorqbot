@@ -615,6 +615,8 @@ class AgentConfigResolver:
             for workflow in (role_workflow, cleanup_workflow):
                 item = workflow.skill_metadata(agentic_view=view)
                 content = workflow.skill_files(agentic_view=view)
+                if workflow is role_workflow and profile.data["role"]["id"] == "ordubashy":
+                    content = {"SKILL.md": role_workflow.for_ordubashy(content["SKILL.md"].decode("utf-8")).encode("utf-8")}
                 item = {**item, "materialization_hash": files_digest(content)}
                 metadata.append(item)
                 bodies[item["name"]] = content

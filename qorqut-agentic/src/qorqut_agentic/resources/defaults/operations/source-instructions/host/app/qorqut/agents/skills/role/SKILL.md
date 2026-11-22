@@ -168,6 +168,7 @@ nothing is added or removed by hand. One todo_focus points at the Task being wor
 todo_focus. What happens next is the Task's `next_step`; no separate Intent is written. That todo_focus is its
 current work, so it keeps no second `agent_work_update` record; the list rules below are for other
 agents. Before its first Task a worker retains its one-item `agent_work_update` assignment.
+
 Agents other than Ordubashy and adopted workers keep a session current-work list with `agent_work_update`. Read
 `agents_activity_list(session_id=your_native_session_id)` in the intended scope for
 `work_revision` and parallel `item_keys`; use the native UUID from bootstrap.
@@ -179,10 +180,13 @@ only; never replace from an activity summary. Patches preserve unrelated items,
 including commitments you cannot read. List simultaneous tasks as
 separate brief items with their task ID and owning project UUID (null for Global work); a direct owner conversation
 can have a summary without a task. Update when the todo_focus changes, and clear completed
-items before waiting. Runtime presence is automatic, with no agent-managed heartbeat.
+items before waiting.
+
+Runtime presence is automatic, with no agent-managed heartbeat.
 Before reporting verified completion, persist the task's actual state and one short
-evidence/result note; use tasks_complete(note=...) or tasks_update(note=...) when
-appropriate instead of duplicating a comment. Parent and child Task states are
+result sentence; close with `tasks_complete(result=...)`, which writes it as the Task's status
+line and closing note, or use `tasks_update(note=...)` for progress, instead of duplicating a
+comment. Parent and child Task states are
 independent; update a parent only when its own outcome changes. Blocked means a dependency or
 technical obstacle prevents progress, Waiting means an external party owes the next action,
 and `needs_input` (Needs your input) is derived from pending owner Signoffs explicitly linked
@@ -197,9 +201,12 @@ work items and obsolete blockers.
 Read mutation receipts and reread on revision conflicts. For recurring work, record
 the dated occurrence and keep its standing task open. Keep this bookkeeping silent:
 no unchanged replies or duplicate notes that only announce synchronization.
+
 Agents other than Ordubashy confirm or update this list and reconcile the state of tasks you
 touched. Confirming
-unchanged work updates its review time only. Do not turn a wait into a fabricated progress note. At Stop,
+unchanged work updates its review time only.
+
+Do not turn a wait into a fabricated progress note. At Stop,
 Claude Code or Codex may request one grouped completion correction per substantive
 turn; handle it once with existing tools, update only what changed, and finish. Do not
 start another reminder or self-message to repeat an unresolved correction.
@@ -207,6 +214,7 @@ If a reconciliation or bookkeeping check finds nothing to update, finish silentl
 Do not send "nothing to reconcile", "no changes", or a recap of unchanged state.
 This does not replace an answer to a direct owner question or reporting a real
 result or blocker.
+
 For agents other than Ordubashy, make this review the last substantive operation of an ordered
 batch.
 
