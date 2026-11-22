@@ -185,5 +185,88 @@ class ReferenceCompletionTests(Harness):
         self.assertEqual(self.sent({'item': {'type': 'task', 'id': self.in_alpha}}, ctx=worker)['item']['project_id'], self.alpha)
 
 
+class RecordKindTests(Harness):
+    """Every kind of record whose id names it in the whole store is completed the same way, each by its own read rule."""
+
+    READS = ('actions_get', 'routines_get', 'context_items_get', 'context_get', 'notes_get')
+
+    def setUp(self):
+        super().setUp()
+        for name in self.READS:
+            self.registry.register(OperationDescriptor(
+                name, schema({'scope': {'enum': ['project', 'global']}}), effect_kind='read', read=echo,
+                supports_signoff=False, scope_kinds=frozenset({'project', 'global'}), global_capability='read_global_context'))
+        self.references = References(Ref(('item',)))
+
+    def project_of(self, kind, identity, ctx=None):
+        with self.db.read() as uow:
+            completed = self.references(self.app, ctx or self.agent_ctx, {'item': {'type': kind, 'id': identity}}, uow)
+        return completed['item']['project_id']
+
+    def insert(self, sql, *values):
+        with self.db.transaction() as uow:
+            uow.connection.execute(sql, values)
+
+    def action(self, project, *linked):
+        identity = str(uuid4())
+        self.insert('INSERT INTO action_logs(project_id,id,category,action_text,recorded_by,origin,occurred_at,created_at,'
+                    'updated_at) VALUES(?,?,?,?,?,?,?,?,?)', project, identity, 'project-operational', 'Sent the offer',
+                    self.owner, 'manual', STAMP, STAMP, STAMP)
+        for link in linked:
+            self.insert('INSERT INTO action_projects(action_id,project_id,created_at) VALUES(?,?,?)', identity, link, STAMP)
+        return identity
+
+    def document(self, project, kind, agent=None):
+        identity = str(uuid4())
+        self.insert('INSERT INTO documents(id,project_id,namespace,owning_agent_id,kind,path,created_at,updated_at) '
+                    'VALUES(?,?,?,?,?,?,?,?)', identity, project, project or 'global', agent, kind, kind + '/' + identity,
+                    STAMP, STAMP)
+        return identity
+
+    def test_an_action_is_completed_with_the_project_that_stores_it_when_it_is_linked_there(self):
+        linked, loose, elsewhere = self.action(self.alpha, self.alpha), self.action(self.alpha), self.action(self.gamma, self.gamma)
+        self.assertEqual(self.project_of('action', linked), self.alpha)
+        for identity in (loose, elsewhere, self.action(None, self.alpha), str(uuid4())):
+            self.assertIsNone(self.project_of('action', identity))
+
+    def test_a_routine_and_an_entity_are_completed(self):
+        routine, entity = str(uuid4()), str(uuid4())
+        self.insert('INSERT INTO routines(namespace,project_id,id,name,scope,target,schedule,timezone,status,job_kind,'
+                    'arguments_json,timeout_seconds,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                    self.beta, self.beta, routine, 'Weekly', 'project', 'agent', '0 9 * * 1', 'UTC', 'active', 'prompt', '{}',
+                    60, STAMP, STAMP)
+        self.insert('INSERT INTO context_entities(project_id,id,label,created_at,updated_at) VALUES(?,?,?,?,?)',
+                    self.beta, entity, 'Acme', STAMP, STAMP)
+        self.assertEqual((self.project_of('routine', routine), self.project_of('entity', entity)), (self.beta, self.beta))
+        self.policy.modes[(self.agent, self.beta, 'context_items_get')] = 'deny'
+        self.assertEqual((self.project_of('routine', routine), self.project_of('entity', entity)), (self.beta, None))
+
+    def test_a_context_document_is_completed_as_the_item_type_it_is(self):
+        person, topic, material = (self.document(self.alpha, kind) for kind in ('context_person', 'context_topic', 'context_upload'))
+        self.assertEqual([self.project_of(kind, identity) for kind, identity in
+                          (('person', person), ('topic', topic), ('material', material))], [self.alpha] * 3)
+        for kind, identity in (('topic', person), ('material', topic), ('person', material), ('task', person)):
+            with self.subTest(named=kind):
+                self.assertIsNone(self.project_of(kind, identity))
+
+    def test_a_document_is_completed_by_the_read_operation_of_its_stored_kind(self):
+        note, upload = self.document(self.alpha, 'agent_note'), self.document(self.alpha, 'context_upload')
+        self.policy.modes[(self.agent, self.alpha, 'notes_get')] = 'deny'
+        self.assertEqual((self.project_of('material', note), self.project_of('material', upload)), (None, self.alpha))
+        self.policy.modes[(self.agent, self.alpha, 'context_get')] = 'deny'
+        self.assertIsNone(self.project_of('material', upload))
+
+    def test_the_journal_is_the_owners_and_working_memory_is_no_item(self):
+        journal, memory = self.document(self.alpha, 'journal'), self.document(self.alpha, 'working_memory', agent=self.agent)
+        self.assertIsNone(self.project_of('material', journal))
+        self.assertEqual(self.project_of('material', journal, ctx=self.owner_ctx), self.alpha)
+        for ctx in (self.agent_ctx, self.owner_ctx):
+            self.assertIsNone(self.project_of('material', memory, ctx=ctx))
+
+    def test_a_kind_out_of_reach_or_in_global_reads_as_any_unknown_id(self):
+        outside, in_global = self.document(self.gamma, 'context_topic'), self.document(None, 'context_topic')
+        self.assertEqual([self.project_of('topic', identity) for identity in (outside, in_global, str(uuid4()))], [None] * 3)
+
+
 if __name__ == '__main__':
     unittest.main()

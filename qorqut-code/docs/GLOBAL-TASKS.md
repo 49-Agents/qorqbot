@@ -73,9 +73,17 @@ and before the call is checked or planned each reference without a
 named that project itself: it is active, in the caller's reach, and the caller
 may use the kind's read operation there. An owner session gets only its own
 project and a delegated worker only its assignment's. A reference that carries
-a `project_id` (a project id, or `null` for Global) is left as given. In every other case (an unknown id, a record in Global, a
-project the caller cannot reach) the reference gets `null` or stays as it is,
-and nothing says where the record is or whether it exists.
+a `project_id` (a project id, or `null` for Global) is left as given. In every
+other case (an unknown id, a record in Global, a project the caller cannot
+reach) the reference gets `null` or stays as it is, and nothing says where the
+record is or whether it exists.
+
+The kinds found this way are Tasks, Tables, Signoffs, projects, Actions (in a
+project they are linked to), routines, Context entities and Context documents
+(a person, a topic or a material, by the read operation of the document's
+stored kind). A project link also finds a reminder, and a Telegram media source
+a document. A kind that has no project of its own (a browser, a tab, an agent)
+is Global.
 
 Only the installation owner or an active ecosystem agent with
 `read_global_context` and the relevant task operation grant can access them.

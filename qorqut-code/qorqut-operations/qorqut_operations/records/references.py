@@ -25,6 +25,7 @@ from typing import Callable
 
 from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.records.locate import ScopeReach
+from qorqut_operations.records.vocabulary import document_type
 
 # A project reference names itself: its id is its project.
 PROJECT = "project"
@@ -33,19 +34,49 @@ PROJECT = "project"
 @dataclass(frozen=True)
 class Kind:
     """Where one kind of record keeps its id and its project, and the read operation whose authority decides where a
-    caller may read it. ``visible(ctx, uow, identity, project_id)`` is a further check of the one record (a Signoff's
-    visibility); ``scope_stated`` says the read operation takes its scope from a ``scope`` argument."""
+    caller may read it: its name, or ``read_operation(ctx, uow, row)`` where the stored row picks it (``None`` when the
+    row is no record of this kind for this caller). ``visible(ctx, uow, identity, project_id)`` is a further check of
+    the one record (a Signoff's visibility); ``scope_stated`` says the read operation takes its scope from a ``scope``
+    argument."""
     table: str
-    read_operation: str
+    read_operation: str | Callable
     scope_column: str = "project_id"
     scope_stated: bool = True
     visible: Callable | None = None
+
+    def reads(self, ctx, uow, row):
+        return self.read_operation(ctx, uow, row) if callable(self.read_operation) else self.read_operation
+
+
+def _linked(ctx, uow, identity, project_id):
+    """A caller that selects a project reads the Actions linked to it."""
+    return uow.connection.execute("SELECT 1 FROM action_projects WHERE action_id=? AND project_id=?",
+                                  (identity, project_id)).fetchone() is not None
+
+
+def _document(kind):
+    """A Context document as an item of one type (``person``, ``topic`` or ``material``). Its stored kind picks the read
+    operation; the journal kinds are the owner's alone and working memory is no item."""
+    def read_operation(ctx, uow, row):
+        from qorqut_operations.documents.journal_access import JOURNAL_KINDS, is_owner
+        from qorqut_operations.records.resources import DOCUMENT_READS
+        stored = row["kind"]
+        if document_type(row) != kind or stored == "working_memory" or (stored in JOURNAL_KINDS and not is_owner(ctx, uow)):
+            return None
+        return DOCUMENT_READS.get(stored, "context_get")
+    return Kind("documents", read_operation, scope_stated=False)
 
 
 KINDS = {
     "task": Kind("tasks", "tasks_get"),
     "table": Kind("data_tables", "tables_get"),
     "signoff": Kind("signoffs", "signoffs_get", scope_column="review_project_id"),
+    "action": Kind("action_logs", "actions_get", visible=_linked),
+    "routine": Kind("routines", "routines_get"),
+    "entity": Kind("context_entities", "context_items_get"),
+    "person": _document("person"),
+    "topic": _document("topic"),
+    "material": _document("material"),
 }
 
 
@@ -122,20 +153,23 @@ class References:
         if not isinstance(kind, str) or not isinstance(identity, str):
             return None
         known = self.kinds.get(kind)
+        operation = None
         if kind == PROJECT:
             project = identity
         elif known is None:
             return None
         else:
-            row = uow.connection.execute(f'SELECT "{known.scope_column}" FROM {known.table} WHERE id=?', (identity,)).fetchone()
-            project = row[0] if row else None
+            row = uow.connection.execute(f"SELECT * FROM {known.table} WHERE id=?", (identity,)).fetchone()
+            project = row[known.scope_column] if row else None
+            operation = known.reads(ctx, uow, row) if project is not None else None
+            if operation is None:
+                return None
         if project is None:
             return None
         bound, only = _bound(application, ctx, uow)
         if bound and project != only:
             return None
         reaches = {} if reaches is None else reaches
-        operation = known.read_operation if known else None
         if operation not in reaches:
             reaches[operation] = ScopeReach(application, ctx, uow, operation)
         reach = reaches[operation]

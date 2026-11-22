@@ -142,13 +142,14 @@ class OwnerReferenceTests(Harness):
             self.assertEqual(seen['item'], {'type': 'project', 'id': self.beta, 'project_id': self.beta})
             self.assertEqual(seen['project_id'], self.alpha)
 
-    def test_only_the_kinds_with_an_installation_wide_id_and_a_read_operation_are_looked_up(self):
+    def test_a_project_link_looks_up_every_kind_whose_id_names_one_record(self):
         for operation in ('project_item_get', 'project_items_link'):
             kinds = self.registry.get(operation).complete_references.kinds
-            self.assertEqual(set(kinds), {'task', 'table', 'signoff', 'routine'})
-            self.assertEqual(kinds['routine'], Kind('routines', 'routines_get'))
+            self.assertEqual(set(kinds), {'task', 'table', 'signoff', 'action', 'routine', 'entity', 'person', 'topic',
+                                          'material', 'reminder'})
+            self.assertEqual(kinds['reminder'], Kind('reminders', 'owner_reminders_list'))
             self.assertIsNotNone(kinds['signoff'].visible)
-        # The kinds left out read as Global, which is what an explicit null states.
+        # An id that names no record of the kind reads as Global, which is what an explicit null states.
         for kind in ('action', 'reminder', 'dev_ticket', 'material', 'person', 'topic', 'entity'):
             item = self.completed('project_item_get', {'project_id': self.alpha, 'item': {'type': kind, 'id': self.in_alpha}})['item']
             self.assertEqual(item, {'type': kind, 'id': self.in_alpha, 'project_id': None})

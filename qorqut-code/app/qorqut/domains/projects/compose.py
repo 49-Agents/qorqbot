@@ -69,11 +69,10 @@ class ProjectRecords:
 
     def register(self, registry=None):
         registry = registry or self.application.registry
-        # An item names its record by type and id; its project is found from the id for the kinds whose id is unique
-        # across the installation and whose read operation decides who may read it. Any other kind reads as Global
-        # unless its project is stated.
+        # An item names its record by type and id; its project is found from the id. A reminder is read through the
+        # owner's reminder list. A kind that is not looked up reads as Global unless its project is stated.
         item = References(Ref(("item",)), kinds={**KINDS, "signoff": reference_kind(self.application.signoffs),
-                                                 "routine": Kind("routines", "routines_get")})
+                                                 "reminder": Kind("reminders", "owner_reminders_list")})
         registry.register(OperationDescriptor(READ, schema(SCOPE_FIELDS, ("project_id",)), **COMMON, effect_kind="read",
             read=lambda ctx, args, options, uow: self.record_get(ctx, args, uow),
             description=instruction_text('compose-owner-and-configured-ordubashy-one-existing-project-s')))
