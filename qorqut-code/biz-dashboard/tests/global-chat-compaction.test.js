@@ -16,7 +16,7 @@ const between = (from, to) => {
   return source.slice(start, end);
 };
 const line = pattern => source.match(pattern)[0];
-const moduleSource = [line(/^const GLOBAL_CHAT_ECHO_SLACK = .*;$/m), line(/^const globalChatText = .*;$/m), line(/^const GLOBAL_CHAT_PAGE = .*;$/m),
+const moduleSource = [line(/^const GLOBAL_CHAT_ECHO_SLACK = .*;$/m), line(/^const globalChatText = .*;$/m), line(/^const GLOBAL_CHAT_PAGE = .*;$/m), line(/^const GLOBAL_CHAT_OLDER = .*;$/m), line(/^const GLOBAL_CHAT_LOADED_MAX = .*;$/m), line(/^const GLOBAL_CHAT_LOADED_KEEP = .*;$/m),
   between('const globalChatKey = ', 'function globalChatReadable'), between('const GLOBAL_CHAT_INPUT_LABEL = ', 'const globalChatBase')].join('\n');
 const mountSource = [between('  const entries = new Map();', '  let session = null'), between('  function renderedBoundary() {', '  function scheduleRead'),
   between('  const presentEntry = entry =>', '  // The live session'), between('  function acceptedBubbles(visibleIds) {', '  function presentReceipts'),
@@ -33,7 +33,7 @@ const nudge = (id, position) => ({id, position, speaker: 'notice', text: '', sys
 // One mounted Chat's state and loading code. `network(url)` answers every read; `chat.state` is the default (current) state answer.
 function chat(network) {
   const calls = {urls: [], paints: [], banners: []};
-  const view = {visible: [], getVisibleKeys: () => view.visible, setDraft() {}, getDraft: () => ''};
+  const view = {visible: [], getVisibleKeys: () => view.visible, bottom: true, isAtBottom: () => view.bottom, setDraft() {}, getDraft: () => ''};
   const api = async url => { calls.urls.push(url); return {data: await network(url)}; };
   const make = new Function('api', 'view', 'calls', 'agentGlyph', 'GLOBAL_CHAT_ACCEPTED', 'GLOBAL_CHAT_OPENING', 'GLOBAL_CHAT_HIDDEN', `
     ${moduleSource}
@@ -44,7 +44,7 @@ function chat(network) {
     const showBanner = text => calls.banners.push(text);
     const paint = (patch = {}, scroll) => { if (patch.entries) calls.paints.push({rows: patch.entries, scroll, busy: olderBusy}); };
     ${mountSource}
-    return {load, loadOlder, invalidatePage, renderedBoundary, acceptedBubbles, openingBubble, newestPosition, olderAbove, earlier, entries,
+    return {load, loadOlder, trimLoaded, queueTrim, invalidatePage, renderedBoundary, acceptedBubbles, openingBubble, newestPosition, olderAbove, earlier, entries,
       rows: () => orderedEntries(loadedParts()), keys: () => orderedEntries(loadedParts()).map(row => row.key), olderCursor: () => older, lastRead: () => lastRead,
       restore() { generation++; loading = false; again = false; }, leave() { alive = false; }};`);
   const accepted = new Map(), opening = new Map();
@@ -79,7 +79,7 @@ test('the marker is the first row of a continued conversation loaded to its top,
   assert.deepEqual(marker.notice, {label: 'Context compacted', verified: true, inputType: 'context_compacted', markerOnly: true});
   assert.deepEqual(marker.typedReferences, []);
   assert.equal(c.calls.paints.at(-1).scroll, 'bottom');
-  assert.deepEqual(c.calls.urls, ['/root/agents/agent-1/chat?limit=50'], 'nothing earlier is loaded by itself');
+  assert.deepEqual(c.calls.urls, ['/root/agents/agent-1/chat?limit=30'], 'nothing earlier is loaded by itself');
 });
 
 test('no marker while the conversation still has an older page, and none for a conversation that continues nothing', async () => {
@@ -108,23 +108,23 @@ test('a continued conversation with no entries yet still shows its marker and of
   assert.deepEqual(c.keys(), ['b3', 'b4', MARK_C]);
 });
 
-test('Load older messages is offered at the top of a continued conversation, asks for the earlier one by its exact provider and id, then pages it', async () => {
+test('Older messages are offered (by scrolling up) at the top of a continued conversation, asks for the earlier one by its exact provider and id, then pages it', async () => {
   const c = chain();
   await c.load();
   assert.equal(c.olderAbove(), true);
   assert.match(between('  function paint(patch = {}, scroll', '  const paintEntries'), /older: \{visible: olderAbove\(\), disabled: olderBusy\}/);
   await c.loadOlder();
-  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat?limit=50&conversation=conv-b&provider=claude');
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat?limit=10&conversation=conv-b&provider=claude');
   assert.deepEqual(c.keys(), ['b3', 'b4', MARK_C, 'c1', 'c2'], 'the earlier conversation stands above the marker; its own top is not loaded yet');
   assert.equal(c.calls.paints.at(-1).scroll, 'prepend');
   assert.equal(c.olderAbove(), true);
   await c.loadOlder();
-  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=7000&limit=50&conversation=conv-b&provider=claude');
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=7000&limit=10&conversation=conv-b&provider=claude');
   assert.deepEqual(c.keys(), [MARK_B, 'b1', 'b2', 'b3', 'b4', MARK_C, 'c1', 'c2']);
   assert.equal(c.rows()[0].timestamp, AT_B);
   assert.equal(c.olderAbove(), true, 'its top is reached and it continues one more');
   await c.loadOlder();
-  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat?limit=50&conversation=conv-a&provider=codex');
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat?limit=10&conversation=conv-a&provider=codex');
   assert.equal(c.olderAbove(), false);
   await c.loadOlder();
   assert.equal(c.calls.urls.length, 4, 'the first conversation has nothing above it');
@@ -147,7 +147,7 @@ test('the older page of a current conversation is still its own history page, an
     : {conversation: C, entries: [entry('c2', 20)], older: 20, session: null, inputs: [], cursor: 1});
   await c.load();
   await c.loadOlder();
-  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=20&limit=50&conversation=conv-c&provider=claude');
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=20&limit=10&conversation=conv-c&provider=claude');
   assert.deepEqual(c.keys(), [MARK_C, 'c0', 'c2']);
   assert.equal(c.earlier.length, 0);
   assert.equal(c.olderCursor(), null);
@@ -259,4 +259,153 @@ test('pending bubbles are matched only against the current conversation', async 
   c.entries.set('c2', {id: 'c2', speaker: 'user', text: 'hello', position: 20, timestamp: new Date().toISOString()});
   assert.equal(c.acceptedBubbles(new Set()).length, 0);
   assert.equal(c.openingBubble().length, 0);
+});
+
+test('older requests ask for 10 entries while the state load asks for 30', async () => {
+  const c = chain();
+  await c.load();
+  assert.match(c.calls.urls[0], /\?limit=30/);
+  await c.loadOlder(); await c.loadOlder();
+  assert.deepEqual(c.calls.urls.slice(1).map(url => url.match(/limit=(\d+)/)[1]), ['10', '10'], 'one earlier-conversation read and one history page');
+  assert.ok(c.calls.urls.slice(1).some(url => url.includes('/history?')));
+});
+
+// ---- the page drops old loaded messages at the bottom (trimLoaded)
+const MANY = 'x';
+const fill = (map, count, from = 1, step = 10, speaker = 'agent') => { for (let i = 0; i < count; i++) { const e = entry(`${MANY}${map.size}-${from + i}`, (from + i) * step, speaker); map.set(e.id, e); } };
+const stateOf = (older = null) => ({conversation: C, entries: [entry('c1', 10)], older, session: null, inputs: [], cursor: 1});
+const trimChat = (answer = () => ({entries: [], older: null})) => chat(url => url.includes('/history?') || url.includes('conversation=') ? answer(url) : stateOf());
+const positions = map => [...map.values()].map(e => e.position).sort((a, b) => a - b);
+
+test('nothing is dropped at 100 loaded entries or below, and 101 at the bottom leaves the newest 50', async () => {
+  const c = trimChat();
+  await c.load();
+  c.entries.clear(); fill(c.entries, 100);
+  assert.equal(c.trimLoaded(), false);
+  assert.equal(c.entries.size, 100);
+  fill(c.entries, 1, 101);
+  assert.equal(c.trimLoaded(), true);
+  assert.equal(c.entries.size, 50);
+  assert.deepEqual(positions(c.entries), Array.from({length: 50}, (_, i) => (52 + i) * 10), 'the newest 50 stay');
+  assert.equal(c.calls.paints.at(-1).scroll, 'bottom', 'repainted at the bottom');
+  assert.equal(c.calls.paints.at(-1).rows.length, 50);
+});
+
+test('nothing is dropped while the reader is not at the bottom, however much is loaded', async () => {
+  const c = trimChat();
+  await c.load();
+  c.entries.clear(); fill(c.entries, 500);
+  c.view.bottom = false;
+  assert.equal(c.trimLoaded(), false);
+  assert.equal(c.entries.size, 500);
+  c.view.bottom = true;
+  assert.equal(c.trimLoaded(), true);
+  assert.equal(c.entries.size, 50);
+});
+
+test('earlier conversations go first: whole when inside the excess, partly otherwise with their cursor at the oldest kept entry', async () => {
+  const c = trimChat();
+  await c.load();
+  const partA = {conversation: A, entries: new Map(), older: null}, partB = {conversation: B, entries: new Map(), older: 123};
+  fill(partA.entries, 30, 1); fill(partB.entries, 60, 1); c.entries.clear(); fill(c.entries, 40, 1);
+  c.earlier.push(partA, partB);                      // 130 loaded: 80 must go
+  assert.equal(c.trimLoaded(), true);
+  assert.deepEqual(c.earlier, [partB], 'A went whole');
+  assert.equal(partB.entries.size, 10);
+  assert.equal(partB.older, 510, 'B lost its oldest 50 (positions 10..500); the next older page is before the oldest kept one');
+  assert.equal(c.entries.size, 40, 'the current conversation is untouched');
+  assert.equal(c.olderCursor(), null);
+  await c.loadOlder();
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=510&limit=10&conversation=conv-b&provider=claude');
+});
+
+test('a part dropped whole is read again through the part below it, from its newest page', async () => {
+  const c = trimChat();
+  await c.load();
+  const partB = {conversation: B, entries: new Map(), older: null};
+  fill(partB.entries, 60, 1); c.entries.clear(); fill(c.entries, 60, 1);
+  c.earlier.push(partB);                             // 120: 70 go, B has 60 -> whole, then 10 of the current conversation
+  assert.equal(c.trimLoaded(), true);
+  assert.equal(c.earlier.length, 0);
+  assert.equal(c.entries.size, 50);
+  assert.equal(c.olderCursor(), 110, 'the current conversation lost positions 10..100');
+});
+
+test('the current conversation’s cursor makes the next older request return what was dropped', async () => {
+  const c = trimChat(url => ({entries: [entry('d1', 690), entry('d2', 700)], older: 690}));
+  await c.load();
+  c.entries.clear(); fill(c.entries, 120);          // positions 10..1200
+  assert.equal(c.trimLoaded(), true);
+  assert.equal(c.entries.size, 50);
+  assert.equal(c.olderCursor(), 710, 'the oldest kept entry is at 710; positions below it were dropped');
+  await c.loadOlder();
+  assert.equal(c.calls.urls.at(-1), '/root/agents/agent-1/chat/history?before=710&limit=10&conversation=conv-c&provider=claude');
+  assert.equal(c.olderCursor(), 690);
+});
+
+test('entries that share a position are never split by the cut', async () => {
+  const c = trimChat();
+  await c.load();
+  c.entries.clear();
+  for (let i = 0; i < 60; i++) { c.entries.set(`a${i}`, entry(`a${i}`, 10 + i * 10)); c.entries.set(`b${i}`, entry(`b${i}`, 10 + i * 10)); }   // 120 entries, two per position
+  assert.equal(c.trimLoaded(), true);
+  const kept = positions(c.entries);
+  assert.equal(kept.length, 50, 'the cut falls between two positions, so exactly 50 stay');
+  const first = kept[0], counts = new Map(); kept.forEach(p => counts.set(p, (counts.get(p) || 0) + 1));
+  assert.ok([...counts.values()].every(n => n === 2), 'both entries of every kept position are kept');
+  assert.equal(c.olderCursor(), first);
+  // An odd keep count: the cut lands inside a pair and moves up, keeping an extra entry.
+  const d = trimChat();
+  await d.load();
+  d.entries.clear();
+  fill(d.entries, 69, 1);
+  d.entries.set('twin', entry('twin', 10 * 20));      // shares a position with the 20th entry; 70 held + 31 more
+  fill(d.entries, 31, 100);
+  assert.equal(d.entries.size, 101);
+  d.trimLoaded();
+  const rest = [...d.entries.values()];
+  assert.ok(rest.length >= 50 && rest.length <= 51);
+  const minKept = Math.min(...rest.map(e => e.position));
+  assert.equal(d.olderCursor(), minKept);
+  assert.ok(rest.every(e => e.position >= minKept));
+});
+
+test('an older page requested before a trim is discarded', async () => {
+  let release;
+  const gate = new Promise(done => { release = done; });
+  const c = chat(url => url.includes('/history?') ? gate.then(() => ({entries: [entry('late', 5)], older: null})) : stateOf(5));
+  await c.load();
+  c.entries.clear(); fill(c.entries, 120);
+  const pending = c.loadOlder();
+  await Promise.resolve();
+  assert.equal(c.trimLoaded(), true);
+  release();
+  await pending;
+  assert.equal(c.entries.has('late'), false, 'the stale page was not applied');
+  assert.equal(c.entries.size, 50);
+});
+
+test('a live update applied at the bottom triggers the trim; at any other place it does not', async () => {
+  const c = trimChat();
+  await c.load();
+  c.view.bottom = false;
+  c.entries.clear(); fill(c.entries, 130);
+  await c.load();
+  assert.equal(c.entries.size, 131, 'the live page joined the held entries and nothing was dropped');
+  c.view.bottom = true;
+  await c.load();
+  assert.equal(c.entries.size, 50);
+});
+
+test('returning to the bottom triggers the trim through the view’s viewport change', async () => {
+  const c = trimChat();
+  await c.load();
+  c.view.bottom = false;
+  c.entries.clear(); fill(c.entries, 130);
+  c.view.bottom = true;
+  c.queueTrim(); c.queueTrim();                       // coalesced
+  assert.equal(c.entries.size, 130, 'the trim waits for the end of the view’s own turn');
+  await Promise.resolve();
+  assert.equal(c.entries.size, 50);
+  assert.match(source, /onViewportChange: \(\) => \{ scheduleRead\(\); queueTrim\(\); \}/);
 });
