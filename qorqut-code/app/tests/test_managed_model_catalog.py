@@ -20,6 +20,26 @@ class Shapes(unittest.TestCase):
             ("claude-haiku-4-5-20251001", False, True, [])])
         self.assertEqual(shaped[0]["label"], "Default (recommended)")
 
+    def test_claude_aliases_name_the_full_model_they_stand_for(self):
+        shaped = model_catalog.claude_models([
+            {"value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)"},
+            {"value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5"},
+            {"value": "claude-opus-4-6", "displayName": "Opus 4.6"}])
+        self.assertEqual([m["resolved"] for m in shaped], ["claude-opus-5-5", "claude-opus-5-5", None])
+
+    def test_claude_settings_say_which_model_and_effort_are_used_when_nothing_is_chosen(self):
+        # Claude Code 2.1.329's get_settings answer, shortened.
+        current = model_catalog.claude_current({
+            "effective": {"model": "opus", "modelSettings": {"claude-opus-5-5": {"effortLevel": "medium"},
+                                                             "claude-fable-5-2": {"effortLevel": "xhigh"},
+                                                             "claude-x": {"effortLevel": "bogus"}, "claude-y": "junk"}},
+            "applied": {"model": "claude-opus-5-5", "effort": "medium", "advisor": None}})
+        self.assertEqual(current, {"model": "claude-opus-5-5", "effort": "medium",
+                                   "efforts": {"claude-opus-5-5": "medium", "claude-fable-5-2": "xhigh"}})
+        self.assertEqual(model_catalog.claude_current(None), model_catalog.NO_CURRENT)
+        self.assertEqual(model_catalog.claude_current({"applied": {"model": 4, "effort": "loud"}}),
+                         {"model": None, "effort": None, "efforts": {}})
+
     def test_codex_models_keep_their_efforts_and_default_and_drop_hidden_ones(self):
         shaped = model_catalog.codex_models([
             {"id": "gpt-6-luna", "displayName": "GPT-6-Luna", "description": "Fast", "isDefault": True, "hidden": False,
