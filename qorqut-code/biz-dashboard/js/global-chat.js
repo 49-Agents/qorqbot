@@ -81,9 +81,12 @@ function globalChatReadable(agentId) {
   const scroll = root.querySelector('.gchat-scroll');
   return !!scroll && scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 48;
 }
-const GLOBAL_CHAT_PAGE = 50;
+const GLOBAL_CHAT_PAGE = 30;
 // Older messages arrive in small chunks as the reader scrolls up.
 const GLOBAL_CHAT_OLDER = 10;
+// A long-open chat stays fast: at the bottom, once more than MAX entries are loaded, the oldest are dropped until KEEP remain (see `trimLoaded`).
+const GLOBAL_CHAT_LOADED_MAX = 100;
+const GLOBAL_CHAT_LOADED_KEEP = 50;
 // The record thread the Chat area shows now (null: none). The record reader's thread button (js/record-workspace.js) follows it.
 let globalChatPaired = null;
 function globalChatPairedSource() { return globalChatPaired; }
@@ -772,7 +775,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     onOlder: () => loadOlder(),
     // A Signoff reference is the existing single-item Signoff view: the owner session, exact proposal and decisions stay its own.
     mountSignoff: (ref, host) => sgChatMount(ref, host, {active: () => !disposed}),
-    onViewportChange: scheduleRead,
+    onViewportChange: () => { scheduleRead(); queueTrim(); },
     onEmptyAction: action => { if (action === 'terminal') options.openTerminal?.(); },
     onPendingAction: (action, id) => {
       if (action === 'resend') void resendInput(id);
@@ -816,6 +819,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       bindComposer();
       if (fresh) showBanner('');
       paintEntries(fresh ? 'bottom' : 'auto');
+      trimLoaded();
       void contextStatus?.refresh();
       void timelineBlock?.refresh();
       if (!stream) connect();
@@ -848,6 +852,41 @@ function mountGlobalChat(pane, agent, options = {}) {
       paintEntries('prepend');
     } catch (problem) { if (live()) showBanner("Couldn't load. Retry"); }
     finally { olderBusy = false; if (live()) paint(); }
+  }
+
+  // Drops the oldest loaded entries (oldest part first) while the reader is at the bottom and more than GLOBAL_CHAT_LOADED_MAX are held. A cursor
+  // `before=P` returns the entries whose position is below P, so a part that loses its oldest entries gets `older` = its oldest kept position:
+  // scrolling up then loads exactly what was dropped. The cut never falls between entries of one position (one record can yield several), so
+  // every kept position is strictly above every dropped one. A part dropped whole is re-read through the part above it or `continues`.
+  function trimLoaded() {
+    if (!live()) return false;
+    const parts = loadedParts();
+    let drop = parts.reduce((sum, part) => sum + part.entries.size, 0) - GLOBAL_CHAT_LOADED_KEEP, changed = false;
+    if (drop + GLOBAL_CHAT_LOADED_KEEP <= GLOBAL_CHAT_LOADED_MAX || !view.isAtBottom()) return false;
+    for (const part of parts) {
+      if (drop <= 0) break;
+      const sorted = [...part.entries.values()].sort((a, b) => a.position - b.position);
+      let cut = Math.min(drop, sorted.length);
+      while (cut > 0 && cut < sorted.length && sorted[cut].position === sorted[cut - 1].position) cut++;
+      if (cut >= sorted.length) {
+        if (part.entries === entries) break;           // the conversation Chat follows is never emptied
+        earlier.splice(earlier.indexOf(part), 1); drop -= sorted.length; changed = true;
+        continue;
+      }
+      sorted.slice(0, cut).forEach(entry => part.entries.delete(entry.id));
+      if (part.entries === entries) older = sorted[cut].position; else part.older = sorted[cut].position;
+      changed = true; break;
+    }
+    if (!changed) return false;
+    clears++;                                           // an older page asked for before this would land above a part that is no longer the oldest
+    paintEntries('bottom');
+    return true;
+  }
+  // The view reports a viewport change from inside its own render, so the trim waits for the end of that turn.
+  function queueTrim() {
+    if (queueTrim.queued) return;
+    queueTrim.queued = true;
+    queueMicrotask(() => { queueTrim.queued = false; trimLoaded(); });
   }
 
   // ---- the event stream: replay from the durable cursor, reconnect with backoff, resynchronise on reset
