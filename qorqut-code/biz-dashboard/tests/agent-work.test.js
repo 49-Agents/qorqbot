@@ -357,5 +357,8 @@ test('routine reads never delay the task list: a late answer still shows up and 
   assert.deepEqual(await page.locator('.rtrow .rttitle').allTextContents(), ['Weekly review']);
   assert.deepEqual((await groups(page)).slice(0, -1), before);
   assert.equal(await page.locator('[role=alert]').count(), 0);
+  // Every Task read was sent before the first Routine read.
+  const order = await page.evaluate(() => calls.map(([url]) => url.endsWith('/tasks_list') ? 't' : url.endsWith('/routines') ? 'r' : '').join(''));
+  assert.match(order, /^t{3}r{3}$/);
   assert.deepEqual(errors, []);
 }));

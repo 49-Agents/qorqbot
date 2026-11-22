@@ -71,8 +71,8 @@ function agentWorkMount(p) {
     shell.querySelectorAll('[data-layout]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.layout === s.layout)));
   }
 
-  // ---- reading. Tasks and Routines are two independent passes: the Task groups paint as soon as the Task reads end,
-  // and the Routines group (the last one) is added when its own reads return.
+  // ---- reading. Tasks first, Routines after: the Task groups paint as soon as the Task reads end, and only then are the
+  // Routines read (the last group), so the slower Routine reads never compete with the Task reads.
   async function pool(list, work, generation) {
     const queue = [...list];
     await Promise.all(Array.from({length: Math.min(AGWORK_PARALLEL, queue.length)}, async () => {
@@ -108,6 +108,7 @@ function agentWorkMount(p) {
     paintBody();
   }
   async function readRoutines(generation, background) {
+    if (!live() || generation !== s.generation) return;
     const found = new Map();
     if (!background) s.routines = found;
     await pool(scopes(), async scope => {
@@ -130,8 +131,7 @@ function agentWorkMount(p) {
     const generation = ++s.generation;
     if (!background) { s.tasks = new Map(); s.routines = new Map(); s.tasksLoaded = false; s.routinesLoaded = false; s.failed = 0; }
     paintBody();
-    void readTasks(generation, background);
-    void readRoutines(generation, background);
+    void readTasks(generation, background).then(() => readRoutines(generation, background));
   }
 
   // ---- rows
