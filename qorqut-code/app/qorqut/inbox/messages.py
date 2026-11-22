@@ -1,7 +1,7 @@
 """Host side of the direct messages; the message flow itself is Operations' ``Messages``.
 
 ``MessageHost`` is the adapter the flow calls at fixed points: owner-directed contacts, the delegated worker's assignment
-binding and attribution, forwarding of an owner message to Ordubashy and the retirement handoff read.
+binding and attribution, and forwarding of an owner message to Ordubashy.
 ``Messages`` is that flow with this adapter bound, so ``InboxService`` constructs it from the inbox alone."""
 from qorqut.agents.contact import owner_directed_target
 from qorqut_operations.contracts import DomainError
@@ -80,10 +80,6 @@ class MessageHost:
     def forward_owner_message(self, uow, *, kind, source_id, sender_id, worker_id, body, accepted_at):
         forward_owner_message(uow, kind=kind, source_id=source_id, sender_id=sender_id, worker_id=worker_id,
                               body=body, accepted_at=accepted_at)
-
-    def retirement_backlog(self, messages, ctx, args, uow):
-        from .retirement_backlog import read
-        return read(messages, ctx, args, uow)
 
 
 class Messages(OperationsMessages):

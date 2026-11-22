@@ -57,8 +57,7 @@ class Uow:
 
 def build():
     host = SimpleNamespace(**{name: (lambda *a, **k: None) for name in (
-        "owner_directed_target", "binding", "validate_recipient", "attribution", "history_scope", "forward_owner_message",
-        "retirement_backlog")})
+        "owner_directed_target", "binding", "validate_recipient", "attribution", "history_scope", "forward_owner_message")})
     app = SimpleNamespace(current_context=lambda ctx, uow: ctx)
     messages = Messages(SimpleNamespace(app=app), host=host)
 

@@ -2,7 +2,7 @@
 
 The generic message flow lives here: validation order, the durable ``inbox_events``/``agent_messages``/``inbox_deliveries``
 writes, history pagination and the message view. Everything that depends on the host (owner-directed contacts, delegated
-worker bindings and their attribution, forwarding to the owner, the retirement handoff read) is a
+worker bindings and their attribution, forwarding to the owner) is a
 named call on a required host adapter, made at the point the flow always made it. There is no default adapter."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -42,12 +42,8 @@ class MessageHost(Protocol):
     def forward_owner_message(self, uow, *, kind, source_id, sender_id, worker_id, body, accepted_at) -> None:
         """Forward an accepted message to its owner conversation in the same unit of work."""
 
-    def retirement_backlog(self, messages, ctx, args, uow):
-        """The page returned for a ``retirement_backlog`` read."""
 
-
-HOST_METHODS = ('owner_directed_target', 'binding', 'validate_recipient', 'attribution', 'history_scope', 'forward_owner_message',
-                'retirement_backlog')
+HOST_METHODS = ('owner_directed_target', 'binding', 'validate_recipient', 'attribution', 'history_scope', 'forward_owner_message')
 
 
 class Messages:
@@ -65,7 +61,7 @@ class Messages:
             prepare=self.prepare, apply=self.apply))
         self.app.registry.register(OperationDescriptor('agents_messages_list', schema({
             'scope': {'enum': ['project', 'global']}, 'thread_id': UUID, 'counterpart_id': UUID,
-            'retirement_backlog': {'type': 'boolean'}, **PAGE}),
+            **PAGE}),
             **common, effect_kind='read', description=instruction_text('messages-read-your-sent-and-received-message-history-in'), read=self.history))
         self.app.registry.register(OperationDescriptor('agents_message_recipients', schema({
             'scope': {'enum': ['project', 'global']},
@@ -201,8 +197,6 @@ class Messages:
 
     def history(self, ctx, args, options, uow):
         ctx = self.app.current_context(ctx, uow)
-        if args.get('retirement_backlog'):
-            return self.host.retirement_backlog(self, ctx, args, uow)
         limit, me, thread_id = args.get('limit', 20), ctx.principal_id, args.get('thread_id')
         clauses = ['project_id IS ?', '(current_sender_id=? OR current_recipient_id=?)', 'event_id>?']
         params = [ctx.project_id, me, me, args.get('after', 0)]

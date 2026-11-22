@@ -474,27 +474,6 @@
       "when_to_use": "domains/project_briefing.py"
     },
     {
-      "id": "retirement-inbox-history",
-      "kind": "instruction",
-      "path": "messages/retirement-inbox-history.md",
-      "description": "retirement inbox history",
-      "when_to_use": "inbox/retirement_contract.py"
-    },
-    {
-      "id": "retirement-inbox-reading",
-      "kind": "instruction",
-      "path": "messages/retirement-inbox-reading.md",
-      "description": "retirement inbox reading",
-      "when_to_use": "inbox/retirement_contract.py"
-    },
-    {
-      "id": "retirement-review-history",
-      "kind": "instruction",
-      "path": "messages/retirement-review-history.md",
-      "description": "retirement review history",
-      "when_to_use": "inbox/retirement_contract.py"
-    },
-    {
       "id": "runtime-diagnostic-guidance",
       "kind": "instruction",
       "path": "messages/runtime-diagnostic-guidance.md",

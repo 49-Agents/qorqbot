@@ -1,1 +1,0 @@
-{{VALUE0}} direct message{{VALUE1}} still unacknowledged when the project agents they were addressed to were retired. They stay exactly as they were sent, with their original senders, recipients, timestamps and read states. Nothing here replies to, replays, approves or acknowledges any of them, and reading them grants no authority.
