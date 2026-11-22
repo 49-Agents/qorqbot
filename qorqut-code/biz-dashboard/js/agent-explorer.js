@@ -186,13 +186,12 @@ function agentExplorerMount(p) {
     workspace?.dispose?.(); workspace = p.explorerWorkspace = null;
     globalPanel?.dispose();
     detail.innerHTML = `<div class="rw agexplorer-record"><div class="rw-records"><article class="rw-record" data-tab="timeline"><header class="rw-head"><span class="rw-title" role="heading" aria-level="2">Global</span></header>
-      <div class="rw-body"><div class="rw-pane rw-timeline" tabindex="0"><section class="tlp" aria-label="Timeline" hidden></section><p class="muted rw-timeline-empty" hidden>Nothing on the timeline yet.</p></div></div></article></div></div>`;
-    const panel = detail.querySelector('.tlp'), none = detail.querySelector('.rw-timeline-empty');
+      <div class="rw-body"><div class="rw-pane rw-timeline" tabindex="0"><section class="agent-timeline" aria-label="Timeline"></section></div></div></article></div></div>`;
     const item = {type: 'global', id: 'global', business_id: null};
-    const read = async extra => coreData(await post('/root/operations/timeline_view', {scope: 'global', item, ...extra}));
-    const mine = globalPanel = timelinePanelMount(panel, {readHistory: args => read({history: true, limit: 50, ...args}), openTask: ref => openReference({type: 'task', ...ref})});
-    read().then(data => { if (live() && globalPanel === mine) { mine.update(data); none.hidden = !timelineEmpty(data); } },
-      () => { if (live() && globalPanel === mine) { mine.fail(); none.hidden = true; } });
+    globalPanel = timelineJournalMount(detail.querySelector('.agent-timeline'), {
+      read: async args => coreData(await post('/root/operations/timeline_view', {scope: 'global', item, history: true, limit: 50, ...args})),
+    });
+    void globalPanel.refresh();
   }
   function paintDetail() {
     if (workspace?.alive?.() || globalPanel) return;
