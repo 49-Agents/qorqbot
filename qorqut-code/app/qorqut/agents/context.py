@@ -118,7 +118,7 @@ def project_directory(projects, *, agentic_view=None) -> str:
 def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mapping[str, ContextSource], *,
                     effective_config_id: str, workspace: str, project: Mapping | None,
                     allowed_projects: tuple[Mapping, ...] = (), owner_name: str = "Owner",
-                    available_operations: frozenset[str] = frozenset(), context_home: str | None = None, agentic_view=None, extension_guidance=(), code_workspace: str | None = None,
+                    available_operations: frozenset[str] = frozenset(), context_home: str | None = None, agentic_view=None, extension_guidance=(),
 ) -> dict:
     entries, rendered = [], []
 
@@ -194,8 +194,7 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
             config = json.loads(config)
         authority = config.get("engineering", {})
         derived("Engineering workspace and authority",
-            (render(agentic_view, "host", "app/qorqut/agentic/assets/code-root.md", WORKSPACE=code_workspace) if code_workspace else "")
-            + "Authority (owner/Ordubashy-managed; absent targets are unconfigured): " + canonical_bytes(authority).decode()
+            "Authority (owner/Ordubashy-managed; absent targets are unconfigured): " + canonical_bytes(authority).decode()
             + "\nRegistered repositories: " + canonical_bytes(config.get("code", [])).decode(),
             "engineering:" + project["id"], "Current repository and deployment ownership; no credential values")
     plugins = ", ".join(f"{item['id']}@{item['version']}" for item in profile.data["plugins"]) or "none"

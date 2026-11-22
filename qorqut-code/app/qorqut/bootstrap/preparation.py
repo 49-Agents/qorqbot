@@ -6,7 +6,7 @@ from qorqut.agents import role_workflow
 from qorqut.agents import cleanup_workflow
 from qorqut.agents.operational_delegation import supports_durable_delegation_version
 from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, SUPPORTED_GLOBAL_ROLES
-from qorqut.composition.locations import project_code, project_root
+from qorqut.composition.locations import project_root
 
 from dataclasses import dataclass
 import hashlib
@@ -198,14 +198,6 @@ def _coordinator_workspace(resolver) -> Path | None:
         row = uow.connection.execute("SELECT workspace FROM agent_profiles WHERE agent_id=?",
                                      (installation.get("management_coordinator_id"),)).fetchone()
     return Path(row[0]) if row else None
-
-
-def _project_code_root(resolver, data, project) -> Path | None:
-    """The project's existing code tree, or ``None`` when it has none; every global may carry out explicitly assigned code work."""
-    code = project_code(resolver.paths, project)
-    if path_has_symlink(code) or (code.exists() and not code.is_dir()):
-        raise DomainError("preparation_error", "Project code directory must be a local directory inside its registered workspace")
-    return code if code.exists() else None
 
 
 def skill_projection(resolver, data) -> tuple[dict, dict]:
@@ -405,7 +397,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     protected = [workspace / "agent.yaml", workspace / "CLAUDE.md", workspace / "AGENTS.md", workspace / ".codex", workspace / ".agents", workspace / ".mcp.json", workspace / ".claude", workspace / ".qorqut", workspace / "PLAN.md", workspace / "notes",
                  resolver.paths.runtime, resolver.paths.context, resolver.paths.operations / "CLAUDE.md"]
     read_roots = []
-    code_roots = []
     ordubashy = data["role"]["id"] == "ordubashy"
     delegate_operations = ordubashy and any(
         skill["name"] == "qorqut-role-operations-delegation"
@@ -419,9 +410,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         # Every active project; no membership is assumed.
         projects = uow.connection.execute("SELECT id,slug FROM projects WHERE archived_at IS NULL ORDER BY id").fetchall()
         for project in projects:
-            code_root = _project_code_root(resolver, data, project)
-            if code_root is not None:
-                code_roots.append(code_root)
             folder = project_root(resolver.paths, project)
             protected += [folder / part for part in ("project.yaml", "CLAUDE.md", "context", "tasks", "log")]
             read_roots += [folder / part for part in ("context", "analytics", "assets")]
@@ -431,9 +419,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         "permissions": {"allow": [f"Edit({_absolute_rule(workspace / 'work')}/**)", *[f"Read({_absolute_rule(path)}/**)" for path in read_roots]],
                         "deny": [f"Edit({_absolute_rule(path)}{('' if path.name.endswith(('.md', '.yaml', '.json')) else '/**')})" for path in protected]
                             + [f"Read({_absolute_rule(resolver.paths.runtime)}/**)", f"Read({_absolute_rule(workspace / '.qorqut')}/credential)"]}}
-    if code_roots:
-        local["permissions"]["allow"] += [f"Edit({_absolute_rule(path)}/**)" for path in code_roots]
-        local["permissions"]["additionalDirectories"] = [str(path) for path in code_roots]
     # No runtime approval prompts. Service authorization remains authoritative.
     local["permissions"]["defaultMode"] = "dontAsk"
     local["permissions"]["allow"] += ["Read", "Glob", "Grep", "WebFetch", "WebSearch"]
@@ -468,7 +453,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     codex_config, codex_hooks = configuration(workspace=workspace, endpoint=endpoint,
         header_command=header_command, command=codex_command, snapshot_command=codex_lifecycle, mcp_command=mcp_command,
         protected=protected, read_denied=[resolver.paths.runtime, workspace / ".qorqut/credential"],
-        write_roots=code_roots, delegate_operations=delegate_operations,
+        delegate_operations=delegate_operations,
         external_servers=codex_servers, preserved_servers=preserved_codex, permission_mode=codex_permission_mode or "scoped",
         model_default=model_default)
     # A standalone stdlib hook avoids loading the full application on every action.
@@ -498,7 +483,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         display_name=data["display_name"], agent_id=data["agent_id"], software_boundary=software_boundary,
         extension_orientations=[connection.orientation(server in prepared, ordubashy, agentic_view=view)
                                for server, connection in extension_connections.items()],
-        ordubashy=ordubashy, code_roots=code_roots, delegate_operations=delegate_operations,
+        ordubashy=ordubashy, delegate_operations=delegate_operations,
         inbox_available=any(tool['canonical_operation'] == 'inbox_list' and tool['available'] for tool in data['tools']))
     codex_targets = {
         'bootstrap': shlex.join([executable, '-I', '-m', 'qorqut.bootstrap.claude_session',
@@ -588,7 +573,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
                 'qorqut.bootstrap.browser_entry', '--workspace', str(workspace))) + ' "$@"\n').encode()
     metadata = {"schema_version": 1, "helper_runtime":{"executable":stable_helper or executable,"stable":bool(stable_helper)}, "codex_permission_mode": codex_permission_mode or "scoped",
                 "native_guidance_digest": data["native_guidance_digest"],
-                "project_code_roots": [str(path) for path in code_roots],
                 "files": {name: content_hash(body) for name, body in sorted(files.items())},
                 "selected_skills": selected,
                 "external_connections": connections,

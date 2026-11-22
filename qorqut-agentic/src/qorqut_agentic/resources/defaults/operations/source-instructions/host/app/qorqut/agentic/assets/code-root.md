@@ -1,1 +1,0 @@
-Code root: {{WORKSPACE}}/code

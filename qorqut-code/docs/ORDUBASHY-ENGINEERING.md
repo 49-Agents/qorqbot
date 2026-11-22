@@ -30,13 +30,11 @@ and separately protected operations do not inherit engineering authority. Existi
 and optional exact owner review; routine Ordubashy edits use the direct config
 operation. Story lifecycle proposals still require a real human Signoff.
 
-Both native projections include each active, authorized project's existing
-`code/` directory, including when Ordubashy starts in Global. Claude receives Bash,
-Edit and additional directories; Codex receives code write roots. Neither gets the
-entire projects root as a write directory. Project records and application credentials
-retain generated protections. Preparation rejects unsafe/symlinked code roots,
-never creates code directories, and never deletes code on scope
-or role revocation. Current-project bootstrap includes engineering config and code
+Neither native projection grants write access to a project's `code/` directory or
+names it in the generated instructions, and neither gets the entire projects root as
+a write directory. Project records and application credentials retain generated
+protections. Preparation never creates code directories and never deletes code on
+scope or role revocation. Current-project bootstrap includes engineering config and code
 metadata, not every project's full config. Reprepare after project/scope changes
 to refresh native roots; server tools always check current scope. Native CLI policy
 is a workflow guardrail, not same-user OS isolation.

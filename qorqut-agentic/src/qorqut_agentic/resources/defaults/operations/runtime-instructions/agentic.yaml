@@ -600,13 +600,6 @@
       "when_to_use": "trusted workspace preparation"
     },
     {
-      "id": "workspace-code-roots",
-      "kind": "instruction",
-      "path": "messages/workspace-code-roots.md",
-      "description": "workspace code roots",
-      "when_to_use": "trusted workspace preparation"
-    },
-    {
       "id": "workspace-codex",
       "kind": "instruction",
       "path": "messages/workspace-codex.md",
