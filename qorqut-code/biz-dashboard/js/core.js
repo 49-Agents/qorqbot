@@ -402,7 +402,7 @@ function notePump() {
   while (_notes.live < NOTE_MAX && _notes.queue.length) {
     const n = _notes.queue.shift(); _notes.live++;
     const el = document.createElement("div");
-    el.className = "toast in has-x reply-toast" + (n.fold ? " fold" : "") + (n.reminder ? " reminder-toast" : n.replyAgentId ? "" : " plain-toast");
+    el.className = "toast in has-x reply-toast" + (n.fold ? " fold" : "") + (n.reminder || n.replyAgentId ? "" : " plain-toast");
     if (n.color) el.style.setProperty("--c", n.color);
     if (n.reminder) { el.setAttribute("aria-label", `Reminder: ${n.text}`); }
     el.innerHTML = n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : plainToastHTML(n);
