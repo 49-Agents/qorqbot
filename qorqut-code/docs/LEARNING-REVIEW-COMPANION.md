@@ -1,8 +1,7 @@
 # Learning review companion
 
 > **Historical context (v1.3).** This guide describes the predecessor review experience, including the standalone
-> learning-engine issue flow. `v1.3-legacy-learning-removal-1` removes the seven engine tables and freezes the
-> predecessor; a target store has no issue packages, enrollments, engine sessions, issue links/actions or candidates
+> learning-engine issue flow. A v1.3 target store has none of the seven engine tables, and so has no issue packages, enrollments, engine sessions, issue links/actions or candidates
 > join table. Do not apply the engine setup, enrollment, issue-action or migration steps below to a v1.3 target. The
 > five shared learning tables remain as retained history, and the owner/agent review boundary is unchanged for records
 > that exist in those tables.

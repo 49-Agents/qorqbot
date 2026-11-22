@@ -76,7 +76,7 @@ RUNTIME_INIT = b'"""Shared runtime/session helpers; release execution is not inc
 # Paths are relative to the export root. A missing file is reported by the audit, never created.
 REQUIRED_RUNTIME_ASSETS = {
     "initialization": ("qorqut-code/app/qorqut/bootstrap/initialize.py",),
-    "migrations": ("qorqut-code/app/qorqut/migration/upgrade.py", "qorqut-code/app/qorqut/agentic/upgrade.py", "qorqut-code/app/qorqut/reminders/upgrade.py"),
+    "migrations": ("qorqut-code/app/qorqut/migration/upgrade.py", "qorqut-code/app/qorqut/agentic/upgrade.py"),
     "recovery": ("qorqut-code/app/qorqut/bootstrap/recovery.py", "qorqut-code/app/qorqut/storage/recovery.py",
                  "qorqut-code/app/qorqut/storage/full_recovery.py",
                  "qorqut-code/qorqut-context/qorqut_context/recovery.py"),

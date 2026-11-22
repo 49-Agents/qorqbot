@@ -32,6 +32,6 @@ include = ["qorqut*"]
 
 [tool.setuptools.package-data]
 "qorqut.agentic" = ["assets/index.json"]
-"qorqut.bootstrap" = ["browser_init.cjs", "learning_removal_predecessor.json"]
+"qorqut.bootstrap" = ["browser_init.cjs"]
 "qorqut.browser" = ["cookie_banners.js", "captcha.js"]
 "qorqut.release_worker" = ["installation.schema.json"]

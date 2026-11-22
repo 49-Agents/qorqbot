@@ -1,7 +1,7 @@
 # Learning from human contributions
 
-> **Historical context (v1.3).** The standalone learning engine and its issue bridge are retired by
-> `v1.3-legacy-learning-removal-1`. A v1.3 target no longer contains the seven engine tables or accepts preparation that
+> **Historical context (v1.3).** The standalone learning engine and its issue bridge are retired in v1.3.
+> A v1.3 target no longer contains the seven engine tables or accepts preparation that
 > writes/reads them; the engine program, issue package/action and enrollment/state operations are predecessor-only.
 > The five shared learning tables (candidates, decisions, history, runs and scan state) remain, and this document's
 > candidate/contribution history is retained as historical data. Current installation no longer selects the

@@ -1,10 +1,8 @@
 # Learning Applier and Context Library
 
 > **Historical implementation record.** The first-party `learning-engine` extra and learning-library installation input
-> are removed in v1.3. Role/profile adoption for the offline learning-removal transition is a reviewed preparation step
-> with authoritative persisted `roles_publish`/`agents_update` evidence; it is not performed by the setup commands
-> described here. A v1.3 target must not contain or call the retired seven engine tables or `learnings.engine_extract`;
-> use `qorqut.bootstrap.learning_removal` instead. This file remains for predecessor context only.
+> are removed in v1.3. A v1.3 target must not contain or call the retired seven engine tables or `learnings.engine_extract`.
+> This file remains for predecessor context only.
 
 > **Historical record.** Agents run as managed sessions by default. The terminal mechanism described below (tmux, the terminal view, typed client commands) is the legacy Terminals mode, an option for the whole installation; see [managed agent sessions](../MANAGED-RUNTIME.md).
 
