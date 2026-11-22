@@ -99,9 +99,9 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 ## Decisions, reminders, tasks
 
 - **Signoffs** are requests for the owner's approval. Nothing they cover happens until the owner decides. They appear
-  as chips at the top of **Focus** (and **Todo**). Click one, then **Approve** or **Reject**; typing a
-  message turns these into **Send and approve** / **Send and reject**. A question Signoff has an answer box and
-  **Submit**.
+  as chips at the top of **Focus** (and **Todo**). Click one, then **Approve** or **Reject**; a message typed
+  first is sent with the decision, and **Reject** becomes the highlighted button that Ctrl+Enter presses. A question
+  Signoff has an answer box and **Submit**.
 - **Reminders**: ask an agent to remind you, once or repeating. Due reminders show as bell chips at the top of Focus.
 - **Tasks** live in projects. Click the status circle to change a task's state, or the row to open it.
 

@@ -52,6 +52,38 @@ browserTest('Focus signoff keeps its decision footer visible and preserves guard
 });
 
 
+browserTest('a note keeps the button names and moves the shortcut from Approve to Reject',async()=>{
+  const browser=await chromium.launch({headless:true,executablePath:executable,args:['--allow-file-access-from-files']});
+  try {
+    const page=await browser.newPage({viewport:{width:800,height:700}}), errors=[];
+    page.on('pageerror',error=>errors.push(error.message));
+    await page.goto(fixture);
+    const ready=async(id,button='approve')=>{await page.evaluate(id=>openItem(id),id);await page.waitForSelector(`.sg-detail-footer [data-sg="${button}"]:not([disabled])`);};
+    const buttons=()=>page.evaluate(()=>Object.fromEntries(['approve','reject'].map(name=>{const b=document.querySelector(`.sg-detail-footer [data-sg="${name}"]`);return [name,{text:b.textContent,main:b.classList.contains('sg-primary-action')}];})));
+    const calls=()=>page.evaluate(()=>testHarness.calls.map(call=>({action:call.url.split('/').at(-1),feedback:call.body.feedback,notes:call.body.notes})));
+    const settle=async()=>{await page.evaluate(()=>testHarness.releaseWrite());await page.waitForTimeout(50);};
+    // No note: Approve is the main button and the shortcut approves.
+    await ready('short');
+    assert.deepEqual(await buttons(),{approve:{text:'Approve',main:true},reject:{text:'Reject',main:false}});
+    await page.focus('.sg-decision-feedback');await page.keyboard.press('Control+Enter');
+    assert.deepEqual(await calls(),[{action:'approve',feedback:null,notes:undefined}]);
+    await settle();
+    // With a note the names stay, Reject becomes the main button and the shortcut rejects.
+    await ready('small');
+    await page.fill('.sg-decision-feedback','Please revise');
+    assert.deepEqual(await buttons(),{approve:{text:'Approve',main:false},reject:{text:'Reject',main:true}});
+    await page.focus('.sg-decision-feedback');await page.keyboard.press('Control+Enter');
+    assert.deepEqual((await calls())[1],{action:'reject',feedback:'Please revise',notes:undefined});
+    await settle();
+    // A question has one button, and the shortcut still sends the answer.
+    await ready('question','respond');
+    await page.fill('.sg-feedback','Next Tuesday');await page.keyboard.press('Control+Enter');
+    assert.deepEqual((await calls())[2],{action:'respond',feedback:undefined,notes:'Next Tuesday'});
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
+
+
 browserTest('attention selection survives refresh and advances only after a confirmed decision',async()=>{
   const browser=await chromium.launch({headless:true,executablePath:executable,args:['--allow-file-access-from-files']});
   try {
