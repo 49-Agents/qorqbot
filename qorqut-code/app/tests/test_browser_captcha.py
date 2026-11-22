@@ -14,7 +14,7 @@ from unittest import mock
 from qorqut_operations.contracts import DomainError
 
 from qorqut.bootstrap import browser
-from qorqut.browser import captcha, captcha_solver, tab_reference
+from qorqut.browser import captcha, captcha_solver, live, tab_reference
 from qorqut.browser.access import BrowserAccess
 from qorqut.browser.captcha import Frame
 
@@ -582,6 +582,17 @@ class CommandTest(unittest.TestCase):
             self.assertIn("request_user_input", reply["next"])
             self.assertNotIn("tab", reply)                  # the id is in the reference, not beside it
             self.assertNotIn("tab", self.log()[-1])         # nor in the log
+
+    def test_the_reference_comes_with_the_tab_s_title_and_address_when_its_browser_gives_them(self):
+        outcome = {"captcha": "failed", "next": captcha.ASK_OWNER, "tab": TAB}
+        pages = [{"id": TAB, "title": "Mercury sign in", "url": "https://mercury.example/login"}]
+        with mock.patch.object(live, "tabs", return_value=pages) as tabs:
+            reply = json.loads(self.run_command(outcome, f"configured:{AGENT}")[1])
+        tabs.assert_called_once_with(captcha._port(self.target[0]))
+        self.assertEqual((reply["title"], reply["url"], set(reply["reference"])), ("Mercury sign in", "https://mercury.example/login", {"type", "id"}))
+        with mock.patch.object(live, "tabs", side_effect=DomainError("browser_not_ready", "stopped")):
+            reply = json.loads(self.run_command(outcome, f"configured:{AGENT}")[1])
+        self.assertEqual((reply["reference"], "title" in reply, "url" in reply), ({"type": "tab", "id": f"{AGENT}:{TAB}"}, False, False))
 
     def test_the_reference_names_the_agent_whose_browser_it_is_which_is_not_always_the_caller(self):
         code, out, _ = self.run_command({"captcha": "failed", "next": captcha.ASK_OWNER, "tab": TAB}, f"configured:{WORKER}")

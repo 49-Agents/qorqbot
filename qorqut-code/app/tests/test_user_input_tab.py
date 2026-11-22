@@ -216,7 +216,16 @@ class ToolTest(Case):
 
     def test_a_tab_that_is_open_is_accepted_and_returned_as_the_identity_only_presentation(self):
         self.assertEqual(self.read([{"type": "tab", "id": f"{AGENT}:{TAB}"}]),
-                         {"user_input": {"version": 1, "message": "Please look at this.", "references": [tab(AGENT)]}})
+                         {"user_input": {"version": 1, "message": "Please look at this.", "references": [tab(AGENT)]},
+                          "tabs": [{"id": f"{AGENT}:{TAB}", "title": "Checkout", "url": "https://shop.example/pay?session=secret"}]})
+
+    def test_the_agent_is_told_the_title_and_address_of_each_tab_it_showed_and_chat_is_not(self):
+        result = self.read([{"type": "tab", "id": f"{AGENT}:{TAB}"}, {"type": "tab", "id": f"{AGENT}:{SECOND}"}])
+        self.assertEqual(result["tabs"], [{"id": f"{AGENT}:{TAB}", "title": "Checkout", "url": "https://shop.example/pay?session=secret"},
+                                          {"id": f"{AGENT}:{SECOND}", "title": "Inbox", "url": "https://mail.example/"}])
+        self.assertEqual(result["user_input"]["references"], [tab(AGENT), tab(AGENT, SECOND)])      # what is stored stays identity only
+        self.assertEqual(projection._user_input(json.dumps({"status": "ok", "data": result})), result["user_input"])
+        self.assertNotIn("tabs", self.read([]))
 
     def test_a_closed_tab_an_unknown_agent_or_a_browser_that_is_down_is_refused_naming_its_place_in_the_list(self):
         self.browsers[WORKER] = DomainError("browser_not_ready", "stopped")
