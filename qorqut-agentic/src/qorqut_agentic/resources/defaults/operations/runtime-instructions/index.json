@@ -814,15 +814,6 @@
       "previous_source": "bootstrap/preparation.py:build_projection"
     },
     {
-      "id": "workspace-code-roots",
-      "path": "messages/workspace-code-roots.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "trusted workspace preparation",
-      "audience": "prepared native agent",
-      "previous_source": "bootstrap/preparation.py:build_projection"
-    },
-    {
       "id": "workspace-codex",
       "path": "messages/workspace-codex.md",
       "parameters": [],

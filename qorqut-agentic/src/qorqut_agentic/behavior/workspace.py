@@ -2,7 +2,7 @@
 
 
 def documents(instructions, *, display_name, agent_id, software_boundary, extension_orientations,
-              ordubashy, code_roots, delegate_operations, inbox_available):
+              ordubashy, delegate_operations, inbox_available):
     inbox_guidance = instructions.render('workspace-inbox') if inbox_available else ""
     core = instructions.render('ordubashy-core') + '\n' if ordubashy else ''
     orientation = instructions.render('workspace-identity', DISPLAY_NAME=display_name, AGENT_ID=agent_id)
@@ -11,8 +11,6 @@ def documents(instructions, *, display_name, agent_id, software_boundary, extens
         policy += guidance
     if ordubashy:
         policy += instructions.render('workspace-global-coordination')
-    if code_roots:
-        orientation += (instructions.render('workspace-code-roots') + "".join(f"- `{path}`\n" for path in code_roots))
     codex_delegation = ""
     if delegate_operations:
         codex_delegation = "\n## Operational delegation\n\n"

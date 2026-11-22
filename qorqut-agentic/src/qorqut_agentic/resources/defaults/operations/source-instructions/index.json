@@ -51,10 +51,6 @@
     },
     {
       "source": "host",
-      "path": "app/qorqut/agentic/assets/code-root.md"
-    },
-    {
-      "source": "host",
       "path": "app/qorqut/agentic/assets/completion-report.md"
     },
     {
