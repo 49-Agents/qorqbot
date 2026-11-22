@@ -583,6 +583,9 @@ function mountChatView(host, options = {}) {
   const referenceRows = options.recordReferences === true;
   const groupNodes = new Map();                  // group key -> {el, rows}
   const cleanups = [];
+  // olderOnScroll: the reader asks for older messages by moving up at the top; the button is never shown. Nothing loads on mount, render or resize.
+  const olderOnScroll = options.olderOnScroll === true, OLDER_EDGE = 80, OLDER_DRAG = 24;
+  let lastTop = 0;     // scrollTop at the last scroll event or programmatic move: a prepend restores the anchor downward and must not read as "up"
   const copyTimers = new Set();
   cleanups.push(() => { copyTimers.forEach(clearTimeout); copyTimers.clear(); });
   let disposed = false, ready = false, initial = true, atBottom = true, unseen = 0, deferBottom = false, pendingState = null;
@@ -678,16 +681,16 @@ function mountChatView(host, options = {}) {
     const node = anchor?.anchorKey != null && nodes.get(anchor.anchorKey);
     if (!node?.isConnected || !node.getClientRects().length) return false;
     const delta = node.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.anchorOffset;
-    if (delta) scroller.scrollTop += delta;
+    if (delta) { scroller.scrollTop += delta; lastTop = scroller.scrollTop; }
     return true;
   }
   function toBottom() {
-    scroller.scrollTop = scroller.scrollHeight;
+    scroller.scrollTop = scroller.scrollHeight; lastTop = scroller.scrollTop;
     atBottom = true; unseen = 0; jump.hidden = true; initial = false; pendingState = null; deferBottom = false;
   }
   function applyState(saved) {
     if (saved.atBottom) toBottom();
-    else if (!restoreAnchor(saved)) scroller.scrollTop = saved.top || 0;
+    else if (!restoreAnchor(saved)) { scroller.scrollTop = saved.top || 0; lastTop = scroller.scrollTop; }
     atBottom = nearBottom();
   }
   // Applies whatever was deferred while the container had no layout.
@@ -698,7 +701,10 @@ function mountChatView(host, options = {}) {
     atBottom = nearBottom();
     lastState = capture();
   }
+  const askOlder = () => { if (olderOnScroll && model.older.visible && !model.older.disabled && scroller.scrollTop <= OLDER_EDGE) emit('onOlder'); };
   listen(scroller, 'scroll', () => {
+    const up = scroller.scrollTop < lastTop; lastTop = scroller.scrollTop;
+    if (up) askOlder();
     atBottom = nearBottom();
     if (atBottom) { unseen = 0; jump.hidden = true; }
     if (shown()) lastState = capture();
@@ -706,12 +712,21 @@ function mountChatView(host, options = {}) {
   });
   jump.onclick = () => { toBottom(); input.focus(); emit('onViewportChange'); };
   cleanups.push(() => { jump.onclick = null; });
+  if (olderOnScroll) {
+    // A feed too short to scroll, or one resting at 0, fires no scroll event: wheel, touch and keys at the top cover it.
+    let dragFrom = null;
+    listen(scroller, 'wheel', event => { if (event.deltaY < 0) askOlder(); }, {passive: true});
+    listen(scroller, 'touchstart', event => { dragFrom = scroller.scrollTop <= OLDER_EDGE && event.touches.length === 1 ? event.touches[0].clientY : null; }, {passive: true});
+    listen(scroller, 'touchmove', event => { if (dragFrom != null && event.touches[0].clientY - dragFrom > OLDER_DRAG) { dragFrom = null; askOlder(); } }, {passive: true});
+    listen(scroller, 'touchend', () => { dragFrom = null; }, {passive: true});
+    listen(scroller, 'keydown', event => { if (event.target === scroller && ['PageUp', 'Home', 'ArrowUp'].includes(event.key)) askOlder(); });
+  }
   // Per-element only: a container that gains layout (details, tab, dock) settles its deferred scroll; a bottom-pinned feed stays pinned.
   if (typeof ResizeObserver === 'function') {
     const resizes = new ResizeObserver(() => {
       if (disposed || !shown()) return;
       if (deferBottom || pendingState || initial) settle();
-      else if (atBottom) scroller.scrollTop = scroller.scrollHeight;
+      else if (atBottom) { scroller.scrollTop = scroller.scrollHeight; lastTop = scroller.scrollTop; }
     });
     resizes.observe(scroller);
     cleanups.push(() => resizes.disconnect());
@@ -1236,7 +1251,7 @@ function mountChatView(host, options = {}) {
       : label === 'Stop' ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg>' : esc(label);
   }
   function paintOlder() {
-    olderButton.hidden = !model.older.visible;
+    olderButton.hidden = olderOnScroll || !model.older.visible;
     olderButton.disabled = !!model.older.disabled;
     olderButton.textContent = model.older.label;
   }
