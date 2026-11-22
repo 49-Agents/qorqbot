@@ -83,6 +83,7 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [task-action-recorded](messages/task-action-recorded.md) | transport/mcp.py | conditional |
 | [tool-validation-recovery](messages/tool-validation-recovery.md) | transport/mcp.py | conditional |
 | [workspace-claude](messages/workspace-claude.md) | trusted workspace preparation | conditional |
+| [workspace-code-roots](messages/workspace-code-roots.md) | trusted workspace preparation | conditional |
 | [workspace-codex](messages/workspace-codex.md) | trusted workspace preparation | conditional |
 | [workspace-completion](messages/workspace-completion.md) | trusted workspace preparation | conditional |
 | [workspace-delegation-summary](messages/workspace-delegation-summary.md) | trusted workspace preparation | conditional |

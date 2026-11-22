@@ -24,7 +24,7 @@ from qorqut_operations.policy import AgentPolicyBasis
 from qorqut_operations.storage.database import unit_memo
 from qorqut_operations.storage.structured import parse_yaml
 from qorqut.composition.files import lock_paths
-from qorqut.composition.locations import agent_workspace, project_root
+from qorqut.composition.locations import agent_workspace, project_code, project_root
 from qorqut.inbox.defaults import legacy_inbox_skill
 from qorqut.instance_paths import InstancePaths
 from . import role_workflow
@@ -593,6 +593,12 @@ class AgentConfigResolver:
 
         return view.consistent(read)
 
+    def code_workspace(self, project) -> str | None:
+        """The project's folder when it holds a code folder, else ``None``."""
+        if project is None or not project_code(self.paths, project).is_dir():
+            return None
+        return str(project_root(self.paths, project))
+
     def _compose(self, snapshot: dict, *, context_home: str | None = None) -> EffectiveAgentConfig:
         profile = snapshot["profile"]
         packages = self.packages_for_profile(profile)
@@ -632,7 +638,7 @@ class AgentConfigResolver:
             workspace=snapshot["row"]["workspace"], project=snapshot["project"],
             allowed_projects=tuple(snapshot["projects"]), owner_name=snapshot["owner_name"],
             available_operations=frozenset(tool["canonical_operation"] for tool in tools if tool["available"]),
-            context_home=context_home, agentic_view=view, extension_guidance=tuple(
+            context_home=context_home, agentic_view=view, code_workspace=self.code_workspace(snapshot["project"]), extension_guidance=tuple(
                 callback(view) for callback in dict.fromkeys(
                     callback for name, callback in getattr(self.registry, "extension_operation_guidance", {}).items()
                     if any(tool["canonical_operation"] == name and tool["available"] for tool in tools))))
