@@ -4,13 +4,13 @@
 Build tooling only; runs on Linux x86-64 with a C toolchain, or in a clean container with --docker. Output:
 
     OUT/python/     self-contained CPython 3.12 (python-build-standalone), unchanged
-    OUT/native/     bin/tmux, bin/git, bin/agent-browser, libexec/git-core/, share/git-core/, share/terminfo/, licenses/
+    OUT/native/     bin/git, bin/agent-browser, libexec/git-core/, share/git-core/, licenses/
     OUT/TOOLS.json  versions, sources and SHA-256 of everything that was fetched
 
-The counterpart of macos_tools.py, with the same layout. Every source is pinned by SHA-256 (tmux, libevent, utf8proc
-and git are the pins macos_tools.py uses). ncurses, zlib, OpenSSL and curl are linked into the programs as static
-libraries, so a shipped program needs only the C library every glibc distribution has; the result is refused if a
-program lists any other library, an absolute library path, or needs a newer glibc than Ubuntu 24.04's.
+The counterpart of macos_tools.py, with the same layout. Every source is pinned by SHA-256 (git is the pin
+macos_tools.py uses). zlib, OpenSSL and curl are linked into git as static libraries, so a shipped program needs
+only the C library every glibc distribution has; the result is refused if a program lists any other library, an
+absolute library path, or needs a newer glibc than Ubuntu 24.04's.
 
 Built on Ubuntu 24.04 the programs need glibc 2.38 (TOOLS.json records the exact floor): Ubuntu 24.04 and newer, Fedora 39
 and newer, Debian 13. Debian 12 and Ubuntu 22.04 are older than that; python and agent-browser alone would run there.
@@ -42,20 +42,16 @@ DOCKER_IMAGE = 'ubuntu:24.04'
 BUILD_PACKAGES = ('build-essential', 'bison', 'perl', 'python3', 'ca-certificates')
 GLIBC_CEILING = (2, 39)  # Ubuntu 24.04
 # Libraries every glibc system has, as part of glibc itself. libpthread, libdl, librt and libutil are empty compatibility
-# stubs since glibc 2.34; tmux takes its base64 (for the clipboard) from libresolv.
+# stubs since glibc 2.34.
 SYSTEM_LIBRARIES = frozenset({'libc.so.6', 'libm.so.6', 'libpthread.so.0', 'libdl.so.2', 'librt.so.1', 'libutil.so.1',
                               'libresolv.so.2', 'ld-linux-x86-64.so.2'})
-SOURCES = {name: SHARED_SOURCES[name] for name in ('tmux', 'libevent', 'utf8proc', 'git')}
+SOURCES = {'git': SHARED_SOURCES['git']}
 SOURCES.update({
     'python-x86_64': {
         'version': PYTHON_VERSION + '+' + PYTHON_BUILD, 'license': 'PSF-2.0',
         'url': 'https://github.com/astral-sh/python-build-standalone/releases/download/' + PYTHON_BUILD
                + '/cpython-' + PYTHON_VERSION + '+' + PYTHON_BUILD + '-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz',
         'sha256': '6a9e62dad033790aef722dbd370e0ce76ce17b73627ba3ae679f537049350b39'},
-    'ncurses': {
-        'version': '6.5', 'license': 'X11', 'license_file': 'COPYING',
-        'url': 'https://ftp.gnu.org/gnu/ncurses/ncurses-6.5.tar.gz',
-        'sha256': '136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6'},
     'zlib': {
         'version': '1.3.2', 'license': 'Zlib', 'license_file': 'LICENSE',
         'url': 'https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz',
@@ -69,14 +65,9 @@ SOURCES.update({
         'url': 'https://github.com/curl/curl/releases/download/curl-8_23_0/curl-8.23.0.tar.xz',
         'sha256': '8dadd7d2536a314f982ad05a651b713f426bf7d02cc2c76cffb9796f2218e6c5'},
 })
-LIBRARIES = ('zlib', 'openssl', 'curl', 'ncurses', 'libevent', 'utf8proc')
-# Where the system keeps its terminal descriptions and certificates; git and tmux look there first.
-SYSTEM_TERMINFO = '/etc/terminfo:/lib/terminfo:/usr/share/terminfo:/usr/lib/terminfo'
+LIBRARIES = ('zlib', 'openssl', 'curl')
+# Where the system keeps its certificates; git looks there first.
 CA_BUNDLE, CA_DIRECTORY = '/etc/ssl/certs/ca-certificates.crt', '/etc/ssl/certs'
-# The few terminal descriptions kept for a computer that has none (tmux needs the one named by TERM; agent terminals use
-# xterm-256color outside tmux and tmux-256color inside it).
-TERMINFO_KEPT = ('ansi', 'dumb', 'linux', 'screen', 'screen-256color', 'tmux', 'tmux-256color', 'vt100', 'vt220',
-                 'xterm', 'xterm-256color', 'xterm-color')
 # git parts Qorqbot and its agents never call: servers, mail and other version-control bridges.
 GIT_UNUSED = ('bin/git-cvsserver', 'bin/git-shell', 'bin/scalar', 'libexec/git-core/git-cvsserver',
               'libexec/git-core/git-shell', 'libexec/git-core/scalar', 'libexec/git-core/git-daemon',
@@ -163,7 +154,7 @@ def build(output, work, jobs):
         shutil.rmtree(folder, ignore_errors=True)
     env = {'PATH': BUILD_PATH, 'HOME': str(work), 'LANG': 'C', 'CFLAGS': '-O2', 'CPPFLAGS': '-I' + str(static / 'include'),
            'LDFLAGS': '-L' + str(static / 'lib') + ' -Wl,--as-needed'}
-    for name in LIBRARIES + ('tmux', 'git'):
+    for name in LIBRARIES + ('git',):
         unpack(fetch(name, downloads), sources / name)
     make, install = ['/usr/bin/make', '-j' + str(jobs)], ['/usr/bin/make', 'install']
 
@@ -184,21 +175,6 @@ def build(output, work, jobs):
                   '--disable-dict', '--disable-telnet', '--disable-tftp', '--disable-pop3', '--disable-imap',
                   '--disable-smb', '--disable-smtp', '--disable-gopher', '--disable-mqtt', '--disable-manual',
                   '--disable-docs'], make, install)
-    step('ncurses', ['./configure', '--prefix=' + str(static), '--without-shared', '--without-debug', '--without-ada',
-                     '--without-cxx', '--without-cxx-binding', '--without-manpages', '--without-tests', '--without-gpm',
-                     '--disable-widec', '--enable-overwrite', '--with-terminfo-dirs=' + SYSTEM_TERMINFO,
-                     '--with-default-terminfo-dir=/usr/share/terminfo'], make,
-         # The library and headers only; the terminal descriptions are compiled below, a few of them, into the package.
-         ['/usr/bin/make', 'install.libs', 'install.includes'])
-    step('libevent', ['./configure', '--prefix=' + str(static), '--disable-shared', '--enable-static', '--disable-openssl',
-                      '--disable-samples', '--disable-libevent-regress'], make, install)
-    step('utf8proc', make + ['libutf8proc.a'])
-    shutil.copy2(sources / 'utf8proc/libutf8proc.a', static / 'lib/libutf8proc.a')
-    shutil.copy2(sources / 'utf8proc/utf8proc.h', static / 'include/utf8proc.h')
-
-    # tmux, with its libraries linked in. No jemalloc here: glibc's allocator is fine and tmux then needs only libc.
-    step('tmux', ['./configure', '--enable-utf8proc', 'LIBEVENT_CORE_CFLAGS=-I' + str(static / 'include'),
-                  'LIBEVENT_CORE_LIBS=' + str(static / 'lib/libevent_core.a')], make)
 
     # git; RUNTIME_PREFIX lets it find its helpers wherever the folder sits. Only the https helpers link libcurl.
     curl_config = static / 'bin/curl-config'
@@ -211,7 +187,6 @@ def build(output, work, jobs):
 
     native = output / 'native'
     (native / 'bin').mkdir(parents=True)
-    shutil.copy2(sources / 'tmux/tmux', native / 'bin/tmux')
     git_root = stage / 'usr/local'
     for unused in GIT_UNUSED:
         target = git_root / unused
@@ -221,12 +196,9 @@ def build(output, work, jobs):
             target.unlink(missing_ok=True)
     for name in ('bin', 'libexec', 'share'):
         shutil.copytree(git_root / name, native / name, symlinks=True, dirs_exist_ok=True)
-    # A computer without terminal descriptions still runs tmux: the launcher adds this folder to TERMINFO_DIRS.
-    step('ncurses', [sources / 'ncurses/progs/tic', '-x', '-o', native / 'share/terminfo', '-e', ','.join(TERMINFO_KEPT),
-                     sources / 'ncurses/misc/terminfo.src'])
     licenses = native / 'licenses'
     licenses.mkdir()
-    for name in ('tmux', 'libevent', 'utf8proc', 'git', 'ncurses', 'zlib', 'openssl', 'curl'):
+    for name in ('git', 'zlib', 'openssl', 'curl'):
         shutil.copy2(sources / name / SOURCES[name]['license_file'], licenses / (name + '.txt'))
     for path in sorted(native.rglob('*')):
         if is_elf(path):
@@ -240,14 +212,13 @@ def build(output, work, jobs):
                 if is_elf(path))
     clean = {'PATH': '/usr/bin:/bin', 'HOME': str(work), 'LANG': 'C'}
     versions = {}
-    for label, argv in (('tmux', [native / 'bin/tmux', '-V']), ('git', [native / 'bin/git', '--version']),
+    for label, argv in (('git', [native / 'bin/git', '--version']),
                         ('python', [output / 'python/bin/python3.12', '-I', '-c', 'import sys, ssl, sqlite3; print(sys.version.split()[0])'])):
         versions[label] = subprocess.run([str(a) for a in argv], env=clean, capture_output=True, text=True, check=True).stdout.strip()
-    if SOURCES['tmux']['version'] not in versions['tmux'] or SOURCES['git']['version'] not in versions['git'] \
-            or versions['python'] != PYTHON_VERSION:
+    if SOURCES['git']['version'] not in versions['git'] or versions['python'] != PYTHON_VERSION:
         raise RuntimeError('A built program reports an unexpected version: ' + json.dumps(versions))
     used = {name: {key: SOURCES[name][key] for key in ('version', 'license', 'url', 'sha256')}
-            for name in ('tmux', 'libevent', 'utf8proc', 'ncurses', 'zlib', 'openssl', 'curl', 'git', 'python-x86_64')}
+            for name in ('zlib', 'openssl', 'curl', 'git', 'python-x86_64')}
     used['agent-browser'] = browser
     (output / 'TOOLS.json').write_text(json.dumps({
         'format': 1, 'chip': machine(), 'glibc_required': '.'.join(map(str, glibc)), 'reported_versions': versions,

@@ -159,38 +159,29 @@ class Environment(Folder):
         self.assertEqual(env['PATH'].split(os.pathsep), [str(self.runtime / 'venv/bin'), '/usr/bin', '/bin'])
         self.assertNotIn('QORQUT_AGENT_BROWSER_EXECUTABLE', env)
 
-    def test_a_linux_package_tells_tmux_and_git_where_the_computer_keeps_things(self):
+    def test_a_linux_package_tells_git_where_the_computer_keeps_its_certificates(self):
         self.ship()
-        terminfo = self.runtime / 'native/share/terminfo'
-        write(terminfo / 'x/xterm-256color', 'description')
         bundle = write(self.root.parent / 'ca-bundle.crt', 'certificates')
         with mock.patch.object(native_launch, 'system_ca_bundle', return_value=str(bundle)):
             env = self.environment()
-        # The computer's own terminal descriptions are looked at first, the few the package carries last.
-        self.assertEqual(env['TERMINFO_DIRS'], native_launch.SYSTEM_TERMINFO_DIRS + os.pathsep + str(terminfo))
         self.assertEqual(env['GIT_SSL_CAINFO'], str(bundle))
 
     def test_what_the_user_already_set_is_kept(self):
         self.ship()
-        terminfo = self.runtime / 'native/share/terminfo'
-        write(terminfo / 'x/xterm-256color', 'description')
         with mock.patch.object(native_launch, 'system_ca_bundle', return_value='/computer/bundle.crt'):
-            env = self.environment(TERMINFO_DIRS='/mine', GIT_SSL_CAINFO='/mine/ca.pem')
-        self.assertEqual(env['TERMINFO_DIRS'], '/mine' + os.pathsep + str(terminfo))
+            env = self.environment(GIT_SSL_CAINFO='/mine/ca.pem')
         self.assertEqual(env['GIT_SSL_CAINFO'], '/mine/ca.pem')
 
-    def test_a_mac_package_and_a_package_without_shipped_tools_add_neither(self):
+    def test_a_mac_package_and_a_package_without_shipped_tools_do_not_add_it(self):
         self.ship()
         write(self.runtime / 'native/share/git-core/templates/description', 'x')
         with mock.patch.object(native_launch, 'system_ca_bundle', return_value='/computer/bundle.crt'):
             mac = self.environment(system='darwin')
             self.assertNotIn('GIT_SSL_CAINFO', mac)  # a Mac's git uses the keychain
-            self.assertNotIn('TERMINFO_DIRS', mac)  # and the package carries no terminal descriptions
             self.ship(bundled=False)
             (self.runtime / 'native').rename(self.root / 'aside')
             plain = self.environment()
         self.assertNotIn('GIT_SSL_CAINFO', plain)
-        self.assertNotIn('TERMINFO_DIRS', plain)
 
     def test_the_computers_certificate_bundle_is_found_by_its_distribution_name(self):
         debian, fedora = write(self.root.parent / 'debian.crt'), write(self.root.parent / 'fedora.crt')
@@ -355,9 +346,9 @@ class BuildTarget(unittest.TestCase):
     def bundled(self, target, member):
         with tempfile.TemporaryDirectory() as temporary:
             tools, runtime = Path(temporary).resolve() / 'tools', Path(temporary).resolve() / 'runtime'
-            write(tools / 'native/bin/tmux', '#!/bin/sh\n', 0o755)
+            write(tools / 'native/bin/git', '#!/bin/sh\n', 0o755)
             (tools / 'native/licenses').mkdir()
-            write(tools / 'TOOLS.json', json.dumps({'reported_versions': {'tmux': 'tmux 3.8'}}))
+            write(tools / 'TOOLS.json', json.dumps({'reported_versions': {'git': 'git version 2.56.1'}}))
             runtime.mkdir()
 
             def download(url, destination, limit):
@@ -374,12 +365,12 @@ class BuildTarget(unittest.TestCase):
             record, program, license_text = self.bundled(target, member)
             self.assertIn('# ' + member, program)
             self.assertEqual(license_text, 'Apache')
-            self.assertEqual(record['reported_versions']['tmux'], 'tmux 3.8')
+            self.assertEqual(record['reported_versions']['git'], 'git version 2.56.1')
 
     def test_a_browser_download_that_is_not_the_pinned_one_stops_the_build(self):
         with tempfile.TemporaryDirectory() as temporary:
             tools, runtime = Path(temporary).resolve() / 'tools', Path(temporary).resolve() / 'runtime'
-            write(tools / 'native/bin/tmux', '', 0o755)
+            write(tools / 'native/bin/git', '', 0o755)
             write(tools / 'TOOLS.json', '{}')
             runtime.mkdir()
             with mock.patch.object(native_launch, '_download', return_value='other'), \

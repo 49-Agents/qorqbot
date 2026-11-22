@@ -6,7 +6,7 @@
 #   check_deb.sh [--no-launch] [--system-tools] DEB OUTPUT_FOLDER
 #
 # --no-launch     check only the files and the package, do not open the app
-# --system-tools  the archive inside is not self-contained: also install the Python 3.12, git and tmux it relies on
+# --system-tools  the archive inside is not self-contained: also install the Python 3.12 and git it relies on
 #
 # Needs Docker and a network connection (the image is ubuntu:24.04; its packages come from Ubuntu's archive, or from
 # the mirror named by QORQBOT_APT_MIRROR, e.g. http://azure.archive.ubuntu.com/ubuntu; apt still verifies them). The
@@ -53,13 +53,13 @@ expect_file() { [ -e "$1" ] || [ -L "$1" ] && note "  present: $1" || fail "miss
 export DEBIAN_FRONTEND=noninteractive
 section "A new Ubuntu"
 note "$(. /etc/os-release; echo "$PRETTY_NAME"), $(uname -m)"
-for program in python3.12 git tmux node; do
+for program in python3.12 git node; do
   command -v "$program" >/dev/null 2>&1 && note "  $program is installed in this image" || note "  $program is not installed (as on a new computer)"
 done
 
 section "apt install"
 EXTRA=""
-[ "$SYSTEM_TOOLS" = 1 ] && EXTRA="python3.12 python3.12-venv git tmux"
+[ "$SYSTEM_TOOLS" = 1 ] && EXTRA="python3.12 python3.12-venv git"
 cp "/in/$DEB_NAME" "/tmp/$DEB_NAME"
 if [ -n "$APT_MIRROR" ]; then
   mirror="${APT_MIRROR%/}"

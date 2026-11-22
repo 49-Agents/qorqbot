@@ -53,7 +53,8 @@ jobs:
           test "$(uname -m)" = x86_64
           sudo apt-get update -qq
           # librsvg2-bin draws the app icon. This job only unpacks the AppImage (no FUSE or display needed); the
-          # first-open and .deb jobs below install the display and container tools they use.
+          # first-open and .deb jobs below install the display and container tools they use. tmux is for the tests of
+          # the legacy Terminals mode; the package does not ship it.
           sudo apt-get install -y -qq --no-install-recommends tmux librsvg2-bin
           python -m pip install packaging
       - name: Run the desktop engine tests and the builder tests
@@ -64,7 +65,7 @@ jobs:
         with:
           path: ~/.cache/qorqbot/linux-tools
           key: ${{ runner.os }}-${{ runner.arch }}-qorqbot-linux-tools-v1-${{ hashFiles('qorqut-code/tools/distribution/linux_tools.py', 'qorqut-code/tools/distribution/macos_tools.py') }}
-      - name: Build the programs the package ships (Python, tmux, git)
+      - name: Build the programs the package ships (Python, git)
         run: |
           tools="$HOME/.cache/qorqbot/linux-tools"
           if [ ! -f "$tools/out/TOOLS.json" ]; then
@@ -171,8 +172,8 @@ jobs:
           if-no-files-found: warn
           path: ${{ runner.temp }}/first-open
   deb:
-    # Release gate: `apt install ./qorqbot_VERSION_amd64.deb` on a new Ubuntu 24.04 (a container with no Python, git or
-    # tmux) installs the files, the menu entry and the AppArmor profile, opens to the sign-in screen and removes cleanly.
+    # Release gate: `apt install ./qorqbot_VERSION_amd64.deb` on a new Ubuntu 24.04 (a container with no Python or git)
+    # installs the files, the menu entry and the AppArmor profile, opens to the sign-in screen and removes cleanly.
     name: .deb installs on Ubuntu 24.04
     needs: linux-app
     if: inputs.version != ''

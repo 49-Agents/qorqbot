@@ -11,7 +11,8 @@
 # opens the app, waits for the dashboard's sign-in screen through the app's inspection port, quits the app with
 # SIGTERM and checks that the server stopped, then opens it a second time to check it starts again on the same port.
 # For a self-contained archive it also hides the computer's Python, git, tmux and Node.js from the app (a stub in
-# front of each on PATH, also in the login shell it reads PATH from) and checks the app runs on the programs it ships.
+# front of each on PATH, also in the login shell it reads PATH from) and checks the app runs on the Python and git it
+# ships, and needs neither tmux nor Node.js.
 #
 # An AppImage is mounted with FUSE when this computer allows it, and unpacked and run from there otherwise
 # (APPIMAGE_EXTRACT_AND_RUN=1). The Chromium sandbox follows the app's own rules: the AppImage's launcher turns it off
@@ -128,7 +129,7 @@ if [ "$SELF_CONTAINED" = 1 ]; then
     note "  $program: $(PATH="$APP_PATH" command -v "$program") (a stub; the computer has $(PATH="$START_PATH" command -v "$program" || echo "none"))"
   done
 else
-  note "the archive is not self-contained: the computer's Python 3.12, git and tmux stay available to the app"
+  note "the archive is not self-contained: the computer's Python 3.12 and git stay available to the app"
 fi
 
 # ---------------------------------------------------------------- first open
@@ -191,21 +192,12 @@ if [ "$SELF_CONTAINED" = 1 ]; then
   SERVICE="$(ps -axo command | grep -F "$ROOT" | grep -m 1 'qorqut.service' | cut -d ' ' -f 1)"
   note "  service runs on: ${SERVICE:-not running}"
   case "$SERVICE" in "$ROOT"/runtime/venv/bin/*) ;; *) fail "the service does not run on the Python inside $ROOT" ;; esac
-  for tool in tmux git agent-browser; do
+  for tool in git agent-browser; do
     program="$ROOT/runtime/native/bin/$tool"
-    flag="--version"; [ "$tool" = tmux ] && flag="-V"
-    if version="$("$program" "$flag" 2>&1 | head -n 1)"; then note "  $tool: $version"; else fail "$program does not run: $version"; fi
+    if version="$("$program" --version 2>&1 | head -n 1)"; then note "  $tool: $version"; else fail "$program does not run: $version"; fi
   done
   "$ROOT/runtime/native/bin/git" -C "$ROOT/instance/operations" log --oneline -1 >>"$OUT/errors.txt" 2>&1 \
     || fail "the records folder was not created with the shipped git"
-  # A terminal session on the shipped tmux, as agent terminals use it.
-  if TERM=xterm-256color "$ROOT/runtime/native/bin/tmux" -L first-open-check new-session -d 'sleep 30' 2>>"$OUT/errors.txt" \
-      && "$ROOT/runtime/native/bin/tmux" -L first-open-check list-sessions >>"$OUT/errors.txt" 2>&1; then
-    note "  a tmux session starts"
-  else
-    fail "a tmux session does not start"
-  fi
-  "$ROOT/runtime/native/bin/tmux" -L first-open-check kill-server 2>/dev/null
 fi
 
 # ---------------------------------------------------------------- quit

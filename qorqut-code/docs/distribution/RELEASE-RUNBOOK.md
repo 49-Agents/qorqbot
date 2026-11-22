@@ -101,7 +101,7 @@ See MACOS.md for the remaining advanced Linux-only facilities.
 
 The Linux desktop app (an AppImage and a `.deb`, see LINUX.md) wraps the exact checked Ubuntu archive with
 `tools/distribution/linux_app/build_linux_app.py`. Build that archive self-contained: `linux_tools.py` builds the
-shipped Python, tmux and git once, and `native_build.py --target ubuntu24-x86_64 --bundled-tools TOOLS` adds them.
+shipped Python and git once, and `native_build.py --target ubuntu24-x86_64 --bundled-tools TOOLS` adds them.
 `.github/workflows/linux-app-checks.yml` does this on manual dispatch on `ubuntu-24.04` and runs `check_posix.py`
 on the archive. With its `version` input it also builds the AppImage and `.deb`, checks the packaged launcher with a
 fresh home folder, opens the AppImage under Xvfb with the computer's Python, git and tmux hidden

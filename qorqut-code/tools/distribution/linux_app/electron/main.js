@@ -100,7 +100,7 @@ async function boot() {
     } else if (engine.updateAvailable()) {
       step('Update available');
       const answer = await ask({
-        message: `This app contains Qorqbot ${engine.bundledVersion}. The installed version is ${engine.installedVersion()}. Your records stay in place. Close agent terminals before updating.`,
+        message: `This app contains Qorqbot ${engine.bundledVersion}. The installed version is ${engine.installedVersion()}. Your records stay in place. Running agents are closed first and start again when you next message them. If agents run in terminals (Settings > Agents), close their terminals first.`,
         buttons: [{ id: 'later', label: 'Later' }, { id: 'update', label: 'Update Now', primary: true }],
       });
       publish({ choice: null });
@@ -457,7 +457,7 @@ function rebuildMenu() {
   const template = [
     { label: 'File', submenu: fileMenu },
     // Edit shortcuts are shown but not registered: Chromium handles them in text fields itself, and a registered
-    // Ctrl+C or Ctrl+A would reach the menu before the dashboard's agent terminals.
+    // Ctrl+C or Ctrl+A would reach the menu before a terminal shown in the dashboard.
     {
       label: 'Edit',
       submenu: [

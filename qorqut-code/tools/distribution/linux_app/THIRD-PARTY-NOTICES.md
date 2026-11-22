@@ -23,10 +23,6 @@ license is in `runtime/native/licenses` of the installed folder (`~/Qorqbot/qorq
 | Program | Version | License |
 | --- | --- | --- |
 | Python (python-build-standalone build of CPython) | 3.12.16 | PSF License 2.0, with the licenses of the libraries it includes |
-| tmux | 3.8 | ISC |
-| libevent (inside tmux) | 2.1.13 | BSD 3-Clause |
-| utf8proc (inside tmux) | 2.12.0 | MIT |
-| ncurses (inside tmux) | 6.5 | X11 |
 | git | 2.56.1 | GPL-2.0; source: https://github.com/git/git/archive/refs/tags/v2.56.1.tar.gz |
 | zlib (inside git) | 1.3.2 | Zlib |
 | OpenSSL (inside git) | 3.5.9 | Apache-2.0 |

@@ -1,16 +1,18 @@
 # Qorqbot desktop app for Linux
 
 Ubuntu 24.04 or newer on an Intel or AMD 64-bit computer (x86_64); other distributions with glibc 2.38 or
-newer (Fedora 39+, Debian 13) also work. Debian 12 and Ubuntu 22.04 are too old for the shipped tmux and git.
+newer (Fedora 39+, Debian 13) also work. Debian 12 and Ubuntu 22.04 are too old for the shipped git.
 The app is an AppImage or a `.deb`; both show Qorqbot in its own window. Everything Qorqbot needs (Python 3.12,
-tmux, git, the agent-browser tool) is inside; install and sign in to `claude` or `codex` yourself.
+git, the agent-browser tool) is inside. Qorqbot downloads Claude Code and Codex itself; you sign in to your own
+account from **Settings**.
 
 The same self-contained `.tar.gz` also runs without the app: extract it, `cd qorqbot` and run `./qorqbot`; it
 opens the dashboard in your browser. The older system-Python path is described in [README.md](README.md).
 
 The app carries the exact Linux archive unchanged in its `qorqbot-payload` folder. That archive is
-self-contained: it brings its own Python 3.12, git, tmux and the agent-browser tool, so nothing has to be
-installed first. Install and sign in to your chosen Codex or Claude Code client separately. Browser
+self-contained: it brings its own Python 3.12, git and the agent-browser tool, so nothing has to be
+installed first. tmux is not included: only the legacy Terminals mode (Settings > Agents) uses it, with the
+computer's own. Browser
 automation needs your installed Google Chrome. Each release lists the SHA-256 of its files in `SHA256SUMS`:
 
 ```sh
@@ -68,7 +70,8 @@ Pre-release versions use `~` in the package version (`1.3.0~preview.2`), so a re
   **Help > Install Terminal Command** installs a `qorqbot` command in `~/.local/bin`; with the `.deb`, that file
   runs the browser version; the app itself is `qorqbot-desktop`, so the two never collide.
 - A newer app offers to update the installed folder through its own `./qorqbot update` with the bundled archive
-  and checksum. Close agent terminals first.
+  and checksum. Running agents are closed first and start again when you next message them; with Terminals
+  (legacy) the update waits until the agents' terminals are closed.
 - A failure is shown in the window with its details and Try Again, Copy Details and Show Log actions.
 - Links to the dashboard's own pages open new app windows; other links open in the default browser.
   **View > Open in Browser** shows the dashboard there.
@@ -101,8 +104,8 @@ Needs Linux x86_64, Node.js 22+ with npm (Electron and electron-builder are pinn
 `electron/package-lock.json`) and, for the best icon rendering, `librsvg2-bin` (without it, Electron draws the
 same icon). The archive must be self-contained: build the programs once with `linux_tools.py`, then pass them to
 `native_build.py`, as in the [release runbook](RELEASE-RUNBOOK.md). `build_linux_app.py` refuses an archive built
-without `--bundled-tools` unless you pass `--allow-system-tools` (the app then needs the computer's Python 3.12,
-git and tmux):
+without `--bundled-tools` unless you pass `--allow-system-tools` (the app then needs the computer's Python 3.12
+and git):
 
 ```sh
 python3.12 tools/distribution/linux_tools.py --docker --output /abs/tools --work /abs/tools-work

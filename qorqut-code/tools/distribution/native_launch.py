@@ -60,8 +60,7 @@ def link_user_keychains(home, user_home):
     link.symlink_to(target, target_is_directory=True)
 
 
-# Where Linux distributions keep terminal descriptions, and the file each keeps its trusted certificates in.
-SYSTEM_TERMINFO_DIRS = '/etc/terminfo:/lib/terminfo:/usr/share/terminfo:/usr/lib/terminfo'
+# The file each Linux distribution keeps its trusted certificates in.
 SYSTEM_CA_BUNDLES = ('/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt', '/etc/ssl/ca-bundle.pem',
                      '/etc/pki/tls/cacert.pem', '/etc/ssl/cert.pem')
 
@@ -119,10 +118,6 @@ def environment(root, home):
         'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
         'LANG': 'C.UTF-8',
     })
-    # The shipped tmux finds terminal descriptions on the computer first, then in the few the package carries.
-    terminfo = runtime / 'native/share/terminfo'
-    if terminfo.is_dir():
-        env['TERMINFO_DIRS'] = os.pathsep.join([env.get('TERMINFO_DIRS') or SYSTEM_TERMINFO_DIRS, str(terminfo)])
     if sys.platform.startswith('linux') and (runtime / 'native/bin/git').is_file():
         # A Mac's git uses the system keychain; the one built for Linux reads a certificate file.
         bundle = system_ca_bundle()

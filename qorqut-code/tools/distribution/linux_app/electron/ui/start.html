@@ -18,21 +18,22 @@
 
   <h2>How it fits together</h2>
   <div class="card">
-    <p>Qorqbot does not run an AI model itself. Each agent is a coding CLI that you have installed and signed in to,
-      running inside that agent's own terminal on this computer. Qorqbot gives the agent its instructions and tools, and
-      the dashboard's chat sends your messages to that running session.</p>
-    <p>No session running means no chat. When an agent is offline, its chat says how to start it.</p>
+    <p>Qorqbot does not run an AI model itself. Each agent runs on Claude Code or Codex, which you sign in to with
+      your own account. Qorqbot starts the agent on this computer when you message it and gives it its instructions and
+      tools. You talk to every agent in the dashboard's chat; there is no terminal to open.</p>
+    <p>An agent that has been idle for a while goes to sleep and starts again by itself the next time it has something
+      to do.</p>
   </div>
 
-  <h2>1. Install an agent CLI once</h2>
+  <h2>1. Connect Claude Code or Codex once</h2>
   <div class="card">
-    <p>Every agent, Ordubashy included, runs on either CLI. Install one or both, then run it once in a terminal
-      and sign in:</p>
+    <p>Every agent, Ordubashy included, runs on either one. In <b>Settings</b>, download the one you use and sign in
+      to it in your browser:</p>
     <table>
-      <tr><td>Claude Code</td><td><code>claude</code></td></tr>
-      <tr><td>OpenAI Codex</td><td><code>codex</code></td></tr>
+      <tr><td>Claude Code</td><td>Anthropic account</td></tr>
+      <tr><td>OpenAI Codex</td><td>ChatGPT or OpenAI account</td></tr>
     </table>
-    <p class="hint spaced">You can mix them: start one agent with Claude Code and another with Codex.</p>
+    <p class="hint spaced">You can mix them: choose the client, model and effort of each agent in Settings.</p>
   </div>
 
   <h2>2. Sign in to Qorqbot</h2>
@@ -45,13 +46,8 @@
 
   <h2>3. Follow the walkthrough</h2>
   <div class="card">
-    <p>It starts by itself after you sign in. It first asks once to trust Qorqbot's own agent folders. Allow it, and
-      Claude Code and Codex open straight into the session without asking. Your other projects are not changed, and you
-      can turn this off in <b>Settings</b>. If you don't allow it, Claude asks whether to trust the folder (press the
-      down arrow, then Return on "Yes, I trust this folder") and Codex asks you to review its hooks.</p>
-    <p>Then you start Ordubashy in his own terminal: type <code>claude</code> or <code>codex</code> and press Return,
-      whichever you are signed in to. He connects to the chat by himself. The tour then shows you around the workspace,
-      projects, signoffs and Settings.</p>
+    <p>It starts by itself after you sign in. It shows you around the workspace, projects, signoffs and Settings, and
+      ends in Ordubashy's chat. Sending your first message there starts him.</p>
   </div>
 
   <h2>4. Say hello</h2>
@@ -63,10 +59,9 @@
 
   <h2>Starting him again</h2>
   <div class="card">
-    <p>Point at the mark at the top left of the dashboard. Its menu lists your agents, then <b>Walkthrough</b>,
-      <b>Terminal</b> and <b>Settings</b>. Choose <b>Ordubashy</b>, click <b>&gt;_</b> above the chat to open his own
-      terminal, and type <code>claude</code> or <code>codex</code>. Do this after every restart.</p>
-    <p class="hint spaced">A session started in another terminal window is not his session and the chat will not connect to it.</p>
+    <p>Point at the mark at the top left of the dashboard. Its menu lists your agents, then <b>Walkthrough</b> and
+      <b>Settings</b>. Choose <b>Ordubashy</b> and send a message: he starts by himself, after every restart too.
+      <b>End session</b> above the chat turns an agent off until you message it again.</p>
   </div>
 
   <h2>The walkthrough again</h2>

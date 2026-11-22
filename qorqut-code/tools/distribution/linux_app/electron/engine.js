@@ -2,7 +2,7 @@
 // Install/start/stop/update engine for the Qorqbot Linux app.
 //
 // The app (AppImage or .deb) carries the exact native archive unchanged,
-// including its own runtime (Python, tmux, git, browser tools). Qorqbot runs
+// including its own runtime (Python, git, browser tools). Qorqbot runs
 // from a writable folder at a short fixed path (~/Qorqbot/qorqbot), so the
 // first launch unpacks the archive there and runs the folder's own offline
 // setup.
@@ -90,8 +90,8 @@ function joinPaths(lists) {
 }
 
 /** A copy of ENV without what the AppImage launcher (AppRun) added for the app itself. The launcher script puts the
- * mounted image first in PATH, XDG_DATA_DIRS and LD_LIBRARY_PATH and exports APPDIR/APPIMAGE. Qorqbot and the agent
- * terminals it starts must not inherit those: the image's libraries are not meant for other programs, its folder
+ * mounted image first in PATH, XDG_DATA_DIRS and LD_LIBRARY_PATH and exports APPDIR/APPIMAGE. Qorqbot and the agents
+ * it starts must not inherit those: the image's libraries are not meant for other programs, its folder
  * holds a program that is also called qorqbot, and a nested AppImage that finds APPDIR set looks in the wrong place.
  * Anything the person had set before launching stays, in order. */
 function cleanAppImageEnv(env) {
@@ -298,7 +298,7 @@ class Engine {
       throw new EngineError('incomplete', `${this.root} exists but is not a complete Qorqbot folder. Nothing was replaced. Move it aside and try again.`);
     }
     if (this.root.length > MAX_ROOT_LENGTH) {
-      throw new EngineError('path', `The install folder path is too long for local terminal sockets (${this.root}).`);
+      throw new EngineError('path', `The install folder path is too long for local sockets (${this.root}).`);
     }
     onLine('Verifying the bundled package');
     if ((await sha256File(this.archive)) !== this.archiveSha256) {

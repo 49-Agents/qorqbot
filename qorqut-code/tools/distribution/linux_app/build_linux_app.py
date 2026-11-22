@@ -3,8 +3,8 @@
 Build tooling only; runs on Linux x86_64 with Node.js/npm. The app is an Electron shell (``electron/``) that installs,
 runs and shows the local Qorqbot server in its own window. electron-builder (pinned in ``electron/package-lock.json``)
 packages it; this script prepares its inputs (icons, the archive) and checks the result. It carries the archive
-unchanged in ``resources/qorqbot-payload``; a self-contained archive brings its own Python, git and tmux, so the app
-adds none. An archive built without ``--bundled-tools`` relies on the computer's own Python 3.12, git and tmux and is
+unchanged in ``resources/qorqbot-payload``; a self-contained archive brings its own Python and git, so the app
+adds none. An archive built without ``--bundled-tools`` relies on the computer's own Python 3.12 and git and is
 refused unless ``--allow-system-tools`` is passed.
 
 The .deb installs to /opt/Qorqbot, with a desktop entry, hicolor icons and (for Ubuntu 24.04's restriction on
@@ -289,7 +289,7 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, required=True, help='new or empty output directory')
     parser.add_argument('--targets', default='appimage,deb', help='appimage, deb or both, separated by a comma (default: both)')
     parser.add_argument('--allow-system-tools', action='store_true',
-                        help="accept an archive that is not self-contained (it then uses the computer's own Python 3.12, git and tmux)")
+                        help="accept an archive that is not self-contained (it then uses the computer's own Python 3.12 and git)")
     args = parser.parse_args(argv)
     try:
         targets = parse_targets(args.targets)
@@ -305,7 +305,7 @@ def main(argv=None):
     version = archive_version(archive, payload)
     if not self_contained(payload) and not args.allow_system_tools:
         parser.error('The archive is not self-contained (built without --bundled-tools): the app would need the '
-                     "computer's Python 3.12, git and tmux. Pass --allow-system-tools to build it anyway.")
+                     "computer's Python 3.12 and git. Pass --allow-system-tools to build it anyway.")
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='qorqbot-linux-app-') as temporary:
         work = Path(temporary)

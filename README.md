@@ -81,13 +81,16 @@ Needs Ubuntu 24.04 on an Intel or AMD 64-bit computer.
 2. The first open sets Qorqbot up in `~/Qorqbot/qorqbot` in a few seconds and
    opens the dashboard. Sign in with your email: Qorqbot sends a code, and you
    do this once.
-3. Install at least one agent CLI and sign in to it once in a terminal:
-   [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or
-   [Codex](https://github.com/openai/codex) (`codex`). You can use both.
-4. The walkthrough starts by itself. It has you start Ordubashy, your lead
-   agent, in his own terminal and ends in Chat, where you say hello and he sets
-   you up. Skipped or finished, take it again from **Settings > Walkthrough** or
-   **Help > Show Walkthrough**.
+3. Qorqbot downloads [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+   and [Codex](https://github.com/openai/codex) itself. Choose the one you use
+   (you can use both) and sign in to your account on the page that opens in your
+   browser. You can do this later in **Settings**. Nothing is typed in a terminal.
+4. The walkthrough starts by itself. It tours the workspace chapter by chapter
+   and ends in Chat, where you say hello. That starts Ordubashy, your lead
+   agent, and he sets you up: a few questions about you, then the tools you
+   want him to use. Agents start when you message them or when there is work
+   for them. Skipped or finished, take it again from
+   **Settings > Walkthrough** or **Help > Show Walkthrough**.
 
 Details: [Linux desktop guide](qorqut-code/docs/distribution/LINUX.md).
 

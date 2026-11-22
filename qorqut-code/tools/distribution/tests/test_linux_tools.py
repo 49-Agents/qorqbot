@@ -52,14 +52,13 @@ class Pins(unittest.TestCase):
             self.assertTrue(source['version'] and source['license'], name)
 
     def test_what_both_systems_ship_has_one_pin(self):
-        for name in ('tmux', 'libevent', 'utf8proc', 'git'):
-            self.assertEqual(linux_tools.SOURCES[name], macos_tools.SOURCES[name])
+        self.assertEqual(linux_tools.SOURCES['git'], macos_tools.SOURCES['git'])
         python = linux_tools.SOURCES['python-x86_64']
         self.assertEqual(python['version'], macos_tools.PYTHON_VERSION + '+' + macos_tools.PYTHON_BUILD)
         self.assertTrue(python['url'].endswith('-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz'))
 
     def test_every_shipped_library_has_its_license_copied(self):
-        for name in ('tmux', 'libevent', 'utf8proc', 'git', 'ncurses', 'zlib', 'openssl', 'curl'):
+        for name in ('git', 'zlib', 'openssl', 'curl'):
             self.assertIn('license_file', linux_tools.SOURCES[name], name)
 
     def test_the_browser_tool_is_pinned_by_the_launchers_own_checksum(self):
@@ -98,7 +97,7 @@ class Fetch(unittest.TestCase):
 class ElfCheck(unittest.TestCase):
     def test_the_libraries_glibc_paths_and_version_are_read_from_readelf(self):
         with readelf(needed='libm.so.6', rpath='$ORIGIN/../lib:/build/lib', glibc='GLIBC_2.38'):
-            needed, paths, glibc = linux_tools.elf_facts(Path('tmux'))
+            needed, paths, glibc = linux_tools.elf_facts(Path('git'))
         self.assertEqual((needed, paths, glibc), (['libm.so.6', 'libc.so.6'], ['$ORIGIN/../lib', '/build/lib'], (2, 38)))
 
     @unittest.skipUnless(sys.platform == 'linux' and os.path.exists('/usr/bin/readelf') and os.path.exists('/bin/sh'), 'needs Linux binutils')
@@ -109,7 +108,7 @@ class ElfCheck(unittest.TestCase):
 
     def test_a_program_that_needs_only_the_c_library_is_accepted(self):
         with readelf(needed='libm.so.6', rpath='$ORIGIN/../lib', glibc='GLIBC_2.34'):
-            self.assertEqual(linux_tools.require_self_contained(Path('tmux')), (2, 34))
+            self.assertEqual(linux_tools.require_self_contained(Path('git')), (2, 34))
 
     def test_every_other_library_is_refused(self):
         for library in ('libz.so.1', 'libssl.so.3', 'libncursesw.so.6', 'libtinfo.so.6', 'libevent_core-2.1.so.7', 'libcurl.so.4'):
