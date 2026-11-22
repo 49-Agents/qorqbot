@@ -17,7 +17,7 @@ class CheckpointTests(unittest.TestCase):
         self.connection = sqlite3.connect(':memory:', isolation_level=None)
         self.connection.row_factory = sqlite3.Row
         self.addCleanup(self.connection.close)
-        for statement in OWNER_SCHEMA['incidents']:
+        for statement in OWNER_SCHEMA['checkpoints']:
             if statement.startswith('CREATE TABLE agent_checkpoint_findings'):
                 self.connection.execute(statement)
         self.connection.execute('CREATE TABLE native_session_owners(agent_id,consumer_id,generation)')

@@ -1,7 +1,6 @@
 """Domain operations implemented against the shared application contracts."""
 
 from dataclasses import dataclass
-from .dev_tickets import DevTickets
 from .viewbox import AgentViewbox
 from .document_history import DocumentHistory
 from .file_links import FileLinks
@@ -38,7 +37,6 @@ from .project_progress import ProjectProgress
 from .project_briefing import ProjectBriefing
 from .records_health import RecordsHealth
 from qorqut.agents.roles import LEARNING_APPLIER_ROLE
-from qorqut.incidents import IncidentOperations
 from qorqut.shared_context.service import INSTRUCT_ROLES
 
 
@@ -90,9 +88,7 @@ def register_project_domains(registry, application, paths, *, agent_resolver, qu
     documents = DocumentOperations(application.database, paths, clock=clock, job_programs=job_programs, filing=filing)
     assets = AssetOperations(documents.store, additional_references=no_additional_asset_references, clock=clock)
     data_uploads = DataUploadOperations(documents.store, clock=clock)
-    DevTickets().register(registry)
     viewbox = AgentViewbox(application, clock=clock)
-    IncidentOperations(application).register(registry)
     ProjectProgress(clock=clock).register(registry)
     ProjectBriefing(application, clock=clock).register(registry)
     records_health = RecordsHealth(clock=clock).register(registry)

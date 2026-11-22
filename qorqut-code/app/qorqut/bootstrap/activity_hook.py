@@ -345,17 +345,6 @@ def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post):
         result = post(registration, {
             **binding_fields, 'registration_id':registration['registration_id'], 'session_id':hook['session_id'],
             'turn_id':hook['turn_id'], 'allow_correction':allow, 'claim_id':receipt['claim_id'] if allow else None})
-        try:
-            try:
-                from qorqut.bootstrap.technical_reporting import active, record
-            except ImportError:
-                sys.path.insert(0, str(Path(__file__).resolve().parent))
-                from technical_reporting import active, record
-            if active(registration, 'activity_hook', 'checkpoint', hook['session_id']):
-                record(registration, hook['session_id'], 'activity_hook', 'checkpoint', 'success',
-                      call_site='activity_hook.checkpoint', recovered=True)
-        except Exception:
-            pass
         state['state'] = result.get('state','checked')
         reason = result.get('correction')
         if allow and isinstance(reason,str) and reason.strip() and len(reason) <= 2500:
@@ -371,20 +360,8 @@ def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post):
                 write_state(receipt_path,receipt,durable=True)
                 write_state(path,value)
             return {'decision':'block','reason':reason}
-    except (OSError,ValueError,TypeError,KeyError) as error:
+    except (OSError,ValueError,TypeError,KeyError):
         state['state'] = 'unavailable'
-        try:
-            try:
-                from qorqut.bootstrap.technical_reporting import record
-            except ImportError:
-                sys.path.insert(0, str(Path(__file__).resolve().parent))
-                from technical_reporting import record
-            code = getattr(error, 'code', 'checkpoint_unavailable')
-            record(registration, hook.get('session_id'), 'activity_hook', 'checkpoint',
-                   code, call_site='activity_hook.checkpoint',
-                   retryable=code not in _EXPECTED_CHECKPOINT, terminal=True)
-        except Exception:
-            pass
     with activity_lock(path):
         if read_activity(path).get('sequence') == value['sequence']:
             write_state(path,value)
@@ -552,18 +529,6 @@ def record(hook, registration_path, runtime, *, now=None):
     if checkpoint_enabled and owner and event == 'Stop':
         native = hook if runtime == 'codex' else {**hook, 'turn_id':value['checkpoint'].get('turn_id')}
         output = checkpoint_stop(native, registration, path, value)
-    if event != 'SessionEnd':
-        try:
-            try:
-                from qorqut.bootstrap.technical_reporting import active, record as record_technical
-            except ImportError:
-                sys.path.insert(0, str(Path(__file__).resolve().parent))
-                from technical_reporting import active, record as record_technical
-            if active(registration, 'activity_hook', 'record', session_id):
-                record_technical(registration, session_id, 'activity_hook', 'record', 'success',
-                    call_site='activity_hook.record', recovered=True)
-        except Exception:
-            pass
     return output
 
 
@@ -640,20 +605,7 @@ def main():
                                                                  deadline=deadline)):
                 return
     except (OSError,ValueError,KeyError,TypeError,AttributeError):
-        # Hook bookkeeping remains best-effort for the user's work, but a
-        # bounded technical record survives until a later service connection.
-        try:
-            if isinstance(hook, dict) and hook.get('hook_event_name') != 'SessionEnd':
-                try:
-                    from qorqut.bootstrap.technical_reporting import record as record_technical
-                except ImportError:
-                    sys.path.insert(0, str(Path(__file__).resolve().parent))
-                    from technical_reporting import record as record_technical
-                registration = json.loads(Path(args.registration).read_text())
-                record_technical(registration, hook.get('session_id'), 'activity_hook', 'record',
-                    'activity_hook_unavailable', call_site='activity_hook.record', terminal=True)
-        except Exception:
-            pass
+        pass  # Hook bookkeeping is best-effort for the user's work.
     emit_attention(hook, args.registration, args.runtime, output, sys.stdout, deadline=deadline)
 
 

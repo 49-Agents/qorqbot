@@ -100,7 +100,7 @@ a partial scan. The matching bindings feed the preview token, so one that appear
 `revision_conflict`/`move_blocked`, not a silent move.
 
 Historical records are **preserved** and are not blockers: immutable message references and payloads, Signoff notes,
-Focus notes, inbox events and deliveries, retained checkpoint findings, incident impacts, terminal jobs and Signoffs.
+Focus notes, inbox events and deliveries, retained checkpoint findings, terminal jobs and Signoffs.
 They keep naming the old scope and stay navigable through the location resolver and the historical reference scope below.
 Relationships whose other end does not move are history of the same kind. A moved Task's id stays reserved for good (no
 new Task can take an id a relocation recorded), so history left in a scope can never attach to another Task.

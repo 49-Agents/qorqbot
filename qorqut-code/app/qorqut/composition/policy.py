@@ -57,11 +57,6 @@ TABLE_PREREQUISITE_OPERATIONS = frozenset(name for name, base in CRM_PREREQUISIT
 STRENGTH = {"allow": 0, "signoff": 1, "deny": 2}
 # Operations whose Global rule differs from the project one, so effective-configuration discovery evaluates both scopes.
 GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | TABLE_PREREQUISITE_OPERATIONS
-# Repair-ticket removal, phase 1: the agent ticket/incident tools are gone. The one retained internal scoped
-# reader keeps its standing grant so surviving Task, Signoff and Project reference resolution still authorizes;
-# the agent MCP caller refuses it as a tool, so the grant exposes no callable agent operation. Phase 2 removes
-# the reader, this grant and the remaining owner views with the feature and its data.
-INTERNAL_TICKET_READS = frozenset({"dev_tickets_get"})
 WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace_present", "workspace_select",
                                   "workspace_attention"})
 # project_briefing composes other reads, each authorized again for the caller.
@@ -164,8 +159,6 @@ def _personal_record(name, defaults, overrides, registry, *, role_id, scope, res
 
 
 def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name in INTERNAL_TICKET_READS:
-        return PolicyDecision("allow", "core_default")
     if name == "signoffs_input_answer_delegated":
         return PolicyDecision("allow" if role_id == "ordubashy" else "deny", "management_delegated_input")
     if name in INBOX_OPERATIONS:

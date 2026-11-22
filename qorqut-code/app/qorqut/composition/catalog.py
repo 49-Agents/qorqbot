@@ -76,14 +76,8 @@ learnings_record_batch
 """.split()
 
 BUILTIN_CATALOG = (
-    CatalogEntry("dev_tickets_list", False, "read", frozenset({"dashboard"}), True),
     *(CatalogEntry(name, False, "read", frozenset({"dashboard"}), True)
       for name in ("document_history_get", "project_history_list")),
-    CatalogEntry("dev_tickets_status_set", False, "records", frozenset({"dashboard"}), True),
-    # Retained internal reader for surviving Task, Signoff and Project references. The agent MCP caller
-    # refuses it in discovery and dispatch; phase 2 removes it with the remaining views and data.
-    CatalogEntry("dev_tickets_get", False, 'read', frozenset({'mcp'})),
-    *(CatalogEntry(name, False, 'read', frozenset({'dashboard'}), True) for name in ('system_incidents_list', 'system_incidents_get')),
     CatalogEntry("learnings_decide", False, "records", frozenset({"mcp"})),
     # Retired: viewbox_place has no handler installed, so it is never offered or callable; the owner's dashboard has no
     # way to open a Viewbox board. The name stays declared because a role or saved profile may still name it, and a

@@ -69,7 +69,6 @@ class Fixture(unittest.TestCase):
                                                                                     fingerprint=noop))], candidates=NS(candidates=lambda *a: ()))
         self.tasks = TaskOperations(self.app, items, ports=TaskPorts(
             assignees=NS(protect=noop, owner_directed=lambda *a: False, worker_excluded=lambda *a: False),
-            incidents=NS(link_task=noop),
             references=NS(types=('task',), host_types=(), resolve=noop, derived=noop),
             routing=NS(routes=lambda *a: ((), ()), snooze_routes=lambda *a: ()), boards=HostBoards(self.app)))
         for descriptor in self.tasks.descriptors():

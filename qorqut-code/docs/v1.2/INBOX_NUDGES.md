@@ -17,7 +17,7 @@ transport's report that the notice was typed; it is never evidence that the agen
 ## Producers, recipients, deduplication
 
 * **Producers** are unchanged. Every writer of `inbox_events`/`inbox_deliveries` (Story, Task, document, Signoff and attention,
-  message, owner conversation, email, focus card, incident, operational assignment and content session
+  message, owner conversation, email, focus card, operational assignment and content session
   pointer events) keeps its own event shape and its own recipient rule; none of them knows about nudges. A source that is
   later added needs only `Inbox.event_visible` to answer for it.
 * **Recipients** are the agents that have a not-yet-acknowledged delivery row, in project and Global scope alike, each judged
@@ -161,8 +161,8 @@ live poll lease is now the generation-fenced ownership row plus that host child'
 
 ## Deliberately retained (not poller behavior)
 
-Incident taxonomy names `inbox.watcher.*` (the persisted incident vocabulary) and `sandbox/tmux.queue_notice` (broker transport for
-non-host targets, pinned by `test_native_chat_producers.py`). The pre-fencing helper recognition, generation-0 owner handling, the
+`sandbox/tmux.queue_notice` is the broker transport for
+non-host targets, pinned by `test_native_chat_producers.py`. The pre-fencing helper recognition, generation-0 owner handling, the
 native-binding legacy probes, the release worker's poll continuity, `inbox_notification_receipts`, the watcher lease/poll columns and
 `inbox_deliveries.notified_*` were removed by the runtime-composition piece: the table is `native_session_owners` and release
 continuity compares the session owner and generation, never a poll. Role/template source text that still mentions watching is P8.

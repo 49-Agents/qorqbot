@@ -25,8 +25,8 @@ background = attach_background(
 
 Assembly performs no writes, starts no threads, and makes no provider calls. All
 handlers are installed and the program registry is frozen (`Runtime.freeze_registry`) before accepting traffic. There
-is one `BackgroundAuthority`, built by `build_runtime`; `attach_background` reuses it, wires the incident reporter as
-the service's `JobObserver` and gives it the `RoutineScheduler`. `Runtime.start()` (see
+is one `BackgroundAuthority`, built by `build_runtime`; `attach_background` reuses it and gives the service the
+`RoutineScheduler`. `Runtime.start()` (see
 `qorqut/service/lifetime.py`) verifies storage authority, recovers prepared file receipts, then starts the services
 in their fixed order (Signoff application, then this service, ...). `Runtime.stop()` drains them, closes write
 admission and only then SQLite; a timeout means a bounded external call is still in flight, so the shutdown is

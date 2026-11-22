@@ -42,7 +42,7 @@ TASK_COLUMNS = {
     "task_completions.task_id": "followed", "task_snooze_wakes.task_id": "followed",
     "crm_entries.record_task_id": "followed", "crm_activity_events.task_id": "followed",
     "overseer_development_tasks.task_id": "blocking", "overseer_development_tasks.task_ref_json": "blocking",
-    "agent_checkpoint_findings.task_id": "historical", "system_incident_impacts.task_id": "historical",
+    "agent_checkpoint_findings.task_id": "historical",
     "task_moves.task_id": "audit", "task_moves.task_created_at": "audit",
     "attention_memberships.task_id": "followed", "attention_memberships.task_created_at": "followed",
     "attention_memberships.task_project_id": "followed",

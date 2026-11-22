@@ -223,9 +223,7 @@ full document body (with the existing bounded reader), `{table}` or table metada
 in-pane table, `{person}`/`{entity}`/`{asset}` through their fields, `{reminder}` and
 `{routine}` as the safe readers below, and historical emails as the existing read-only
 reference. No flat `{summary}` preview is substituted for these families and no raw JSON
-is dumped. A canonical `{ticket}` Project envelope is rendered by the one small
-read-only Dev report reader described below; the retired System Dev queue, navigation
-and editors remain absent.
+is dumped.
 
 A Project `context_get` `{document,complete,next_cursor}` envelope is handed to that
 existing reader as its authorized first page, not collapsed into a one-shot projection.
@@ -264,28 +262,8 @@ a successful `project_item_get` guard. The separate Tables drawer remains for it
 outside callers; the record dashboard never substitutes an "Open table" button that exits
 the pane.
 
-Three Project families have dedicated safe readers:
+Two Project families have dedicated safe readers:
 
-- **Dev report** (`type:"dev_ticket"`, `resource_type:"dev_tickets"`) — the owner
-  `{ticket}` record (from `project_item_get` for Project inventory or the narrow root
-  `dev_tickets_list` selector for a standalone reference) renders only its title, kind
-  and status, full `details` body (Markdown/paragraphs preserved), created/updated times,
-  resolution, and verification/deployment reference when the payload actually supplies
-  them. It has no Chat tab. Tags/labels use the existing record typography and safe text
-  helpers; arbitrary fields, JSON and item summaries are never shown. Project inventory
-  continues to use `project_item_get.record` with the original source scope. A standalone
-  reference uses the existing owner-only root `dev_tickets_list`
-  (`{ticket_id,status:"all",details:true}`) and requires the returned ticket's
-  `project_id` to equal the reference's actual scope (explicit null is Global); a
-  mismatch is unavailable, never another scope's report. That owner selector returns
-  `{items,next_offset}` with at most the exact ticket; the agent-only
-  `{ticket,events,next_offset}`/history contract is not called or invented. If an
-  authorized envelope already contains supported event rows (`events` plus
-  `events_next_offset`/`next_offset`), they render from that whitelist; the reader does
-  not fetch a queue or owner-history API on its own. The owner envelope here is
-  `{items:[{...ticket fields...}],next_offset}`; the agent `{ticket,events,
-  events_next_offset}` history shape is neither requested nor imitated. Source denial
-  while hidden, retry and disposal follow the same lifecycle as other readers.
 - **Reminder** (`type:"reminder"`, `resource_type:"owner_reminders"`) — `record.reminder`
   supplies the host's safe projection (`reminder_id`, `revision`, `text`, `at`, `state`).
   The pane mounts the shared reminder detail (`js/reminders.js`), the same view and
@@ -312,8 +290,7 @@ All calls are synthetic-tested; the UI never invents data.
 | `project_record_get` | Project header, real name, summary, archived state |
 | `project_items_list` | Sections, closed/archived filters, root-task expansion, cursor paging |
 | `project_items_candidates` | Link picker: source scope, kind, query, cursor paging |
-| `project_item_get` | Authorized reader model for one inventory item (including the safe Dev report, reminder view and unchanged routine result) |
-| `dev_tickets_list` | Existing owner-only root read narrowed to one standalone Dev report (`ticket_id`, `status:"all"`, `details:true`); no queue UI or writes |
+| `project_item_get` | Authorized reader model for one inventory item (including the reminder view and routine result) |
 | `project_items_link` | Explicit association, idempotency key |
 | `project_items_unlink` | Explicit association removal, link id + expected revision |
 
@@ -357,9 +334,8 @@ reauthorization, Project document multi-page continuation/source change/continua
 denial/complete notes, table initial and append Retry with nested revalidation, all-section
 inventory cache invalidation with a held response, explicit Project pinning, scoped
 duplicate expansion and foreign scope badges, archived derived work, routine
-history/More/global scope/job detail, reminder text/schedule/state, the real-shaped Project
-and standalone Dev reports (multi-paragraph details, resolution/optional fields, exact
-project scope, no Chat, hidden denial and safe whitelisting), typed Project open action, a
+history/More/global scope/job detail, reminder text/schedule/state,
+typed Project open action, a
 real-shaped email Signoff in both Chat
 and dashboard with its exact Global source scope plus input-question coverage, Focus
 Reference tabs entered through a chat reference, Threads parity, and the 390px one-pane

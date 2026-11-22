@@ -76,8 +76,6 @@ class RouteTest(unittest.TestCase):
         api.origins = SimpleNamespace(validate=lambda request, mutation=False: None)
         api.statuses, api.owner_routes = {}, {}
         api.route_counters = SimpleNamespace(record=lambda *args, **options: None)
-        api._report_transport_success = lambda *args: None
-        api._report_transport_failure = lambda *args: None
         api.context = lambda actor, slug=None, owner=False: (
             SimpleNamespace(principal_kind=self.kind, principal_id=self.principal, project_id=None), None)
         self.api = api

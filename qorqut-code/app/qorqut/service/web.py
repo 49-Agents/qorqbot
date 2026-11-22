@@ -321,7 +321,6 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
         agent_paths = [
             "/api/agent/readiness",
             "/api/agent/bootstrap", "/api/agent/bootstrap/receipt",
-            "/api/agent/technical-observation",
             "/api/agent/delegation/claim",
             "/api/agent/delegation/poll", "/api/agent/delegation/fail",
             "/api/agent/delegation/browser"]

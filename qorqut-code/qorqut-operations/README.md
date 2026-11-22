@@ -99,7 +99,7 @@ name/version/digest differs from the composition is refused.
 ## Typed host ports
 
 The Signoff, program and quiescence code reaches the host only through constructor-injected, typed ports
-(`SignoffPorts`, `JobObserver`, `FileExecutor`, the quiescence controllers); there is no `Runtime`/attribute bag and no
+(`SignoffPorts`, `FileExecutor`, the quiescence controllers); there is no `Runtime`/attribute bag and no
 dynamic loader. The four required `SignoffPorts` (`execution`, `peers`, `tasks`, `references`) must be present and
 complete when the ports are built; each optional domain (`platform`, `email`, `management`, `focus`)
 must be declared with an implementation or `ABSENT`, and then the operations that need it are `operation_unavailable`

@@ -50,8 +50,7 @@ class BackgroundAuthority:
     def require_worker(principal_id, project_id, uow):
         actor = uow.repository("principals").get(principal_id)
         if not actor or actor["kind"] != "system" or not actor["active"]:
-            raise DomainError("invalid_principal", "Registered program worker is missing or inactive",
-                              details={'incident_classification':'setup_contract'})
+            raise DomainError("invalid_principal", "Registered program worker is missing or inactive")
         if project_id and project_id not in active_project_ids(uow.connection):
             raise DomainError("forbidden", "Worker cannot act in a project that is missing or archived")
 

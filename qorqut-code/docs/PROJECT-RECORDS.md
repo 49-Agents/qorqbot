@@ -74,8 +74,7 @@ shows the real Project name; a custom Focus display name is refused for a Projec
   associations. The page is full only when the requested limit is met or every reader is exhausted; a cursor is the
   only continuation signal. A linked row is ordered by its target's real source time, never the link creation time.
 - `record` is the appropriate existing domain read: `tasks_get`, `signoffs_get`, `actions_get`, `tables_get`,
-  `routines_get` (Project or `scope:"global"` routine), `dev_tickets_get` for the scoped Ordubashy or the owner's
-  `dev_tickets_list(details=true)` queue with its exact optional `ticket_id` selector for the owner, `owner_reminders_list`, `notes_get`/`content_get`,
+  `routines_get` (Project or `scope:"global"` routine), `owner_reminders_list`, `notes_get`/`content_get`,
   `assets_get` (`asset_id`), `data_uploads_get` (`upload_id`), `context_get`/`context_people_get` (`document_id`),
   `assignees_list` for a person, `project_record_get` for a Project, or the extension item's
   authorized neutral read. It is never a raw database dump and never a mutation: `context_upload` staging rows have
@@ -119,11 +118,7 @@ Families:
   `POST /api/root/operations/...` with `scope: "global"` for a Global source. The root route refuses a missing/non-
   Global scope and the project route refuses `scope:"global"`; job IDs must come from structured authorized data,
   never arbitrary strings. There is no job browser or job enumeration.
-- `other`: Project-owned Dev reports (owner queue or scoped Ordubashy reader), stored Project reminders
-  (`owner_reminders_list`), linked external references and installed extension kinds. The owner's `ticket_target`
-  verifies that `row.project_id` agrees with the supplied scope; the scoped agent reads through
-  `dev_tickets_get` and receives its details/history envelope; the owner queue uses its exact `ticket_id` selector so a
-  report beyond the first reader page is still reachable without materializing the whole queue.
+- `other`: stored Project reminders (`owner_reminders_list`), linked external references and installed extension kinds.
 
 A family the caller may not read is omitted; each denied candidate is skipped before its label or count is emitted.
 No internal receipts, outbox destinations, leases, sessions or credentials are items.
@@ -174,8 +169,7 @@ MCP `split_options`, reminder root read);
 Action scope, duplicate convergence);
 `app/tests/test_project_pagination.py` (beyond the old scan cap, Global scope cursor chains, equal-timestamp scoped
 ties, linked source order, filtered windows, Story/Customer container and Task hierarchy, independent related pages);
-`app/tests/test_project_families.py` (Global routine and retired routine history, owner/agent Dev reports, exact owner
-Dev selector, note/asset/upload/table/entity records, journal exclusion and staging-row exclusion);
+`app/tests/test_project_families.py` (Global routine and retired routine history, note/asset/upload/table/entity records, journal exclusion and staging-row exclusion);
 `app/tests/test_project_authority.py` (direct resolver/fingerprint denial, Focus, private Threads, Project target
 scope, stored rows after revocation);
 `app/tests/test_manager_project_remaining.py` (the Manager's eight remaining behavioral probes: Global cursors,

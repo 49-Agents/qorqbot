@@ -306,44 +306,6 @@ not grant project authority. Codex keeps its registered-workspace cwd check.
 Generated hooks adopt source changes through trusted preparation; source edits alone
 do not update an existing agent folder or recover an already stale watcher/session.
 
-Technical bootstrap, hook, activity, and inbox failures use the same bounded
-System Dev incident pipeline. A prepared runtime appends a private, fsynced
-`.qorqut/technical-reports/pending.jsonl` record when the service is
-unavailable, then replays the exact observation ID on a later authenticated
-hook or watcher check. Records contain only a component, operation, bounded
-error code, call site, retry metadata, native session ID, and recovery bit;
-prompts, tool input, credentials, mail, and transcripts are never included.
-`POST /api/agent/technical-observation` derives agent and project identity
-from the registered credential, accepts a session with no rows anywhere (a
-failed first bootstrap can report before registration succeeds), and otherwise
-requires a session row bound to the caller's principal and exact registration
-together; a native UUID alone is not an identity. The server
-uses durable observation receipts and session-scoped impacts, so a recovery
-can close only the matching agent/session/operation episode. Expected
-validation, access denial, supersession, normal shutdown, and busy results do
-not create incidents. The outbox is bounded; one deterministic recovery is
-queued per failure episode (bound, when its marker is unreadable, to the newest
-valid queued failure in the whole outbox), records the service rejects for
-themselves are quarantined in `rejected.jsonl` with their reason, and local
-health separates dropped, queue-full, rejected and quarantine-failed state.
-The pending-outbox lock orders every marker write and delete: a failure's append
-and marker install are one acquisition, replay repair rechecks under the lock, and
-retirement checks the version and unlinks in one locked step, so a newer failure's
-marker survives. No service request runs under that lock.
-Durable quarantine retires only the exact version-matched local marker; it does
-not recover or close anything on the service or clear preparation state, and the
-retained evidence keeps the diagnostics `rejected_pending_review` until it is
-reconciled. The inbox watcher keeps model-facing outage and restored notices to
-an outage of a minute or more, while technical failure and recovery observations
-are kept for any outage. Reporting failures
-never block or recursively report the user hook.
-
-Migration 072 is required before enabling the service route, followed by fresh
-preparation so generated activity hooks receive the helper. No role, grant, or
-new daemon is introduced. Replay occurs only during existing bootstrap,
-activity/checkpoint, or inbox watcher work; an idle or stopped runtime leaves
-its private outbox pending for the next connection.
-
 Generated agent-local Codex configuration explicitly sets
 `shell_environment_policy.inherit = "all"` and `ignore_default_excludes = true`
 so shell tools retain the environment the session (or terminal) was started with, including

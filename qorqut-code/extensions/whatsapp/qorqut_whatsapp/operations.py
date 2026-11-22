@@ -97,8 +97,7 @@ class WhatsAppSendOperations:
         """The trusted ``whatsapp.send`` program worker is registered by the explicit deployment step (never at startup).
         Without it nothing can be proposed, queued or sent; the refusal is fixed and names no caller data."""
         setup = DomainError("operation_unavailable", "Personal WhatsApp sending is not set up: the trusted program worker "
-                            "is not registered. The installer must run the documented worker registration step.",
-                            details={"incident_classification": "setup_contract"})
+                            "is not registered. The installer must run the documented worker registration step.")
         authority = getattr(self.programs, "authority", None)
         if authority is None:
             raise setup

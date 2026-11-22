@@ -7,19 +7,15 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
-import stat
-import subprocess
 import tarfile
 from typing import Any
 
-from qorqut_operations.contracts import canonical_bytes, canonical_hash, freeze, plain
+from qorqut_operations.contracts import canonical_hash, freeze, plain
 from .authority import AuthorityError
 
 
 SCHEMA_VERSION = 1
 IMPORTER_VERSION = "1"
-IGNORED_DIRECTORIES = frozenset({".git", ".qorqut", ".bazarlyk", "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv"})
-ROOT_ENTRIES = ("CLAUDE.md", "README.md", ".gitignore", ".gitattributes", "context", "learnings", "routines")
 
 
 def _digest(path: Path) -> str:
@@ -39,38 +35,6 @@ def _relative(value: str) -> PurePosixPath:
             or value == "."):
         raise AuthorityError("snapshot_invalid", "Snapshot contains an invalid relative path.")
     return path
-
-
-def _regular_files(directory: Path, top_skip=frozenset()):
-    if directory.is_symlink():
-        raise AuthorityError("source_symlink", "Migration sources require explicit disposition of symbolic links.")
-    if directory.is_file():
-        yield directory
-        return
-    if not directory.exists():
-        return
-    for parent, directories, files in os.walk(directory, followlinks=False):
-        omitted = top_skip if Path(parent) == directory else frozenset()
-        directories[:] = sorted(name for name in directories if name not in IGNORED_DIRECTORIES and name not in omitted)
-        for name in [*directories, *sorted(files)]:
-            path = Path(parent) / name
-            if path.is_symlink():
-                raise AuthorityError("source_symlink", "Migration sources require explicit disposition of symbolic links.")
-            mode = path.stat().st_mode
-            if stat.S_ISREG(mode):
-                yield path
-            elif not stat.S_ISDIR(mode):
-                raise AuthorityError("source_special_file", "A migration source contains a nonregular file.")
-
-
-def _git_head(directory: Path) -> str | None:
-    if not (directory / ".git").exists():
-        return None
-    result = subprocess.run(["git", "-C", str(directory), "rev-parse", "--verify", "HEAD"],
-                            capture_output=True, text=True, timeout=10)
-    if result.returncode:
-        raise AuthorityError("source_repository_invalid", "A source repository has no readable HEAD.")
-    return result.stdout.strip()
 
 
 @dataclass(frozen=True)
@@ -119,44 +83,6 @@ class SourceManifest:
         return plain(self.data)
 
 
-def inventory_sources(operations_root: str | Path) -> SourceManifest:
-    """Inspect only shared authored data and discovered project folders."""
-    root = Path(operations_root).resolve(strict=True)
-    projects, paths, repositories = [], [], {}
-    projects_directory = root / "projects"
-    entries = sorted(projects_directory.iterdir(), key=lambda path: path.name) if projects_directory.is_dir() else []
-    for entry in entries:
-        if entry.name.startswith(".") or not entry.is_dir():
-            continue
-        if not (entry / "project.yaml").is_file():
-            continue
-        if entry.is_symlink():
-            raise AuthorityError("source_symlink", "Project discovery cannot follow a symbolic link.")
-        projects.append({"slug": entry.name, "root": entry.relative_to(root).as_posix()})
-        # A browser folder is private runtime state and a code folder holds source checkouts: neither is inventoried.
-        paths.extend(_regular_files(entry, top_skip=frozenset({"browser", "code"})))
-        repositories[entry.relative_to(root).as_posix()] = _git_head(entry)
-    for name in ROOT_ENTRIES:
-        paths.extend(_regular_files(root / name))
-    repositories["."] = _git_head(root)
-    files = []
-    for path in sorted(set(paths)):
-        before = path.stat()
-        digest = _digest(path)
-        after = path.stat()
-        if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
-            raise AuthorityError("source_changed", "A source changed while its inventory was being read.")
-        files.append({"path": path.relative_to(root).as_posix(), "size": before.st_size,
-                      "mode": stat.S_IMODE(before.st_mode) & 0o777, "sha256": digest})
-    return SourceManifest({"schema_version": SCHEMA_VERSION, "importer_version": IMPORTER_VERSION,
-        "source_root": str(root), "projects": projects, "files": files, "repositories": repositories})
-
-
-def verify_sources(manifest: SourceManifest) -> None:
-    if inventory_sources(manifest.root).fingerprint != manifest.fingerprint:
-        raise AuthorityError("source_changed", "Sources changed since rehearsal; repeat the snapshot and reconciliation.")
-
-
 def _read_manifest(snapshot: Path) -> SourceManifest:
     try:
         if snapshot.is_symlink() or (snapshot / "manifest.json").is_symlink():
@@ -194,42 +120,6 @@ def verify_snapshot(snapshot: str | Path) -> SourceManifest:
     except (tarfile.TarError, OSError) as exc:
         raise AuthorityError("snapshot_invalid", "Snapshot archive cannot be verified.") from exc
     return manifest
-
-
-def snapshot_sources(manifest: SourceManifest, destination: str | Path) -> dict:
-    """Create a new private backup; callers must freeze writers for final cutover."""
-    destination = Path(destination).absolute()
-    if destination.exists() or destination.is_symlink():
-        raise AuthorityError("snapshot_exists", "Migration snapshots are immutable; use a new destination.")
-    verify_sources(manifest)
-    destination.mkdir(mode=0o700, parents=True)
-    os.chmod(destination, 0o700)
-    with (destination / "manifest.json").open("xb") as stream:
-        os.chmod(stream.name, 0o600)
-        stream.write(canonical_bytes(manifest.data) + b"\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    archive = destination / "sources.tar"
-    with archive.open("xb") as stream:
-        os.chmod(archive, 0o600)
-        with tarfile.open(fileobj=stream, mode="w:", format=tarfile.PAX_FORMAT) as output:
-            for entry in manifest.data["files"]:
-                path = manifest.root / entry["path"]
-                if path.is_symlink():
-                    raise AuthorityError("source_changed", "A source became a symbolic link during snapshot.")
-                info = tarfile.TarInfo(entry["path"])
-                info.size, info.mode = entry["size"], entry["mode"]
-                with path.open("rb") as content:
-                    output.addfile(info, content)
-        stream.flush()
-        os.fsync(stream.fileno())
-    verify_snapshot(destination)
-    verify_sources(manifest)
-    _fsync_directory(destination)
-    _fsync_directory(destination.parent)
-    return {"path": str(destination), "source_fingerprint": manifest.fingerprint,
-            "archive_sha256": _digest(archive), "files": len(manifest.data["files"]),
-            "bytes": sum(item["size"] for item in manifest.data["files"])}
 
 
 def _fsync_directory(path):

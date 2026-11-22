@@ -3,7 +3,7 @@
 Nothing here polls or leases. New work is announced by the native-chat nudge backend, which reads this service's pending view and
 authorization; a read or a nudge never acknowledges anything. The generic reads, acknowledgements, follows and subscriptions are
 Operations' ``InboxService``; ``HostInbox`` answers the calls it makes at fixed points (managed workers, private owner channels,
-integrated sources, Focus cards, incidents, delegated assignments and the automatic owner-task follows), and this service
+integrated sources, Focus cards, delegated assignments and the automatic owner-task follows), and this service
 keeps the owner inspection and the native session ownership, which are host behavior."""
 import json
 from dataclasses import replace
@@ -19,16 +19,6 @@ from .events import ITEM_TYPES
 from .messages import Messages
 
 SOURCES = ('tasks', 'actions', 'signoffs', 'documents')
-# Repair-ticket removal, phase 1: the exact ticket/incident notices still stored for existing agents are no
-# longer delivered. Suppressing them here hides them from pending reads, acknowledgement and the nudge backend
-# without deleting rows, changing history or touching unrelated inbox traffic. Production of new ones stops in
-# ``domains.dev_tickets`` and ``incidents``; phase 2 removes the producer, views and rows.
-STOPPED_NOTICE_TYPES = frozenset({
-    ('system_incidents', 'system_incident_opened'),
-    ('system_incidents', 'system_incident_recovered'),
-    ('system_incidents', 'system_incident_resolved'),
-    ('agent_messages', 'dev_ticket_resolved'),
-})
 
 
 class HostInbox:
@@ -61,8 +51,6 @@ class HostInbox:
 
     def event_visible(self, ctx, row, uow):
         app = self.inbox.app
-        if (row['source_type'], row['event_type']) in STOPPED_NOTICE_TYPES:
-            return False
         if row['source_type'] == 'agentic_changes':
             bridge = getattr(self, 'agentic_inbox_bridge', None)
             return bridge is not None and bridge.visible_reference(ctx, row, uow) is not None

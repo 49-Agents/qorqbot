@@ -8,7 +8,7 @@ function ovLegacy(hash) {
   if(parts[0]!=='#' || parts[1]!=='global')return undefined;
   if(['notes','journal'].includes(parts[2]))return {view:'journal'};
   if(parts[2]==='calendar')return {view:'calendar'};
-  if(['overview','charts','tables','costs','fleet','incidents','system_dev','reports','routines','signoffs'].includes(parts[2]))return {view:null};
+  if(['overview','charts','tables','costs','fleet','reports','routines','signoffs'].includes(parts[2]))return {view:null};
 }
 function ovClearDescriptor() {
   if(embeddedAgentPane)return;

@@ -331,16 +331,6 @@ class SignoffScopeLookupTests(Harness):
         scope['kind'] = 'project' if delegation.assignment_row['project_id'] else 'global'
         return delegation.context(self.agent_ctx)
 
-    def test_outcomes_are_observed_in_the_scope_the_signoff_was_found_in(self):
-        signoff, general = self.ask(self.alpha), self.ask(None)
-        seen = []
-        self.app.incident_reporter = NS(observe_result=lambda ctx, operation, result: seen.append(
-            (operation, ctx.project_id, result.status)))
-        self.call('signoffs_get', {'signoff_id': signoff['id']})
-        self.call('signoffs_comment', {'signoff_id': general['id'], 'text': 'Noted.'})
-        self.call('signoffs_get', {'signoff_id': str(uuid4())})
-        self.assertEqual(seen[:2], [('signoffs_get', self.alpha, 'ok'), ('signoffs_comment', None, 'ok')])
-
     # -- which operations --------------------------------------------------------------------------------------------
 
     def test_every_agent_operation_naming_one_signoff_locates_it_and_says_so(self):

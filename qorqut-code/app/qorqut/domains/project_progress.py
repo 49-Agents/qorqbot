@@ -42,7 +42,7 @@ class ProjectProgress:
             raise DomainError('forbidden', 'Global progress requires the owner')
         projects = [r[0] for r in uow.connection.execute('SELECT id FROM projects WHERE archived_at IS NULL')]
         end = local_time.today(self.clock)
-        keys = ('tasks_done', 'inbox_messages', 'learnings_accepted', 'new_tickets', 'actions')
+        keys = ('tasks_done', 'inbox_messages', 'learnings_accepted', 'actions')
         series = {(end-timedelta(days=i)).isoformat(): dict.fromkeys(keys, 0) for i in reversed(range(args.get('days',30)))}
         for project in projects:
             data = self.read(replace(ctx, project_id=project), {'days': args.get('days',30)}, opts, uow)
@@ -64,10 +64,6 @@ class ProjectProgress:
         for row in uow.connection.execute("SELECT project_id,candidate_id,MIN(created_at) FROM learning_history "
                 "WHERE json_extract(after_json,'$.state')='accepted' GROUP BY project_id,candidate_id"):
             if row[0] in scopes: count('learnings_accepted', row[2])
-        # Each row is one ticket. Count its creation day regardless of kind or
-        # current status; follow-up and resolution events are separate history.
-        for row in uow.connection.execute('SELECT project_id,created_at FROM dev_tickets'):
-            if row[0] in scopes: count('new_tickets', row[1])
         # Each canonical action once, on its recorded local occurrence day; never a sum of project counts.
         global_action_counts(uow, series)
         return {'series':[{'date':date,**values} for date,values in series.items()], 'timezone':local_time.TIMEZONE, 'days':len(series)}

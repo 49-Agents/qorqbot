@@ -8,14 +8,13 @@ import re
 import threading
 import time
 import uuid
-from contextlib import nullcontext
 from functools import partial
 
 import anyio
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, OperationResult, canonical_bytes, canonical_hash, new_id
+from qorqut_operations.contracts import DomainError, InvocationOptions, OperationResult, canonical_hash, new_id
 from qorqut_operations import local_time
 from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.records.locate import RecordLookup
@@ -251,44 +250,12 @@ class HTTPAPI:
                 "is_owner": global_owner, "is_installation_owner": global_owner,
                 "operational_timezone": local_time.TIMEZONE}
 
-    def _report_transport_failure(self, request, operation, *, context=None):
-        reporter = getattr(getattr(self.runtime, "incidents", None), "reporter", None)
-        if reporter is None:
-            reporter = getattr(getattr(self.runtime, "application", None), "incident_reporter", None)
-        if reporter is None:
-            return
-        actor = request.scope.get("qorqut.auth")
-        principal = getattr(actor, "principal", None)
-        try:
-            reporter.transport_failure(component="http", operation=operation,
-                request_id=request.scope.get("qorqut.request_id"), context=context,
-                agent_id=(principal.id if getattr(principal, "kind", None) == "agent" else None),
-                session_id=None)
-        except Exception:
-            # Reporting must never replace or recurse into the transport error.
-            pass
-
-    def _report_transport_success(self, request, operation):
-        reporter = getattr(getattr(self.runtime, "incidents", None), "reporter", None)
-        if reporter is None:
-            reporter = getattr(getattr(self.runtime, "application", None), "incident_reporter", None)
-        if reporter is None:
-            return
-        actor = request.scope.get("qorqut.auth")
-        principal = getattr(actor, "principal", None)
-        try:
-            reporter.transport_success(component="http", operation=operation,
-                request_id=request.scope.get("qorqut.request_id"),
-                agent_id=(principal.id if getattr(principal, "kind", None) == "agent" else None))
-        except Exception:
-            pass
-
     @staticmethod
     def _transport_operation(request):
         parts = request.path_params.get("path", "").strip("/").split("/")
         if parts[:1] == ["agent"]:
             return "agent." + parts[1] if len(parts) > 1 and parts[1] in {
-                "readiness", "bootstrap", "browser", "focus", "inbox", "checkpoint", "connector-gate", "technical-observation"} else "agent"
+                "readiness", "bootstrap", "browser", "focus", "inbox", "checkpoint", "connector-gate"} else "agent"
         if parts[:2] == ["root", "operations"]:
             return "root.operation"
         if parts[:1] == ["project"]:
@@ -368,10 +335,6 @@ class HTTPAPI:
         self.route_counters.record(request.method, self._route_pattern(parts),
             total_ms=total_ms, db_ms=db_ms, units=units, byte_count=byte_count,
             etag=request.scope.get("qorqut.etag"))
-        if (request.scope.get("qorqut.transport_operation") != "agent.technical-observation"
-                and not request.scope.get("qorqut.transport_failed")
-                and getattr(result, "status_code", 500) < 400):
-            self._report_transport_success(request, request.scope.get("qorqut.transport_operation", "request"))
         return result
 
     async def _dispatch(self, request):
@@ -720,9 +683,8 @@ class HTTPAPI:
             if len(parts) == 3 and parts[:2] == ["root", "operations"] and parts[2] in {
                     "broadcast_recipients", "broadcasts_list", "broadcasts_get", "broadcasts_create", "broadcasts_update",
                     "broadcasts_pause", "broadcasts_resume", "broadcasts_cancel", "broadcasts_send_now",
-                    "dev_tickets_list", "dev_tickets_status_set", "document_history_get", "files_link",
+                    "document_history_get", "files_link",
                     "management_coordinator_set", "management_list", "management_get", "management_resolve",
-                    "system_incidents_list", "system_incidents_get",
                     "dashboard_summary_get", "global_progress_get", "records_health", "records_reconcile",
                     "conversation_history_search", "conversation_history_get", "work_review_get",
                     "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "agent_context_get",
@@ -924,11 +886,7 @@ class HTTPAPI:
             raise DomainError("not_found", "Endpoint is not registered")
         except DomainError as exc:
             return failure(exc, request_id, statuses=self.statuses)
-        except Exception as exc:
-            request.scope["qorqut.transport_failed"] = True
-            if (request.scope.get("qorqut.transport_operation") != "agent.technical-observation"
-                    and not getattr(exc, "_qorqut_incident_reported", False)):
-                self._report_transport_failure(request, request.scope["qorqut.transport_operation"])
+        except Exception:
             logger.exception("HTTP request failed: %s", request_id)
             return failure(DomainError("internal_error", "The request failed; use its correlation ID for diagnosis"), request_id)
 
@@ -1284,59 +1242,6 @@ class HTTPAPI:
         if agent_route is not None:
             await anyio.to_thread.run_sync(self.runtime.require_authority)
             return await agent_route(self, request)
-        if request.method == "POST" and parts == ["agent", "technical-observation"]:
-            # This endpoint is deliberately a narrow authenticated write port
-            # for prepared hooks.  It does not invoke the application registry
-            # and never observes its own reporting failures.
-            await anyio.to_thread.run_sync(self.runtime.require_authority)
-            actor = await anyio.to_thread.run_sync(lambda: self.authentication.agent(request.headers.get("authorization")))
-            request.scope["qorqut.auth"] = actor
-            body = await read_json(request, limit=8192)
-            checked_fields(body, {"registration_id", "session_id", "observation"},
-                           {"registration_id", "session_id", "observation"})
-            if body["registration_id"] != actor.registration_id:
-                # The reason is a fixed safe code: a prepared client quarantines
-                # only this per-record rejection, never a generic forbidden.
-                raise DomainError("forbidden", "Technical report registration is not bound to this credential",
-                                  details={"reason": "technical_registration_mismatch"})
-            if (not isinstance(body["observation"], dict) or not isinstance(body["session_id"], str)
-                    or body["session_id"] != body["observation"].get("session_id")):
-                raise DomainError("validation_error", "Technical report session attribution is invalid")
-
-            def ingest():
-                from qorqut_operations.application.engine import Application
-                from qorqut.incidents import ensure_system_reporter, technical_session_binding
-                incidents = self.runtime.incidents
-                if incidents is None:
-                    raise DomainError("service_unavailable", "Technical reporting is not installed", retryable=True)
-                writer = incidents.writer
-                with writer() if writer else nullcontext():
-                    with self.runtime.database.transaction(operation="agent_technical_observation") as uow:
-                        Application.ensure_writes_open(uow)
-                        if technical_session_binding(uow.connection, body["session_id"], actor.principal.id,
-                                                     actor.registration_id) == "foreign":
-                            raise DomainError("forbidden", "Technical report session belongs to another registration",
-                                              details={"reason": "technical_session_mismatch"})
-                        reporter_id = incidents.reporter_id
-                        if reporter_id is None:
-                            reporter_id = ensure_system_reporter(uow, incidents.authority)
-                            incidents.reporter_id = reporter_id
-                        try:
-                            observation = incidents.reporter.external_observation(
-                                body["observation"], agent_id=actor.principal.id, project_id=None,
-                                observation_namespace=actor.principal.id)
-                        except ValueError as exc:
-                            raise DomainError("validation_error", "Technical observation is invalid") from exc
-                        # Reuse the canonical ingestion path, including the
-                        # durable observation receipt that makes replay exact-once.
-                        result = incidents.reporter._drain_lines(
-                            uow, [canonical_bytes(observation.to_dict())], reporter_id)
-                return {"status": "accepted", "observation_id": body["observation"]["observation_id"],
-                        "processed": result["processed"], "created": result["created"],
-                        "updated": result["updated"], "recovered": result["recovered"]}
-
-            value = await anyio.to_thread.run_sync(ingest)
-            return response(OperationResult.ok(value, request_id=new_id()))
         if request.method == "POST" and parts == ["agent", "focus", "browser"]:
             await anyio.to_thread.run_sync(self.runtime.require_authority)
             actor = await anyio.to_thread.run_sync(lambda: self.authentication.agent(request.headers.get("authorization")))
@@ -1386,11 +1291,8 @@ class HTTPAPI:
             checked_fields(body, {"registration_id"}, {"registration_id"})
             if body["registration_id"] != actor.registration_id:
                 raise DomainError("forbidden", "Readiness registration is not bound to this credential")
-            context = InvocationContext(actor.principal, source="mcp",
-                request_id=request.scope.get("qorqut.request_id", new_id()))
-            config = await anyio.to_thread.run_sync(lambda: self.runtime.observed_agent_call(
-                context, "agent.readiness", "resolve", lambda: self.runtime.resolver.resolve_agent_config(
-                    actor.principal, session_registration={"registration_id": body["registration_id"]}), readiness=True))
+            config = await anyio.to_thread.run_sync(lambda: self.runtime.resolver.resolve_agent_config(
+                actor.principal, session_registration={"registration_id": body["registration_id"]}))
             preparation = config.data.get("preparation", {})
             return response(OperationResult.ok({
                 "ready": preparation.get("ready") is True,
@@ -1473,12 +1375,12 @@ class HTTPAPI:
                     raise ValueError
             except (ValueError, TypeError, AttributeError):
                 raise DomainError("validation_error", "Recovery notification requires its episode UUID")
-            context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))
+            await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))  # the identity must resolve
             nudges = self.runtime.inbox_nudges
             if nudges is None:
                 raise DomainError("inbox_delivery_unavailable", "Native input is not running", retryable=True)
             call = partial(nudges.recovery_notice, actor.principal.id, body["notification_id"], consumer_id=body["consumer_id"])
-            data = await anyio.to_thread.run_sync(partial(self.runtime.observed_agent_call, context, "inbox.recovery", "notice", call))
+            data = await anyio.to_thread.run_sync(call)
             return response(OperationResult.ok(data, request_id=new_id()))
         if request.method == "POST" and parts == ["agent", "attention-hook"]:
             await anyio.to_thread.run_sync(self.runtime.require_authority)
@@ -1503,9 +1405,8 @@ class HTTPAPI:
                                actor.principal.id, actor.registration_id, claim)
             else:
                 raise DomainError('validation_error', 'Invalid attention hook action')
-            context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))
-            value = await anyio.to_thread.run_sync(partial(self.runtime.observed_agent_call, context,
-                'agent.attention_hook', action, call))
+            await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))  # the identity must resolve
+            value = await anyio.to_thread.run_sync(call)
             return response(OperationResult.ok({'result': value}, request_id=new_id()))
         if request.method == "POST" and parts == ["agent", "checkpoint"]:
             await anyio.to_thread.run_sync(self.runtime.require_authority)
@@ -1518,8 +1419,7 @@ class HTTPAPI:
             if body["registration_id"] != actor.registration_id:
                 raise DomainError("forbidden", "Checkpoint registration is not bound to this credential")
             context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))
-            value = await anyio.to_thread.run_sync(partial(self.runtime.observed_agent_call, context,
-                'agent.checkpoint', 'inspect', partial(self.runtime.checkpoints.check, context, **body)))
+            value = await anyio.to_thread.run_sync(partial(self.runtime.checkpoints.check, context, **body))
             return response(OperationResult.ok(value, request_id=new_id()))
         if request.method == "POST" and parts == ["agent", "connector-gate"]:
             await anyio.to_thread.run_sync(self.runtime.require_authority)
@@ -1551,10 +1451,8 @@ class HTTPAPI:
             method = self.runtime.resolver.record_delivery
         if body["registration_id"] != actor.registration_id:
             raise DomainError("forbidden", "Bootstrap registration is not bound to this credential")
-        context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))
-        value = await anyio.to_thread.run_sync(partial(self.runtime.observed_agent_call, context,
-            'agent.bootstrap', 'prepare' if len(parts) == 2 else 'receipt',
-            partial(method, actor.principal, **body), readiness=len(parts) == 2))
+        await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))  # the identity must resolve
+        value = await anyio.to_thread.run_sync(partial(method, actor.principal, **body))
         if len(parts) == 2 and value.get('ready') and self.runtime.activity:
             context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal))
             value['activity_available'] = await anyio.to_thread.run_sync(partial(self.runtime.activity.register_session, context,

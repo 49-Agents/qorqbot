@@ -107,8 +107,7 @@ class HostReferences:
     order. The engine reads each reference through the named operation as the actor, never directly."""
 
     targets = {'signoff': ReferenceTarget('signoffs_get', 'signoff_id'),
-               'task': ReferenceTarget('tasks_get', 'task_id'),
-               'dev_ticket': ReferenceTarget('dev_tickets_get', 'ticket_id')}
+               'task': ReferenceTarget('tasks_get', 'task_id')}
 
     @staticmethod
     def task_namespace(context, arguments):

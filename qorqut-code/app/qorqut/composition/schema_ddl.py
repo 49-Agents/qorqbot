@@ -22,7 +22,7 @@ OWNER_TABLES = {
     'delegation': ('operational_assignments', 'operational_assignment_events', 'operational_delegation_bindings', 'operational_action_receipts', 'operational_event_claims'),
     'browser': ('browser_turns', 'browser_turn_actions', 'browser_handles'),
     'learning': ('learning_candidates', 'learning_decisions', 'learning_runs', 'learning_scan_state', 'learning_history'),
-    'incidents': ('system_incidents', 'system_incident_observations', 'system_incident_recoveries', 'system_incident_history', 'system_incident_ingested', 'system_incident_impacts', 'system_incident_fault_runs', 'agent_checkpoint_findings', 'dev_tickets', 'dev_ticket_events'),
+    'checkpoints': ('agent_checkpoint_findings',),
     'global-chat': ('global_chat_bindings', 'global_chat_runner', 'global_chat_messages', 'global_chat_turns', 'global_chat_actions', 'global_chat_events', 'global_chat_reads'),
     'maintenance': ('imports', 'backup_runs', 'journal_reviews', 'journal_reconciliations', 'terminal_commands', 'terminal_actions'),
     'legacy-context': tuple(records_schema.TABLES),
@@ -552,32 +552,7 @@ WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
         """CREATE UNIQUE INDEX learning_history_workspace ON learning_history(scope_key, id)""",
         """CREATE INDEX learning_history_candidate ON learning_history(project_id, candidate_id, created_at, id)""",
     ),
-    'incidents': (
-        """CREATE TABLE dev_tickets (
- id TEXT PRIMARY KEY,
- title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200),
- details TEXT NOT NULL DEFAULT '' CHECK(length(details)<=12000),
- kind TEXT NOT NULL DEFAULT 'bug' CHECK(kind IN ('bug','feature','tooling','workflow')),
- status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
- reporter_id TEXT NOT NULL REFERENCES principals(id),
- project_id TEXT REFERENCES projects(id),
- created_at TEXT NOT NULL,
- updated_at TEXT NOT NULL,
- revision INTEGER NOT NULL DEFAULT 1
-, resolved_at TEXT, resolved_by TEXT REFERENCES principals(id), resolution TEXT NOT NULL DEFAULT '' CHECK(length(resolution)<=12000))""",
-        """CREATE INDEX dev_tickets_queue ON dev_tickets(status,created_at,id)""",
-        """CREATE TABLE dev_ticket_events (
- id TEXT PRIMARY KEY,
- ticket_id TEXT NOT NULL REFERENCES dev_tickets(id),
- event_kind TEXT NOT NULL CHECK(event_kind IN ('follow_up','resolved','status_changed')),
- actor_id TEXT NOT NULL REFERENCES principals(id),
- created_at TEXT NOT NULL,
- details TEXT NOT NULL DEFAULT '' CHECK(length(details)<=12000),
- resolution TEXT NOT NULL DEFAULT '' CHECK(length(resolution)<=12000),
- verification TEXT NOT NULL DEFAULT '' CHECK(length(verification)<=12000),
- deployment_ref TEXT NOT NULL DEFAULT '' CHECK(length(deployment_ref)<=200)
-)""",
-        """CREATE INDEX dev_ticket_events_ticket ON dev_ticket_events(ticket_id,created_at,id)""",
+    'checkpoints': (
         """CREATE TABLE agent_checkpoint_findings (
  agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id),
  check_key TEXT NOT NULL CHECK(length(check_key)<=200),
@@ -596,81 +571,6 @@ WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
  PRIMARY KEY(agent_id,check_key)
 )""",
         """CREATE INDEX agent_checkpoint_open ON agent_checkpoint_findings(agent_id,state)""",
-        """CREATE TABLE system_incidents (
- id TEXT PRIMARY KEY,
- fingerprint TEXT NOT NULL UNIQUE,
- ticket_id TEXT NOT NULL UNIQUE REFERENCES dev_tickets(id),
- title TEXT NOT NULL CHECK(length(title)<=200),
- status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','recovering','closed')),
- classification TEXT NOT NULL CHECK(length(classification)<=60),
- first_seen TEXT NOT NULL,
- last_seen TEXT NOT NULL,
- occurrence_count INTEGER NOT NULL DEFAULT 0 CHECK(occurrence_count>=0),
- recovery_count INTEGER NOT NULL DEFAULT 0 CHECK(recovery_count>=0),
- project_id TEXT REFERENCES projects(id),
- representative_observation_id TEXT
-)""",
-        """CREATE INDEX system_incidents_scope ON system_incidents(project_id,status,last_seen)""",
-        """CREATE TABLE system_incident_observations (
- id TEXT PRIMARY KEY,
- fingerprint TEXT NOT NULL REFERENCES system_incidents(fingerprint),
- observed_at TEXT NOT NULL,
- payload_json TEXT NOT NULL CHECK(length(payload_json)<=4096)
-)""",
-        """CREATE INDEX system_incident_observations_fingerprint ON system_incident_observations(fingerprint,observed_at)""",
-        """CREATE TABLE system_incident_recoveries (
- incident_id TEXT NOT NULL REFERENCES system_incidents(id),
- observation_id TEXT NOT NULL UNIQUE REFERENCES system_incident_observations(id),
- observed_at TEXT NOT NULL,
- evidence TEXT NOT NULL CHECK(length(evidence)<=500)
-, agent_id TEXT REFERENCES principals(id), episode INTEGER NOT NULL DEFAULT 1)""",
-        """CREATE UNIQUE INDEX system_incident_recovery_agent ON system_incident_recoveries(incident_id,coalesce(agent_id,''),episode)""",
-        """CREATE TABLE system_incident_history (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- incident_id TEXT NOT NULL REFERENCES system_incidents(id),
- event_kind TEXT NOT NULL CHECK(event_kind IN ('opened','observed','recovered')),
- observed_at TEXT NOT NULL,
- observation_id TEXT,
- details TEXT NOT NULL DEFAULT '' CHECK(length(details)<=500)
-)""",
-        """CREATE INDEX system_incident_history_incident ON system_incident_history(incident_id,observed_at,id)""",
-        """CREATE TABLE system_incident_ingested (
- observation_id TEXT PRIMARY KEY,
- created_at TEXT NOT NULL
-)""",
-        """CREATE INDEX system_incident_ingested_retention ON system_incident_ingested(created_at)""",
-        """CREATE TABLE system_incident_impacts (
- incident_id TEXT NOT NULL REFERENCES system_incidents(id),
- project_id TEXT REFERENCES projects(id),
- agent_id TEXT REFERENCES principals(id),
- session_id TEXT,
- task_id TEXT,
- operation TEXT,
- job_id TEXT,
- receipt_id TEXT,
- episode INTEGER NOT NULL DEFAULT 1,
- recovered_at TEXT,
- first_seen TEXT NOT NULL,
- last_seen TEXT NOT NULL,
- PRIMARY KEY(incident_id,project_id,agent_id,session_id,task_id,operation,job_id,receipt_id)
-)""",
-        """CREATE INDEX system_incident_impacts_agent ON system_incident_impacts(agent_id,project_id,session_id,incident_id)""",
-        """CREATE INDEX system_incident_impacts_task ON system_incident_impacts(task_id,incident_id)""",
-        """CREATE UNIQUE INDEX system_incident_impacts_identity ON system_incident_impacts(
- incident_id,coalesce(project_id,''),coalesce(agent_id,''),coalesce(session_id,''),coalesce(task_id,''),coalesce(operation,''),coalesce(job_id,''),coalesce(receipt_id,''))""",
-        """CREATE TABLE system_incident_fault_runs (
- fingerprint TEXT NOT NULL,
- agent_key TEXT NOT NULL,
- session_id TEXT,
- project_id TEXT,
- operation TEXT NOT NULL,
- component TEXT NOT NULL,
- call_site TEXT NOT NULL,
- first_seen TEXT NOT NULL,
- last_seen TEXT NOT NULL,
- failures INTEGER NOT NULL DEFAULT 0,
- PRIMARY KEY(fingerprint,agent_key,session_id)
-)""",
     ),
     'global-chat': (
         """CREATE TABLE global_chat_bindings (

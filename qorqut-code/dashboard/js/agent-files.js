@@ -34,7 +34,7 @@ function agentFilesEntryIcon(entry) {
 // project's own agent folders are system files, shown only while "Show system files" is on.
 const AGFILES_TOP_LEVEL = new Set(['projects', 'notes']);
 const AGFILES_SYSTEM_ANYWHERE = new Set(['CLAUDE.md', 'AGENTS.md']);
-const AGFILES_SYSTEM_IN_PROJECT = new Set(['agents', 'browser', 'context', 'tables', 'project.yaml']);
+const AGFILES_SYSTEM_IN_PROJECT = new Set(['agents', 'browser', 'context', 'tables']);
 function agentFilesIsSystem(entry) {
   const parent = entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '';
   if (entry.name.startsWith('.')) return true;

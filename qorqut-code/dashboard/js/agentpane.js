@@ -257,8 +257,6 @@ function agpadRequestView(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return false;
   // Tables lives in the shared drawer: the retired key never adds a tab (links translate first).
   if (view === "tables") return false;
-  // The retired System Dev keys likewise never add a tab.
-  if (view === "system_dev" || view === "incidents") return false;
   if (!p.views.includes(view) && !workspaceType(view)) {
     const loading = p.workspaceRole ? workspaceTypesLoad() : null;
     if (!loading) return false;

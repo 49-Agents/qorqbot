@@ -73,7 +73,7 @@ async function fixture() {
     notes:[file('ideas.md', 'notes')],
     projects:[dir('example', 'projects', {project}), dir('archived', 'projects', {project:null}), dir(hostile, 'projects', {project:null})],
     'projects/example':[dir('agents', 'projects/example'), dir('code', 'projects/example'), dir('context', 'projects/example'), dir('research', 'projects/example'),
-      file('AGENTS.md', 'projects/example'), file('CLAUDE.md', 'projects/example'), file('project.yaml', 'projects/example'), file('plan.md', 'projects/example')],
+      file('AGENTS.md', 'projects/example'), file('CLAUDE.md', 'projects/example'), file('plan.md', 'projects/example')],
     'projects/example/research':[file('notes.md', 'projects/example/research')],
     'projects/example/code':Array.from({length:105}, (_, index) => file(`file-${String(index).padStart(3, '0')}.txt`, 'projects/example/code')),
     agents:[],
@@ -161,7 +161,7 @@ browserTest('only projects and notes show until system files are switched on', a
     // A project's agent folders and instruction files stay out of the tree and the folder list.
     assert.deepEqual((await treeRows()).filter(row => row.startsWith('projects/example/')), ['projects/example/code', 'projects/example/research']);
     assert.deepEqual(await page.locator('.agfiles-detail .agfiles-child span').allInnerTexts(), ['code', 'research', 'plan.md']);
-    assert.match(await page.locator('.agfiles-hidden-note').innerText(), /5 system items hidden here/);
+    assert.match(await page.locator('.agfiles-hidden-note').innerText(), /4 system items hidden here/);
     // A folder with no subfolders has nothing to expand.
     assert.equal(await page.locator('[data-row="projects/example/research"] .agfiles-toggle').count(), 1);
     await page.locator('.agfiles-tree [data-select="projects/example/research"]').click();
@@ -175,7 +175,6 @@ browserTest('only projects and notes show until system files are switched on', a
     await page.locator('[data-row="projects/example/agents"]').waitFor();
     assert.equal(await page.locator('[data-system]').isChecked(), true);
     assert.ok((await treeRows()).includes('CLAUDE.md'));
-    assert.ok((await treeRows()).includes('projects/example/project.yaml'));
     await page.locator('.agfiles-tree [data-select="agents"]').click();
     await page.locator('[data-system]').uncheck();
     await page.locator('[data-row="projects/example"]').waitFor();

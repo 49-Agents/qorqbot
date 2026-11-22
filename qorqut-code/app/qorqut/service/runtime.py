@@ -42,7 +42,7 @@ from qorqut_operations.storage.files import FileApplier
 # by contract: a composition that lacks them is incomplete, never an empty class. A selected extension's services are
 # further named writers (``Runtime.extension_writers``) and required while the extension is selected; an absent
 # extension adds no required writer.
-RECOVERY_WRITERS = ("native_chat", "inbox_nudges", "activity", "incidents", "terminal_control", "broadcast_dispatcher", "changes",
+RECOVERY_WRITERS = ("native_chat", "inbox_nudges", "activity", "terminal_control", "broadcast_dispatcher", "changes",
                     "context", "history")
 RECOVERY_REQUIRED = RECOVERY_WRITERS
 # How often the backend pass looks for workers whose sessions cannot take input.
@@ -94,7 +94,6 @@ class Runtime:
     background_operations: object = None
     checkpoints: object = None
     management: object = None
-    incidents: object = None
     private_conversations: object = None
     side_chats: object = None
     calendar: object = None
@@ -121,22 +120,10 @@ class Runtime:
     recovery_controllers: dict = field(default_factory=dict, repr=False)  # name -> (service, BoundedWriter), kept across windows
     recovery_guard: object = field(default_factory=threading.Lock, init=False, repr=False)  # one recovery window at a time
 
-    def observed_agent_call(self, context, component, operation, call, *, readiness=False):
-        if self.incidents is None:
-            return call()
-        return self.incidents.reporter.boundary(context, component, operation, call, readiness=readiness)
-
     def agent_context(self, principal, *, diagnostic=False, **options):
-        """Observe context failures before an operation can reach its dispatcher.
-
-        Only the authenticated identity is known if resolution fails. Do not
-        attribute an unvalidated project selector or guess the agent's task.
-        """
-        from qorqut_operations.contracts import InvocationContext
-        context = InvocationContext(principal)
+        """Resolve the agent's invocation context (or, with ``diagnostic``, its runtime context) from the authenticated identity."""
         method = self.resolver.runtime_context if diagnostic else self.resolver.invocation_context
-        return self.observed_agent_call(context, 'agent.context',
-            'identity' if diagnostic else 'configuration', lambda: method(principal, **options))
+        return method(principal, **options)
 
     @contextmanager
     def recovery_quiescence(self, **kwargs):
@@ -239,7 +226,7 @@ class Runtime:
         runtime's cached ``LifetimeState`` (ownership, incomplete services, phase).
 
         ``Runtime.start`` and ``Runtime.stop`` are its only entrypoints. The start order is the retained required one
-        (chat, activity, incidents, Signoffs, background, ...); the stop order is the retained drain order, which
+        (chat, activity, Signoffs, background, ...); the stop order is the retained drain order, which
         stops the owner-visible writers first and the Signoff writer last. An optional service
         that this composition does not install is recorded with its existing reason rather than silently omitted.
         The Context services (``context_services``) and the history observer (``history_observer``) are read with
@@ -277,7 +264,6 @@ class Runtime:
             # native input arbiter and never starts, resumes or stops an agent.
             step("inbox_nudges", self.inbox_nudges, lambda x: x.start(), stop_with_timeout, "no inbox nudges", required=True),
             step("activity", self.activity, lambda x: x.start(), stop_without_timeout, "no agent activity", required=True),
-            step("incidents", self.incidents, lambda x: x.start(), stop_with_timeout, "no incident drain", required=True),
             step("signoffs", self.signoffs, lambda x: x.start(), stop_with_timeout, required=True, recovery="engine"),
             step("background", self.background, lambda x: x.start(), stop_with_timeout, "background service is not attached",
                  recovery="engine", running=lambda x: x.is_running()),
@@ -313,7 +299,7 @@ class Runtime:
                  recovery="caller", running=lambda x: bool(x.running)))
         # The recovery orchestrators drain first: an in-flight capture or thaw owns the services and resources below it.
         stop_order = ("recovery_admin", "maintenance_capture", "context", "history", "inbox_nudges",
-                      "native_chat", "terminal_control", "broadcast_dispatcher", "activity", "incidents", "changes",
+                      "native_chat", "terminal_control", "broadcast_dispatcher", "activity", "changes",
                       "previews", "sandbox", "background", "signoffs")
         # A selected extension's services join at the start-before and stop-before anchors they name. Each is a required
         # recovery writer: it drains and resumes through the same stop adapter and start the lifetime uses.
@@ -660,15 +646,6 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     register_task_plans(runtime)
     from qorqut.agents.attention_delivery import attach_attention_runtime
     attach_attention_runtime(runtime)
-    from qorqut.incidents import IncidentReporter, IncidentDrain, INCIDENT_PROGRAM_ID
-    from qorqut_operations.background.programs import Program
-    job_programs.register(Program(INCIDENT_PROGRAM_ID,1,{'type':'object','additionalProperties':False},
-        None,unavailable_reason='Internal deterministic incident drain; not a schedulable agent job',
-        scope_kinds=('global',)))
-    reporter = IncidentReporter(paths.runtime / 'incidents')
-    application.incident_reporter = reporter
-    runtime.incidents = IncidentDrain(reporter,database,
-        authority=authority,writer=runtime.activity.writer)
     runtime.focus.desktop_url = lambda: next((pair['value'] for pair in LocalFiles(runtime).environment_pairs(None)
         if pair['key'] == 'DESKTOP_CONTROL_URL'), None)
     from .environment import register_environment

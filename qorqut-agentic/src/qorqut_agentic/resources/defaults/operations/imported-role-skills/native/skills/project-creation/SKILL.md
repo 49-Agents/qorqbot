@@ -55,7 +55,7 @@ collided and they have no preference, retry with `suggested_slug` under a new ke
 The result carries `project_id`, `slug` and `project` (`id`, `slug`, `name`, `summary`,
 `workspace_path`). Select the returned `project_id` for later work.
 
-Creation makes exactly the project record and a project folder with an empty `code` folder. It makes no agent, no README, `project.yaml` or core document, no
+Creation makes exactly the project record and a project folder with an empty `code` folder. It makes no agent, no README or core document, no
 checklist, Task or question, no routine, Context filing, external-service
 registration, Git repository, domain, mailbox, account, credential or native session, and
 it calls no provider. Do not describe it as more than that.

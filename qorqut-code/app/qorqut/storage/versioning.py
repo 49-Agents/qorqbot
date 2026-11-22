@@ -29,7 +29,7 @@ from .recovery import BackupStore, ROOT_AUTHORED, SKIP_DIRECTORIES, _identity
 HISTORY_REF = "refs/heads/qorqut-history"
 PROGRAM = "maintenance.nightly"
 PENDING_SECONDS = 5  # how soon a yielded nightly job looks again for its capture
-PROJECT_ENTRIES = frozenset({"project.yaml", "CLAUDE.md", "README.md", ".gitignore", ".gitattributes",
+PROJECT_ENTRIES = frozenset({"CLAUDE.md", "README.md", ".gitignore", ".gitattributes",
     "context", "assets", "agents", "notes", "journal", "tasks",
     "log", "analytics", "learnings", "routines", "exports", "tables"})
 PRIVATE_PARTS = SKIP_DIRECTORIES - {"exports"} | {"sessions", "transcripts", "logs", "cache", ".cache", "work", "code"}

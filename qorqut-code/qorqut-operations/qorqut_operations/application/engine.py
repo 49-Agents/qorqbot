@@ -38,9 +38,6 @@ class Application:
         self.delegated_creation_groups = creation_groups(delegated_creation_groups)
         if any(type(exception) is not ReviewScopeException for exception in self.review_exceptions):
             raise TypeError("Review exceptions are typed contributions made by trusted assembly code")
-        # Optional model-free technical incident observer. Runtime assembly
-        # installs this; ordinary applications remain completely unchanged.
-        self.incident_reporter = None
         self._target_resolvers = {}
 
     def register_target_resolver(self, resource_type, resolver):
@@ -58,45 +55,12 @@ class Application:
 
     def invoke(self, context: InvocationContext, operation_name: str, arguments=None, options=None):
         """Return the same typed envelope on success, denial, validation, or conflict."""
-        # Where ``_locate`` found the named record, the outcome is observed in that scope, as the call ran: the located
-        # options select a project, and the located arguments state a scope the operation reads from them.
-        located = {}
         try:
             with self.database.observe(operation_name, getattr(context, 'request_id', None), job_id=getattr(context, 'job_id', None)):
-                result = self.invoke_or_raise(context, operation_name, arguments, options, located=located)
-                self.observe_result(context,operation_name,result,located.get('arguments', arguments),
-                                    located.get('options', options))
-                return result
+                return self.invoke_or_raise(context, operation_name, arguments, options)
         except DomainError as exc:
             result = OperationResult.failure(exc)
-            self.observe_result(context,operation_name,result,located.get('arguments', arguments),
-                                located.get('options', options))
             return (self.result(context, result) if isinstance(context, InvocationContext) else result)
-        except Exception as exc:
-            observed = self.observe_result(context,operation_name,OperationResult.failure(
-                DomainError('internal_error','Operation failed at the application boundary')),
-                located.get('arguments', arguments), located.get('options', options))
-            # A transport boundary may catch this same exception. The
-            # application observer already recorded it when configured.
-            try:
-                setattr(exc, '_qorqut_incident_reported', bool(observed))
-            except Exception:
-                pass
-            raise
-
-    def observe_result(self, context, operation, result, arguments=None, options=None):
-        if self.incident_reporter is not None:
-            try:
-                options = options if isinstance(options, InvocationOptions) else InvocationOptions.from_mapping(options)
-                context = self._options_context(context, options)
-                namespace = self.namespace(context, self.registry.get(operation), arguments or {})
-                if namespace == 'global':
-                    context = replace(context, project_id=None, review_project_id=None)
-                outcome = self.incident_reporter.observe_result(context,operation,result)
-                return isinstance(outcome, dict) and outcome.get('status') != 'unavailable'
-            except Exception:
-                pass  # A failed observer must never change a project operation's result.
-        return False
 
     def current_context(self, context, uow):
         current = self.context_resolver(context, uow) if self.context_resolver else context
@@ -532,18 +496,17 @@ class Application:
             raise DomainError("invalid_result", "An apply handler must complete or enqueue its exact prepared effects")
         return descriptor.validate_output(result)
 
-    def invoke_or_raise(self, context, operation_name, arguments=None, options=None, *, located=None):
-        """Run mutations under the installed recovery admission gate. ``located`` receives the options a found record
-        selected (``_locate``), when it selected any, and the arguments its lookup returned."""
+    def invoke_or_raise(self, context, operation_name, arguments=None, options=None):
+        """Run mutations under the installed recovery admission gate."""
         descriptor = self.registry.get(operation_name)
         admission = (self.writer_admission.writer()
                      if descriptor.effect_kind != "read" and self.writer_admission is not None
                      else nullcontext())
         with admission:
-            result = self._invoke_or_raise(context, operation_name, arguments, options, located=located)
+            result = self._invoke_or_raise(context, operation_name, arguments, options)
             return descriptor.project_result(result) if descriptor.project_result else result
 
-    def _invoke_or_raise(self, context, operation_name, arguments=None, options=None, *, located=None):
+    def _invoke_or_raise(self, context, operation_name, arguments=None, options=None):
         if not isinstance(context, InvocationContext):
             raise DomainError("invalid_principal", "An authenticated invocation context is required")
         options = options if isinstance(options, InvocationOptions) else InvocationOptions.from_mapping(options)
@@ -559,12 +522,7 @@ class Application:
             if (required_plugin and context.principal_kind == "agent"
                     and required_plugin not in {ref.id for ref in context.enabled_plugin_refs}):
                 raise DomainError("forbidden", "Requested tool alias requires an enabled plugin")
-            found = self._locate(context, descriptor, arguments, options, uow)
-            if found[2] is not options and located is not None:
-                located["options"] = found[2]
-            if found[1] is not arguments and located is not None:
-                located["arguments"] = found[1]
-            context, arguments, options = found
+            context, arguments, options = self._locate(context, descriptor, arguments, options, uow)
             namespace = self.namespace(context, descriptor, arguments)
             if namespace == "global":
                 context = replace(context, project_id=None, review_project_id=None)

@@ -378,18 +378,6 @@ class TaskProjectLookupTests(Harness):
         self.assertNotIn('details', refused.error)
         self.assertEqual(self.comments(elsewhere['id']), [])
 
-    def test_outcomes_are_observed_in_the_project_the_task_was_found_in(self):
-        task = self.create(self.alpha)
-        seen = []
-        self.app.incident_reporter = NS(observe_result=lambda ctx, operation, result: seen.append(
-            (operation, ctx.project_id, result.status)))
-        self.call('tasks_get', {'task_id': task['id']})
-        self.call('tasks_update', {'task_id': task['id'], 'changes': {'due': '2026-12-01'}},
-                  expected_revision=task['revision'] + 5)
-        self.assertEqual([(operation, project) for operation, project, _ in seen],
-                         [('tasks_get', self.alpha), ('tasks_update', self.alpha)])
-        self.assertEqual([status == 'ok' for _, _, status in seen], [True, False])
-
     # -- tasks_get include ----------------------------------------------------------------------------------------
 
     def test_include_reports_every_refusal_and_keeps_the_task(self):

@@ -150,7 +150,7 @@ class OwnerReferenceTests(Harness):
             self.assertEqual(kinds['reminder'], Kind('reminders', 'owner_reminders_list'))
             self.assertIsNotNone(kinds['signoff'].visible)
         # An id that names no record of the kind reads as Global, which is what an explicit null states.
-        for kind in ('action', 'reminder', 'dev_ticket', 'material', 'person', 'topic', 'entity'):
+        for kind in ('action', 'reminder', 'material', 'person', 'topic', 'entity'):
             item = self.completed('project_item_get', {'project_id': self.alpha, 'item': {'type': kind, 'id': self.in_alpha}})['item']
             self.assertEqual(item, {'type': kind, 'id': self.in_alpha, 'project_id': None})
 

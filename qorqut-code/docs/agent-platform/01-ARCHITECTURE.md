@@ -81,7 +81,7 @@ assets. The database holds references/revisions rather than a second editable
 copy of those documents.
 
 Profiles select published role/plugin revisions. Generated Claude integration
-files and exported `agent.yaml`/`project.yaml` are projections, never parallel
+files and the exported `agent.yaml` are projections, never parallel
 configuration sources that the server silently merges back in.
 
 The service enforces protected mutations and checks file hashes/revisions before

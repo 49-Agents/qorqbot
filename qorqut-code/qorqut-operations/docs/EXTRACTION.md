@@ -138,7 +138,7 @@ Requiring `manage_delegated_assignments` in the engine's delegation check is pre
   The host's documents `StorageContribution` must declare `required_lifecycles=frozenset({"documents"})`, because v1
   tracked document availability beside every file receipt; the synthetic checks' contribution
   (`tests/support.py`) declares exactly that requirement and the engine itself does not know the name.
-* The `SignoffPorts`, the `ProgramRegistry` contents and `JobObserver`, the file target resolver,
+* The `SignoffPorts`, the `ProgramRegistry` contents, the file target resolver,
   `DelegationProvider`, `AgentAuthority`. Worker profiles are derived by the engine's `BackgroundAuthority`.
 * SQL helper functions: the engine registers `inbox_actor`, `san_juan_date` and `san_juan_hour` on every connection
   (operational, read-only validation, disposable inventory) because retained-domain DDL (inbox/email triggers,
@@ -161,7 +161,7 @@ or scheduling freedoms; approval still applies the saved v1 proposal automatical
 | `signoffs/service.py` | `signoffs/service.py` | host reaches → `SignoffPorts`; `SignoffService(database, ports, *, locks, file_applier=None, clock, id_factory)` + one `bind(application)` |
 | `signoffs/inputs.py`, `notes.py`, `rejection.py`, `notifications.py` | same names | ports only; `NOTE_REFS` derives from `ReferenceVocabulary.targets` |
 | `signoffs/platform_review.py` (`PlatformApproval`) | `signoffs/platform_approval.py` | renamed; only the shared exact-decision orchestration; the concrete Reddit/Email approvals (`signoffs_reddit_approve`, `signoffs_email_approve`) are host subclasses |
-| `background/programs.py`, `authority.py`, `service.py`, `routines.py`, `schedule.py` | `background/…` | `ProgramRegistry.freeze()/bind_authority`; `BackgroundService(…, locks, job_observer, scheduler)`; `RoutineScheduler(operations, database)` |
+| `background/programs.py`, `authority.py`, `service.py`, `routines.py`, `schedule.py` | `background/…` | `ProgramRegistry.freeze()/bind_authority`; `BackgroundService(…, locks, scheduler)`; `RoutineScheduler(operations, database)` |
 | `domains/routines/operations.py`, `reads.py` | `routines/operations.py`, `reads.py` | `RoutineOperations(programs, authority, *, clock)` is application-free; catalog entries + `contribution()` |
 | `sandbox/quiescence.py` (generic part), `sandbox/recovery_gate.py` | `storage/quiescence.py`, `storage/recovery_gate.py` | `RecoveryQuiescer`, `QuiescenceProof`, `BoundedWriter`, `KnownZeroWriters`, `DatabaseMaintenanceGate`; Docker freezers/ownership stay host |
 | `roles.py` ids, `domains/conversations.py`, `domains/team_channel.py` | same names | pure helpers the extracted code compares against; the department registry (`departments.py`) is removed in v1.3 |
@@ -173,19 +173,17 @@ or scheduling freedoms; approval still applies the saved v1 proposal automatical
    `Application` as their only dependency: the database, typed ports and `LockPaths` are explicit constructor inputs
    (`Application` is still needed to authorize and apply, so `SignoffService.bind(application)` is called once;
    `BackgroundService` takes it directly). `application_claim` uses the explicit `LockPaths`.
-2. The v1 `getattr(self.app, "incident_reporter", None)` in the job service became the `JobObserver` port
-   (`job_result(row, error)`, same call points, same swallow-on-error); `Application.incident_reporter` is unchanged.
-3. `ProgramRegistry` registration ends at `freeze()`; `BackgroundAuthority` binds itself to the registry once
+2. `ProgramRegistry` registration ends at `freeze()`; `BackgroundAuthority` binds itself to the registry once
    (`bind_authority`, v1 assigned `programs.authority = self`). The job values, definition digest, worker identities and claims are unchanged (golden digests
    from the deployed module are asserted in `tests/test_background.py`).
-4. Optional domains must be declared (`ABSENT`) and the operations that need an absent domain return
+3. Optional domains must be declared (`ABSENT`) and the operations that need an absent domain return
    `operation_unavailable` (the delegated input-answer descriptor is not installed without `management`; the `focus`
    argument does not exist without `focus`; platform staging fails with `operation_unavailable`). Where v1 treated the domain as optional the behaviour is v1's.
-5. `FileExecutor.recover_pending` is now part of the `FileExecutor` Protocol (v1 already called it on
+4. `FileExecutor.recover_pending` is now part of the `FileExecutor` Protocol (v1 already called it on
    `app.file_executor` from the Signoff worker's file recovery pass).
-6. `StorageContribution.required_tables` now also fails `freeze()` for a required table that no
+5. `StorageContribution.required_tables` now also fails `freeze()` for a required table that no
    contribution specifies, and `compile_target` fails for one that is absent from the composed schema.
-7. Everything else in the moved modules is the v1 text with import paths changed.
+6. Everything else in the moved modules is the v1 text with import paths changed.
 
 ### Port call map (v1 source → typed port)
 
@@ -217,7 +215,6 @@ implementation or `ABSENT`. A `None` for an optional port is also an `AssemblyEr
 | | `creation_access(application, ctx, focus, uow)` / `present_created(application, ctx, focus, source, uow)` | `inbox.attention.*` | input creation prepare / apply | `None` |
 | | `release_signoff(row, updated, uow)` | `AttentionBoard.release_signoff` | `_update` | `None` |
 | `narrowing` (optional, new; default `ABSENT`, no v1 counterpart) | `narrow(ctx, uow)` | host-owned (WhatsApp Signoff privacy) | `_visibility`, last, so every reader (`signoffs_get`/`list`/notes/decisions/owner attention) applies it | `(sql, params)`: empty or exactly one ` AND (<predicate>)` over `s`; `checked_narrowing` refuses anything else, so it can only remove proposals from a reader's view |
-| `JobObserver` (optional) | `job_result(row, error=None)` | `app.incident_reporter` | `BackgroundService._observe` | `None` |
 | `FileExecutor` (existing) | `recover_pending(app, *, limit)` | same | `SignoffService._recover_pending_files` | receipts |
 | Quiescence controllers | `drain(*, timeout)`/`resume()`, `inventory_and_freeze`, `freeze`/`thaw` | `sandbox.quiescence` | `RecoveryQuiescer.quiesce` | `QuiescenceProof` |
 
@@ -270,7 +267,7 @@ They are engine-owned tables (DDL, indexes and triggers here) that are not reach
   `email_history_signoff_insert|update` (email-history contribution), and index `jobs_project_kind_upload`
   (Context contribution: it keys Context uploads in `jobs`).
 * Hooks: no new engine hooks. The Signoff service is the `Application.signoffs` stager; `FileExecutor.recover_pending`
-  and the `JobObserver`/controller ports above are constructor-injected; host `ReceiptHistory`/`ResourceLifecycle`
+  and the controller ports above are constructor-injected; host `ReceiptHistory`/`ResourceLifecycle`
   contributions are unchanged. Operation tags written for the host change feed: `signoffs_notification_tick|dismiss|
   snooze`, `jobs_routines_tick`, `jobs_run`.
 * Newly owned `jobs` immutability: `storage/specs.py` `CORE_IMMUTABLE_FIELDS["jobs"]` = `project_id`,
@@ -318,7 +315,7 @@ specifies otherwise.
 ### Remaining host and neutral-item dependencies
 
 1. Host composition (`qorqut-code`): the `SignoffPorts` implementations, the concrete `Program` set and
-   `ProgramRegistry.freeze()`, `JobObserver`, `PlatformApproval` subclasses, quiescence controllers (Docker, terminal
+   `ProgramRegistry.freeze()`, `PlatformApproval` subclasses, quiescence controllers (Docker, terminal
    inventory, browser/sandbox leases) and the `ReviewScopeException`s for `routines_run|stop`.
 2. Host tables and triggers listed above (`inbox_changes`, `documents`, the omitted capture/email-history triggers and
    the Context upload index), and the SQL helper functions they call.
@@ -487,7 +484,7 @@ package's `storage_contribution()` and one `*Operations(...).contribution()` cat
 | `actions` | `action_logs`, `action_projects`, `action_revisions`; `actions_list/get/config_get/thread_get/record/correct/withdraw/comment/follow`; writer `new_action`/`change_action`/`settle` | `ActionOperations(application, references, *, tasks, on_revision, clock=)` where `references` is `tasks.note_references()` and `tasks` is the Task service, whose `lookup` finds the Task an Action links (build the Task service first) |
 
 The engine imports no host module. What a host must supply comes in as `TaskPorts` (assignee rules,
-Focus, incident link, note references, owner-work routing) and the neutral `ItemResolver`.
+Focus, note references, owner-work routing) and the neutral `ItemResolver`.
 
 ### Task contract (frozen matrix, unchanged v1 authority)
 
@@ -677,7 +674,7 @@ are removed, not made optional or inert, and nothing replaces them:
 
 Everything else of those operations is unchanged: scope and policy, revision checks, assignee protections
 (`AssigneeRules`), workflow-role refusal, parent independence, review composition and archive
-behavior. `TaskPorts(assignees, focus, incidents, references, routing)` and `RelationshipPorts(roles,
+behavior. `TaskPorts(assignees, focus, references, routing)` and `RelationshipPorts(roles,
 workflow_roles, materials, archive, navigation, review_edits)` are the complete constructors; a host that still passes
 `setup=` or `protected_edges=` fails with `TypeError`. Receipts of earlier applications stay exact.
 
@@ -699,7 +696,7 @@ workflow_roles, materials, archive, navigation, review_edits)` are the complete 
 The v1.3 engine keeps only the general platform. The following are removed outright, not made optional, inert or
 flag-gated, and nothing replaces them in the engine:
 
-* **Campaigns Task port.** `tasks.Campaigns`, the `campaigns` member of `TaskPorts` (now `assignees, focus, incidents,
+* **Campaigns Task port.** `tasks.Campaigns`, the `campaigns` member of `TaskPorts` (now `assignees, focus,
   references, routing`), the `plan(...)` callback of every Task label write and the `campaign` field of `tasks_get`.
   A Task label write is the shared tag plan only. The Signoff `campaigns` port, `CampaignFilter` and the
   `signoffs_list` `campaign_id` filter are removed with it.

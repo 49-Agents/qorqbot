@@ -3,7 +3,7 @@
 The Task flow (records, fixed states, custom fields, parents, dependencies, tags, discussion, follows, events and the
 snooze) is the engine's. What the engine cannot know comes in through ``TaskPorts``, each part required and none
 discovered by name: the host's contact and peer rules for who may be assigned, the
-incident ticket link, the references a note may cite beyond engine items, and the routes that v1
+references a note may cite beyond engine items, and the routes that v1
 made mandatory for owner work. A port narrows or enriches an operation; it cannot grant access, and every port is
 called inside the same prepared plan and transaction as the Task write it belongs to."""
 
@@ -31,17 +31,11 @@ class AssigneeRules(Protocol):
     def worker_excluded(self, ctx: InvocationContext, identity: str, uow) -> bool: ...
 
 
-class Incidents(Protocol):
-    """Links a Task to the development ticket a note cites (v1 ``IncidentReporter.link_task``)."""
-
-    def link_task(self, uow, ticket_id: str, project_id: str | None, task_id: str, principal_id: str, at: str) -> None: ...
-
-
 class NoteReferences(Protocol):
     """References a Task note may cite besides the engine's neutral items.
 
     ``types`` are all the reference types a note may cite, in order (engine item kinds and the host's own);
-    ``host_types`` are the ones ``resolve`` handles itself (for example ``dev_ticket``). ``resolve`` returns
+    ``host_types`` are the ones ``resolve`` handles itself (for example ``email``). ``resolve`` returns
     ``{label, state}``, checks the caller's authority to read the reference and pins it on ``builder`` when preparing.
     ``derived(ctx, uow, message)`` is the extra reference resolved on read for a message (the outreach handoff email
     link) or ``None``."""
@@ -94,7 +88,6 @@ class TaskPorts:
     ``boards`` is the one optional part: an assembly without work boards leaves it out."""
 
     assignees: AssigneeRules
-    incidents: Incidents
     references: NoteReferences
     routing: Routing
     boards: Boards | None = None
@@ -104,7 +97,6 @@ class TaskPorts:
             raise AssemblyError("The optional task port boards must provide workers_named")
         for label, value, methods in (
                 ("assignees", self.assignees, ("protect", "owner_directed", "worker_excluded")),
-                ("incidents", self.incidents, ("link_task",)),
                 ("references", self.references, ("resolve", "derived")), ("routing", self.routing, ("routes", "snooze_routes"))):
             missing = [name for name in methods if not callable(getattr(value, name, None))]
             if value is None or missing:
@@ -114,4 +106,4 @@ class TaskPorts:
             raise AssemblyError("The note reference port lists its reference types and its host-resolved types")
 
 
-__all__ = ["AssigneeRules", "Boards", "Incidents", "NoteReferences", "Routing", "TaskPorts"]
+__all__ = ["AssigneeRules", "Boards", "NoteReferences", "Routing", "TaskPorts"]

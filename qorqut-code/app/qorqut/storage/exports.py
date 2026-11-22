@@ -29,7 +29,7 @@ PROJECT_TABLES = ("relationships", "context_reviews", "context_review_states", "
     "routines", "routine_runs",
     # Project records: the explicit cross-scope associations of one Project (never private conversation content).
     "project_item_links")
-GLOBAL_TABLES = ("dev_tickets", "dev_ticket_events", "tasks", "thread_messages", "item_tags", "relationships", "project_configs", "agent_profiles", "documents", "routines", "routine_runs",
+GLOBAL_TABLES = ("tasks", "thread_messages", "item_tags", "relationships", "project_configs", "agent_profiles", "documents", "routines", "routine_runs",
                  "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
                  # Global-stored actions and every action's project memberships (the action scope).
                  "action_logs", "action_revisions", "action_projects", "tags",

@@ -40,8 +40,7 @@ the provider and keeps its sender routes only through the provider's explicit in
 - Mandatory `project_email_*` provisioning, per-Project mailboxes, owned folders and aliases, and default sender inference
   from a Project.
 - Mail threads, comments, controls, decisions, history and the selector maze of the old email plugin.
-- Platform-dispatch of `email.send`, Ordubashy email approval (`signoffs_email_approve`) and incident reporting of failed
-  account sends (a send's outcome is its job and engine receipt).
+- Platform-dispatch of `email.send`, Ordubashy email approval (`signoffs_email_approve`).
 - The mail-specific agent-delegation machinery and the `ordubashy_mail_control` grant.
 
 ## Historical email data

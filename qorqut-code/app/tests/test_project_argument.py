@@ -331,8 +331,6 @@ class DashboardRouteTests(Harness):
         api.origins = NS(validate=lambda request, mutation=False: None)
         api.statuses, api.owner_routes = {}, {}
         api.route_counters = NS(record=lambda *args, **options: None)
-        api._report_transport_success = lambda *args, **options: None
-        api._report_transport_failure = lambda *args, **options: None
 
         async def handler(request):
             return await api(request)

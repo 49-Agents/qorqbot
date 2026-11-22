@@ -99,7 +99,7 @@ class Permissions(PreparationFixture):
                 (self.folder / "code").mkdir(parents=True)
             _, _, codex = self.prepared()
             self.assertEqual({path: mode for path, mode in codex.items() if mode == "read" and "/projects/" in path},
-                             {str(self.folder / name): "read" for name in ("project.yaml", "CLAUDE.md", "context", "tasks", "log")})
+                             {str(self.folder / name): "read" for name in ("CLAUDE.md", "context", "tasks", "log")})
             self.assertNotIn(str(self.folder), codex)
 
     def test_the_instruction_text_names_code_roots_only_when_there_are_some(self):

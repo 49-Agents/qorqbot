@@ -182,21 +182,6 @@
       "line": 46
     },
     {
-      "id": "dev-tickets-owner-list-system-dev-reports-open-by",
-      "source": "qorqut-code/app/qorqut/domains/dev_tickets.py",
-      "line": 30
-    },
-    {
-      "id": "dev-tickets-owner-close-or-reopen-a-system-dev",
-      "source": "qorqut-code/app/qorqut/domains/dev_tickets.py",
-      "line": 35
-    },
-    {
-      "id": "dev-tickets-read-one-system-dev-report-and-its",
-      "source": "qorqut-code/app/qorqut/domains/dev_tickets.py",
-      "line": 47
-    },
-    {
       "id": "file-links-build-an-ordinary-link-the-owner-can",
       "source": "qorqut-code/app/qorqut/domains/file_links.py",
       "line": 24
@@ -460,16 +445,6 @@
       "id": "private-conversations-read-related-records-for-visual-thread-context",
       "source": "qorqut-code/app/qorqut/inbox/private_conversations.py",
       "line": 156
-    },
-    {
-      "id": "incidents-owner-list-bounded-system-dev-incident-summaries",
-      "source": "qorqut-code/app/qorqut/incidents.py",
-      "line": 704
-    },
-    {
-      "id": "incidents-owner-inspect-one-system-dev-incident-and-bounded",
-      "source": "qorqut-code/app/qorqut/incidents.py",
-      "line": 710
     },
     {
       "id": "service-list-authorized-management-intake-with-source-links-and",

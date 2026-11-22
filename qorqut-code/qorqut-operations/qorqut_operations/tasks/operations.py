@@ -9,7 +9,7 @@ are written by the operation that changed the Task, in its own transaction; see 
 The Task is the one record of a piece of work, so the rules that keep it true are checked where it is written (see
 ``lifecycle``), and ``on_change`` lets the host update the records that point at a Task in the same transaction.
 
-Host-specific behaviour (who may be assigned, Focus presentation, the incident link, host note
+Host-specific behaviour (who may be assigned, Focus presentation, host note
 references, owner-work routing) arrives through ``TaskPorts``."""
 
 from __future__ import annotations
@@ -796,9 +796,6 @@ class TaskOperations:
             events.record_change(uow, ctx.project_id, earlier, later, ctx.principal_id)
             if self.on_change is not None:
                 self.on_change(ctx, uow, earlier, later, carried=True)
-        for item in plan.arguments.get("note_refs", ()):
-            if item["type"] == "dev_ticket":
-                self.ports.incidents.link_task(uow, item["id"], ctx.project_id, identity, ctx.principal_id, timestamp(self.clock))
         return self.read("tasks_get", ctx, {"task_id": identity, **({"scope": "global"} if ctx.project_id is None else {})}, uow)
 
     def announce(self, ctx, uow, plan, before, after, comments):

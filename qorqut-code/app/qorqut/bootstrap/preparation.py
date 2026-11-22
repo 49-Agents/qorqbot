@@ -423,7 +423,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             if code_root is not None:
                 code_roots.append(code_root)
             folder = project_root(resolver.paths, project)
-            protected += [folder / part for part in ("project.yaml", "CLAUDE.md", "context", "tasks", "log")]
+            protected += [folder / part for part in ("CLAUDE.md", "context", "tasks", "log")]
             read_roots += [folder / part for part in ("context", "analytics", "assets")]
     local = {"hooks": {
         "SessionStart": [{"matcher": "startup|resume|clear|compact|fork", "hooks": [{"type": "command", "command": command, "timeout": 240}]}],
@@ -533,9 +533,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         '.qorqut/codex-hook': codex_launcher.encode(),
         **({'.qorqut/always-skills.py': Path(__file__).with_name('always_skills.py').read_bytes()} if always_skills else {}),
         '.qorqut/activity-hook.py': Path(__file__).with_name('activity_hook.py').read_bytes(),
-        # The activity hook runs with Python isolation and therefore needs its
-        # stdlib-only outbox helper beside the generated script.
-        '.qorqut/technical_reporting.py': Path(__file__).with_name('technical_reporting.py').read_bytes(),
         '.qorqut/agentic': ('#!/bin/sh\nexec ' + shlex.join(helper(
             'qorqut.agentic.client', '--registration', str(registration_path))) + '\n').encode(),
         "agent.yaml": yaml.safe_dump(profile, sort_keys=False, allow_unicode=False).encode(),

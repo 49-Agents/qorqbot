@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from threading import Event, Lock, Thread, current_thread
 from types import MappingProxyType
 import time
-from typing import Protocol
 from uuid import UUID, uuid5
 
 from qorqut_operations.contracts import DomainError, canonical_hash, new_id, plain, utc_now
@@ -82,30 +81,14 @@ class JobControl:
             return (row["result_json"] or {}).get(name)
 
 
-class JobObserver(Protocol):
-    """Completion and incident notification for background jobs (the host's incident reporter).
-
-    ``job_result(row, error)`` is called outside any SQL transaction, after the engine has committed the
-    state it reports: with ``error=None`` or the saved ``completion_error`` when a job's outputs have all been
-    applied, with the error payload when a run raises ``DomainError`` (including ``busy``, ``cancelled`` and
-    ``service_stopping``), and with ``{"code": "background_failed"}`` for an unexpected exception. For every
-    terminal outcome (completion, failure, cancellation) ``row`` is the job row re-read after that outcome
-    committed, so its ``state`` and ``error_json`` are the saved ones; nothing is observed when it cannot be
-    re-read. ``busy`` and ``service_stopping`` leave the job queued and are observed with the row the run last
-    read (``None`` when the job could not be loaded), before it is deferred. The observer cannot change the
-    saved outcome (its own exceptions are swallowed), authorize an output or start a writer."""
-
-    def job_result(self, row, error=None) -> None: ...
-
-
 class BackgroundService:
-    def __init__(self, application, programs, authority, *, locks: LockPaths, job_observer: JobObserver | None = None,
-                 scheduler=None, clock=None, interval=5, queues=None):
+    def __init__(self, application, programs, authority, *, locks: LockPaths, scheduler=None,
+                 clock=None, interval=5, queues=None):
         if not isinstance(locks, LockPaths):
             raise TypeError("The background service needs explicit LockPaths for its serial execution claim")
         self.app, self.database = application, application.database
         self.programs, self.authority = programs, authority
-        self.locks, self.job_observer = locks, job_observer
+        self.locks = locks
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.interval = interval
         # Routing is host configuration, not part of the frozen program definition or caller-controlled job arguments.
@@ -189,16 +172,6 @@ class BackgroundService:
                     "error_json": error.to_dict(), "claimed_by": None, "lease_until": None}, uow)
                 self._routine_finish(row, uow)
 
-    def _committed(self, row):
-        """The job row as currently saved, for an observer that reports a terminal state; ``None`` if unreadable."""
-        if not row:
-            return None
-        try:
-            with self.database.read() as uow:
-                return uow.repository("jobs", project_id=row["project_id"]).get(row["id"])
-        except Exception:
-            return None
-
     def _freeze(self, row, result):
         if not isinstance(result, ProgramResult):
             raise DomainError("invalid_result", "Registered program must return a typed result")
@@ -272,13 +245,6 @@ class BackgroundService:
             row = decode_row(uow.connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone())
             return self._update(row, {"state": state, "claimed_by": None, "lease_until": None,
                 "next_retry_at": (self.clock() + timedelta(seconds=max(1, min(seconds, 3600)))).isoformat().replace('+00:00','Z')}, uow)
-
-    def _observe(self, row, error=None):
-        if self.job_observer is not None and row:
-            try:
-                self.job_observer.job_result(row, error)
-            except Exception:
-                pass  # Reporting cannot change a job's saved execution outcome.
 
     def run_one(self, job_id=None, *, queue=None):
         if queue is not None and queue not in self.queues:
@@ -368,14 +334,8 @@ class BackgroundService:
                     return {"job_id": row["id"], "state": "queued"}
                 row = self._freeze(row, result)
             done = self._apply_outputs(row, control)
-            if done:
-                committed = self._committed(row)
-                self._observe(committed, (committed["result_json"] or {}).get("completion_error") if committed else None)
             return {"job_id": row["id"], "state": ("failed" if row["result_json"].get("completion_error") else "succeeded") if done else "waiting_signoff"}
         except DomainError as exc:
-            nonterminal = exc.code in {"busy", "service_stopping"}
-            if nonterminal:
-                self._observe(locals().get('row'), exc.to_dict())
             if exc.code == "busy":
                 if 'row' in locals() and row:
                     self._defer(row["id"], 5, state="applying" if "outputs" in (row["result_json"] or {}) else "queued")
@@ -387,14 +347,11 @@ class BackgroundService:
                 return {"job_id": row["id"], "state": "paused_for_restart"}
             if 'row' in locals() and row:
                 self._fail(row["id"], exc)
-            if not nonterminal:
-                self._observe(self._committed(locals().get('row')), exc.to_dict())
             self.last_error = exc.code
             return {"job_id": row["id"] if 'row' in locals() and row else job_id, "error": exc.to_dict()}
         except Exception:
             if 'row' in locals() and row:
                 self._fail(row["id"], DomainError("background_failed", "Registered background program failed"))
-            self._observe(self._committed(locals().get('row')), {'code': 'background_failed'})
             raise
 
     def _schedule(self):

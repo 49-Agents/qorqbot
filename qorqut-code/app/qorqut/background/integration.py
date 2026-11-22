@@ -2,7 +2,7 @@
 
 The generic machinery (program registry, authority, queue job service, routine scheduler and operations) is the
 Operations engine's. This module registers the host's concrete programs on the one ``ProgramRegistry``, installs the
-routine/learning/job operations and attaches the one ``BackgroundService`` with its ``JobObserver`` and scheduler.
+routine/learning/job operations and attaches the one ``BackgroundService`` with its scheduler.
 The program registry is frozen with the operation registry by ``Runtime.freeze_registry`` before traffic."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -158,9 +158,7 @@ def attach_background(runtime, programs, *, model_client_factory=None, transcrip
     for program in programs:
         if program.background_queue != "general":
             queues.setdefault(program.background_queue, []).append(program.id)
-    # The host's incident reporter observes every job result after its own commit; it cannot change the outcome.
     background = BackgroundService(runtime.application, programs, authority, locks=runtime.locks,
-                                   job_observer=runtime.application.incident_reporter,
                                    scheduler=RoutineScheduler(routines, runtime.database), clock=clock,
                                    queues=queues)
     background.routines, background.learnings = routines, learnings

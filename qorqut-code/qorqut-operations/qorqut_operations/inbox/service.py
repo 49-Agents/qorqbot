@@ -6,7 +6,7 @@ authorization; a read or a nudge never acknowledges anything.
 The generic algorithms live here: the inbox operations and their schemas, the current-context and subject checks, the visibility
 of a subscription and of a delivered event, the pending page and its cursor, the exact acknowledgement rows, the sticky Task and
 Action follows and the related-work subscription. Everything that depends on the host (managed workers, private owner channels,
-integrated sources, Focus cards, incidents, delegated assignments and the automatic owner-task follows) is a named call on a
+integrated sources, Focus cards, delegated assignments and the automatic owner-task follows) is a named call on a
 required host adapter, made at the point the flow always made it. There is no default adapter, and the selected extensions'
 source handlers are an explicit required argument: this module neither imports nor builds a registry of its own."""
 

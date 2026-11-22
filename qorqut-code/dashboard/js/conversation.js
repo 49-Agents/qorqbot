@@ -87,7 +87,7 @@ function conversationRefLabel(ref) {
   return ref.label || conversationSideChat(ref)?.title || CONVERSATION_REF_LABELS[ref.type] || 'Reference';
 }
 function conversationNoteRefs(note,linked=new Set()) {
-  const refs=(note.refs || []).filter(ref=>ref.type!=='dev_ticket');
+  const refs=note.refs || [];
   return {
     references:refs.map((ref,index)=>({ref,index})).filter(({ref})=>!conversationInlineSignoff(note,ref,linked))
       .map(({ref,index})=>({key:`ref${index}`,label:conversationRefLabel(ref),disabled:!!ref.unavailable,value:ref})),
@@ -126,7 +126,7 @@ function conversationActivityEntry(note) {
     activity:{preview:messagePreview(note.body,note.summary) || 'Progress note',author:conversationPersonName(note),
       time:sjTime(note.created_at),dateTime:sjDateTime(note.created_at),
       attribution:relayed?`${conversationPersonName(note)} · ${note.attribution?.kind==='owner_intent'?'interpreted':'recorded'} by ${note.recorder_name || 'Ordubashy'}`:''},
-    references:(note.refs || []).filter(ref=>ref.type!=='dev_ticket').map((ref,index)=>({key:`ref${index}`,label:conversationRefLabel(ref),disabled:!!ref.unavailable,value:ref}))};
+    references:(note.refs || []).map((ref,index)=>({key:`ref${index}`,label:conversationRefLabel(ref),disabled:!!ref.unavailable,value:ref}))};
 }
 // Related records have their own identities and pagination; they never enter the message store.
 // A Task's plan as one notice: how far it is and the step in hand. Opened, it lists every step with its outcome.

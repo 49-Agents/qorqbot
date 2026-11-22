@@ -3,8 +3,7 @@
 Every family is read through its own canonical reader (or its domain's authorized neutral item read), never through
 an arbitrary content reader: Tasks through ``tasks_get``/``tasks_list``, Signoffs through ``signoffs_get``, Actions
 through ``actions_get``, documents/people/topics through the neutral resolver, tables through ``tables_get``, routines
-through ``routines_get`` (Global included), System Dev reports through the owner queue or the scoped agent reader, and
-stored reminders through ``owner_reminders_list``.
+through ``routines_get`` (Global included), and stored reminders through ``owner_reminders_list``.
 
 The page is a real bounded keyset window over one SQL union of *identities and sort metadata only*: each family
 selects ``(updated_at, type, true owning scope, canonical id)``, owned and explicitly linked rows are merged by that
@@ -44,13 +43,13 @@ SKIPPED_DOCUMENTS = frozenset({"context_upload", "context_map", "context_index",
                                "shared_instruction", "shared_instructions", "legacy_request", "email_message",
                                *JOURNAL_KINDS})
 SECTION_OF = {"task": "work", "signoff": "signoffs", "action": "actions", "table": "tables", "routine": "automation",
-              "project": "other", "dev_ticket": "other", "reminder": "other", "entity": "other"}
+              "project": "other", "reminder": "other", "entity": "other"}
 LINK_SECTION_TYPES = {"work": ("task",), "signoffs": ("signoff",), "actions": ("action",),
                       "documents": (*DOCUMENT_TYPES, "entity"), "tables": ("table",), "automation": ("routine",),
-                      "other": ("project", "dev_ticket", "reminder")}
+                      "other": ("project", "reminder")}
 KNOWN_TYPES = frozenset(SECTION_OF) | DOCUMENT_TYPES
 # Project link targets are the neutral kinds plus the host's own canonical record readers.
-TARGET_TYPES = frozenset({"task", "signoff", "action", "routine", "reminder", "dev_ticket", "table", "project",
+TARGET_TYPES = frozenset({"task", "signoff", "action", "routine", "reminder", "table", "project",
                           "material", "person", "topic", "entity"})
 DEFAULT_LIMIT, MAX_LIMIT = 25, 100
 # A page may examine more identities than it returns (denied/closed/filtered rows); the window keeps advancing
@@ -202,12 +201,6 @@ class Inventory:
                          created_at=row.get("created_at"), updated_at=row.get("updated_at"),
                          archived=bool((row.get("metadata_json") or {}).get("retired")))
 
-    def from_ticket(self, uow, row, project_id):
-        return self.base(uow, type="dev_ticket", id=row["id"], project_id=project_id,
-                         label=row.get("title") or row["id"], revision=row.get("revision") or 1,
-                         resource_type="dev_tickets", state=row.get("status"), summary=row.get("kind"),
-                         created_at=row.get("created_at"), updated_at=row.get("updated_at"))
-
     def from_reminder(self, uow, row, project_id):
         return self.base(uow, type="reminder", id=row["reminder_id"], project_id=project_id,
                          label=row.get("text") or "Reminder", revision=row.get("revision") or 1,
@@ -269,9 +262,6 @@ class Inventory:
             add("SELECT updated_at ts,'routine' type,COALESCE(project_id,'') scope,id,1 owned,0 linked,NULL link_id,"
                 "NULL link_revision FROM routines WHERE project_id IS ?", (scan,))
         if enabled("other"):
-            if not wanted or wanted == "dev_ticket":
-                add("SELECT updated_at ts,'dev_ticket' type,COALESCE(project_id,'') scope,id,1 owned,0 linked,NULL link_id,"
-                    "NULL link_revision FROM dev_tickets WHERE project_id IS ?", (scan,))
             if not wanted or wanted == "reminder":
                 # The owner's reminders in this one scope; the caller's identity gate (owner or configured Ordubashy) already ran.
                 add("SELECT created_at ts,'reminder' type,? scope,id,1 owned,0 linked,NULL link_id,NULL link_revision "
@@ -343,8 +333,6 @@ class Inventory:
                                WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'routine' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM routines x
                                  WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
-            WHEN 'dev_ticket' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM dev_tickets x
-                                    WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'reminder' THEN (SELECT x.created_at FROM reminders x WHERE x.id=l.target_id)
             WHEN 'project' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM projects x WHERE x.id=l.target_id)
             ELSE NULL END"""
@@ -421,9 +409,6 @@ class Inventory:
             if row.get("project_id") != scope or row.get("namespace") != ("global" if scope is None else scope):
                 raise DomainError("not_found", "Routine does not exist in this scope")
             return self.from_routine(uow, row)
-        if kind == "dev_ticket":
-            row = self._ticket(reader_ctx, identity, scope, uow)
-            return self.from_ticket(uow, row, scope)
         if kind == "reminder":
             row = self._reminder(owned_ctx, identity, scope, uow)
             return self.from_reminder(uow, row, scope)
@@ -476,23 +461,6 @@ class Inventory:
             raise DomainError("not_found", "Action does not exist")
         return source_ctx, stored
 
-    def _ticket(self, ctx, identity, scope, uow):
-        if ctx.principal_kind == "human":
-            listing = self.read(self.scope_context(ctx, None), "dev_tickets_list",
-                                {"status": "all", "details": True, "ticket_id": identity}, uow)["items"]
-            row = next((value for value in listing if value["id"] == identity), None)
-            if row is None or row.get("project_id") != scope:
-                raise DomainError("not_found", "System Dev report does not exist in this scope")
-            return row
-        arguments = {"ticket_id": identity}
-        if scope is None:
-            arguments["scope"] = "global"
-        source_ctx = self.application.current_context(self.scope_context(ctx, scope), uow)
-        row = self.read(source_ctx, "dev_tickets_get", arguments, uow)["ticket"]
-        if row.get("project_id") != scope:
-            raise DomainError("not_found", "System Dev report does not exist in this scope")
-        return row
-
     def _reminder(self, ctx, identity, scope, uow):
         result = self.read(ctx, "owner_reminders_list",
                            {"scope": "project" if scope else "global", "reminder_id": identity}, uow)
@@ -515,8 +483,6 @@ class Inventory:
         if item["type"] == "signoff" and not args.get("include_closed", False):
             return item.get("state") in {"pending", "answered"}
         if item["type"] == "action" and not args.get("include_closed", False) and item.get("state") == "withdrawn":
-            return False
-        if item["type"] == "dev_ticket" and not args.get("include_closed", False) and item.get("state") != "open":
             return False
         return True
 
@@ -793,10 +759,6 @@ class Inventory:
             if stored is None:
                 raise DomainError("not_found", "Reminder does not exist in this scope")
             return {"reminder": stored}
-        if kind == "dev_ticket":
-            if ctx.principal_kind == "human":
-                return {"ticket": self._ticket(ctx, identity, scope, uow)}
-            return self.read(self.scope_context(ctx, scope), "dev_tickets_get", {"ticket_id": identity}, uow)
         if kind == access.PROJECT_TYPE:
             _, row = access.guard(ctx, self.application, uow, project_id=identity)
             return {"project": access.project_view(row)}

@@ -87,7 +87,7 @@ const tKey = t => JSON.stringify([t.project_id || tProject(t).id || tSlug(t), t.
 const taskById = (id, project = state.project) => typeof id === 'object' ? id : [...(state.myTasks || []), ...(state.tasks || [])].find(t => tKey(t) === id || t.id === id && tSlug(t) === project);
 const tPersonalRows = () => (state.myTasks || []).filter(t => state.scope === 'global' || tSlug(t) === state.project);
 const tProjectBySlug = (project = state.project) => (state.projects || []).find(x => x.slug === project) || {};
-// the project owner: `human:<owner from project.yaml>` (server's owner_actor fallback)
+// the project owner as a task names them: `human:<the project's owner>`, `human:dashboard` when it carries none
 const tHuman = () => "human:" + (tProjectBySlug().owner || "dashboard");
 
 // A repaint replaces every row, so it must not fire while a dropdown is open: it would lose its anchor.

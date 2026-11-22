@@ -17,7 +17,7 @@ changing live service configuration are separate work.
 | Finding | Decision | Smallest justified change |
 | --- | --- | --- |
 | 1. Heavy imports on every hook | Fix in A | Stop importing preparation when the bootstrap package is imported; make preparation consumers explicit. |
-| 2. Reporting and attention calls exceed the hook budget | Fix in A | Move report replay to the existing host supervisor; limit optional attention requests to a shared remaining budget and keep network waits out of the activity lock. |
+| 2. Attention calls exceed the hook budget | Fix in A | Limit optional attention requests to a shared remaining budget and keep network waits out of the activity lock. |
 | 3. One hook reconciles every attention board | Fix in B | Reconcile the requesting board and its expired claims. Preserve complete background reconciliation. |
 | 4. Todo add reads a whole board inside its write transaction | Fix in C | Return a membership/revision receipt, retaining necessary agent guidance and idempotency. |
 | 5. Configuration work precedes cache lookup | Defer | File inventories enforce consistency for directly edited instructions. Measure remaining cost before changing invalidation. |
@@ -32,12 +32,8 @@ changing live service configuration are separate work.
   package eagerly imported preparation. No-op module-entry samples took about
   0.65–0.88 seconds on the contended host; an import trace attributed about
   0.79 seconds to preparation. These are observations, not fixed latency costs.
-- Activity recording replayed diagnostic reports while holding the session's
-  activity lock. Report replay has a two-second batch budget and per-request
-  waits; attention additionally used separate one-second claim, begin, and
-  settle requests. Their independent budgets did not fit the outer timeout.
-  The report outbox was empty in one inspection, so replay backlog is not proven
-  to have caused every timeout.
+- Attention used separate one-second claim, begin, and settle requests. Their
+  independent budgets did not fit the outer timeout.
 - `AttentionRuntime.hook_claim` called the all-board `reconcile` inside a write
   transaction. Per-board reconciliation and background delivery already exist.
 - `Attention.add_result` read the selected board before the `todo_add` transaction
@@ -63,24 +59,17 @@ changing live service configuration are separate work.
 
 1. Make `bootstrap/__init__.py` lightweight and import preparation at its actual
    consumer. Check the real module entry, including later context imports.
-2. Give the existing host supervisor one non-overlapping background report pass.
-   Discover registrations from its existing supervisor/recovery records, dedupe
-   workspaces, and include idle/stopped sessions. Reuse `replay_http`, credentials,
-   record validation, exact rejection quarantine, and durable acknowledgments.
-   One broken registration must not prevent later registrations from draining.
-3. Remove every synchronous report replay from activity/checkpoint hooks. Local
-   observations and recovery markers remain durable.
-4. Share a monotonic remaining-time budget across optional attention requests,
+2. Share a monotonic remaining-time budget across optional attention requests,
    reserving time for output and the local receipt. An expired budget skips
    optional delivery. A begun emission retains its uncertainty/receipt semantics;
    failure to settle cannot produce a second output.
-5. Keep network requests outside the activity-state lock. Completion checks must
+3. Keep network requests outside the activity-state lock. Completion checks must
    spend their durable receipt before requesting a correction and must not
    overwrite a newer activity observation when their response arrives.
 
 Acceptance: real no-op entry does not import preparation; ordinary activity can
 be recorded with an unavailable service; concurrent hooks preserve monotonic
-state; report delivery needs no subsequent user prompt; slow attention requests
+state; slow attention requests
 share a budget; exact context/attention and completion receipts still work.
 The separate connector-approval hook retains its own timeout and fail-closed
 behavior.
@@ -142,11 +131,7 @@ explicitly separate from local implementation checks.
 
 - Plan recorded before code changes in `513dc02`.
 - **A implemented — `8ca814e`.** Preparation is now an explicit consumer import.
-  The existing supervisor runs one report replay pass at a time, at five-second
-  intervals when its previous pass has finished. It uses the existing scoped
-  HTTP ingestion and durable outbox. A failed first bootstrap retains its
-  recovery pointer while reports remain queued, even after its native process
-  exits. All activity-hook report replays are removed. Attention requests share
+  Attention requests share
   a two-second budget measured from hook `main`, including recording/context
   work, with a small output reserve. Completion checks spend their receipt under
   the activity lock, release it for HTTP, and only publish a result if the
@@ -186,8 +171,7 @@ roots on `PYTHONPATH`: `qorqut-code/app`, `qorqut-code/qorqut-operations`,
   `python3 -m unittest discover -s qorqut-code/app/tests -p '<module>.py'`.
 - New behavioral coverage includes concurrent local activity; expired attention
   budgets; lost begin responses and failed output flushes; completion replies
-  racing newer activity; report retry through a local HTTP server after the
-  session stops; failed-bootstrap report discovery; one requesting board plus
+  racing newer activity; one requesting board plus
   60 unrelated boards; exact expired-claim settlement; a 60-item Todo board;
   and safe pin retirement while launches/reference updates compete. Retiring
   1,001 synthetic exited pins restores the existing probe's complete coverage
@@ -217,7 +201,7 @@ roots on `PYTHONPATH`: `qorqut-code/app`, `qorqut-code/qorqut-operations`,
 
 This branch is implemented and locally checked; it is not installed in the live
 service. After an authorized release, verify representative hook latency and
-timeouts, continued report draining during idle periods, falling ordinary-pin
+timeouts, falling ordinary-pin
 counts, and contention on the same workload. Keep live/uncertain pin coverage
 conservative. Reassess configuration cost and host contention from that evidence;
 the no-op benchmark alone is not a reason to expand the architecture.

@@ -21,8 +21,6 @@ OWNER_ONLY = frozenset({
     # The owner's private conversations and side chats.
     'owner_conversations_list', 'owner_conversation_peers', 'owner_conversation_related', 'owner_conversation_mark_read',
     'side_chats_create', 'side_chats_rename', 'side_chats_close',
-    # System incidents and the retired repair tickets.
-    'system_incidents_list', 'system_incidents_get', 'dev_tickets_list', 'dev_tickets_status_set',
     # The Learning Applier's review and the owner's own Context filing controls.
     'learnings_review', 'learnings_edit', 'learnings_intake_status',
     'context_changes', 'context_filings', 'context_retract', 'context_upload_map', 'journal_upload_to_filer',

@@ -102,8 +102,7 @@ Empty checks print nothing and make no model call. A transient service or
 network failure is quiet for the first minute (a normal restart produces no
 model turn) while it retries with a bounded backoff; if it lasts 60 seconds the
 watcher reports the outage once and keeps retrying quietly, and reports
-reconnection only if it reported the outage. Bounded technical observations are
-kept either way.
+reconnection only if it reported the outage.
 Configuration/access failures stop it for repair. Exception contents and tokens are not
 printed. The credential file is reread on every check.
 

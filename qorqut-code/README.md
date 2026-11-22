@@ -102,8 +102,7 @@ The host composes the following retained capabilities. Each links to its contrac
   Fastmail CalDAV through the optional extension;
   the owner's personal event labels are private dashboard notes that never change a provider event);
   [Telegram](docs/TELEGRAM-OWNER-BRIDGE.md) (optional, disabled by default, three topics: Ordubashy, Signoffs and
-  urgent); WhatsApp ([signoffs](docs/v1.2/WHATSAPP_SIGNOFFS.md), [personal tools](app/tools/whatsapp-personal/README.md));
-  and the GitHub-backed [Dev tickets](docs/DEV-TICKETS.md).
+  urgent); and WhatsApp ([signoffs](docs/v1.2/WHATSAPP_SIGNOFFS.md), [personal tools](app/tools/whatsapp-personal/README.md)).
 - **Optional extensions.** Paper (email outreach), content creation and the Fastmail provider are installed independently of the core;
   see [Repository ownership](docs/REPOSITORIES.md).
 
@@ -210,7 +209,6 @@ commits are preserved.
 - [MCP batching](docs/MCP-BATCHING.md)
 - [Tool-call latency investigation and evaluation](docs/performance/TOOLCALL-LATENCY-2026-11-10.md)
 - [Plugin authoring](docs/plugin-authoring/README.md)
-- [Agent bug reports: Dev tickets](docs/DEV-TICKETS.md)
 
 This repository owns the authoritative contract set; keep one copy. Operational databases, credentials, session copies
 and backups are not source-control artifacts, and Git exports and versioning are not operational authority.

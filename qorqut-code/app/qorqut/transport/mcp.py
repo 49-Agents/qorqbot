@@ -24,9 +24,6 @@ from starlette.requests import Request
 from qorqut_operations.contracts import DomainError, InvocationOptions, OperationResult, new_id, plain
 from qorqut_operations.application.batches import NAME as BATCH_NAME
 from qorqut.agents.diagnostics import DIAGNOSTIC_OPERATIONS
-# Repair-ticket removal, phase 1: the resolver owns the one list of retained internal readers. Discovery and
-# dispatch refuse them here too, including operations_batch entries and tool names a client cached before removal.
-from qorqut.agents.resolver import INTERNAL_ONLY_OPERATIONS
 from qorqut.browser.operations import AGENT_BROWSER_MANAGE, BROWSER_OPERATION, WEBSITE_SIGN_IN
 from qorqut.errors import domain_error_from_agentic
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -340,8 +337,7 @@ class RegisteredAgentCaller:
                 allowed = set(assignment["allowed_operations_json"]) | set(WORKER_OPERATIONS)
         try:
             rows = self.runtime.resolver.resolve_agent_config(actor.principal, include_preparation=False).data["tools"]
-            visible = [row for row in rows if row["canonical_operation"] not in INTERNAL_ONLY_OPERATIONS
-                       and (allowed is None or row["canonical_operation"] in allowed)]
+            visible = [row for row in rows if allowed is None or row["canonical_operation"] in allowed]
             if allowed is not None and BROWSER_OPERATION in allowed and not any(
                     row["canonical_operation"] == BROWSER_OPERATION for row in visible):
                 descriptor = self.runtime.registry.get(BROWSER_OPERATION)
@@ -379,8 +375,7 @@ class RegisteredAgentCaller:
 
     @staticmethod
     def exposes(descriptor):
-        return (descriptor.name not in INTERNAL_ONLY_OPERATIONS
-                and not descriptor.owner_only and "mcp" in descriptor.exposure)
+        return not descriptor.owner_only and "mcp" in descriptor.exposure
 
     def invocation_context(self, actor, *, canonical_name, options, native_binding=None):
         context = self.runtime.agent_context(actor.principal, diagnostic=canonical_name in DIAGNOSTIC_OPERATIONS,
@@ -465,21 +460,15 @@ class MCPTransport:
         @self.server.call_tool(validate_input=False)
         async def call_tool(name, arguments):
             if name == BATCH_NAME:
-                actor = None
                 try:
-                    actor = await self._authorize_batch()
+                    await self._authorize_batch()
                     arguments = self.runtime.registry.bind_arguments(name, arguments)
                     batches.validate_entries(arguments)
                     value = await batches.execute(arguments, invoke=self._single_result, authorize=self._authorize_batch)
-                    if value.get("status") == "ok":
-                        self._report_transport_success(operation=BATCH_NAME, request_id=value.get("request_id"), actor=actor)
                 except DomainError as exc:
                     value = OperationResult.failure(exc, request_id=new_id()).to_dict()
-                except Exception as exc:
+                except Exception:
                     request_id = new_id()
-                    self.server.request_context.request.scope["qorqut.transport_failed"] = True
-                    if not getattr(exc, "_qorqut_incident_reported", False):
-                        self._report_transport_failure(operation=BATCH_NAME, request_id=request_id, actor=actor)
                     logger.exception("MCP batch failed: %s", request_id)
                     value = OperationResult.failure(DomainError("internal_error", "The batch failed; use its correlation ID for diagnosis"), request_id=request_id).to_dict()
             else:
@@ -571,35 +560,6 @@ class MCPTransport:
             if isinstance(data, str) and isinstance(mime_type, str) and mime_type.startswith("image/"):
                 blocks.append(types.ImageContent(type="image", data=data, mimeType=mime_type))
         return blocks
-
-    def _report_transport_failure(self, *, operation, request_id, actor=None, context=None):
-        reporter = getattr(getattr(self.runtime, "incidents", None), "reporter", None)
-        if reporter is None:
-            reporter = getattr(getattr(self.runtime, "application", None), "incident_reporter", None)
-        if reporter is None:
-            return
-        principal = getattr(actor, "principal", None)
-        try:
-            reporter.transport_failure(component="mcp", operation=operation,
-                request_id=request_id, context=context,
-                agent_id=(principal.id if getattr(principal, "kind", None) == "agent" else None))
-        except Exception:
-            # Reporting must never replace or recurse into the transport error.
-            pass
-
-    def _report_transport_success(self, *, operation, request_id, actor=None, context=None):
-        reporter = getattr(getattr(self.runtime, "incidents", None), "reporter", None)
-        if reporter is None:
-            reporter = getattr(getattr(self.runtime, "application", None), "incident_reporter", None)
-        if reporter is None:
-            return
-        principal = getattr(actor, "principal", None)
-        try:
-            reporter.transport_success(component="mcp", operation=operation,
-                request_id=request_id, context=context,
-                agent_id=(principal.id if getattr(principal, "kind", None) == "agent" else None))
-        except Exception:
-            pass
 
     async def _single_result(self, name, arguments, actor=None):
         request_id = new_id()
@@ -791,20 +751,10 @@ class MCPTransport:
                     logger.exception("Timeline delivery failed for %s", request_id)
             if canonical_name in CLOSURE_ACTION_HINTS and result.status == "ok":
                 presented = await self._closure_action_hint(presented, context, result, request_id)
-            if presented.get("status") == "ok":
-                self._report_transport_success(operation=canonical_name, request_id=request_id,
-                    actor=actor, context=context)
             return await self._recoverable(presented, known_operation, name, renamed)
         except DomainError as exc:
             result = OperationResult.failure(exc, request_id=request_id)
-        except Exception as exc:
-            try:
-                self.server.request_context.request.scope["qorqut.transport_failed"] = True
-            except Exception:
-                pass
-            if not getattr(exc, "_qorqut_incident_reported", False):
-                self._report_transport_failure(operation=canonical_name, request_id=request_id,
-                    actor=actor, context=context)
+        except Exception:
             logger.exception("MCP operation failed: %s", request_id)
             result = OperationResult.failure(DomainError("internal_error", "The operation failed; use its correlation ID for diagnosis"), request_id=request_id)
         return await self._recoverable(result.to_dict(), known_operation, name, renamed)
@@ -865,9 +815,6 @@ class MCPTransport:
         if scope["type"] != "http":
             return
         request = Request(scope, receive)
-        actor = None
-        scope["qorqut.request_id"] = new_id()
-        scope["qorqut.transport_failed"] = False
         try:
             self.origins.validate(request)
             if request.query_params:
@@ -882,13 +829,9 @@ class MCPTransport:
             scope["user"] = AuthenticatedUser(AccessToken(token=transport_identity, client_id=transport_identity,
                 scopes=[self.caller.scope], subject=actor.principal.id, claims={"iss": "qorqut"}))
             await self.manager.handle_request(scope, receive, send)
-            if not scope["qorqut.transport_failed"]:
-                self._report_transport_success(operation="request", request_id=scope["qorqut.request_id"], actor=actor)
         except DomainError as exc:
             await failure(exc, new_id())(scope, receive, send)
-        except Exception as exc:
+        except Exception:
             request_id = new_id()
-            if not getattr(exc, "_qorqut_incident_reported", False):
-                self._report_transport_failure(operation="request", request_id=request_id, actor=actor)
             logger.exception("MCP transport failed: %s", request_id)
             await failure(DomainError("internal_error", "The request failed; use its correlation ID for diagnosis"), request_id)(scope, receive, send)

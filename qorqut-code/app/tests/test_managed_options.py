@@ -489,8 +489,6 @@ class Routes(base.Fixture):
         api.origins = SimpleNamespace(validate=lambda request, mutation=False: None)
         api.statuses, api.owner_routes = {}, {}
         api.route_counters = SimpleNamespace(record=lambda *args, **options_: None)
-        api._report_transport_success = lambda *args: None
-        api._report_transport_failure = lambda *args: None
         api.context = lambda actor, slug=None, owner=False: (SimpleNamespace(principal_kind="human", principal_id=self.principal), None)
 
         async def handler(request):

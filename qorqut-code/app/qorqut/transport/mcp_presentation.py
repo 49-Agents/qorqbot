@@ -289,8 +289,7 @@ def finalize(value):
     """Strip correlation/refresh scaffolding from successful wire envelopes.
 
     Errors keep their correlation ID and full envelope; a true refresh signal
-    keeps its configuration revision. Applies to the MCP wire only, after
-    incident reporting has consumed the correlation ID.
+    keeps its configuration revision. Applies to the MCP wire only.
     """
     if not isinstance(value, dict) or value.get("status") == "error":
         return value

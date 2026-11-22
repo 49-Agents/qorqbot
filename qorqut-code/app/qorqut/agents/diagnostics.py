@@ -9,7 +9,6 @@ from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.storage.structured import parse_yaml
 from qorqut_operations.application.plans import schema
 from .models import REFERENCE_SCHEMA
-from .resolver import INTERNAL_ONLY_OPERATIONS
 
 DIAGNOSTIC_OPERATIONS = frozenset({'agent_runtime_get', 'operations_describe'})
 
@@ -57,8 +56,7 @@ class AgentDiagnostics:
                     or (not descriptor.owner_only and "mcp" in descriptor.exposure))
                 if owner_route and not owner_tool_route:
                     raise DomainError('forbidden', 'Not exposed in the owner-session catalog')
-                if not owner_route and (descriptor.owner_only or 'mcp' not in descriptor.exposure
-                                        or descriptor.name in INTERNAL_ONLY_OPERATIONS):
+                if not owner_route and (descriptor.owner_only or 'mcp' not in descriptor.exposure):
                     raise DomainError('forbidden', 'Not exposed to agents')
                 decision = self.runtime.application.authorize(ctx,
                     descriptor.project_policy if ctx.project_id else descriptor, (), uow)
