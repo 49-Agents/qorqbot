@@ -3,11 +3,16 @@
 Nothing here is typed in by hand: Claude Code answers its ``initialize`` control request with ``models`` (each with ``value``,
 ``displayName``, ``description`` and ``supportedEffortLevels``); Codex's app-server answers ``model/list`` with ``data`` (each with
 ``id``, ``displayName``, ``description``, ``supportedReasoningEfforts``, ``defaultReasoningEffort``, ``isDefault``, ``hidden``).
-Both were checked against the CLIs (Claude Code 2.1.329, Codex 0.167.1). Neither question sends a message or uses the model.
+Claude Code also names the full model each alias stands for (``resolvedModel``), and answers ``get_settings`` with the model and
+effort it uses when nothing is chosen (``applied``) and the effort kept for each model (``effective.modelSettings``). Both were
+checked against the CLIs (Claude Code 2.1.329, Codex 0.167.1). Neither question sends a message or uses the model.
 
 ``catalog(client)`` returns ``{"client", "models": [{"id", "label", "description", "efforts", "default_effort", "default",
-"older"}]}`` or None when the client could not be asked. ``older`` marks Claude Code's pinned versions (full ``claude-*`` ids),
-which the picker folds away behind its aliases. Answers are kept for ``TTL_SECONDS``; a failure is retried after
+"older", "resolved"}], "current": {"model", "effort", "efforts"}}`` or None when the client could not be asked. ``older`` marks
+Claude Code's pinned versions (full ``claude-*`` ids), which the picker folds away behind its aliases. ``resolved`` is the full
+model id an alias stands for (Claude Code only, else None). ``current`` is what the client uses when nothing is chosen: the full
+model id, its effort, and the effort kept per full model id (Claude Code only; Codex's default is its ``default`` model at its
+``default_effort``, and ``current`` is all None/empty). Answers are kept for ``TTL_SECONDS``; a failure is retried after
 ``RETRY_SECONDS``. One question per client runs at a time.
 """
 
@@ -51,8 +56,28 @@ def claude_models(models) -> list:
         shaped.append({"id": value, "label": _text(item.get("displayName"), LABEL_MAX) or value,
                        "description": _text(item.get("description"), DESCRIPTION_MAX),
                        "efforts": _efforts(item.get("supportedEffortLevels")) if item.get("supportsEffort") else [],
-                       "default_effort": None, "default": value == "default", "older": value.startswith("claude-")})
+                       "default_effort": None, "default": value == "default", "older": value.startswith("claude-"),
+                       "resolved": _text(item.get("resolvedModel"), ID_MAX) or None})
     return shaped
+
+
+def claude_current(settings) -> dict:
+    """Claude Code's ``get_settings`` answer as ``current``: the model and effort it uses when nothing is chosen, and the effort it
+    keeps for each full model id."""
+    settings = settings if isinstance(settings, dict) else {}
+    applied = settings.get("applied") if isinstance(settings.get("applied"), dict) else {}
+    effective = settings.get("effective") if isinstance(settings.get("effective"), dict) else {}
+    kept = effective.get("modelSettings") if isinstance(effective.get("modelSettings"), dict) else {}
+    efforts = {}
+    for model, values in kept.items():
+        effort = values.get("effortLevel") if isinstance(values, dict) else None
+        if _text(model, ID_MAX) and effort in EFFORTS:
+            efforts[_text(model, ID_MAX)] = effort
+    effort = applied.get("effort")
+    return {"model": _text(applied.get("model"), ID_MAX) or None, "effort": effort if effort in EFFORTS else None, "efforts": efforts}
+
+
+NO_CURRENT = {"model": None, "effort": None, "efforts": {}}
 
 
 def codex_models(data) -> list:
@@ -66,7 +91,7 @@ def codex_models(data) -> list:
         shaped.append({"id": _text(item["id"], ID_MAX), "label": _text(item.get("displayName"), LABEL_MAX) or _text(item["id"], ID_MAX),
                        "description": _text(item.get("description"), DESCRIPTION_MAX), "efforts": _efforts(efforts),
                        "default_effort": default_effort if default_effort in EFFORTS else None,
-                       "default": item.get("isDefault") is True, "older": False})
+                       "default": item.get("isDefault") is True, "older": False, "resolved": None})
     return shaped
 
 
@@ -128,17 +153,28 @@ def _write(process, value):
 
 
 def _ask_claude(path, env, cwd):
+    """(models, current): ``initialize`` for the models, then ``get_settings`` for what is used when nothing is chosen. A
+    ``get_settings`` that does not answer leaves ``current`` empty; the models are kept."""
     process = _start([path, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                       "--no-session-persistence"], env, cwd)
     try:
         _write(process, {"type": "control_request", "request_id": "catalog", "request": {"subtype": "initialize"}})
         lines = _Lines(process, time.monotonic() + ASK_SECONDS)
+        models = None
         while (message := lines.next()) is not None:
             response = message.get("response") if message.get("type") == "control_response" else None
-            if isinstance(response, dict) and response.get("request_id") == "catalog":
-                body = response.get("response")
-                return claude_models(body.get("models")) if response.get("subtype") == "success" and isinstance(body, dict) else None
-        return None
+            if not isinstance(response, dict):
+                continue
+            body = response.get("response")
+            ok = response.get("subtype") == "success" and isinstance(body, dict)
+            if response.get("request_id") == "catalog":
+                if not ok:
+                    return None, NO_CURRENT
+                models = claude_models(body.get("models"))
+                _write(process, {"type": "control_request", "request_id": "settings", "request": {"subtype": "get_settings"}})
+            elif response.get("request_id") == "settings":
+                return models, claude_current(body) if ok else NO_CURRENT
+        return models, NO_CURRENT
     finally:
         _stop(process)
 
@@ -175,10 +211,10 @@ def _ask(client):
         return None
     with tempfile.TemporaryDirectory(prefix="qorqbot-models-") as cwd:
         if client == CLAUDE:
-            models = _ask_claude(path, env, cwd)
+            models, current = _ask_claude(path, env, cwd)
         else:
-            models = _ask_codex(path, env, cwd, cli.launch_arguments(client))
-    return {"client": client, "models": models} if models else None
+            models, current = _ask_codex(path, env, cwd, cli.launch_arguments(client)), NO_CURRENT
+    return {"client": client, "models": models, "current": dict(current)} if models else None
 
 
 def catalog(client, *, ask=None, now=time.monotonic):

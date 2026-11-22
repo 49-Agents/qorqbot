@@ -659,7 +659,7 @@ test('the real submit sends a closed agent’s message with no pin, and a live a
       new Map(), new Map(), new Map(), new Map(), 17000, new Set(), () => binding, () => 'req-1', () => 0, async () => ({}), '/x', r => r,
       async (t, k, pin) => { admitted.push([t, k, pin]); return {input: {id: 'i1', state: 'waiting', created_at: '2026-11-04T10:00:00Z'}}; },
       () => {}, {}, () => {}, () => true, view, () => {}, () => {}, () => {}, p => p.code,
-      {active: () => false, start: () => false, restore() {}, end() {}, pin: async () => null}];
+      {holds: () => false, busy: () => false, after: () => null, start: () => false, restore() {}, end() {}, pin: async () => null}];
     const submit = new Function(...names, `${submitSource}; return submit;`)(...values);
     await submit('hi'); await submit('/cost');
     return {admitted, banners};

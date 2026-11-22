@@ -49,7 +49,7 @@ function composer({session, catalog, draft, refuse = null, terminals = false}) {
     },
     (...args) => calls.accepted.push(args),
     () => true, view, () => {}, () => {}, () => {}, problem => GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again",
-    {active: () => false, start: () => false, restore() {}, end() {}, pin: async () => null},
+    {holds: () => false, busy: scope => inflight.has(scope), after: () => null, start: () => false, restore() {}, end() {}, pin: async () => null},
     {openTerminal: () => { calls.terminal += 1; }}, text => calls.toasts.push(text), terminals ? agentTerminalView : undefined];
   const submit = new Function(...names, `${submitSource}; return submit;`)(...values);
   return {submit, calls, sends, inflight, drafts, files, view, file};

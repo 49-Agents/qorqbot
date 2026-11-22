@@ -166,7 +166,13 @@ of the agent's chat composer. The routes are
 `GET /api/root/agents/<id>/chat/models` lists the models the agent's client
 reports and the effort levels of each model, asked from the client itself
 (`app/qorqut/managed_runtime/model_catalog.py`: Claude Code's `initialize`
-answer, Codex's `model/list`), kept for 30 minutes.
+answer, Codex's `model/list`), kept for 30 minutes. Its `current` is the model
+and effort the client uses when none is stored (Claude Code's `get_settings`
+`applied`, and the effort it keeps per model). The pill always names the model
+and effort in use, never "Default": with nothing stored, `current`'s; Codex's
+listed default model at its default effort. Claude Code's "Default" alias is not
+listed as a row of its own; picking the model Claude Code uses unchosen clears
+the stored model.
 
 - Without a stored client, the agent uses the client its profile names when that
   client is installed and signed in, else the other one. After the first

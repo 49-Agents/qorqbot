@@ -566,13 +566,15 @@ class Routes(base.Fixture):
         from qorqut.managed_runtime import model_catalog
         asked = []
         listing = {"client": "claude", "models": [{"id": "opus", "label": "Opus 5.5", "description": "", "efforts": ["low", "high"],
-                                                  "default_effort": None, "default": False, "older": False}]}
+                                                  "default_effort": None, "default": False, "older": False}],
+                   "current": {"model": "claude-opus-5-5", "effort": "medium", "efforts": {"claude-opus-5-5": "medium"}}}
         with mock.patch.object(model_catalog, "catalog", lambda client: (asked.append(client), listing)[1]):
             data = self.client.get(f"/api/root/agents/{AGENT}/chat/models").json()["data"]
-        self.assertEqual((data["client"], data["models"]), ("claude", listing["models"]))
+        self.assertEqual((data["client"], data["models"], data["current"]), ("claude", listing["models"], listing["current"]))
         self.assertEqual(asked, ["claude"])
         with mock.patch.object(model_catalog, "catalog", lambda client: None):
-            self.assertEqual(self.client.get(f"/api/root/agents/{AGENT}/chat/models").json()["data"]["models"], [])
+            data = self.client.get(f"/api/root/agents/{AGENT}/chat/models").json()["data"]
+        self.assertEqual((data["models"], data["current"]), ([], {"model": None, "effort": None, "efforts": {}}))
 
     def test_a_host_that_cannot_be_verified_counts_as_open(self):
         def broken(agent_id):

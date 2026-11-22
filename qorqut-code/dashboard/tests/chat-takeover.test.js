@@ -136,7 +136,7 @@ test('a Project opens on its timeline, and the thread button shows and hides its
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const {page, errors} = await fixture(browser);
-    for (const file of ['css/record-workspace.css', 'css/timeline-panel.css']) await page.addStyleTag({path: path.join(root, file)});
+    for (const file of ['css/record-workspace.css', 'css/agent-timeline.css']) await page.addStyleTag({path: path.join(root, file)});
     await page.evaluate(() => { window.taskTypeIcon=()=>'';window.T_VIEW_ICON={tasks:'',signoffs:'',timeline:'<svg data-icon="timeline"></svg>',files:'<svg data-icon="folder"></svg>'}; });
     await page.addScriptTag({path: path.join(root, 'js/timeline-panel.js')});
     await page.addScriptTag({path: path.join(root, 'js/record-workspace.js')});
@@ -146,7 +146,8 @@ test('a Project opens on its timeline, and the thread button shows and hides its
       const originalPost=post;
       window.post=async(url,body)=>{
         if(url.endsWith('/timeline_view')){reads.push(body.item);return {item:body.item,title:'Demo',revision:2,further:{},
-          state:{goal:{id:'g',text:'Ship the demo.'},decisions:[],facts:[],progress:null,questions:[]}};}
+          state:{goal:{id:'g',text:'Ship the demo.'},decisions:[],facts:[],progress:null,questions:[]},
+          entries:[{id:'g',sequence:1,action:'add',kind:'goal',text:'Ship the demo.',created_at:'2026-11-13T10:00:00Z',sources:[],refs:[]}],links:{},closed_questions:[],next_cursor:null};}
         if(url.endsWith('/project_record_get'))return {project:{id:body.project_id,name:'Demo',summary:'Synthetic project'}};
         if(url.endsWith('/project_items_list'))return {items:[]};
         return originalPost(url,body);
@@ -159,10 +160,11 @@ test('a Project opens on its timeline, and the thread button shows and hides its
     });
     await page.evaluate(()=>workspace.open(record,{root:true}));
     // The reader opens on the timeline; its tabs are the timeline and the Project page (a folder), and the thread is not a tab.
-    await page.locator('.rw-timeline .tlp-block').first().waitFor();
+    await page.locator('.rw-timeline .agent-timeline-row').first().waitFor();
     assert.equal(await page.locator('.rw-record').getAttribute('data-tab'),'timeline');
     assert.deepEqual(await page.evaluate(()=>reads),[{type:'project',id:'demo',project_id:'demo'}]);
     assert.match(await page.locator('.rw-timeline').textContent(),/Ship the demo\./);
+    assert.equal(await page.locator('.rw-timeline .agent-timeline-meta').textContent(),'Goal');assert.equal(await page.locator('.rw-timeline [data-status]').textContent(),'1 entry');
     assert.equal(/holds now/i.test(await page.locator('.rw-record').textContent()),false);
     assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('.rw-tabs [data-rw-tab]')].map(tab=>[tab.dataset.rwTab,tab.querySelector('svg')?.dataset.icon,tab.getAttribute('aria-selected')])),
       [['timeline','timeline','true'],['dashboard','folder','false']]);

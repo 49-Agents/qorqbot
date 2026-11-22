@@ -235,5 +235,5 @@
 .rw .rw-head .rw-open-thread[hidden]{display:none}
 /* The timeline pane: the panel fills it and the pane scrolls, so the panel drops the height cap and rule it has above a chat. */
 .rw-timeline{overflow:auto;overscroll-behavior:contain;padding:10px 20px 18px}
-.rw-timeline .tlp{max-height:none;overflow:visible;margin:0;padding:0 2px;border-bottom:0}
-.rw-timeline-empty{margin:4px 0;font-size:12.5px}
+/* The journal brings the rail Timeline page's look; the pane already has the padding. */
+.rw-timeline .agent-timeline{padding:0 2px}

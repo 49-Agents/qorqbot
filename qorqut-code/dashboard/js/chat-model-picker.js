@@ -1,6 +1,6 @@
 // The model and effort pill at the bottom left of an agent's chat composer. The lists are the client's own: the server asks
-// Claude Code or Codex which models it offers and which effort levels each model takes (GET <chat>/models, see
-// qorqut/managed_runtime/model_catalog.py). The choice is the agent's stored launch option (GET/POST <chat>/options); a value
+// Claude Code or Codex which models it offers, which effort levels each model takes, and which model and effort it uses when
+// nothing is chosen (GET <chat>/models, see qorqut/managed_runtime/model_catalog.py). The choice is the agent's stored launch option (GET/POST <chat>/options); a value
 // that is set also reaches an open session at once, so it applies from the next message (the reply's `applied`).
 // `pickerModel` and `changeFor` are DOM-free (tested with node --test); `mount` draws the pill and its menu.
 const chatModelPicker = (() => {
@@ -9,34 +9,59 @@ const chatModelPicker = (() => {
   const shortLabel = label => String(label || '').replace(/\s*\(recommended\)\s*$/i, '');
   const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
-  // What the pill and the menu show. `options` is the options view, `catalog` is {client, models}.
+  // The full model a row stands for: Claude Code names it for its aliases (`resolved`); otherwise the id is the model.
+  const fullId = model => model.resolved || model.id;
+  // The rows the menu lists: an alias that only repeats another row's model (Claude Code's "Default (recommended)") is left out,
+  // so every model appears once, under its own name.
+  const rowsOf = models => models.filter(model => !(model.resolved && models.some(other => other !== model && !other.default
+    && fullId(other) === model.resolved)));
+  // The row of the model the client uses when nothing is chosen: Claude Code says which (`current.model`); otherwise the client's
+  // `default` model. A short alias is preferred over a pinned version of the same model.
+  function defaultRow(models, current) {
+    const rows = rowsOf(models);
+    const named = current?.model ? rows.filter(model => fullId(model) === current.model) : [];
+    // Without that answer: the client's default, under the name of the model it stands for.
+    const listed = models.find(model => model.default);
+    const standsFor = listed?.resolved ? rows.filter(model => fullId(model) === listed.resolved) : [];
+    return named.find(model => !model.older) || named[0] || standsFor.find(model => !model.older) || standsFor[0] || listed || rows[0];
+  }
+
+  // What the pill and the menu show. `options` is the options view, `catalog` is {client, models, current}. The pill always names
+  // the model and effort in use, never "Default": with nothing chosen, those the client itself uses.
   function pickerModel(options, catalog) {
     const models = Array.isArray(catalog?.models) ? catalog.models : [];
     if (!options || !models.length) return null;
+    const current = catalog.current || {};
     const stored = options.model_fits === false ? '' : (typeof options.model === 'string' ? options.model : '');
-    // No stored model: the client's own default (Claude Code lists it as "default"; Codex marks one model `default`).
-    const fallback = models.find(model => model.default) || models[0];
+    const fallback = defaultRow(models, current);
     const chosen = stored ? models.find(model => model.id === stored) || {id: stored, label: stored, description: '', efforts: [], default_effort: null}
       : fallback;
     const efforts = Array.isArray(chosen.efforts) ? chosen.efforts : [];
-    const effort = efforts.includes(options.effort) ? options.effort : efforts.includes(chosen.default_effort) ? chosen.default_effort : '';
-    const selectedId = stored || fallback.id;
-    const row = model => ({id: model.id, label: model.label, description: model.description || '', selected: model.id === selectedId});
+    // With no stored effort: the effort the client keeps for this model, else (for the model it uses unchosen) the effort it uses
+    // now, else the model's own default.
+    const kept = current.efforts?.[fullId(chosen)];
+    const effort = [options.effort, kept, !stored || fullId(chosen) === current.model ? current.effort : null, chosen.default_effort]
+      .find(value => value && efforts.includes(value)) || '';
+    const row = model => ({id: model.id, label: model.label, description: model.description || '', selected: model.id === chosen.id});
+    const rows = rowsOf(models);
     return {
       pill: [shortLabel(chosen.label), effort ? effortName(effort) : ''].filter(Boolean).join(' · '),
-      main: models.filter(model => !model.older).map(row),
-      older: models.filter(model => model.older).map(row),
+      main: rows.filter(model => !model.older).map(row),
+      older: rows.filter(model => model.older).map(row),
       efforts: efforts.map(value => ({value, label: effortName(value), selected: value === effort})),
     };
   }
 
-  // The POST body for picking a model or an effort. Picking the client's default model clears the stored one; a stored effort the
-  // new model does not take is cleared with it.
+  // The POST body for picking a model or an effort. Picking the model the client uses when nothing is chosen clears the stored
+  // one (the agent keeps following the client); a stored effort the new model does not take is cleared with it.
   function changeFor(kind, value, options, catalog) {
     if (kind === 'effort') return {effort: value};
     const models = Array.isArray(catalog?.models) ? catalog.models : [];
     const model = models.find(item => item.id === value);
-    const body = {model: model && model.default && (catalog.client === 'claude' || !options?.model) ? null : value};
+    // Codex keeps its own default only while nothing is stored (its config can name another model than the listed default).
+    const unchosen = model && (catalog?.client === 'claude' ? model.default || model === defaultRow(models, catalog.current)
+      : model.default && !options?.model);
+    const body = {model: unchosen ? null : value};
     if (options?.effort && model && !(model.efforts || []).includes(options.effort)) body.effort = null;
     return body;
   }
