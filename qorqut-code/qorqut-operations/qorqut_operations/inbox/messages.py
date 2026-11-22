@@ -60,8 +60,7 @@ class Messages:
             **common, description=instruction_text('messages-send-a-durable-internal-message-to-a-scoped'),
             prepare=self.prepare, apply=self.apply))
         self.app.registry.register(OperationDescriptor('agents_messages_list', schema({
-            'scope': {'enum': ['project', 'global']}, 'thread_id': UUID, 'counterpart_id': UUID,
-            **PAGE}),
+            'scope': {'enum': ['project', 'global']}, 'thread_id': UUID, 'counterpart_id': UUID, **PAGE}),
             **common, effect_kind='read', description=instruction_text('messages-read-your-sent-and-received-message-history-in'), read=self.history))
         self.app.registry.register(OperationDescriptor('agents_message_recipients', schema({
             'scope': {'enum': ['project', 'global']},
