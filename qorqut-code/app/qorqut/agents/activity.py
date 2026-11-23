@@ -625,9 +625,7 @@ class AgentActivity:
             if session_filter and not session_rows:
                 raise DomainError('not_found', 'Current work session is unavailable')
             for session in session_rows:
-                age=(now-datetime.fromisoformat(session['last_seen_at'])).total_seconds() if session['last_seen_at'] else None
-                state=session['state'] if age is not None and 0<=age<=STALE_SECONDS else 'unknown'
-                if session['state']=='offline': state='offline'
+                state = self.observed_state(session, now)
                 # A worker's one assignment is current_work; the old session list is never a second assignment.
                 stored_items = [] if row['agent_id'] in workers else json.loads(session['items_json'])
                 stored_keys = work_item_keys(stored_items) if session_filter else None
@@ -650,12 +648,7 @@ class AgentActivity:
                     session_view.update(item_keys=item_keys, items_complete=complete,
                         items_replacement_safe=complete)
                 sessions.append(session_view)
-            state=next((s for s in ('running','idle','unknown','offline') if any(x['state']==s for x in sessions)),'unknown')
-            availability = self.availability(state, owner)
-            if availability in ('asleep', 'off'):
-                # A managed agent with no open session is not offline: asleep, the next input opens it; off, only the owner's input
-                # (or Ordubashy's start) does. ``state`` says so, ``availability`` names the three cases for every agent.
-                state = availability
+            state, availability = self.agent_state({x['state'] for x in sessions}, owner)
             agent = {'agent_id':row['agent_id'],'name':row['name'],'display_name':row['display_name'],'role_id':row['role_id'],
                 'business_id':row['home_business_id'],'business_slug':row['slug'],'business_name':row['business_name'] or 'Global',
                 'state':state,'last_seen_at':max((x['last_seen_at'] for x in sessions if x['last_seen_at']),default=None),'sessions':sessions,
@@ -664,6 +657,52 @@ class AgentActivity:
                 agent['current_work'] = self.current_work(ctx, row['agent_id'], assignments.get(row['agent_id']), uow, access, now)
             agents.append(agent)
         return {'agents':agents,'next_cursor':cursor,'as_of':timestamp(self.clock)}
+
+    @staticmethod
+    def observed_state(session, now):
+        """One session's state as it stands now: the recorded state while the session was seen within ``STALE_SECONDS``,
+        ``unknown`` after that, and ``offline`` once it was recorded offline."""
+        if session['state'] == 'offline':
+            return 'offline'
+        age = (now - datetime.fromisoformat(session['last_seen_at'])).total_seconds() if session['last_seen_at'] else None
+        return session['state'] if age is not None and 0 <= age <= STALE_SECONDS else 'unknown'
+
+    def agent_state(self, states, owner):
+        """An agent's one ``state`` from its sessions' states, with its ``availability``."""
+        state = next((s for s in ('running', 'idle', 'unknown', 'offline') if s in states), 'unknown')
+        availability = self.availability(state, owner)
+        if availability in ('asleep', 'off'):
+            # A managed agent with no open session is not offline: asleep, the next input opens it; off, only the owner's input
+            # (or Ordubashy's start) does. ``state`` says so, ``availability`` names the three cases for every agent.
+            state = availability
+        return state, availability
+
+    def presence(self, ctx):
+        """Each current agent's ``state`` exactly as ``agents_activity_list`` reports it, under the same permission, for the
+        dashboard's working dots. It reads the agents, their newest sessions and their session owners, and nothing the dots
+        do not show: declared work, Tasks, checkpoints, inbox notices and assignments."""
+        with self.app.database.observe('agents_presence'), self.app.database.read() as uow:
+            ctx = task_context(self.app.current_context(ctx, uow), {'scope': 'global'}, uow)
+            self.allowed(ctx, None, 'agents_activity_list', uow)
+            now = self.clock()
+            owners = {row['agent_id']: row for row in uow.connection.execute(
+                'SELECT agent_id,desired_state FROM native_session_owners')}
+            states = {}
+            # The newest twenty sessions of each agent, the same ones the full list reads.
+            for row in uow.connection.execute(
+                    'SELECT agent_id,state,last_seen_at FROM (SELECT agent_id,state,last_seen_at,ROW_NUMBER() OVER ('
+                    "PARTITION BY agent_id ORDER BY COALESCE(last_seen_at,work_updated_at,activity_at,'') DESC) AS newest "
+                    'FROM agent_activity) WHERE newest<=20'):
+                states.setdefault(row['agent_id'], set()).add(self.observed_state(row, now))
+            agents = []
+            for raw in uow.connection.execute('SELECT a.agent_id,a.profile_json,a.home_business_id,a.status,p.kind,p.active '
+                    'FROM agent_profiles a JOIN principals p ON p.id=a.agent_id '
+                    "WHERE a.status='active' AND a.home_business_id IS NULL ORDER BY a.name,a.agent_id"):
+                if global_profile_data(raw) is None:
+                    continue
+                state, _ = self.agent_state(states.get(raw['agent_id'], ()), owners.get(raw['agent_id']))
+                agents.append({'agent_id': raw['agent_id'], 'state': state})
+            return {'agents': agents, 'as_of': timestamp(self.clock)}
 
     def availability(self, state, owner):
         """``open`` (a session runs), ``asleep`` (managed, on, no session: opened by the next input), ``off`` (ended by the owner or

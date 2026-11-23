@@ -812,6 +812,11 @@ class HTTPAPI:
                 args["scope"] = "global"
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, "agents_activity_list", args))
                 return response(result)
+            if parts == ["me", "agents", "presence"] and request.method == "GET":
+                # The navigation's working dots: each agent's state only, without the activity list's work and Task reads.
+                context, _ = self.context(actor)
+                data = await anyio.to_thread.run_sync(partial(self.runtime.activity.presence, context))
+                return response(OperationResult.ok(data, request_id=request_id))
             if len(parts) == 6 and parts[:2] == ["me", "agents"] and parts[3:5] == ["focus", "documents"] and request.method == "GET":
                 context, _ = self.context(actor)
                 data = await anyio.to_thread.run_sync(partial(self.runtime.focus.owner_document, context, parts[2], parts[5]))
