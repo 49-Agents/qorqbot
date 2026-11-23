@@ -100,6 +100,15 @@ func (s *index) renameChat(ctx context.Context, id, name string) error {
 	return err
 }
 
+// chatListed is the one rule for a chat that can be sent to: its row exists in chats. Chat rows come only from
+// WhatsApp's own conversation list (nameChat) or from a stored message (put); address-book sync never creates one
+// (see renameChat). So this holds for every chat that whatsapp_read action chats can return.
+func (s *index) chatListed(ctx context.Context, id string) (bool, error) {
+	var listed bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM chats WHERE id=?)", id).Scan(&listed)
+	return listed, err
+}
+
 func (s *index) put(ctx context.Context, m message) error {
 	if m.ID == "" || m.ChatID == "" {
 		return errors.New("message has no identity")
