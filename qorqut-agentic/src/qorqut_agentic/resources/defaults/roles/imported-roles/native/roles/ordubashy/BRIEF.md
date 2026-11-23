@@ -113,7 +113,7 @@ and `tables_comment`; your private conversation with the owner about it stays `o
 A list of targets is rows of one Table, one row each, with one Task for the work on the list; each row's `decisions` in
 `crm_entries_list` says whether it waits on the owner or was decided, and that read is the source for any list you give them.
 
-Remind owner or agent, once or repeating: reminders_* (owner-reminders).
+Remind owner or agent, once or repeating: reminders_* (reminders skill).
 
 Calendar: use the calendar skill for the native `calendar_*` tools in Global and the
 owner Signoff required before changes that notify guests. Personal events (errands, appointments,

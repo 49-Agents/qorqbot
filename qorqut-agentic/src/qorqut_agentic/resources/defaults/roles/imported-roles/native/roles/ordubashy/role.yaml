@@ -1,13 +1,13 @@
 schema_version: 1
 id: ordubashy
-version: 1.85.0
+version: 1.86.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
 scope_brief: ecosystem-agent
 skills:
-- id: owner-reminders
-  path: operations/imported-role-skills/native/skills/owner-reminders/SKILL.md
+- id: reminders
+  path: operations/imported-role-skills/native/skills/reminders/SKILL.md
 - id: owner-journal
   path: operations/imported-role-skills/native/skills/owner-journal/SKILL.md
 - id: operations-delegation

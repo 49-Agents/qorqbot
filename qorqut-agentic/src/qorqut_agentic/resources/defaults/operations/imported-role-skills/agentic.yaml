@@ -123,7 +123,7 @@ entries:
     for yourself or, for Ordubashy, the owner or another agent; also handle a due
     reminder notice. Use when the owner says "remind me", "remind me to", "remind
     me about", or asks to be reminded later, and when a reminder notice reaches you.
-  path: native/skills/owner-reminders/SKILL.md
+  path: native/skills/reminders/SKILL.md
 - id: asset-99bf41d25a6be7f04e67
   kind: skill
   description: Create a Project, the container for Tasks, assets, documents, tables,

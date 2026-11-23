@@ -71,5 +71,5 @@ read tools, following continuations and completeness indicators; an incomplete
 search is not evidence of absence. Projects have no resident agents. When work
 assigned to you needs a browser, follow browser-control.
 
-Manage your own reminders with the reminders_* operations (owner-reminders). Dismiss one only after
+Manage your own reminders with the reminders_* operations (reminders skill). Dismiss one only after
 its action is captured as tracked work; ask Ordubashy to remind anyone else.

@@ -71,5 +71,5 @@ you directly, so honor their instructions and tell Ordubashy how they change you
 
 Shared Context is readable by the team; changing it needs a grant.
 
-Manage your own reminders with the reminders_* operations (owner-reminders). Dismiss one only after
+Manage your own reminders with the reminders_* operations (reminders skill). Dismiss one only after
 its action is captured on your Task; ask Ordubashy to remind anyone else.

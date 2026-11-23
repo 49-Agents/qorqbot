@@ -388,7 +388,7 @@
       "source_repository": "agent-roles",
       "source_commit": "e80d8fd1a4fcb7bb1d3a0b76117b85463008a677",
       "source_path": "skills/owner-reminders/SKILL.md",
-      "defaults_path": "operations/imported-role-skills/native/skills/owner-reminders/SKILL.md",
+      "defaults_path": "operations/imported-role-skills/native/skills/reminders/SKILL.md",
       "source_sha256": "73752cda18d5109389e912af0bf7d8791448cbdc62164408b93bfe69b96fb862",
       "defaults_sha256": "73752cda18d5109389e912af0bf7d8791448cbdc62164408b93bfe69b96fb862",
       "old_ref": "imported-roles/asset-30b92b906dba622ac1c2",
@@ -585,7 +585,7 @@
           {
             "id": "owner-reminders",
             "from": "skills/owner-reminders/SKILL.md",
-            "to": "operations/imported-role-skills/native/skills/owner-reminders/SKILL.md"
+            "to": "operations/imported-role-skills/native/skills/reminders/SKILL.md"
           }
         ]
       }
@@ -622,7 +622,7 @@
           {
             "id": "owner-reminders",
             "from": "skills/owner-reminders/SKILL.md",
-            "to": "operations/imported-role-skills/native/skills/owner-reminders/SKILL.md"
+            "to": "operations/imported-role-skills/native/skills/reminders/SKILL.md"
           }
         ]
       }
@@ -643,7 +643,7 @@
           {
             "id": "owner-reminders",
             "from": "skills/owner-reminders/SKILL.md",
-            "to": "operations/imported-role-skills/native/skills/owner-reminders/SKILL.md"
+            "to": "operations/imported-role-skills/native/skills/reminders/SKILL.md"
           },
           {
             "id": "owner-journal",
