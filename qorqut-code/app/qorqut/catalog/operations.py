@@ -70,9 +70,6 @@ class CatalogOperations:
         if source is None or source[0] != kind:
             raise DomainError("not_found", "Authored source is not registered for this artifact kind")
         package = load_package(source[1], source[2], kind, self.catalog.registry)
-        if kind == "role" and "project" in package.manifest["scope_kinds"]:
-            # Projects own resources only; existing immutable project-role artifacts stay readable.
-            raise DomainError("retired_role", "Project-scoped roles are retired; only global roles are published")
         record_id = canonical_bytes([kind, package.id, package.version]).decode()
         record = ResourceRef("artifacts", record_id, namespace="global")
         current = self.resolve_record(ctx, record, uow)

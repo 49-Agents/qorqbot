@@ -54,10 +54,7 @@ BASE = {"schema_version": {"const": 1}, "id": ID, "version": VERSION,
 ROLE_SCHEMA = {"type": "object", "additionalProperties": False,
     "required": [*BASE, "brief", "scope_brief", "default_tool_policy"],
     "properties": {**BASE, "brief": {"type": "string"},
-        # Immutable historical format: Catalog.get reads stored project-scoped packages through this schema. It is not
-        # active project-agent support: publishing refuses project-scoped roles, and registration accepts
-        # only the supported global roles.
-        "scope_brief": {"enum": ["project-agent", "ecosystem-agent"]},
+        "scope_brief": {"const": "ecosystem-agent"},
         "external_connections": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
                                  "uniqueItems": True, "maxItems": 4},
         "default_tool_policy": {"type": "object", "additionalProperties": {"enum": ["allow", "signoff", "deny"]}}}}
@@ -156,9 +153,8 @@ def load_package(source: Path, manifest_path: str, kind: str, registry: Any) -> 
         brief = decoded(manifest["brief"]).strip()
         if not brief or len(brief) > 10000:
             _error("Mandatory role brief must contain 1 to 10000 characters")
-        scope = "project" if manifest["scope_brief"] == "project-agent" else "ecosystem"
-        if manifest["scope_kinds"] != [scope]:
-            _error("Role scope_brief must agree with its scope_kinds")
+        if manifest["scope_kinds"] != ["ecosystem"]:
+            _error("A role's scope_kinds must be [ecosystem]")
         validate_policy(manifest["default_tool_policy"], registry)
     else:
         schema = parse_yaml(decoded(manifest["config_schema"]))
