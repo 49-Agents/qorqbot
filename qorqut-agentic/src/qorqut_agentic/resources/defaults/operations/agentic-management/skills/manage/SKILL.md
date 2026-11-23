@@ -45,11 +45,13 @@ qorqut_signoff`, `signoff_id`, `proposal_revision`, `payload_hash` and the curre
 provide `clarity`, `action`, and `rationale` following the owner's actual answer.
 Conditional or ambiguous answers require clarification through a Signoff.
 Reuse request and operation keys after an uncertain response. Accept queues the
-delta in the same accepted queue used by extraction; reject remains rejected,
+delta in the accepted queue; reject remains rejected,
 later leaves it undecided, and revise requests revision. None applies files.
 
 This direct path authenticates messages sent through Qorqut Chat. Other evidence
-uses Overseer's extraction/review path; never fabricate a Chat input. If access
+is not submitted here: the Learning Applier's daily experience extraction files it
+as observations, and its weekly review and application proposes changes from
+them. Never fabricate a Chat input. If access
 fails, report it and retain the request. Do not edit active files through shell,
 generated instructions or a raw authoring call as a workaround. Application is
 the separately owner-invoked Overseer workflow with its approved plan Signoff.

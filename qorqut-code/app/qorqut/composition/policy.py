@@ -89,6 +89,12 @@ CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "opera
 ORDUBASHY_READS = frozenset({"conversation_history_search", "conversation_history_get"})
 # The owner's Settings page as tools, Ordubashy's alone in the same way: no other role sees or calls them.
 ORDUBASHY_SETTINGS = frozenset({"settings_get", "settings_set"})
+# The experience extraction and the review and application (``qorqut.experience``): the tools of a run, and the reads.
+EXPERIENCE_WORK = frozenset({"experience_run_finish", "experience_conversations", "experience_message_get",
+                             "experience_tool_problems", "experience_tool_patterns", "experience_observations_submit",
+                             "agentic_delta_proposal_submit", "agentic_delta_proposal_revise"})
+EXPERIENCE_READS = frozenset({"experience_run_get", "experience_run_request", "experience_clusters_list",
+                              "experience_cluster_get", "agentic_delta_proposals_list", "agentic_delta_proposal_get"})
 
 
 def _extension_policy(name, defaults, overrides, registry, **scope):
@@ -130,6 +136,20 @@ def _ordubashy_reads(name, defaults, overrides, registry, *, role_id, scope, res
         return PolicyDecision("deny", "conversation_history_ordubashy_only")
     if name in ORDUBASHY_SETTINGS and role_id != ORDUBASHY_ROLE:
         return PolicyDecision("deny", "owner_settings_ordubashy_only")
+
+
+def _experience(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    # The Learning Applier's two workflows. What reads and files in a run is that role's alone, and what shows the
+    # clusters, the delta proposals and the runs is also the coordinator's. No role file names these tools and none can
+    # give them to another role; an explicit deny in a role file or an override is still respected. Each handler proves
+    # the exact identity again.
+    roles = ((LEARNING_APPLIER_ROLE,) if name in EXPERIENCE_WORK else
+             (LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE) if name in EXPERIENCE_READS else None)
+    if roles is None:
+        return None
+    if role_id not in roles or "deny" in (overrides.get(name), defaults.get(name)):
+        return PolicyDecision("deny", "experience_workflow_role")
+    return PolicyDecision("allow", "experience_workflow")
 
 
 def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, resolve):
@@ -260,7 +280,8 @@ def _ordubashy_parity(name, defaults, overrides, registry, *, role_id, scope, re
 
 HOST_POLICY_RULES = PolicyRules(
     # ``_prerequisites`` precedes the blanket Global-table rule so a new Table operation is never decided by it alone.
-    before_override=(_extension_policy, _user_input, _ordubashy_reads, _prerequisites, global_tables, archive_approval_rule,
+    before_override=(_extension_policy, _user_input, _ordubashy_reads, _experience, _prerequisites, global_tables,
+                    archive_approval_rule,
                     _owner_approvals, _learning_applier, _context_questions, _personal_record),
     after_override=(_standing_defaults,),
     after_default=(_fallback_defaults, _ordubashy_parity),

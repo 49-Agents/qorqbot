@@ -1,6 +1,6 @@
 schema_version: 1
 id: learning-applier
-version: 1.22.0
+version: 1.23.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/learning-applier/BRIEF.md
@@ -8,6 +8,10 @@ scope_brief: ecosystem-agent
 skills:
 - id: owner-input
   path: operations/imported-role-skills/native/skills/owner-input/SKILL.md
+- id: experience-extraction
+  path: operations/imported-role-skills/native/skills/experience-extraction/SKILL.md
+- id: delta-proposals
+  path: operations/imported-role-skills/native/skills/delta-proposals/SKILL.md
 - id: learning-application
   path: overseer/overseer-role-skills/native/skills/learning-application/SKILL.md
 - id: action-recording
@@ -40,14 +44,7 @@ default_tool_policy:
   context_list: allow
   context_search: allow
   context_get: allow
-  context_upload: allow
-  context_instruct: allow
-  context_edit: allow
   browser_turn: allow
-  learnings_review_list: allow
-  learnings_review_get: allow
-  learnings_legacy_pending: allow
-  learnings_decide: allow
   notes_list: allow
   notes_get: allow
   notes_create: allow
@@ -64,10 +61,6 @@ default_tool_policy:
   signoffs_comment: allow
   agentic_access: allow
   request_user_input: allow
-  overseer_due_list: allow
-  overseer_due_get: allow
-  overseer_evidence_list: allow
-  overseer_episode_get: allow
   overseer_outside_delta_record: allow
   overseer_outside_delta_get: allow
   overseer_outside_deltas_list: allow
@@ -78,8 +71,6 @@ default_tool_policy:
   overseer_application_recovery_status: allow
   overseer_owner_request_get: allow
   overseer_owner_requests_list: allow
-  overseer_extract_request: allow
-  overseer_review_start: allow
   overseer_application_start: allow
   overseer_input_request: allow
   overseer_input_reconcile: allow

@@ -1,0 +1,87 @@
+# The Learning Applier's two workflows
+
+The Learning Applier (role `learning-applier`, shown as Overseer) finds what goes wrong in how the agents work and
+proposes changes to the agentic layer. It does this in two scheduled workflows. The code is in
+`qorqut-code/app/qorqut/experience/`; the agent's instructions are the role brief and the skills
+`experience-extraction` and `delta-proposals`.
+
+## Experience extraction (daily, 03:00)
+
+The agent reads three reports and files observations.
+
+| Tool | What it returns |
+| --- | --- |
+| `experience_conversations` | One timeline of everything the owner wrote and decided in the period, and what was answered: the chat with every agent, the private threads, the owner's notes, the Signoff decisions. Each entry has its time, author, place, id and how to open the record. The code organises and never summarises. Paged; the last page carries `end_token`. |
+| `experience_tool_problems` | The tool calls that failed in every agent's conversations, grouped by what the error says, with counts and examples, and the same call repeated back to back. |
+| `experience_tool_patterns` | Sequences of tool calls that repeat, by tool name and by the shape of the call. |
+
+`experience_observations_submit` files observations: issues, complaints and problems, one per occurrence. An observation
+never says what to change. Each one goes under a cluster, an existing one or a new one named by the agent. A cluster's
+rank is the number of observations in it (`experience_clusters_list`).
+
+The run cannot be finished before the report of conversations was read to its end (`experience_run_finish` takes the
+`end_token`).
+
+## Review and application (weekly, Sunday 06:00)
+
+The agent reads the clusters and their observations, decides which are ready for a solution, and files agentic layer
+delta proposals with `agentic_delta_proposal_submit`. A proposal names the observations and clusters it addresses. The
+clusters are a hint: a proposal may take observations from several clusters.
+
+Filing a proposal creates its approval request, a Signoff of the Learning Applier with the choices Approve and Reject,
+for the owner alone. The proposal's thread is the thread of that Signoff. As in every record's thread, the owner writes
+there and Ordubashy answers; the Learning Applier does not write in it and reads what was said through
+`agentic_delta_proposal_get` at its next review.
+
+| State | Meaning |
+| --- | --- |
+| `waiting_for_approval` | Filed; the owner has not chosen. |
+| `approved` | The owner chose Approve. |
+| `rejected` | The owner chose Reject. |
+
+An answer in words without a choice leaves the proposal waiting and marks it as needing revision
+(`needs_revision`). A message in the thread alone does not mark it; the agent reads the thread of every waiting
+proposal. `agentic_delta_proposal_revise` changes the proposal and files a new approval request; a request that is
+still open is withdrawn. A proposal that is `approved` or `rejected` is final: a new one names it in `replaces_id`.
+Nothing is applied on approval.
+
+## Runs
+
+A run is a row of `experience_runs`. `Runs.due` (inbox reconcile pass) queues a run when a scheduled time has passed;
+`Runs.step` (native Chat backend pass) starts the oldest waiting run once no run is running and the agent is idle.
+
+- Every run starts in a fresh conversation: the agent's idle conversation is closed and a new one opened whose first
+  message names the run.
+- One run at a time. A run that comes due while another is running waits until that one is finished.
+- A run ends when the agent calls `experience_run_finish`. A run whose conversation ended without it is started once
+  more, then given up as `abandoned`. The next extraction reads from the end of the last finished one, at most seven
+  days back.
+- The first run of a kind is queued only at its scheduled time. Later, a time missed while the service was down is
+  caught up.
+
+Settings (environment of the service):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `QORQUT_EXPERIENCE_EXTRACTION_AT` | `0 3 * * *` | Five-field cron expression, or `off`. |
+| `QORQUT_EXPERIENCE_REVIEW_AT` | `0 6 * * 0` | Five-field cron expression, or `off`. |
+| `QORQUT_EXPERIENCE_TIMEZONE` | not set | The zone the two times are in (IANA name). |
+
+The times are in the owner's time zone (`runs.zone_name`). It is the first of these that names a real zone:
+`QORQUT_EXPERIENCE_TIMEZONE`, the installation's `QORQUT_TIMEZONE`, the zone of the computer the service runs on (`TZ`,
+then what the system says), and UTC when none does. The Runs tab shows the zone in use.
+
+`experience_run_request` queues a run now, outside the schedule (owner, Ordubashy or the Learning Applier).
+
+## Who can call what
+
+The host policy (`composition/policy.py`, `_experience`) gives the tools of a run to the Learning Applier alone, and the
+reads (`experience_run_get`, `experience_run_request`, `experience_clusters_list`, `experience_cluster_get`,
+`agentic_delta_proposals_list`, `agentic_delta_proposal_get`) to the Learning Applier and Ordubashy. The owner reads the
+same through the dashboard: the Overseer's Changes view has Delta proposals, Observations and Runs. A proposal's page
+shows its approval request and its thread in place, so the owner decides and talks there.
+
+## Tables
+
+`experience_runs`, `experience_clusters`, `experience_observations`, `agentic_delta_proposals`,
+`agentic_delta_proposal_links` (`experience/schema.py`; added to an existing store by `migration/experience.py`).

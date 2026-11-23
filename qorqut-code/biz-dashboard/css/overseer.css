@@ -6,7 +6,9 @@
 .overseer p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .overseer-list { display: grid; gap: 8px; }
 .overseer-item { text-align: left; padding: 10px; border: 1px solid var(--border, #ddd); border-radius: 6px; background: transparent; color: inherit; }
+.overseer-item { white-space: pre-wrap; overflow-wrap: anywhere; justify-content: flex-start; }
 .overseer-item small { display: block; margin-top: 4px; }
+.overseer .overseer-content nav { margin: 8px 0 12px; }
 .overseer details { margin: 10px 0; }
 .overseer pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .overseer-notice { color: var(--muted, #777); }
