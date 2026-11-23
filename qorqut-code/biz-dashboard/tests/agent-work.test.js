@@ -150,11 +150,12 @@ test('groups, order, counts, leftovers and the second line', {skip: !available},
   await page.click('[data-fold]');
   assert.deepEqual(await titles(page, 'parked'), ['Later thing', 'Wait for vendor']);
   assert.equal(await page.locator('[data-fold]').textContent(), 'Hide');
-  // The second line: project name, snooze label, status line; Global tasks say Global.
-  const lines = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.agwork-row')].map(row => [row.querySelector('.ttl').textContent, row.querySelector('.agwork-line')?.textContent ?? null])));
-  assert.equal(lines['Launch plan'], 'Alpha · On track');
-  assert.equal(lines['Later thing'], 'Alpha · Snoozed until 2099-01-01');
-  assert.equal(lines['Global chore'], 'Global');
+  // A row is its title; only a snoozed one has a second line. The project sits at the right, the status line is the tooltip.
+  const lines = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.agwork-row')].map(row => [row.querySelector('.ttl').textContent,
+    [row.querySelector('.agwork-line')?.textContent ?? null, row.querySelector('.agwork-tail .agwork-project')?.textContent ?? null, row.getAttribute('title')]])));
+  assert.deepEqual(lines['Launch plan'], [null, 'Alpha', 'On track']);
+  assert.deepEqual(lines['Later thing'], ['Snoozed until 2099-01-01', 'Alpha', null]);
+  assert.deepEqual(lines['Global chore'], [null, 'Global', null]);
   assert.equal(await page.locator('[data-task="alpha:a1"] .task-workers .identity-avatar').count(), 1);
   assert.equal(await page.locator('[data-task="alpha:a7"] .tdl').count(), 1);
   // A Story shows its type marker; a Task shows the status ball (a span, not a button).
@@ -238,7 +239,7 @@ test('the scope menu limits to one project and drops the project name from the s
   await page.waitForFunction(() => document.querySelector('.agwork-scope-name').textContent === 'Alpha');
   await page.locator('[data-group="routines"]').waitFor();
   assert.deepEqual(await page.evaluate(() => calls.map(call => call[0]).sort()), ['/biz/alpha/operations/tasks_list', '/biz/alpha/routines']);
-  assert.equal(await page.locator('[data-task="alpha:a1"] .agwork-line').textContent(), 'On track');
+  assert.equal(await page.locator('[data-task="alpha:a1"] .agwork-line, [data-task="alpha:a1"] .agwork-project').count(), 0);
   assert.equal(await page.locator('[data-task="beta:b1"]').count(), 0);
   // Routines of one project: its own, never Global's; no project name in their line.
   assert.deepEqual(await page.locator('.rtrow .rttitle').allTextContents(), ['Needs a key', 'Alpha paused']);
@@ -248,6 +249,12 @@ test('the scope menu limits to one project and drops the project name from the s
   await page.locator('[data-group="routines"]').waitFor();
   assert.deepEqual(await page.locator('.rtrow .rttitle').allTextContents(), ['Weekly review']);
   assert.deepEqual(await titles(page, 'open'), ['Global chore']);
+  // A scope read before paints at once from what was last read (no Loading), then reads again quietly.
+  await page.evaluate(() => { calls.length = 0; window.gate = new Promise(resolve => { window.release = resolve; }); const real = post; window.post = async (...args) => { await gate; return real(...args); }; menu.pick('*'); });
+  assert.deepEqual(await groups(page), ['needs_input:1', 'working:1', 'blocked:1', 'open:4', 'parked:2', 'routines:3']);
+  assert.doesNotMatch(await page.locator('.agwork-body').textContent(), /Loading/);
+  await page.evaluate(() => { LAYER.beta.push({...LAYER.beta[0], id: 'b9', title: 'Newer beta task'}); release(); });
+  await page.locator('[data-task="beta:b9"]').waitFor();
   assert.deepEqual(errors, []);
 }));
 

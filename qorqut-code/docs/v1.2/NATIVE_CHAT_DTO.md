@@ -87,7 +87,9 @@ never falls back to another conversation.
 was opened. It is `null` for a conversation no compaction opened, and when the earlier conversation was not captured for this
 agent under the same provider. A client shows the earlier conversation above this one by reading it as a selected archive:
 its newest page with `GET chat?conversation=&provider=` and older pages with `chat/history`. The earlier conversation has a
-`continues` of its own when a compaction opened it too.
+`continues` of its own when a compaction opened it too. The link is recorded a moment after the fresh conversation becomes
+the current one, so the first state of a fresh conversation can still say `null`; the Chat page keeps what it showed until
+the link arrives (`docs/COMPACTION.md`, "In Chat").
 
 Pages come from a small in-process window cache shared by all agents. Receipt ids repeat across agents and lineages, so a cached
 page is reused only for the same agent, archive, receipt id and record hash, the same provider and conversation, and the same
