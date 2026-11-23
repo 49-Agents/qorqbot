@@ -1,6 +1,6 @@
 # Release 1.6.0
 
-Published on November 19, 2026 as a
+Published on November 22, 2026 as a
 [GitHub release](https://github.com/49-Agents/qorqbot/releases/tag/v1.6.0).
 The limits below describe that download; publication does not qualify additional
 platforms.
@@ -67,6 +67,39 @@ until 2027-01-01; see [the license scope](../../LICENSE-SCOPE.md).
   changes. A reminder that was handed over but never confirmed is sent again. An
   agent cannot set its focus on a blocked or waiting Task, and a waiting agent
   is told to set the Task's status instead of staying focused on it.
+- Agents run as managed sessions: Qorqbot starts and stops each agent's Claude
+  Code or Codex session itself, and the agent terminals and tmux are no longer
+  needed or bundled. Tmux terminals remain as a legacy option for the whole
+  installation, with managed sessions the default. The Linux package ships the
+  agents' browser tool, and every agent uses the one Shared browser, each on
+  its own tabs, which the coordinator fully controls.
+- Mac download: the app is signed with an Apple Developer ID and notarized, so
+  macOS opens it without the "could not verify" block.
+- Chat: the model picker sits under the input and names the model and effort
+  in use, Send becomes Stop while the agent works, and an activity line shows
+  the agent's latest words. A message no longer stays unsent while the agent
+  runs background agents, and the input frees up once a starting session runs.
+  Older messages load on scrolling up, and the conversation before a compaction
+  stays reachable. A Signoff card with questions reads as a form, cards are
+  smaller, and a chat reference can show the owner one tab of an agent's
+  browser.
+- The coordinator answers the owner's questions in a Signoff, keeps its own
+  compacted record of the conversation, can search its conversation with the
+  owner, can read and change the owner's settings, and can control any agent's
+  delegated assignment.
+- Records: a Work tab lists active work for all projects or one, as a list or
+  a board. An Explorer tab shows Global, its projects and their Tasks as one
+  tree. A Task and a Project show their timeline in the look of the Timeline
+  page, and the record reader opens on the timeline with the thread as a
+  toggle. Closed Tasks, tables and notes can move between projects. Global has
+  no timeline; rules for all work go through an agentic change.
+- Signoffs and notifications: every notification shows as the Signoff card, a
+  right-click on a Signoff chip marks it read or unread, and decision buttons
+  have plain names.
+- Focus shows calendar events and the browser view flat, without the Todo tab.
+  The live browser view keeps its tab drawn and focused while agents work.
+- Browser tools reach fields inside payment frames, and a new session's first
+  new tab no longer leaves a blank one.
 - Agents' reads across projects leave archived projects out; nothing in an
   archived project is closed or changed. The agent navigation panel stays inside
   the window at the Large text size.
@@ -81,13 +114,14 @@ until 2027-01-01; see [the license scope](../../LICENSE-SCOPE.md).
   tools taken away; the app must move itself to Applications, set itself up and
   show the sign-in screen. The package target stays `macos14-arm64`; native
   macOS 14 acceptance is unverified. The checks do not prove the downloaded app's
-  Gatekeeper/Open Anyway flow, a separate macOS user account or interactive agent
-  sign-in. The DMG is ad-hoc signed, not notarized. There is no Intel Mac
-  package.
+  first open from a browser download, a separate macOS user account or
+  interactive agent sign-in. The DMG is signed with a Developer ID and notarized
+  by Apple, and the runner checks its ticket and Gatekeeper's verdict. There is
+  no Intel Mac package.
 - Updates are manual (`./qorqbot update ARCHIVE --sha256 HASH`) and refuse changed
   database schemas or managed instruction contents, running terminals and
-  installations with separately installed connectors. 1.6.0 keeps the 1.5.0
-  database schema but changes managed agent instructions, so the updater refuses
+  installations with separately installed connectors. 1.6.0 changes the
+  database schema and managed agent instructions, so the updater refuses
   a 1.5.0 or earlier installation and leaves it on its version with its data.
   Install 1.6.0 as a fresh installation; no migration from another download is
   provided.
