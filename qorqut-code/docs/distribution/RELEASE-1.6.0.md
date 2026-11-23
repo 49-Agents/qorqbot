@@ -1,6 +1,6 @@
 # Release 1.6.0
 
-Published on November 22, 2026 as a
+Published on November 23, 2026 as a
 [GitHub release](https://github.com/49-Agents/qorqbot/releases/tag/v1.6.0).
 The limits below describe that download; publication does not qualify additional
 platforms.
