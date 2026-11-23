@@ -566,7 +566,12 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
         isolated(uow, "Reminder reconcile", lambda: runtime.reminders.reconcile(uow))
         isolated(uow, "Due extraction reconcile", lambda: reconcile_due(runtime, uow))
         isolated(uow, "Unreachable worker reconcile", lambda: unreachable_workers(uow))
+        # The Learning Applier's scheduled workflows: queue a run whose time has come, and let a delta proposal follow an
+        # approval the Signoff observer missed. Starting a run is the native Chat backend's pass (``experience/runs.py``).
+        isolated(uow, "Experience runs due", lambda: runtime.experience.runs.due(uow))
+        isolated(uow, "Delta proposal decisions", lambda: settle_proposals(uow))
 
+    settle_proposals = paced(60.0, lambda uow: runtime.experience.settle(uow))
     runtime.inbox_nudges = NudgeBackend.build(runtime, inbox, reconcile=reconcile_inbox)
     from qorqut.agentic.inbox import attach_agentic_inbox
     attach_agentic_inbox(runtime, agentic_layer, inbox)
@@ -611,6 +616,10 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # native Chat backend's pass and does nothing unless QORQUT_OWN_COMPACTION is set.
     from qorqut.native_chat.compaction import CompactionController
     runtime.compaction = CompactionController(runtime)
+    # The Learning Applier's two scheduled workflows (the daily experience extraction and the weekly review and application):
+    # their tools, the queue of runs, and the delta proposals that follow the owner's choice on their approval requests.
+    from qorqut.experience.operations import Experience
+    signoff_domains.observe(Experience(runtime).register().signoff_updated)
     from qorqut.inbox.side_chats import SideChats
     runtime.side_chats = SideChats(runtime).register()
     # The six Project record operations: one existing Project's inventory, item reads and explicit cross-scope links.

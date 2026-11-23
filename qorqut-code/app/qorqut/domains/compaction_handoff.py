@@ -11,7 +11,7 @@ is therefore a record that was written, never one typed from memory.
 
 ``opening`` is what the fresh conversation starts with after its instructions: the owner's messages in their exact
 words, each with the filed status and the Task to read; where the agent stopped; the other Tasks it wrote on; its
-workers; and the rules the owner stated that the agent proposed as instruction changes. A message is listed again in
+workers; and the rules the owner stated that the agent filed for the Learning Applier's review. A message is listed again in
 every handoff until one marks it done.
 
 One row of ``compactions`` per compaction is the log. The row waiting to be opened is the one a filing fills, so filing
@@ -41,6 +41,7 @@ MAX_MESSAGES = 100                      # per channel and period; older ones of 
 MESSAGE_CAP = 3000                      # characters of one owner message in the opening; the rest is read by its id
 PREVIEW = 200
 WORKER_LINES = 40
+RULES_LIMIT, RULE_LENGTH = 20, 400         # the owner's rules the agent filed that are named in the opening
 
 HANDLE = {"type": "string", "pattern": "^m[1-9][0-9]{0,3}$"}
 TASK = {"type": "string", "minLength": 1, "maxLength": 100}
@@ -82,15 +83,15 @@ FILE_DESCRIPTION = (
     "wait for from each. not_recorded: only what no record can hold. Filing writes each note onto its Task and sets its "
     "next step, so the next conversation is pointed at records that exist; do not write those notes yourself as well. It is "
     "refused, saying why, when a listed message has no entry, an open message names no Task or a Task is not found: fix "
-    "that and file again. A rule the owner stated that should keep applying is not filed here: propose it with "
-    "agentic_change_propose before you file.")
+    "that and file again. A rule the owner stated on how agents work that should keep applying is not filed here: "
+    "file it with experience_observation_file before you file.")
 ASK = """Your context is nearly full. Stop the work you are doing now: do not start another step, message the owner or send \
 anything outside. This conversation will be closed and a fresh one opened for you with the same instructions, tools and \
 access. It gets your instructions, then the owner's messages listed below in their exact words, then the handoff you file \
 now. Nothing else of this conversation reaches it.
 
 First, for each rule or preference the owner stated in this conversation that should keep applying and that you have not \
-proposed yet, call agentic_change_propose.
+filed yet, call experience_observation_file.
 
 Then call compaction_handoff_file once, from memory, without looking anything up. It writes every note and next step you \
 give onto the Task you name, so name the Task that really holds the work, and create one first where an open message has \
@@ -389,8 +390,8 @@ class CompactionHandoff:
         parts = [OPENING]
         rules = self.rules(uow, ctx.principal_id)
         if rules:
-            parts.append("RULES THE OWNER STATED TO YOU. They are in force: follow them. You proposed each as a change to your "
-                         "written instructions, and only that writing-down still waits for the owner's decision.\n"
+            parts.append("RULES THE OWNER STATED TO YOU. They are in force: follow them. You filed each for the Learning Applier's "
+                         "review, and only the writing-down into your instructions still waits.\n"
                          + "\n".join(f"- {rule}" for rule in rules))
         if listed:
             parts.append("THE OWNER'S MESSAGES TO YOU, IN THEIR EXACT WORDS, AND WHERE EACH STANDS BY YOUR HANDOFF\n"
@@ -467,11 +468,16 @@ class CompactionHandoff:
 
     @staticmethod
     def rules(uow, agent_id):
-        """The summaries of the agent's instruction-change proposals the owner has not decided."""
-        return [row["title"] for row in uow.connection.execute(
-            "SELECT json_extract(preview_json,'$.input.title') AS title FROM signoffs WHERE proposer_principal_id=? "
-            "AND category='input_request' AND request_key LIKE 'direct-instruction:%' AND state='pending' "
-            "AND superseded_by_id IS NULL ORDER BY created_at, id", (agent_id,)) if row["title"]]
+        """The owner's rules the agent filed itself for the Learning Applier's review (``experience_observation_file``, kind
+        ``owner_complaint``) that no approved delta proposal names yet: the newest ``RULES_LIMIT``, oldest first, each cut to
+        ``RULE_LENGTH`` characters."""
+        rows = uow.connection.execute(
+            "SELECT o.text FROM experience_observations o WHERE o.created_by=? AND o.run_id IS NULL AND o.kind='owner_complaint' "
+            "AND NOT EXISTS (SELECT 1 FROM agentic_delta_proposal_links l JOIN agentic_delta_proposals p ON p.id=l.proposal_id "
+            "WHERE p.state='approved' AND l.target_type='observation' AND l.target_id=o.id) "
+            "ORDER BY o.created_at DESC, o.id DESC LIMIT ?", (agent_id, RULES_LIMIT)).fetchall()
+        texts = [" ".join(row["text"].split()) for row in reversed(rows)]
+        return [text if len(text) <= RULE_LENGTH else text[:RULE_LENGTH - 1].rstrip() + "…" for text in texts]
 
     @staticmethod
     def held(uow, agent_id):

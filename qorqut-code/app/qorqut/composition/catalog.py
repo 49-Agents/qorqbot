@@ -89,6 +89,10 @@ BUILTIN_CATALOG = (
     # way to open a Viewbox board. The name stays declared because a role or saved profile may still name it, and a
     # permission map that names an operation the registry does not know is refused as a whole.
     CatalogEntry("viewbox_place", False, "records", frozenset({"mcp"})),
+    # Retired the same way: the per-instruction Signoff tools. Agents file rules, corrections and lessons with
+    # experience_observation_file instead; a role or saved permission map written before that may still name these.
+    CatalogEntry("agentic_change_get", False, "read", frozenset({"mcp"})),
+    *(CatalogEntry(name, False, "compound", frozenset({"mcp"})) for name in ("agentic_change_propose", "agentic_change_reconcile")),
     CatalogEntry("focus_get", False, "read", frozenset({"dashboard"})),
     *(CatalogEntry(name, False, "records", frozenset({"dashboard"})) for name in ("focus_present", "focus_edit", "focus_move", "focus_set_archived", "focus_reply", "focus_show", "focus_clear", "focus_browser_input")),
     CatalogEntry("working_memory_update", False, "compound"),

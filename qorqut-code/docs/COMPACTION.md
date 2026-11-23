@@ -45,8 +45,8 @@ waits. One row of `compactions` is its whole durable state.
    messages the handoff answers for. The request goes to the host as a plain
    message, also while a turn is running; the agent then gets it when its
    current tool call ends.
-2. **File.** The agent proposes any standing rule the owner stated
-   (`agentic_change_propose`), then calls `compaction_handoff_file` once, from
+2. **File.** The agent files any rule the owner stated on how agents work
+   (`experience_observation_file`), then calls `compaction_handoff_file` once, from
    memory. The call is refused as a whole, with every reason, if a listed
    message has no status or an open one names no Task.
 3. **Stop.** After the filing the controller waits for the turn to end. A turn

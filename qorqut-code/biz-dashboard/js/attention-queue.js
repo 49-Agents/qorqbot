@@ -183,7 +183,7 @@ const attentionQueue=(()=>{
   function acceptQueue(data){queueRows=data.items || [];items=distinctDestinations(queueRows);sideChats=data.side_chats || [];discardedKeys=new Set(data.discarded || []);}
   const calendarIcon=()=>typeof T_VIEW_ICON==='object' ? T_VIEW_ICON.calendar || '' : '';
   const calendarVisible=()=>{const now=Date.now();return calendarRows.filter(row=>row.appear<=now && !(row.retire<=now) && !discardedKeys.has(row.key) && !pendingDiscards.has(row.key));};
-  // The coordinator's timeline filings during the review trial: two or more collapse into one chip that opens them together.
+  // The coordinator's timeline filings held for the owner's review: two or more collapse into one chip that opens them together.
   const isFiling=s=>s.operation_name==='timeline_file';
   // A pending Signoff that work is waiting on: its chip and its row carry a red frame.
   const signoffBlocking=s=>s?.state==='pending' && !!s.attention?.blocking;

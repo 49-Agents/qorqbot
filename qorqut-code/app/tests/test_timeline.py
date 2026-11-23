@@ -361,7 +361,7 @@ class TimelineTests(Fixture):
     def test_filing_on_global_is_refused_with_advice_after_the_filer_check(self):
         change = [{'action': 'add', 'kind': 'decision', 'text': 'Reply in plain words.'}]
         self.refused(self.file(self.lead, self.global_item, change), NO_GLOBAL)
-        self.assertIn('agentic_change_propose', NO_GLOBAL)
+        self.assertIn('experience_observation_file', NO_GLOBAL)
         # Who is not the coordinator is told so first, whatever item the call names.
         self.assertEqual(self.code(self.file(self.worker, self.global_item, change)), 'forbidden')
         self.assertEqual(self.code(self.file(self.owner, self.global_item, change)), 'forbidden')

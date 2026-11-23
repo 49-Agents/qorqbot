@@ -752,7 +752,12 @@ class HTTPAPI:
                     "context_queue_get", "context_queue_retry", "context_queue_discard",
                     # The record panel's Global note reader: the existing owner-only READ, which declares only ``document_id`` (the
                     # route supplies the scope). No note write and no scope input is added here.
-                    "notes_get"} and request.method == "POST":
+                    "notes_get",
+                    # The Learning Applier's workflows as the owner sees them: the runs (and queueing one now), the ranked
+                    # clusters of observations, and the agentic layer delta proposals. Reads, and one queueing write; a
+                    # proposal is approved or rejected through its Signoff, never here.
+                    "experience_run_get", "experience_run_request", "experience_clusters_list", "experience_cluster_get",
+                    "agentic_delta_proposals_list", "agentic_delta_proposal_get"} and request.method == "POST":
                 context, _ = self.context(actor)
                 # workspace_get is the one owner cross-scope read that names its
                 # target business as a domain field, not a scope selector.

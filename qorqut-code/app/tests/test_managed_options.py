@@ -196,11 +196,19 @@ class ClientTable(base.Fixture):
                          "Codex takes both, always together, plus its permission mode, through its driver")
 
     def test_the_clients_own_compaction_is_switched_off_only_when_asked_and_only_where_there_is_a_switch(self):
-        self.assertEqual(clients.launch_environment(clients.CLAUDE), {})
-        self.assertEqual(clients.launch_environment(clients.CLAUDE, own_compaction=True), {"DISABLE_AUTO_COMPACT": "1"})
+        memory_off = {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+        self.assertEqual(clients.launch_environment(clients.CLAUDE), memory_off)
+        self.assertEqual(clients.launch_environment(clients.CLAUDE, own_compaction=True), {**memory_off, "DISABLE_AUTO_COMPACT": "1"})
         self.assertEqual(clients.launch_environment(clients.CODEX, own_compaction=True), {})
         clients.launch_environment(clients.CLAUDE, own_compaction=True)["DISABLE_AUTO_COMPACT"] = "0"      # a copy each time
         self.assertEqual(clients.TABLE[clients.CLAUDE]["own_compaction"], {"DISABLE_AUTO_COMPACT": "1"})
+
+    def test_claude_codes_own_memory_is_off_in_every_session_and_codex_gets_nothing(self):
+        self.assertEqual(clients.launch_environment(clients.CLAUDE)["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
+        self.assertEqual(clients.launch_environment(clients.CODEX), {})
+        clients.launch_environment(clients.CLAUDE)["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "0"                # a copy each time
+        self.assertEqual(clients.TABLE[clients.CLAUDE]["always"], {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"})
+        self.assertEqual(clients.CLAUDE_MEMORY_SETTING, {"autoMemoryEnabled": False})
 
     def test_permission_mode_fails_closed(self):
         workspace = self.base / "ws"

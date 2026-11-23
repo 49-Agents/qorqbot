@@ -79,7 +79,7 @@ class OwnerInputGateway:
                     'selected_choice_ids': choices, 'notes': notes, 'answered_at': decision['at']}
 
 
-def create_input_request(runtime, context, binding, form, operation_id, *, direct_submission=None):
+def create_input_request(runtime, context, binding, form, operation_id):
     """Bind once, create/recover the real Signoff, then attach its exact identity."""
     from copy import deepcopy
     from qorqut_operations.contracts import plain
@@ -103,13 +103,8 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
         raise DomainError('validation_error', 'Every choice must match the saved binding')
     layer = runtime.agentic_layer
     def authorize(uow):
-        if direct_submission is not None:
-            from .direct import authorize_binding
-            return authorize_binding(runtime, context, uow, binding, direct_submission)
         return current_overseer(runtime, context, uow, capability='manage_agentic_layer')
 
-    # The narrow direct-submission authority is internal, never accepted in the
-    # public Overseer input request. Validate it before material is read.
     with runtime.database.read() as uow:
         authorize(uow)
     targets = binding['targets']
@@ -156,9 +151,8 @@ def create_input_request(runtime, context, binding, form, operation_id, *, direc
         if business and business not in ctx.allowed_business_ids:
             raise DomainError('forbidden', 'The requested review scope is unavailable')
         ctx = replace(ctx, business_id=business, review_business_id=business)
-        if direct_submission is None:
-            from .continuation import require_run
-            require_run(runtime, ctx, uow, binding['run_id'], active=True)
+        from .continuation import require_run
+        require_run(runtime, ctx, uow, binding['run_id'], active=True)
         runtime.application.authorize(ctx, runtime.registry.get('signoffs_get'), (), uow, namespace=namespace)
         rows = uow.connection.execute('SELECT id FROM signoffs WHERE proposer_principal_id=? AND review_business_id IS ? AND request_key=? LIMIT 2',
                                       (ctx.principal_id, business, request_key)).fetchall()

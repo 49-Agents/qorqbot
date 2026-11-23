@@ -1,5 +1,5 @@
-"""The trial review of timeline filings: held for the owner, applied by itself on approval, stale ones conflict, and the
-coordinator's own permission override ends the trial."""
+"""The review of timeline filings that a permission setting holds for the owner: applied by itself on approval, stale ones
+conflict. Without such a setting a filing is applied at once."""
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -32,8 +32,9 @@ class TimelineReviewTests(Fixture):
         super().setUp()
         folder = TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        # The review service over the same store; a decision is the declared standing mode unless a test overrides it.
-        self.modes = {}
+        # The review service over the same store. A permission setting holds every filing for the owner here; the declared
+        # standing mode, allow, is what ``test_a_filing_is_applied_at_once_unless_a_permission_setting_holds_it`` shows.
+        self.modes = {'timeline_file': 'signoff'}
         self.app.policy.resolve = self.decide
         ports = SignoffPorts(execution=HostExecution(), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                              platform=ABSENT, email=ABSENT, management=ABSENT, focus=ABSENT, sources=HostInputSources())
@@ -111,7 +112,8 @@ class TimelineReviewTests(Fixture):
                            sources=[{'quote': 'Pay one provider only.', 'ref': 'thread:1'}])
         self.assertEqual((result.status, result.to_dict()['warnings']), ('signoff_required', [REVIEW_NOTICE]))
         self.assertIn("Submitted for the owner's review", REVIEW_NOTICE)
-        self.assertIn('Do not file it again', self.registry.get('timeline_file').description)
+        self.assertIn('do not file it again', REVIEW_NOTICE)
+        self.assertIn("applied at once, without the owner's review", self.registry.get('timeline_file').description)
         self.assertEqual((self.count(), self.count('timeline_questions')), (0, 0))
         self.assertEqual(self.state_of(plain(result.signoff)), 'pending')
 
@@ -169,18 +171,19 @@ class TimelineReviewTests(Fixture):
         self.assertEqual([self.state_of(first), self.state_of(second)], ['applied', 'applied'])
         self.assertEqual(self.count(), 3)
 
-    # -- ending the trial ------------------------------------------------------------------------------------------
+    # -- no review unless a permission setting asks for one ---------------------------------------------------------
 
-    def test_a_permission_override_for_the_coordinator_files_directly(self):
+    def test_a_filing_is_applied_at_once_unless_a_permission_setting_holds_it(self):
         registry = self.registry
+        self.assertEqual(registry.get('timeline_file').default_mode, 'allow')
         declared = resolve_operation_policy('timeline_file', {}, {}, registry, role_id='ordubashy', scope='global')
-        self.assertEqual(declared.mode, 'signoff')
-        override = resolve_operation_policy('timeline_file', {}, {'timeline_file': 'allow'}, registry, role_id='ordubashy', scope='global')
-        self.assertEqual(override.mode, 'allow')
-        self.modes['timeline_file'] = 'allow'
+        self.assertEqual(declared.mode, 'allow')
+        override = resolve_operation_policy('timeline_file', {}, {'timeline_file': 'signoff'}, registry, role_id='ordubashy', scope='global')
+        self.assertEqual(override.mode, 'signoff')
+        del self.modes['timeline_file']
         result = self.file([{'action': 'add', 'kind': 'fact', 'text': 'Direct.'}])
-        self.assertEqual(result.status, 'ok', result.to_dict())
-        self.assertEqual(self.count(), 1)
+        self.assertEqual((result.status, result.to_dict()['warnings']), ('ok', []), result.to_dict())
+        self.assertEqual((self.count(), self.count('signoffs')), (1, 0))
 
     # -- what timeline_get shows -----------------------------------------------------------------------------------
 

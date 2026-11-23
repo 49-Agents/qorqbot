@@ -507,16 +507,6 @@
       "line": 35
     },
     {
-      "id": "direct-explicit-owner-instruction-in-the-submitting-agent-s",
-      "source": "qorqut-code/app/qorqut/overseer/direct.py",
-      "line": 140
-    },
-    {
-      "id": "operations-read-your-submitted-instruction-exact-review-signoff-and",
-      "source": "qorqut-code/app/qorqut/overseer/operations.py",
-      "line": 111
-    },
-    {
       "id": "operations-read-authorized-overseer-records-and-current-source-availability",
       "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 112
@@ -525,16 +515,6 @@
       "id": "operations-worker-only-output-of-the-scheduled-extraction-program",
       "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 120
-    },
-    {
-      "id": "operations-submit-an-explicit-owner-chat-instruction-as-a",
-      "source": "qorqut-code/app/qorqut/overseer/operations.py",
-      "line": 130
-    },
-    {
-      "id": "operations-read-the-actual-owner-answer-to-your-exact",
-      "source": "qorqut-code/app/qorqut/overseer/operations.py",
-      "line": 131
     },
     {
       "id": "operations-run-an-authorized-overseer-bridge-operation-with-its",
