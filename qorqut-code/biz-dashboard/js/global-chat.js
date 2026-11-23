@@ -84,6 +84,8 @@ function globalChatReadable(agentId) {
 const GLOBAL_CHAT_PAGE = 30;
 // Older messages arrive in small chunks as the reader scrolls up.
 const GLOBAL_CHAT_OLDER = 10;
+// How long a conversation carried over a change of conversation waits for the link that says a compaction opened the new one.
+const GLOBAL_CHAT_LINK_WAIT = 60_000;
 // A long-open chat stays fast: at the bottom, once more than MAX entries are loaded, the oldest are dropped until KEEP remain (see `trimLoaded`).
 const GLOBAL_CHAT_LOADED_MAX = 100;
 const GLOBAL_CHAT_LOADED_KEEP = 50;
@@ -194,8 +196,9 @@ function mountAgentView(pane, agent, opts = {}) {
 function mountGlobalChat(pane, agent, options = {}) {
   const agentId = agent.agent_id, base = globalChatBase(agentId), label = agent.display_name || agent.name || 'Agent';
   const entries = new Map();                     // entry id -> entry
-  // Earlier conversations loaded above this one, oldest first: {conversation, entries: Map, older}. View-only: a compaction closed each of
-  // them, and nothing here sends to, acknowledges or matches against them.
+  // Earlier conversations loaded above this one, oldest first: {conversation, entries: Map, older, since?}. View-only: a compaction closed
+  // each of them (`since`: carried over a change of conversation whose link has not arrived yet), and nothing here sends to,
+  // acknowledges or matches against them.
   const earlier = [];
   let session = null, conversation = null, inputs = [], older = null, shown, clears = 0, shownInputs = [];
   let cursor = 0, lastRead = 0, composerScope = null, hasLocal = false;
@@ -418,7 +421,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     && (viewingLive() || (!(typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)) && agentRuntime.canOpen(session))) && !finished;
   const selectedFiles = () => GLOBAL_CHAT_FILES.get(composerScope) || [];
   // What the conversation holds, and whether a message that starts the session is on its way: the wording of the session line.
-  const hasHistory = () => entries.size > 0 || shownInputs.length > 0 || hasLocal;
+  // An earlier conversation kept on screen above a fresh one (a compaction) counts: the chat is not empty.
+  const hasHistory = () => entries.size > 0 || earlier.some(part => part.entries.size > 0) || shownInputs.length > 0 || hasLocal;
   const sessionSummary = () => session && typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)
     ? agentTerminalView.summary(session, label, viewingLive()) : session ? agentRuntime.summary(session, label, viewingLive(), {history: hasHistory(),
     opening: agentRuntime.closed(session) && (GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId))}) : {key: 'loading', line: ''};
@@ -443,7 +447,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     return commandCatalogs.get(provider);
   }
   function emptyState() {
-    if (entries.size || shownInputs.length || hasLocal || !session) return {text: '', action: null};
+    if (hasHistory() || !session) return {text: '', action: null};
     const key = sessionSummary().key;
     if (typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)) return agentTerminalView.emptyState(session, label, key, options.openTerminal);
     if (key === 'live' || key === 'working') return {text: 'Your agent conversation appears here.', action: null};
@@ -806,10 +810,24 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (!live() || mine !== generation) return;
       const id = globalChatKey(data.conversation);
       const page = data.entries || [];
+      const linked = globalChatKey(data.conversation?.continues), wasLinked = globalChatKey(conversation?.continues);
+      // A compaction closed the conversation on screen and opened the one the backend now follows: what is on screen stays, above
+      // the fresh conversation, so the chat reads on without a break. The backend records the link a moment after the fresh
+      // conversation is selected, so a fresh conversation that names no predecessor yet is carried over as well, until
+      // `settleCarried` hears which it is. One that names another predecessor, or already has more than a page, starts clean.
+      const carried = !reset && !!shown && !!id && id !== shown && data.older == null && (!linked || linked === shown);
       // A page that starts after everything held (a long gap while away) cannot be joined to it: start from that page.
       const gap = data.older != null && page.length && page[0].position > newestPosition() && entries.size > 0;
-      const fresh = reset || shown === undefined || id !== shown || gap;
+      const fresh = !carried && (reset || shown === undefined || id !== shown || gap);
+      if (carried) {
+        clears++;
+        if (earlier.at(-1)?.since) earlier.length = 0;      // a carried conversation whose link never came is not kept further
+        earlier.push({conversation, entries: new Map(entries), older, ...(linked ? {} : {since: Date.now()})});
+        entries.clear(); older = data.older;
+      }
       if (fresh) { clears++; entries.clear(); earlier.length = 0; older = data.older; }
+      // Whether the conversation it continues is to be brought in: on opening, and when a link arrives or a carried one went.
+      const bring = fresh || (!carried && (settleCarried(linked) || linked !== wasLinked));
       shown = id; session = data.session; conversation = data.conversation;
       inputs = data.inputs || []; lastRead = Math.max(fresh && reset ? 0 : lastRead, data.last_read_sequence || 0);
       cursor = fresh && reset ? data.cursor || 0 : Math.max(cursor, data.cursor || 0);
@@ -821,13 +839,27 @@ function mountGlobalChat(pane, agent, options = {}) {
       void contextStatus?.refresh();
       void timelineBlock?.refresh();
       if (!stream) connect();
+      // Chat reads on across a compaction by itself: a conversation loaded to its own top that continues one not on screen brings
+      // in that one's newest page at once, when Chat opens on it and when its link arrives after it.
+      if (bring && older == null && !earlier.length && linked) void loadOlder(GLOBAL_CHAT_PAGE);
     } catch (problem) {
       if (live() && mine === generation) { paintSession(); showBanner("Couldn't load. Retry"); retry(() => load()); }
     } finally {
       if (mine === generation) { loading = false; if (again && live()) { again = false; void load(); } }
     }
   }
-  async function loadOlder() {
+  // A carried conversation that names no link yet (`load`) is settled by the fresh conversation's link: naming it keeps it; naming
+  // another, or still nothing a while on (a conversation no compaction opened), drops it once the reader is at the bottom. True
+  // when it dropped it.
+  function settleCarried(linked) {
+    const part = earlier.at(-1);
+    if (!part?.since) return false;
+    if (linked === globalChatKey(part.conversation)) { delete part.since; return false; }
+    if ((!linked && Date.now() - part.since < GLOBAL_CHAT_LINK_WAIT) || !view.isAtBottom()) return false;
+    clears++; earlier.length = 0;
+    return true;
+  }
+  async function loadOlder(limit = GLOBAL_CHAT_OLDER) {
     // Only history responses advance a conversation's cursor, so no page is skipped. The oldest loaded conversation is the one that
     // grows: by its next older page, or at its own top by the newest page of the conversation it continues (a view-only read).
     const part = earlier[0] || null, target = part ? part.conversation : conversation, before = part ? part.older : older;
@@ -835,8 +867,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     if ((before == null && !previous) || !target || olderBusy) return;
     olderBusy = true; paint();
     try {
-      const data = coreData(await api(previous ? `${base}?limit=${GLOBAL_CHAT_OLDER}${globalChatQuery(previous)}`
-        : `${base}/history?before=${before}&limit=${GLOBAL_CHAT_OLDER}${globalChatQuery(target)}`, {signal: reads.signal}));
+      const data = coreData(await api(previous ? `${base}?limit=${limit}${globalChatQuery(previous)}`
+        : `${base}/history?before=${before}&limit=${limit}${globalChatQuery(target)}`, {signal: reads.signal}));
       // Applied only to the exact provider/conversation it asked for, even if the live conversation changed on its own.
       if (!live() || mine !== generation || epoch !== clears || viewedKey() !== requested) return;
       if (previous) {

@@ -123,9 +123,19 @@ The table is added by the offline `python -m qorqut.migration.upgrade` transform
 ## In Chat
 
 A conversation that a compaction opened has a "Context compacted" marker at its
-top. "Load older messages" there continues into the conversation before it, so
-the owner reads across a compaction without choosing another conversation. The
-request and the opening stay hidden.
+top, and the conversation before it stays on screen above the marker, so the
+owner reads across a compaction as one chat. When the compaction happens while
+Chat is open, what was on screen stays where it is and the fresh conversation
+follows below it. When Chat is opened on a fresh conversation that is still
+shorter than a page, the newest page of the one before is brought in at once.
+"Load older messages" (scrolling up) goes on into earlier pages and earlier
+conversations. The request and the opening stay hidden.
+
+The fresh conversation is selected a moment before its row records the link
+(`opened`), so Chat keeps the conversation on screen above a fresh one that
+names no predecessor yet. When the link names it, the marker appears; when it
+names another conversation, or none arrives within a minute (a conversation no
+compaction opened), Chat drops it once the reader is at the bottom.
 
 The Chat state names the earlier conversation in `conversation.continues`
 (`docs/v1.2/NATIVE_CHAT_DTO.md`). `CompactionHandoff.continued` reads it from the
