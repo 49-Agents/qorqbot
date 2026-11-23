@@ -471,6 +471,24 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(read_objects(self.connection), objects)
         self.assertEqual(upgrade.apply(self.connection, self.extensions)['added'], [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS])
 
+    def test_the_job_and_run_lists_are_read_through_the_new_indexes_without_a_sort(self):
+        upgrade.apply(self.connection, self.extensions)
+        statements = {
+            'jobs_business_created': 'SELECT * FROM "jobs" WHERE "business_id" IS NULL ORDER BY "created_at" DESC, "id" DESC LIMIT 20',
+            'jobs_business_active': "SELECT * FROM jobs WHERE business_id IS ? AND state IN ('running','applying') ORDER BY created_at,rowid",
+            'jobs_business_queued': "SELECT kind,count(*) FROM jobs WHERE business_id IS ? AND state='queued' GROUP BY kind",
+            'routine_runs_namespace_created': "SELECT * FROM routine_runs WHERE namespace='global' AND (business_id IS NULL OR business_id IN (?)) "
+                                              "ORDER BY created_at DESC,id DESC LIMIT 51",
+            'routine_runs_business_created': 'SELECT * FROM routine_runs WHERE business_id IS ? ORDER BY created_at DESC,id DESC LIMIT 51',
+        }
+        for analyzed in (False, True):
+            for name, sql in statements.items():
+                plan = ' | '.join(row[3] for row in self.connection.execute('EXPLAIN QUERY PLAN ' + sql, [None] * sql.count('?')))
+                self.assertIn(name, plan, (name, analyzed))
+                self.assertNotIn('TEMP B-TREE', plan, (name, analyzed))
+            # Statistics must not move a list onto another index.
+            self.connection.execute('ANALYZE')
+
     def test_revert_keeps_recorded_source_links_unless_told_to_drop_them(self):
         objects = read_objects(self.connection)
         upgrade.apply(self.connection, self.extensions)
