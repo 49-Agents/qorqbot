@@ -80,7 +80,9 @@ The first `ensure` creates the Shared browser, a **headless managed browser**:
   owns the listener;
 * the user manager does not share the application service's mount namespace. When the service sees its instance through a
   private bind mount (`BindPaths=`), the supervisor is started with the directory's path on the underlying filesystem and is
-  told the path the ownership record was written with (`--recorded-state <dir>`), so both sides read and lock the same files;
+  told the path the ownership record was written with (`--recorded-state <dir>`), so both sides read and lock the same files.
+  An agent's `upload` names its files to Chrome by the same translation (see Uploads in
+  [BROWSER-CONTROL.md](BROWSER-CONTROL.md));
 * Chrome's temporary directory is `<dir>/tmp` when its singleton socket path fits a Unix socket address, and otherwise a
   private `qorqut-browser-<hash>` directory under `/run/user/<uid>` (Chrome aborts on a longer socket path);
 * a generated `.qorqut/browser.json` (unchanged schema: `schema_version`, `cdp_endpoint`, `runtime_dir`) written only after

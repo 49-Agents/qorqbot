@@ -12,7 +12,7 @@ ALIASES = {
     "go-back": ["back"], "go-forward": ["forward"], "resize": ["set", "viewport"],
     "dialog-accept": ["dialog", "accept"], "dialog-dismiss": ["dialog", "dismiss"],
 }
-DIRECT = {"click", "dblclick", "fill", "hover", "select", "upload", "check", "uncheck", "drag", "press",
+DIRECT = {"click", "dblclick", "fill", "hover", "select", "check", "uncheck", "drag", "press",
           "reload", "screenshot", "pdf", "console"}
 # Commands whose first argument may be a snapshot ref (e12), which the tool wants as @e12.
 REF_FIRST = {"click", "dblclick", "fill", "hover", "select", "upload", "check", "uncheck", "frame", "focus"}
@@ -308,6 +308,11 @@ def translate(args, endpoint=""):
         translated = ["connect", endpoint] if action == "attach" else ["close"]
     elif action == "goto":
         translated = ["open", *_positional(action, values, 1, "one address")]
+    elif action == "upload":
+        positional = _options(action, values, {})[0]
+        if len(positional) < 2:
+            raise ValueError("upload takes the file field and then the path of each file: upload <ref> <absolute-path>.")
+        translated = ["upload", *positional]
     elif action in ALIASES or action in DIRECT:
         # Only observation/screenshot options are accepted; lifecycle/config flags
         # are never accepted from model input, even following positional arguments.
