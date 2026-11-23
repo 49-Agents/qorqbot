@@ -52,14 +52,14 @@ request_user_input(message="Here is the cold outreach project.",
 ## Choosing a browser
 
 `browser_turn` with `action=list` returns `{"browsers": [{"id", "label"}]}`:
-the managed desktops (your own and any other the installation configures). It takes no turn and
-returns no URL or endpoint.
+the managed desktops the installation configures, then each permanent worker's tabs in the Shared browser under the
+worker's agent id. It takes no turn and returns no URL or endpoint.
 
 ```
 browser_turn(action="acquire", protocol="handles", browser_id="<id from action=list>")
 ```
 
-- Without `browser_id` you get your own configured browser, as before. Pass no `business_id`:
+- Without `browser_id` you get your own tabs in the Shared browser. Pass no `business_id`:
   project context is not a browser selector.
 - `browser_id` is accepted only on `acquire` with `protocol="handles"`. The returned
   handle is bound to that exact browser: `command`, `status`, `artifact` and `release`
