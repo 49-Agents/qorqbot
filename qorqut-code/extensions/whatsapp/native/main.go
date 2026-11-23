@@ -128,7 +128,7 @@ func serve(ctx context.Context, dataDir, socket string, pair, pairOnly, enableSe
 	}
 	client := whatsmeow.NewClient(device, waLog.Noop)
 	client.InitialAutoReconnect = true
-	r := &receiver{ctx: ctx, index: idx, client: client, fatal: make(chan error, 1)}
+	r := &receiver{ctx: ctx, index: idx, client: client, managedSend: managed.enabled(), fatal: make(chan error, 1)}
 	if enableSend {
 		r.writer = &textSender{index: idx, client: client}
 	}
@@ -216,7 +216,7 @@ func run(ctx context.Context, args []string) error {
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	socket := fs.String("socket", "", "absolute local read socket path")
-	enableSend := fs.Bool("enable-send", false, "enable plain-text sending to existing indexed conversations")
+	enableSend := fs.Bool("enable-send", false, "enable plain-text sending to chats listed by whatsapp_read (action chats)")
 	var dataDir, managedSocket, managedSecret *string
 	var pair *bool
 	var pairOnly *bool
