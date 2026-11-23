@@ -96,7 +96,7 @@ test('right-click discards a calendar chip at once, saves it, and restores it wh
   assert.equal(s.writes.length, 1);
   assert.equal(s.writes[0].url, '/root/attention-queue');
   assert.deepEqual(JSON.parse(JSON.stringify(s.writes[0].args)), {discarded:[first.key]});
-  s.writes[0].resolve({items:[], side_chats:[], discarded:[first.key]});
+  s.writes[0].resolve({items:[], discarded:[first.key]});
   await tick();
   assert.doesNotMatch(s.host.innerHTML.replace(/&quot;/g,'"'), /"c","cal","past"/);
   assert.match(s.host.innerHTML.replace(/&quot;/g,'"'), /"c","cal","upcoming"/);

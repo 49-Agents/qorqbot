@@ -46,4 +46,7 @@ def backward(connection):
 
 
 def held_rows(connection):
+    # The side-chat removal later drops the column with every side chat; past it this step holds nothing.
+    if 'display_title' not in {column[1] for column in connection.execute(f'PRAGMA table_info("{TABLE}")')}:
+        return 0
     return connection.execute(f'SELECT count(*) FROM "{TABLE}" WHERE display_title IS NOT NULL').fetchone()[0]

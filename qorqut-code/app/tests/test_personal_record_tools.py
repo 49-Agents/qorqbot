@@ -23,7 +23,7 @@ from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationOpti
 from qorqut.composition.catalog import builtin_registry, install_contribution
 from qorqut.composition.policy import resolve_operation_policy
 
-from test_side_chat_rename import build_runtime
+from private_thread_runtime import build_runtime
 
 RECORD = {"id": "own3r", "summary": "Sam Example is the installation owner.",
           "attributes": {"basic_entity_type": ["person"], "phone": ["+1 555 0100"], "email": ["sam@example.com"]}}

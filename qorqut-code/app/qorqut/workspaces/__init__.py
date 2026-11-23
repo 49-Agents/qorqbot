@@ -59,10 +59,10 @@ class WorkspaceType:
 
 
 # The registry only records that the host knows how to render the Focus tab and which role it belongs to. Agents
-# have no operations on it: its content (threads and the owner's notes) belongs to the owner.
+# have no operations on it: its content (the attention queue and the owner's notes) belongs to the owner.
 WORKSPACE_TYPES = (
     WorkspaceType("focus", "Focus", frozenset({roles.ORDUBASHY_ROLE, roles.GLOBAL_WORKER_ROLE}), "focus_board", (),
-        "Owner area: side chats, pinned threads and the owner's personal notes."),
+        "Owner area: the owner's attention queue and personal notes."),
 )
 
 # Roles that may see the workspace tools at all; the type still gates each call. An installed extension's type must stay

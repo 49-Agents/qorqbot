@@ -71,8 +71,6 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # So does work_review_get, what was done. conversation_history_search and conversation_history_get, the read of the
 # conversation with the owner, are allowed here for Ordubashy only: ``_ordubashy_reads`` refuses every other role
 # before a role file or an override is looked at, and the handler still proves the exact configured Ordubashy.
-# So do thread_pins_list and thread_pins_set, the owner's pinned-threads row in Focus: the handler admits only the owner or the
-# configured coordinator in person, writes only the owner's file, and pins only a record the caller may read.
 # So does timeline_get, the timelines of Tasks and Projects: the reader needs the ordinary read of the item. timeline_file
 # is not here: it declares its own standing mode (allow: filed at once) and the handler admits only the coordinator in person.
 # Nor is timeline_file_answer: it declares allow (the owner's own answer to a question Signoff) and admits only the coordinator.
@@ -83,7 +81,7 @@ CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "opera
                                   "agents_activity_list", "agent_work_update", "business_briefing", "files_link", "agentic_access",
                                   "records_health", "records_reconcile", "conversation_history_search",
                                   "conversation_history_get",
-                                  "work_review_get", "thread_pins_list", "thread_pins_set", "timeline_get",
+                                  "work_review_get", "timeline_get",
                                   "settings_get", "settings_set"})
 # What the owner and the agents wrote to each other, across every chat and thread.
 ORDUBASHY_READS = frozenset({"conversation_history_search", "conversation_history_get"})

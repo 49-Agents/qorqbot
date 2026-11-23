@@ -6,7 +6,7 @@ test('right-click on a Signoff chip toggles read and unread through the attentio
   const signoff={id:'s',title:'Review',state:'pending',proposal_revision:2,payload_hash:'h'},key='signoff:s:2:h';
   const reply={id:'reply:1',kind:'thread',source:{type:'signoff',id:'s'},viewed_ids:['reply:1']};
   let viewed=new Set();const posts=[];const last=()=>JSON.parse(JSON.stringify(posts.at(-1)));
-  const rows=()=>({items:[{id:key,kind:'signoff',signoff_id:'s',viewed_ids:[key]},reply].filter(row=>!viewed.has(row.id)),side_chats:[]});
+  const rows=()=>({items:[{id:key,kind:'signoff',signoff_id:'s',viewed_ids:[key]},reply].filter(row=>!viewed.has(row.id))});
   const host={isConnected:true,innerHTML:'',hidden:false,listeners:{},contains:()=>true,addEventListener(type,fn){this.listeners[type]=fn;},removeEventListener(type,fn){if(this.listeners[type]===fn)delete this.listeners[type];}};
   const context={document:{addEventListener(){}},window:{addEventListener(){}},remAttempts:new Map(),remVerifiedOwner:async()=> 'owner',
     api:async url=>url.startsWith('/root/signoffs')?{items:[signoff]}:rows(),

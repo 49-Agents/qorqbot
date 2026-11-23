@@ -20,7 +20,8 @@ EXTENSIONS = ExtensionSet(())
 MANAGED = native_transport_managed.NAME
 AT = upgrade.STATES.index(MANAGED)
 PREVIOUS = upgrade.STATES[AT - 1]
-# The transforms that came after this one; none of them touches the native session table.
+# The transforms that came after this one; none of them touches the native session table. The side-chat removal narrows the
+# Signoff definition.
 LATER = list(upgrade.STATES[AT + 1:])
 LAST = upgrade.STATES[-1]
 TABLE = ('table', 'native_sessions')
@@ -109,7 +110,7 @@ class NativeTransportMigrationTests(unittest.TestCase):
 
         self.assertEqual((result['from'], result['added'], result['store'], result['pending']), (PREVIOUS, [MANAGED, *LATER], LAST, []))
         after = read_objects(self.connection)
-        self.assertEqual({key for key in objects if after[key] != objects[key]}, {TABLE})
+        self.assertEqual({key for key in objects if after[key] != objects[key]}, {TABLE, ('table', 'signoffs')})
         self.assertEqual(set(after) - set(objects), self.later())
         self.assertEqual(self.sessions(), before)  # no row moved
         self.assertEqual(self.connection.execute('PRAGMA integrity_check').fetchall(), [('ok',)])

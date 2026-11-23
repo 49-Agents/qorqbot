@@ -16,7 +16,7 @@ from qorqut.domains.records_health import disagreements
 from qorqut.domains.work_review import WorkReview
 from qorqut.native_chat import projection, store
 
-from test_side_chat_rename import build_runtime, create, invoke, reply, report_task
+from private_thread_runtime import build_runtime, create, invoke, reply, report_task
 
 NOW = datetime(2026, 11, 12, 18, tzinfo=timezone.utc)
 BEFORE = "2026-11-01T09:00:00.000000Z"
@@ -119,8 +119,7 @@ class WorkReviewTests(unittest.TestCase):
         self.assertEqual(actions["items"][0]["text"], "Sent message 3")
         self.assertEqual(self.read({"since": at(9, 2), "until": at(9, 4)})["actions"]["count"], 2)
 
-    def test_proposals_and_decisions_are_listed_and_side_chats_are_not(self):
-        create(self.runtime, "Just a chat")
+    def test_proposals_and_decisions_are_listed(self):
         question = invoke(self.runtime, "signoffs_input_create", {"request_key": new_id(), "form": {
             "title": "Approve the venue?", "explanation": "Choose one", "kind": "question", "selection_mode": "none"}},
             ctx=self.runtime.coordinator)["signoff"]
