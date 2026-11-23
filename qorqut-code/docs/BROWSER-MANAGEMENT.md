@@ -125,8 +125,9 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
 | Route under `/api/root/agents/<agent UUID>/browser-live` | Does |
 | --- | --- |
 | `GET` | Lists the browser's open pages (`id`, `title`, `url`). |
-| `GET /stream?tab=<id>` | Server-sent events: `open` (the view's id), `tabs`, `frame` (a JPEG and the page's size in CSS pixels, at most 20 a second), `closed`, or `refused` (`code`, `message`) when the view could not be opened. |
-| `POST /input` | `{"view": ..., "events": [...]}`: pointer, wheel, key and inserted-text events for that view's tab. |
+| `GET /stream?tab=<id>&width=<pixels>` | Server-sent events: `open` (the view's id), `tabs`, `frame` (a JPEG, its number `n` and the page's size in CSS pixels, at most 20 a second), `closed`, or `refused` (`code`, `message`) when the view could not be opened. `width` (optional) is how wide the dashboard draws the picture, in its screen's pixels: the JPEG is no wider. |
+| `POST /input` | `{"view": ..., "events": [...], "order": n}`: pointer, wheel, key and inserted-text events for that view's tab. `order` (optional) is the batch's place among the view's batches, from 1. |
+| `POST /received` | `{"view": ..., "picture": n, "width": pixels}`: the dashboard has received picture `n`; `width` (optional) is a new width to draw at. |
 
 * It uses Chrome's DevTools port directly, never `agent-browser`: it opens no tab, holds no lock and does not pause the
   agent. The agent and the owner can act on the same page at the same time.
@@ -136,13 +137,25 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
   belongs to which agent.
 * A stream ends when its tab closes or the connection drops; the dashboard does not reconnect by itself.
 * The port is handed out only while the browser's supervisor reports `ready` (the exact supervised Chrome owns it); otherwise the
-  route answers `browser_not_ready`. All three routes refuse a request that is not from this dashboard (`Sec-Fetch-Site` other
+  route answers `browser_not_ready`. All four routes refuse a request that is not from this dashboard (`Sec-Fetch-Site` other
   than `same-origin`), as the change feed does.
 * At most 4 views of one agent and 16 in all are open at once; another is refused with `busy` ("Too many browser views are
   open…") and nothing already open is closed. The view is opened when the stream starts, and opening and closing are one unit, so
   a request cancelled early leaves nothing behind.
 * Pictures arriving faster than 20 a second are acknowledged and only the newest is kept; it is shown when the interval has
   passed, so a page that stands still never leaves a stale picture.
+* Pictures go at the pace of the owner's connection. A page that keeps moving (a spinner is enough) offers a full picture 20
+  times a second; over a slow or distant connection they queued on the way and the owner saw the page seconds late, their own
+  typing included. So the dashboard reports each picture it receives, and at most 2 are on the way at once: meanwhile the
+  newest waits on the server and replaces the ones before it. A picture not reported within 3 seconds stops holding the next
+  one back. A dashboard page that never reports (loaded before this existed) is sent every picture, as before.
+* The picture is sent no wider than the dashboard draws it (Chrome scales it; it is never enlarged), and the dashboard lays it
+  out at the page's size whatever size it came at. When the stage changes width the dashboard says so and the pictures start
+  again at the new width.
+* Input does not wait for answers: each batch is sent as it happens, numbered, with at most 4 on the way, and the view applies
+  them in their numbered order whatever order the requests arrive in. A batch waits 1 second for a missing earlier one, then
+  goes on; a late one is still applied. Pointer moves alone wait until no request is on the way and collapse into the latest
+  position meanwhile.
 * In the dashboard: a double or triple click is counted by the dashboard (browsers report no count on pointer events); AltGr
   characters are typed rather than sent as Ctrl+Alt; the wheel is forwarded only over the picture once it is live; Escape pressed
   twice within 0.6 s leaves the picture so Tab moves on (the first Escape still reaches the page; the hint is in the note above

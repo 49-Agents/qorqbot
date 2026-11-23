@@ -44,25 +44,41 @@ function aglivePoint(event, rect, size) {
     y: Math.round(clamp((event.clientY - rect.top) * size.height / rect.height, size.height))};
 }
 
-// Sends input in order, one request at a time; pointer moves waiting behind a request collapse into the latest one.
+// How wide the picture can be drawn here, in this screen's own pixels: the server sends it no wider, since a wider one only costs
+// the connection. 0 while the stage has no width yet (the picture then comes at the page's own size).
+const AGLIVE_MIN_WIDTH = 200, AGLIVE_MAX_WIDTH = 8192, AGLIVE_RESIZE_MS = 300, AGLIVE_RESIZE_PX = 16;
+function agliveWidth(stage) {
+  const width = Math.round((stage?.clientWidth || 0) * (window.devicePixelRatio || 1));
+  return width ? Math.min(Math.max(width, AGLIVE_MIN_WIDTH), AGLIVE_MAX_WIDTH) : 0;
+}
+
+// Sends input in order without waiting for each answer: over a distant connection an answer takes a whole round trip, and a key that
+// waited for the one before it showed that much later. `send(events, order)` gets each batch's place in the order, from 1, and the
+// server applies the batches in it; at most AGLIVE_SENDING are on the way at once. Pointer moves alone do wait until none is: they
+// collapse into the latest position meanwhile, so the connection carries as many as it can and no more.
+const AGLIVE_SENDING = 4;
 function agliveSender(send) {
-  let queue = [], busy = false, timer = 0, stopped = false;
-  async function flush() {
+  let queue = [], sending = 0, timer = 0, slow = false, stopped = false, order = 0;
+  const move = event => event.type === 'mouse' && event.action === 'move';
+  const plan = delay => { clearTimeout(timer); slow = delay > 0; timer = setTimeout(flush, delay); };
+  function flush() {
     timer = 0;
-    if (busy || stopped || !queue.length) return;
-    const events = queue.splice(0, 64);
-    busy = true;
-    try { await send(events); } catch (_) { /* the stream reports a closed tab; a lost event is not retried */ }
-    busy = false;
-    if (queue.length && !stopped) timer = setTimeout(flush, 0);
+    if (stopped || !queue.length || sending >= AGLIVE_SENDING || (sending && queue.every(move))) return;
+    const events = queue.splice(0, 64), place = ++order;
+    sending++;
+    // The stream reports a closed tab; a lost event is not retried.
+    Promise.resolve().then(() => send(events, place)).catch(() => {}).then(() => { sending--; if (queue.length && !stopped && !timer) plan(0); });
+    if (queue.length) plan(0);
   }
   return {
     push(event) {
       if (stopped) return;
       const last = queue[queue.length - 1];
-      if (event.type === 'mouse' && event.action === 'move' && last?.type === 'mouse' && last.action === 'move') queue[queue.length - 1] = event;
+      if (move(event) && last && move(last)) queue[queue.length - 1] = event;
       else queue.push(event);
-      if (!timer && !busy) timer = setTimeout(flush, event.type === 'mouse' && event.action === 'move' ? AGLIVE_SEND_MS : 0);
+      // A key or a click never waits behind the short pause that gathers pointer moves.
+      if (!move(event)) { if (!timer || slow) plan(0); }
+      else if (!timer) plan(queue.every(move) ? AGLIVE_SEND_MS : 0);
     },
     stop() { stopped = true; clearTimeout(timer); queue = []; },
   };
@@ -78,8 +94,8 @@ function agliveTabLabel(tab) {
 // registers its teardown; `bar` is the caller's own controls, wired by `wire(host)`. Returns nothing: every state, including failure, is drawn in `body`.
 async function agliveMount(agentId, body, options) {
   const {current, onDispose, tab = null, bar = '', wire = () => {}} = options;
-  let source = null, sender = null, disposed = false;
-  const dispose = () => { disposed = true; source?.close(); source = null; sender?.stop(); sender = null; };
+  let source = null, sender = null, disposed = false, resized = null, resizeTimer = 0;
+  const dispose = () => { disposed = true; source?.close(); source = null; sender?.stop(); sender = null; resized?.disconnect(); resized = null; clearTimeout(resizeTimer); };
   onDispose(dispose);
   const alive = () => !disposed && current();
   const status = (message, role = 'status') => {
@@ -103,7 +119,7 @@ async function agliveMount(agentId, body, options) {
     `<span class="aglive-note muted">Click the page to use it; press Esc twice to leave it. Your agent keeps working in it too.</span>` +
     `<span class="agbrowser-actions"><button type="button" class="quiet agbrowser-reconnect" data-live-reconnect aria-label="Reconnect">${typeof AGBROWSER_ICON_RECONNECT === 'string' ? AGBROWSER_ICON_RECONNECT : 'Reconnect'}</button></span></div>` +
     `<div class="agbrowser-stage aglive-stage"><img class="aglive-screen" data-live-screen tabindex="0" alt="${esc(agliveTabLabel(watched))}" draggable="false"></div></section>`;
-  const screen = body.querySelector('[data-live-screen]'), picker = body.querySelector('[data-live-tabs]');
+  const screen = body.querySelector('[data-live-screen]'), picker = body.querySelector('[data-live-tabs]'), stage = body.querySelector('.aglive-stage');
   const remount = next => { dispose(); agliveMount(agentId, body, {...options, tab: next}); };
   wire(body);
   const paintTabs = list => {
@@ -116,17 +132,37 @@ async function agliveMount(agentId, body, options) {
 
   const size = {width: 0, height: 0};
   let view = null;
-  sender = agliveSender(events => post(aglivePath(agentId, '/input'), {view, events}));
+  sender = agliveSender((events, order) => post(aglivePath(agentId, '/input'), {view, events, order}));
   const push = event => { if (view && size.width) sender.push(event); };
-  source = new EventSource(evUrl(aglivePath(agentId, `/stream?tab=${encodeURIComponent(watched.id)}`)));
+  let width = agliveWidth(stage), newest = 0;
+  source = new EventSource(evUrl(aglivePath(agentId, `/stream?tab=${encodeURIComponent(watched.id)}${width ? `&width=${width}` : ''}`)));
   const data = event => { try { return JSON.parse(event.data); } catch (_) { return null; } };
+  // The server sends the next picture only when it knows this one arrived, so a slow connection gets fewer pictures, each of
+  // them current, instead of all of them late. A report that fails is made up for by the next one (the server also stops waiting).
+  const received = extra => { if (view) post(aglivePath(agentId, '/received'), {view, picture: newest, ...extra}).catch(() => {}); };
   source.addEventListener('open', event => { view = data(event)?.view || null; });
   source.addEventListener('frame', event => {
     const picture = data(event);
     if (!picture?.data || !alive()) return;
     size.width = picture.width; size.height = picture.height;
+    // Laid out at the page's size, whatever size the picture was sent at (the stylesheet still fits it to the stage).
+    if (picture.width > 0 && picture.height > 0 && screen.getAttribute('width') !== String(picture.width)) { screen.width = picture.width; screen.height = picture.height; }
     screen.src = 'data:image/jpeg;base64,' + picture.data;
+    if (Number.isInteger(picture.n)) { newest = picture.n; received(); }
   });
+  // The stage changed size (a pane dragged wider, the window resized): once it has settled, the server is told the new width.
+  if (typeof ResizeObserver === 'function') {
+    resized = new ResizeObserver(() => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const next = agliveWidth(stage);
+        if (!alive() || !view || !next || Math.abs(next - width) < AGLIVE_RESIZE_PX) return;
+        width = next;
+        received({width});
+      }, AGLIVE_RESIZE_MS);
+    });
+    resized.observe(stage);
+  }
   // The server could not open the view (too many open, the browser stopped); it says why in plain words.
   source.addEventListener('refused', event => { if (alive()) { const message = data(event)?.message; dispose(); status(message || 'The live view could not be opened.', 'alert'); } });
   source.addEventListener('tabs', event => { const list = data(event); if (Array.isArray(list) && alive()) paintTabs(list); });

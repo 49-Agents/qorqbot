@@ -1054,7 +1054,8 @@ class HTTPAPI:
 
     async def browser_live(self, request, context, agent_id, tail, request_id):
         """The installation owner's live view of an agent's browser (``qorqut.browser.live``): its tabs, one tab as a stream
-        of pictures, and the owner's pointer and keys sent back. Dashboard only; never a registered operation."""
+        of pictures, the owner's pointer and keys sent back, and the dashboard's word on which picture has reached it.
+        Dashboard only; never a registered operation."""
         from qorqut.browser import live
         if request.headers.get("authorization") is not None:
             raise DomainError("forbidden", "The live browser view is for the owner's dashboard")
@@ -1072,12 +1073,21 @@ class HTTPAPI:
             return result
         if tail == ["input"] and request.method == "POST":
             body = await read_json(request, limit=262144)
-            checked_fields(body, {"view", "events"}, {"view", "events"})
-            await anyio.to_thread.run_sync(live.view(agent_id, body["view"]).send, body["events"])
+            checked_fields(body, {"view", "events", "order"}, {"view", "events"})
+            await anyio.to_thread.run_sync(live.view(agent_id, body["view"]).send, body["events"], body.get("order"))
+            return response(OperationResult.ok({}, request_id=request_id))
+        if tail == ["received"] and request.method == "POST":
+            body = await read_json(request, limit=4096)
+            checked_fields(body, {"view", "picture", "width"}, {"view", "picture"})
+            view = live.view(agent_id, body["view"])
+            if body.get("width") is None:
+                view.confirm(body["picture"])       # only notes a number: no thread to wait for, many times a second
+            else:
+                await anyio.to_thread.run_sync(view.confirm, body["picture"], body["width"])
             return response(OperationResult.ok({}, request_id=request_id))
         if tail != ["stream"] or request.method != "GET":
             raise DomainError("not_found", "Live browser endpoint is not registered")
-        tab = request.query_params.get("tab")
+        tab, width = request.query_params.get("tab"), request.query_params.get("width")
 
         def event(name, data):
             return f"event: {name}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
@@ -1091,7 +1101,7 @@ class HTTPAPI:
             view, refusal = None, None
             with anyio.CancelScope(shield=True):
                 try:
-                    view, port = await anyio.to_thread.run_sync(live.open_view, self.runtime, agent_id, tab)
+                    view, port = await anyio.to_thread.run_sync(live.open_view, self.runtime, agent_id, tab, width)
                 except DomainError as error:
                     refusal = error
             if refusal is not None:
