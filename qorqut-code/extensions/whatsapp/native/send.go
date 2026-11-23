@@ -20,7 +20,7 @@ import (
 )
 
 type sendInput struct {
-	ChatID    string `json:"chat_id" jsonschema:"Exact existing chat ID from whatsapp_read; never a contact name."`
+	ChatID    string `json:"chat_id" jsonschema:"Exact chat ID listed by whatsapp_read (action chats); never a contact name."`
 	Text      string `json:"text" jsonschema:"Plain text to send from the owner's personal account, at most 16384 UTF-8 bytes."`
 	RequestID string `json:"request_id" jsonschema:"Unique ID for this intended message, 1-128 ASCII letters, digits, dots, underscores, colons or hyphens. Always reuse it with identical arguments after a timeout or retry; repeating a recorded request never sends again."`
 }
@@ -133,9 +133,8 @@ func (s *textSender) send(ctx context.Context, in sendInput) (sendResult, error)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return sendResult{}, unavailableError("cannot inspect send receipt; nothing was sent by this call")
 	}
-	var known bool
-	if err = s.index.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM messages WHERE chat_id=?)", in.ChatID).Scan(&known); err != nil || !known {
-		return sendResult{}, errors.New("recipient must be an existing indexed conversation; find it using whatsapp_read")
+	if known, err := s.index.chatListed(ctx, in.ChatID); err != nil || !known {
+		return sendResult{}, errors.New("recipient must be a chat listed by whatsapp_read (action chats)")
 	}
 	if s.client == nil || !s.client.IsConnected() || !s.client.IsLoggedIn() {
 		return sendResult{}, unavailableError("WhatsApp is disconnected; nothing was sent by this call")

@@ -19,7 +19,7 @@ const onboarding = (() => {
       // terminals-end
     },
     {id: 'focus', chapter: 'workspace', view: 'focus', title: 'focus',
-      body: 'The right side is Ordubashy’s workspace. Focus keeps what needs you in one place: signoffs waiting for your answer, side chats and the threads you pin, with your own notes below. The feather beside Browser brings you back to them.',
+      body: 'The right side is Ordubashy’s workspace. Focus keeps what needs you in one place: signoffs waiting for your answer, with your own notes below. The feather beside Browser brings you back to them.',
       hint: 'Only you see these notes; agents never read them.',
       target: pane},
     {id: 'calendar', chapter: 'workspace', view: 'calendar', title: 'calendar',

@@ -260,29 +260,24 @@ test('Focus exposes recovery when the due reminder is gone and rechecks owner on
   dispose();
 });
 
-test('separate side chat and attention hosts refresh, open and dispose with fallback preserved', async () => {
+test('the strip host and a fallback host share one read, paint the same chips and dispose with their listeners', async () => {
   const makeHost=()=>({isConnected:true,innerHTML:'',hidden:false,listeners:{},addEventListener(type,fn){this.listeners[type]=fn;},removeEventListener(type,fn){if(this.listeners[type]===fn)delete this.listeners[type];}});
-  const bottom=makeHost(),chats=makeHost(),fallback=makeHost(),divider={hidden:false};
-  chats.parentElement={querySelector:()=>divider};
-  let rows={items:[],side_chats:[{id:'chat',title:'Chat',preview:'Hello',unread:true}]},opened=[],reads=0;
+  const strip=makeHost(),fallback=makeHost();
+  let rows={items:[]},reads=0;
   const context={document:{addEventListener(){}},window:{addEventListener(){}},remAttempts:new Map(),remVerifiedOwner:async()=> 'owner',
-    remindersOwnerDue:async()=>[{reminder_id:'r',occurrence_id:'o',revision:1,text:'Due'}],sideChatOpen:chat=>opened.push(chat.id),
+    remindersOwnerDue:async()=>[{reminder_id:'r',occurrence_id:'o',revision:1,text:'Due'}],
     api:async url=>{if(url.startsWith('/root/signoffs'))return {items:[{id:'s',title:'Review',state:'pending'}]};reads++;return rows;},
     coreData:x=>x,esc:String,URLSearchParams,setTimeout:()=>0,clearTimeout(){},accessLost:()=>false,Date};
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/attention-queue.js'),'utf8')+'\nthis.queue=attentionQueue;',context);
-  const dispose=context.queue.mountSignoffs(bottom,undefined,undefined,{sideChatHost:chats});
+  const dispose=context.queue.mountSignoffs(strip);
   const disposeFallback=context.queue.mountSignoffs(fallback);
   await new Promise(resolve=>setImmediate(resolve));
-  assert.match(chats.innerHTML,/data-side-chat-key="chat"/);assert.match(chats.innerHTML,/data-unread="true"/);
-  assert.doesNotMatch(bottom.innerHTML,/data-side-chat-key/);assert.match(bottom.innerHTML,/data-reminder-key="r"/);assert.match(bottom.innerHTML,/data-signoff-key="s"/);
-  assert.match(fallback.innerHTML,/data-side-chat-key="chat"/);assert.equal(reads,1);assert.equal(chats.hidden,false);assert.equal(divider.hidden,false);
-  chats.listeners.click({target:{closest:selector=>selector==='[data-side-chat-key]'?{dataset:{sideChatKey:'chat'}}:null}});
-  assert.deepEqual(opened,['chat']);
-  rows={items:[],side_chats:[]};await context.queue.refresh();
-  assert.equal(chats.hidden,true);assert.equal(divider.hidden,true);assert.equal(bottom.hidden,false);assert.doesNotMatch(fallback.innerHTML,/data-side-chat-key/);
-  rows={items:[],side_chats:[{id:'chat',title:'Chat',preview:'Hello',unread:false}]};await context.queue.refresh();
-  assert.equal(chats.hidden,false);assert.equal(divider.hidden,false);assert.match(chats.innerHTML,/data-unread="false"/);
-  dispose();disposeFallback();assert.equal(chats.listeners.click,undefined);assert.equal(bottom.listeners.click,undefined);assert.equal(bottom.listeners.contextmenu,undefined);
+  for(const host of [strip,fallback]){assert.match(host.innerHTML,/data-reminder-key="r"/);assert.match(host.innerHTML,/data-signoff-key="s"/);assert.equal(host.hidden,false);}
+  assert.equal(reads,1);
+  // An old server answer that still lists side chats or pins draws nothing for them.
+  rows={items:[],side_chats:[{id:'chat',title:'Chat',preview:'Hello',unread:true}]};await context.queue.refresh();
+  assert.doesNotMatch(strip.innerHTML,/side-chat|thread-pin/);
+  dispose();disposeFallback();assert.equal(strip.listeners.click,undefined);assert.equal(strip.listeners.contextmenu,undefined);assert.equal(fallback.listeners.click,undefined);
 });
 
 test('ordinary reminder Create prompts for retry or deliberate separate creation after an uncertain result', async () => {

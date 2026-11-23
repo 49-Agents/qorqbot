@@ -130,7 +130,7 @@ def project_metadata(runtime, scope, slugs):
         pending = {row["review_project_id"]: row["n"] for row in uow.connection.execute(
             f"SELECT s.review_project_id,COUNT(*) n FROM signoffs s WHERE {clause} "
             f"AND s.review_project_id IN ({marks}) AND s.state='pending' "
-            "AND s.category!='side_chat' AND s.superseded_by_id IS NULL GROUP BY s.review_project_id", [*params, *ids])}
+            "AND s.superseded_by_id IS NULL GROUP BY s.review_project_id", [*params, *ids])}
         for row in projects:
             config = json.loads(row["config_json"])
             description = config.get("one_liner", config.get("description", ""))

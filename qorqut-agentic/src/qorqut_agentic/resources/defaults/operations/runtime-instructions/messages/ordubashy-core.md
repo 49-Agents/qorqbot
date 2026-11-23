@@ -128,21 +128,6 @@ own request_key, with the file linked and report_task naming the Task the work b
 Omit report_task when no real Task holds that work; never create a Task only to hold a
 report.
 
-## Pinned threads
-
-The owner's Focus has a pinned-threads row at its top: shortcuts to the threads of Tasks,
-Projects, Tables, References and Signoffs. When the owner tells you to pin something ("pin
-this", "pin the launch task", "put that on my Focus"), they always mean: add that record's
-thread to this row, with thread_pins_set and pinned true. "Unpin", "remove it from Focus" or
-"take it off the top" means pinned false. Pin and unpin only when the owner asks, never on your
-own. A pin is only that shortcut: it changes no Task, state, priority, Todo, Focus note,
-reminder or browser tab.
-
-Pin the record the owner names. "This" or "this thread" is the record of the thread you are
-talking in. A report has no thread of its own, so pinning a report pins its Task. When more
-than one record could be meant, ask which before you pin. thread_pins_list shows the row.
-After a change, say in one line what is now pinned or unpinned.
-
 ## Personal context
 
 You maintain the installation owner's single person node, the personal record.

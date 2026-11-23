@@ -10,7 +10,7 @@ from qorqut.native_archive import CaptureError
 
 import test_experience
 import test_owner_inputs as inputs
-from test_side_chat_rename import create, invoke, reply
+from private_thread_runtime import create, invoke, reply
 
 at = inputs.at
 

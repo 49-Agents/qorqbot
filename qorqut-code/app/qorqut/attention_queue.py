@@ -106,7 +106,6 @@ def queue(runtime, ctx, change=None):
                 data = json.loads(profile[0])
                 item['presentation'] = {k: data[k] for k in ('role', 'icon', 'name', 'scope') if k in data}
         _, _, signoffs = runtime.signoffs.notifications._rows(ctx, uow)
-        side_chats = runtime.side_chats.active(ctx, uow)
         # Reuse the reminder reader's scope and recipient checks. Each recurrence
         # and edit gets its own read marker; viewing never dismisses the reminder.
         runtime.application.authorize(ctx, runtime.application.registry.get('reminders_list'), (), uow, namespace='global')
@@ -146,4 +145,4 @@ def queue(runtime, ctx, change=None):
             group = (item['kind'], item.get('agent_id'), bool(item.get('chat')), source.get('type'), source.get('project_id'), source.get('id')) if item['kind'] != 'signoff' else ('signoff', item['signoff_id'])
         previous = groups.get(group)
         groups[group] = {**item, 'viewed_ids': (previous['viewed_ids'] if previous else []) + [item['id']]}
-    return {'items': sorted(groups.values(), key=order, reverse=True), 'side_chats': side_chats, 'discarded': sorted(gone)}
+    return {'items': sorted(groups.values(), key=order, reverse=True), 'discarded': sorted(gone)}

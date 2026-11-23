@@ -9,7 +9,6 @@ import unittest
 from uuid import uuid4
 
 from qorqut.domains.projects.compose import ProjectRecords
-from qorqut.domains.thread_pins import ThreadPins
 from qorqut.domains.timeline import Timeline
 from qorqut.inbox.attention import AttentionBoard
 from qorqut.inbox.focus import FocusService
@@ -28,7 +27,6 @@ class OwnerReferenceTests(Harness):
         app, registry = self.app, self.registry
         runtime = NS(application=app, registry=registry, paths=NS(runtime='/nonexistent'))
         ReminderService(NS(application=app, inbox=NS(clock=None), selection=NS(extensions=()), focus=None)).register()
-        ThreadPins(runtime).register()
         Timeline(runtime).register()
         UserInput(runtime).register()
         PrivateConversations(NS(app=app, domains=NS(), clock=None)).register()
@@ -103,15 +101,6 @@ class OwnerReferenceTests(Harness):
                          {'type': 'url', 'url': 'https://example.com'})
         self.assertEqual(AttentionBoard.named({'type': 'task', 'id': 'x', 'project_id': self.alpha}),
                          {'type': 'task', 'id': 'x', 'project_id': self.alpha})
-
-    # -- pinned threads ----------------------------------------------------------------------------------------------
-
-    def test_a_pinned_thread_names_its_record_by_type_and_id(self):
-        self.check_task('thread_pins_set', lambda source: {'scope': 'global', 'source': source, 'pinned': True},
-                        lambda a: a['source'])
-        reference = self.completed('thread_pins_set', {'scope': 'global', 'source': {'type': 'reference', 'id': 'card'},
-                                                        'pinned': True})['source']
-        self.assertEqual(reference, {'type': 'reference', 'id': 'card', 'project_id': None})
 
     # -- timelines ---------------------------------------------------------------------------------------------------
 

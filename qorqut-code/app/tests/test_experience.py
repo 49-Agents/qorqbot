@@ -16,7 +16,7 @@ from qorqut.experience.operations import Experience
 from qorqut.experience.runs import Runs
 from qorqut.signoffs.ports import HostFocus, SignoffDomains
 
-from test_side_chat_rename import build_runtime
+from private_thread_runtime import build_runtime
 
 SUNDAY = datetime(2026, 11, 22, 3, 0, 30, tzinfo=timezone.utc)      # half a minute past the daily 03:00
 
@@ -44,7 +44,7 @@ class Opener:
 
 
 class ExperienceCase(unittest.TestCase):
-    """The tools registered on the test runtime of the side chats, with a Learning Applier added. Holds no test of its own."""
+    """The tools registered on the private-thread test runtime, with a Learning Applier added. Holds no test of its own."""
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()

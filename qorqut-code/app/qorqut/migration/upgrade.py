@@ -60,8 +60,9 @@ STATES = (BASE, *(transform.NAME for transform in TRANSFORMS))
 
 
 def _before(contribution, transforms):
-    """``contribution`` as it stood before every one of ``transforms``; None when one of them introduced it."""
-    for transform in transforms:
+    """``contribution`` as it stood before every one of ``transforms``; None when one of them introduced it. They are undone
+    newest first: a transform may take out what an earlier one added, and that one's strip needs it back first."""
+    for transform in reversed(transforms):
         contribution = transform.strip(contribution)
         if contribution is None:
             break

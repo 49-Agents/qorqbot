@@ -162,7 +162,7 @@
 .attention-queue .attention-chip+.attention-chip { margin-left:0; }
 .attention-queue .attention-chip:not(.agfocus-surface-chip) { zoom:.9; }
 
-/* Focus strip with fixed launchers and independently scrolling queues. */
+/* Focus strip: fixed launchers and the scrolling attention queue. */
 .agfocus-surfaces .agfocus-surface-chip{flex:none}
 .agfocus-surfaces .agfocus-surface-chip svg{width:20px;height:20px}
 .agfocus-surfaces .agfocus-surface-chip[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
@@ -184,17 +184,13 @@
 .focus-calendar-chip[data-calendar-state="past"]{opacity:.7}
 .focus-signoff-chip[data-unread="true"]::after{content:"";position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px #777;pointer-events:none}
 
-/* Fixed launchers, a quiet divider, then the scrolling side-chat queue. */
-.agfocus-surfaces > .focus-signoff-queue{flex-wrap:nowrap;margin:0}
+/* One row: fixed launchers, a quiet divider that shows only while the queue does, then the scrolling attention queue. */
+.agfocus-surfaces > .focus-signoff-queue{flex-wrap:nowrap;margin:0;overflow-y:hidden}
 .agfocus-surfaces:has(> .focus-signoff-queue[hidden]) .agfocus-divider{display:none}
 .agfocus-fixed{display:flex;align-items:center;gap:6px;flex:none}
 .agfocus-divider{flex:none;align-self:center;width:1px;height:30px;margin:0 2px;background:var(--line-2);pointer-events:none}
-
-/* Independent upper side-chat and lower attention queues. */
-.attention-queue.agfocus-queues{height:auto;min-height:0;flex-direction:column;align-items:stretch;gap:8px}
+.attention-queue.agfocus-queues{height:auto;min-height:0}
 .agfocus-queues .agfocus-surfaces{flex:none;width:100%;box-sizing:border-box}
-.agfocus-queues .agfocus-side-chat-queue{flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
-.agfocus-queues .agfocus-attention-row{flex:none;box-sizing:border-box;width:100%;flex-wrap:nowrap;margin:0;overflow-x:auto;overflow-y:hidden}
 
 /* Browser, Desktop or a Viewbox item replaces the board below the launcher row and fills its height. */
 .agfocus-surface[hidden]{display:none}
@@ -223,7 +219,7 @@
 .agpad .tbody > .agfocus.agfocus-surface-open{overflow:hidden}
 
 /* Notes: the Journal's lines editor (css/notes.css) fills the board below the launcher and attention rows.
-   Only while nothing is open: an opened item (signoff, browser, desktop, side chat) owns the board instead. */
+   Only while nothing is open: an opened item (signoff, browser, desktop) owns the board instead. */
 .agfocus:not([data-attention-board]):not(.agfocus-surface-open) > .agfocus-layout{display:flex;flex-direction:column;align-items:stretch;overflow:hidden}
 .agfocus-notes{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
 .agfocus .agfocus-notes .agfocus-notes-input{display:block;flex:1;width:100%;min-height:120px;box-sizing:border-box;margin:0;padding:10px 12px;border-radius:8px;overflow:auto;cursor:text}
@@ -314,13 +310,10 @@
 /* Threads read exactly like the main Chat: no box around the conversation, and the same size as the
    Chat beside the pane, which the pane's own .9 scale (css/agent-workspace.css) would otherwise shrink. */
 .agfocus:not([data-attention-board]) .agfocus-dock .rw-record[data-tab="chat"] .rw-body,
-.agfocus-surface-body:has(> .agfocus-expansion-content > .side-chat-thread),
 .agfocus-surface-body:has(> .agfocus-expansion-content > .conversation-panel),
 .agfocus-surface-body:has(> .agfocus-expansion-content .conversation-view .chat-view){border:0;border-radius:0;background:transparent}
-.side-chat-thread > .conversation-panel{padding:0;border:0;border-radius:0}
 .agent-workspace-app .agsplit > .agpad .rw-chat,
-.agent-workspace-app .agsplit > .agpad .side-chat-thread,
-.agent-workspace-app .agsplit > .agpad .agfocus-expansion-content:not(:has(.side-chat-thread)):has(.conversation-view .chat-view){zoom:calc(1 / .9)}
+.agent-workspace-app .agsplit > .agpad .agfocus-expansion-content:has(.conversation-view .chat-view){zoom:calc(1 / .9)}
 
 /* Calendar events and the browser/desktop view sit on the Focus board like a Signoff: no frame, no fill, no inset. */
 .agfocus-surface-body:has(> .agfocus-desktop-view),

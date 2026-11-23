@@ -119,8 +119,8 @@ Hidden files are omitted by default. Symlinks and special files are listed as un
 
 Project rows match active authorized registry records by folder slug. Their descriptions come from
 the current project record. Icon badges show nonarchived, unfinished records of type `task`, including
-snoozed tasks and all assignees, and pending owner-visible signoffs (excluding superseded, side-chat
-and management-routed inputs). Unknown/inactive folders have unavailable counts. Subprojects show
+snoozed tasks and all assignees, and pending owner-visible signoffs (excluding superseded and
+management-routed inputs). Unknown/inactive folders have unavailable counts. Subprojects show
 `—` because project ancestry is not recorded. Folders inside a project remain physical folders. All reads use the existing tokenless owner-only boundary.
 
 ## Bounds and file safety

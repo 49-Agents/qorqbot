@@ -11,7 +11,7 @@ operation, `whatsapp_send`, with exactly two arguments:
 
 | Argument | Rule |
 | --- | --- |
-| `chat_id` | The exact ID of a conversation already in the connector's index (`whatsapp_read`). No names, new numbers, broadcasts, newsletters or groups the index has not seen. |
+| `chat_id` | The exact ID of a chat in the connector's chat list (`whatsapp_read`, action `chats`), which holds chats WhatsApp itself listed or that have a saved message. No names, new numbers, broadcasts or newsletters. |
 | `text` | Non-empty, at most 16,384 **UTF-8 bytes**, plain text. |
 
 There is no caller-supplied request ID, attachment, quote, edit, delete, retry or recipient list. The operation never sends:
@@ -36,7 +36,7 @@ Nothing else can send:
 
 ## Flow
 
-1. **Propose.** `whatsapp_send(chat_id, text)` by the bound agent. Policy always returns *Signoff* (below). The operation
+1. **Propose.** `whatsapp_send(chat_id, text)` by the bound agent, for the exact `chat_id` of a chat in the connector's chat list (`whatsapp_read`, action `chats`). Policy always returns *Signoff* (below). The operation
    rechecks the binding, the agent (active, Global, Ordubashy, not delegated), that the trusted program worker is
    registered, and the connector's account reference, then stages the plan: the preview above, an exact `jobs` change for
    `whatsapp.send`, and the frozen `account_ref`.

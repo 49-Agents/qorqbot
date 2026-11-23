@@ -575,17 +575,6 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
-            if parts == ["root", "thread-pins"] and request.method in {"GET", "POST"}:
-                if request.headers.get("authorization") is not None:
-                    raise DomainError("forbidden", "Pinned threads are for the owner's dashboard")
-                from qorqut.dashboard_preferences import thread_pins
-                body = await read_json(request, limit=65536) if request.method == "POST" else None
-                if body is not None and not isinstance(body, dict):
-                    raise DomainError("validation_error", "A pinned thread change must be an object")
-                data = await anyio.to_thread.run_sync(partial(thread_pins, self.runtime.paths.runtime, actor.principal.id, body))
-                result = response(OperationResult.ok(data, request_id=request_id))
-                result.headers["Cache-Control"] = "private, no-store"
-                return result
             if parts == ["root", "testing-mode"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Testing mode is for the owner's dashboard")
@@ -708,7 +697,6 @@ class HTTPAPI:
                     "workspace_types", "workspace_get",
                     "owner_conversation_get", "owner_conversation_send", "owner_conversation_mark_read", "owner_conversations_list", "owner_conversation_related", "owner_conversation_peers",
                     "timeline_view",
-                    "side_chats_create", "side_chats_rename", "side_chats_close",
                     # Project record reads and explicit links: the six project_* operations and the narrow reminder read.
                     # project_id is the six operations' own argument. The root route names the Project with it and
                     # scope=global; on a project route it must be the URL's project, and the engine refuses any target
@@ -799,6 +787,11 @@ class HTTPAPI:
                 args["scope"] = "global"
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, "agents_activity_list", args))
                 return response(result)
+            if parts == ["me", "agents", "presence"] and request.method == "GET":
+                # The navigation's working dots: each agent's state only, without the activity list's work and Task reads.
+                context, _ = self.context(actor)
+                data = await anyio.to_thread.run_sync(partial(self.runtime.activity.presence, context))
+                return response(OperationResult.ok(data, request_id=request_id))
             if len(parts) == 6 and parts[:2] == ["me", "agents"] and parts[3:5] == ["focus", "documents"] and request.method == "GET":
                 context, _ = self.context(actor)
                 data = await anyio.to_thread.run_sync(partial(self.runtime.focus.owner_document, context, parts[2], parts[5]))

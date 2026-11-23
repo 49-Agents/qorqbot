@@ -48,6 +48,10 @@ while visible and offer manual Refresh. The UI labels stale work after one hour,
 separately from the much shorter presence timeout. Latest work on an idle, ended
 or unobserved session is labeled as last work, not active execution.
 
+The navigation's working dots do not use that list. They read `GET /api/me/agents/presence`:
+each current agent's `state` only, exactly as the activity list reports it and under the same
+permission, without sessions, declared work, Tasks, checkpoints or inbox notices.
+
 ## Task progress and dependencies
 
 `tasks_comment` appends a brief note with server timestamp and actor attribution.

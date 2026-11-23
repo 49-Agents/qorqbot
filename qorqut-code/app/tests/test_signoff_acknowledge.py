@@ -1,10 +1,12 @@
 """A read-and-acknowledge request: posted by the coordinator, acknowledged by the owner, never a decision or a blocker."""
 from dataclasses import replace
+from pathlib import Path
+import tempfile
 import unittest
 
 from qorqut_operations.contracts import Principal, new_id, plain
 
-import test_side_chat_rename as chats
+import private_thread_runtime as chats
 import test_signoff_sources as fixture
 from qorqut.attention_queue import queue
 
@@ -170,9 +172,9 @@ class AcknowledgeCommentTests(unittest.TestCase):
     """The comment box is the Signoff's private conversation, on the real private-message path."""
 
     def setUp(self):
-        directory = chats.tempfile.TemporaryDirectory()
+        directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.runtime = chats.build_runtime(chats.Path(directory.name))
+        self.runtime = chats.build_runtime(Path(directory.name))
         self.addCleanup(self.runtime.database.close)
 
     def test_commenting_and_acknowledging_are_independent(self):

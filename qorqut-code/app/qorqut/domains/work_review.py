@@ -198,7 +198,7 @@ class _Review:
 
         period = {"since": self.period["since"], "until": self.period["until"], "limit": self.limit}
         return {"proposed": shown(service.recent_proposals(self.ctx, self.uow, **period), "created_at"),
-                "decided": shown(service.recent_outcomes(self.ctx, self.uow, side_chats=False, **period), "updated_at",
+                "decided": shown(service.recent_outcomes(self.ctx, self.uow, **period), "updated_at",
                                  ("decision_state",))}
 
     def owner_facing(self):

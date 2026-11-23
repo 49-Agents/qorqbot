@@ -34,7 +34,7 @@ from .rejection import Rejection
 from .reports import ReportTasks
 from .sources import SignoffSources
 
-CATEGORIES = ("internal_change", "platform_action", "input_request", "side_chat")
+CATEGORIES = ("internal_change", "platform_action", "input_request")
 
 STATES = ("pending", "approved", "applied", "rejected", "conflicted", "failed", "answered", "cancelled")
 CONFLICTS = frozenset({"revision_conflict", "forbidden", "policy_denied", "inactive_agent",
@@ -246,7 +246,7 @@ class SignoffService:
         if decision == "respond" and acknowledges(value["input"]):
             # Read, not answered: an acknowledgement says nothing and approves nothing.
             value["decision_state"] = "acknowledged"
-        value["actionable"] = row["category"] != "side_chat" and row["state"] == "pending" and not row["superseded_by_id"]
+        value["actionable"] = row["state"] == "pending" and not row["superseded_by_id"]
         value["execution_state"] = self.ports.execution.execution_state(row, uow)
         if row["category"] == "platform_action":
             if self.ports.platform is ABSENT:
@@ -261,7 +261,7 @@ class SignoffService:
                                  if row["review_project_id"] else {"kind": "global"})
         value["legacy_review_routing"] = (row["review_scope_kind"] == "project"
                                             and row["affected_scope_json"].get("kind") == "global")
-        value.update(title=row["display_title"] or row["preview_json"]["title"], affected_scope=row["affected_scope_json"],
+        value.update(title=row["preview_json"]["title"], affected_scope=row["affected_scope_json"],
                      decision=row["decision_json"], proposer_display_name=names.get(row["proposer_principal_id"], ""),
                      initiated_by_display_name=names.get(row["initiated_by_principal_id"]),
                      job_id=row["policy_binding_json"].get("job_id"))
@@ -337,8 +337,6 @@ class SignoffService:
         if "category" in arguments:
             clause += " AND s.category = ?"
             params.append(arguments["category"])
-        else:
-            clause += " AND s.category != 'side_chat'"
         if arguments.get("execution_states"):
             clause += " AND " + self.ports.execution.execution_sql("s") + " IN (" + ",".join("?" for _ in arguments["execution_states"]) + ")"
             params.extend(sorted(arguments["execution_states"]))
@@ -394,20 +392,20 @@ class SignoffService:
                 "review_project_id": context.project_id, "items": [self._dto(row, uow, detail=False) for row in rows],
                 "counts": counts, "to_read": to_read, "next_cursor": next_cursor, "updated_cursor": updated_cursor, "has_more": has_more}
 
-    def recent_outcomes(self, context, uow, *, since, limit, until=None, side_chats=True):
+    def recent_outcomes(self, context, uow, *, since, limit, until=None):
         """Newest decided proposals updated since a time (and before ``until``), with signoffs_list visibility."""
-        where = "s.state IN ('approved','applied','rejected','answered','failed')" + ("" if side_chats else " AND s.category != 'side_chat'")
-        return self._recent(context, uow, where, "updated_at", since, until, limit)
+        return self._recent(context, uow, "s.state IN ('approved','applied','rejected','answered','failed')", "updated_at",
+                            since, until, limit)
 
     def recent_proposals(self, context, uow, *, since, limit, until=None):
         """Newest proposals created since a time (and before ``until``), whatever became of them, with signoffs_list
-        visibility. A side chat is a conversation, not a proposal."""
-        return self._recent(context, uow, "s.category != 'side_chat'", "created_at", since, until, limit)
+        visibility."""
+        return self._recent(context, uow, None, "created_at", since, until, limit)
 
     def _recent(self, context, uow, where, column, since, until, limit):
         context = self._context(context, uow)
         clause, params = self._visibility(context, uow)
-        clause += f" AND {where} AND s.{column}>=?"
+        clause += (f" AND {where}" if where else "") + f" AND s.{column}>=?"
         params.append(since)
         if until is not None:
             clause += f" AND s.{column}<?"
@@ -645,8 +643,6 @@ class SignoffService:
                     raise self._stale(context, row, uow, "Prepared proposal binding changed")
                 if row["category"] == "input_request":
                     raise DomainError("invalid_transition", "Input requests must be answered, not approved or rejected")
-                if row["category"] == "side_chat":
-                    raise DomainError("invalid_transition", "Only the owner can close a side chat, using Close side chat")
                 previous = row["decision_json"]
                 if decision != "retry" and previous:
                     if previous["kind"] != decision or self.decision_text(previous, uow) != feedback:

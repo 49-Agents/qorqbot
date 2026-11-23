@@ -75,7 +75,7 @@ FINISHED = ('completed', 'skipped')
 AWAITING, REJECTED = 'awaiting_review', 'rejected'
 # The Signoff states that finish a ``signoff`` step: the owner responded to it. A proposal was approved (``approved``,
 # and ``applied`` once it was carried out) or a request was answered (``answered``); what the answer says is not read.
-# Pending, rejected, failed, conflicted and cancelled do not, and neither does a replaced Signoff or a side chat.
+# Pending, rejected, failed, conflicted and cancelled do not, and neither does a replaced Signoff.
 SIGNOFF_DECIDED = ('approved', 'applied', 'answered')
 OUTCOME_LIMIT = 256
 TITLE_CLIP, TEXT_CLIP, NOTE_CLIP = 60, 100, 150
@@ -496,9 +496,6 @@ class TaskPlans:
         # A step whose plan names the Signoff is released only by the coordinator; one named as evidence can name another.
         release = ('Only the coordinator releases the step: by skipping it, or with a plan that names another Signoff'
                    if named else 'Name another Signoff as evidence, or ask the coordinator to skip the step')
-        if row['category'] == 'side_chat':
-            raise DomainError('validation_error', f"{this} is finished once the owner has responded to a Signoff; {target} is "
-                                                  f"a side chat, which decides nothing. {release}")
         if row['superseded_by_id']:
             raise DomainError('validation_error', f"{this} is finished once the owner has responded to the Signoff {target}, "
                                                   f"and that one was replaced by a newer one. {release}")

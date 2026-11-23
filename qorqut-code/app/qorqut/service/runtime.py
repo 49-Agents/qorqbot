@@ -95,7 +95,6 @@ class Runtime:
     checkpoints: object = None
     management: object = None
     private_conversations: object = None
-    side_chats: object = None
     calendar: object = None
     owner_bootstrap: object = None
     workspaces: object = None
@@ -577,9 +576,6 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # The owner's own messages across every agent's chat and the private threads, for the owner and the coordinator.
     from qorqut.domains.owner_inputs import OwnerInputs
     OwnerInputs(runtime).register()
-    # The owner's pinned-threads row at the top of Focus: the owner's dashboard route, plus these two tools for the coordinator.
-    from qorqut.domains.thread_pins import ThreadPins
-    ThreadPins(runtime).register()
     # The owner's Settings page as two tools for the coordinator: the same reads and changes as the owner's own routes.
     from qorqut.domains.settings_tools import SettingsTools
     SettingsTools(runtime).register()
@@ -605,8 +601,6 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # their tools, the queue of runs, and the delta proposals that follow the owner's choice on their approval requests.
     from qorqut.experience.operations import Experience
     signoff_domains.observe(Experience(runtime).register().signoff_updated)
-    from qorqut.inbox.side_chats import SideChats
-    runtime.side_chats = SideChats(runtime).register()
     # The six Project record operations: one existing Project's inventory, item reads and explicit cross-scope links.
     from qorqut.domains.projects import ProjectRecords
     runtime.projects = ProjectRecords(application, domains.items).register(registry)

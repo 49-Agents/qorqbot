@@ -1,9 +1,9 @@
 """The timelines of Tasks and Projects as agent tools.
 
 ``timeline_get`` reads what holds now on one item (or its whole history); ``timeline_file`` is how the configured coordinator
-changes it. An item is named by its type and id as ``thread_pins_set`` names a record: a Task (``task`` and its id) or a
-Project (``project`` and its id). Its project is found from the id: ``project_id`` is the Task's Project (null for a Global
-Task) or the Project's own id, and may be stated.
+changes it. An item is named by its type and id: a Task (``task`` and its id) or a Project (``project`` and its id). Its
+project is found from the id: ``project_id`` is the Task's Project (null for a Global Task) or the Project's own id, and
+may be stated.
 
 Global has no timeline (the owner's decision, 22 November 2026): what holds for all work is an instruction, which an agent
 files for the Learning Applier's review (``experience_observation_file``). A call that names Global (``global``, id ``global``) is still accepted by the
@@ -218,7 +218,7 @@ class Timeline:
         if item["type"] != "task":
             return {}
         connection, project, identity = uow.connection, item["project_id"], item["id"]
-        title = "COALESCE(s.display_title, json_extract(s.preview_json,'$.title'))"
+        title = "json_extract(s.preview_json,'$.title')"
         approvals = connection.execute(
             f"SELECT s.id, {title} AS title, s.state FROM signoff_source_links l JOIN signoffs s ON s.id=l.signoff_id "
             "WHERE l.source_project_id IS ? AND l.source_type='task' AND l.source_id=? ORDER BY s.created_at LIMIT ?",

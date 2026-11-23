@@ -69,13 +69,11 @@ const CONVERSATION_REVIEW = ['revision_conflict','stale_signoff','not_found','fo
 // Threads read like the main Chat: replies carry no avatar. Only a thread with replies from more than one
 // participant names each reply's sender, once per run, so the owner can tell them apart.
 const CONVERSATION_REF_LABELS={signoff:'Signoff',task:'Task',table:'Table',project:'Project',reference:'Reference',action:'Action',file:'File',agent:'Agent',tab:'Browser tab'};
-// A side chat is a Signoff too; it opens as that side chat, never as a Signoff card.
-const conversationSideChat=ref=>ref.type==='signoff' && typeof attentionQueue!=='undefined' ? attentionQueue.sideChat?.(ref.id) || null : null;
-// A reply's Signoff reference is drawn inside the reply by the main Chat's own Signoff card. A side chat keeps its
-// button, and so does a Signoff already shown under Needs your input, so one form never has two editors.
+// A reply's Signoff reference is drawn inside the reply by the main Chat's own Signoff card. A Signoff already shown
+// under Needs your input keeps its button, so one form never has two editors.
 function conversationInlineSignoff(note,ref,linked) {
   const owner=note.entry_kind==='system' || (note.is_owner ?? (note.author_kind==='human'));
-  return !owner && ref.type==='signoff' && !ref.unavailable && !conversationSideChat(ref)
+  return !owner && ref.type==='signoff' && !ref.unavailable
     && !linked.has(conversationRecordKey(ref));
 }
 function conversationTypedRef(ref) {
@@ -84,7 +82,7 @@ function conversationTypedRef(ref) {
   return {...ref,project_id:ref.project_id || null,project_slug:slug,available:!(ref.project_id && !slug)};
 }
 function conversationRefLabel(ref) {
-  return ref.label || conversationSideChat(ref)?.title || CONVERSATION_REF_LABELS[ref.type] || 'Reference';
+  return ref.label || CONVERSATION_REF_LABELS[ref.type] || 'Reference';
 }
 function conversationNoteRefs(note,linked=new Set()) {
   const refs=note.refs || [];
@@ -590,7 +588,7 @@ function conversationMount(host,source,adapter={}) {
     ...(composerHost?{composerHost,bannerHost:composerHost}:{}),
     onDraft:text=>{if(!current())return;s.text=text;syncDraft();adapter.onInput?.();},
     onSubmit:()=>{void submit();},
-    // Task threads and side chats (adapter.attachments) take files; they upload first and are sent as references.
+    // Task threads (adapter.attachments) take files; they upload first and are sent as references.
     ...((adapter.attachments ?? source.type==='task')?{
       onFiles:files=>{
         if(!current() || s.sending || s.submission || !files.length)return;

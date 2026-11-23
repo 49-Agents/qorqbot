@@ -16,18 +16,11 @@ pinned commit). This package is the host's side of that contract:
 This package does not own HTTP, authentication, domain preparation, session transport, or external job dispatch. It
 uses the shared application engine and storage receipts; domain handlers never implement a second file writer.
 
-Side chats use category `side_chat` and retain `source.type=signoff`, so their private conversations, inbox deliveries
-and nudges follow the existing path. `side_chats_create` atomically creates the shell and first private message; a title
-is optional. Clicking a side chat's name in Focus opens its inline editor; Enter or leaving the field saves, and Escape
-cancels. Only the installation owner may use `side_chats_rename` or `side_chats_close`. Renaming updates the nullable
-`display_title` without changing the immutable proposal, messages, read cursors or last-message order.
-Internally, `pending` means open and `cancelled`
-means closed; closing retains the conversation. Side chats are excluded from approval lists, counts and decisions.
-The `+` beside the machine controls opens a minimal form with the optional title above the first message.
+The owner attention queue's white unread dots use private conversation cursors for replies, existing proposal-version view
+markers for Signoffs, and occurrence/revision markers for reminders. Reading changes no decision or reminder state. Hidden or
+prefetched Signoff details do not count as read.
 
-The owner attention queue returns open side chats in last-message order. Its white unread dots use private conversation
-cursors for replies, existing proposal-version view markers for Signoffs, and occurrence/revision markers for reminders.
-Reading changes no decision or reminder state. Hidden or prefetched Signoff details do not count as read.
+A Signoff is one of three categories: `internal_change`, `platform_action` or `input_request`.
 
 ## Assembly
 

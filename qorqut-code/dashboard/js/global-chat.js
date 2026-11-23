@@ -169,11 +169,6 @@ function mountAgentView(pane, agent, opts = {}) {
       if (!chat || chatHost.hidden) return false;
       return chat.selectPairedSource?.(source, generation, onUnavailable, onReference, onBack) ?? false;
     },
-    openSide(spec) {
-      if (disposed || !opts.isCurrent?.()) return null;
-      if (chatHost.hidden) showChat();
-      return chat && !chatHost.hidden ? chat.openSide?.(spec) ?? null : null;
-    },
     clearPairedSource(generation) {
       if (!chat) return false;
       return chat.clearPairedSource?.(generation) ?? false;
@@ -207,8 +202,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
   let contextStatus = null, timelineBlock = null;
   let pairedHost = null, pairedConversation = null, pairedGeneration = 0;
-  // A thread or side chat can take over this Chat area under a small header whose "Chat" button returns here.
-  let takeover = null;   // {kind: 'paired'|'side', node, dead, beforeLeave, cleanups}
+  // A thread can take over this Chat area under a small header whose "Chat" button returns here.
+  let takeover = null;   // {node, dead}
   const cleanups = [];
   const reads = new AbortController();
 
@@ -970,14 +965,14 @@ function mountGlobalChat(pane, agent, options = {}) {
     };
   }
 
-  function takeoverShell(kind, title, onBack) {
+  function takeoverShell(title, onBack) {
     const node = document.createElement('div');
-    node.className = 'gchat-takeover'; node.dataset.takeover = kind;
+    node.className = 'gchat-takeover'; node.dataset.takeover = 'paired';
     node.innerHTML = `<div class="gchat-takeover-head"><button type="button" class="quiet gchat-takeover-back" title="Back to Chat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span>Chat</span></button><span class="gchat-takeover-title"></span></div><div class="gchat-takeover-body"></div>`;
     const titleNode = node.querySelector('.gchat-takeover-title');
     titleNode.textContent = title || '';
     node.querySelector('.gchat-takeover-back').onclick = () => onBack?.();
-    return {node, head: node.firstElementChild, title: titleNode, body: node.lastElementChild};
+    return {node, head: node.firstElementChild, body: node.lastElementChild};
   }
   function pairedLeavable() {
     if (pairedConversation?.canLeave?.() !== false) return true;
@@ -987,22 +982,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   function endTakeover(t) {
     if (!t || t.dead) return;
     t.dead = true;
-    for (const fn of t.cleanups.splice(0)) { try { fn(); } catch (_) { /* one cleanup cannot stop the others */ } }
     if (takeover === t) takeover = null;
-    if (t.kind === 'paired') globalChatPairedNotify(null);
-  }
-  function restoreChat() {
-    if (disposed) return;
-    pane.replaceChildren(root); void load(true);
-  }
-  // A side chat must agree to leave (a send or a rename in flight) before anything replaces it.
-  async function leaveSide() {
-    const t = takeover;
-    if (!t || t.kind !== 'side') return true;
-    if (t.beforeLeave && !await t.beforeLeave()) return false;
-    if (takeover !== t) return false;
-    endTakeover(t);
-    return true;
+    globalChatPairedNotify(null);
   }
 
   void load();
@@ -1013,7 +994,6 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (generation < pairedGeneration) return false;
       if (pairedConversation?.canLeave?.() === false) return false;
       pairedGeneration = generation;
-      if (takeover?.kind === 'side' && (!await leaveSide() || generation !== pairedGeneration || disposed)) return false;
       const project=source.project_id == null ? null : (state.projects || []).find(candidate =>
         candidate.id===source.project_id || candidate.project_id===source.project_id || candidate.slug===source.project_id)?.slug || null;
       if(source.project_id != null && !project)return false;
@@ -1022,20 +1002,12 @@ function mountGlobalChat(pane, agent, options = {}) {
       let thread = null;
       // Chat always returns to the main conversation from the thread it shows, even once the Focus
       // view that opened it has gone; a send or unsaved signoff still keeps the thread open.
-      const shell = takeoverShell('paired', source.label || '', async () => {
+      const shell = takeoverShell(source.label || '', async () => {
         if (!pairedLeavable()) return;
         if (await onBack?.() !== false || takeover !== thread || thread.dead || disposed) return;
         this.clearPairedSource();
       });
-      takeover = thread = {kind: 'paired', node: shell.node, dead: false, beforeLeave: null, cleanups: []};
-      if (typeof threadPins !== 'undefined') {
-        const pin = document.createElement('button'); pin.type='button'; pin.className='quiet gchat-thread-pin';
-        pin.innerHTML=typeof RW_PIN_ICON==='string'?RW_PIN_ICON:'Pin';
-        const paintPin=()=>{const pinned=threadPins.isPinned(source);pin.setAttribute('aria-pressed',String(pinned));pin.title=pinned?'Unpin thread':'Pin thread';pin.setAttribute('aria-label',pin.title);};
-        pin.onclick=async()=>{pin.disabled=true;try{await threadPins.set(source,source.label,!threadPins.isPinned(source));}finally{pin.disabled=false;paintPin();}};
-        paintPin();shell.head.append(pin);takeover.cleanups.push(threadPins.subscribe(paintPin));
-        if(!threadPins.isLoaded())void threadPins.load();
-      }
+      takeover = thread = {node: shell.node, dead: false};
       if (onReference) {
         const details=document.createElement('button');details.type='button';details.className='quiet gchat-thread-details';
         details.textContent=source.type==='project'?'Open project':'Open details';
@@ -1064,50 +1036,11 @@ function mountGlobalChat(pane, agent, options = {}) {
       const hadPair = !!(pairedConversation || pairedHost);
       pairedConversation?.dispose?.(); pairedConversation = null; pairedHost = null;
       if (disposed) return true;
-      // An open side chat is not a paired record; closing a record on the right leaves it in place.
-      if (takeover?.kind === 'side') return true;
       endTakeover(takeover);
       // Leaving Focus with no paired record open must not disturb the live conversation: nothing needs restoring.
       if (!hadPair && pane.firstElementChild === root) return true;
       pane.replaceChildren(root); void load(true);
       return true;
-    },
-    // Open a side chat in this Chat area. The session matches window.focusExpansion's, plus `titleHost`.
-    async openSide(spec) {
-      if (!live() || typeof spec?.mount !== 'function') return null;
-      if (!await leaveSide() || pairedHost || disposed) return null;
-      const t = {kind: 'side', dead: false, beforeLeave: null, cleanups: []};
-      let session = null;
-      const shell = takeoverShell('side', spec.title || '', () => void session?.close());
-      t.node = shell.node; takeover = t;
-      const content = document.createElement('div'); content.className = 'gchat-side-content';
-      shell.body.append(content);
-      pane.replaceChildren(shell.node);
-      const current = () => !t.dead && takeover === t && !disposed && shell.node.isConnected;
-      session = {
-        host: content, titleHost: shell.title, isCurrent: current,
-        setTitle(value) { if (current()) shell.title.textContent = String(value ?? ''); },
-        addHeaderAction(node) {
-          if (!current()) return;
-          node.classList.add('gchat-takeover-action'); shell.head.append(node);
-          session.onDispose(() => node.remove());
-        },
-        setBeforeLeave(fn) { if (current()) t.beforeLeave = typeof fn === 'function' ? fn : null; },
-        onDispose(fn) { if (typeof fn !== 'function') return; if (t.dead) { try { fn(); } catch (_) {} } else t.cleanups.push(fn); },
-        async close() {
-          if (!current() || !await leaveSide()) return false;
-          restoreChat();
-          return true;
-        },
-      };
-      try {
-        const dispose = await spec.mount(content, session);
-        if (typeof dispose === 'function') session.onDispose(dispose);
-      } catch (_) {
-        if (current()) { endTakeover(t); restoreChat(); toast('Could not open this content.'); }
-        return null;
-      }
-      return current() ? session : null;
     },
     dispose() {
       disposed = true; generation++;

@@ -1,5 +1,5 @@
 'use strict';
-// A side chat (and a paired thread) takes over the Chat area under a small header; "Chat" hands the area back.
+// A thread takes over the Chat area under a small header; "Chat" hands the area back.
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -33,13 +33,10 @@ async function fixture(browser) {
   for (const file of ['safe-links', 'chat-view', 'slash-commands', 'agent-runtime', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
   await page.evaluate(() => {
     window.controller = mountAgentView(document.querySelector('#pane'), {agent_id: 'agent-1', name: 'Demo'}, {isCurrent: () => true});
-    // A side chat stand-in: it may refuse to leave, like one with a message still sending.
-    window.side = {allowLeave: true, disposed: 0};
-    window.openSide = title => controller.openSide({title, mount(host, session) {
-      host.innerHTML = `<p class="side-body">${title} body</p>`;
-      session.setBeforeLeave(() => side.allowLeave);
-      return () => { side.disposed++; };
-    }});
+    // A Task thread stand-in: it may refuse to leave, like one with a message still sending.
+    window.thread = {allowLeave: true, disposed: 0, generation: 0};
+    window.conversationMount = (host, source) => { host.innerHTML = `<p class="thread-body">${source.id} body</p>`; return {canLeave: () => thread.allowLeave, expand() {}, dispose() { thread.disposed++; host.replaceChildren(); }}; };
+    window.openThread = id => controller.selectPairedSource({type: 'task', id, project_id: null, label: id}, ++thread.generation, () => {}, () => {}, () => controller.clearPairedSource(++thread.generation));
   });
   await page.locator('.gchat-msg').first().waitFor();
   return {page, errors};
@@ -47,61 +44,59 @@ async function fixture(browser) {
 const takeover = page => page.evaluate(() => ({
   kind: document.querySelector('.gchat-takeover')?.dataset.takeover || null,
   title: document.querySelector('.gchat-takeover-title')?.textContent || '',
-  body: document.querySelector('.side-body')?.textContent || '',
+  body: document.querySelector('.thread-body')?.textContent || '',
   chat: !!document.querySelector('.gchat')?.isConnected,
 }));
 
-test('a side chat takes over the Chat area and "Chat" brings the main chat back with its draft', {skip: !available}, async () => {
+test('a Task thread takes over the Chat area and "Chat" brings the main chat back with its draft', {skip: !available}, async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const {page, errors} = await fixture(browser);
     await page.locator('.gchat-composer textarea').fill('Unsent main draft');
-    await page.evaluate(() => openSide('Pricing page'));
-    assert.deepEqual(await takeover(page), {kind: 'side', title: 'Pricing page', body: 'Pricing page body', chat: false});
+    assert.equal(await page.evaluate(() => openThread('pricing')), true);
+    assert.deepEqual(await takeover(page), {kind: 'paired', title: 'pricing', body: 'pricing body', chat: false});
+    assert.equal(await page.locator('.gchat-thread-pin').count(), 0);
     await page.click('.gchat-takeover-back');
     await page.locator('.gchat-msg').first().waitFor();
     assert.deepEqual(await takeover(page), {kind: null, title: '', body: '', chat: true});
     assert.equal(await page.locator('.gchat-composer textarea').inputValue(), 'Unsent main draft');
-    assert.equal(await page.evaluate(() => side.disposed), 1);
+    assert.equal(await page.evaluate(() => thread.disposed), 1);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
 
-test('a side chat that cannot leave yet stays put, and another one replaces it once it can', {skip: !available}, async () => {
+test('a thread that cannot leave yet stays put, and another one replaces it once it can', {skip: !available}, async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const {page, errors} = await fixture(browser);
-    await page.evaluate(() => openSide('First'));
-    await page.evaluate(() => { side.allowLeave = false; });
-    assert.equal(await page.evaluate(() => openSide('Second')), null);
+    await page.evaluate(() => openThread('first'));
+    await page.evaluate(() => { thread.allowLeave = false; });
+    assert.equal(await page.evaluate(() => openThread('second')), false);
     await page.click('.gchat-takeover-back');
-    assert.deepEqual(await takeover(page), {kind: 'side', title: 'First', body: 'First body', chat: false});
-    await page.evaluate(() => { side.allowLeave = true; });
-    assert.notEqual(await page.evaluate(() => openSide('Second').then(Boolean)), false);
-    assert.deepEqual(await takeover(page), {kind: 'side', title: 'Second', body: 'Second body', chat: false});
-    assert.equal(await page.evaluate(() => side.disposed), 1);
+    assert.deepEqual(await takeover(page), {kind: 'paired', title: 'first', body: 'first body', chat: false});
+    await page.evaluate(() => { thread.allowLeave = true; });
+    assert.equal(await page.evaluate(() => openThread('second')), true);
+    assert.deepEqual(await takeover(page), {kind: 'paired', title: 'second', body: 'second body', chat: false});
+    assert.equal(await page.evaluate(() => thread.disposed), 1);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
 
-test('project details and pinned Chat threads open and close independently', {skip: !available}, async () => {
+test('project details and Chat threads open and close independently', {skip: !available}, async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const {page, errors} = await fixture(browser);
     await page.addScriptTag({path: path.join(root, 'js/record-workspace.js')});
-    await page.addScriptTag({path: path.join(root, 'js/thread-pins.js')});
     await page.evaluate(() => {
       state.projects=[{id:'demo',slug:'demo'}];window.taskTypeIcon=()=>'';window.T_VIEW_ICON={tasks:'',signoffs:''};
       window.threadState={allow:true,disposed:0};
       window.conversationMount=(host,source)=>{host.textContent='Thread '+source.id;return {canLeave:()=>threadState.allow,expand(){},dispose(){threadState.disposed++;host.replaceChildren();}};};
-      const originalPost=post;let pins=[];
+      const originalPost=post;
       window.post=async(url,body)=>{
-        if(url==='/root/thread-pins'){pins=body.pinned?[{source:body.source,title:body.title}]:[];return {threads:pins};}
         if(url.endsWith('/project_record_get'))return {project:{id:body.project_id,name:'Demo',summary:'Synthetic project'}};
         if(url.endsWith('/project_items_list'))return {items:[]};
         return originalPost(url,body);
       };
-      const originalApi=api;window.api=async url=>url==='/root/thread-pins'?{threads:pins}:originalApi(url);
       const host=document.createElement('aside');host.id='project';document.body.append(host);
       window._agpad={focusMount:host,workspaceRole:'ordubashy'};window.agfocusLeftChatReady=()=>true;let generation=0;
       window.agfocusPairedSource=record=>record?controller.selectPairedSource({...record.source,label:record.label},++generation,()=>{},()=>{},()=>controller.clearPairedSource(++generation)):controller.clearPairedSource(++generation);
@@ -113,8 +108,6 @@ test('project details and pinned Chat threads open and close independently', {sk
     assert.equal(await page.locator('.gchat-paired-record').count(),0);
     await page.click('.rw-open-thread');
     await page.locator('.gchat-paired-record').waitFor();
-    await page.click('.gchat-thread-pin');
-    assert.equal(await page.evaluate(()=>threadPins.list().length),1);
     await page.click('.rw-close');
     assert.equal(await page.locator('.rw-record').count(),0);
     assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread demo');
@@ -125,9 +118,6 @@ test('project details and pinned Chat threads open and close independently', {sk
     await page.evaluate(()=>{threadState.allow=true});
     await page.click('.gchat-takeover-back');
     await page.locator('.gchat-msg').first().waitFor();
-    await page.evaluate(()=>threadPins.open(threadPins.list()[0]));
-    assert.equal(await page.locator('.rw-record').count(),0);
-    assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread demo');
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
@@ -219,21 +209,14 @@ test('Chat leaves a thread whose Focus view has gone, but not while it is busy',
   } finally {await browser.close();}
 });
 
-test('a report opens and pins the thread of the Task it belongs to', {skip: !available}, async () => {
+test('a report opens the thread of the Task it belongs to', {skip: !available}, async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const {page, errors} = await fixture(browser);
     await page.addScriptTag({path: path.join(root, 'js/record-workspace.js')});
-    await page.addScriptTag({path: path.join(root, 'js/thread-pins.js')});
     await page.evaluate(() => {
       state.projects=[{id:'demo',slug:'demo'}];window.taskTypeIcon=()=>'';window.T_VIEW_ICON={tasks:'',signoffs:''};
       window.conversationMount=(host,source)=>{host.textContent='Thread '+source.type+' '+source.id;return {canLeave:()=>true,expand(){},dispose(){host.replaceChildren();}};};
-      const originalPost=post;let pins=[];
-      window.post=async(url,body)=>{
-        if(url==='/root/thread-pins'){pins=body.pinned?[...pins.filter(p=>p.source.id!==body.source.id),{source:body.source,title:body.title}]:pins.filter(p=>p.source.id!==body.source.id);return {threads:pins};}
-        return originalPost(url,body);
-      };
-      const originalApi=api;window.api=async url=>url==='/root/thread-pins'?{threads:pins}:originalApi(url);
       // The report view announces its Task once the Signoff has loaded; 'old' is a report from before Tasks were required.
       window.rwDashboardMount=async(host,record,ctx)=>{host.textContent='Report '+record.source.id;
         ctx.report(record.source.id==='old'?null:{id:'t1',project_id:'demo',title:'Launch'});return {dirty:()=>false};};
@@ -248,19 +231,16 @@ test('a report opens and pins the thread of the Task it belongs to', {skip: !ava
     assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread task t1');
     assert.equal(await page.locator('.rw-record [data-rw-tab="chat"]').count(),0);
     assert.equal(await page.locator('.rw-open-thread').isVisible(),true);
-    await page.click('.rw-pin');
-    assert.deepEqual(await page.evaluate(()=>threadPins.list().map(p=>p.source)),[{type:'task',id:'t1',project_id:'demo'}]);
-    assert.equal(await page.locator('.rw-pin').getAttribute('aria-pressed'),'true');
+    assert.equal(await page.locator('.rw-pin').count(),0);
     await page.click('.gchat-takeover-back');
     await page.locator('.gchat-msg').first().waitFor();
     await page.click('.rw-open-thread');
     await page.locator('.gchat-paired-record').waitFor();
     assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread task t1');
-    // A report with no Task has no thread to open or pin.
+    // A report with no Task has no thread to open.
     await page.evaluate(()=>workspace.open(report('old'),{root:true}));
     await page.waitForFunction(()=>document.querySelector('.rw-record .rw-dashboard')?.textContent==='Report old');
     assert.equal(await page.locator('.rw-open-thread').isVisible(),false);
-    assert.equal(await page.locator('.rw-pin').isVisible(),false);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });

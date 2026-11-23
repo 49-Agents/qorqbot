@@ -37,7 +37,7 @@ def register(registry, clock):
             # Something to read is counted apart from the decisions waiting on the owner.
             signoffs = uow.connection.execute("SELECT COUNT(*),COALESCE(SUM(s.category='platform_action'),0),"
                 f"COALESCE(SUM({ACKNOWLEDGE_SQL}),0) FROM signoffs s "
-                "WHERE s.review_project_id=? AND s.state='pending' AND s.category!='side_chat' AND s.superseded_by_id IS NULL", (bid,)).fetchone()
+                "WHERE s.review_project_id=? AND s.state='pending' AND s.superseded_by_id IS NULL", (bid,)).fetchone()
             # A shared action counts once in each linked project, on its recorded local occurrence day.
             activity = dict(uow.connection.execute("SELECT a.occurred_date,COUNT(DISTINCT a.id) FROM action_logs a "
                 "JOIN action_projects m ON m.action_id=a.id WHERE m.project_id=? AND a.occurred_date>=? "
