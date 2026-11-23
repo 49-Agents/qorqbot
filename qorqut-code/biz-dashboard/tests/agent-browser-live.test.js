@@ -43,7 +43,7 @@ test('the live view shows the page and sends the pointer where the owner clicked
     const page = await mounted(browser);
     const screen = page.locator('[data-live-screen]');
     await screen.waitFor();
-    assert.equal(await page.evaluate(() => window.sources[0].url), `/api/root/agents/agent-1/browser-live/stream?tab=${'A'.repeat(32)}`);
+    assert.match(await page.evaluate(() => window.sources[0].url), new RegExp(`^/api/root/agents/agent-1/browser-live/stream\\?tab=${'A'.repeat(32)}&width=\\d+$`));
     assert.deepEqual(await page.locator('[data-live-tabs] option').allTextContents(), ['Inbox', 'shop.example']);
     // Nothing is sent before the stream has named its view and a picture has given the page's size.
     await screen.click({position: {x: 10, y: 10}});
@@ -227,13 +227,108 @@ test('many pointer moves become few, and the click after them still arrives in o
   } finally { await browser.close(); }
 });
 
+const inputs = page => page.evaluate(() => window.sent.filter(item => item.url.endsWith('/input')).map(item => item.body));
+const reports = page => page.evaluate(() => window.sent.filter(item => item.url.endsWith('/received')).map(item => item.body));
+const liveNow = page => page.evaluate(jpeg => { window.sources[0].emit('open', {view: 'view-1'}); window.sources[0].emit('frame', {data: jpeg, width: 640, height: 400}); }, JPEG);
+// From here on no request is answered until the test answers it, as over a slow connection.
+const unanswered = page => page.evaluate(() => { window.answers = []; window.post = (url, body) => { window.sent.push({url, body}); return new Promise(resolve => window.answers.push(resolve)); }; });
+
+test('the picture is asked for at the width it is drawn, and each one that arrives is reported', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await mounted(browser);
+    const failures = [];
+    page.on('pageerror', error => failures.push(String(error)));
+    await page.locator('[data-live-screen]').waitFor();
+    const drawn = await page.evaluate(() => Math.round(document.querySelector('.aglive-stage').clientWidth * devicePixelRatio));
+    assert.ok(drawn >= 200, `the stage is ${drawn} wide`);
+    assert.equal(await page.evaluate(() => window.sources[0].url), `/api/root/agents/agent-1/browser-live/stream?tab=${'A'.repeat(32)}&width=${drawn}`);
+    await page.evaluate(jpeg => {
+      window.sources[0].emit('open', {view: 'view-1'});
+      window.sources[0].emit('frame', {data: jpeg, width: 1280, height: 800, n: 1});
+      window.sources[0].emit('frame', {data: jpeg, width: 1280, height: 800, n: 2});
+      window.sources[0].emit('frame', {data: jpeg, width: 1280, height: 800});      // a server from before numbering: shown, not reported
+    }, JPEG);
+    await settle(page);
+    assert.deepEqual(await reports(page), [{view: 'view-1', picture: 1}, {view: 'view-1', picture: 2}]);
+    // The picture may come smaller than the page: it is laid out at the page's size all the same.
+    assert.deepEqual(await page.evaluate(() => { const screen = document.querySelector('[data-live-screen]'); return [screen.getAttribute('width'), screen.getAttribute('height')]; }), ['1280', '800']);
+    // The stage gets narrower: once it has settled the server is told, with the newest picture's number.
+    await page.evaluate(() => { document.querySelector('#body').style.width = '500px'; });
+    await page.waitForFunction(() => window.sent.some(item => item.body.width));
+    const narrow = await page.evaluate(() => Math.round(document.querySelector('.aglive-stage').clientWidth * devicePixelRatio));
+    assert.deepEqual((await reports(page)).at(-1), {view: 'view-1', picture: 2, width: narrow});
+    assert.ok(narrow < drawn);
+    // A report the server refuses (the view just closed) is nobody's error.
+    await page.evaluate(jpeg => { window.post = async () => { throw new Error('closed'); }; window.sources[0].emit('frame', {data: jpeg, width: 1280, height: 800, n: 3}); }, JPEG);
+    await settle(page);
+    assert.deepEqual(failures, []);
+  } finally { await browser.close(); }
+});
+
+test('a key does not wait for the answer to the one before it, and every request says its place in the order', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await mounted(browser);
+    const screen = page.locator('[data-live-screen]');
+    await screen.waitFor();
+    await liveNow(page);
+    await screen.click({position: {x: 10, y: 10}});
+    await settle(page);
+    await page.evaluate(() => { window.sent = []; });
+    await unanswered(page);
+    await page.keyboard.type('abcdef', {delay: 25});
+    await settle(page);
+    // Nothing was answered, yet the keys went out: four requests at once, no more.
+    let sent = await inputs(page);
+    assert.equal(sent.length, 4);
+    assert.equal(sent[0].events[0].key, 'a');
+    // Answers come: the rest follows, nothing lost, nothing out of order, and the numbers count on from where they were.
+    await page.evaluate(() => { setInterval(() => { while (window.answers.length) window.answers.shift()({}); }, 5); });
+    await settle(page);
+    sent = await inputs(page);
+    assert.deepEqual(sent.flatMap(item => item.events).filter(item => item.action === 'down').map(item => item.key), ['a', 'b', 'c', 'd', 'e', 'f']);
+    assert.deepEqual(sent.flatMap(item => item.events).map(item => item.action), Array(6).fill(['down', 'up']).flat());
+    const first = sent[0].order;
+    assert.deepEqual(sent.map(item => item.order), sent.map((_, index) => first + index));
+    assert.ok(sent.every(item => item.view === 'view-1'));
+  } finally { await browser.close(); }
+});
+
+test('pointer moves alone wait for the answer, and a key behind them does not', skip, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await mounted(browser);
+    const screen = page.locator('[data-live-screen]');
+    await screen.waitFor();
+    await liveNow(page);
+    await screen.click({position: {x: 10, y: 10}});
+    await settle(page);
+    await page.evaluate(() => { window.sent = []; });
+    await unanswered(page);
+    const box = await screen.boundingBox();
+    await page.mouse.move(box.x + 300, box.y + 200, {steps: 40});
+    await settle(page);
+    await page.mouse.move(box.x + 100, box.y + 100, {steps: 40});
+    await settle(page);
+    let sent = await inputs(page);
+    assert.equal(sent.length, 1, 'only the first moves went out while their answer is awaited');
+    await page.keyboard.press('x');
+    await settle(page);
+    sent = await inputs(page);
+    // The key goes at once, behind the one latest pointer position that was waiting.
+    assert.deepEqual(sent[1].events.map(item => [item.type, item.action, item.x ?? item.key, item.y ?? '']), [['mouse', 'move', 100, 100], ['key', 'down', 'x', '']]);
+    assert.deepEqual(sent.map(item => item.order), sent.map((_, index) => sent[0].order + index));
+  } finally { await browser.close(); }
+});
+
 test('switching tabs, a closed tab and a broken stream each leave exactly one stream or none', skip, async () => {
   const browser = await chromium.launch({headless: true});
   try {
     const page = await mounted(browser);
     await page.locator('[data-live-tabs]').selectOption('B'.repeat(32));
     await page.waitForFunction(() => window.sources.length === 2);
-    assert.deepEqual(await page.evaluate(() => [window.sources[0].closed, window.sources[1].closed, window.sources[1].url.endsWith('B'.repeat(32))]), [true, false, true]);
+    assert.deepEqual(await page.evaluate(() => [window.sources[0].closed, window.sources[1].closed, window.sources[1].url.includes('tab=' + 'B'.repeat(32))]), [true, false, true]);
     // The stream tells of a tab that appeared; the menu follows.
     await page.evaluate(tabs => window.sources[1].emit('tabs', [...tabs, {id: 'C'.repeat(32), title: 'New one', url: 'about:blank'}]), TABS);
     assert.equal(await page.locator('[data-live-tabs] option').count(), 3);
