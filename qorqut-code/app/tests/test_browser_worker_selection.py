@@ -29,7 +29,7 @@ class WorkerBrowserSelectionTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()    # a Mac's temporary folder is reached through a symbolic link
         connection = sqlite3.connect(":memory:")
         connection.row_factory = sqlite3.Row
         connection.execute("CREATE TABLE browser_handles (id TEXT, turn_id TEXT, binding_json TEXT, arguments_json TEXT, superseded INT)")
@@ -139,10 +139,11 @@ class WorkerBrowserSelectionTest(unittest.TestCase):
 
     def test_the_list_leaves_out_the_email_engine_s_outlook_desktop_which_stays_selectable_by_the_engine(self):
         registry = {"agents": {}, "surfaces": {name: {"kind": "browser", "label": name} for name in ("ordubashy-browser", "outlook-browser")}}
-        with mock.patch.object(self.access.targets, "registry", return_value=registry):
+        from qorqut.browser import targets
+        # managed desktops exist on Linux only; the list is empty on any other system
+        with mock.patch.object(self.access.targets, "registry", return_value=registry), mock.patch.object(targets.sys, "platform", "linux"):
             listed = self.access.targets.catalog(None, ORDUBASHY)
         self.assertEqual(listed, [{"id": "ordubashy-browser", "label": "ordubashy-browser"}])
-        from qorqut.browser import targets
         self.assertIn("outlook-browser", targets.DESKTOP_TARGETS)
 
     def test_the_list_names_each_workers_browser(self):
