@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from qorqut.composition.assembly import host_assembly
 from qorqut.extensions import Extension, ExtensionSet
-from qorqut.migration import compactions, experience, owner_turns, queue_indexes, record_moves, report_tasks, signoff_side_chat, signoff_sources, timeline, timeline_deliveries, upgrade
+from qorqut.migration import compactions, experience, list_indexes, owner_turns, queue_indexes, record_moves, report_tasks, signoff_side_chat, signoff_sources, timeline, timeline_deliveries, upgrade
 from qorqut.service.changes import ChangeFeed
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.storage.assembly import StorageContribution
@@ -22,7 +22,7 @@ from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 # The composition, with no extension selected, of the last release before the first transform of the chain.
 RELEASED_BASE_DIGEST = '72ee676d38b3135dc613aefa6f86e379293f05d6fb9a7c4ab7b1cea596e19ee3'
-BASE, SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED = upgrade.STATES
+BASE, SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS = upgrade.STATES
 SIGNOFFS = ('table', 'signoffs')
 
 
@@ -56,7 +56,7 @@ class ReadPairExtension(Extension):
 
 class ChainTests(unittest.TestCase):
     def test_states_run_from_the_released_base_to_this_build_in_release_order(self):
-        self.assertEqual(upgrade.STATES, ('base', 'signoff_sources', 'queue_indexes', 'signoff_side_chat', 'side_chat_titles', 'owner_turns', 'private_message_refs', 'report_tasks', 'timeline', 'timeline_deliveries', 'record_moves', 'native_transport_managed', 'compactions', 'experience', 'side_chats_removed'))
+        self.assertEqual(upgrade.STATES, ('base', 'signoff_sources', 'queue_indexes', 'signoff_side_chat', 'side_chat_titles', 'owner_turns', 'private_message_refs', 'report_tasks', 'timeline', 'timeline_deliveries', 'record_moves', 'native_transport_managed', 'compactions', 'experience', 'side_chats_removed', 'list_indexes'))
         for extensions in (ExtensionSet(()), ExtensionSet((SyntheticExtension(),))):
             states = upgrade.chain(extensions)
             self.assertEqual(states[-1][0].target.digest, host_assembly(ChangeFeed(), extensions).target.digest)
@@ -145,28 +145,28 @@ class UpgradeTests(unittest.TestCase):
         for single in (signoff_sources, queue_indexes):
             with self.assertRaises(DomainError):
                 single.apply(self.connection, self.extensions)
-        self.assertFalse(self.opens(REMOVED))
+        self.assertFalse(self.opens(LISTS))
         self.assertEqual(read_objects(self.connection), objects)
         self.assertEqual(upgrade.inspect(self.connection, self.extensions), {
-            'store': BASE, 'applied': [], 'pending': [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], 'held_rows': {},
+            'store': BASE, 'applied': [], 'pending': [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], 'held_rows': {},
             'digest': self.states[0][0].target.digest, 'target_digest': self.states[-1][0].target.digest})
 
         result = upgrade.apply(self.connection, self.extensions)
 
         self.assertEqual((result['from'], result['added'], result['store'], result['pending']),
-                         (BASE, [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], REMOVED, []))
+                         (BASE, [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], LISTS, []))
         self.assertEqual(result['digest'], self.states[-1][0].target.digest)
-        self.assertEqual(set(read_objects(self.connection)) - set(objects), set(signoff_sources.OBJECTS) | set(queue_indexes.OBJECTS) | set(owner_turns.OBJECTS) | set(report_tasks.OBJECTS) | set(timeline.OBJECTS) | set(timeline_deliveries.OBJECTS) | set(record_moves.OBJECTS) | set(compactions.OBJECTS) | set(experience.OBJECTS))
+        self.assertEqual(set(read_objects(self.connection)) - set(objects), set(signoff_sources.OBJECTS) | set(queue_indexes.OBJECTS) | set(owner_turns.OBJECTS) | set(report_tasks.OBJECTS) | set(timeline.OBJECTS) | set(timeline_deliveries.OBJECTS) | set(record_moves.OBJECTS) | set(compactions.OBJECTS) | set(experience.OBJECTS) | set(list_indexes.OBJECTS))
         after = self.rows()
         self.assertEqual({name: after[name] for name in before}, before)
         self.assertEqual(after[signoff_sources.TABLE], [])
         self.assertEqual(self.connection.execute('PRAGMA foreign_key_check').fetchall(), [])
-        self.assertTrue(self.opens(REMOVED))
+        self.assertTrue(self.opens(LISTS))
         # Both single commands see their own target, and a second run changes nothing.
         self.assertEqual(signoff_sources.inspect(self.connection, self.extensions)['store'], 'target')
         self.assertEqual(queue_indexes.inspect(self.connection, self.extensions)['store'], 'target')
         again = upgrade.apply(self.connection, self.extensions)
-        self.assertEqual((again['from'], again['added']), (REMOVED, []))
+        self.assertEqual((again['from'], again['added']), (LISTS, []))
         self.assertEqual(self.rows(), after)
 
     def test_a_store_part_of_the_way_along_gets_only_the_rest(self):
@@ -176,16 +176,16 @@ class UpgradeTests(unittest.TestCase):
         before = self.rows(connection)
         report = upgrade.inspect(connection, self.extensions)
         self.assertEqual((report['store'], report['applied'], report['pending'], report['held_rows']),
-                         (SOURCES, [SOURCES], [INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], {SOURCES: 1}))
+                         (SOURCES, [SOURCES], [INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], {SOURCES: 1}))
         # The queue-index command alone starts from a store that already accepts side chats, which no release
         # made; with a later transform in the chain, only the chain recognises this one.
         with self.assertRaises(DomainError):
             queue_indexes.inspect(connection, self.extensions)
         result = upgrade.apply(connection, self.extensions)
         self.assertEqual((result['from'], result['added'], result['held_rows']),
-                         (SOURCES, [INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], {SOURCES: 1, INDEXES: 0, SIDE_CHAT: 0, TITLES: 0, TURNS: 0, REFS: 0, REPORTS: 0, TIMELINE: 0, DELIVERIES: 0, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0}))
+                         (SOURCES, [INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], {SOURCES: 1, INDEXES: 0, SIDE_CHAT: 0, TITLES: 0, TURNS: 0, REFS: 0, REPORTS: 0, TIMELINE: 0, DELIVERIES: 0, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0, LISTS: 0}))
         self.assertEqual(self.kept(self.rows(connection), before), before)
-        self.assertTrue(self.opens(REMOVED, path))
+        self.assertTrue(self.opens(LISTS, path))
 
     def test_side_chats_were_accepted_only_between_their_step_and_their_removal(self):
         path = self.path.with_name('indexes.sqlite3')
@@ -198,17 +198,17 @@ class UpgradeTests(unittest.TestCase):
 
         result = upgrade.apply(connection, self.extensions)
 
-        self.assertEqual((result['from'], result['added'], result['held_rows'][SIDE_CHAT]), (INDEXES, [SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], 0))
+        self.assertEqual((result['from'], result['added'], result['held_rows'][SIDE_CHAT]), (INDEXES, [SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], 0))
         # Two stored definitions and the two move guards are the whole change to what was there (the private messages'
         # references and the native session transport rule; the Signoff rule is back where it was): only empty tables and
         # indexes came, and no row moved.
         after = read_objects(connection)
-        self.assertEqual(set(after) - set(objects), set(owner_turns.OBJECTS) | set(report_tasks.OBJECTS) | set(timeline.OBJECTS) | set(timeline_deliveries.OBJECTS) | set(record_moves.OBJECTS) | set(compactions.OBJECTS) | set(experience.OBJECTS))
+        self.assertEqual(set(after) - set(objects), set(owner_turns.OBJECTS) | set(report_tasks.OBJECTS) | set(timeline.OBJECTS) | set(timeline_deliveries.OBJECTS) | set(record_moves.OBJECTS) | set(compactions.OBJECTS) | set(experience.OBJECTS) | set(list_indexes.OBJECTS))
         self.assertEqual({key for key in objects if after[key] != objects[key]}, {('table', 'owner_conversation_messages'), ('table', 'native_sessions'), *record_moves.CHANGED})
         self.assertEqual(self.kept(self.rows(connection), before), before)
         self.assertEqual(connection.execute('PRAGMA integrity_check').fetchall(), [('ok',)])
         self.assertEqual(connection.execute('PRAGMA writable_schema').fetchone()[0], 0)
-        self.assertTrue(self.opens(REMOVED, path))
+        self.assertTrue(self.opens(LISTS, path))
         with self.assertRaises(sqlite3.IntegrityError):
             self.signoff(connection, 'side-chat', 'side_chat')
         # Back before the removal, the connection that reverted and one opened afterwards both accept a side chat, and only that.
@@ -280,10 +280,10 @@ class UpgradeTests(unittest.TestCase):
         self.assertTrue(self.opens(SIDE_CHAT))
         # Upgrading again walks over the names and then deletes the side chat with its conversation.
         result = upgrade.apply(connection, self.extensions)
-        self.assertEqual((result['from'], result['added']), (SIDE_CHAT, [TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED]))
+        self.assertEqual((result['from'], result['added']), (SIDE_CHAT, [TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS]))
         self.assertEqual(connection.execute('SELECT id FROM signoffs').fetchall(), [('signoff',)])
         self.assertEqual(connection.execute('SELECT count(*) FROM owner_conversation_messages').fetchone()[0], 0)
-        self.assertTrue(self.opens(REMOVED))
+        self.assertTrue(self.opens(LISTS))
 
     def test_a_definition_that_stored_rows_break_is_refused(self):
         upgrade.apply(self.connection, self.extensions)
@@ -370,10 +370,10 @@ class UpgradeTests(unittest.TestCase):
 
         result = upgrade.apply(connection, self.extensions)
 
-        self.assertEqual((result['from'], result['added'], result['pending'], result['held_rows'][REMOVED]), (EXPERIENCE, [REMOVED], [], 0))
+        self.assertEqual((result['from'], result['added'], result['pending'], result['held_rows'][REMOVED]), (EXPERIENCE, [REMOVED, LISTS], [], 0))
         # Only the side-chat rows went: every other row is exactly the row of the same store made without them.
         # A store without side chats upgrades with every row as it was.
-        self.assertEqual(upgrade.apply(plain, self.extensions)['added'], [REMOVED])
+        self.assertEqual(upgrade.apply(plain, self.extensions)['added'], [REMOVED, LISTS])
         after, expected = self.rows(connection), self.rows(plain)
         self.assertEqual(expected, untouched)
         self.assertEqual({name: rows for name, rows in after.items() if name != 'inbox_changes'},
@@ -382,7 +382,9 @@ class UpgradeTests(unittest.TestCase):
         # The same objects stand, triggers included, and only the Signoff definition changed: three categories, no title.
         found = read_objects(connection)
         self.assertEqual({key for key in objects if found.get(key) != objects[key]}, {SIGNOFFS})
-        self.assertEqual(set(found), set(objects))
+        # The indexes of the step after it stand beside them.
+        self.assertEqual(set(found) - set(objects), set(list_indexes.OBJECTS))
+        self.assertEqual(set(objects) - set(found), set())
         self.assertNotIn('display_title', [column[1] for column in connection.execute('PRAGMA table_info(signoffs)')])
         with self.assertRaises(sqlite3.IntegrityError):
             self.signoff(connection, 'side-chat', 'side_chat')
@@ -392,7 +394,7 @@ class UpgradeTests(unittest.TestCase):
                 connection.execute(statement)
         self.assertEqual(connection.execute('PRAGMA foreign_key_check').fetchall(), [])
         self.assertEqual(upgrade.inspect(connection, self.extensions)['pending'], [])
-        self.assertTrue(self.opens(REMOVED, self.path.with_name('side-chats.sqlite3')))
+        self.assertTrue(self.opens(LISTS, self.path.with_name('side-chats.sqlite3')))
 
     def test_the_removal_reverts_to_the_earlier_definition_without_the_side_chats_and_applies_again(self):
         self.use(SignoffChildExtension())
@@ -401,12 +403,28 @@ class UpgradeTests(unittest.TestCase):
         self.side_chat(connection)
         upgrade.apply(connection, self.extensions)
         result = upgrade.revert(connection, self.extensions, to=EXPERIENCE)
-        self.assertEqual((result['removed'], result['dropped_rows'], result['store']), ([REMOVED], {REMOVED: 0}, EXPERIENCE))
+        self.assertEqual((result['removed'], result['dropped_rows'], result['store']), ([REMOVED, LISTS], {REMOVED: 0, LISTS: 0}, EXPERIENCE))
         self.assertTrue(self.opens(EXPERIENCE, self.path.with_name('side-chats.sqlite3')))
         self.assertEqual(connection.execute("SELECT count(*) FROM signoffs WHERE category='side_chat'").fetchone()[0], 0)
         self.side_chat(connection)
-        self.assertEqual(upgrade.apply(connection, self.extensions)['added'], [REMOVED])
+        self.assertEqual(upgrade.apply(connection, self.extensions)['added'], [REMOVED, LISTS])
         self.assertEqual(connection.execute("SELECT count(*) FROM owner_conversations WHERE source_id='side-chat'").fetchone()[0], 0)
+
+    def test_the_indexes_revert_alone_and_the_removal_reverts_after_them(self):
+        self.use(SignoffChildExtension())
+        connection = self.store(EXPERIENCE, self.path.with_name('side-chats.sqlite3'))
+        upgrade.apply(connection, self.extensions)
+        target = read_objects(connection)
+        result = upgrade.revert(connection, self.extensions, to=REMOVED)
+        self.assertEqual((result['removed'], result['store']), ([LISTS], REMOVED))
+        self.assertEqual(set(target) - set(read_objects(connection)), set(list_indexes.OBJECTS))
+        self.assertEqual({key for key, value in read_objects(connection).items() if target[key] != value}, set())
+        self.assertTrue(self.opens(REMOVED, self.path.with_name('side-chats.sqlite3')))
+        self.assertFalse(self.opens(LISTS, self.path.with_name('side-chats.sqlite3')))
+        result = upgrade.revert(connection, self.extensions, to=EXPERIENCE)
+        self.assertEqual((result['removed'], result['store']), ([REMOVED], EXPERIENCE))
+        self.assertTrue(self.opens(EXPERIENCE, self.path.with_name('side-chats.sqlite3')))
+        self.assertEqual(upgrade.apply(connection, self.extensions)['added'], [REMOVED, LISTS])
 
     def test_a_reference_by_several_columns_into_a_deleted_table_refuses_the_whole_upgrade(self):
         self.use(ReadPairExtension())
@@ -425,9 +443,9 @@ class UpgradeTests(unittest.TestCase):
         upgrade.apply(self.connection, self.extensions)
         result = upgrade.revert(self.connection, self.extensions, to=INDEXES)
         self.assertEqual((result['from'], result['removed'], result['store'], result['dropped_rows']),
-                         (REMOVED, [SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], INDEXES, {TURNS: 0, REFS: 0, REPORTS: 0, TIMELINE: 0, DELIVERIES: 0, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0, TITLES: 0, SIDE_CHAT: 0}))
+                         (LISTS, [SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], INDEXES, {TURNS: 0, REFS: 0, REPORTS: 0, TIMELINE: 0, DELIVERIES: 0, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0, LISTS: 0, TITLES: 0, SIDE_CHAT: 0}))
         self.assertTrue(self.opens(INDEXES))
-        self.assertFalse(self.opens(REMOVED))
+        self.assertFalse(self.opens(LISTS))
         result = upgrade.revert(self.connection, self.extensions, to=SOURCES)
         self.assertEqual((result['from'], result['removed'], result['store'], result['dropped_rows']),
                          (INDEXES, [INDEXES], SOURCES, {INDEXES: 0}))
@@ -449,16 +467,34 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(read_objects(self.connection), objects)
         # Straight from the target to the base in one transaction, then forward again.
         upgrade.apply(self.connection, self.extensions)
-        self.assertEqual(upgrade.revert(self.connection, self.extensions, to=BASE)['removed'], [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED])
+        self.assertEqual(upgrade.revert(self.connection, self.extensions, to=BASE)['removed'], [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS])
         self.assertEqual(read_objects(self.connection), objects)
-        self.assertEqual(upgrade.apply(self.connection, self.extensions)['added'], [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED])
+        self.assertEqual(upgrade.apply(self.connection, self.extensions)['added'], [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS])
+
+    def test_the_job_and_run_lists_are_read_through_the_new_indexes_without_a_sort(self):
+        upgrade.apply(self.connection, self.extensions)
+        statements = {
+            'jobs_business_created': 'SELECT * FROM "jobs" WHERE "business_id" IS NULL ORDER BY "created_at" DESC, "id" DESC LIMIT 20',
+            'jobs_business_active': "SELECT * FROM jobs WHERE business_id IS ? AND state IN ('running','applying') ORDER BY created_at,rowid",
+            'jobs_business_queued': "SELECT kind,count(*) FROM jobs WHERE business_id IS ? AND state='queued' GROUP BY kind",
+            'routine_runs_namespace_created': "SELECT * FROM routine_runs WHERE namespace='global' AND (business_id IS NULL OR business_id IN (?)) "
+                                              "ORDER BY created_at DESC,id DESC LIMIT 51",
+            'routine_runs_business_created': 'SELECT * FROM routine_runs WHERE business_id IS ? ORDER BY created_at DESC,id DESC LIMIT 51',
+        }
+        for analyzed in (False, True):
+            for name, sql in statements.items():
+                plan = ' | '.join(row[3] for row in self.connection.execute('EXPLAIN QUERY PLAN ' + sql, [None] * sql.count('?')))
+                self.assertIn(name, plan, (name, analyzed))
+                self.assertNotIn('TEMP B-TREE', plan, (name, analyzed))
+            # Statistics must not move a list onto another index.
+            self.connection.execute('ANALYZE')
 
     def test_revert_keeps_recorded_source_links_unless_told_to_drop_them(self):
         objects = read_objects(self.connection)
         upgrade.apply(self.connection, self.extensions)
         self.link()
         target = read_objects(self.connection)
-        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['held_rows'], {SOURCES: 1, INDEXES: 0, SIDE_CHAT: 0, TITLES: 0, TURNS: 0, REFS: 0, REPORTS: 0, TIMELINE: 0, DELIVERIES: 0, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0})
+        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['held_rows'], {SOURCES: 1, INDEXES: 0, SIDE_CHAT: 0, TITLES: 0, TURNS: 0, REFS: 0, REPORTS: 0, TIMELINE: 0, DELIVERIES: 0, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0, LISTS: 0})
         with self.assertRaises(DomainError) as refusal:
             upgrade.revert(self.connection, self.extensions, to=BASE)
         self.assertEqual(refusal.exception.code, 'validation_error')
@@ -487,10 +523,10 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(refusal.exception.to_dict()['details'], {'held_rows': {DELIVERIES: 1}})
         self.assertEqual(read_objects(self.connection), target)
         result = upgrade.revert(self.connection, self.extensions, to=TIMELINE, discard_rows=True)
-        self.assertEqual((result['removed'], result['dropped_rows'], result['store']), ([DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], {DELIVERIES: 1, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0}, TIMELINE))
+        self.assertEqual((result['removed'], result['dropped_rows'], result['store']), ([DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], {DELIVERIES: 1, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0, LISTS: 0}, TIMELINE))
         self.assertTrue(self.opens(TIMELINE))
         self.assertFalse(self.opens(DELIVERIES))
-        self.assertEqual(set(target) - set(read_objects(self.connection)), set(timeline_deliveries.OBJECTS) | set(record_moves.OBJECTS) | set(compactions.OBJECTS) | set(experience.OBJECTS))
+        self.assertEqual(set(target) - set(read_objects(self.connection)), set(timeline_deliveries.OBJECTS) | set(record_moves.OBJECTS) | set(compactions.OBJECTS) | set(experience.OBJECTS) | set(list_indexes.OBJECTS))
 
     def test_revert_of_record_moves_restores_both_guards_and_keeps_recorded_moves_unless_told(self):
         before = read_objects(self.connection)
@@ -501,7 +537,7 @@ class UpgradeTests(unittest.TestCase):
         with self.assertRaises(DomainError):
             upgrade.revert(self.connection, self.extensions, to=DELIVERIES)
         result = upgrade.revert(self.connection, self.extensions, to=DELIVERIES, discard_rows=True)
-        self.assertEqual((result['removed'], result['dropped_rows']), ([MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], {MOVES: 1, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0}))
+        self.assertEqual((result['removed'], result['dropped_rows']), ([MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], {MOVES: 1, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0, LISTS: 0}))
         self.assertTrue(self.opens(DELIVERIES))
         reverted = read_objects(self.connection)
         for name in (record_moves.THREAD_TRIGGER, record_moves.CRM_TRIGGER):
@@ -537,7 +573,7 @@ class UpgradeTests(unittest.TestCase):
             self.connection.set_authorizer(None)
         self.assertFalse(self.connection.in_transaction)
         self.assertEqual(read_objects(self.connection), target)
-        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['store'], REMOVED)
+        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['store'], LISTS)
         # The widened rule was undone with everything else: a side chat is still refused.
         with self.assertRaises(sqlite3.IntegrityError):
             self.signoff(self.connection, 'side-chat', 'side_chat')
@@ -596,25 +632,25 @@ class UpgradeTests(unittest.TestCase):
         before, objects = self.rows(), read_objects(self.connection)
         status, response, owner = self.command('inspect')
         self.assertEqual((status, response['ok'], response['result']['store'], response['result']['pending']),
-                         (0, True, BASE, [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED]))
+                         (0, True, BASE, [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS]))
         owner.assert_not_called()
         self.assertEqual((self.rows(), read_objects(self.connection)), (before, objects))
 
     def test_cli_apply_and_revert_hold_exclusive_ownership_and_release_it(self):
         status, response, owner = self.command('apply')
         self.assertEqual((status, response['result']['added'], response['result']['store']),
-                         (0, [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], REMOVED))
+                         (0, [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], LISTS))
         owner.return_value.acquire.assert_called_once_with()
         owner.return_value.acquire.return_value.release.assert_called_once_with()
-        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['store'], REMOVED)
+        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['store'], LISTS)
         self.link()
         status, response, owner = self.command('revert', '--to', BASE)
         self.assertEqual((status, response['error']['code'], response['error']['details']), (1, 'validation_error', {'held_rows': {SOURCES: 1}}))
         owner.return_value.acquire.return_value.release.assert_called_once_with()
-        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['store'], REMOVED)
+        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['store'], LISTS)
         status, response, owner = self.command('revert', '--to', BASE, '--discard-rows')
         self.assertEqual((status, response['result']['removed'], response['result']['dropped_rows']),
-                         (0, [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED], {TURNS: 0, REFS: 0, REPORTS: 0, TIMELINE: 0, DELIVERIES: 0, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0, TITLES: 0, SIDE_CHAT: 0, INDEXES: 0, SOURCES: 1}))
+                         (0, [SOURCES, INDEXES, SIDE_CHAT, TITLES, TURNS, REFS, REPORTS, TIMELINE, DELIVERIES, MOVES, MANAGED, COMPACTIONS, EXPERIENCE, REMOVED, LISTS], {TURNS: 0, REFS: 0, REPORTS: 0, TIMELINE: 0, DELIVERIES: 0, MOVES: 0, MANAGED: 0, COMPACTIONS: 0, EXPERIENCE: 0, REMOVED: 0, LISTS: 0, TITLES: 0, SIDE_CHAT: 0, INDEXES: 0, SOURCES: 1}))
         owner.return_value.acquire.return_value.release.assert_called_once_with()
         self.assertEqual(upgrade.inspect(self.connection, self.extensions)['store'], BASE)
 
