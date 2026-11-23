@@ -14,9 +14,10 @@ from qorqut_context.claude_runner import ClaudeRunner, runner_for
 from qorqut_context.runner import AppServerRunner, RunnerConfig, RunnerError
 
 FIXTURE = r'''
-import json, subprocess, sys
+import json, os, subprocess, sys
 argv = sys.argv[1:]
 open(ARGS, "w").write(json.dumps(argv))
+open(ARGS + ".memory", "w").write(os.environ.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "unset"))
 value = lambda flag: argv[argv.index(flag) + 1] if flag in argv else None
 prompt = sys.stdin.read()
 tools, results = [], []
@@ -103,6 +104,7 @@ class ClaudeRunnerTests(unittest.TestCase):
         self.assertEqual(flag("--allowedTools"), "mcp__context__lookup")
         for name in ("--strict-mcp-config", "--no-session-persistence", "-p"):
             self.assertIn(name, argv)
+        self.assertEqual((root / "args.json.memory").read_text(), "1", "Claude Code's own memory is off in a filing run")
 
     def test_bootstrap_without_tools_returns_plain_text(self):
         run, root, _ = self.run_fixture(stage="bootstrap")
