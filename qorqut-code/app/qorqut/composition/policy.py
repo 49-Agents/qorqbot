@@ -74,7 +74,7 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # So do thread_pins_list and thread_pins_set, the owner's pinned-threads row in Focus: the handler admits only the owner or the
 # configured coordinator in person, writes only the owner's file, and pins only a record the caller may read.
 # So does timeline_get, the timelines of Tasks and Projects: the reader needs the ordinary read of the item. timeline_file
-# is not here: it declares its own standing mode (approval during the trial) and the handler admits only the coordinator in person.
+# is not here: it declares its own standing mode (allow: filed at once) and the handler admits only the coordinator in person.
 # Nor is timeline_file_answer: it declares allow (the owner's own answer to a question Signoff) and admits only the coordinator.
 # settings_get and settings_set, the owner's Settings page as tools: the handler admits only the configured coordinator in
 # person and changes a setting through the function behind the owner's own route, so that function's checks still apply.

@@ -13,9 +13,10 @@ Who may read: a Task's timeline follows the ordinary ``tasks_get`` read of that 
 participant of that Project. Who may file: the configured coordinator in person, never a delegated identity, never the
 dashboard.
 
-Filing is split so that a later review step can sit between the two halves: ``check`` is the caller's gate, the item's
-existence and ``filing.check`` of the changes (it is what ``prepare`` runs and what lists the rows a removal or answer depends
-on, to be pinned with ``pin``); ``file`` appends the changes. ``apply`` calls ``file`` with the plan's own arguments and proposer.
+A filing is applied at once. It is split so that a review step can sit between the two halves when a permission override
+holds filings for the owner: ``check`` is the caller's gate, the item's existence and ``filing.check`` of the changes (it is
+what ``prepare`` runs and what lists the rows a removal or answer depends on, to be pinned with ``pin``); ``file`` appends the
+changes. ``apply`` calls ``file`` with the plan's own arguments and proposer.
 """
 from __future__ import annotations
 
@@ -55,9 +56,7 @@ FILE_DESCRIPTION = (
     "sources is up to ten {quote, ref}: the owner's own words behind the change (at most 1000 "
     "characters each) and a link to the message. The entries are never edited or deleted, so file at the most general level that "
     "fits and keep what you file true. The result is the item's new state; when it passes about 3,000 characters it asks you to "
-    "remove what no longer holds. During the trial every filing is first held for the owner's review: the call returns "
-    "signoff_required, which means the filing was submitted for the owner's review and is filed by itself when the owner "
-    "approves it, with no further call from you. Do not file it again; timeline_get lists the filings still waiting.")
+    "remove what no longer holds. The filing is applied at once, without the owner's review.")
 ANSWER_DESCRIPTION = (
     "Coordinator write. Files the owner's answer to one of your question Signoffs on a timeline, at once and without review, "
     "since the words are the owner's: signoff_id is the answered question (signoffs_input_create, now answered), kind is "
@@ -123,12 +122,13 @@ class Timeline:
         self.runtime.registry.register(OperationDescriptor(
             "timeline_get", GET_SCHEMA, description=GET_DESCRIPTION, effect_kind="read", read=self.get, supports_signoff=False,
             scope_kinds=frozenset({"business", "global"}), resolve_namespace=task_namespace, **common))
-        # During the trial a filing is held for the owner's approval and applied by the service as its proposer; an agent override
-        # (``permissions_set``) for the coordinator replaces this standing mode, which is how the trial ends.
+        # A filing is applied at once (the owner's decision, 23 November 2026: what holds on a Task or a Project needs no
+        # Signoff of theirs). It can still be held: an agent override (``permissions_set``) that says ``signoff`` for the
+        # coordinator sends each filing to the owner's review, and the service applies an approved one as its proposer.
         self.runtime.registry.register(OperationDescriptor(
             "timeline_file", FILE_SCHEMA, description=FILE_DESCRIPTION, effect_kind="records", prepare=self.prepare,
             apply=self.apply, scope_kinds=frozenset({"global"}), resolve_namespace=lambda ctx, args: "global",
-            supports_signoff=True, default_mode="signoff", project_result=self.project, **common))
+            supports_signoff=True, default_mode="allow", project_result=self.project, **common))
         # The owner's answer to a question Signoff is the owner's own words, so filing it needs no second review.
         self.runtime.registry.register(OperationDescriptor(
             "timeline_file_answer", ANSWER_SCHEMA, description=ANSWER_DESCRIPTION, effect_kind="records", prepare=self.prepare_answer,
