@@ -22,19 +22,14 @@ const slashCommands = (() => {
     return name ? commands.find(item => item.name.toLowerCase() === name.toLowerCase()) || null : null;
   }
 
-  // Whether a sent command leaves a menu or panel to finish in the agent's Terminal. `/model <name>` on Claude Code switches the
-  // model at once; only a bare `/model` opens its menu. Every other "terminal" command opens one.
-  function opensTerminal(item, text, provider) {
-    if (!item || item.where !== 'terminal') return false;
-    if (provider === 'claude' && item.name.toLowerCase() === '/model') return !/^\/\S+\s+\S/.test(String(text).trim());
-    return true;
+  // Qorqbot runs every agent itself, so a command the catalog marks "unavailable" (a client menu with no screen to show it) cannot
+  // run: the message to show instead of sending it (null when the command is fine). The backend refuses it too.
+  function unavailableRefusal(item, label) {
+    if (!item || item.where !== 'unavailable') return null;
+    return `${item.name} isn’t available when Qorqbot runs ${label}.`;
   }
-  // The shared Codex server takes plain text, so it cannot run a Codex command: the message to show instead of sending one
-  // (null when the session is a Terminal or the text is not a known command). The backend refuses it too.
-  function sharedServerRefusal(session, item, label) {
-    if (!item || session?.provider !== 'codex' || session?.transport !== 'codex_queue') return null;
-    return `${item.name} runs only in ${label}’s Terminal. Open Terminal and run it there.`;
-  }
+  // The refusal for a command the agent cannot run; the one call the composer makes.
+  const refusal = (session, item, label) => unavailableRefusal(item, label);
 
   // `options.commands()` returns the current catalog (or null while unknown).
   function attach({input, form, commands}) {
@@ -53,7 +48,7 @@ const slashCommands = (() => {
       active = Math.min(active, shown.length - 1);
       menu.innerHTML = shown.map((item, i) => `<div class="slash-item" role="option" id="${menu.id}-${i}" aria-selected="${i === active}" data-index="${i}">
         <span class="slash-name">${esc(item.name)}</span><span class="slash-desc">${esc(item.description)}</span>
-        ${item.where === 'terminal' ? '<span class="slash-tag" title="Opens a menu you finish in the agent’s Terminal">Terminal</span>' : item.source !== 'built-in' ? `<span class="slash-tag">${item.source === 'skill' ? 'Skill' : 'Yours'}</span>` : ''}</div>`).join('');
+        ${item.where === 'unavailable' ? '<span class="slash-tag" title="Not available when Qorqbot runs the agent">Not available</span>' : item.where === 'terminal' ? '<span class="slash-tag" title="Opens a menu you finish in the agent’s Terminal">Terminal</span>' : item.source !== 'built-in' ? `<span class="slash-tag">${item.source === 'skill' ? 'Skill' : 'Yours'}</span>` : ''}</div>`).join('');
       menu.hidden = false;
       input.setAttribute('aria-expanded', 'true'); input.setAttribute('aria-activedescendant', `${menu.id}-${active}`);
       menu.querySelector('[aria-selected="true"]')?.scrollIntoView({block: 'nearest'});
@@ -91,6 +86,6 @@ const slashCommands = (() => {
       },
     };
   }
-  return {match, command, opensTerminal, sharedServerRefusal, attach, MAX_SHOWN};
+  return {match, command, unavailableRefusal, refusal, attach, MAX_SHOWN};
 })();
 if (typeof module !== 'undefined') module.exports = slashCommands;

@@ -1,14 +1,20 @@
 // Persistent chat for any registered agent (global or business). It is a projection of the agent's native session
 // conversation (qorqut-code docs/v1.2/NATIVE_CHAT_DTO.md): opening, switching or reading never starts, resumes, stops or types
-// into an agent; Terminal owns the session lifecycle. One mount owns one SSE stream, its timers and listeners, and releases all
-// of them in dispose().
+// into an agent; a message from the owner starts or wakes the agent's session, and it rests again by itself. One mount owns
+// one SSE stream, its timers and listeners, and releases all of them in dispose().
 // Composer state is bound to the exact agent and conversation, and outlives a mount so a switch never leaks or loses it.
+// When agents run in terminals (the legacy option) a payload with `session.execution === 'terminal'` takes the small guarded calls into
+// js/agent-terminal-view.js (Terminal view, live/offline wording); every other payload is a managed session and never reaches them.
 const GLOBAL_CHAT_DRAFTS = new Map();           // scope -> unsent composer text
 const GLOBAL_CHAT_FILES = new Map();            // scope -> selected browser Files; copied only when Send is pressed
 const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: the frozen identity of an unconfirmed send, reused by a retry
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
+const GLOBAL_CHAT_OPENING = new Map();          // agent id -> {text, at, position}: a message (or file) that is opening a closed session, shown at once as a pending bubble
 const GLOBAL_CHAT_HIDDEN = new Set();           // settled inputs the owner dismissed or already resent
+// A session that was just opened writes the owner's line to the transcript about 0.1 s before the input record is stamped, so an echo up to this
+// much older than the receipt still belongs to it (the same slack the opening bubble uses).
+const GLOBAL_CHAT_ECHO_SLACK = 2000;
 // scope -> {records, consumed}: owner messages accepted by the backend whose transcript entry has not been seen yet. Browser-only and
 // presentation-only: a record keeps the sent text visible until its exact native user entry arrives, and never touches receipts.
 const GLOBAL_CHAT_ACCEPTED = new Map();
@@ -75,20 +81,35 @@ function globalChatReadable(agentId) {
   const scroll = root.querySelector('.gchat-scroll');
   return !!scroll && scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 48;
 }
-const GLOBAL_CHAT_PAGE = 50;
+const GLOBAL_CHAT_PAGE = 30;
+// Older messages arrive in small chunks as the reader scrolls up.
+const GLOBAL_CHAT_OLDER = 10;
+// A long-open chat stays fast: at the bottom, once more than MAX entries are loaded, the oldest are dropped until KEEP remain (see `trimLoaded`).
+const GLOBAL_CHAT_LOADED_MAX = 100;
+const GLOBAL_CHAT_LOADED_KEEP = 50;
+// The record thread the Chat area shows now (null: none). The record reader's thread button (js/record-workspace.js) follows it.
+let globalChatPaired = null;
+function globalChatPairedSource() { return globalChatPaired; }
+function globalChatPairedNotify(source) {
+  globalChatPaired = source ? {type: source.type, id: source.id, business_id: source.business_id ?? null} : null;
+  window.dispatchEvent(new CustomEvent('global-chat-paired', {detail: globalChatPaired}));
+}
 const GLOBAL_CHAT_MAX = 17000;
 // Refusals store no input; any other failure leaves the outcome unknown and keeps the send identity.
-const GLOBAL_CHAT_REFUSALS = new Set(['terminal_offline', 'capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
-  'unsupported_runtime', 'terminal_changed', 'terminal_required', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict']);
+const GLOBAL_CHAT_REFUSALS = new Set(['capture_disabled', 'capture_not_ready', 'binding_not_ready', 'operation_unavailable',
+  'unsupported_runtime', 'terminal_changed', 'validation_error', 'not_found', 'forbidden', 'idempotency_conflict',
+  'managed_command', 'session_closed', 'driver_unavailable', 'cli_unavailable', 'cli_not_signed_in', 'resume_failed', 'resume_unavailable', 'open_timeout', 'open_busy',
+  'session_opening', 'host_unverified', 'terminal_offline', 'terminal_required', 'terminal_present', 'terminal_mode_off', 'runtime_switching']);
 const GLOBAL_CHAT_REFUSAL_TEXT = {
-  terminal_offline: 'Not running. Start or resume it in Terminal, then send again.',
   capture_disabled: 'Chat unavailable.',
   capture_not_ready: 'Connecting. Try again in a moment.',
   binding_not_ready: 'Connecting. Try again in a moment.',
   terminal_changed: 'Not delivered. Check the agent and try again.',
-  terminal_required: 'This command runs only in the agent’s Terminal. Open Terminal and run it there.',
+  managed_command: 'This command isn’t available when Qorqbot runs the agent.',
+  session_closed: 'Not running. Send the message again to start it.',
+  driver_unavailable: 'Couldn’t start. Check in Settings that Claude Code or Codex is connected, then send again.',
 };
-const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', bootstrap_recovery: 'Session recovery', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
+const GLOBAL_CHAT_INPUT_LABEL = {inbox_nudge: 'Inbox nudge', bootstrap_recovery: 'Session recovery', context_compacted: 'Context compacted', telegram: 'Telegram', broadcast: 'Broadcast', direct_message: 'Direct message'};
 const GLOBAL_CHAT_INPUT_STATE = {
   waiting: 'Waiting',
   submitting: 'Sending…',
@@ -98,67 +119,48 @@ const GLOBAL_CHAT_INPUT_STATE = {
   undelivered: 'Not delivered',
 };
 // The expanded text of an inbox nudge or session recovery is system-generated and technical: the timeline shows only its compact marker.
-const globalChatMarkerOnly = type => type === 'inbox_nudge' || type === 'bootstrap_recovery';
+// `context_compacted` is no backend input: it is Chat's own marker where a conversation continues an earlier one (`compactionMarker`).
+const globalChatMarkerOnly = type => type === 'inbox_nudge' || type === 'bootstrap_recovery' || type === 'context_compacted';
 const globalChatNoticeLabel = system => !system ? 'System notice'
   : system.verified ? GLOBAL_CHAT_INPUT_LABEL[system.input_type] || 'System notice'
   : 'Unverified notice';
 const globalChatBase = id => `/root/agents/${encodeURIComponent(id)}/chat`;
 const globalChatHasContext = agent => ['ordubashy','global-worker'].includes(agent.role?.id || agent.role_id);
 // ---- the mount
-function globalChatViewToggle(terminal = false) {
-  return `<div class="gchat-view-toggle" role="group" aria-label="Agent view">
-    <button type="button" class="ttab" data-chat-return aria-label="Chat" aria-pressed="${!terminal}" ${terminal ? '' : 'disabled'}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
-    <button type="button" class="ttab" data-terminal aria-label="Terminal" aria-pressed="${terminal}" ${terminal ? 'disabled' : ''}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"/></svg></button>
-  </div>`;
-}
-
-// One Chat/Terminal lifecycle for any registered agent, on the Global page and in a business workspace.
-// `agent.agent_id` is the registered id the chat API needs; `terminal.key`/`terminal.base` name the exact existing terminal route.
-// Keep the current agent’s two views mounted across toggles; navigation/dispose releases both streams.
-// opts: {terminal: {key, base?}, isCurrent(): bool, onTerminalStatus(status), view: 'chat'|'terminal'}
+// One Chat for any registered agent, on the Global page and in a business workspace.
+// `agent.agent_id` is the registered id the chat API needs. Navigation/dispose releases its stream.
+// opts: {isCurrent(): bool}
 let globalAgentViewActive = null;
 // Shown when a thread in the Chat area cannot close yet (Chat, another thread, or leaving Focus).
 const PAIRED_THREAD_BUSY = 'Wait for the message to send, or save the signoff, before leaving this thread.';
 function agentViewDispose() { globalAgentViewActive?.dispose(); }
-function mountAgentView(pane, agent, opts) {
+function mountAgentView(pane, agent, opts = {}) {
   agentViewDispose();
-  let chat = null, closeTerminal = null, disposed = false;
-  const chatHost = document.createElement('div'), terminalHost = document.createElement('div');
-  for (const host of [chatHost, terminalHost]) { host.className = 'gchat-view-host'; host.hidden = true; }
-  pane.replaceChildren(chatHost, terminalHost);
-  // Release a legacy viewer once on entry, not when returning to this agent's warm Chat.
-  if (typeof teardownTerm === 'function') teardownTerm();
+  // Terminals mode: a second host for the Terminal view and the Chat/Terminal switch live in js/agent-terminal-view.js.
+  if (typeof agentTerminalView !== 'undefined' && agentTerminalView.on()) {
+    return agentTerminalView.mountView(pane, agent, opts, {mountChat: mountGlobalChat, openReference: globalChatOpenFocusReference,
+      adopt: view => { globalAgentViewActive = view; }, release: view => { if (globalAgentViewActive === view) globalAgentViewActive = null; }});
+  }
+  let chat = null, disposed = false;
+  const chatHost = document.createElement('div');
+  chatHost.className = 'gchat-view-host';
+  pane.replaceChildren(chatHost);
   const current = () => !disposed && (!opts.isCurrent || opts.isCurrent());
   const showChat = () => {
     if (!current()) return;
-    terminalHost.hidden = true; chatHost.hidden = false;
+    chatHost.hidden = false;
     if (chat) return;
     const originAgentId = String(agent.agent_id ?? '');
-    chat = mountGlobalChat(chatHost, agent, {openTerminal: showTerminal, openReference: ref => globalChatOpenFocusReference(ref, {
+    chat = mountGlobalChat(chatHost, agent, {openReference: ref => globalChatOpenFocusReference(ref, {
       agentId: originAgentId,
       isCurrent: () => current() && !chatHost.hidden,
     })});
   };
-  // Refresh explicitly replaces the terminal viewer; ordinary toggles retain its renderer and stream.
-  const showTerminal = (refresh = false) => {
-    if (!current()) return;
-    chatHost.hidden = true; terminalHost.hidden = false;
-    if (closeTerminal && !refresh) return;
-    closeTerminal?.();
-    const label = agent.display_name || agent.name;
-    terminalHost.innerHTML = `<div class="gchat-terminal"><div class="gchat-top"><span class="gchat-name">${esc(label)}</span><span class="gchat-status">Terminal</span></div><div class="gchat-session-switch">${globalChatViewToggle(true)}</div><div class="gchat-terminal-host"></div></div>`;
-    terminalHost.querySelector('[data-chat-return]').onclick = () => showChat();
-    const shellStatus = terminalHost.querySelector('.gchat-status');
-    closeTerminal = mountTerminal(opts.terminal.key, terminalHost.querySelector('.gchat-terminal-host'), status => {
-      shellStatus.textContent = status === 'ended' ? 'Terminal exited' : status === 'disconnected' ? 'Terminal disconnected' : 'Terminal';
-      opts.onTerminalStatus?.(status);
-    }, opts.terminal.base);
-  };
-  // Also clean up if navigation removes/replaces the hosts without explicitly disposing the view.
+  // Also clean up if navigation removes/replaces the host without explicitly disposing the view.
   const watcher = setInterval(() => {
-    if (!chatHost.isConnected || !terminalHost.isConnected || !current()) view.dispose();
+    if (!chatHost.isConnected || !current()) view.dispose();
   }, 2000);
-  const view = {showChat, showTerminal,
+  const view = {showChat,
     selectPairedSource(source, generation, onUnavailable, onReference, onBack) {
       if (disposed || !opts.isCurrent?.()) return false;
       if (chatHost.hidden) showChat();
@@ -179,12 +181,11 @@ function mountAgentView(pane, agent, opts) {
     if (disposed) return;
     disposed = true; clearInterval(watcher);
     chat?.dispose(); chat = null;
-    closeTerminal?.(); closeTerminal = null;
-    chatHost.remove(); terminalHost.remove();
+    chatHost.remove();
     if (globalAgentViewActive === view) globalAgentViewActive = null;
   }};
   globalAgentViewActive = view;
-  (opts.view === 'terminal' ? showTerminal : showChat)();
+  showChat();
   return view;
 }
 
@@ -193,6 +194,9 @@ function mountAgentView(pane, agent, opts) {
 function mountGlobalChat(pane, agent, options = {}) {
   const agentId = agent.agent_id, base = globalChatBase(agentId), label = agent.display_name || agent.name || 'Agent';
   const entries = new Map();                     // entry id -> entry
+  // Earlier conversations loaded above this one, oldest first: {conversation, entries: Map, older}. View-only: a compaction closed each of
+  // them, and nothing here sends to, acknowledges or matches against them.
+  const earlier = [];
   let session = null, conversation = null, inputs = [], older = null, shown, clears = 0, shownInputs = [];
   let cursor = 0, lastRead = 0, composerScope = null, hasLocal = false;
   let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
@@ -205,17 +209,19 @@ function mountGlobalChat(pane, agent, options = {}) {
   const cleanups = [];
   const reads = new AbortController();
 
-  // Native shell: view switch and the session line stay here; every message, composer and preview is the shared view.
+  // Native shell: the session line stays here; every message, composer and preview is the shared view.
   const hasContext=globalChatHasContext(agent);
-  const controls=options.openTerminal ? `<div class="gchat-session-switch">${globalChatViewToggle()}</div>` : '';
-  pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">
-    ${controls}
-  </div>`;
+  // Managed runtime (js/agent-runtime.js): the Stop, activity and question block is built with the first session read.
+  let managedBar = null;
+  // Terminals mode only: the Chat/Terminal switch (options.openTerminal comes from the Terminal view and from nowhere else).
+  const terminalSync = {};
+  const controls = options.openTerminal && typeof agentTerminalView !== 'undefined' ? `<div class="gchat-session-switch">${agentTerminalView.toggleHtml()}</div>` : '';
+  pane.innerHTML = `<div class="gchat" data-global-chat="${esc(agentId)}">${controls}</div>`;
   const root = pane.firstElementChild;
   const $q = selector => root.querySelector(selector);
   const sessionLine = document.createElement('div');
   sessionLine.className = 'gchat-session'; sessionLine.setAttribute('role', 'status'); sessionLine.setAttribute('aria-live', 'polite'); sessionLine.dataset.state = 'loading';
-  sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-dot" aria-hidden="true"></span><span class="gchat-session-text">Loading…</span>`;
+  sessionLine.innerHTML = `<span class="gchat-working-tag" role="img" aria-label="${esc(label)} is working" hidden><span class="gchat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span></span><span class="gchat-session-text">Loading…</span>`;
   const sessionText = sessionLine.querySelector('.gchat-session-text');
   const workingTag = sessionLine.querySelector('.gchat-working-tag');
 
@@ -260,7 +266,10 @@ function mountGlobalChat(pane, agent, options = {}) {
 
   // ---- normalization: the transcript entries and the application inputs not yet confirmed by the transcript
   // The list is the transcript; entries are keyed by their stable id and ordered by archive position.
-  const presentEntry = entry => ({
+  // The client's own record of a Stop ("[Request interrupted by user]", with or without "for tool use") is not something the owner said:
+  // older transcripts hold it as a user entry. It reads as a quiet centred notice, like the other system lines.
+  const presentEntry = entry => entry.speaker === 'user' && /^\[Request interrupted by user(?: for tool use)?\]$/.test(String(entry.text ?? '').trim()) ? {key: entry.id, speaker: 'notice', text: 'Stopped.', timestamp: entry.timestamp, partial: false, position: entry.position,
+    typedReferences: [], collapsedSource: null, notice: {label: '', inputType: null, markerOnly: false}} : ({
     key: entry.id, speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp, partial: entry.partial === true, position: entry.position,
     typedReferences: Array.isArray(entry.references) ? entry.references : [],
     collapsedSource: ((entry.speaker === 'user' && /^(?:\[telegram\](?:\s|$)|Qorqut owner (?:message|reply) via Telegram\b)/i.test((entry.text || '').trimStart()))
@@ -298,9 +307,17 @@ function mountGlobalChat(pane, agent, options = {}) {
       return {...presentEntry(first), text: '', notice: {label: 'Activity', verified: true, markerOnly: true, activity: {nudgeCount, recipients}}};
     });
   }
-  const orderedEntries = () => groupActivity([...entries.values()].sort((a, b) => a.position - b.position));
+  // A conversation opened by a compaction continues an earlier one: once it is loaded to its own top, a compact marker stands there.
+  const compactionMarker = part => part.conversation?.continues && part.older == null ? [{id: `compacted:${globalChatKey(part.conversation)}`, speaker: 'notice', text: '',
+    timestamp: part.conversation.continues.at, system: {verified: true, input_type: 'context_compacted'}}] : [];
+  // Each conversation in its own position order, the oldest conversation first: a position is only comparable inside one conversation.
+  const orderedEntries = (parts = [{entries}]) => groupActivity(parts.flatMap(part => [...compactionMarker(part), ...[...part.entries.values()].sort((a, b) => a.position - b.position)]));
   const newestPosition = () => { let top = -1; for (const entry of entries.values()) top = Math.max(top, entry.position); return top; };
   const viewedKey = () => globalChatKey(conversation);
+  // Everything loaded, oldest first: the earlier conversations, then the one Chat follows. Only the first can load more: its next older
+  // page, or at its own top the conversation it continues.
+  const loadedParts = () => [...earlier, {conversation, entries, older}];
+  const olderAbove = () => { const top = loadedParts()[0]; return top.older != null || !!top.conversation?.continues; };
   // The live session's exact binding; a conversation is sendable only when it is the one displayed.
   const liveBinding = () => session?.binding || null;
   const viewingLive = () => !!liveBinding() && globalChatKey(liveBinding()) === viewedKey();
@@ -332,7 +349,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     // A verified notice entry already is its input's receipt: never show the same input a second time.
     const noticeIds = new Set([...entries.values()].map(entry => entry.system?.input_id).filter(Boolean));
     shownInputs = inputs.filter(item => inputVisible(item, noticeIds)).sort((a, b) => a.sequence - b.sequence);
-    const local = acceptedBubbles(new Set(shownInputs.map(item => item.id)));
+    const local = [...acceptedBubbles(new Set(shownInputs.map(item => item.id))), ...openingBubble()];
     hasLocal = local.length > 0;
     const server = presentReceipts();
     return local.length ? [...server.map((model, i) => ({sequence: shownInputs[i].sequence, model})), ...local].sort((a, b) => a.sequence - b.sequence).map(row => row.model) : server;
@@ -349,7 +366,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       const echo = users.find(entry => {
         const at = Date.parse(entry.timestamp);
         return !held.consumed.has(entry.id) && entry.position > record.position && globalChatText(entry.text) === globalChatText(record.text)
-          && !(Number.isFinite(at) && Number.isFinite(record.createdAt) && at < record.createdAt);
+          && !(Number.isFinite(at) && Number.isFinite(record.createdAt) && at < record.createdAt - GLOBAL_CHAT_ECHO_SLACK);
       });
       if (echo) { held.consumed.add(echo.id); record.entry = echo.id; }
       // A slash command is done once it is typed: Codex records no entry for it, and Claude may record an alias.
@@ -362,6 +379,19 @@ function mountGlobalChat(pane, agent, options = {}) {
       collapsedSource: null, text: record.text, actions: [],
     }}));
   }
+  // The owner's message while it opens a sleeping or off agent (about 15 seconds): it is in the conversation at once, in the style of a
+  // message being sent, and is replaced by the accepted bubble and then by the transcript's own entry. It is hidden as soon as the
+  // transcript already holds that entry, so nothing shows twice.
+  function openingBubble() {
+    const held = GLOBAL_CHAT_OPENING.get(agentId);
+    if (!held) return [];
+    const want = globalChatText(held.probe);
+    const echoed = want && [...entries.values()].some(entry => entry.speaker === 'user' && entry.position > held.position
+      && globalChatText(entry.text).startsWith(want) && !(Number.isFinite(Date.parse(entry.timestamp)) && Date.parse(entry.timestamp) < held.at - 2000));
+    if (echoed) return [];
+    return [{sequence: Number.MAX_SAFE_INTEGER, model: {key: `opening-${agentId}`, speaker: 'user', state: 'submitting', stateLabel: GLOBAL_CHAT_INPUT_STATE.submitting,
+      inputType: 'chat', resendable: false, collapsedSource: null, text: held.text, actions: []}}];
+  }
   function presentReceipts() {
     return shownInputs.map(item => {
       const system = item.origin === 'system', kind = GLOBAL_CHAT_INPUT_LABEL[item.input_type] || (system ? 'System notice' : '');
@@ -373,7 +403,8 @@ function mountGlobalChat(pane, agent, options = {}) {
         text: globalChatMarkerOnly(item.input_type) ? '' : item.body ?? (item.input_type === 'telegram' ? 'Private message' : ''),
         ...(kind ? {notice: {label: kind}} : {}),
         actions: [
-          ...(resendable ? [{key: 'resend', label: 'Resend', disabled: !session?.can_send || GLOBAL_CHAT_RESENDS.get(item.id)?.pending === true}] : []),
+          ...(resendable ? [{key: 'resend', label: 'Resend', disabled: !session?.can_send || GLOBAL_CHAT_RESENDS.get(item.id)?.pending === true,
+            title: GLOBAL_CHAT_RESENDS.get(item.id)?.pending === true ? 'Sending again…' : `${label} isn’t available right now.`}] : []),
           ...(dismissable ? [{key: 'dismiss', label: 'Dismiss'}] : []),
         ],
       };
@@ -381,81 +412,120 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
 
   // ---- session status, composer enablement and the empty state
-  const canSend = () => !pairedHost && !!session?.can_send && viewingLive() && !finished;
+  // A closed managed agent has no binding to pin: sending a message opens its session.
+  // A terminal agent that is not running receives nothing: a message goes only to the live conversation.
+  const canSend = () => !pairedHost && !!session?.can_send
+    && (viewingLive() || (!(typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)) && agentRuntime.canOpen(session))) && !finished;
   const selectedFiles = () => GLOBAL_CHAT_FILES.get(composerScope) || [];
-  function sessionSummary() {
-    if (!session) return {key: 'loading', line: ''};
-    if (session.state === 'live' && session.can_send && !viewingLive()) return {key: 'starting', line: ''};
-    if (session.state === 'live') {
-      if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
-      if (session.reason === 'binding_not_ready') return {key: 'starting', line: ''};
-      if (session.reason === 'capture_not_ready') return {key: 'starting', line: ''};
-      return {key: session.working ? 'working' : 'live', line: ''};
-    }
-    const direction = ['other_conversation', 'selection_required', 'registering'].includes(session.reason) ? 'Connecting to the conversation in Terminal…'
-      : `${startHint()}.`;
-    if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
-    if (session.reason === 'unsupported_runtime') return {key: 'offline', line: ''};
-    return {key: 'offline', line: direction};
-  }
+  // What the conversation holds, and whether a message that starts the session is on its way: the wording of the session line.
+  const hasHistory = () => entries.size > 0 || shownInputs.length > 0 || hasLocal;
+  const sessionSummary = () => session && typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)
+    ? agentTerminalView.summary(session, label, viewingLive()) : session ? agentRuntime.summary(session, label, viewingLive(), {history: hasHistory(),
+    opening: agentRuntime.closed(session) && (GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId))}) : {key: 'loading', line: ''};
   // ---- slash commands: the catalog for the CLI this session runs
   const commandCatalogs = new Map();
   let slashMenu = null;
   function commandCatalog() {
-    const provider = session?.provider;
+    const provider = session ? session.provider || 'claude' : null;
     if (!provider) return null;
     if (!commandCatalogs.has(provider)) {
       commandCatalogs.set(provider, null);
       api(`${base}/commands?client=${encodeURIComponent(provider)}`)
-        .then(data => { if (!disposed) { commandCatalogs.set(provider, coreData(data).commands || []); slashMenu?.refresh(); } })
+        .then(data => {
+          if (disposed) return;
+          // A terminal agent's menu commands are finished in its Terminal: they are offered, not refused.
+          const list = coreData(data).commands || [];
+          commandCatalogs.set(provider, typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session) ? agentTerminalView.catalog(list) : list);
+          slashMenu?.refresh();
+        })
         .catch(() => commandCatalogs.delete(provider));
     }
     return commandCatalogs.get(provider);
   }
-  // Names the programs that connect: any supported CLI started in this agent's own terminal, the agent's default first.
-  function startHint() {
-    const commands = session?.launch_commands || [];
-    return commands.length ? `Open the terminal (>_) and run ${commands.join(' or ')} to start ${label}` : `Start or resume ${label} in Terminal`;
-  }
   function emptyState() {
     if (entries.size || shownInputs.length || hasLocal || !session) return {text: '', action: null};
     const key = sessionSummary().key;
+    if (typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)) return agentTerminalView.emptyState(session, label, key, options.openTerminal);
     if (key === 'live' || key === 'working') return {text: 'Your agent conversation appears here.', action: null};
-    if (key === 'starting') return {text: 'Connecting…', action: null};
+    if (key === 'closed' || key === 'off' || key === 'offline') return {text: agentRuntime.emptyText(session, label), action: null};
+    if (key === 'starting') return {text: `Starting ${label}…`, action: null};
     if (key === 'disabled') return {text: 'Chat unavailable.', action: null};
-    return {text: `${startHint()}. Its conversation will appear here.`, action: options.openTerminal ? {key: 'terminal', label: 'Open terminal'} : null};
+    return {text: '', action: null};
   }
+  // ---- managed runtime: Stop, the activity line and the cards follow the session
+  const runtimeSend = async (path, body) => coreData(await post(`${base}${path}`, body));
+  function syncManaged() {
+    // A terminal agent has no managed session: no Stop block, no activity line, no question cards.
+    const terminal = typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session);
+    if (session && !terminal && !managedBar && sessionLine.parentNode) {
+      // Stop lives in the composer (Send turns into Stop while the agent works and nothing is typed), not on the activity line.
+      managedBar = agentRuntime.createBar({label, send: runtimeSend, binding: () => liveBinding()?.binding_id || null,
+        onChange: () => { paintSession(); void load(); }, onError: showBanner, stopHere: false});
+      sessionLine.parentNode.insertBefore(managedBar.el, sessionLine);
+      cleanups.push(() => managedBar?.dispose());
+      // The model and effort pill sits at the bottom left of the composer (js/chat-model-picker.js).
+      const form = view?.elements?.composer;
+      if (form && typeof chatModelPicker !== 'undefined') {
+        const picker = chatModelPicker.mount({base, label, read: async path => coreData(await api(path)), write: async (path, body) => coreData(await post(path, body)),
+          onError: showBanner});
+        form.insertBefore(picker.el, form.querySelector('.gchat-attach, .gchat-mic, .gchat-send'));
+        cleanups.push(() => picker.dispose());
+      }
+    }
+    // In Ordubashy's own chat the activity line (what it is doing, Stop) sits in the focus strip, where the focus intent is.
+    if (managedBar) contextStatus?.hostActivity(managedBar.line);
+    managedBar?.update(session);
+    contextStatus?.paintActivity();
+  }
+  // The session line says what the empty conversation does not already say in the middle of the pane.
+  const sessionLineText = (summary, hint) => hint.text && ['closed', 'off', 'starting'].includes(summary.key) ? '' : summary.line;
   // One repaint: the native status line, then every presentation field the view displays. `patch` adds fields such as the entries.
   function paint(patch = {}, scroll = 'preserve') {
     if (disposed) return;
     const summary = sessionSummary(), working = summary.key === 'working' && !streamDown && !finished;
+    const terminal = typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session);
     sessionLine.dataset.state = streamDown && summary.key === 'working' ? 'live' : summary.key;
     sessionLine.classList.toggle('gchat-session-working', working);
-    // An empty conversation already shows the same direction, with its button, in the middle of the pane.
-    sessionText.textContent = finished ? 'This chat is no longer available.' : emptyState().action ? '' : summary.line;
-    workingTag.hidden = !working;
+    // An empty conversation already shows the same direction in the middle of the pane.
+    const hint = emptyState();
+    sessionText.textContent = finished ? 'This chat is no longer available.' : terminal ? agentTerminalView.sessionLineText(summary, hint) : sessionLineText(summary, hint);
+    // The activity line (Stop, what the agent is doing) already shows the dots while it is there.
+    workingTag.hidden = !working || !!agentRuntime.activity(session).text;
     contextStatus?.show();
-    sessionLine.hidden = !sessionText.textContent && (!working || workingTag.parentElement !== sessionLine);
-    const enabled = canSend(), sending = GLOBAL_CHAT_INFLIGHT.has(composerScope);
+    // The question card and the activity line take room from the message list. Whether the owner was at the end of it is read before
+    // they appear, so the list stays at its end (the last message is never under the card) and a list scrolled up stays where it is.
+    const pinned = !!view?.isAtBottom?.();
+    syncManaged();
+    if (options.openTerminal && typeof agentTerminalView !== 'undefined') agentTerminalView.syncChat(root, session, options, terminalSync);
+    sessionLine.hidden = !sessionText.textContent && (workingTag.hidden || workingTag.parentElement !== sessionLine);
+    const enabled = canSend(), sending = opening.busy(composerScope) || opening.holds();
+    // A message that opens the session is on its way: every control that is off says the one thing, "Starting <agent>…", until the
+    // session is open. Once it runs, nothing says it is starting, and the composer is free again (see `opening.after`).
+    const starting = !terminal && agentRuntime.closed(session) && (GLOBAL_CHAT_OPENING.has(agentId) || GLOBAL_CHAT_INFLIGHT.has(composerScope));
+    const unavailable = () => terminal ? agentTerminalView.unavailableText(session, label, {finished, paired: !!pairedHost})
+      : agentRuntime.unavailableText(session, label, {finished, paired: !!pairedHost, opening: starting});
     const pending = presentInputs();
     view.render({
       ...patch, pending,
       composer: {inputDisabled: !enabled, sendDisabled: !enabled || sending, filesDisabled: !enabled || sending,
+        stop: !terminal && !finished && !pairedHost && viewingLive() && agentRuntime.activity(session).stop,
+        stopDisabled: !!managedBar?.stopping, stopTitle: managedBar?.stopping ? 'Stopping…' : `Stop what ${label} is doing`,
+        disabledReason: enabled ? '' : unavailable(),
+        sendingReason: starting ? `Starting ${label}…` : 'Sending your message…', filesReason: starting ? `Starting ${label}…` : 'Wait until your message is sent.',
         attachments: selectedFiles().map(file => ({key: file.key, name: file.file.name})),
-        placeholder: enabled || !session ? `Message ${label}…` : 'Not available to send'},
-      older: {visible: older != null, disabled: olderBusy},
+        placeholder: enabled || !session ? agentRuntime.placeholder(session, label, hasHistory()) : unavailable()},
+      older: {visible: olderAbove(), disabled: olderBusy},
       empty: emptyState(),
     }, {scroll});
+    if (pinned && !view.isAtBottom()) view.scrollToBottom();
     // Load the slash command catalog as soon as the running CLI is known, so "/" lists commands at once.
     if (session?.provider) commandCatalog();
   }
-  const paintEntries = scroll => paint({entries: orderedEntries()}, scroll);
+  const paintEntries = scroll => paint({entries: orderedEntries(loadedParts())}, scroll);
   const paintInputs = () => paint();
   const paintSession = () => paint();
   const showBanner = text => { bannerText = text || ''; reconnecting = false; view.render({banner: {text: bannerText}}); };
-  listen(root, 'click', event => {
-    if (event.target.closest('[data-terminal]')) options.openTerminal?.();
-  });
+  if (options.openTerminal) listen(root, 'click', event => { if (event.target.closest('[data-terminal]')) options.openTerminal(); });
 
   // Drops the displayed page and its session so nothing stale can be read, sent or acknowledged until a fresh successful state
   // arrives. The unsent draft stays in its conversation-specific store.
@@ -463,13 +533,13 @@ function mountGlobalChat(pane, agent, options = {}) {
     saveDraft(); composerScope = null; view.setDraft('');
     reading = 0; clearTimeout(readTimer);
     session = null; conversation = null; inputs = []; older = null; shown = undefined;
-    clears++; entries.clear();
+    clears++; entries.clear(); earlier.length = 0;
     paint({entries: []});
   }
 
   // ---- composer: the draft and the unconfirmed send are bound to this exact agent, provider and conversation
   function bindComposer() {
-    const next = globalChatScope(agentId, conversation);
+    const next = globalChatScope(agentId, conversation) || (agentRuntime.canOpen(session) ? `${agentId}\nmanaged` : null);
     if (next === composerScope) return;
     composerScope = next;
     view.setDraft(next ? GLOBAL_CHAT_DRAFTS.get(next) || '' : '');
@@ -485,9 +555,72 @@ function mountGlobalChat(pane, agent, options = {}) {
     });
   }
   const saveDraft = () => { if (!composerScope) return; const text = view.getDraft(); if (text) GLOBAL_CHAT_DRAFTS.set(composerScope, text); else GLOBAL_CHAT_DRAFTS.delete(composerScope); };
-  const refusalText = problem => GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
+  const refusalText = problem => problem.offered ? '' : (typeof agentTerminalView !== 'undefined' && agentTerminalView.refusalText(session, problem.code))
+    || agentRuntime.refusalText(problem.code, problem.serverMessage) || GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
   // One admission request. The result is recorded in module state so a mount that was left meanwhile loses nothing.
-  const admit = async (text, key, pin) => coreData(await post(`${base}/messages`, {text, idempotency_key: key, expected_binding: pin}));
+  // A closed managed agent has no session to pin: the message goes without a binding and opens one.
+  // The owner's explicit choice to start a fresh conversation instead of the one that can't be continued: the next request (and its
+  // retries, which keep their key) is sent with ``new_conversation``; ``key`` is bound when that request is first made.
+  // A message to a closed session: the owner sees it at once, the composer is empty meanwhile, and a failed open puts the text back.
+  // The request that opens the session can take a while to be confirmed after the session already runs (the server waits for the
+  // session to be bound). The composer is held only while the session is still closed; once it runs, the owner can type and send,
+  // and what is sent then waits for the opening message and goes after it (`after`), so the two never swap places.
+  const opening = {
+    holds: () => GLOBAL_CHAT_OPENING.has(agentId) && agentRuntime.closed(session),
+    // A send in flight holds its composer, except the one that opened the session once the session runs.
+    busy(scope) {
+      const sending = GLOBAL_CHAT_INFLIGHT.get(scope);
+      return !!sending && !(sending.opening && !agentRuntime.closed(session));
+    },
+    // The opening that is still being confirmed while the session already runs: {promise, sent}, or null.
+    after: () => (agentRuntime.closed(session) ? null : GLOBAL_CHAT_OPENING.get(agentId) || null),
+    // The opening's record ({text, probe, at, position}, then `promise` and `sent`), or false when this message opens nothing.
+    start(text, attempt) {
+      if (attempt.pin !== null || !agentRuntime.closed(session)) return false;
+      const names = attempt.files.map(item => item.file.name).join(', ');
+      const record = {text: text.trim() ? text : names, probe: text.trim() ? text : '', at: Date.now(), position: attempt.position, sent: false};
+      GLOBAL_CHAT_OPENING.set(agentId, record);
+      if (composerScope) GLOBAL_CHAT_DRAFTS.delete(composerScope);
+      if (view.getDraft() === text) view.setDraft('');
+      return record;
+    },
+    // Nothing the owner typed is lost: the text returns to the composer (ahead of anything typed meanwhile).
+    restore(scope, text) {
+      const target = live() && composerScope ? composerScope : scope;
+      const now = live() && composerScope === target ? view.getDraft() : GLOBAL_CHAT_DRAFTS.get(target) || '';
+      const draft = !now.trim() ? text : now.includes(text) ? now : `${text}\n${now}`;
+      GLOBAL_CHAT_DRAFTS.set(target, draft);
+      if (live() && composerScope === target) view.setDraft(draft);
+    },
+    end() { GLOBAL_CHAT_OPENING.delete(agentId); },
+    // A file opened the session: the message that follows names the binding that came up, as a message to an open session does.
+    async pin() {
+      try { return coreData(await api(stateUrl(), {signal: reads.signal})).session?.binding?.binding_id || null; } catch (_) { return null; }
+    },
+  };
+  let freshChoice = null;
+  async function startFresh(text) {
+    freshChoice = {key: null};
+    try { await submit(text); } finally { if (freshChoice && freshChoice.key === null) freshChoice = null; }
+  }
+  const admit = async (text, key, pin) => {
+    if (freshChoice && freshChoice.key && freshChoice.key !== key) freshChoice = null;
+    const fresh = !!freshChoice && !pin && (freshChoice.key ??= key) === key;
+    try {
+      const result = coreData(await post(`${base}/messages`, {text, idempotency_key: key, ...(pin ? {expected_binding: pin} : {}), ...(fresh ? {new_conversation: true} : {})}));
+      if (fresh) freshChoice = null;
+      managedBar?.clearOffer();
+      return result;
+    } catch (problem) {
+      // "Not yet" refusals (still starting, host busy) keep the request as it is, key and all; a refusal about the earlier
+      // conversation offers the owner a new one, and says so beside the composer instead of in the banner.
+      if (agentRuntime.isRetryable(problem?.code)) problem.keepAttempt = true;
+      else if (fresh) freshChoice = null;
+      const offer = managedBar ? agentRuntime.newConversationOffer(problem?.code) : null;
+      if (offer) { problem.offered = true; managedBar.offer(offer, () => { const draft = live() ? view.getDraft() : ''; if (draft.trim()) void startFresh(draft); }); }
+      throw problem;
+    }
+  };
   function takeInput(item) {
     if (!item || !live()) return;
     inputs = [item, ...inputs.filter(old => old.id !== item.id)];
@@ -498,17 +631,35 @@ function mountGlobalChat(pane, agent, options = {}) {
   async function submit(text) {
     const mine = composerScope;
     const files = [...selectedFiles()], fileKey = files.map(file => file.key).join(',');
-    if (!mine || !text.trim() && !files.length || !canSend() || GLOBAL_CHAT_INFLIGHT.has(mine)) return;
+    if (!mine || !text.trim() && !files.length || !canSend() || opening.busy(mine) || opening.holds()) return;
+    // The session runs but the message that opened it is not confirmed yet: this one is sent after it, never before it, and only when it
+    // went through (a failed open puts its text back in the composer ahead of this one, and the owner sends them again).
+    const earlier = opening.after();
+    if (earlier) {
+      const waiting = {text, promise: Promise.resolve(earlier.promise).then(() => earlier.sent === true)};
+      GLOBAL_CHAT_INFLIGHT.set(mine, waiting);
+      paintSession();
+      const sent = await waiting.promise;
+      if (GLOBAL_CHAT_INFLIGHT.get(mine) === waiting) GLOBAL_CHAT_INFLIGHT.delete(mine);
+      if (!live()) return;
+      paintSession();
+      if (sent) await submit(text);
+      return;
+    }
     // A known slash command is judged for the session it is sent to, before anything is uploaded or sent. A shared Codex server
     // cannot run it: the draft and attachments stay as they are and the owner is told where it runs (the backend refuses it too).
-    const slash = slashCommands.command(commandCatalog() || [], text), provider = session?.provider;
-    const refusal = slashCommands.sharedServerRefusal(session, slash, label);
+    const slash = slashCommands.command(commandCatalog() || [], text);
+    const refusal = slashCommands.refusal(session, slash, label);
     if (refusal) { showBanner(refusal); return; }
     // A retry of the same text reuses its key and its original binding pin, so a lost response can never become a second
     // message or move to another session. Only a deliberate new send takes the binding observed now.
     let attempt = GLOBAL_CHAT_SENDS.get(mine);
-    if (!attempt || attempt.text !== text || attempt.fileKey !== fileKey) attempt = {text, fileKey, files, key: newRequestId(), pin: liveBinding().binding_id, position: newestPosition()};
+    if (!attempt || attempt.text !== text || attempt.fileKey !== fileKey) attempt = {text, fileKey, files, key: newRequestId(), pin: liveBinding()?.binding_id ?? null, position: newestPosition()};
     GLOBAL_CHAT_SENDS.set(mine, attempt);
+    const opened = opening.start(text, attempt);
+    // Recorded before the request starts, so a request that ends at once (nothing awaited) also clears it.
+    const flight = {text, opening: !!opened};
+    GLOBAL_CHAT_INFLIGHT.set(mine, flight);
     const run = (async () => {
       try {
         const references = [];
@@ -517,22 +668,31 @@ function mountGlobalChat(pane, agent, options = {}) {
             try {
               item.saved = coreData(await api(`${base}/attachments`, {method: 'POST',
                 headers: {'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(item.file.name),
-                  'Idempotency-Key': `${item.key}:${attempt.pin}`, 'X-Chat-Binding': attempt.pin}, body: item.file}));
+                  'Idempotency-Key': `${item.key}:${attempt.pin}`, ...(attempt.pin ? {'X-Chat-Binding': attempt.pin} : {})}, body: item.file}));
               item.savedPin = attempt.pin;
             } catch (error) { error.attachment = true; throw error; }
+            // The first file for a sleeping agent opened its session: the files after it, and the message, name the binding that came up.
+            if (attempt.pin === null) {
+              const pin = await opening.pin();
+              if (pin) { attempt.pin = pin; for (const other of attempt.files) if (other.saved) other.savedPin = pin; }
+            }
           }
           references.push(item.saved.reference);
+        }
+        if (attempt.pin === null && references.length) {
+          const pin = await opening.pin();
+          if (pin) { attempt.pin = pin; for (const item of attempt.files) item.savedPin = pin; }
         }
         const payload = references.length ? [text, references.join('\n')].filter(part => part.trim()).join('\n\n') : text;
         if (payload.length > GLOBAL_CHAT_MAX) {
           const error = new Error('Message too long'); error.attachment = true; error.code = 'message_too_long'; throw error;
         }
         const result = await admit(payload, attempt.key, attempt.pin);
+        if (opened) opened.sent = true;
         globalChatAccept(mine, payload, result.input, attempt.position, !!slash);
-        if (slashCommands.opensTerminal(slash, text, provider) && options.openTerminal) {
-          toast(`Finish ${slash.name} in ${label}’s Terminal.`);
-          options.openTerminal();
-        }
+        if (typeof agentTerminalView !== 'undefined') agentTerminalView.finishInTerminal(slash, text, session, label, options.openTerminal, toast);
+        // A first message opens the conversation, so the composer may have moved to its scope meanwhile: the bubble follows it.
+        if (composerScope && composerScope !== mine) globalChatAccept(composerScope, payload, result.input, attempt.position, !!slash);
         if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine);
         if (GLOBAL_CHAT_DRAFTS.get(mine) === text) GLOBAL_CHAT_DRAFTS.delete(mine);
         const sent = new Set(attempt.files.map(file => file.key));
@@ -542,18 +702,25 @@ function mountGlobalChat(pane, agent, options = {}) {
         takeInput(result.input);
         if (live()) { view.scrollToBottom(); void load(); }
       } catch (problem) {
-        if (GLOBAL_CHAT_REFUSALS.has(problem.code)) { if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine); }
+        if (opened) opening.restore(mine, text);
+        // A refusal stores nothing, so its request is dropped; except one that is only "not yet" (``keepAttempt``, set by ``admit``: the
+        // session is still starting, or the host is busy): that request keeps its key, so the retry is the same message, never a
+        // second one and never a second open.
+        if (GLOBAL_CHAT_REFUSALS.has(problem.code) && !problem.keepAttempt) { if (GLOBAL_CHAT_SENDS.get(mine) === attempt) GLOBAL_CHAT_SENDS.delete(mine); }
         if (live() && composerScope === mine) showBanner(problem.code === 'message_too_long' ? 'Shorten your message and try again.'
           : problem.attachment ? "Couldn't attach the file. Try again."
           : GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem) : "Couldn't confirm. Try again");
-        if (problem.code === 'capture_not_ready' || problem.code === 'terminal_offline' || problem.code === 'terminal_changed') void load();
+        if (problem.code === 'capture_not_ready' || problem.code === 'terminal_changed' || problem.code === 'terminal_offline') void load();
       } finally {
-        GLOBAL_CHAT_INFLIGHT.delete(mine);
+        if (GLOBAL_CHAT_INFLIGHT.get(mine) === flight) GLOBAL_CHAT_INFLIGHT.delete(mine);
+        if (opened) opening.end();
         if (live()) paintSession();
       }
     })();
-    GLOBAL_CHAT_INFLIGHT.set(mine, {text, promise: run});
+    flight.promise = run;
+    if (opened) opened.promise = run;
     paintSession();
+    if (opened && live()) view.scrollToBottom();
     await run;
   }
   // A definitely undelivered input is resent only when the owner asks; the new send has its own key, stable across a retry.
@@ -571,46 +738,48 @@ function mountGlobalChat(pane, agent, options = {}) {
       showBanner(''); takeInput(result.input); void load();
     } catch (problem) {
       resend.pending = false;
-      if (GLOBAL_CHAT_REFUSALS.has(problem.code)) GLOBAL_CHAT_RESENDS.delete(id);
+      if (GLOBAL_CHAT_REFUSALS.has(problem.code) && !problem.keepAttempt) GLOBAL_CHAT_RESENDS.delete(id);
       if (live()) showBanner(GLOBAL_CHAT_REFUSALS.has(problem.code) ? refusalText(problem) : "Couldn't confirm. Try again");
     } finally { if (live()) paintSession(); }
   }
 
   view = mountChatView(root, {
     logLabel: `Conversation with ${label}`, composerLabel: `Message ${label}`, placeholder: `Message ${label}…`, maxLength: GLOBAL_CHAT_MAX,
-    olderLabel: 'Load older messages', footer: sessionLine,
+    olderOnScroll: true, footer: sessionLine,
     onDraft: () => {
       saveDraft();
       const pending = GLOBAL_CHAT_SENDS.get(composerScope);
       if (pending && pending.text !== view.getDraft() && !GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
     },
     onSubmit: text => submit(text),
+    onStop: () => { if (!managedBar) return; void managedBar.stop(); paintSession(); },
     onTask: openReference,
     onReference: openReference,
     onFilePreview: ref => agentFilePreviewOpen(ref),
     onFiles: files => {
-      if (!composerScope || !canSend() || GLOBAL_CHAT_INFLIGHT.has(composerScope) || !files.length) return;
+      if (!composerScope || !canSend() || opening.busy(composerScope) || opening.holds() || !files.length) return;
       if (files.length + selectedFiles().length > 10 || files.some(file => file.size > 25 * 1024 * 1024)) {
         showBanner('Choose up to 10 files, each 25 MB or smaller.'); return;
       }
       GLOBAL_CHAT_FILES.set(composerScope, [...selectedFiles(), ...files.map(file => ({key: newRequestId(), file}))]);
-      GLOBAL_CHAT_SENDS.delete(composerScope); showBanner(''); paintSession();
+      // The opening message still being confirmed keeps its request (and key) for a retry.
+      if (!GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
+      showBanner(''); paintSession();
     },
     onAttachmentRemove: key => {
-      if (!composerScope || GLOBAL_CHAT_INFLIGHT.has(composerScope)) return;
+      if (!composerScope || opening.busy(composerScope) || opening.holds()) return;
       GLOBAL_CHAT_FILES.set(composerScope, selectedFiles().filter(file => file.key !== key));
-      GLOBAL_CHAT_SENDS.delete(composerScope); paintSession();
+      if (!GLOBAL_CHAT_INFLIGHT.has(composerScope)) GLOBAL_CHAT_SENDS.delete(composerScope);
+      paintSession();
     },
     onOlder: () => loadOlder(),
     // A Signoff reference is the existing single-item Signoff view: the owner session, exact proposal and decisions stay its own.
     mountSignoff: (ref, host) => sgChatMount(ref, host, {active: () => !disposed}),
-    onViewportChange: scheduleRead,
+    onViewportChange: () => { scheduleRead(); queueTrim(); },
+    onEmptyAction: action => { if (action === 'terminal') options.openTerminal?.(); },
     onPendingAction: (action, id) => {
       if (action === 'resend') void resendInput(id);
       else if (action === 'dismiss') { GLOBAL_CHAT_HIDDEN.add(id); paintInputs(); }
-    },
-    onEmptyAction: action => {
-      if (action === 'terminal') options.openTerminal?.();
     },
   });
   paint();
@@ -624,11 +793,9 @@ function mountGlobalChat(pane, agent, options = {}) {
     contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{agent,visible:contextVisible,onChange:paintSession,workingTag});
     cleanups.push(()=>contextStatus.dispose());
   }
-  // The Global timeline is not shown above the main chat (the owner's choice, 18 November 2026): agents still receive what
-  // holds at the Global level, and its standing rules stay readable through the timeline views.
 
   // ---- loading: a state fetch is idempotent, so every "changed" event just reads it again (coalesced)
-  // Terminal owns conversation selection; Chat always follows the backend's current conversation.
+  // Chat always follows the backend's current conversation.
   const stateUrl = () => `${base}?limit=${GLOBAL_CHAT_PAGE}`;
   async function load(reset = false) {
     if (loading) { again = true; return; }
@@ -642,7 +809,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       // A page that starts after everything held (a long gap while away) cannot be joined to it: start from that page.
       const gap = data.older != null && page.length && page[0].position > newestPosition() && entries.size > 0;
       const fresh = reset || shown === undefined || id !== shown || gap;
-      if (fresh) { clears++; entries.clear(); older = data.older; }
+      if (fresh) { clears++; entries.clear(); earlier.length = 0; older = data.older; }
       shown = id; session = data.session; conversation = data.conversation;
       inputs = data.inputs || []; lastRead = Math.max(fresh && reset ? 0 : lastRead, data.last_read_sequence || 0);
       cursor = fresh && reset ? data.cursor || 0 : Math.max(cursor, data.cursor || 0);
@@ -650,6 +817,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       bindComposer();
       if (fresh) showBanner('');
       paintEntries(fresh ? 'bottom' : 'auto');
+      trimLoaded();
       void contextStatus?.refresh();
       void timelineBlock?.refresh();
       if (!stream) connect();
@@ -660,19 +828,63 @@ function mountGlobalChat(pane, agent, options = {}) {
     }
   }
   async function loadOlder() {
-    // Only history responses advance this cursor, so no page is skipped.
-    const before = older, mine = generation, requested = viewedKey(), epoch = clears, target = conversation;
-    if (before == null || !target || olderBusy) return;
+    // Only history responses advance a conversation's cursor, so no page is skipped. The oldest loaded conversation is the one that
+    // grows: by its next older page, or at its own top by the newest page of the conversation it continues (a view-only read).
+    const part = earlier[0] || null, target = part ? part.conversation : conversation, before = part ? part.older : older;
+    const mine = generation, requested = viewedKey(), epoch = clears, previous = before == null ? target?.continues || null : null;
+    if ((before == null && !previous) || !target || olderBusy) return;
     olderBusy = true; paint();
     try {
-      const data = coreData(await api(`${base}/history?before=${before}&limit=${GLOBAL_CHAT_PAGE}${globalChatQuery(target)}`, {signal: reads.signal}));
+      const data = coreData(await api(previous ? `${base}?limit=${GLOBAL_CHAT_OLDER}${globalChatQuery(previous)}`
+        : `${base}/history?before=${before}&limit=${GLOBAL_CHAT_OLDER}${globalChatQuery(target)}`, {signal: reads.signal}));
       // Applied only to the exact provider/conversation it asked for, even if the live conversation changed on its own.
       if (!live() || mine !== generation || epoch !== clears || viewedKey() !== requested) return;
-      (data.entries || []).forEach(entry => { if (!entries.has(entry.id)) entries.set(entry.id, entry); });
-      older = data.older ?? null;
+      if (previous) {
+        if (globalChatKey(data.conversation) !== globalChatKey(previous)) return;
+        earlier.unshift({conversation: data.conversation, entries: new Map((data.entries || []).map(entry => [entry.id, entry])), older: data.older ?? null});
+      } else {
+        const held = part ? part.entries : entries;
+        (data.entries || []).forEach(entry => { if (!held.has(entry.id)) held.set(entry.id, entry); });
+        if (part) part.older = data.older ?? null; else older = data.older ?? null;
+      }
       paintEntries('prepend');
     } catch (problem) { if (live()) showBanner("Couldn't load. Retry"); }
     finally { olderBusy = false; if (live()) paint(); }
+  }
+
+  // Drops the oldest loaded entries (oldest part first) while the reader is at the bottom and more than GLOBAL_CHAT_LOADED_MAX are held. A cursor
+  // `before=P` returns the entries whose position is below P, so a part that loses its oldest entries gets `older` = its oldest kept position:
+  // scrolling up then loads exactly what was dropped. The cut never falls between entries of one position (one record can yield several), so
+  // every kept position is strictly above every dropped one. A part dropped whole is re-read through the part above it or `continues`.
+  function trimLoaded() {
+    if (!live()) return false;
+    const parts = loadedParts();
+    let drop = parts.reduce((sum, part) => sum + part.entries.size, 0) - GLOBAL_CHAT_LOADED_KEEP, changed = false;
+    if (drop + GLOBAL_CHAT_LOADED_KEEP <= GLOBAL_CHAT_LOADED_MAX || !view.isAtBottom()) return false;
+    for (const part of parts) {
+      if (drop <= 0) break;
+      const sorted = [...part.entries.values()].sort((a, b) => a.position - b.position);
+      let cut = Math.min(drop, sorted.length);
+      while (cut > 0 && cut < sorted.length && sorted[cut].position === sorted[cut - 1].position) cut++;
+      if (cut >= sorted.length) {
+        if (part.entries === entries) break;           // the conversation Chat follows is never emptied
+        earlier.splice(earlier.indexOf(part), 1); drop -= sorted.length; changed = true;
+        continue;
+      }
+      sorted.slice(0, cut).forEach(entry => part.entries.delete(entry.id));
+      if (part.entries === entries) older = sorted[cut].position; else part.older = sorted[cut].position;
+      changed = true; break;
+    }
+    if (!changed) return false;
+    clears++;                                           // an older page asked for before this would land above a part that is no longer the oldest
+    paintEntries('bottom');
+    return true;
+  }
+  // The view reports a viewport change from inside its own render, so the trim waits for the end of that turn.
+  function queueTrim() {
+    if (queueTrim.queued) return;
+    queueTrim.queued = true;
+    queueMicrotask(() => { queueTrim.queued = false; trimLoaded(); });
   }
 
   // ---- the event stream: replay from the durable cursor, reconnect with backoff, resynchronise on reset
@@ -682,6 +894,17 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (!live()) return;
     retryTimer = setTimeout(() => { if (live()) void action(); }, retryDelay);
     retryDelay = Math.min(retryDelay * 2, 15000);
+  }
+  // A managed agent's activity changes often. The event's `managed` summary is shown at once, before the page read that follows
+  // it lands, so Stop, the activity line and the cards do not wait for a round trip. It never replaces the read: the event
+  // cannot say whether the conversation changed too.
+  function showManagedEvent(data) {
+    const summary = data?.managed;
+    if (!summary || typeof summary !== 'object' || !session?.managed) return;
+    if ((summary.open !== false) !== (session.managed.open !== false)) return;
+    if ('off' in summary && (summary.off === true) !== (session.managed.off === true)) return;
+    session = {...session, managed: {...session.managed, ...summary}};
+    paintSession();
   }
   function connect() {
     closeStream();
@@ -698,7 +921,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       try { item = JSON.parse(event.data); } catch (_) { return; }
       if (!item || item.cursor <= cursor) return;                              // replay overlap is ignored by cursor
       cursor = item.cursor;
-      if (item.kind === 'changed') void load();                                // an event renders nothing; the fetched page does
+      if (item.kind === 'changed') { showManagedEvent(item.data); void load(); } // an event renders nothing; the fetched page does
     });
     source.addEventListener('reset', () => {
       // A restored installation: outstanding state/history/read callbacks are obsolete and must not reinstate the old cursor or boundary.
@@ -734,6 +957,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     t.dead = true;
     for (const fn of t.cleanups.splice(0)) { try { fn(); } catch (_) { /* one cleanup cannot stop the others */ } }
     if (takeover === t) takeover = null;
+    if (t.kind === 'paired') globalChatPairedNotify(null);
   }
   function restoreChat() {
     if (disposed) return;
@@ -797,6 +1021,7 @@ function mountGlobalChat(pane, agent, options = {}) {
         openReference: ref => onReference?.(ref),
       });
       pairedConversation?.expand?.();
+      globalChatPairedNotify(source);
       return true;
     },
     pairedCanLeave() { return pairedConversation?.canLeave?.() !== false; },

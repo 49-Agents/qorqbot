@@ -137,6 +137,7 @@ ARGUMENT_ALIASES = {
     "fastmail_messages_search": {"query": "q", "text": "q"},
     "fastmail_reply": {"message_id": "reply_message_id"},
     "tables_rows_list": {"search": "query", "q": "query"},
+    "conversation_history_search": {"q": "query", "search": "query"},
 }
 # Transport fields that are never an operation's own argument, so never a name to rename.
 TRANSPORT_ARGUMENTS = frozenset({"response_detail", "tool_names", "sections", "if_read_token"})
@@ -282,6 +283,18 @@ def tool_schema(registry, name):
             if branch.get("type") == "object" or "properties" in branch:
                 branch["properties"] = {**transport_properties, **branch.get("properties", {})}
     return schema
+
+
+class _Lazy:
+    """A membership test over names that are only worked out when a result is actually over the size limit."""
+
+    def __init__(self, names):
+        self._read, self._names = names, None
+
+    def __contains__(self, name):
+        if self._names is None:
+            self._names = frozenset(self._read())
+        return name in self._names
 
 
 def tool_annotations(descriptor):
@@ -583,9 +596,30 @@ class MCPTransport:
         timing = {"operation": "unknown", "configuration_ms": 0.0, "execution_ms": 0.0}
         started = time.perf_counter()
         try:
-            return await self._single_result_timed(name, arguments, actor, request_id, timing)
+            value = await self._single_result_timed(name, arguments, actor, request_id, timing)
+            return self._bounded(name, value, request_id)
         finally:
             _log_slow_tool(timing, request_id, started)
+
+    def _bounded(self, name, value, request_id):
+        """The result cut to the size a harness accepts, each cut named in it. Every entry of a batch is bounded by
+        itself, so a batch never loses a whole entry's receipt. A failure here must not hide a finished operation."""
+        try:
+            def narrowing():
+                try:
+                    return tuple(tool_schema(self.runtime.registry, name).get("properties", {}))
+                except Exception:
+                    return ()
+            bounded, notice = mcp_presentation.bound(value, narrowing=_Lazy(narrowing))
+        except Exception:
+            logger.exception("MCP result bounding failed: %s", request_id)
+            return value
+        if notice is not None:
+            logger.warning("MCP result cut to fit: operation=%s request=%s full_characters=%s lists=%s texts=%s",
+                name, request_id, notice.get("full_characters"),
+                [(row["path"], row["returned"], row["of"]) for row in notice.get("lists", [])],
+                [(row["path"], row["returned_characters"], row["of_characters"]) for row in notice.get("texts", [])])
+        return bounded
 
     async def _single_result_timed(self, name, arguments, actor, request_id, timing):
         detail = "full"
@@ -672,9 +706,10 @@ class MCPTransport:
                         namespace = self.runtime.application.namespace(context, descriptor, args)
                         with self.runtime.database.read() as uow:
                             self.runtime.application.authorize(context, descriptor, (), uow, namespace=namespace, arguments=args)
-                        # The manager decides the exact worker target and rechecks it under the agent's lock; host effects run
-                        # here, outside every database transaction, under the instance's writer admission.
-                        value = self.runtime.browser_manager.manage(actor.principal.id, args, options.idempotency_key)
+                        # The manager rechecks who is calling under the browser's lock; host effects run here, outside
+                        # every database transaction, under the instance's writer admission.
+                        from qorqut.browser import setup as browser_setup
+                        value = browser_setup.agent_manage(self.runtime, actor.principal.id, args, options.idempotency_key)
                         return OperationResult.ok(value, request_id=request_id)
                     if canonical_name == BROWSER_OPERATION:
                         self.runtime.registry.bind_arguments(canonical_name, args)
@@ -726,7 +761,7 @@ class MCPTransport:
                 presented = self.read_revalidation.present(requested=read_token, binding=binding,
                     canonical=result.to_dict(), presented=presented)
             if canonical_name == "tasks_get" and result.status == "ok" and isinstance(self.caller, RegisteredAgentCaller):
-                # The timelines above the Task ride with the read: Global, the Project, each parent Task, the Task. Agent
+                # The timelines above the Task ride with the read: the Project, each parent Task, the Task. Agent
                 # reads only; the dashboard's and internal reads of a Task stay as they are. Best effort after the read.
                 try:
                     request = self.server.request_context

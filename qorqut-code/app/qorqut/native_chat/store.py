@@ -344,6 +344,31 @@ def settle_input(conn, input_id: str, state: str, reason: str | None, evidence: 
     return done
 
 
+def annotate_input(conn, input_id: str, reason: str, evidence_patch: dict) -> bool:
+    """Record a fact about an input that is already ``submitted`` without settling it again: the reason and one evidence key are
+    set, one input event is written and the visible-change counter advances. The state stays ``submitted`` and the text
+    stays scrubbed; unlike ``settle_input`` this counts no user turn a second time. A compare-and-set on the state and the
+    evidence read: ``False`` when the input is not ``submitted``, already carries this reason, or changed meanwhile."""
+    row = conn.execute("SELECT agent_id,state,reason,evidence_json FROM native_inputs WHERE id=?", (input_id,)).fetchone()
+    if row is None or row["state"] != STATE_SUBMITTED or row["reason"] == reason[:200]:
+        return False
+    evidence = {**json.loads(row["evidence_json"]), **evidence_patch}
+    done = conn.execute("UPDATE native_inputs SET reason=?,evidence_json=?,updated_at=? WHERE id=? AND state=? AND evidence_json=?",
+                        (reason[:200], json.dumps(evidence, separators=(",", ":"), sort_keys=True), utc_now(), input_id,
+                         STATE_SUBMITTED, row["evidence_json"])).rowcount == 1
+    if done:
+        record_input_event(conn, input_id, STATE_SUBMITTED, reason, dict(evidence_patch))
+        bump(conn, row["agent_id"])
+    return done
+
+
+def input_by_message_uuid(conn, agent_id: str, message_uuid: str):
+    """The agent's input a managed adapter delivered as this message uuid (the receipt's ``message_uuid``), or ``None``."""
+    row = conn.execute("SELECT * FROM native_inputs WHERE agent_id=? AND json_extract(evidence_json,'$.message_uuid')=? "
+                       "ORDER BY sequence DESC LIMIT 1", (agent_id, message_uuid)).fetchone()
+    return dict(row) if row else None
+
+
 def claim_input(conn, row: dict) -> bool:
     """The durable crash boundary: waiting to submitting, only while no earlier waiting input of the agent is ahead of it.
     From here this code never types the input again."""

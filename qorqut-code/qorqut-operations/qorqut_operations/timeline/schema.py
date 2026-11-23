@@ -1,8 +1,9 @@
 """The two stores of a timeline: ``timeline_entries`` (append-only) and ``timeline_questions`` (changeable).
 
-An item is a Task (``item_id`` is the Task id, ``business_id`` the Project it is in or null at Global), a Project (``item_id``
-and ``business_id`` are the Project id) or Global (``item_id`` is ``global``, ``business_id`` null). An entry adds or removes one
-thing and is never edited or deleted; the one permitted update is ``business_id``, which follows a Task that moves to another
+An item is a Task (``item_id`` is the Task id, ``business_id`` the Project it is in or null at Global) or a Project (``item_id``
+and ``business_id`` are the Project id). The stores also accept Global (``item_id`` is ``global``, ``business_id`` null) because
+rows were filed on it before Global lost its timeline; the host files and reads nothing there now, and the rows stay as
+they are. An entry adds or removes one thing and is never edited or deleted; the one permitted update is ``business_id``, which follows a Task that moves to another
 Project. One sequence orders every entry and every question change of the store: the next value is one more than the highest
 stored in either table, taken inside the writing transaction, so no separate counter row exists.
 """

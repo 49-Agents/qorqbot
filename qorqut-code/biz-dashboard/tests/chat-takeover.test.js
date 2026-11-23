@@ -15,7 +15,7 @@ async function fixture(browser) {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setContent('<body><main id="pane" style="display:flex;flex-direction:column;height:700px;width:800px"></main></body>');
-  for (const file of ['app.css', 'css/chat-view.css', 'css/global-chat.css', 'css/xterm.css']) await page.addStyleTag({path: path.join(root, file)});
+  for (const file of ['app.css', 'css/chat-view.css', 'css/global-chat.css']) await page.addStyleTag({path: path.join(root, file)});
   await page.evaluate(() => {
     window.esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     window.$ = (selector, host = document) => host.querySelector(selector);
@@ -30,11 +30,9 @@ async function fixture(browser) {
     window.api = async () => ({session: {state: 'live', can_send: true, binding}, conversation: binding, entries: [...entries], cursor: 1, inputs: []});
     window.post = async (url, body) => ({last_read_sequence: body.sequence});
   });
-  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'xterm', 'terminal', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
+  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'agent-runtime', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
   await page.evaluate(() => {
-    window.controller = mountAgentView(document.querySelector('#pane'), {agent_id: 'agent-1', name: 'Demo'}, {
-      terminal: {key: 'agent-1', base: '/terminal/agent-1'}, isCurrent: () => true, view: 'chat',
-    });
+    window.controller = mountAgentView(document.querySelector('#pane'), {agent_id: 'agent-1', name: 'Demo'}, {isCurrent: () => true});
     // A side chat stand-in: it may refuse to leave, like one with a message still sending.
     window.side = {allowLeave: true, disposed: 0};
     window.openSide = title => controller.openSide({title, mount(host, session) {
@@ -86,18 +84,6 @@ test('a side chat that cannot leave yet stays put, and another one replaces it o
   } finally { await browser.close(); }
 });
 
-test('opening a side chat from the Terminal view shows it in the Chat area', {skip: !available}, async () => {
-  const browser = await chromium.launch({headless: true, executablePath: executable});
-  try {
-    const {page, errors} = await fixture(browser);
-    await page.click('[data-terminal]:visible');
-    await page.evaluate(() => openSide('From terminal'));
-    assert.deepEqual(await takeover(page), {kind: 'side', title: 'From terminal', body: 'From terminal body', chat: false});
-    assert.equal(await page.locator('.gchat-takeover').isVisible(), true);
-    assert.deepEqual(errors, []);
-  } finally { await browser.close(); }
-});
-
 test('project details and pinned Chat threads open and close independently', {skip: !available}, async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
@@ -118,7 +104,7 @@ test('project details and pinned Chat threads open and close independently', {sk
       const originalApi=api;window.api=async url=>url==='/root/thread-pins'?{threads:pins}:originalApi(url);
       const host=document.createElement('aside');host.id='project';document.body.append(host);
       window._agpad={focusMount:host,workspaceRole:'ordubashy'};window.agfocusLeftChatReady=()=>true;let generation=0;
-      window.agfocusPairedSource=record=>controller.selectPairedSource({...record.source,label:record.label},++generation,()=>{},()=>{},()=>controller.clearPairedSource(++generation));
+      window.agfocusPairedSource=record=>record?controller.selectPairedSource({...record.source,label:record.label},++generation,()=>{},()=>{},()=>controller.clearPairedSource(++generation)):controller.clearPairedSource(++generation);
       window.workspace=recordWorkspaceMount(host,{entry:'focus',paired:true,independentChat:true,onPairedSource:agfocusPairedSource});
       window.record=rwRecordFromItem({source:{type:'project',id:'demo',business_id:'demo',label:'Demo'},can_thread:true});
       window.openProject=()=>workspace.open(record,{root:true});
@@ -142,6 +128,69 @@ test('project details and pinned Chat threads open and close independently', {sk
     await page.evaluate(()=>threadPins.open(threadPins.list()[0]));
     assert.equal(await page.locator('.rw-record').count(),0);
     assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread demo');
+    assert.deepEqual(errors,[]);
+  } finally {await browser.close();}
+});
+
+test('a Project opens on its timeline, and the thread button shows and hides its thread in the Chat area', {skip: !available}, async () => {
+  const browser = await chromium.launch({headless: true, executablePath: executable});
+  try {
+    const {page, errors} = await fixture(browser);
+    for (const file of ['css/record-workspace.css', 'css/agent-timeline.css']) await page.addStyleTag({path: path.join(root, file)});
+    await page.evaluate(() => { window.taskTypeIcon=()=>'';window.T_VIEW_ICON={tasks:'',signoffs:'',timeline:'<svg data-icon="timeline"></svg>',files:'<svg data-icon="folder"></svg>'}; });
+    await page.addScriptTag({path: path.join(root, 'js/timeline-panel.js')});
+    await page.addScriptTag({path: path.join(root, 'js/record-workspace.js')});
+    await page.evaluate(() => {
+      state.bizs=[{id:'demo',slug:'demo'}];window.reads=[];
+      window.conversationMount=(host,source)=>{host.textContent='Thread '+source.id;return {canLeave:()=>true,expand(){},dispose(){host.replaceChildren();}};};
+      const originalPost=post;
+      window.post=async(url,body)=>{
+        if(url.endsWith('/timeline_view')){reads.push(body.item);return {item:body.item,title:'Demo',revision:2,further:{},
+          state:{goal:{id:'g',text:'Ship the demo.'},decisions:[],facts:[],progress:null,questions:[]},
+          entries:[{id:'g',sequence:1,action:'add',kind:'goal',text:'Ship the demo.',created_at:'2026-11-13T10:00:00Z',sources:[],refs:[]}],links:{},closed_questions:[],next_cursor:null};}
+        if(url.endsWith('/project_record_get'))return {project:{id:body.project_id,name:'Demo',summary:'Synthetic project'}};
+        if(url.endsWith('/project_items_list'))return {items:[]};
+        return originalPost(url,body);
+      };
+      const host=document.createElement('aside');host.id='project';host.style.cssText='display:flex;flex-direction:column;height:400px;width:420px';document.body.append(host);
+      window._agpad={focusMount:host,workspaceRole:'ordubashy'};let generation=0;
+      window.agfocusPairedSource=record=>record?controller.selectPairedSource({...record.source,label:record.label},++generation,()=>{},()=>{},()=>controller.clearPairedSource(++generation)):controller.clearPairedSource(++generation);
+      window.workspace=recordWorkspaceMount(host,{entry:'focus',paired:true,independentChat:true,onPairedSource:agfocusPairedSource});
+      window.record=rwRecordFromItem({source:{type:'project',id:'demo',business_id:'demo',label:'Demo'},can_thread:true});
+    });
+    await page.evaluate(()=>workspace.open(record,{root:true}));
+    // The reader opens on the timeline; its tabs are the timeline and the Project page (a folder), and the thread is not a tab.
+    await page.locator('.rw-timeline .agent-timeline-row').first().waitFor();
+    assert.equal(await page.locator('.rw-record').getAttribute('data-tab'),'timeline');
+    assert.deepEqual(await page.evaluate(()=>reads),[{type:'project',id:'demo',business_id:'demo'}]);
+    assert.match(await page.locator('.rw-timeline').textContent(),/Ship the demo\./);
+    assert.equal(await page.locator('.rw-timeline .agent-timeline-meta').textContent(),'Goal');assert.equal(await page.locator('.rw-timeline [data-status]').textContent(),'1 entry');
+    assert.equal(/holds now/i.test(await page.locator('.rw-record').textContent()),false);
+    assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('.rw-tabs [data-rw-tab]')].map(tab=>[tab.dataset.rwTab,tab.querySelector('svg')?.dataset.icon,tab.getAttribute('aria-selected')])),
+      [['timeline','timeline','true'],['dashboard','folder','false']]);
+    assert.equal(await page.locator('.rw-dashboard').isVisible(),false);
+    // The thread button is a toggle: it shows the thread on the left and takes it away again.
+    const thread=page.locator('.rw-open-thread');
+    assert.equal(await thread.getAttribute('aria-pressed'),'false');assert.equal(await thread.getAttribute('aria-label'),'Show thread');
+    await thread.click();
+    await page.locator('.gchat-paired-record').waitFor();
+    assert.equal(await page.locator('.gchat-paired-record').textContent(),'Thread demo');
+    assert.equal(await thread.getAttribute('aria-pressed'),'true');assert.equal(await thread.getAttribute('aria-label'),'Hide thread');
+    assert.equal(await page.locator('.rw-record').getAttribute('data-tab'),'timeline');
+    await thread.click();
+    await page.locator('.gchat-msg').first().waitFor();
+    assert.equal(await page.locator('.gchat-paired-record').count(),0);
+    assert.equal(await thread.getAttribute('aria-pressed'),'false');
+    // Leaving the thread from the Chat area releases the button too.
+    await thread.click();
+    await page.locator('.gchat-paired-record').waitFor();
+    await page.click('.gchat-takeover-back');
+    await page.locator('.gchat-msg').first().waitFor();
+    assert.equal(await thread.getAttribute('aria-pressed'),'false');
+    // The Project page is one click away and loads then.
+    await page.click('.rw-tabs [data-rw-tab="dashboard"]');
+    assert.equal(await page.locator('.rw-dashboard').isVisible(),true);
+    assert.equal(await page.locator('.rw-timeline').isVisible(),false);
     assert.deepEqual(errors,[]);
   } finally {await browser.close();}
 });
@@ -190,7 +239,7 @@ test('a report opens and pins the thread of the Task it belongs to', {skip: !ava
         ctx.report(record.source.id==='old'?null:{id:'t1',business_id:'demo',title:'Launch'});return {dirty:()=>false};};
       const host=document.createElement('aside');host.id='project';document.body.append(host);
       window._agpad={focusMount:host,workspaceRole:'ordubashy'};window.agfocusLeftChatReady=()=>true;let generation=0;
-      window.agfocusPairedSource=record=>controller.selectPairedSource({...record.source,label:record.label},++generation,()=>{},()=>{},()=>controller.clearPairedSource(++generation));
+      window.agfocusPairedSource=record=>record?controller.selectPairedSource({...record.source,label:record.label},++generation,()=>{},()=>{},()=>controller.clearPairedSource(++generation)):controller.clearPairedSource(++generation);
       window.workspace=recordWorkspaceMount(host,{entry:'focus',paired:true,independentChat:true,onPairedSource:agfocusPairedSource});
       window.report=id=>rwRecordFromItem({source:{type:'signoff',id,business_id:'demo',label:'Launch report'},can_thread:true});
     });

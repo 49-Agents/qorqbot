@@ -13,7 +13,7 @@ test('grouped Signoff answers are local until Done, shared across views, recover
   assert.ok(match,'Fixture must report a result');
   const out=JSON.parse(match[1].replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&'));
   assert.equal(out.error,undefined,JSON.stringify(out));
-  for(const name of ['singleDone','singleDeselects','uniqueLabels','boundaryEvidence','localErrors','independent','radioKeyboard','notesRequired','peerSync','pollKeepsCaret','singleChoice','unsubmitted','remountKeepsDraft',
+  for(const name of ['chatForm','singleDone','singleDeselects','uniqueLabels','boundaryEvidence','localErrors','independent','radioKeyboard','notesRequired','peerSync','pollKeepsCaret','singleChoice','unsubmitted','remountKeepsDraft',
     'narrowFits','wholeFormLocked','onePost','saved','globalKeepsReceipt','cleared','retry','lost','conflict','closed','serverError','serverRetry','staleRetained','staleDeliberateRetry','unknown','legacyDraft']) assert.equal(out[name],true,name);
   assert.deepEqual(out.payload.answers,[
     {question_id:'location',selected_choices:[],notes:'Use the garden instead.'},

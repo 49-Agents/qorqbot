@@ -2,7 +2,12 @@
 
 It talks to the agent's managed Chrome over that Chrome's own loopback DevTools port and never through ``agent-browser``, so
 it opens no tab, holds no browser lock and does not pause the agent: the agent keeps working while the owner watches or
-types. Chrome only draws the tab that is in front, so opening a view brings its tab to the front.
+types. Chrome only draws, and gives keyboard focus to, the tab that is in front, and that changes all the time: every agent
+on the Shared browser brings its own tab to the front with each command (``agent-browser`` activates the tab it works in).
+A watched tab sent to the back stopped sending pictures, so the owner's typing reached the page but never showed, and the
+page counted as not focused. So a view brings its tab to the front once and holds Chrome's focus emulation on it for as long
+as the view is open: the tab is drawn and focused as if it were in front, whichever tab the agents bring forward. The
+emulation belongs to the view's own DevTools connection and ends with it; the agents' tabs are not affected.
 
 Watching is use: a tab with an open view is not unloaded for idleness (``idle_tabs``), and a view opened on a tab that
 was unloaded loads its page again, as an agent's next command would.
@@ -50,16 +55,23 @@ class Closed(Exception):
 
 
 def port(runtime, agent_id):
-    """The DevTools port of the managed browser the agent uses: its own, or the Shared browser."""
-    from . import setup, sign_in
-    from .agent_browsers import meta_valid, supervisor_state
+    """The DevTools port of the browser for an agent that uses it. The agent ID only says whose tabs the owner is watching:
+    there is one browser."""
+    from . import setup
     _, agents = setup.targets(runtime)
     if agent_id not in [agent["agent_id"] for agent in agents]:
         raise DomainError("not_found", "This agent has no browser")
-    meta, directory = sign_in._meta(runtime, agent_id), sign_in._state(runtime, agent_id)
+    return shared_port(runtime)
+
+
+def shared_port(runtime):
+    """The DevTools port of the Shared browser, only while it is the exact Chrome its supervisor started."""
+    from . import sign_in
+    from .agent_browsers import meta_valid, supervisor_state
+    meta, directory = sign_in._meta(runtime), sign_in._state(runtime)
     # The port in the record is only a claim: another program may hold it now, and the owner's clicks and keys would go there.
     if not meta_valid(meta, directory.name, directory) or supervisor_state(directory, meta)["state"] != "ready":
-        raise DomainError("browser_not_ready", "This agent's browser isn't running. Wait until it shows Ready in Settings, then reconnect.")
+        raise DomainError("browser_not_ready", "The browser isn't running. Wait until it shows Ready in Settings, then reconnect.")
     return meta["managed"]["port"]
 
 
@@ -164,6 +176,7 @@ class View:
         self._watching()
         try:
             self._call("Page.bringToFront")
+            self._call("Emulation.setFocusEmulationEnabled", {"enabled": True})     # stays drawn and focused when sent back
             self._call("Page.startScreencast", {"format": "jpeg", "quality": JPEG_QUALITY})
         except Closed as error:
             self.close()
@@ -278,4 +291,4 @@ def open_view(runtime, agent_id, tab_id):
             idle_tabs.wake(port_, tab_id, 0)
         except Exception:
             pass
-    return View(agent_id, port_, tab_id, marks=sign_in._state(runtime, agent_id) / idle_tabs.WATCHED), port_
+    return View(agent_id, port_, tab_id, marks=sign_in._state(runtime) / idle_tabs.WATCHED), port_

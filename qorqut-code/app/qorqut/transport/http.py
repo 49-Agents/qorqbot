@@ -5,6 +5,7 @@ from dataclasses import replace
 import logging
 import queue
 import re
+import threading
 import time
 import uuid
 from contextlib import nullcontext
@@ -14,8 +15,7 @@ import anyio
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from qorqut_operations.contracts import (DomainError, InvocationContext, InvocationOptions, OperationResult,
-                                         canonical_bytes, canonical_hash, new_id, plain)
+from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, OperationResult, canonical_bytes, canonical_hash, new_id
 from qorqut_operations import local_time
 from qorqut_operations.storage.database import REQUEST_TIMING, RequestTiming
 from qorqut_operations.storage.repositories import decode_row
@@ -23,6 +23,9 @@ from .auth import AuthenticatedPrincipal
 from .mcp import split_options
 from .results import failure, response
 
+# Set when the service has been asked to stop (``service/main.py``): an event stream ends at its next turn of the loop instead of
+# keeping the server waiting for a browser tab that never closes it.
+STOPPING = threading.Event()
 _UUID_RE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 
 
@@ -178,6 +181,8 @@ async def revalidated_async(request, changes, kinds, scope, produce):
 
 
 class HTTPAPI:
+    terminals = None  # The TerminalService; composition passes it, and tests that build the object by hand run without one.
+
     def __init__(self, runtime, authentication, origins, *, compatibility=None, terminals=None):
         self.runtime, self.authentication, self.origins = runtime, authentication, origins
         self.compatibility, self.terminals = compatibility, terminals
@@ -188,6 +193,15 @@ class HTTPAPI:
         self.statuses = selection.error_statuses
         self.guards = selection.operation_guards()
         self.owner_routes, self.integration_routes, self.agent_routes = selection.routes()
+
+    def require_terminals(self):
+        """A terminal-only route in managed mode (or during a switch) answers the product's normal error before anything else runs."""
+        if self.terminals is not None:
+            return self.terminals.require_terminals()
+        from qorqut.managed_runtime import mode
+        if not mode.is_terminal(getattr(self.runtime, "paths", None)):
+            raise DomainError("terminal_mode_off", "Agents run as managed sessions on this installation.")
+        raise DomainError("operation_unavailable", "Agent terminals are not available on this installation")
 
     def context(self, actor, slug=None, *, owner=False):
         with self.runtime.database.read() as uow:
@@ -434,6 +448,19 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "about"] and request.method == "GET":
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Settings details are for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can read these settings")
+                from qorqut import owner_settings
+                data = await anyio.to_thread.run_sync(partial(owner_settings.about_view, runtime_directory=self.runtime.paths.runtime))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "agent-trust"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Agent trust consent is for the owner's dashboard")
@@ -442,6 +469,7 @@ class HTTPAPI:
                     owner = uow.repository("installation").get("service")
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
                     raise DomainError("forbidden", "Only the installation owner can change agent trust")
+                self.require_terminals()
                 from qorqut.agent_trust import owner_view
                 body = await read_json(request, limit=1024) if request.method == "POST" else None
                 if request.method == "POST" and not isinstance(body, dict):
@@ -451,17 +479,55 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
-            if parts in (["root", "about"], ["root", "agent-clients"]) and request.method == "GET":
+            if parts == ["root", "agents", "runtime"] and request.method in {"GET", "POST"}:
+                # How agents run (managed sessions or terminals): the owner's own setting, never an agent's. Dispatched before the
+                # per-agent routes below, which would read ``runtime`` as an agent.
                 if request.headers.get("authorization") is not None:
-                    raise DomainError("forbidden", "Settings details are for the owner's dashboard")
+                    raise DomainError("forbidden", "How agents run is for the owner's dashboard")
                 context, _ = self.context(actor)
                 with self.runtime.database.read() as uow:
                     owner = uow.repository("installation").get("service")
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
-                    raise DomainError("forbidden", "Only the installation owner can read these settings")
+                    raise DomainError("forbidden", "Only the installation owner can change how agents run")
+                switch = getattr(self.runtime, "runtime_switch", None)
+                if switch is None:
+                    raise DomainError("operation_unavailable", "Switching how agents run is not available")
+                if request.method == "GET":
+                    data = await anyio.to_thread.run_sync(partial(switch.view, context.principal_id))
+                else:
+                    body = await read_json(request, limit=1024)
+                    if not isinstance(body, dict):
+                        raise DomainError("validation_error", "A change of how agents run must be an object")
+                    checked_fields(body, {"mode", "force", "trust"}, {"mode"})
+                    if body["mode"] not in ("managed", "terminal"):
+                        raise DomainError("validation_error", "Choose managed or terminal")
+                    for flag in ("force", "trust"):
+                        if flag in body and type(body[flag]) is not bool:
+                            raise DomainError("validation_error", f"{flag} must be true or false")
+                    data = await anyio.to_thread.run_sync(partial(switch.start, context.principal_id, body["mode"],
+                                                                  force=bool(body.get("force")), trust=bool(body.get("trust"))))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
+            if parts == ["root", "agent-clients"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Agent clients are for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can set up agent clients")
                 from qorqut import owner_settings
-                reader = (partial(owner_settings.about_view, runtime_directory=self.runtime.paths.runtime)
-                          if parts[1] == "about" else owner_settings.agent_clients_view)
+                reader = owner_settings.agent_clients_view
+                if request.method == "POST":
+                    body = await read_json(request, limit=1024)
+                    if not isinstance(body, dict):
+                        raise DomainError("validation_error", "An agent client change must be an object")
+                    checked_fields(body, {"provider", "action"}, {"provider", "action"})
+                    if body["provider"] not in ("claude", "codex") or body["action"] not in (
+                            "download", "cancel_download", "connect", "cancel_connect"):
+                        raise DomainError("validation_error", "Choose claude or codex, and download, cancel_download, connect or cancel_connect")
+                    reader = partial(owner_settings.agent_clients_action, body["provider"], body["action"])
                 data = await anyio.to_thread.run_sync(reader)
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
@@ -486,17 +552,17 @@ class HTTPAPI:
                 with self.runtime.database.read() as uow:
                     owner = uow.repository("installation").get("service")
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
-                    raise DomainError("forbidden", "Only the installation owner can set up agent browsers")
+                    raise DomainError("forbidden", "Only the installation owner can set up the agent browser")
                 from qorqut.browser import setup as browser_setup
                 if parts[1] == "browser-accounts":
                     from qorqut.browser import sign_in
                     reader = partial(sign_in.accounts, self.runtime)
                     if request.method == "POST":
                         body = await read_json(request, limit=2048)
-                        checked_fields(body, {"action", "agent_id", "site"}, {"action", "agent_id", "site"})
+                        checked_fields(body, {"action", "site"}, {"action", "site"})
                         if body["action"] != "sign_out":
                             raise DomainError("validation_error", "Settings can only sign out. Ask Ordubashy to connect a website.")
-                        reader = partial(sign_in.sign_out, self.runtime, body["agent_id"], body["site"])
+                        reader = partial(sign_in.sign_out, self.runtime, body["site"])
                     data = await anyio.to_thread.run_sync(reader)
                     result = response(OperationResult.ok(data, request_id=request_id))
                     result.headers["Cache-Control"] = "private, no-store"
@@ -506,11 +572,8 @@ class HTTPAPI:
                     body = await read_json(request, limit=1024)
                     if body == {"action": "retry"}:
                         reader = partial(browser_setup.ensure_all, self.runtime)
-                    elif isinstance(body, dict) and body.get("action") == "choose":
-                        checked_fields(body, {"action", "agent_id", "browser"}, {"action", "agent_id", "browser"})
-                        reader = partial(browser_setup.choose, self.runtime, body["agent_id"], body["browser"])
                     else:
-                        raise DomainError("validation_error", "Browser setup supports retry and the browser choice")
+                        raise DomainError("validation_error", "Browser setup supports retry")
                 data = await anyio.to_thread.run_sync(reader)
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
@@ -545,6 +608,16 @@ class HTTPAPI:
                 if body is not None and not isinstance(body, dict):
                     raise DomainError("validation_error", "Testing mode must be an object")
                 data = await anyio.to_thread.run_sync(partial(testing_mode, self.runtime.paths.runtime, actor.principal.id, body))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
+            if parts == ["root", "display-preferences"] and request.method == "GET":
+                # Theme, text size and desktop alerts the coordinator set for the owner (``settings_set``). Read only: a
+                # browser applies them to its own stored choice; the owner's own changes stay in the browser.
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Display choices are for the owner's dashboard")
+                from qorqut.dashboard_preferences import display
+                data = await anyio.to_thread.run_sync(partial(display, self.runtime.paths.runtime, actor.principal.id))
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
@@ -584,6 +657,7 @@ class HTTPAPI:
                 if len(parts) >= 4 and parts[1] == "agents" and parts[3] == "browser-live":
                     return await self.browser_live(request, context, parts[2], parts[4:], request_id)
                 if self.terminals and parts[1:2] in (["terminal"], ["terminals"], ["workspace-terminal"]):
+                    # The service itself refuses in managed mode (``require_terminals``), before it touches tmux.
                     return await self.terminals.route(request, context, None, parts[1:])
                 raise DomainError("not_found", "Global agent endpoint is not registered")
             if parts[:2] == ['root','release'] and len(parts)==3:
@@ -637,7 +711,7 @@ class HTTPAPI:
                     "management_coordinator_set", "management_list", "management_get", "management_resolve",
                     "system_incidents_list", "system_incidents_get",
                     "dashboard_summary_get", "global_progress_get", "records_health", "records_reconcile",
-                    "owner_inputs_list", "owner_input_get", "work_review_get",
+                    "conversation_history_search", "conversation_history_get", "work_review_get",
                     "actions_record", "actions_list", "actions_get", "actions_correct", "actions_withdraw", "actions_config_get", "agent_context_get",
                     "costs_overview",
                     "calendar_calendars_list", "calendar_events_list", "calendar_event_get",
@@ -658,6 +732,8 @@ class HTTPAPI:
                     # Move to project: the source is the explicit source_business_id argument (null for Global), so the root
                     # route is allowed and the business route must agree with it. No scope selector is accepted.
                     "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project",
+                    "tables_move_to_project_preview", "tables_move_to_project",
+                    "notes_move_to_project_preview", "notes_move_to_project",
                     # Parent-detail readers promised to the record pane: a routine's runs and a known job's own safe
                     # result. Root is Global-source only; the business route reads its Project source. Both are normal
                     # reads through split_options, argument validation and policy, with no job browser or enumeration.
@@ -689,9 +765,11 @@ class HTTPAPI:
                 result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, parts[2], args, options))
                 return response(result)
             if parts == ["root", "operations", "agent_terminal_start"] and request.method == "POST":
-                # Chat's Start button: the owner's own start of one Global agent, through the normal operation, policy and
-                # durable terminal dispatch. Only a single target is accepted here; batches stay with terminal_command_issue.
+                # Chat's Start button in Terminals mode: the owner's own start of one Global agent, through the normal operation,
+                # policy and durable terminal dispatch. Only a single target is accepted here; batches stay with
+                # terminal_command_issue.
                 context, _ = self.context(actor)
+                self.require_terminals()
                 args, options = split_options(await read_json(request, limit=4096))
                 checked_fields(args, {"target_agent_id", "rationale"}, {"target_agent_id", "rationale"})
                 if options.business_id is not None or options.review_business_id is not None:
@@ -826,9 +904,7 @@ class HTTPAPI:
                     result = await anyio.to_thread.run_sync(lambda: self.runtime.application.invoke(context, tail[1], args, options))
                     return response(result, statuses=self.statuses)
                 if tail[:1] == ["chat"]:
-                    raise DomainError("legacy_chat_retired", "Project chat execution is retired; use the registered Claude Code terminal")
-                if tail[:1] in (["terminal"], ["terminals"]) and self.terminals:
-                    return await self.terminals.route(request, context, business, tail)
+                    raise DomainError("legacy_chat_retired", "Project chat execution is retired; use Chat")
                 if self.compatibility:
                     return await self.compatibility.business_route(request, context, business, tail)
             elif self.compatibility:
@@ -922,7 +998,7 @@ class HTTPAPI:
         async def events():
             # A dedicated limiter, not the shared worker pool: this blocks a
             # thread for up to a second at a time for the stream's whole life,
-            # same reasoning as the terminal mirror's own `idle_limiter`.
+            # same reasoning as any long-lived stream.
             idle_limiter = anyio.CapacityLimiter(1)
             last_seq = 0
             last_heartbeat = time.monotonic()
@@ -945,7 +1021,7 @@ class HTTPAPI:
                         for event in replay:
                             yield frame(event)
                             last_seq = event["seq"]
-                while not await request.is_disconnected():
+                while not STOPPING.is_set() and not await request.is_disconnected():
                     try:
                         event = await anyio.to_thread.run_sync(subscriber.queue.get, True, 1.0, limiter=idle_limiter)
                     except queue.Empty:
@@ -1018,7 +1094,7 @@ class HTTPAPI:
                 return
             try:
                 yield event("open", {"view": view.id, "tab": tab})
-                while not await request.is_disconnected():
+                while not STOPPING.is_set() and not await request.is_disconnected():
                     if time.monotonic() - checked_at >= 2:
                         current = await anyio.to_thread.run_sync(live.tabs, port)
                         checked_at = time.monotonic()

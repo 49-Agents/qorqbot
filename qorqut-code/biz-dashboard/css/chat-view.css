@@ -28,6 +28,9 @@
 /* A message that carries a sign-off card takes the full chat column, so the card does too. */
 .gchat-msg.gchat-agent:has(.gchat-signoff-reference) { align-self:stretch; }
 .gchat-notice { align-self: center; align-items: center; max-width: 80%; font-size: 12px; color: var(--fg-2); }
+/* A centred notice is centred on the whole chat, like "Load older messages" and the empty state, not on what is left of it after the
+   avatar gutter (the 32px padding of .gchat-log). */
+.gchat-log > .gchat-notice:not(.gchat-activity-marker) { margin-left: -32px; }
 .gchat-body { font-size: calc(13.25px * .935 * 1.1); padding: 12px 18px; border: 1px solid var(--line-2); border-radius: 24px; overflow-wrap: anywhere; line-height: 1.5; }
 .gchat-user .gchat-body { background: color-mix(in srgb, var(--fg) 10%, var(--bg)); color: var(--fg); white-space: pre-wrap; line-height: 1.65; }
 .gchat-user .gchat-body, .gchat-agent .gchat-body { border: 0; }
@@ -179,10 +182,7 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 /* Typed references (request_user_input): Signoff card, inline browser and entity blocks — under their message. */
 .gchat-typed { display:flex; flex-direction:column; align-items:flex-start; gap:7px; max-width:100%; padding:3px 0 8px; box-sizing:border-box; }
 .gchat-typed:empty { display:none; }
-.gchat-agent-references { display:flex; flex-flow:row wrap; align-items:center; gap:7px; min-width:0; max-width:100%; }
-.gchat-agent-references > .gchat-reference { flex:0 1 auto; box-sizing:border-box; }
-.gchat-agent-references > .gchat-reference > span:last-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.gchat-agent-reference, .gchat-project-reference { cursor:default; }
+.gchat-project-reference { cursor:default; }
 .chat-view .gchat-task-reference:not(.gchat-reference-block), .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block) { display:inline-flex; align-items:center; min-height:0; height:auto; margin:0; padding:2px 0; border:0; border-radius:4px; background:transparent; box-shadow:none; color:var(--fg); font:inherit; font-size:11px; cursor:default; }
 .chat-view button.gchat-task-reference:not(.gchat-reference-block), .agfocus .chat-view button.gchat-task-reference:not(.gchat-reference-block) { cursor:pointer; }
 /* Keep the latest native Task-reference affordance inside the existing box. */
@@ -191,7 +191,16 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .chat-view button.gchat-task-reference:not(.gchat-reference-block):focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; border-radius:4px; }
 .gchat-project-reference .gchat-project-icon { display:inline-flex; align-items:center; flex:none; color:var(--fg-2); }
 .gchat-project-reference .gchat-project-icon svg { width:14px; height:14px; }
-.gchat-reference>.gchat-agent-icon { display:inline-flex; flex:none; overflow:visible; }
+/* Tab reference: a button chip. The page title is untrusted text clipped to one line; the agent's name beside it is secondary.
+   The global filled-pill button (fixed height, white hover, scale) is reset here; :not(:disabled) lifts the hover above theme-light.css's
+   `:root[data-theme="light"] button:hover`, which would otherwise make it dark with white text. */
+.chat-view button.gchat-tab-reference { justify-content:flex-start; height:auto; min-height:0; margin:0; line-height:1.35; text-align:left; transition:none; cursor:pointer; box-sizing:border-box; }
+.chat-view button.gchat-tab-reference:hover:not(:disabled) { background:color-mix(in srgb, var(--fg) 9%, transparent); border-color:var(--line-2); color:var(--fg); transform:none; }
+.chat-view button.gchat-tab-reference:active { transform:none; }
+.chat-view button.gchat-tab-reference:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
+.gchat-tab-reference .gchat-tab-icon { display:inline-flex; align-items:center; flex:none; overflow:visible; color:var(--fg-2); }
+.gchat-tab-reference .gchat-tab-title { flex:0 1 auto; unicode-bidi:isolate; }
+.gchat-tab-reference .gchat-tab-agent { flex:0 0 auto; max-width:45%; color:var(--fg-2); font-size:10px; unicode-bidi:isolate; }
 .gchat-reference-unavailable { color:var(--fg-2); cursor:not-allowed; }
 .gchat-reference-block { display:flex; align-items:flex-start; justify-content:flex-start; gap:12px; width:100%; max-width:100%; min-width:0; height:auto; min-height:0; margin:0; padding:8px 10px; border:0; border-radius:6px; background:transparent; box-shadow:none; color:var(--fg); font:inherit; font-size:13px; font-weight:400; line-height:1.45; text-align:left; transition:none; cursor:pointer; box-sizing:border-box; }
 .gchat-reference-block:hover:not(:disabled) { color:var(--fg); background:var(--hover); box-shadow:inset 0 0 0 1px var(--line-2); transform:none; }
@@ -264,3 +273,27 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-action-group>summary:focus-visible{outline:1px solid var(--fg-2);outline-offset:2px;border-radius:4px}
 .gchat-action-group>.gchat-ref-rows{margin-top:6px}
 .gchat-activity-note{display:block;max-width:none;width:100%;margin:0}
+
+/* The model and effort pill (js/chat-model-picker.js): with it the text field takes its own row and the pill starts the button row. */
+.gchat-composer:has(> .gchat-model-wrap:not([hidden])) textarea { grid-column:1 / -1; }
+.gchat-composer:has(> .gchat-model-wrap:not([hidden])) { border-radius:24px; }
+.gchat-model-wrap[hidden], .gchat-model-menu[hidden] { display:none; }
+.gchat-model-wrap { grid-column:1; justify-self:start; align-self:center; position:relative; min-width:0; max-width:100%; }
+.gchat-composer .gchat-model { display:inline-flex; align-items:center; gap:5px; max-width:100%; height:30px; min-height:30px; padding:0 11px; border:1px solid var(--line); border-radius:15px; background:var(--hover); color:var(--fg-2); font-size:12.5px; font-weight:500; line-height:1; white-space:nowrap; }
+.gchat-model span { overflow:hidden; text-overflow:ellipsis; }
+.gchat-composer .gchat-model:hover, .gchat-model[aria-expanded="true"] { color:var(--fg); }
+.gchat-model:focus-visible, .gchat-model-menu button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.gchat-model-menu { position:absolute; left:0; bottom:calc(100% + 8px); z-index:20; width:min(330px, calc(100vw - 48px)); max-height:min(60vh, 460px); overflow-y:auto; overscroll-behavior:contain; padding:6px; border:1px solid var(--line-2); border-radius:14px; background:color-mix(in srgb, var(--fg) 7%, var(--bg)); box-shadow:0 12px 32px rgba(0,0,0,.45); font-size:13px; line-height:1.35; }
+.gchat-model-head { margin:8px 8px 4px; color:var(--fg-2); font-size:11px; letter-spacing:.04em; text-transform:uppercase; }
+.gchat-model-menu .gchat-model-item { display:grid; justify-content:stretch; justify-items:start; gap:1px; width:100%; height:auto; min-height:0; padding:6px 8px; border:0; border-radius:8px; background:none; color:var(--fg); text-align:left; font-size:13px; font-weight:500; }
+.gchat-model-item small { color:var(--fg-2); font-size:11.5px; font-weight:400; }
+.gchat-model-item[aria-pressed="true"], .gchat-model-menu .gchat-model-item:hover { background:var(--hover); }
+.gchat-model-item[aria-pressed="true"] span::after { content:" ✓"; color:var(--fg-2); }
+.gchat-model-menu .gchat-model-older { display:block; text-align:left; height:auto; min-height:0; padding:6px 8px; border:0; background:none; color:var(--fg-2); font-size:12px; font-weight:500; }
+.gchat-model-efforts { display:flex; flex-wrap:wrap; gap:4px; padding:2px 6px 6px; }
+.gchat-model-efforts button { height:26px; min-height:0; padding:0 9px; border:1px solid var(--line); border-radius:13px; background:none; color:var(--fg-2); font-size:12px; font-weight:500; }
+/* The app's button style centres a button's content and grows it on hover; the pill and the menu rows do neither. */
+.gchat-composer .gchat-model:hover, .gchat-composer .gchat-model:active, .gchat-model-menu button:hover, .gchat-model-menu button:active { transform:none; }
+.gchat-model-efforts button[aria-pressed="true"] { background:var(--fg); border-color:var(--fg); color:var(--bg); }
+.gchat-model-note { margin:4px 8px 2px; color:var(--fg-2); font-size:11.5px; }
+.gchat-composer .gchat-send.gchat-stop svg { width:16px; height:16px; }

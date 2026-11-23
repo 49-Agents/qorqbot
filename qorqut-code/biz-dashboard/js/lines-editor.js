@@ -431,9 +431,17 @@ function ntLinesEditor(o) {
   const resizeObserver = new ResizeObserver(() => placeBalls());
   resizeObserver.observe(doc);
   o.host.replaceChildren(doc, gutter);
-  // click anywhere in the paper's empty space (not on a line/ball) focuses the end of the last line
+  // click anywhere in the paper's empty space (not on a line/ball) focuses the end of the last line.
+  // A drag that selects text and ends beside it (over the ball gutter) also fires a click on the paper;
+  // that selection is kept, not replaced by a caret at the end that scrolls the text away.
+  let pressed = null;
+  if (o.paper) o.paper.addEventListener("mousedown", e => { pressed = e.target; }, true);
   if (o.paper) o.paper.addEventListener("click", e => {
     if (doc.contains(e.target) || e.target.closest(".ntball")) return;
+    // Pressed on one element and released on another: a drag, whose click lands on their shared parent.
+    if (pressed !== e.target) return;
+    const s = getSelection();
+    if (s.rangeCount && !s.isCollapsed && doc.contains(s.getRangeAt(0).commonAncestorContainer)) return;
     focusLine(es.lines.length - 1, Infinity);
   });
   render();

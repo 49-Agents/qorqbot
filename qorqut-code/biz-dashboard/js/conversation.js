@@ -68,7 +68,7 @@ const CONVERSATION_REVIEW = ['revision_conflict','stale_signoff','not_found','fo
 // Normalizes canonical notes (already in controller order) into shared view entries.
 // Threads read like the main Chat: replies carry no avatar. Only a thread with replies from more than one
 // participant names each reply's sender, once per run, so the owner can tell them apart.
-const CONVERSATION_REF_LABELS={signoff:'Signoff',task:'Task',table:'Table',project:'Project',reference:'Reference',action:'Action',file:'File',agent:'Agent'};
+const CONVERSATION_REF_LABELS={signoff:'Signoff',task:'Task',table:'Table',project:'Project',reference:'Reference',action:'Action',file:'File',agent:'Agent',tab:'Browser tab'};
 // A side chat is a Signoff too; it opens as that side chat, never as a Signoff card.
 const conversationSideChat=ref=>ref.type==='signoff' && typeof attentionQueue!=='undefined' ? attentionQueue.sideChat?.(ref.id) || null : null;
 // A reply's Signoff reference is drawn inside the reply by the main Chat's own Signoff card. A side chat keeps its
@@ -286,14 +286,6 @@ function conversationMount(host,source,adapter={}) {
   const readerEl=panel.querySelector('.conversation-reference-reader'),viewEl=panel.querySelector('.conversation-view');
   const inputEl=document.createElement('section');inputEl.className='conversation-inputs';inputEl.hidden=true;
   inputEl.setAttribute('aria-label','Pending input requests');panel.insertBefore(inputEl,viewEl);
-  // What holds now on a Task or Project, beside the pending inputs; empty when the item has no timeline.
-  const timelineEl=document.createElement('section');timelineEl.className='tlp conversation-timeline';timelineEl.hidden=true;
-  timelineEl.setAttribute('aria-label','What holds now');panel.insertBefore(timelineEl,viewEl);
-  const timelineItem=source.type==='task'?{type:'task',id:source.id,business_id:recordSource.business_id ?? null}
-    :source.type==='project'?{type:'project',id:source.id,business_id:source.id}:null;
-  const timelinePanel=typeof timelinePanelMount==='function'?timelinePanelMount(timelineEl,{
-    readHistory:args=>conversationRequest(post('/root/operations/timeline_view',{scope:'global',item:timelineItem,history:true,limit:50,...args})).then(coreData),
-    openTask:ref=>{if(typeof taskOpenReference==='function')void taskOpenReference(ref);}}):null;
   const inputCards=conversationInputMount(inputEl,{active:()=>current() && expanded,
     onAdd:card=>signoffViews.add(card),onRemove:card=>signoffViews.delete(card)});
   // Progress stays outside private message state and renders as collapsed action runs.
@@ -355,7 +347,7 @@ function conversationMount(host,source,adapter={}) {
   function paintContext() {if(!disposed)paint('preserve');}
   // The source is no longer readable: drop everything read from it and invalidate outstanding context and mail reads.
   function dropContext() {
-    s.inputRequests=[];timelinePanel?.update(null);
+    s.inputRequests=[];
     ctx=null;ctxError=false;ctxGen++;ctxMoreBusy=false;ctxMoreError=false;ctxPages=0;relatedGeneration++;referenceGeneration++;
     referenceReader.close();paintContext();
   }
@@ -425,7 +417,7 @@ function conversationMount(host,source,adapter={}) {
       let result=await conversationPrivateCall(source,adapter,'owner_conversation_related',{limit:50,...(more?{offset}:{}),
         ...(s.allNotes?{}:{notes_audience:'owner'})});
       if(!current() || generation!==relatedGeneration)return;
-      if(!more){s.inputRequests=result.input_requests || [];timelinePanel?.update(timelineItem?result.timeline || null:null);}
+      if(!more)s.inputRequests=result.input_requests || [];
       let context=!more && source.type==='task'?result.context:null;
       const contextGeneration=more?ctxGen:++ctxGen;
       if(!more){ctxMoreBusy=false;ctxMoreError=false;}
@@ -462,7 +454,6 @@ function conversationMount(host,source,adapter={}) {
       if(CONVERSATION_GONE.includes(e.code))dropContext();
       else if(more)relatedBlocked=true;
       else if(source.type==='task'){ctxError=true;paintContext();}
-      if(!more && timelineItem && !CONVERSATION_GONE.includes(e.code))timelinePanel?.fail();
       paint();adapter.onRelated?.([]);
     } finally {relatedPending=false;}
   }
@@ -646,7 +637,7 @@ function conversationMount(host,source,adapter={}) {
       disposed=true;expanded=false;
       s.mounts.delete(host);
       if(s.loadOwner===view){s.loading=false;s.loadOwner=null;}
-      referenceReader.dispose();inputCards.dispose();timelinePanel?.dispose();chat.dispose();
+      referenceReader.dispose();inputCards.dispose();chat.dispose();
       toggle.onclick=null;
       if(host._conversation===view){delete host._conversation;delete host.dataset.conversation;}
       toggle.remove();host.replaceChildren();

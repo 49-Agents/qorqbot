@@ -13,7 +13,7 @@ pinned commit). This package is the host's side of that contract:
 * `execution.py` is the generic execution-state vocabulary of a stored Signoff and its SQL mirror; no provider adapter
   contributes to it.
 
-This package does not own HTTP, authentication, domain preparation, terminal transport, or external job dispatch. It
+This package does not own HTTP, authentication, domain preparation, session transport, or external job dispatch. It
 uses the shared application engine and storage receipts; domain handlers never implement a second file writer.
 
 Side chats use category `side_chat` and retain `source.type=signoff`, so their private conversations, inbox deliveries
@@ -125,7 +125,7 @@ rows. Counts cover all visible states independently of the selected filters.
 Return canonical envelopes with `Cache-Control: no-store`. `accepted` means a
 durable approval awaiting application, not success. Use the specification's HTTP
 status mapping, including `409` for stale decisions and `503` for bounded busy
-errors. Never add business logs, journal entries, notifications, tasks or terminal
+errors. Never add business logs, journal entries, notifications, tasks or session
 wakes for signoff transitions.
 
 ## Lifecycle and Recovery

@@ -37,6 +37,7 @@ from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UNS
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.business_lifecycle import active_business_ids
 from qorqut_operations.contracts import DomainError, canonical_bytes, plain
+from qorqut_operations.global_agents import is_coordinator
 from qorqut_operations.conversations import SUMMARY, participants
 from qorqut_operations.discussion.events import emit_event
 from qorqut_operations.discussion.follows import ThreadItem, auto_follow, can_follow, follow_state, followers
@@ -156,7 +157,9 @@ class ActionOperations:
             return None
         provider = self.application.delegation
         assignment = provider.assignment(uow, identity) if provider is not None else None
-        if assignment is None or assignment["parent_principal_id"] != ctx.principal_id:
+        # The coordinator controls every parent's assignment, so it also records the result of one another agent created.
+        if assignment is None or (assignment["parent_principal_id"] != ctx.principal_id
+                                  and (worker is not None or not is_coordinator(uow.connection, ctx.principal_id))):
             raise DomainError("not_found", "Delegated assignment does not exist")
         if worker is None:
             if assignment["state"] != "completed" or not (assignment["result_json"] or {}).get("summary"):

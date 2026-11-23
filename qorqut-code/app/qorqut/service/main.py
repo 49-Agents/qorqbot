@@ -9,12 +9,14 @@ import logging
 import os
 from pathlib import Path
 import sys
+import threading
 
 from qorqut.background.providers import BackgroundModelClient, ProviderConfig
 from qorqut_operations.contracts import DomainError
 from qorqut.transport.auth import Authentication
 from qorqut.transport.compatibility import DashboardCompatibility
-from qorqut.transport.terminals import TerminalService
+from qorqut.transport.managed_launch import ManagedLaunch
+from qorqut.managed_runtime import mode as runtime_mode
 from .local import LocalFiles
 from .instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from .runtime import build_runtime
@@ -45,6 +47,34 @@ def transcript_capture_configuration(value=None):
     return value
 
 
+class TerminalBroker:
+    """The dashboard's tmux broker (``pty_broker.py``), loaded the first time a terminal is used.
+
+    Composing the service in managed mode, or on a computer without tmux, must not load it, start a process or write a file; the
+    module binds the tmux program it finds when it is loaded, so a tmux installed while the service runs is looked for again
+    each time a call finds none."""
+
+    def __init__(self, paths, load=None):
+        self._paths, self._load, self._module, self._lock = paths, load, None, threading.Lock()
+
+    def module(self):
+        with self._lock:
+            if self._module is None:
+                try:
+                    self._module = (self._load or load_terminal_broker)(self._paths)
+                except (OSError, ImportError, AttributeError) as error:
+                    raise DomainError("operation_unavailable", "Agent terminals are not available on this installation") from error
+            if getattr(self._module, "TMUX", True) is None:
+                from qorqut.terminal_support import find_tmux
+                self._module.TMUX = find_tmux()
+            return self._module
+
+    def __getattr__(self, name):
+        if name.startswith("__") or name in {"_paths", "_load", "_module", "_lock"}:
+            raise AttributeError(name)
+        return getattr(self.module(), name)
+
+
 def load_terminal_broker(paths):
     from qorqut.installation import component
     path = component(paths, 'dashboard') / 'pty_broker.py'
@@ -53,6 +83,31 @@ def load_terminal_broker(paths):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def compose_terminals(runtime, *, paths, endpoint, local, shell, broker, capture_transcripts, terminal_workspace, execution_provider):
+    """The terminal side of the service, composed in every mode as at DUAL: it starts no process, writes no file and needs no
+    tmux. Whether it may be used is decided at call time by the installation's mode (``TerminalService.require_terminals``)."""
+    from qorqut.transport.agent_terminal_control import AgentTerminalBackend
+    from qorqut.transport.terminals import TerminalService
+    terminals = TerminalService(runtime, broker or TerminalBroker(paths), service_url=endpoint, shell=shell,
+        environment=local.environment, global_environment=local.environment, agent_environment=local.agent_environment,
+        capture_transcripts=capture_transcripts, workspace=terminal_workspace, execution_provider=execution_provider)
+    # The native binding adapter and Ordubashy's terminal tools reach the terminals through these two.
+    runtime.terminals = terminals
+    runtime.terminal_control.backend = AgentTerminalBackend(terminals)
+    return terminals
+
+
+def recover_switch(runtime):
+    """At start, after the managed runtime and the terminal side exist. A failure here is logged and never stops the service."""
+    switch = getattr(runtime, "runtime_switch", None)
+    if switch is None:
+        return
+    try:
+        switch.recover()
+    except Exception:  # noqa: BLE001 - recovery of an interrupted switch must not keep the service from starting
+        logging.getLogger(__name__).exception("Recovering an interrupted switch of how agents run failed")
 
 
 def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="/bin/bash",
@@ -76,24 +131,30 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
     runtime.resolver.context_home = published_context.home_text
     runtime.owner_bootstrap.context_home = published_context.home_text
     runtime.owner_bootstrap.context_status = published_context.status
-    broker = broker or load_terminal_broker(paths)
     from qorqut_operations.storage.quiescence import KnownZeroWriters
-    from qorqut.storage.host_writers import HostTerminalWriters, LegacyHostWriters
+    from qorqut.storage.host_writers import ManagedHostWriters
     from qorqut.browser.access import BrowserAccess
     runtime.browser_access = BrowserAccess(runtime)
     # Browser lease mutations participate in shared admission; the browser class has no separate writer service.
     runtime.recovery_quiescer.browser_writers = KnownZeroWriters("browser")
-    runtime.recovery_quiescer.host_writers = LegacyHostWriters(HostTerminalWriters(getattr(broker, "TMUX", None) or "/usr/bin/tmux"))
-    terminals = TerminalService(runtime, broker, service_url=endpoint, shell=shell,
+    # A live managed agent host (a headless client session that outlives the service) refuses the window; it never closes or
+    # kills one. In Terminals mode the Qorqut tmux socket is read as well; the mode is asked at each window, and managed mode
+    # never runs tmux.
+    from qorqut.managed_runtime.state import state_root
+    from qorqut.storage.host_writers import HostTerminalWriters, ModeHostWriters
+    from qorqut.terminal_support import find_tmux
+    runtime.recovery_quiescer.host_writers = ModeHostWriters(
+        ManagedHostWriters(lambda: state_root(runtime.paths)), HostTerminalWriters(find_tmux), runtime.paths)
+    terminals = compose_terminals(runtime, paths=paths, endpoint=endpoint, local=local, shell=shell, broker=broker,
+                                  capture_transcripts=capture_transcripts, terminal_workspace=terminal_workspace,
+                                  execution_provider=execution_provider)
+    launch = ManagedLaunch(runtime, service_url=endpoint,
         environment=local.environment, global_environment=local.environment,
-        agent_environment=local.agent_environment, capture_transcripts=capture_transcripts,
-        workspace=terminal_workspace, execution_provider=execution_provider)
-    # The native binding adapter selects its execution target through this same service.
-    runtime.terminals = terminals
-    from qorqut.transport.agent_terminal_control import AgentTerminalBackend
-    runtime.terminal_control.backend = AgentTerminalBackend(terminals)
+        agent_environment=local.agent_environment, capture_transcripts=capture_transcripts)
+    # The managed runtime prepares every session it opens through this service.
+    runtime.managed_launch = launch
     from qorqut.inbox.broadcasts import BroadcastDispatcher
-    runtime.broadcast_dispatcher = BroadcastDispatcher(runtime, runtime.broadcasts, terminals)
+    runtime.broadcast_dispatcher = BroadcastDispatcher(runtime, runtime.broadcasts, launch)
     if model_client_factory is None:
         service_provider = {key: os.environ[key] for key in ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "BIZ_BACKGROUND_MODEL") if key in os.environ}
         model_client_factory = background_model_factory(local, service_provider)
@@ -109,7 +170,10 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         selected = RecoveryAdminConfig.load(recovery_config, paths=paths)
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
             lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)
+    # Returns silently in managed mode and without tmux, so an approved archive never needs either.
     runtime.domains.archive.reset_terminals = terminals.reset_business_for_archive
+    # The managed runtime and the terminal side both exist now: finish what a service that died mid-switch left behind.
+    recover_switch(runtime)
     compatibility = DashboardCompatibility(runtime, terminals=terminals, background=runtime.background, local_files=local)
     authentication = Authentication(runtime.database, runtime.paths, bootstrap_token=bootstrap_token, signing_key=signing_key,
                                     integration_adapter=runtime.selection.integration_adapter)
@@ -120,11 +184,24 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         compatibility=compatibility, terminals=terminals)
 
 
+def terminals_selected(args) -> bool:
+    """Whether this installation's setting says Terminals right now. Anything that cannot be read is managed."""
+    try:
+        return runtime_mode.is_terminal(instance_paths_from_arguments(args, required=("app", "dashboard")))
+    except (DomainError, OSError, ValueError):
+        return False
+
+
+def terminal_shell():
+    """The owner's login shell for terminals, or bash when it is one a terminal does not start."""
+    shell = os.environ.get("SHELL", "/bin/bash")
+    return shell if Path(shell).name in {"bash", "sh", "dash", "zsh", "fish"} else "/bin/bash"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=instruction_text('main-shared-qorqut-dashboard-and-http-mcp-service'))
     parser.add_argument("--workspace", type=Path, default=None)
     add_instance_arguments(parser)
-    parser.add_argument("--terminal-workspace", type=Path, default=os.environ.get("QORQUT_TERMINAL_WORKSPACE"))
     parser.add_argument("--biz", action="append", default=[])
     parser.add_argument("--host", default=os.environ.get("BIZ_DASH_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("BIZ_DASH_PORT", "1049")))
@@ -140,7 +217,13 @@ def main(argv=None):
     parser.add_argument("--recovery-config", type=Path, help="Private external host configuration for local encrypted recovery")
     parser.add_argument("--context-config", type=Path, help="Explicit JSON file of Context RunnerConfig fields (model, effort, limits); "
                         "the library defaults apply without it")
+    # The owner's own Workspace shell opens here in Terminals mode. While agents run as managed sessions there are no terminals, so
+    # the option has no effect; an earlier version's start command still passes it, and that must not end the service at start.
+    parser.add_argument("--terminal-workspace", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.terminal_workspace is not None and not terminals_selected(args):
+        logging.getLogger(__name__).warning("Ignoring --terminal-workspace: it has no effect while agents run as managed sessions. "
+                                            "Remove it from this start command.")
     try:
         if args.workspace is None:
             raise DomainError("invalid_configuration", "Set the explicit engine workspace with --workspace")
@@ -178,7 +261,8 @@ def main(argv=None):
             from qorqut.shared_context.service import runner_config_from_file
             context_settings = ContextSettings(config=runner_config_from_file(args.context_config))
         app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=token,
-            shell=os.environ.get("SHELL", "/bin/bash"), database=database, terminal_workspace=args.terminal_workspace,
+            shell=terminal_shell(), database=database,
+            terminal_workspace=args.terminal_workspace or os.environ.get("QORQUT_TERMINAL_WORKSPACE") or None,
             recovery_config=args.recovery_config, context=context_settings, extensions=selection)
         if args.prepare_agent:
             # Preparing an agent writes its bootstrap material, so only the backend that owns the instance may do it:
@@ -189,26 +273,26 @@ def main(argv=None):
                     actor = app.state.authentication.installation_owner(connection=uow.connection)[0]
                 from qorqut.transport.auth import AuthenticatedPrincipal
                 context, business = app.state.http_api.context(AuthenticatedPrincipal(actor), slug, owner=True)
-                profile, _ = app.state.http_api.terminals.agent(context, selector)
-                from qorqut_operations.contracts import Principal
-                terminals = app.state.http_api.terminals
-                execution = terminals.execution(business)
-                versions = execution.version_provider()
-                if execution.target_identity is None and (args.claude_version or args.codex_version):
-                    versions = {"claude-code": args.claude_version or "", "codex": args.codex_version or ""}
-                preparation = {"endpoint": execution.endpoint,
-                    "versions": versions,
-                    "capture_transcripts": terminals.capture_transcripts}
-                if execution.interpreter is not None:
-                    preparation["interpreter"] = execution.interpreter
-                if execution.interpreter_validator is not None:
-                    preparation["interpreter_validator"] = execution.interpreter_validator
-                result = terminals.preparation(runtime.resolver, Principal(profile.agent_id, "agent"), **preparation)
+                profile, _ = runtime.managed_launch.agent(context, selector)
+                versions = ({"claude-code": args.claude_version or "", "codex": args.codex_version or ""}
+                            if args.claude_version or args.codex_version else None)
+                result = runtime.managed_launch.prepare(profile.agent_id, versions=versions)
                 print(json.dumps(result, sort_keys=True))
                 return 0
         import uvicorn
-        uvicorn.run(app, host=args.host, port=args.port, proxy_headers=False, server_header=False, access_log=False,
-            timeout_graceful_shutdown=10, limit_concurrency=200, log_level="info")
+        from qorqut.transport.http import STOPPING
+
+        class Server(uvicorn.Server):
+            def handle_exit(self, sig, frame):
+                # Open event streams (a dashboard tab) never end by themselves: tell them to finish before the drain starts.
+                STOPPING.set()
+                super().handle_exit(sig, frame)
+
+        server = Server(uvicorn.Config(app, host=args.host, port=args.port, proxy_headers=False, server_header=False, access_log=False,
+            timeout_graceful_shutdown=10, limit_concurrency=200, log_level="info"))
+        server.run()
+        if not server.started:
+            return 3
         return 0
     except (DomainError, OSError, ValueError) as exc:
         logging.getLogger(__name__).error("Service configuration rejected: %s", exc)

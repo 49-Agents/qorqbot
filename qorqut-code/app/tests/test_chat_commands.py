@@ -20,8 +20,8 @@ class CatalogTest(unittest.TestCase):
     def test_built_ins_per_client_say_where_their_result_appears(self):
         claude = {item["name"]: item["where"] for item in commands.catalog("claude")["commands"]}
         codex = {item["name"]: item["where"] for item in commands.catalog("codex")["commands"]}
-        self.assertEqual((claude["/compact"], claude["/model"], claude["/resume"]), ("chat", "terminal", "terminal"))
-        self.assertEqual((codex["/new"], codex["/model"]), ("chat", "terminal"))
+        self.assertEqual((claude["/compact"], claude["/model"], claude["/resume"]), ("chat", "unavailable", "unavailable"))
+        self.assertEqual((codex["/new"], codex["/model"]), ("unavailable", "chat"))
         self.assertNotIn("/clear", codex)
         self.assertEqual(commands.catalog("bash"), {"client": None, "commands": []})
 
@@ -57,16 +57,6 @@ class CodexBuiltinTest(unittest.TestCase):
         with mock.patch.object(commands, "_read", side_effect=AssertionError("read a file")), \
                 mock.patch.object(commands.Path, "home", side_effect=AssertionError("looked up a home")):
             self.assertEqual(commands.codex_builtin("/status"), "/status")
-
-
-class DeliveryTextTest(unittest.TestCase):
-    def test_only_a_bare_command_gets_a_trailing_space(self):
-        self.assertEqual(commands.delivery_text("/compact"), "/compact ")
-        self.assertEqual(commands.delivery_text("/git:sync"), "/git:sync ")
-        self.assertEqual(commands.delivery_text("/compact keep decisions"), "/compact keep decisions")
-        self.assertEqual(commands.delivery_text("hello /compact"), "hello /compact")
-        self.assertEqual(commands.delivery_text("/usr/bin is a path"), "/usr/bin is a path")
-        self.assertEqual(commands.delivery_text("/compact "), "/compact ")
 
 
 if __name__ == "__main__":

@@ -14,11 +14,12 @@ from unittest import mock
 from qorqut_operations.contracts import DomainError
 
 from qorqut.bootstrap import browser
-from qorqut.browser import captcha, captcha_solver
+from qorqut.browser import captcha, captcha_solver, live, tab_reference
 from qorqut.browser.access import BrowserAccess
 from qorqut.browser.captcha import Frame
 
 KEY, TOKEN = "test-solver-key", "test-solver-answer"
+AGENT, WORKER, TAB = "4f6c1a2e-8d35-4b97-a1c0-2e9d7f3b5a64", "8fdca155-2f3b-4735-800f-41624c6d26cc", "A1B2C3D4E5F60718293A4B5C6D7E8F90"
 PAGE = "https://shop.example/checkout?email=jane@example.com#pay"
 RECAPTCHA = "https://www.google.com/recaptcha/api2/anchor?ar=1&k=SITEKEY&co=aHR0cHM6&hl=en&size=normal&cb=x1"
 ENTERPRISE = "https://www.recaptcha.net/recaptcha/enterprise/anchor?ar=1&k=SITEKEY&size=normal"
@@ -505,12 +506,12 @@ class CommandTest(unittest.TestCase):
         self.workspace = self.root / "workspace"
         self.target = ("http://127.0.0.1:20450", Path("/runtime/run-agent-browser"))
 
-    def run_command(self, outcome, **settings):
+    def run_command(self, outcome, instance="configured:agent-1", **settings):
         self.on_tab = mock.Mock(return_value=outcome)
         with mock.patch.object(captcha, "on_tab", self.on_tab), \
                 mock.patch.object(captcha, "settings", return_value=(settings.get("key", KEY), settings.get("provider"))), \
                 self.assertLogs(captcha.logger, "INFO") as self.logs:
-            return captcha.runner(self.runtime, "agent-1")(self.workspace, ["captcha"], target=self.target, instance="configured:agent-1",
+            return captcha.runner(self.runtime, "agent-1")(self.workspace, ["captcha"], target=self.target, instance=instance,
                                                            capture=True, pinned=True)
 
     def log(self):
@@ -570,6 +571,46 @@ class CommandTest(unittest.TestCase):
         with self.assertLogs(captcha.logger, "WARNING"):
             captcha.record(self.root / "missing", {"captcha": "solved"})
 
+    def test_a_captcha_left_to_the_owner_comes_with_the_tab_to_show_and_what_to_do_with_it(self):
+        own = f"configured:{AGENT}"
+        for outcome in ({"captcha": "failed", "type": "recaptcha", "reason": "No money.", "next": captcha.ASK_OWNER, "tab": TAB},
+                        {"captcha": "not_found", "host": "shop.example", "next": captcha.NOT_FOUND, "tab": TAB}):
+            code, out, _ = self.run_command(outcome, own)
+            reply = json.loads(out)
+            self.assertEqual((code, reply["reference"]), (1, {"type": "tab", "id": f"{AGENT}:{TAB}"}), outcome["captcha"])
+            self.assertEqual(reply["next"], f"{outcome['next']} {tab_reference.SHOW_FIELD}")
+            self.assertIn("request_user_input", reply["next"])
+            self.assertNotIn("tab", reply)                  # the id is in the reference, not beside it
+            self.assertNotIn("tab", self.log()[-1])         # nor in the log
+
+    def test_the_reference_comes_with_the_tab_s_title_and_address_when_its_browser_gives_them(self):
+        outcome = {"captcha": "failed", "next": captcha.ASK_OWNER, "tab": TAB}
+        pages = [{"id": TAB, "title": "Mercury sign in", "url": "https://mercury.example/login"}]
+        with mock.patch.object(live, "tabs", return_value=pages) as tabs:
+            reply = json.loads(self.run_command(outcome, f"configured:{AGENT}")[1])
+        tabs.assert_called_once_with(captcha._port(self.target[0]))
+        self.assertEqual((reply["title"], reply["url"], set(reply["reference"])), ("Mercury sign in", "https://mercury.example/login", {"type", "id"}))
+        with mock.patch.object(live, "tabs", side_effect=DomainError("browser_not_ready", "stopped")):
+            reply = json.loads(self.run_command(outcome, f"configured:{AGENT}")[1])
+        self.assertEqual((reply["reference"], "title" in reply, "url" in reply), ({"type": "tab", "id": f"{AGENT}:{TAB}"}, False, False))
+
+    def test_the_reference_names_the_agent_whose_browser_it_is_which_is_not_always_the_caller(self):
+        code, out, _ = self.run_command({"captcha": "failed", "next": captcha.ASK_OWNER, "tab": TAB}, f"configured:{WORKER}")
+        self.assertEqual(json.loads(out)["reference"], {"type": "tab", "id": f"{WORKER}:{TAB}"})      # the caller is agent-1
+
+    def test_only_a_captcha_left_to_the_owner_with_a_known_tab_in_an_agents_browser_gets_a_reference(self):
+        own = f"configured:{AGENT}"
+        cases = [("solved", {"captcha": "solved", "type": "recaptcha", "method": "click", "tab": TAB}, own),
+                 ("another next", {"captcha": "failed", "next": "Look at the page, and run captcha again if it still shows one.", "tab": TAB}, own),
+                 ("tab unknown", {"captcha": "failed", "next": captcha.ASK_OWNER}, own),
+                 ("a desktop's browser", {"captcha": "failed", "next": captcha.ASK_OWNER, "tab": TAB}, "desktop:ordubashy-browser"),
+                 ("no instance", {"captcha": "failed", "next": captcha.ASK_OWNER, "tab": TAB}, ""),
+                 ("an id the tool would refuse", {"captcha": "failed", "next": captcha.ASK_OWNER, "tab": "tab-1"}, own)]
+        for name, outcome, instance in cases:
+            reply = json.loads(self.run_command(outcome, instance)[1])
+            self.assertNotIn("reference", reply, name)
+            self.assertEqual(reply.get("next"), outcome.get("next"), name)
+
     def test_the_command_takes_no_arguments(self):
         self.assertTrue(captcha.is_command(["captcha"]))
         self.assertFalse(captcha.is_command(["click", "captcha"]))
@@ -614,7 +655,7 @@ class OnTabTest(unittest.TestCase):
 
     def test_it_works_on_the_tab_the_agents_session_is_bound_to_and_counts_as_use_of_it(self):
         connect = mock.Mock(side_effect=lambda port, tab: self.socket)
-        self.assertEqual(self.on_tab(connect=connect), {"captcha": "solved"})
+        self.assertEqual(self.on_tab(connect=connect), {"captcha": "solved", "tab": "TAB1"})      # the tab is named for the reply
         connect.assert_called_once_with(20450, "TAB1")
         self.before.assert_called_once_with("http://127.0.0.1:20450", "qorqut-1", True)
         self.assertEqual((self.attempt.call_args.kwargs, self.socket.closed), ({"key": KEY, "provider": None}, True))
@@ -624,6 +665,7 @@ class OnTabTest(unittest.TestCase):
             outcome = self.on_tab(bound=bound)
             self.assertEqual(outcome["captcha"], "not_found")
             self.assertIn("Open the page first", outcome["next"])
+            self.assertNotIn("tab", outcome)                      # no tab, nothing to name
             self.attempt.assert_not_called()
 
     def test_a_browser_that_is_not_on_this_computer_is_refused_before_anything_is_touched(self):
@@ -672,6 +714,20 @@ class AccessTest(unittest.TestCase):
         use.assert_called_once_with("configured:agent-1")                    # the browser's use lock, as for a click
         self.assertEqual((on_tab.call_args.args[0], on_tab.call_args.args[2]), ("http://127.0.0.1:20450", True))
         self.assertNotIn(KEY, json.dumps(result))
+
+    def test_a_native_captcha_command_left_to_the_owner_shows_which_tab_in_whose_browser(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.access.runtime = SimpleNamespace(paths=SimpleNamespace(runtime=Path(folder.name).resolve()))
+        target = {"cdp_endpoint": "http://127.0.0.1:20450", "runtime_dir": "/runtime", "instance": f"configured:{AGENT}", "shared": False}
+        outcome = {"captcha": "failed", "type": "hcaptcha", "reason": "Nothing passed it.", "next": captcha.ASK_OWNER, "tab": TAB}
+        with mock.patch.object(BrowserAccess, "_worker_target", return_value=target), mock.patch.object(BrowserAccess, "_managed_use"), \
+                mock.patch.object(browser, "runtime_executable", return_value=Path("/runtime/run-agent-browser")), \
+                mock.patch.object(captcha, "settings", return_value=(KEY, None)), mock.patch.object(captcha, "on_tab", return_value=outcome):
+            result = self.access._native_command(self.actor, {"command": ["captcha"]}, f"configured:{AGENT}", "b0123456789ab")
+        reply = json.loads(result["stdout"])
+        self.assertEqual((result["exit_code"], reply["reference"]), (1, {"type": "tab", "id": f"{AGENT}:{TAB}"}))
+        self.assertTrue(reply["next"].startswith(captcha.ASK_OWNER + " "))
 
     def test_a_command_agent_browser_does_not_have_is_still_refused(self):
         for command in (["captcha", "solve"], ["launch"], ["click", "--session=x"]):

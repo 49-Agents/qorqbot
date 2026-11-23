@@ -59,10 +59,12 @@ class ViewTest(unittest.TestCase):
         self.addCleanup(view.close)
         return view
 
-    def test_opening_brings_the_tab_forward_and_starts_the_pictures(self):
+    def test_opening_brings_the_tab_forward_keeps_it_drawn_and_focused_and_starts_the_pictures(self):
         self.open()
-        self.assertEqual(self.socket.methods(), ["Page.bringToFront", "Page.startScreencast"])
-        self.assertEqual(self.socket.sent[1]["params"]["format"], "jpeg")
+        self.assertEqual(self.socket.methods(), ["Page.bringToFront", "Emulation.setFocusEmulationEnabled", "Page.startScreencast"])
+        # Agents bring their own tabs to the front with every command; without this the watched tab stopped sending pictures.
+        self.assertEqual(self.socket.sent[1]["params"], {"enabled": True})
+        self.assertEqual(self.socket.sent[2]["params"]["format"], "jpeg")
 
     def test_a_tab_that_cannot_be_reached_is_reported_and_leaves_no_view(self):
         def refuse(_port, _tab):
@@ -75,7 +77,7 @@ class ViewTest(unittest.TestCase):
     def test_each_picture_is_acknowledged_and_returned_with_the_page_size(self):
         view = self.open([{"id": 1, "result": {}}, frame(7, 1000, 600)])
         self.assertEqual(view.next(1), {"data": "jpeg-7", "width": 1000, "height": 600})
-        self.assertEqual(self.socket.sent[-1], {"id": 3, "method": "Page.screencastFrameAck", "params": {"sessionId": 7}})
+        self.assertEqual(self.socket.sent[-1], {"id": 4, "method": "Page.screencastFrameAck", "params": {"sessionId": 7}})
 
     def test_pictures_faster_than_the_dashboard_rate_are_acknowledged_and_only_the_newest_is_kept(self):
         view = self.open([frame(1), frame(2), frame(3)])
@@ -136,8 +138,8 @@ class ViewTest(unittest.TestCase):
         view.send([{"type": "mouse", "action": "down", "x": 10, "y": 20, "button": "left", "buttons": 1, "clicks": 1},
                    {"type": "mouse", "action": "up", "x": 10, "y": 20, "button": "left", "clicks": 1},
                    {"type": "text", "text": "héllo"}])
-        self.assertEqual(self.socket.methods()[2:], ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent", "Input.insertText"])
-        self.assertEqual(self.socket.sent[2]["params"], {"x": 10, "y": 20, "modifiers": 0, "type": "mousePressed", "button": "left",
+        self.assertEqual(self.socket.methods()[3:], ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent", "Input.insertText"])
+        self.assertEqual(self.socket.sent[3]["params"], {"x": 10, "y": 20, "modifiers": 0, "type": "mousePressed", "button": "left",
                                                          "buttons": 1, "clickCount": 1})
 
     def test_one_invalid_event_stops_the_whole_batch_before_the_page_sees_any_of_it(self):
@@ -146,7 +148,7 @@ class ViewTest(unittest.TestCase):
             with self.subTest(events=events), self.assertRaises(DomainError) as refused:
                 view.send(events)
             self.assertEqual(refused.exception.code, "validation_error")
-        self.assertEqual(len(self.socket.sent), 2)
+        self.assertEqual(len(self.socket.sent), 3)
 
     def test_input_to_a_closed_tab_is_reported(self):
         view = self.open()
@@ -278,15 +280,17 @@ class BrowserTest(unittest.TestCase):
             live.tabs(20400)
         self.assertEqual(refused.exception.code, "browser_not_ready")
 
-    def test_the_port_is_the_one_of_the_browser_the_agent_uses_and_only_for_an_agent_with_a_browser(self):
+    def test_the_port_is_the_shared_browsers_and_only_for_an_agent_that_uses_it(self):
         runtime = SimpleNamespace()
         with mock.patch.object(setup, "targets", return_value=("owner", [{"agent_id": AGENT}])), \
                 mock.patch.object(sign_in, "_meta", return_value={"managed": {"port": 20417}}) as meta, \
-                mock.patch.object(sign_in, "_state", return_value=Path("/state", AGENT)), \
-                mock.patch.object(agent_browsers, "meta_valid", return_value=True), \
+                mock.patch.object(sign_in, "_state", return_value=Path("/state", agent_browsers.SHARED_ID)), \
+                mock.patch.object(agent_browsers, "meta_valid", return_value=True) as valid, \
                 mock.patch.object(agent_browsers, "supervisor_state", return_value={"state": "ready"}):
             self.assertEqual(live.port(runtime, AGENT), 20417)
-            meta.assert_called_once_with(runtime, AGENT)
+            meta.assert_called_once_with(runtime)                     # there is one browser: the agent only says whose tabs
+            self.assertEqual(valid.call_args.args[1:], (agent_browsers.SHARED_ID, Path("/state", agent_browsers.SHARED_ID)))
+            self.assertEqual(live.shared_port(runtime), 20417)
             with self.assertRaises(DomainError) as refused:
                 live.port(runtime, "22222222-2222-4222-8222-222222222222")
             self.assertEqual(refused.exception.code, "not_found")
@@ -297,7 +301,7 @@ class BrowserTest(unittest.TestCase):
         for state, valid in (("stopped", True), ("starting", True), ("unverified", True), ("failed", True), ("ready", False)):
             with self.subTest(state=state, valid=valid), mock.patch.object(setup, "targets", return_value=("owner", [{"agent_id": AGENT}])), \
                     mock.patch.object(sign_in, "_meta", return_value={"managed": {"port": 20417}}), \
-                    mock.patch.object(sign_in, "_state", return_value=Path("/state", AGENT)), \
+                    mock.patch.object(sign_in, "_state", return_value=Path("/state", agent_browsers.SHARED_ID)), \
                     mock.patch.object(agent_browsers, "meta_valid", return_value=valid), \
                     mock.patch.object(agent_browsers, "supervisor_state", return_value={"state": state}), \
                     self.assertRaises(DomainError) as refused:
@@ -319,7 +323,7 @@ class BrowserTest(unittest.TestCase):
                 with self.subTest(tab=tab), self.assertRaises(DomainError) as refused:
                     live.open_view(runtime, AGENT, tab)
                 self.assertEqual(refused.exception.code, "not_found")
-        state.assert_called_once_with(runtime, AGENT)                 # the browser the agent uses: its own, or the Shared one
+        state.assert_called_once_with(runtime)                        # the one browser every agent uses
         view.assert_called_once_with(AGENT, 20400, TAB, marks=Path("/state", idle_tabs.WATCHED))
         return woken
 

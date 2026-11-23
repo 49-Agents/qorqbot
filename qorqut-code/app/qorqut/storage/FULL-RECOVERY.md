@@ -53,8 +53,7 @@ context. It closes mutation admission and waits for admitted applications, then
 uses bounded `stop(timeout=...)` joins for signoffs and the attached background
 service. Runtime integration registers a controller (or a verified known-zero
 inventory) for every writer class, including the browser class. It always
-reopens admission when the recovery context exits. Host terminals require a
-separate explicit inventory/freeze controller and otherwise cause refusal.
+reopens admission when the recovery context exits. Live managed agent sessions refuse the window (`recovery_not_quiescent`); the owner ends them in Chat first.
 
 The context manager yields the barrier's active proof (`qorqut_operations.storage.RecoveryBarrierProof`), issued only after
 every drain and freeze succeeded, the boundary is closed, claims are clear and the exclusive installation lock is held. It

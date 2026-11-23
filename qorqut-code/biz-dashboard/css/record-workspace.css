@@ -225,7 +225,17 @@
 
 /* The selected signoff owns the record reader's scroll frame. */
 .rw-dashboard.record-panel.rw-signoff-panel{display:flex;flex-direction:column;min-height:0;padding:0;overflow:hidden}
-
-.rw .rw-head .rw-open-thread{flex:none;padding:4px 10px;min-height:30px;border:1px solid var(--line-2);border-radius:var(--r-full);background:none;color:var(--fg-2);font-size:12px;font-weight:400}
-.rw .rw-head .rw-open-thread:hover{color:var(--fg);background:var(--hover)}
+/* The thread button beside the tabs: the same control as a tab, pressed while the Chat area shows this record's thread. */
+.rw .rw-head .rw-open-thread{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--nav-control-size);height:var(--nav-control-size);min-height:var(--nav-control-size);margin:0;padding:6px;
+  border:0;border-radius:var(--nav-control-radius);background:transparent;color:var(--fg-2);transform:none}
+.rw .rw-head .rw-open-thread svg{width:var(--nav-control-icon);height:var(--nav-control-icon);flex:none}
+.rw .rw-head .rw-open-thread:hover{background:var(--hover);color:var(--fg)}
+.rw .rw-head .rw-open-thread[aria-pressed="true"]{background:var(--nav-selected);color:var(--fg)}
+.rw .rw-head .rw-open-thread:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px}
 .rw .rw-head .rw-open-thread[hidden]{display:none}
+/* The timeline pane: the panel fills it and the pane scrolls, so the panel drops the height cap and rule it has above a chat. */
+.rw-timeline{overflow:auto;overscroll-behavior:contain;padding:10px 20px 18px}
+/* The journal brings the rail Timeline page's look; the pane already has the padding. */
+.rw-timeline .agent-timeline{padding:0 2px}
+.rw-timeline .agent-timeline-empty{margin-top:4px}
+.rw-timeline .agent-timeline-empty p{margin:0;font-size:13px;line-height:1.5}

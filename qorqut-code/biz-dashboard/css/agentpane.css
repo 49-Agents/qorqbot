@@ -1,22 +1,22 @@
 /* Agent overview: scope the third column to Agents; other .split views keep their layout. */
 .split.agsplit {
-  --ag-terminal-fr: 1fr;
+  --ag-chat-fr: 1fr;
   --ag-pane-fr: 1.15fr;
   --ag-divider-width: 12px;
-  grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr));
+  grid-template-columns: 228px minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr));
   min-width: 0;
 }
 .split.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
-.split.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+.split.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
-.split.global-agents.agsplit { grid-template-columns: 114px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+.split.global-agents.agsplit { grid-template-columns: 114px minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.global-agents.agsplit.pad-off { grid-template-columns: 114px minmax(0, 1fr) 0; }
-.split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+.split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
 .split.global-agents.agsplit.nav-off.pad-off { grid-template-columns: 0 minmax(0, 1fr) 0; }
 /* Global and per-business agents share one navigation column; it is a compact icon strip, slightly wider where the screen has room.
    The nav-off rules above still win (higher specificity), and narrower screens keep 114px. */
 @media (min-width: 1000px) {
-  .split.global-agents.agsplit { grid-template-columns: 134px minmax(0, var(--ag-terminal-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit { grid-template-columns: 134px minmax(0, var(--ag-chat-fr)) var(--ag-divider-width) minmax(0, var(--ag-pane-fr)); }
   .split.global-agents.agsplit.pad-off { grid-template-columns: 134px minmax(0, 1fr) 0; }
 }
 /* Testing mode OFF: the roster stays, while the unavailable Overseer replaces the
@@ -31,11 +31,11 @@
 .overseer-gated > .global-agent-session,
 .overseer-gated > .agent-pane-divider,
 .overseer-gated > .agpad { display: none; }
-.agsplit:not(.pad-off) > .chat.termmode { padding-left: 24px; padding-right: 24px; }
+.agsplit:not(.pad-off) > .chat.agentchat { padding-left: 24px; padding-right: 24px; }
 .agsplit.pad-off > .agent-pane-divider { display: none; }
 
 /* The hit area is wider than the quiet one-pixel rule. It is a real grid track so
-   resizing keeps the terminal and overview widths complementary. */
+   resizing keeps the chat and overview widths complementary. */
 .agent-pane-divider {
   position: relative;
   z-index: 4;
@@ -78,10 +78,10 @@
   .agent-pane-divider { display: none; }
   /* The divider disappears from the grid at mobile widths, retaining the
      pre-divider three-column behavior for both agent layouts. */
-  .split.agsplit { grid-template-columns: 228px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
-  .split.global-agents.agsplit { grid-template-columns: 114px minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.agsplit { grid-template-columns: 228px minmax(0, var(--ag-chat-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit { grid-template-columns: 114px minmax(0, var(--ag-chat-fr)) minmax(0, var(--ag-pane-fr)); }
   .split.agsplit.nav-off,
-  .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-terminal-fr)) minmax(0, var(--ag-pane-fr)); }
+  .split.global-agents.agsplit.nav-off { grid-template-columns: 0 minmax(0, var(--ag-chat-fr)) minmax(0, var(--ag-pane-fr)); }
   .split.agsplit.pad-off { grid-template-columns: 228px minmax(0, 1fr) 0; }
   .split.global-agents.agsplit.pad-off { grid-template-columns: 114px minmax(0, 1fr) 0; }
   .split.agsplit.nav-off.pad-off,
@@ -120,10 +120,10 @@
 .agsplit.nav-off > .listcol{visibility:hidden;overflow:visible;padding:0;border:0;pointer-events:none}
 .agsplit.nav-off > .listcol .agent-nav-toggle{visibility:visible;pointer-events:auto;position:absolute;top:12px;left:12px;z-index:6;margin:0;background:var(--bg);border:1px solid var(--line);box-shadow:0 2px 8px #0003}
 
-/* One control size for the agent pane's navigation tabs and the chat/terminal controls. */
+/* One control size for the agent pane's navigation tabs. */
 .agsplit{--ag-ctl:49.5px;--ag-ctl-icon:21.375px}
-.agpad .ttab,.gchat-session-switch .ttab{position:relative;flex:0 0 var(--ag-ctl);width:var(--ag-ctl);height:var(--ag-ctl)}
-.agpad .ttab svg,.gchat-session-switch .ttab svg{width:var(--ag-ctl-icon);height:var(--ag-ctl-icon)}
+.agpad .ttab{position:relative;flex:0 0 var(--ag-ctl);width:var(--ag-ctl);height:var(--ag-ctl)}
+.agpad .ttab svg{width:var(--ag-ctl-icon);height:var(--ag-ctl-icon)}
 .agpad .tind{height:var(--ag-ctl)}
 /* Ordubashy auto-ping switch at the right end of the pane's tab row. */
 .agpad .thead.agpad-ping-head { display:flex; align-items:flex-start; gap:12px; padding-right:28px; }

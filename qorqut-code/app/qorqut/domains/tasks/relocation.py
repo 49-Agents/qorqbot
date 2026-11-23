@@ -5,11 +5,10 @@ host knows about: the owner-Ordubashy private conversation and the Focus card of
 stored reference to a Task. A reference is either
 
 * **followed** - rewritten to the destination identity in the same transaction (private conversations, Focus cards and their
-  card bindings),
+  card bindings, and the extension receipts in ``TASK_RECEIPTS`` such as Paper's Outreach handoffs),
 * **historical** - an immutable payload, a message reference, a delivery, a checkpoint finding or a terminal job that names the
   old scope; these stay as written and remain navigable through the audited relocation resolver, or
-* **blocking** - an active binding this operation cannot carry without changing its meaning: an extension's own handoff rows,
-  pending approvals, queued or running jobs and routines, active delegated assignments and Overseer development bindings.
+* **blocking** - an active binding this operation cannot carry without changing its meaning: pending approvals, queued or running jobs and routines, active delegated assignments and Overseer development bindings.
 
 The move fails as a whole when any blocking binding exists. A foreign key that points at ``tasks`` and is not classified
 below with rows naming a moved Task is also a blocker, so a dependency added later can never be silently orphaned.
@@ -62,6 +61,12 @@ TYPED_REFERENCES = {
     "project_item_links": "followed", "inbox_subscriptions": "followed", "owner_conversations": "followed",
     "focus_cards": "followed", "focus_notes": "historical", "inbox_events": "historical", "inbox_deliveries": "historical",
 }
+# Extension receipts keyed to a Task by ``(business_id, task_id)``: permanent records of how a Task was created, with no
+# state of their own. They follow their Task (only the scope changes; the stored payload and response stay as written), so a
+# Task an extension created can move like any other. Paper's ``outreach_handoffs`` is the receipt of one accepted Outreach
+# reply: its duplicate check, the email identity shown on the Task's first note and the owner's repair all read it by the
+# Task's current project. A table listed here that is not installed is skipped.
+TASK_RECEIPTS = ("outreach_handoffs",)
 ACTIVE_JOB_STATES = ("queued", "running", "applying", "waiting_signoff", "cancel_requested")
 ACTIVE_ASSIGNMENT_STATES = ("queued", "running", "waiting", "blocked", "paused")
 ACTIVE_SIGNOFF_STATES = ("pending", "approved")
@@ -194,6 +199,9 @@ class HostRelocation:
             if row["rewritten_key"] and connection.execute("SELECT 1 FROM focus_cards WHERE source_key=?", (row["rewritten_key"],)).fetchone():
                 blockers.append(blocker("focus_card_exists", "The destination project already has a Focus card for this Task",
                                         self.card_task(row, relocation)))
+        receipts = self.receipts(connection, tables, relocation)
+        material["receipts"] = digest([[table, *row] for table, row in receipts])
+        counts["extension_receipts"] = len(receipts)
         blockers.extend(self.unclassified_children(connection, tables, relocation))
         blockers.extend(self.active_bindings(connection, tables, relocation, material))
         attention = self.attention_rows(connection, tables, relocation)
@@ -268,10 +276,21 @@ class HostRelocation:
         return found
 
     @staticmethod
+    def receipts(connection, tables, relocation):
+        """``(table, (id, task_id))`` of every extension receipt of a moved Task (``TASK_RECEIPTS``)."""
+        found = []
+        for table in TASK_RECEIPTS:
+            if table in tables:
+                found += [(table, (row["id"], row["task_id"])) for row in connection.execute(
+                    f'SELECT id, task_id FROM "{table}" WHERE business_id IS ? AND task_id IN ' + marks(relocation.ids) + " ORDER BY id",
+                    (relocation.source, *relocation.ids))]
+        return found
+
+    @staticmethod
     def unclassified_children(connection, tables, relocation):
         """Foreign keys to ``tasks`` that no adapter classifies: rows naming a moved Task make the move impossible."""
         found = []
-        for table in sorted(tables - CORE_CHILDREN - {"attention_memberships"}):
+        for table in sorted(tables - CORE_CHILDREN - {"attention_memberships", *TASK_RECEIPTS}):
             if table.startswith("sqlite_"):
                 continue
             groups: dict[int, list] = {}
@@ -289,7 +308,7 @@ class HostRelocation:
                                            parameters).fetchone()[0]
                 if count:
                     found.append(blocker("unsupported_binding",
-                                         f"{count} active {table.replace('_', ' ')} record(s) are bound to these Tasks and cannot be moved "
+                                         f"{count} {table.replace('_', ' ')} record(s) are bound to these Tasks and cannot be moved "
                                          "with them; resolve or remove them first"))
         return found
 
@@ -313,7 +332,10 @@ class HostRelocation:
         def report(table, label, hits):
             material[table] = [len(hits), digest([[identity] for identity in hits])]
             if hits:
-                found.append(blocker("unsupported_binding", f"{len(hits)} active {label} name these Tasks; finish or cancel them first"))
+                # Name them: a move is the owner's or the coordinator's, and a count alone leaves them searching for the records.
+                named = ", ".join(str(identity) for identity in hits[:5]) + (" and more" if len(hits) > 5 else "")
+                found.append(blocker("unsupported_binding",
+                                     f"{len(hits)} active {label} name these Tasks ({named}); finish or cancel them first"))
 
         label = "approval proposals"
         hits = []
@@ -403,6 +425,11 @@ class HostRelocation:
                 connection.execute(f"UPDATE {table} SET business_id=? WHERE item_type='task' AND business_id IS ? AND item_id IN " + marks(ids),
                                    (destination, source, *ids))
         counts['timeline_rows'] = len(timeline)
+        counts["extension_receipts"] = len(self.receipts(connection, tables, relocation))
+        for table in TASK_RECEIPTS:
+            if table in tables:
+                connection.execute(f'UPDATE "{table}" SET business_id=? WHERE business_id IS ? AND task_id IN ' + marks(ids),
+                                   (destination, source, *ids))
         for row in self.conversations(connection, tables, relocation):
             updated = connection.execute(
                 "UPDATE owner_conversations SET business_id=?, source_key=?, revision=revision+1, updated_at=? WHERE id=? AND revision=?",
@@ -461,4 +488,4 @@ def raise_too_many():
     raise DomainError("result_too_large", "Too many Focus cards reference these Tasks to move them safely")
 
 
-__all__ = ["ACTIVE_JOB_STATES", "HostRelocation", "rewrite", "source_key"]
+__all__ = ["ACTIVE_JOB_STATES", "HostRelocation", "TASK_RECEIPTS", "rewrite", "source_key"]

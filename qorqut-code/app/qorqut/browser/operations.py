@@ -1,4 +1,4 @@
-"""MCP registration of the restricted browser surface: own browsers, managed Global desktops and assignment turns."""
+"""MCP registration of the restricted browser surface: the agents' browser, managed Global desktops and assignment turns."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from .agent_browsers import ACTIONS
@@ -35,7 +35,12 @@ def register_browser_operation(runtime):
             "browser_id": {"type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9-]{0,62}$", "description": instruction_text('operations-ordubashy-only-on-acquire-with-protocol-handles-the')},
             "browser_key": {"type": ["string", "null"], "maxLength": 200, "description": instruction_text('operations-durable-workers-use-the-exact-assignment-target-native')},
             "handle": {"type": ["string", "null"], "pattern": "^b[a-f0-9]{12}$", "description": instruction_text('operations-short-browser-handle-returned-by-acquire-use-it')},
-            "action_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "description": instruction_text('operations-stable-action-identity-reused-exactly-for-reconciliation-defaults')}, "command": {"type": ["array", "null"], "items": {"type": "string", "maxLength": 2000}, "maxItems": 32},
+            "action_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200, "description": instruction_text('operations-stable-action-identity-reused-exactly-for-reconciliation-defaults')}, "command": {"type": ["array", "null"], "items": {"type": "string", "maxLength": 2000}, "maxItems": 32,
+                        "description": "One command, each word its own item. Commands: read, observe, snapshot, get, click, dblclick, "
+                                       "fill, type, press, hover, focus, check, uncheck, select, upload, drag, find, scroll, wait, "
+                                       "goto, go-back, go-forward, reload, tab-list, tab-new, tab-select, tab-close, frame, eval, "
+                                       "screenshot, pdf, console, resize, dialog-accept, dialog-dismiss, captcha, tab-reference. The browser skill "
+                                       "gives their arguments."},
             "commands": {"type": ["array", "null"], "minItems": 1, "maxItems": 10,
                          "items": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "maxLength": 2000}},
                          # A plain string, not a tool-instructions key: the wording ships with the code that enforces it.
@@ -65,11 +70,11 @@ def register_browser_operation(runtime):
 
 
 def register_agent_browser_management(runtime):
-    """``agent_browser_manage``: Ordubashy's standing authority over his workers' own browsers, MCP only.
+    """``agent_browser_manage``: Ordubashy's standing authority over the browser the agents use, MCP only.
 
     Like ``browser_turn`` it is dispatched by the authenticated MCP bridge, which authorizes it in a short read unit and then
     runs the host effects outside any database transaction. Who may call it is decided by the host policy rule and the
-    worker-manager check, never by a role file or a caller-supplied value."""
+    manager's own check that the caller is the configured Ordubashy, never by a role file or a caller-supplied value."""
     def resolve_namespace(_context, _arguments):
         return "global"
 
@@ -79,10 +84,9 @@ def register_agent_browser_management(runtime):
     runtime.registry.register(OperationDescriptor(AGENT_BROWSER_MANAGE, {
         "type": "object", "additionalProperties": False,
         "properties": {
-            "agent_id": {"type": "string", "format": "uuid", "description": instruction_text('operations-the-active-permanent-worker-whose-own-browser-to')},
             "action": {"enum": list(ACTIONS)},
         },
-        "required": ["agent_id", "action"],
+        "required": ["action"],
     }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),
         exposure=frozenset({"mcp"}), global_capability="read_global_context", resolve_namespace=resolve_namespace,
         description=instruction_text('operations-set-up-diagnose-repair-restart-or-stop-an'),
@@ -92,7 +96,6 @@ def register_agent_browser_management(runtime):
         "properties": {
             "action": {"enum": ["open", "status", "sign_out"]},
             "site": {"type": "string", "maxLength": 300, "description": "A website such as slack.com, or its https sign-in address. Required for open and sign_out."},
-            "agent_id": {"type": "string", "format": "uuid", "description": "A permanent worker who needs the sign-in. Leave out for your own browser."},
         },
         "required": ["action"],
     }, version=1, effect_kind="records", supports_signoff=False, scope_kinds=frozenset({"global"}),
@@ -101,14 +104,13 @@ def register_agent_browser_management(runtime):
                     "asks to connect a site such as Slack, or when work needs their account there. Start here, not with browser_turn or "
                     "another browser tool. First say in Chat exactly which "
                     "website you are opening, then call open: a Chrome window appears on the owner's screen at that site. Tell them "
-                    "to check the address bar, sign in themselves and close the window when finished. The target browser is paused "
-                    "until the window closes. If the reply says live_view, this computer has no screen: the site's sign-in "
-                    "page is open in that agent's browser. Tell the owner to open that agent's Browser tab in the dashboard and sign "
-                    "in there, wait until they say it is done, then open the site in that browser (for a worker's, acquire it with "
-                    "browser_turn, browser_id from action list) and check. Only if the owner cannot use the live view, ask for the "
+                    "to check the address bar, sign in themselves and close the window when finished. The Shared browser is paused "
+                    "for every agent until the window closes. If the reply says live_view, this computer has no screen: the site's "
+                    "sign-in page is open in the Shared browser. Tell the owner to open the Browser tab the reply names in the "
+                    "dashboard and sign in there, wait until they say it is done, then open the site and check. Only if the owner cannot use the live view, ask for the "
                     "password or code you do not have, type it yourself, and never repeat it or write it anywhere else. status lists "
                     "connected sites; session_saved only means the site left cookies, and many sites do that before login, so open "
-                    "the site in your browser to confirm the owner is really signed in. sign_out removes one. Before sending or "
+                    "the site to confirm the owner is really signed in. sign_out removes one. Before sending or "
                     "changing anything on a signed-in site, get the owner's approval in a Signoff. Nothing else enforces that.",
         prepare=unavailable, apply=unavailable))
     return runtime

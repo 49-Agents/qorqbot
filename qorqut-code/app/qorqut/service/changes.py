@@ -69,7 +69,7 @@ KIND_BY_TABLE = {
     "action_logs": "action_logs", "action_businesses": "action_logs",
     "agent_profiles": "agents", "principals": "agents", "business_memberships": "agents",
     "data_tables": "tables", "data_rows": "tables",
-    # A timeline row belongs to the Task, Project or Global it names; Global rows land at the global scope.
+    # A timeline row belongs to the Task or Project it names; the rows of a Global Task land at the global scope.
     "timeline_entries": "timeline", "timeline_questions": "timeline",
     # CRM memberships belong to their Table's views; a recorded observation belongs to its Task's activity.
     "crm_entries": "tables", "crm_activity_events": "tasks",
@@ -112,6 +112,9 @@ COARSE_KIND_BY_OPERATION_PREFIX = (
     (("signoffs_notification",), "signoffs"),
     # The owner's pinned-threads row is a preference file, not a table: the coordinator's pin or unpin bumps this kind.
     (("thread_pins",), "thread_pins"),
+    # The owner's settings live in files and other services, not tables: the coordinator's change bumps this kind, and the
+    # dashboard rereads what it shows of them (theme, text size, alerts, Testing mode, the Settings page).
+    (("settings_set",), "owner_settings"),
 )
 
 # The Context queue's status (exact input states, the blocked head, publication and completion receipts) lives in tables with no
@@ -130,7 +133,7 @@ CONTEXT_QUEUE_OPERATION_PREFIXES = ("context_", "actions_", "notes_upload", "jou
 # scope, which would never see a bump and would 304 forever.
 # "context_queue" is global because a blocked head holds back every namespace's later work; what a route then shows of it stays
 # authorized and namespace-limited by the route's own read.
-GLOBAL_ONLY_KINDS = frozenset({"jobs_routines", "learnings", "thread_pins", CONTEXT_QUEUE_KIND})
+GLOBAL_ONLY_KINDS = frozenset({"jobs_routines", "learnings", "thread_pins", "owner_settings", CONTEXT_QUEUE_KIND})
 # Kinds that are mostly trigger-covered with a real per-row business_id, but
 # also have at least one contributing source that always lands at
 # GLOBAL_SCOPE: "signoffs" via `signoff_attention` (no scope column captured,

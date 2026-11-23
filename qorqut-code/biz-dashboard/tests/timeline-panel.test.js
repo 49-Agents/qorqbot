@@ -8,7 +8,7 @@ function load(extra={}) {
   const ctx={window:{},document:{},T_VIEW_LABEL:{},T_VIEW_ICON:{},state:{bizs:[{id:'p1',slug:'example'}]},coreData:x=>x,...extra};
   vm.createContext(ctx);
   vm.runInContext(read('timeline-panel.js')+'\n'+read('workflow-panel.js')
-    +'\nglobalThis.api={timelineHtml,timelinePanelMount,globalTimelineBlockMount};',ctx);
+    +'\nglobalThis.api={timelineHtml,timelinePanelMount,timelineJournalRows,timelineJournalRow,timelineJournalMount};',ctx);
   return {api:ctx.api,ctx};
 }
 const entry=(id,text,more={})=>({id,text,created_at:'2026-11-13T10:00:00.000000Z',sequence:1,...more});
@@ -25,20 +25,20 @@ const HISTORY={entries:[
 test('the state shows goal, decisions, facts, progress and open questions with blocking marked, all escaped',()=>{
   const {api}=load();
   const html=api.timelineHtml(DATA,{});
-  for(const text of ['What holds now','Pay every creator.','One provider &lt;only&gt;.','The hold was cleared.','9 of 14 paid.','15 Nov','Dollars or local currency?','Which month next?'])
+  for(const text of ['Pay every creator.','One provider &lt;only&gt;.','The hold was cleared.','9 of 14 paid.','15 Nov','Dollars or local currency?','Which month next?'])
     assert.ok(html.includes(text),text);
-  assert.equal(html.includes('<only>'),false);
+  assert.equal(html.includes('<only>'),false);assert.equal(/holds now|tlp-title/.test(html),false);
   assert.equal((html.match(/Blocks work/g)||[]).length,1);
   assert.ok(html.indexOf('Blocks work')<html.indexOf('Dollars or local'));
   assert.ok(html.includes('data-tlp-switch'));assert.ok(html.includes('>History<'));
 });
-test('an item with no timeline shows nothing, and one with only removed entries says nothing holds now',()=>{
+test('an item with no timeline shows nothing, and one with only removed entries says nothing is current',()=>{
   const {api}=load();
   const none={goal:null,decisions:[],facts:[],progress:null,questions:[]};
   assert.equal(api.timelineHtml({...DATA,state:none,revision:0},{}),'');
   assert.equal(api.timelineHtml(null,{}),'');
   const gone=api.timelineHtml({...DATA,state:none,revision:3},{});
-  assert.ok(gone.includes('Nothing holds now.'));assert.ok(gone.includes('data-tlp-switch'));
+  assert.ok(gone.includes('Nothing current.'));assert.ok(gone.includes('data-tlp-switch'));
 });
 test('the history lists every entry oldest first, strikes removed ones with what removed them and shows the quoted words',()=>{
   const {api}=load();
@@ -101,10 +101,11 @@ test('the history error clears on a later success, and a failed context reload s
   assert.equal(el.hidden,false);assert.ok(el.innerHTML.includes('tlp-error'));assert.equal(el.innerHTML.includes('Pay every creator.'),false);assert.equal(el.innerHTML.includes('Old way.'),false);
   panel.update(DATA);assert.equal(el.innerHTML.includes('tlp-error'),false);assert.ok(el.innerHTML.includes('Pay every creator.'));
 });
-test('a Global Task reaches the panel with an explicit null business',()=>{
-  const conversation=read('conversation.js');
-  assert.match(conversation,/type:'task',id:source\.id,business_id:recordSource\.business_id \?\? null/);
-  assert.match(conversation,/timelinePanel\?\.fail\(\)/);
+test('the record reader owns the timeline: a Global Task is read with an explicit null business, and a thread carries no timeline',()=>{
+  const reader=read('record-workspace.js');
+  assert.match(reader,/type: 'task', id: source\.id, business_id: source\.business_id \?\? null/);
+  assert.match(reader,/item\.timeline\.refresh\(\)/);
+  assert.equal(/timelinePanel/.test(read('conversation.js')),false);
 });
 function host() {
   const h={hidden:true,innerHTML:'',handlers:{},addEventListener(type,fn){this.handlers[type]=fn;},setAttribute(){},contains:()=>true,replaceChildren(){this.innerHTML='';}};
@@ -134,25 +135,6 @@ test('a failed history read says so in plain words',async()=>{
   panel.update(DATA);el.click('data-tlp-switch');await settle();
   assert.ok(el.innerHTML.includes('Couldn&#39;t load the history. Try again'));assert.equal(el.innerHTML.includes('Loading'),false);assert.equal(el.innerHTML.includes('boom'),false);
 });
-test('the Global block reads the Global item at most every twenty seconds and shows nothing when it is empty',async()=>{
-  const reads=[];
-  const {api}=load();
-  const el=host();
-  const block=api.globalTimelineBlockMount(el,{read:async(extra)=>{reads.push(extra||{});return reads.length===1?{...DATA,item:{type:'global',id:'global',business_id:null}}:{...DATA,state:{goal:null,decisions:[],facts:[],progress:null,questions:[]},revision:0};}});
-  await block.refresh(true);
-  assert.equal(el.hidden,false);assert.ok(el.innerHTML.includes('Pay every creator.'));
-  await block.refresh();assert.equal(reads.length,1);
-  await block.refresh(true);assert.equal(el.hidden,true);
-  block.dispose();
-});
-test('the Global block asks for the Global item through the owner read',async()=>{
-  const posts=[];
-  const {api}=load({post:async(path,body)=>{posts.push([path,body]);return {data:{...DATA}};},coreData:x=>x.data});
-  const el=host();
-  const block=api.globalTimelineBlockMount(el);
-  await block.refresh(true);
-  assert.deepEqual(JSON.parse(JSON.stringify(posts)),[['/root/operations/timeline_view',{scope:'global',item:{type:'global',id:'global',business_id:null}}]]);
-});
 test('open questions are question Signoffs in the sign-off strip, with their own icon and no separate card',()=>{
   const queue=read('attention-queue.js'),signoffs=read('signoffs.js'),workspace=read('record-workspace.js');
   assert.doesNotMatch(queue,/timeline_questions_list|agentQuestionOpen|data-question-key/);
@@ -164,11 +146,65 @@ test('open questions are question Signoffs in the sign-off strip, with their own
   assert.equal(fs.existsSync(require.resolve('../index.html').replace('index.html','js/agent-questions.js')),false);
 });
 test('the pane has no separate questions view, and the panel and block are wired',()=>{
-  const pane=read('agentpane.js'),conversation=read('conversation.js'),globalChat=read('global-chat.js');
+  const pane=read('agentpane.js'),conversation=read('conversation.js'),globalChat=read('global-chat.js'),reader=read('record-workspace.js');
   assert.doesNotMatch(pane,/"questions"/);assert.doesNotMatch(pane,/agentQuestionsMount|agentQuestionsTick/);
-  assert.match(conversation,/timelinePanelMount\(timelineEl/);assert.match(conversation,/timelinePanel\?\.update\(/);
-  assert.doesNotMatch(globalChat,/globalTimelineBlockMount\(/);
+  assert.match(reader,/timelineJournalMount\(item\.timelineHost\.querySelector\('\.agent-timeline'\)/);assert.match(reader,/history: true, limit: 50/);assert.doesNotMatch(reader,/timelinePanelMount|class="tlp"/);assert.doesNotMatch(conversation,/timelinePanelMount/);
+  assert.doesNotMatch(globalChat,/globalTimelineBlockMount\(/);assert.equal(fs.readFileSync(require.resolve('../js/workflow-panel.js'),'utf8').includes('globalTimelineBlockMount'),false);
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  for(const asset of ['/js/timeline-panel.js','/css/timeline-panel.css'])assert.ok(html.includes(asset),asset);
+  for(const asset of ['/js/timeline-panel.js','/css/timeline-panel.css','/css/agent-timeline.css'])assert.ok(html.includes(asset),asset);
   assert.equal(html.includes('/js/agent-questions.js'),false);
+});
+
+// The journal: the reader's Timeline pane, in the look of the rail Timeline page.
+const JOURNAL={...DATA,...HISTORY,state:{...STATE,questions:[{id:'q1',text:'Dollars or <local>?',blocking:true,created_at:'2026-11-16T08:00:00Z'},{id:'q2',text:'Older question, no date.',blocking:false}]},
+  closed_questions:[{id:'q0',text:'Which month?',state:'answered',answer_entry_id:'b',closed_at:'2026-11-15T10:00:00Z'},{id:'q9',text:'Which bank?',state:'dropped',closed_at:'2026-11-12T10:00:00Z'}]};
+test('the journal lists entries and questions newest first, folds a removal into the entry it removed, and drops no text',()=>{
+  const {api}=load();
+  const rows=api.timelineJournalRows(JOURNAL);
+  assert.deepEqual(JSON.parse(JSON.stringify(rows.map(row=>row.text))),['Older question, no date.','Dollars or <local>?','Kept fact.','Which month?','Old way.','Which bank?']);
+  assert.deepEqual(JSON.parse(JSON.stringify(rows.map(row=>row.meta))),[['Open question'],['Open question','Blocks work'],['Fact'],['Question answered'],['Decision','Removed 14 Nov: Replaced.'],['Question dropped']]);
+  const old=rows.find(row=>row.text==='Old way.');assert.equal(old.struck,true);assert.deepEqual(JSON.parse(JSON.stringify(old.quotes)),['Do it <the new> way.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(rows.find(row=>row.text==='Which month?').notes)),['Kept fact.']);
+  // A removal whose target is not among the entries stays a row of its own.
+  const orphan=api.timelineJournalRows({entries:[HISTORY.entries[1]]});
+  assert.deepEqual(JSON.parse(JSON.stringify(orphan.map(row=>[row.text,row.meta]))),[['Removed an earlier entry: Replaced.',['Removed']]]);
+  assert.equal(api.timelineJournalRows(null).length,0);
+});
+test('a journal row uses the rail Timeline markup: time, text, meta, and the quoted words behind the chevron, all escaped',()=>{
+  const {api}=load({AGENT_TIMELINE_CHEVRON:'<svg data-chevron></svg>'});
+  const [plain,,,,struck]=api.timelineJournalRows(JOURNAL).map(api.timelineJournalRow);
+  assert.match(plain,/^<li class="agent-timeline-row" data-entry-id="q:q2"><time><\/time><div class="agent-timeline-copy"><p class="agent-timeline-text">Older question, no date\.<\/p><p class="agent-timeline-meta">Open question<\/p><\/div><\/li>$/);
+  assert.ok(struck.includes('<time datetime="2026-11-13T10:00:00Z">13 Nov</time>'));
+  assert.ok(struck.includes('<details class="agent-timeline-entry"><summary><div class="agent-timeline-copy"><p class="agent-timeline-text"><s>Old way.</s></p><p class="agent-timeline-meta">Decision · Removed 14 Nov: Replaced.</p></div><span class="agent-timeline-expand"><svg data-chevron></svg></span></summary>'));
+  assert.ok(struck.includes('<div class="agent-timeline-evidence" aria-label="Evidence"><p>“Do it &lt;the new&gt; way.”</p></div>'));
+  assert.equal(/tlp-/.test(struck+plain),false);
+  // With the dashboard's clock helpers the time reads as it does on the rail Timeline page.
+  const clock=load({acOccurred:a=>`${a.occurred.date||'Undated'} · ${a.occurred.precision||''}`,sjDate:s=>String(s).slice(0,10)}).api;
+  assert.ok(clock.timelineJournalRow(clock.timelineJournalRows(JOURNAL)[4]).includes('>2026-11-13 · instant</time>'));
+  assert.ok(clock.timelineJournalRow(clock.timelineJournalRows(JOURNAL)[0]).includes('<time>Undated · </time>'));
+});
+function journalHost() {
+  const node=()=>({hidden:false,textContent:'',innerHTML:'',querySelector(){return node();},querySelectorAll(){return [];}});
+  const parts={'[data-status]':node(),'.agent-timeline-caption':node(),'.agent-timeline-error':node(),'.agent-timeline-empty':node(),ol:node()};const alert=node();parts['.agent-timeline-error'].querySelector=()=>alert;
+  return {parts,alert,handlers:{},innerHTML:'',querySelector(sel){return parts[sel];},addEventListener(type,fn){this.handlers[type]=fn;},replaceChildren(){this.innerHTML='';}};
+}
+test('the journal reads every page before it paints, counts its rows, and a failed read offers Retry',async()=>{
+  const {api}=load();
+  const el=journalHost(),calls=[];let fail=false;
+  const journal=api.timelineJournalMount(el,{read:async args=>{calls.push(args);if(fail)throw new Error('boom');
+    return args.cursor?{entries:[HISTORY.entries[2]],next_cursor:null}:{...JOURNAL,entries:HISTORY.entries.slice(0,2),next_cursor:'2'};}});
+  assert.ok(el.innerHTML.includes('class="agent-timeline-caption"'));assert.ok(el.innerHTML.includes('class="agent-timeline-list"'));
+  await journal.refresh();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{},{cursor:'2'}]);
+  assert.equal(el.parts['[data-status]'].textContent,'6 entries');assert.ok(el.parts.ol.innerHTML.includes('Kept fact.'));assert.equal(el.parts['.agent-timeline-error'].hidden,true);assert.equal(el.parts['.agent-timeline-empty'].hidden,true);assert.equal(el.parts['.agent-timeline-caption'].hidden,false);
+  fail=true;await journal.refresh();
+  assert.equal(el.parts.ol.innerHTML,'');assert.equal(el.parts['.agent-timeline-error'].hidden,false);assert.equal(el.parts['.agent-timeline-empty'].hidden,true);assert.equal(el.alert.textContent,"Couldn't load the timeline. Try again");
+  fail=false;el.handlers.click({target:{closest:sel=>sel==='[data-retry]'?{}:null}});await settle();await settle();
+  assert.equal(el.parts['.agent-timeline-error'].hidden,true);assert.equal(el.parts['[data-status]'].textContent,'6 entries');
+  const empty=journalHost(),none=api.timelineJournalMount(empty,{read:async()=>({...DATA,state:{goal:null,decisions:[],facts:[],progress:null,questions:[]},entries:[],next_cursor:null})});
+  await none.refresh();
+  // An empty timeline says so in its own line; the count line is hidden.
+  assert.ok(empty.innerHTML.includes('This timeline is empty. Ordubashy has not filed anything here yet.'));
+  assert.equal(empty.parts['.agent-timeline-empty'].hidden,false);assert.equal(empty.parts['.agent-timeline-caption'].hidden,true);assert.equal(empty.parts.ol.hidden,true);assert.equal(empty.parts['[data-status]'].textContent,'');
+  journal.dispose();assert.equal(el.innerHTML,'');
 });

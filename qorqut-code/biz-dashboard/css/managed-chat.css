@@ -1,0 +1,46 @@
+/* Chat for an agent Qorqbot runs itself (js/agent-runtime.js): Stop, the activity line and the
+   question cards. Uses the dashboard's existing tokens. */
+.mchat[hidden], .mchat-cards[hidden], .mchat-activity[hidden], .mchat-stop[hidden], .mchat-card-error[hidden], .mchat-notice[hidden] { display: none; }
+/* A long line of session text wraps; the working dots stay with its first line. */
+.gchat-session { align-items: flex-start; }
+.gchat-session-text { flex: 1 1 auto; }
+.gchat-session > .gchat-working-tag { align-self: stretch; }
+.mchat-stop:focus-visible, .mchat-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The block gives way before the conversation does: with a question card up, the message list keeps at least 160px (a short window,
+   down to 560px tall), and the card is what shrinks (it scrolls inside itself; its title and the Send answer button stay in view). */
+.mchat { display: flex; flex-direction: column; gap: 8px; flex: 0 1 auto; min-height: 0; padding: 0 12px 6px; }
+.mchat-cards { display: flex; flex-direction: column; gap: 8px; flex: 0 1 auto; min-height: 0; }
+.chat-view:has(.mchat-card) .chat-view-feed { min-height: 160px; }
+.mchat-activity { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.mchat-activity-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mchat-dots { display: flex; align-items: center; gap: 4px; color: var(--fg-2); }
+.mchat-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .3; animation: gchat-working-pulse 1.5s ease-in-out infinite; }
+.mchat-dots i:nth-child(2) { animation-delay: .18s; }
+.mchat-dots i:nth-child(3) { animation-delay: .36s; }
+@media (prefers-reduced-motion: reduce) { .mchat-dots i { animation: none; opacity: .65; } }
+.mchat-stop { flex: none; height: 26px; padding: 0 11px; font-size: 11.5px; }
+
+.mchat-card { padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: color-mix(in srgb, var(--fg) 4%, transparent); font-size: 13px; line-height: 1.5; color: var(--fg); }
+.mchat-card { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; max-height: 45vh; }
+/* A long question scrolls inside the card; the title, the error and the Send answer button stay in view. */
+.mchat-card-body { min-height: 56px; overflow-y: auto; overscroll-behavior: contain; }
+.mchat-card-title { flex: none; margin: 0 0 6px; overflow-wrap: anywhere; }
+.mchat-card-actions { display: flex; flex: none; gap: 8px; }
+.mchat-card-actions button { height: 28px; padding: 0 13px; font-size: 12px; }
+.mchat-card-error { flex: none; margin: 0 0 8px; font-size: 12px; color: var(--warn); }
+.mchat-question { margin: 0 0 8px; padding: 0; border: 0; min-width: 0; }
+.mchat-question legend { padding: 0; margin-bottom: 4px; overflow-wrap: anywhere; }
+.mchat-question-tag { display: inline-block; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 999px; font-size: 10.5px; color: var(--fg-2); }
+.mchat-option { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; cursor: pointer; }
+.mchat-option input { margin: 4px 0 0; flex: none; }
+.mchat-option small { display: block; font-size: 11.5px; color: var(--fg-3); overflow-wrap: anywhere; }
+.mchat-other { box-sizing: border-box; width: 100%; margin-top: 4px; height: 28px; padding: 0 8px; font-size: 12.5px; border: 1px solid var(--line-2); border-radius: 6px; background: transparent; }
+.mchat-other:focus-visible, .mchat-option input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* The one action offered after a refusal (a conversation that can't be continued: start a new one). */
+.mchat-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: 8px;
+  font-size: 12.5px; line-height: 1.5; color: var(--fg); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.mchat-notice-text { min-width: 0; flex: 1 1 220px; overflow-wrap: anywhere; }
+.mchat-notice-action { flex: none; height: 28px; padding: 0 13px; font-size: 12px; }
+.mchat-notice-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

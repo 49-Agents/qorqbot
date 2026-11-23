@@ -3,10 +3,15 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+// Terminals mode: the page says so (`agentMode`) and the payload is a terminal agent's (`execution: 'terminal'`). Needs a local
+// Playwright: found on the module path, or in the folder named by PLAYWRIGHT_FROM; PLAYWRIGHT_CHANNEL=chrome uses the installed Chrome.
 let chromium;
-try { ({chromium} = require('playwright')); } catch (_) { /* Optional local browser. */ }
-const executable = process.env.CHROME_PATH || chromium?.executablePath();
-const available = !!chromium && fs.existsSync(executable);
+try { ({chromium} = require('playwright')); } catch (_) {
+  try { ({chromium} = require('module').createRequire(path.join(process.env.PLAYWRIGHT_FROM || '/nonexistent', '/'))('playwright')); } catch (__) { /* Optional local browser. */ }
+}
+const executable = process.env.CHROME_PATH || (chromium && process.env.PLAYWRIGHT_CHANNEL ? '' : chromium?.executablePath());
+const available = !!chromium && (!!process.env.PLAYWRIGHT_CHANNEL || fs.existsSync(executable));
+const launch = () => chromium.launch(process.env.PLAYWRIGHT_CHANNEL && !process.env.CHROME_PATH ? {channel: process.env.PLAYWRIGHT_CHANNEL, headless: true} : {headless: true, executablePath: executable});
 const root = path.join(__dirname, '..');
 
 async function fixture(browser, initial = 'chat') {
@@ -14,7 +19,7 @@ async function fixture(browser, initial = 'chat') {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setContent('<body><main id="pane" style="display:flex;flex-direction:column;height:700px;width:800px"></main></body>');
-  for (const file of ['app.css', 'css/chat-view.css', 'css/global-chat.css', 'css/xterm.css']) await page.addStyleTag({path: path.join(root, file)});
+  for (const file of ['app.css', 'css/chat-view.css', 'css/global-chat.css', 'css/xterm.css', 'css/legacy-terminals.css']) await page.addStyleTag({path: path.join(root, file)});
   await page.evaluate(() => {
     window.esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     window.$ = (selector, host = document) => host.querySelector(selector);
@@ -32,16 +37,17 @@ async function fixture(browser, initial = 'chat') {
         this.dispatchEvent(event);
       }
     };
-    window.binding = {provider: 'codex', conversation_id: 'conversation-1', binding_id: 'binding-1'};
+    window.agentMode = {terminals: () => true, mode: () => 'terminal'};
+    window.binding = {provider: 'claude', conversation_id: 'conversation-1', binding_id: 'binding-1'};
     window.entries = Array.from({length: 35}, (_, i) => ({id: 'entry-' + i, position: i, speaker: 'agent', text: 'Message ' + i, completion_sequence: i + 1}));
     window.api = async () => {
       calls.loads++;
-      return {session: {state: 'live', can_send: true, binding}, conversation: binding, entries: [...entries], cursor: 1, inputs: []};
+      return {session: {state: 'live', can_send: true, binding, execution: 'terminal', launch_commands: ['claude']}, conversation: binding, entries: [...entries], cursor: 1, inputs: []};
     };
     window.post = async (url, body) => { calls.posts.push({url, body}); return {last_read_sequence: body.sequence}; };
     window.current = true;
   });
-  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'xterm', 'terminal', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
+  for (const file of ['safe-links', 'chat-view', 'slash-commands', 'xterm', 'terminal', 'agent-runtime', 'agent-terminal-view', 'global-chat']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
   await page.evaluate(initial => {
     window.mount = () => mountAgentView(document.querySelector('#pane'), {agent_id: 'agent-1', name: 'Demo'}, {
       terminal: {key: 'agent-1', base: '/terminal/agent-1'}, isCurrent: () => current, view: initial,
@@ -52,7 +58,7 @@ async function fixture(browser, initial = 'chat') {
 }
 
 test('warm Chat/Terminal toggles preserve views, drafts, scroll and streams; hidden views do not read or resize', {skip: !available}, async () => {
-  const browser = await chromium.launch({headless: true, executablePath: executable});
+  const browser = await launch();
   try {
     const {page, errors} = await fixture(browser);
     await page.locator('.gchat-msg').first().waitFor();
@@ -123,7 +129,7 @@ test('warm Chat/Terminal toggles preserve views, drafts, scroll and streams; hid
 });
 
 test('Terminal-first navigation is lazy and replacing or detaching the agent cleans up both viewers', {skip: !available}, async () => {
-  const browser = await chromium.launch({headless: true, executablePath: executable});
+  const browser = await launch();
   try {
     const {page, errors} = await fixture(browser, 'terminal');
     assert.equal(await page.evaluate(() => calls.loads), 0);

@@ -20,6 +20,7 @@ from unittest import mock
 from qorqut_operations.contracts import DomainError
 
 from qorqut import agent_trust
+from qorqut.managed_runtime import mode
 from qorqut.agents import roles
 from qorqut.transport.agent_terminal_control import AgentTerminalBackend, DEV_ROLE
 
@@ -45,6 +46,10 @@ class Broker:
 class Fixture(unittest.TestCase):
     def setUp(self):
         self.configuration = isolated_cli_environment.isolate(self)
+        # Managed sessions are the default; the terminal backend answers only on an installation set to Terminals.
+        patched = mock.patch.object(mode, "current", return_value="terminal")
+        patched.start()
+        self.addCleanup(patched.stop)
         self.base = Path(tempfile.mkdtemp(prefix="start folder ")).resolve()
         self.addCleanup(shutil.rmtree, self.base, True)
         self.runtime_dir = self.base / "runtime"
@@ -86,7 +91,7 @@ class Fixture(unittest.TestCase):
                 attachment=SimpleNamespace(resume_selected=lambda agent, authorized: (self.resumed.append((agent, authorized)),
                                                                                        self.resume_result)[1])))
         terminals = SimpleNamespace(runtime=runtime, open=lambda context, business, agent: self.opened.append(agent))
-        backend = AgentTerminalBackend(terminals, timeout=1, sleep=lambda seconds: None)
+        backend = AgentTerminalBackend(terminals, timeout=1, sleep=lambda seconds: None, ready=lambda client: True)
         backend.selected = lambda row: (self.broker, "key", "session", workspace, None)
         seen = list(snapshots)
 
@@ -97,7 +102,7 @@ class Fixture(unittest.TestCase):
             return item
         backend.snapshot = snapshot
         backend.opened_snapshot = lambda row, attempts=50: snapshots[0]
-        backend.wait_ready = lambda row, client="codex": None
+        backend.wait_ready = lambda row, client="claude": None
         self.cwd_calls = []
         remaining = list(cwds)
 

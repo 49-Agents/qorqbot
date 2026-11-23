@@ -70,7 +70,6 @@ context_people_list context_people_get context_maps_get
 """.split()
 _OWNER = """
 learnings_review learnings_edit
-terminals_open terminals_close terminals_write terminals_resize
 """.split()
 _WORKERS = """
 learnings_record_batch
@@ -124,7 +123,9 @@ BUILTIN_CATALOG = (
     # Move to project: destination listing, the read-only preview and the one atomic relocation of Tasks with their descendants.
     # The handler adds the owner/configured-Ordubashy identity gate and the source and destination Task authority to every call.
     *(CatalogEntry(name, False, kind) for name, kind in (
-        ("tasks_move_targets", "read"), ("tasks_move_to_project_preview", "read"), ("tasks_move_to_project", "records"))),
+        ("tasks_move_targets", "read"), ("tasks_move_to_project_preview", "read"), ("tasks_move_to_project", "records"),
+        ("tables_move_to_project_preview", "read"), ("tables_move_to_project", "records"),
+        ("notes_move_to_project_preview", "read"), ("notes_move_to_project", "records"))),
     # One record's authorized activity: the Domain's local activity merged with its directly linked sources (host-owned).
     CatalogEntry("crm_activity_list", False, "read"),
     # Narrow owner/Ordubashy read of the owner's stored Project reminders; the shared reminders_* operations own writes and delivery.
@@ -138,7 +139,6 @@ BUILTIN_CATALOG = (
     *(CatalogEntry(name, True, "records") for name in _MUTATIONS),
     *(CatalogEntry(name, False, "read", frozenset({"dashboard", "worker"})) for name in _CONTEXT_READS),
     *(CatalogEntry(name, False, "records", frozenset({"dashboard", "worker"}), True) for name in _OWNER),
-    CatalogEntry("terminals_list", False, "read", frozenset({"dashboard", "worker"}), True),
     # Private provider calendars, exposed only with the explicit calendar grant.
     *(CatalogEntry(name, False, "read", frozenset({"mcp", "dashboard"})) for name in
       ("calendar_calendars_list", "calendar_events_list", "calendar_event_get")),

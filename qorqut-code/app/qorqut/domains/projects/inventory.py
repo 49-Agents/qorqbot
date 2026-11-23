@@ -241,7 +241,7 @@ class Inventory:
 
         if enabled("work") and (not wanted or wanted == "task"):
             add("SELECT updated_at ts,'task' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
-                "NULL link_revision FROM tasks WHERE business_id IS ?", (scan,))
+                "NULL link_revision FROM tasks WHERE business_id IS ?" + self._task_narrowing(args), (scan,))
         if enabled("signoffs") and (not wanted or wanted == "signoff"):
             scope_kind = "business" if scan is not None else "global"
             add("SELECT updated_at ts,'signoff' type,COALESCE(review_business_id,'') scope,id,1 owned,0 linked,"
@@ -299,6 +299,20 @@ class Inventory:
                 "link_revision FROM project_item_links l WHERE l.business_id=?" + clause,
                 [scan, *values])
         return selects, params
+
+    @staticmethod
+    def _task_narrowing(args):
+        """Leave out, already in SQL, the owned Tasks that ``visible`` drops after their read: archived ones and closed
+        ordinary ones. It only narrows: every Task kept is still read through ``tasks_get`` and decided by ``visible``.
+        Without it a Project with many archived Tasks spends its whole read budget on Tasks it then throws away."""
+        sql = ""
+        if not args.get("include_archived", False):
+            sql += " AND archived=0"
+        if not args.get("include_closed", False):
+            closed = ",".join(f"'{state}'" for state in CLOSED_STATES)
+            sql += (f" AND (status NOT IN ({closed}) OR "
+                    "json_extract(fields_json,'$.\"$task\".task_type') IN ('story','customer'))")
+        return sql
 
     def _extension_kind_names(self):
         return {kind for contribution in self.items.contributions for kind in contribution.kinds

@@ -12,16 +12,22 @@ dashboard tells the owner when a newer release exists and links to the download
 page (`docs/ACCOUNT.md`), but there is no automatic download, automatic apply or
 extension marketplace.
 
-Stop the application and its agent terminals first. The updater takes both the
-launcher and instance lifetime locks, refuses running terminals, validates the
+Stop the application first. The updater takes both the launcher and instance
+lifetime locks, closes any agent sessions that are still open (they start again
+when the agent is next messaged) and refuses if one cannot be closed (with Terminals (legacy) it refuses while agent terminals
+run, and never ends them), validates the
 archive paths and payload hashes, closes the agents' own browsers (the application starts them again on its next start),
 refuses any other detached installation-owned browser/helper processes, including system executables,
 and checks the current database identity.
-It replaces only `runtime/`. It never replaces `instance/`, restores a database,
-replays provider work or starts an agent.
+It replaces only `runtime/` and the `qorqbot` launcher. It never replaces
+`instance/`, restores a database, replays provider work or starts an agent. The
+browser tool ships inside `runtime/` and is replaced with it. Qorqbot's own
+Chrome (`instance/operations/.runtime/chrome/`) stays in place; a release that
+pins a newer Chrome downloads it after the next start.
 
 The first updater supports unchanged database schemas and unchanged managed
-instruction contents with core and the bundled Google Calendar provider. A
+instruction contents with core, the bundled Google Calendar provider and the
+bundled treg and OpenRouter extensions. A
 read-only managed plan checks the retained binding before the new application
 can start. A new build always changes the provenance its catalogs record for packaged
 sources (commit, tree, snapshot and manifest hashes, source root) even when no

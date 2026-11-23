@@ -720,7 +720,9 @@ class OperationalDelegation:
              "has_result": result is not None})
         return updated
 
-    def control(self, uow, assignment_id, *, parent_principal_id, expected_revision, action):
+    def control(self, uow, assignment_id, *, parent_principal_id, expected_revision, action,
+                actor_principal_id=None):
+        """``actor_principal_id`` names who decided when that is not the parent (the configured coordinator)."""
         uow.require_write()
         current = self.get(uow, assignment_id, parent_principal_id=parent_principal_id)
         if current["revision"] != expected_revision:
@@ -752,12 +754,12 @@ class OperationalDelegation:
         self.release_event_claims(uow, current["id"], now=now_text)
         self._release_browser_turns(uow, current["id"], generation=current["execution_generation"],
                                     reason="assignment control changed the execution generation", now=now_text)
-        self._event(uow, updated, parent_principal_id, state, {})
+        self._event(uow, updated, actor_principal_id or parent_principal_id, state, {})
         return updated
 
     def revise(self, uow, assignment_id, *, parent_principal_id, expected_revision,
                expected_plan_revision, objective, plan, allowed_operations,
-               constraints=None, links=None, resource_bounds=None):
+               constraints=None, links=None, resource_bounds=None, actor_principal_id=None):
         uow.require_write()
         current = self.get(uow, assignment_id, parent_principal_id=parent_principal_id)
         # Journal coverage workers have a fixed source and read-only tool set.
@@ -795,7 +797,8 @@ class OperationalDelegation:
         self.release_event_claims(uow, current["id"], now=now_text)
         self._release_browser_turns(uow, current["id"], generation=current["execution_generation"],
                                     reason="assignment plan changed", now=now_text)
-        self._event(uow, updated, parent_principal_id, "plan_revised", {"plan_revision": updated["plan_revision"]})
+        self._event(uow, updated, actor_principal_id or parent_principal_id, "plan_revised",
+                    {"plan_revision": updated["plan_revision"]})
         return updated
 
     def bind_runtime(self, uow, assignment_id, *, parent_principal_id, generation,
@@ -1154,6 +1157,20 @@ class OperationalDelegationOperations:
             raise DomainError("forbidden", "A delegated worker cannot create or control assignments")
 
     @staticmethod
+    def _coordinator(context, uow):
+        """Whether the caller is the configured coordinator (Ordubashy), which may read and control every parent's
+        assignments. Rechecked on every call, never remembered: a stale assignment whose parent is gone or idle must not
+        block the installation's work, and the coordinator is the one agent the owner trusts with all of it."""
+        from qorqut.management.identity import configured_ordubashy
+        return configured_ordubashy(uow) == context.principal_id
+
+    def _controlled(self, context, assignment_id, uow):
+        """An assignment the caller may read, control or revise: its own, or any when it is the coordinator."""
+        self._require_parent(context)
+        parent = None if self._coordinator(context, uow) else context.principal_id
+        return self.store.get(uow, assignment_id, parent_principal_id=parent)
+
+    @staticmethod
     def _require_worker(context):
         if context.delegation_assignment_id is None:
             raise DomainError("forbidden", "This operation is available only to a bound assignment worker")
@@ -1181,7 +1198,8 @@ class OperationalDelegationOperations:
         list_schema = {"type": "array"}
         read_specs = {
             "delegated_assignment_get": ({"assignment_id": uuid}, ["assignment_id"]),
-            "delegated_assignments_list": ({"limit": {"type": "integer", "minimum": 1, "maximum": 100}}, []),
+            "delegated_assignments_list": ({"limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                                            "all_parents": {"type": "boolean"}}, []),
         }
         for name, (properties, required) in read_specs.items():
             registry.register(OperationDescriptor(name,
@@ -1494,8 +1512,14 @@ class OperationalDelegationOperations:
             "INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) "
             "VALUES(?,?,?,?,?,?,?)", (assignment["business_id"], "operational_assignments",
                 assignment["id"], assignment["parent_principal_id"], state, summary[:500], now)).lastrowid
-        uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)",
-            (assignment["parent_principal_id"], event_id))
+        recipients = {assignment["parent_principal_id"]}
+        if state in ("blocked", "recovery"):
+            # The coordinator controls every parent's assignment, so it is also told when one that is not its own stops:
+            # a parent that is gone or idle would otherwise leave it blocked with nobody aware of it.
+            from qorqut.management.identity import configured_ordubashy
+            recipients.add(configured_ordubashy(uow))
+        for recipient in sorted(recipients - {None}):
+            uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)", (recipient, event_id))
 
     def _validate_operations(self, names):
         selected = _operations(names)
@@ -1529,23 +1553,28 @@ class OperationalDelegationOperations:
                 self._require_worker(context)
                 if arguments["assignment_id"] != context.delegation_assignment_id:
                     raise DomainError("forbidden", "Worker may read only its own assignment")
-            else:
-                self._require_parent(context)
-            return self._compact(self.store.get(uow, arguments["assignment_id"],
-                parent_principal_id=context.principal_id), uow)
+                return self._compact(self.store.get(uow, arguments["assignment_id"],
+                    parent_principal_id=context.principal_id), uow)
+            return self._compact(self._controlled(context, arguments["assignment_id"], uow), uow)
         if context.delegation_assignment_id is not None:
             raise DomainError("forbidden", "A delegated worker cannot list its parent's assignments")
         self._require_parent(context)
         # Assignments in archived projects are not current work, so they are not listed. The widest page is read and
         # filtered, so a page still fills while recent assignments outside archived projects remain.
-        rows = [row for row in self.store.list_for_parent(uow, context.principal_id, limit=200)
-                if not is_archived_business(uow.connection, row["business_id"])]
+        if arguments.get("all_parents"):
+            if not self._coordinator(context, uow):
+                raise DomainError("forbidden", "Only the configured coordinator lists every agent's assignments")
+            rows = uow.repository("operational_assignments").list(
+                limit=200, order_by=("updated_at", "id"), descending=True)
+        else:
+            rows = self.store.list_for_parent(uow, context.principal_id, limit=200)
+        rows = [row for row in rows if not is_archived_business(uow.connection, row["business_id"])]
         return {"assignments": [self._compact(row, uow) for row in rows[:arguments.get("limit", 50)]]}
 
     @staticmethod
     def _compact(record, uow=None):
         compact = {key: record[key] for key in (
-            "id", "business_id", "scope_json", "objective", "plan_json", "plan_revision",
+            "id", "parent_principal_id", "business_id", "scope_json", "objective", "plan_json", "plan_revision",
             "links_json", "allowed_operations_json", "constraints_json", "internal_recipients_json",
             "completion_evidence_json", "escalation_rules_json", "resource_bounds_json",
             "state", "dispatch_reason", "checkpoint_json", "next_step", "wake_at", "wake_condition_json",
@@ -1557,8 +1586,7 @@ class OperationalDelegationOperations:
         return compact
 
     def _current_parent_record(self, context, assignment_id, options, uow):
-        self._require_parent(context)
-        record = self.store.get(uow, assignment_id, parent_principal_id=context.principal_id)
+        record = self._controlled(context, assignment_id, uow)
         if options.expected_revision != record["revision"]:
             raise DomainError("revision_conflict", "Assignment changed", current_revision=record["revision"])
         return record
@@ -1620,12 +1648,16 @@ class OperationalDelegationOperations:
             record = self.store.create(uow, parent_principal_id=context.principal_id,
                 assignment_id=values.pop("assignment_id"), **values)
         elif change.action == "control_assignment":
-            record = self.store.control(uow, values.pop("assignment_id"),
-                parent_principal_id=context.principal_id,
+            current = self._controlled(context, values.pop("assignment_id"), uow)
+            record = self.store.control(uow, current["id"],
+                parent_principal_id=current["parent_principal_id"], actor_principal_id=context.principal_id,
                 expected_revision=plan.expected_targets[0].revision, action=values["action"])
+            if current["parent_principal_id"] != context.principal_id:
+                self._notify_parent(uow, record, record["state"], "decided by the coordinator")
         elif change.action == "revise_assignment":
-            record = self.store.revise(uow, values.pop("assignment_id"),
-                parent_principal_id=context.principal_id,
+            current = self._controlled(context, values.pop("assignment_id"), uow)
+            record = self.store.revise(uow, current["id"],
+                parent_principal_id=current["parent_principal_id"], actor_principal_id=context.principal_id,
                 expected_revision=plan.expected_targets[0].revision,
                 expected_plan_revision=values.pop("expected_plan_revision"), **values)
         elif change.action == "checkpoint_assignment":

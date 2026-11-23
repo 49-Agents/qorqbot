@@ -88,7 +88,9 @@ class Runtime:
     broadcasts: object = None
     broadcast_dispatcher: object = None
     terminal_control: object = None
-    terminals: object = None  # The assembled TerminalService; installed once by service composition.
+    managed_launch: object = None  # Prepares and launches managed sessions; installed once by service composition.
+    terminals: object = None  # The assembled TerminalService (every entry point refuses in managed mode); installed once likewise.
+    runtime_switch: object = None  # The owner's switch between managed sessions and terminals (native_chat/runtime_switch.py).
     background_operations: object = None
     checkpoints: object = None
     management: object = None
@@ -102,6 +104,9 @@ class Runtime:
     delegation: object = None
     delegation_operations: object = None
     native_chat: object = None
+    # The managed runtime: agents switched to a headless Claude session under a detached host. Started with ``native_chat`` (which
+    # holds it too); it spawns nothing on start and never stops a host on stop, so hosts outlive this service.
+    managed_runtime: object = None
     inbox_nudges: object = None
     reminders: object = None  # the shared host reminder service (also application.reminders)
     selection: ExtensionSet = NO_EXTENSIONS  # the owner's startup selection; fixed for the process
@@ -520,7 +525,15 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.native_chat.chat import NativeChat
     from qorqut.overseer.retention import Retention
     runtime.overseer_retention = Retention(runtime)
-    runtime.native_chat = NativeChat.build(runtime)
+    # The managed runtime reads ``runtime.paths`` and, when it opens a session, ``runtime.managed_launch`` (installed later by service
+    # composition, read at that moment); the session probe, input arbiter and backend share it through ``NativeChat``.
+    from qorqut.managed_runtime.manager import ManagedRuntime
+    runtime.managed_runtime = ManagedRuntime(runtime)
+    runtime.native_chat = NativeChat.build(runtime, managed=runtime.managed_runtime)
+    # The terminal backend is installed later by service composition and read late (``runtime.terminal_control.backend``), so it
+    # is not needed here. The switch reads everything late too; the service recovers an interrupted one once all of it exists.
+    from qorqut.native_chat.runtime_switch import RuntimeSwitch
+    runtime.runtime_switch = RuntimeSwitch(runtime)
     from qorqut.overseer.operations import OverseerOperations
     runtime.overseer = OverseerOperations(runtime).register()
     from qorqut.native_chat.nudges import NudgeBackend, delivery_view, isolated, paced
@@ -537,7 +550,10 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # attempts and sends Ordubashy one inbox event per worker that has been unreachable for a while; it touches no
     # session and changes no worker.
     from qorqut.agents import unreachable
-    unreachable_workers = paced(UNREACHABLE_PASS_SECONDS, lambda uow: unreachable.reconcile(uow))
+    from qorqut.managed_runtime import mode as runtime_mode
+    # The mode is asked on every pass (the owner can switch while the service runs): in Terminals mode nothing wakes a worker.
+    unreachable_workers = paced(UNREACHABLE_PASS_SECONDS,
+                                lambda uow: unreachable.reconcile(uow, terminal=runtime_mode.is_terminal(runtime.paths)))
 
     def reconcile_inbox(uow):
         # The one bounded inbox reconcile hook: the retained Task snoozes, the shared reminders' due boundaries and pending
@@ -574,6 +590,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # The owner's pinned-threads row at the top of Focus: the owner's dashboard route, plus these two tools for the coordinator.
     from qorqut.domains.thread_pins import ThreadPins
     ThreadPins(runtime).register()
+    # The owner's Settings page as two tools for the coordinator: the same reads and changes as the owner's own routes.
+    from qorqut.domains.settings_tools import SettingsTools
+    SettingsTools(runtime).register()
     # The timelines of Tasks, Projects and Global: any agent reads one it may read; only the coordinator files.
     from qorqut.domains.timeline import Timeline
     Timeline(runtime).register()
@@ -585,6 +604,13 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # Its companion: what the records say was done over the same period.
     from qorqut.domains.work_review import WorkReview
     WorkReview(runtime).register()
+    # The coordinator's own compaction: the handoff it files before its conversation is closed, and what the next one starts with.
+    from qorqut.domains.compaction_handoff import CompactionHandoff
+    CompactionHandoff(runtime).register()
+    # What asks for that handoff when the context fills, then closes the conversation and opens the next one. It runs on the
+    # native Chat backend's pass and does nothing unless QORQUT_OWN_COMPACTION is set.
+    from qorqut.native_chat.compaction import CompactionController
+    runtime.compaction = CompactionController(runtime)
     from qorqut.inbox.side_chats import SideChats
     runtime.side_chats = SideChats(runtime).register()
     # The six Project record operations: one existing Project's inventory, item reads and explicit cross-scope links.
@@ -594,6 +620,15 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # Focus cards and unsupported bindings. The adapter is attached here, before the registry freezes.
     from qorqut.domains.tasks.moves import TaskMoves
     runtime.task_moves = TaskMoves(application, domains.tasks).register(registry)
+    # Move tables to project: the preview and the atomic relocation of whole Tables (rows, history, CRM memberships, discussion).
+    # Move notes to project, and the uploaded file a moved table was imported from: files go to the destination's folder.
+    from qorqut.composition.locations import document_root
+    from qorqut.domains.documents.moves import NoteMoves
+    from qorqut.domains.tables.moves import TableMoves
+    from qorqut_operations.documents.relocation import DocumentRelocation
+    document_moves = DocumentRelocation(lambda business, path: document_root(paths, business, path))
+    runtime.table_moves = TableMoves(application, documents=document_moves).register(registry)
+    runtime.note_moves = NoteMoves(application, document_moves).register(registry)
     # The aggregate CRM activity read: the Domain's local activity merged with the directly linked sources, which are read
     # through the composed Task, Signoff, Action and document readers. It owns no storage and writes nothing.
     from qorqut.domains.crm import CRMActivityOperations

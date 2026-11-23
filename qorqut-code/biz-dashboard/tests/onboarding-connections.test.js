@@ -1,4 +1,4 @@
-// The tour explains how agents reach outside tools, and agents are started by the owner in their terminal.
+// The tour explains how agents reach outside tools and ends with the first message in Chat; no step sends the owner to a terminal.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -36,13 +36,13 @@ test('the tour names where extensions are, then shows the browser, then ends in 
   const ids = [...tour.matchAll(/\{id: '([a-z-]+)'/g)].map(match => match[1]);
   assert.equal(ids.at(-1), 'chat');
   assert.match(step('chat'), /hi, help me get set up/);
-  assert.match(step('chat'), /offline: 'He isn’t running yet/);
+  assert.match(step('chat'), /Neither Claude Code nor Codex|neither is connected/);
 });
 
 test('a first walkthrough types the hello and done sends it, only while the owner has never written to Ordubashy', () => {
   assert.match(step('chat'), /typed: '“hi, help me get set up” is typed in below. Press done to send it/);
   const hello = tour.slice(tour.indexOf('if (step.hello) {'), tour.indexOf('async function showStep'));
-  assert.match(hello, /online && !replay && !written/);
+  assert.match(hello, /!replay && !written/);
   assert.match(hello, /entry\.speaker === 'user'/);
   assert.match(hello, /item\.origin === 'owner'/);
   assert.match(hello, /greet = assistant\.agent_id/);
@@ -52,7 +52,7 @@ test('a first walkthrough types the hello and done sends it, only while the owne
   assert.match(send, /\[HELLO, ''\]\.includes\(input\.value\.trim\(\)\)/);
   assert.match(send, /requestSubmit/);
   // Leaving the step forgets the pending hello.
-  assert.match(tour, /const step = steps\[index\]; greet = null;/);
+  assert.match(tour, /const step = steps\[index\]; greet = null; unanswered = false;/);
 });
 
 test('steps that point into the agent menu hold it open, and no step mentions the retired ? button', () => {
@@ -77,10 +77,15 @@ test('extensions are shown open below the browser, and no Claude connector is of
     assert.ok(!panel.includes(removed), removed);
 });
 
-test('Chat tells the owner to start the agent in Terminal and offers no Start button', () => {
-  const chat = read('js/global-chat.js');
-  for (const removed of ['startButton', 'runStart', 'agentStartPlan', 'GLOBAL_CHAT_STARTS', 'agent_terminal_start'])
-    assert.ok(!chat.includes(removed), removed);
-  assert.match(chat, /Open the terminal \(>_\) and run/);
-  assert.ok(!read('js/agent-start.js').includes('agent_terminal_start'));
+test('no tour step, Settings row or setup text sends the owner to a terminal or the folder-trust consent', () => {
+  // The managed texts only: what the tour says when agents run in terminals sits between the terminals-begin and terminals-end marks.
+  const managed = text => text.replace(/ *\/\/ terminals-begin[\s\S]*?\/\/ terminals-end\n/g, '');
+  assert.ok(tour.includes('terminals-begin') && !managed(tour).includes('terminals'), 'the Terminals wording is fenced and nothing else mentions it');
+  for (const file of ['js/onboarding.js', 'js/settings.js', 'js/agent-clients.js', 'js/agent-options.js', 'js/setup-notice.js'])
+    assert.ok(!/terminal|type claude|type <code>|folder-trust|agentStart/i.test(managed(read(file)).replace(/#global-agent-chat/g, '')), file);
+  for (const file of ['js/onboarding.js', 'js/onboarding-plan.js'])
+    assert.ok(!/type claude|type <code>|folder-trust|agentStart|\u2014/i.test(read(file).replace(/#global-agent-chat/g, '')), file);
+  // The typed-start script returns for the legacy Terminals mode; none of the managed-mode files above may use it.
+  assert.ok(fs.existsSync(path.join(__dirname, '../js/agent-start.js')));
+  assert.ok(!/agent-trust/.test(read('js/settings.js')));
 });

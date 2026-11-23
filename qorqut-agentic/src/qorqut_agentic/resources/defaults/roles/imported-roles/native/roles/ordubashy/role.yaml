@@ -1,6 +1,6 @@
 schema_version: 1
 id: ordubashy
-version: 1.78.0
+version: 1.85.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
@@ -32,6 +32,10 @@ skills:
   path: operations/imported-role-skills/native/skills/action-recording/SKILL.md
 - id: calendar
   path: operations/imported-role-skills/native/skills/calendar/SKILL.md
+- id: personal-record
+  path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
+- id: owner-settings
+  path: operations/imported-role-skills/native/skills/owner-settings/SKILL.md
 default_tool_policy:
   agentic_change_propose: allow
   agentic_change_get: allow
@@ -172,17 +176,17 @@ default_tool_policy:
   roles_list: allow
   roles_publish: signoff
   routines_costs: allow
-  routines_create: signoff
-  routines_delete: signoff
+  routines_create: allow
+  routines_delete: allow
   routines_get: allow
   routines_list: allow
   routines_pause: allow
   routines_preview: allow
-  routines_resume: signoff
-  routines_run: signoff
+  routines_resume: allow
+  routines_run: allow
   routines_runs: allow
   routines_stop: allow
-  routines_update: signoff
+  routines_update: allow
   shared_instructions_update: signoff
   signoffs_get: allow
   signoffs_notes_list: allow

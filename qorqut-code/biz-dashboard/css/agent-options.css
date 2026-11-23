@@ -1,0 +1,22 @@
+/* One row per agent in Settings > Agents: client, model and effort (js/agent-options.js). */
+.ao-title { margin: 22px 0 4px; font-size: 13.5px; font-weight: 500; color: var(--fg); }
+.ao-intro { margin: 0 0 10px; }
+.ao-list { display: grid; }
+.ao-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 18px; border-top: 1px solid var(--line-2); }
+.ao-row:first-child { border-top: 0; }
+.ao-main { min-width: 0; flex: 1 1 140px; }
+.ao-name { font-size: 13.5px; font-weight: 500; color: var(--fg); overflow-wrap: anywhere; }
+.ao-note { margin: 3px 0 0; font-size: 12px; line-height: 1.45; color: var(--fg-3); }
+.ao-note:empty { display: none; }
+.ao-note.is-error { color: var(--warn); }
+.ao-fields { flex: none; display: flex; align-items: flex-end; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.ao-field { display: grid; gap: 3px; font-size: 11px; color: var(--fg-3); }
+.ao-field select, .ao-field input { height: 30px; padding: 0 9px; font-size: 12px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--elevated, var(--wash)); color: var(--fg); }
+.ao-field select { width: 170px; }
+.ao-field input { width: 150px; }
+.ao-field:last-child select { width: 100px; }
+.ao-field select:focus-visible, .ao-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ao-empty, .ao-foot { margin: 0; padding: 14px 18px; font-size: 12.5px; line-height: 1.5; color: var(--fg-2); }
+.ao-foot { border-top: 1px solid var(--line-2); font-size: 12px; color: var(--fg-3); }
+.st-block + .st-rows { margin-top: 14px; }
+@media (max-width: 1100px) { .ao-row { flex-direction: column; align-items: stretch; gap: 10px; } .ao-main { flex: none; } .ao-fields { justify-content: flex-start; } }

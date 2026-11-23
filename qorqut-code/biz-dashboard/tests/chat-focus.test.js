@@ -16,7 +16,7 @@ async function fixture(width=900) {
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.setContent('<main id="pane" style="display:flex;flex-direction:column;height:650px;width:100%;min-width:0;--ag-ctl:30px"></main>');
   await page.clock.install();
-  for(const file of ['app.css','css/agent-workspace.css','css/agentpane.css','css/chat-view.css','css/workflow-panel.css','css/global-chat.css'])await page.addStyleTag({path:path.join(root,file)});
+  for(const file of ['app.css','css/agent-workspace.css','css/agentpane.css','css/chat-view.css','css/workflow-panel.css','css/global-chat.css','css/managed-chat.css'])await page.addStyleTag({path:path.join(root,file)});
   await page.evaluate(()=>{
     window.esc=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     window.$=(selector,host=document)=>host.querySelector(selector);
@@ -30,7 +30,7 @@ async function fixture(width=900) {
       close(){}
     };
     window.binding={provider:'codex',conversation_id:'conversation',binding_id:'binding'};
-    window.working=true;window.focusReads=[];window.todoReads=[];window.actionReads=[];window.override=null;
+    window.working=true;window.managed=undefined;window.posts=[];window.focusReads=[];window.todoReads=[];window.actionReads=[];window.override=null;
     window.activePeerReads=0;window.maxPeerReads=0;window.rosterOverride=null;
     window.profile=(id,role='global-worker')=>({agent_id:id,name:id,role:{id:role},scope:{kind:'ecosystem'},status:'active'});
     window.profiles=[profile('ord','ordubashy')];
@@ -40,8 +40,9 @@ async function fixture(width=900) {
       ord:{state:'focused',focus:{type:'task',id:'launch',label:'Coordinate launch'},intent:'Check the remaining tasks.'},
       atlas:{state:'focused',focus:{type:'task',id:'research',label:'Verify sources'},intent:'Compare the original documents.'}
     };
-    window.api=async url=>url.includes('/commands')?{commands:[]}:{session:{state:'live',can_send:true,working,binding},conversation:binding,entries:[],inputs:[],cursor:0};
+    window.api=async url=>url.includes('/commands')?{commands:[]}:{session:{state:'live',can_send:true,working,binding,managed},conversation:binding,entries:[],inputs:[],cursor:0};
     window.post=async(url,args,options)=>{
+      posts.push(url);
       if(url.endsWith('/actions_list')){actionReads.push(structuredClone(args));return {actions:[]};}
       if(!url.endsWith('/todo_get'))return {};
       if(args.projection!=='focus'){todoReads.push(structuredClone(args));throw Error('Focus board must not load Todo lists');}
@@ -54,11 +55,11 @@ async function fixture(width=900) {
       }finally{if(peer)activePeerReads--;}
     };
   });
-  for(const file of ['read-cache','safe-links','san-juan-time','chat-view','slash-commands','workflow-panel','global-chat'])await page.addScriptTag({path:path.join(root,'js',file+'.js')});
+  for(const file of ['read-cache','safe-links','san-juan-time','chat-view','slash-commands','workflow-panel','agent-runtime','global-chat'])await page.addScriptTag({path:path.join(root,'js',file+'.js')});
   await page.evaluate(()=>{
     window.mount=(id='ord',role='ordubashy')=>{
       window.controller?.dispose();
-      window.controller=mountGlobalChat(document.querySelector('#pane'),profile(id,role),{openTerminal:()=>{}});
+      window.controller=mountGlobalChat(document.querySelector('#pane'),profile(id,role),{});
     };
     mount();
   });
@@ -83,7 +84,9 @@ browserTest('focus strip is the top of the composer and never loads a Todo list'
     const label=await page.locator('.gchat-focus-label').boundingBox(),dots=await page.locator('.gchat-working-dots').boundingBox();
     assert.ok(Math.abs(dots.y+dots.height/2-(label.y+label.height/2))<1);
     assert.equal(await page.locator('.wfpanel .gchat-working-tag').count(),1);
-    assert.equal(await page.locator('.gchat-session').isVisible(),false);
+    // No status ball and no End session; the open session shows no status text either.
+    assert.equal(await page.locator('.gchat-session-dot,.gchat-end').count(),0);
+    assert.equal(await page.locator('.gchat-session-text').innerText(),'');
     await page.locator('.gchat-composer textarea').fill('Unsent draft');
     await page.evaluate(()=>{_agpad.attentionAgentId='atlas';working=false;stream.dispatchEvent(new MessageEvent('chat',{data:JSON.stringify({kind:'changed',cursor:1})}));});
     await page.waitForFunction(()=>document.querySelector('.gchat-working-tag').hidden);
@@ -91,6 +94,44 @@ browserTest('focus strip is the top of the composer and never loads a Todo list'
     assert.equal(await page.locator('.gchat-composer textarea').inputValue(),'Unsent draft');
     assert.deepEqual(await page.evaluate(()=>todoReads),[]);
     assert.deepEqual(await page.evaluate(()=>actionReads),[]);
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
+browserTest('while Ordubashy works, the activity line takes the intent line and Send becomes Stop while nothing is typed',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{managed={open:true,phase:'working',activity:'Writing a reply',turn_started_at:null,can_stop:true,pending:[]};stream.dispatchEvent(new MessageEvent('chat',{data:JSON.stringify({kind:'changed',cursor:1})}));});
+    const line=page.locator('.wfpanel > .mchat-activity');
+    await line.waitFor({state:'visible'});
+    assert.equal(await line.locator('.mchat-activity-text').innerText(),'Writing a reply');
+    assert.equal(await page.locator('.gchat-focus-intent').isVisible(),false);
+    // One set of dots, nothing left above the composer.
+    assert.equal(await page.locator('.gchat-working-tag').isVisible(),false);
+    assert.equal(await page.locator('.mchat').isVisible(),false);
+    assert.equal(await page.locator('.gchat-session').isVisible(),false);
+    // The activity text starts where the focus text starts.
+    const label=await page.locator('.gchat-focus-label').boundingBox(),text=await line.locator('.mchat-activity-text').boundingBox();
+    assert.ok(Math.abs(label.x-text.x)<1.5,`${label.x} ${text.x}`);
+    // The strip carries no Stop of its own: with nothing typed, Send is Stop; typing turns it back into Send.
+    assert.equal(await line.locator('.mchat-stop').isVisible(),false);
+    const send=page.locator('.gchat-send');
+    assert.equal(await send.getAttribute('aria-label'),'Stop');
+    await page.locator('.gchat-composer textarea').fill('One more thing');
+    assert.equal(await send.getAttribute('aria-label'),'Send');
+    await page.locator('.gchat-composer textarea').fill('');
+    assert.equal(await send.getAttribute('aria-label'),'Stop');
+    // Stop stops the agent, sends no message and does not fold the strip.
+    await send.click();
+    await page.waitForFunction(()=>posts.some(url=>url.endsWith('/interrupt')));
+    assert.equal(await page.evaluate(()=>posts.filter(url=>url.endsWith('/interrupt')).length),1);
+    assert.equal(await page.evaluate(()=>posts.filter(url=>url.endsWith('/messages')).length),0);
+    assert.equal(await page.locator('.wfpanel-head').getAttribute('aria-expanded'),'true');
+    // Done working: the intent is back and the button is Send again.
+    await page.evaluate(()=>{managed={...managed,phase:'idle',activity:''};working=false;stream.dispatchEvent(new MessageEvent('chat',{data:JSON.stringify({kind:'changed',cursor:2})}));});
+    await page.locator('.gchat-focus-intent').waitFor({state:'visible'});
+    assert.equal(await line.isVisible(),false);
+    assert.equal(await send.getAttribute('aria-label'),'Send');
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
 });

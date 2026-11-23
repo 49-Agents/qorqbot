@@ -139,15 +139,9 @@ const connectorsPanel = (() => {
     root.innerHTML = `${options.compact ? '' : PRIVACY}
       <div class="cx-browser-area" data-cx-browser-area><div class="cx-browser" data-cx-browser aria-live="polite"><div class="cx-browser-copy"><span class="cx-eyebrow">Included with Qorqbot</span>
         <h3>Agent browser <span class="cx-status" data-cx-browser-status>Checking…</span></h3>
-        <p>Your agents use their own private browser to work on websites for you. It sets itself up.</p>
+        <p>Your agents share one private browser to work on websites for you: they share its website sign-ins and each works in its own tabs. It sets itself up.</p>
         <p class="cx-browser-detail" data-cx-browser-detail>Checking browser readiness…</p></div>
         <button type="button" class="quiet" data-cx-browser-retry hidden>Retry setup</button></div>
-      <section class="cx-accounts" data-cx-choice hidden>
-        <h3>Which browser each agent uses</h3>
-        <p>An agent’s own browser has its own website sign-ins. The Shared browser is one browser for every agent set to it: they share its sign-ins and each works in its own tabs. Switching restarts the browser; nothing is signed out or deleted.</p>
-        <p class="cx-error" data-cx-choice-error role="alert" hidden></p>
-        <div class="cx-rows" data-cx-choice-list></div>
-      </section>
       <section class="cx-accounts" data-cx-accounts hidden>
         <h3>Websites your agents can use as you</h3>
         <p>To connect a website, ask Ordubashy in Chat, for example “connect my Slack”. It opens Chrome on this computer and you sign in yourself: your password goes only to that website, and your agent keeps just the signed-in session. On a computer without a screen, Ordubashy asks you for the password and signs in for you.</p>
@@ -164,28 +158,23 @@ const connectorsPanel = (() => {
         <div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-list><p class="muted small">Loading extensions…</p></div>
       </section>`;
     container.appendChild(root);
-    let view = null, browserView = null, browserTimer = 0, browserChecks = 0, choiceHtml = '';
-    // A status read that was already on its way, or returns while a choice is being saved, still shows the browser from before the
-    // choice; it must not replace the answer to the choice or redraw the old value in the menu.
-    let choosing = false, browserEpoch = 0;
+    let view = null, browserView = null, browserTimer = 0, browserChecks = 0;
     let accountsView = null, accountsTimer = 0;
-    const BROWSER_CHOICES = {own: 'Own browser', shared: 'Shared browser'};
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
     function paintAccounts() {
-      const section = root.querySelector('[data-cx-accounts]'), agents = accountsView?.agents;
-      section.hidden = !agents?.length;
+      const section = root.querySelector('[data-cx-accounts]'), rows = accountsView?.sites;
+      section.hidden = !rows;
       if (section.hidden) return;
-      const busy = agents.find(agent => agent.signing_in), note = root.querySelector('[data-cx-signin-note]');
+      const busy = accountsView.signing_in, note = root.querySelector('[data-cx-signin-note]');
       note.hidden = !busy;
-      if (busy) note.textContent = `Finish signing in to ${busy.signing_in} in the Chrome window, then close that window. ${busy.name}’s browser is paused until you do.`;
-      const rows = agents.flatMap(agent => agent.sites.map(item => ({agent, item})));
+      if (busy) note.textContent = `Finish signing in to ${busy} in the Chrome window, then close that window. The agents’ browser is paused until you do.`;
       const list = root.querySelector('[data-cx-accounts-list]');
       list.hidden = !rows.length;
       root.querySelector('[data-cx-accounts-empty]').hidden = !!rows.length || !!busy;
-      list.innerHTML = rows.map(({agent, item}) => {
+      list.innerHTML = rows.map(item => {
         const [label, tone] = SIGN_IN_STATUS[item.session_saved ?? null];
-        return `<div class="cx-row cx-account-row" data-cx-site="${esc(item.site)}"><div class="cx-row-main"><div class="cx-row-title"><h3>${esc(item.site)}</h3><span class="cx-status" data-tone="${tone}">${label}</span></div>${agents.length > 1 ? `<p class="cx-row-does">${esc(agent.name)}</p>` : ''}</div>
-          <div class="cx-row-action"><button type="button" class="quiet" data-cx-site-action="sign_out" data-cx-agent="${esc(agent.agent_id)}" data-cx-site-name="${esc(item.site)}"${busy ? ' disabled' : ''}>${item.session_saved === false ? 'Remove' : 'Sign out'}</button></div></div>`;
+        return `<div class="cx-row cx-account-row" data-cx-site="${esc(item.site)}"><div class="cx-row-main"><div class="cx-row-title"><h3>${esc(item.site)}</h3><span class="cx-status" data-tone="${tone}">${label}</span></div></div>
+          <div class="cx-row-action"><button type="button" class="quiet" data-cx-site-action="sign_out" data-cx-site-name="${esc(item.site)}"${busy ? ' disabled' : ''}>${item.session_saved === false ? 'Remove' : 'Sign out'}</button></div></div>`;
       }).join('');
       clearTimeout(accountsTimer);
       // Ordubashy starts sign-ins from Chat, so this list has to notice them on its own.
@@ -197,10 +186,10 @@ const connectorsPanel = (() => {
       try {
         const next = coreData(change ? await post('/root/browser-accounts', change) : await api('/root/browser-accounts'));
         if (!live()) return true;
-        const wasBusy = accountsView?.agents?.some(agent => agent.signing_in);
+        const wasBusy = !!accountsView?.signing_in;
         accountsView = next; accountsError(''); paintAccounts();
         // The session list only settles once the agent's browser is back after the window closes.
-        if (wasBusy && !next.agents?.some(agent => agent.signing_in)) { clearTimeout(accountsTimer); accountsTimer = setTimeout(() => { loadAccounts(); loadBrowser(); }, 1500); }
+        if (wasBusy && !next.signing_in) { clearTimeout(accountsTimer); accountsTimer = setTimeout(() => { loadAccounts(); loadBrowser(); }, 1500); }
         return true;
       } catch (failure) {
         if (live()) accountsError(failure.message || 'Website sign-ins could not be loaded.');
@@ -225,50 +214,20 @@ const connectorsPanel = (() => {
         downloading ? 'Downloading' : !browserView.chrome_installed ? (ownChrome.state === 'failed' ? 'Download failed' : 'Chrome needed') : 'Setup needed';
       status.dataset.tone = ready ? 'ok' : 'warn';
       const agents = browserView.agents || [];
-      const problems = agents.filter(agent => agent.state !== 'healthy')
-        .map(agent => agents.length > 1 ? `${agent.name}: ${agent.explanation}` : agent.explanation);
       detail.textContent = ready ? `Ready for ${agents.map(agent => agent.name).join(', ')}.` :
         !browserView.tool_installed ? 'The tool agents use to control their browser isn’t installed. Quit and reopen Qorqbot to install it again.' :
         !browserView.chrome_installed ? ownChrome.explanation || 'Agents need Google Chrome to browse, and it isn’t installed on this computer. Install it from google.com/chrome, then press Retry setup.' :
-        problems.join(' ') || 'Preparing agent browsers…';
+        browserView.explanation || 'Preparing the agent browser…';
       retry.hidden = ready || !browserView.tool_installed;
-      paintChoice(agents.filter(agent => agent.agent_id && (BROWSER_CHOICES[agent.browser] || agent.browser === 'damaged')));
       retry.disabled = downloading || (!browserView.chrome_installed && !ownChrome.state);
       root.dispatchEvent(new CustomEvent('browser-setup-painted', {bubbles: true}));
-    }
-    // The list is rebuilt only when it changes, so a status refresh does not close a menu the owner has open.
-    function paintChoice(agents) {
-      const section = root.querySelector('[data-cx-choice]'), list = root.querySelector('[data-cx-choice-list]');
-      section.hidden = !agents.length;
-      const html = agents.map(agent => `<div class="cx-row cx-account-row" data-cx-choice-row="${esc(agent.agent_id)}"><div class="cx-row-main"><div class="cx-row-title"><h3>${esc(agent.name)}</h3></div></div>
-        <div class="cx-row-action"><select data-cx-choice-agent="${esc(agent.agent_id)}" aria-label="Browser for ${esc(agent.name)}">${
-          agent.browser === 'damaged' ? '<option value="" selected disabled>Choose…</option>' : ''}${
-          Object.entries(BROWSER_CHOICES).map(([value, label]) => `<option value="${value}"${value === agent.browser ? ' selected' : ''}>${label}</option>`).join('')}</select></div></div>`).join('');
-      if (html !== choiceHtml) list.innerHTML = choiceHtml = html;
-    }
-    async function choose(select) {
-      const problem = root.querySelector('[data-cx-choice-error]');
-      const menus = root.querySelectorAll('[data-cx-choice-agent]');
-      problem.hidden = true;
-      menus.forEach(menu => { menu.disabled = true; });
-      choosing = true; browserEpoch++;
-      try {
-        browserView = coreData(await post('/root/browser-setup', {action: 'choose', agent_id: select.dataset.cxChoiceAgent, browser: select.value}));
-      } catch (failure) {
-        if (live()) { problem.textContent = failure.message || 'The browser could not be switched.'; problem.hidden = false; }
-      } finally {
-        choosing = false; browserEpoch++;
-        choiceHtml = '';   // rebuild: the menus are enabled again and show the browser each agent really uses
-        if (live()) paintBrowser();
-      }
     }
     async function loadBrowser(retry = false) {
       const button = root.querySelector('[data-cx-browser-retry]');
       button.disabled = true;
-      const epoch = browserEpoch;
       try {
         const next = coreData(retry ? await post('/root/browser-setup', {action: 'retry'}) : await api('/root/browser-setup'));
-        if (live() && !choosing && epoch === browserEpoch) { browserView = next; paintBrowser(); }
+        if (live()) { browserView = next; paintBrowser(); }
       } catch (failure) {
         if (live()) root.querySelector('[data-cx-browser-detail]').textContent = failure.message || 'Could not check browser setup.';
       } finally {
@@ -302,7 +261,7 @@ const connectorsPanel = (() => {
       const siteAction = event.target.closest('[data-cx-site-action]');
       if (siteAction) {
         siteAction.disabled = true;
-        if (!await loadAccounts({action: siteAction.dataset.cxSiteAction, agent_id: siteAction.dataset.cxAgent, site: siteAction.dataset.cxSiteName})) siteAction.disabled = false;
+        if (!await loadAccounts({action: siteAction.dataset.cxSiteAction, site: siteAction.dataset.cxSiteName})) siteAction.disabled = false;
         return;
       }
       if (event.target.closest('[data-cx-browser-retry]')) { await loadBrowser(true); return; }
@@ -340,10 +299,6 @@ const connectorsPanel = (() => {
         buttons.forEach(button => { button.disabled = false; });
       }
     }
-    root.addEventListener('change', event => {
-      const select = event.target.closest('[data-cx-choice-agent]');
-      if (select) choose(select);
-    });
     root.addEventListener('submit', async event => {
       const form = event.target.closest('[data-cx-key]');
       if (!form) return;

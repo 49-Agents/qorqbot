@@ -1,25 +1,25 @@
 ---
 name: qorqut-role-chat-references
-description: Show the owner a message in Chat with clickable cards for Projects, Tasks, pending Signoffs, configured browsers or registered agents right below it (request_user_input), also whenever the owner asks to refer, link or open one, and select an exact browser with browser_turn action=list and browser_id.
+description: Show the owner a message in Chat with clickable cards for Projects, Tasks, pending Signoffs, configured browsers or browser tabs right below it (request_user_input), also whenever the owner asks to refer, link or open one, and select an exact browser with browser_turn action=list and browser_id.
 ---
 
 # Chat references
 
 Use `request_user_input` when the owner should look at, decide or act on existing records
-while reading your message: a Project to open, a Signoff to decide, a browser to log in or act in,
-a Task whose state matters, an agent you are talking about. It returns at once. It creates no request, waits for no answer and
+while reading your message: a Project to open, a Signoff to decide, a browser or one of its tabs to log in or act in,
+a Task whose state matters. It returns at once. It creates no request, waits for no answer and
 grants no approval, so keep working on whatever does not depend on the owner's reply.
 
 ```
 request_user_input(message="Please sign in to the bank in the browser below, then reply here.",
                    references=[{"type": "browser", "id": "<id from action=list>"}])
+request_user_input(message="This captcha needs you: solve it in the tab below, then reply here.",
+                   references=[{"type": "tab", "id": "<reference from the tab-reference command>"}])
 request_user_input(message="Two decisions are ready for you.",
                    references=[{"type": "signoff", "id": "<signoff uuid>", "business_id": "<project uuid>"},
                                {"type": "task", "id": "<task id>"}])
 request_user_input(message="Here is the cold outreach project.",
                    references=[{"type": "project", "id": "<project uuid>", "business_id": "<same project uuid>"}])
-request_user_input(message="The new worker takes this on next.",
-                   references=[{"type": "agent", "id": "<agent uuid>"}])
 ```
 
 - `message`: plain text, at most 4000 characters. Say what you need; the cards are not a substitute.
@@ -32,8 +32,10 @@ request_user_input(message="The new worker takes this on next.",
     project in the dashboard.
   - `browser`: the exact configured browser `id` from `browser_turn` `action=list`, only
     `{type, id}`; there is no project selector.
-  - `agent`: the registered agent's UUID, only `{type, id}` (no `business_id`, name or icon);
-    the owner sees its current name and icon. Only agents your existing agent read allows.
+  - `tab`: one open page in the Shared browser, exactly as the browser command `tab-reference` printed it
+    (yours, or one a worker gave you): `{"type": "tab", "id": "<agent uuid>:<tab id>"}`, only `{type, id}`. Use it when the owner must do
+    something in that page (a captcha that could not be solved, a sign-in, a confirmation) instead of describing where to
+    click. The owner sees the page's title and opens its live view; it is refused once the tab is closed.
 - When the owner asks you to refer, link, open or show a Project, Task or Signoff ("refer the
   project", "where is the thread"), answer with its card. Chat makes only file links from
   `files_link`, `/tables/view` links and website addresses clickable; a Project or Signoff
@@ -43,7 +45,7 @@ request_user_input(message="The new worker takes this on next.",
 - An unknown, deleted or unreadable record, a wrong `business_id` or a malformed field is
   refused and nothing is shown. Never guess an id.
 - The owner sees current records: a Task's title and state, a Signoff decided in its own card,
-  a browser as a live view, an agent as a name with its icon. The reference decides nothing: use `signoffs_input_create`
+  a browser as a live view. The reference decides nothing: use `signoffs_input_create`
   for a question that needs a recorded decision, and read the Signoff afterwards.
 - Showing a browser takes no browser turn; you still use a browser only through `browser_turn`.
 

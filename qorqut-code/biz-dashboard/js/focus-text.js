@@ -167,5 +167,7 @@ const focusText = (() => {
     };
   }
 
-  return {mount, load: p => load(p), paint, paintStatus, state, FIRST_TEXT};
+  // Puts the caret at the end of the notes shown in this pane.
+  const focus = p => editors.get(p)?.focusLine(Infinity, Infinity);
+  return {mount, load: p => load(p), paint, paintStatus, focus, state, FIRST_TEXT};
 })();

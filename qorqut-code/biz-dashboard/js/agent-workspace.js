@@ -174,8 +174,8 @@ function agentWorkspacePairedValidSource(source) {
 function agentWorkspacePairedCurrent(child) {
   const p = _agpad;
   if (!p || !p.open || p.workspaceRole !== 'ordubashy' || !p.agentId || state.scope !== 'global'
-      || state.globalTab !== 'agents' || p.view !== 'focus' || p.isCurrent?.() === false) return false;
-  if (child === window) return p.focusMount?.isConnected === true;
+      || state.globalTab !== 'agents' || !['focus', 'explorer', 'work'].includes(p.view) || p.isCurrent?.() === false) return false;
+  if (child === window) return (p.view === 'explorer' ? p.explorerMount : p.view === 'work' ? p.workMount : p.focusMount)?.isConnected === true;
   const frame = p.workspaceFrame;
   return !!frame?.isConnected && frame.contentWindow === child && p.el?.contains(frame);
 }
@@ -389,11 +389,13 @@ function agentWorkspaceMount(p, view) {
 // Native editors retain their save/leave contract when hosted in a pane.
 async function agentWorkspaceCanLeave(p) {
   // Leaving Focus closes the thread it opened in the Chat area, which must not drop a send or a signoff.
-  if ((p?.view === 'focus' || p?.workspaceFrame) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy()) {
+  if ((p?.view === 'focus' || p?.view === 'explorer' || p?.view === 'work' || p?.workspaceFrame) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy()) {
     if (typeof toast === 'function') toast(typeof PAIRED_THREAD_BUSY === 'string' ? PAIRED_THREAD_BUSY : 'Wait for the message to send, or save the signoff, before leaving this thread.');
     return false;
   }
   if (p?.view === 'focus' && !await agpadFocusCanLeave(p)) return false;
+  if (p?.view === 'explorer' && p.explorerCanLeave && !await p.explorerCanLeave()) return false;
+  if (p?.view === 'work' && p.workCanLeave && !await p.workCanLeave()) return false;
   if (p?.journalMount) return p.journalMount.flush();
   const child = p?.workspaceFrame?.contentWindow;
   if (child?.agentWorkspaceLeaveEmbedded) return child.agentWorkspaceLeaveEmbedded();
@@ -560,15 +562,14 @@ async function agentFilePreviewOpen(reference) {
 }
 
 // Exact record links remain usable after removing the drawer's management screens.
+// Every record, a Task included, opens in Ordubashy's Focus record workspace.
 async function agentOpenRecordReference(ref) {
   if(embeddedAgentPane)return parent.agentOpenRecordReference(ref);
   const agent=(await loadGlobalAgentProfiles()).find(a=>globalRosterAgent(a) && a.role?.id==='ordubashy');
   if(!agent){toast('Ordubashy is unavailable.');return false;}
   if(state.scope!=='global' || state.globalTab!=='agents')await selectGlobal('agents');
-  const view=ref?.type==='task'?'attentionBoard':'focus';
-  if(!await globalAgentsNavigate(agent.agent_id,{view}))return false;
+  if(!await globalAgentsNavigate(agent.agent_id,{view:'focus'}))return false;
   const pane=_agpad;
-  if(pane?.agentId!==agent.agent_id || pane.view!==view)return false;
-  if(ref?.type==='task')return attentionBoardOpen(pane,ref);
-  return agfocusOpenPairedReference(pane,ref);
+  if(pane?.agentId!==agent.agent_id || pane.view!=='focus')return false;
+  return agfocusOpenRecord(pane,ref);
 }

@@ -67,11 +67,14 @@ or choices materially change, withdraw the old input with
 for each retry of a blocked operation.
 
 The owner states a fact about themselves once. Before asking the owner anything about
-themselves, read the personal record (Context Home and `context_home` name its ref) and
+themselves, read the personal record (`personal_get`) and
 your own open questions (`signoffs_list` with `category: input_request`,
 `states: [pending]`). Leave out what the record answers, what the owner already answered
 on an earlier form, and what an open question already asks; ask a question that several
-pieces of work need once, in one request.
+pieces of work need once, in one request. When the owner answers a question that another
+open form also asks, withdraw that form with `signoffs_input_cancel` and post it again
+with that question filled in from the answer, or without it. The personal-record skill
+explains the record's tools.
 
 The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, `draft_review`, or
 Ordubashy's `acknowledge`, described under "Read and acknowledge"), and
@@ -153,20 +156,24 @@ the appropriate separate action approval when needed.
 
 ## Read and acknowledge
 
-`form.kind: acknowledge` asks the owner nothing. It puts a report or a document in
-front of them and records that they read it. Only Ordubashy can post one. A worker
+`form.kind: acknowledge` is the attention Signoff, shown to the owner under **For
+your attention**. It asks the owner nothing: it puts an answer, a report or a document
+in front of them and records that they read it. Only Ordubashy can post one. A worker
 with a report or document the owner must see hands it to Ordubashy, with the file,
 the Task it belongs to and the reason the owner needs it.
 
-Every report belongs to a Task: `report_task` names it, and a report without one is
-refused. One Task can hold many reports. Name the real Task whose work the report
-is about, in its Project or Global; never create a Task only to hold a report.
+`report_task` names the real Task the answer or report belongs to, in its Project
+or Global. One Task can hold many. Omit it when there is no such Task; never create
+a Task only to hold one.
 
-Use it only when you need to know the owner saw something: the daily report, or a
-document that changes what they should do or expect. Routine results stay in the
-Task's status line and thread notes. Never use it to obtain a yes: an
-acknowledgement approves nothing and answers nothing. Ask a question when you need
-a decision.
+Whenever a message from the owner contains a question, or asks to be told, shown or
+updated on something, answer in an attention Signoff, one-line answers included.
+Look the answer up in the records first. Post one Signoff per owner message, under
+its own new `request_key`: quote each question at the top and answer it in full
+under it. In chat write one short line and show the Signoff as a card under it
+with `request_user_input`; do not repeat the answer there. Never use it to obtain
+a yes: an acknowledgement approves nothing. Ask a question when you need a
+decision.
 
 The form is `title`, `explanation`, `kind: acknowledge` and `selection_mode: none`.
 The explanation is the text the owner reads, shown as Markdown (headings, lists,
@@ -177,7 +184,7 @@ the explanation itself. Choices, required notes, `source`, `urgent` and `blockin
 are refused: nothing can wait on it, and it never shows as Needs your input.
 
 It notifies the owner once when it is posted and then waits in the dashboard's
-**To read** group, apart from decisions. The owner clicks **Acknowledge**. A report
+**For your attention** group, apart from decisions. The owner clicks **Acknowledge**. A report
 has no conversation of its own: opening it opens its Task's thread beside it, so
 the owner writes any comment there; treat a comment as a new owner input. Posting another
 one with the same `request_key` replaces the one the owner has not acknowledged
@@ -208,8 +215,8 @@ reminder into your native session, even while you are busy, but it names no even
 and acknowledges nothing. Keep working on the direct user request, check
 `inbox_list` at a suitable checkpoint or on completion, and follow the built-in
 inbox instructions in mandatory bootstrap context to handle and acknowledge the
-exact events. Events that arrive while no native session is running wait for the
-next manual start. Retain submitted answers with the signoff; lasting project
+exact events. Events that arrive while your session is closed wait. Qorqbot opens it for them by
+itself unless you are turned off or run in a terminal; then they wait until you are started. Retain submitted answers with the signoff; lasting project
 instructions can enter Context through its existing authorized source input
 (`context_upload` or a focused `context_instruct`) when appropriate.
 

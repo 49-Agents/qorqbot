@@ -1,7 +1,7 @@
 // Navigation chords never intercept an editor, composer, terminal or open dialog.
 (() => {
   let tabHeld=false, chordAllowed=false, navigating=false;
-  const typing=target=>target instanceof Element && !!target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),.xterm,.termmode,[role="dialog"]');
+  const typing=target=>target instanceof Element && !!target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),.xterm,.agentchat,[role="dialog"]');
   const reset=()=>{tabHeld=false;chordAllowed=false;};
   async function jump(role) {
     if(navigating)return;
@@ -21,7 +21,7 @@
       if(event.repeat)return;
       const blocked=typing(event.target) || !!document.querySelector('.overlay');
       if(event.shiftKey && !blocked && state.scope==='global' && state.globalTab==='agents') {
-        // Global agents, then the owner's workspace Terminal, in roster order.
+        // Global agents in roster order, then the owner's workspace Terminal when agents run in terminals.
         const rows=[...document.querySelectorAll('.global-agents [data-global-agent]')]
           .filter(node=>!node.disabled && node.getClientRects().length);
         if(rows.length){event.preventDefault();event.stopImmediatePropagation();const index=rows.findIndex(row=>row.classList.contains('on'));const next=rows[(index+1)%rows.length];next.click();next.focus({preventScroll:true});reset();return;}

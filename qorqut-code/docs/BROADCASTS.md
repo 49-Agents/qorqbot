@@ -79,14 +79,15 @@ recipient watcher checks immediately and every five minutes, so an offline
 recipient receives it when the agent next checks; this does not guarantee
 execution. The independent dispatcher checks due broadcasts every two seconds.
 
-Input delivery pastes text followed by Enter to an existing recipient
-terminal. The owning host or container broker pastes first, waits 200 ms for
-client paste handling, then sends a separate Enter to the pane. Ctrl+Enter is
-not used: it leaves text unsubmitted in the supported Codex client. Deploy
-the companion dashboard broker with this core change. Only the installation owner and Ordubashy can select Input. It never
-starts a terminal or agent and adds no confirmation step. Input results are
+Input delivery sends the text to the recipient's session through the shared input
+arbiter (`native_chat/arbiter.py`), which verifies the registered session. A
+recipient whose session is asleep and on is opened for it, and the delivery waits
+for the open; a recipient that is off is not opened and the result is
+`unavailable`. In Terminals mode nothing opens a session: an agent that is not running
+in its terminal receives nothing until it is started. Only the installation owner and Ordubashy can select Input, and
+Input adds no confirmation step. Input results are
 reported per recipient as `delivered`, `unavailable`, `uncertain`, `failed`, or
-`denied`; an uncertain terminal write must not be blindly resent. Inbox results
+`denied`; an uncertain write must not be blindly resent. Inbox results
 are also recorded per recipient. Permission, scope, recipient activity, and
 sender policy are checked again at delivery time, so revocation can produce a
 `denied` result after a broadcast was saved.

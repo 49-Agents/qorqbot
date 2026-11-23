@@ -53,3 +53,25 @@ test('a refused permission keeps notifications off', async () => {
   assert.deepEqual(await notify.enable('signoffs', true), {replies: false, signoffs: false, reminders: false, routines: false});
   assert.equal(notify.send({kind: 'test', title: 'Qorqbot', force: true}), null);
 });
+
+test('a choice made outside this browser turns an alert on only once notifications are allowed', () => {
+  browser({permission: 'default'});
+  const notify = fresh('../js/desktop-notify.js');
+  assert.deepEqual(notify.set('replies', true), {replies: false, signoffs: false, reminders: false, routines: false});
+  global.Notification.permission = 'granted';
+  assert.equal(notify.set('replies', true).replies, true);
+  assert.equal(notify.set('replies', false).replies, false);
+  assert.deepEqual(notify.set('unknown', true), notify.prefs());
+});
+
+test('display choices from Ordubashy are applied once per revision', () => {
+  const sync = fresh('../js/display-sync.js');
+  const view = {fields: {theme: {value: 'light', revision: 1}, text_size: {value: 'large', revision: 3},
+    notify_replies: {value: true, revision: 2}, zoom: {value: 2, revision: 4}}, revision: 4};
+  assert.deepEqual(sync.plan(view, 0), {appearance: {theme: 'light', textSize: 'large'}, alerts: {replies: true}, revision: 4});
+  assert.deepEqual(sync.plan(view, 2), {appearance: {textSize: 'large'}, alerts: {}, revision: 4});
+  assert.deepEqual(sync.plan(view, 4), {appearance: {}, alerts: {}, revision: 4});
+  assert.deepEqual(sync.plan(null, 0), {appearance: {}, alerts: {}, revision: 0});
+  assert.equal(sync.blockedNote([]), '');
+  assert.match(sync.blockedNote(['replies', 'routines']), /agent replies and failed routines/);
+});

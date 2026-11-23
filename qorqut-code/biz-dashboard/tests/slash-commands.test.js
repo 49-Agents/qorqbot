@@ -5,8 +5,8 @@ const { test } = require('node:test');
 const slash = require('../js/slash-commands.js');
 
 const catalog = [
-  {name: '/compact', where: 'chat'}, {name: '/clear', where: 'chat'}, {name: '/model', where: 'terminal'},
-  {name: '/cost', where: 'terminal'}, {name: '/context', where: 'terminal'}, {name: '/git:sync', where: 'chat', source: 'yours'},
+  {name: '/compact', where: 'chat'}, {name: '/clear', where: 'chat'}, {name: '/model', where: 'unavailable'},
+  {name: '/cost', where: 'unavailable'}, {name: '/context', where: 'unavailable'}, {name: '/git:sync', where: 'chat', source: 'yours'},
 ];
 
 test('the menu opens only while a command is being typed at the start', () => {
@@ -23,33 +23,49 @@ test('names starting with the text come before names containing it', () => {
 });
 
 test('a sent text is matched to the command it runs', () => {
-  assert.equal(slash.command(catalog, '/model').where, 'terminal');
+  assert.equal(slash.command(catalog, '/model').where, 'unavailable');
   assert.equal(slash.command(catalog, ' /compact keep decisions').name, '/compact');
   assert.equal(slash.command(catalog, '/unknown'), null);
   assert.equal(slash.command(catalog, 'please /compact'), null);
 });
 
-test('only a bare /model, or another menu command, is finished in the Terminal', () => {
-  const opens = (text, provider) => slash.opensTerminal(slash.command(catalog, text), text, provider);
-  assert.equal(opens('/model', 'claude'), true);
-  assert.equal(opens('/model   ', 'claude'), true);
-  assert.equal(opens('/model sonnet', 'claude'), false);
-  assert.equal(opens(' /MODEL\nopus', 'claude'), false);
-  assert.equal(opens('/model sonnet', 'codex'), true);
-  assert.equal(opens('/cost now', 'claude'), true);
-  assert.equal(opens('/compact', 'claude'), false);
-  assert.equal(opens('/unknown', 'claude'), false);
+test('no command opens or hands anything over to a terminal', () => {
+  assert.equal(slash.opensTerminal, undefined);
+  assert.equal(slash.managedRefusal, undefined);
 });
 
-test('a known command is not sent to a shared Codex server', () => {
-  const codex = [{name: '/compact', where: 'chat'}, {name: '/model', where: 'terminal'}];
-  const shared = {provider: 'codex', transport: 'codex_queue'};
-  const refusal = (session, text) => slash.sharedServerRefusal(session, slash.command(codex, text), 'Ada');
-  assert.equal(refusal(shared, '/compact now'), '/compact runs only in Ada’s Terminal. Open Terminal and run it there.');
-  assert.match(refusal(shared, '/model'), /^\/model runs only in Ada’s Terminal/);
-  assert.equal(refusal(shared, '/tmp/foo'), null);
-  assert.equal(refusal(shared, 'run /compact'), null);
-  assert.equal(refusal({provider: 'codex', transport: 'terminal'}, '/compact'), null);
-  assert.equal(refusal({provider: 'claude', transport: 'terminal'}, '/compact'), null);
-  assert.equal(refusal(null, '/compact'), null);
+test('a command the catalog marks unavailable is refused with plain words, and nothing else is', () => {
+  const list = [{name: '/cost', where: 'unavailable'}, {name: '/compact', where: 'chat'}, {name: '/model', where: 'chat'}];
+  const refuse = text => slash.unavailableRefusal(slash.command(list, text), 'Ada');
+  assert.equal(refuse('/cost'), '/cost isn’t available when Qorqbot runs Ada.');
+  assert.equal(refuse('/compact'), null);
+  assert.equal(refuse('/model sonnet'), null);
+  assert.equal(refuse('/unknown'), null);
+  assert.equal(refuse('hello'), null);
+  assert.equal(slash.refusal({}, list[0], 'Ada'), '/cost isn’t available when Qorqbot runs Ada.');
+  assert.doesNotMatch(refuse('/cost'), /terminal|tmux|CLI/i);
+});
+
+// Terminals mode lists a menu command again as an entry to finish in the Terminal (the catalog passes through js/agent-terminal-view.js).
+test('the menu tags a command that finishes in the Terminal, and an unavailable one stays tagged unavailable', () => {
+  const terminalView = require('../js/agent-terminal-view.js');
+  const menus = [];
+  global.document = {activeElement: null, createElement: () => { const menu = {setAttribute() {}, remove() {}, addEventListener() {}, querySelector: () => null}; menus.push(menu); return menu; }};
+  const listeners = {};
+  const input = {value: '/c', setAttribute() {}, removeAttribute() {}, addEventListener: (type, fn) => { listeners[type] = fn; }, removeEventListener() {}};
+  const draw = list => {
+    const menu = menus.length;
+    slash.attach({input, form: {prepend() {}}, commands: () => list});
+    listeners.input();
+    return menus[menu].innerHTML;
+  };
+  try {
+    const managedMenu = draw(catalog);
+    assert.match(managedMenu, /slash-tag" title="Not available when Qorqbot runs the agent">Not available/);
+    assert.doesNotMatch(managedMenu, />Terminal</);
+    const terminalMenu = draw(terminalView.catalog(catalog));
+    assert.match(terminalMenu, /slash-tag" title="Opens a menu you finish in the agent’s Terminal">Terminal/);
+    assert.doesNotMatch(terminalMenu, /Not available/);
+    assert.equal(slash.refusal({execution: 'terminal'}, terminalView.catalog(catalog)[2], 'Ada'), null, 'a Terminal entry is never refused');
+  } finally { delete global.document; }
 });

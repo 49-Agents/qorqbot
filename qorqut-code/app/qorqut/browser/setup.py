@@ -1,4 +1,8 @@
-"""Owner-facing readiness and automatic setup for Qorqbot's built-in agent browsers."""
+"""Readiness and setup of the agent browser, for the owner's Settings card and for Ordubashy's ``agent_browser_manage``.
+
+There is one browser, the Shared browser, and every permanent agent is connected to it. The card and Ordubashy read the same
+state and start the same setup: the card's Retry setup button and Ordubashy's ``ensure`` both start the download of Qorqbot's
+own Chrome when it is missing and set the browser up without waiting out an earlier failure."""
 
 import logging
 import time
@@ -12,52 +16,58 @@ from . import managed_chrome
 
 logger = logging.getLogger(__name__)
 
-CHOICES = {"own": "use_own", "shared": "use_shared"}
 SETUP_STATES = frozenset({"missing", "stopped", "target_missing"})
+# What only ``repair`` sets right. The owner's Retry setup does it; automatic setup never does.
+REPAIR_STATES = frozenset({"conflict", "invalid"})
 BACKOFF_BASE, BACKOFF_LIMIT = 240, 3600
-# The download of Qorqbot's own Chrome has one entry in the background loop's failure record, beside the agents'.
-CHROME_BACKOFF = "managed-chrome"
-# The latest setup failure per agent, so Settings can say why even when the background loop was the one that failed.
-LAST_FAILURES = {}
+# The background loop's failure record has one entry for the browser and one for the download of Qorqbot's own Chrome.
+BROWSER_BACKOFF, CHROME_BACKOFF = "browser", "managed-chrome"
+# The latest setup failure (``{"code": ...}``), so the card can say why even when the background loop was the one that failed.
+LAST_FAILURE = {}
 RETRY = "Press Retry setup."
 RETRY_AFTER = "press Retry setup."
 RESTART = "If it keeps happening, restart Qorqbot."
 FAILURE_TEXT = {
     "browser_capability_missing": "Chrome or the browser tool wasn't ready on this computer. Qorqbot tries again by itself, or " + RETRY_AFTER,
-    "browser_workspace_unavailable": "This agent's folder isn't ready yet. Start the agent once in its terminal, then " + RETRY_AFTER,
     "browser_not_ready": "Chrome started but didn't respond in time. " + RETRY + " " + RESTART,
-    "browser_management_busy": "Browser setup is already running for this agent. This card updates by itself.",
-    "browser_in_use": "The agent is using its browser right now. Press Retry setup when it finishes.",
-    "browser_target_conflict": "This agent already has different browser settings, and Qorqbot won't overwrite them. Ask Ordubashy to check this agent's browser.",
-    "browser_configuration_invalid": "This agent's saved browser settings can't be read, and Qorqbot won't overwrite them. Ask Ordubashy to check this agent's browser.",
-    "browser_metadata_invalid": "This agent's saved browser record can't be read, and Qorqbot won't overwrite it. Ask Ordubashy to check this agent's browser.",
+    "browser_management_busy": "Browser setup is already running. This card updates by itself.",
+    "browser_in_use": "An agent is using the browser right now. Press Retry setup when it finishes.",
+    "browser_state_unverified": "A browser process is running that Qorqbot can't identify, so it left it alone. Restart this computer, then " + RETRY_AFTER,
     "maintenance": "Qorqbot is paused for maintenance. Press Retry setup in a minute.",
 }
 STATE_TEXT = {
-    "missing": "This agent's browser hasn't been set up yet. " + RETRY,
-    "stopped": "This agent's browser isn't running. " + RETRY + " " + RESTART,
-    "target_missing": "This agent's browser settings are missing. " + RETRY + " Qorqbot will restore them.",
-    "unsupported": "Qorqbot can't create a browser here until Chrome and the browser tool are ready. It tries again by itself, or " + RETRY_AFTER,
-    "busy": "Browser setup is in progress for this agent. This card updates by itself.",
-    "conflict": FAILURE_TEXT["browser_target_conflict"],
-    "invalid": FAILURE_TEXT["browser_configuration_invalid"],
-    "unavailable": "Qorqbot couldn't check this agent's browser. " + RESTART,
+    "missing": "The browser hasn't been set up yet. " + RETRY,
+    "stopped": "The browser isn't running. " + RETRY + " " + RESTART,
+    "target_missing": "The browser isn't connected to every agent yet. " + RETRY,
+    "unsupported": "Qorqbot can't create the browser until Chrome and the browser tool are ready. It tries again by itself, or " + RETRY_AFTER,
+    "busy": "The browser is in use or being set up. This card updates by itself.",
+    "conflict": "The browser's saved settings don't match. " + RETRY + " Website sign-ins are kept.",
+    "invalid": "The browser's saved settings can't be read. " + RETRY + " Website sign-ins are kept.",
+    "unavailable": "Qorqbot couldn't check the browser. " + RESTART,
 }
+SIGNING_IN = "Paused while you sign in. It comes back when you close the Chrome window."
 
 
 def explanation(state, *, stop_requested=False, failure_code=None):
-    """Why a browser isn't ready and what the owner can do, in the owner's language."""
+    """Why the browser isn't ready and what the owner can do, in the owner's language."""
     if state == "healthy":
         return ""
     if stop_requested and state == "stopped":
-        return "This browser was stopped on purpose, so Qorqbot left it off. Press Retry setup to start it again."
+        return "The browser was stopped on purpose, so Qorqbot left it off. Press Retry setup to start it again."
     if failure_code and state != "busy":
         return FAILURE_TEXT.get(failure_code, "Browser setup didn't finish. " + RETRY + " " + RESTART)
-    return STATE_TEXT.get(state, "This agent's browser isn't ready. " + RETRY + " " + RESTART)
+    return STATE_TEXT.get(state, "The browser isn't ready. " + RETRY + " " + RESTART)
+
+
+def for_agent(text):
+    """An owner-facing explanation as Ordubashy reads it: he has no button to press, he has ``ensure``."""
+    return (text.replace("Press Retry setup when it finishes.", "Use action=ensure when it finishes.")
+            .replace("Press Retry setup", "Use action=ensure").replace("press Retry setup", "use action=ensure")
+            .replace("This card updates by itself.", "Check again with action=status."))
 
 
 def targets(runtime):
-    """Current permanent agents eligible for a dedicated browser, lead agent first."""
+    """Current permanent agents that use the browser, lead agent first."""
     with runtime.database.read() as uow:
         owner = installation_owner(uow)
         rows = uow.connection.execute(
@@ -76,10 +86,10 @@ INSTALLED_CHROME_USED = ("Qorqbot's own browser can't be used on this computer, 
                          "Nothing to do.")
 
 
-def view(runtime):
+def host(runtime):
+    """What this computer has for the browser: the browser tool, a Chrome, and the state of Qorqbot's own Chrome."""
     from qorqut.native_paths import installed_chrome
     from qorqut.bootstrap import browser
-    owner, agents = targets(runtime)
     own_chrome = managed_chrome.view(runtime.paths.runtime)
     chrome = installed_chrome() is not None or own_chrome["state"] == "ready"
     if installed_chrome() is not None and own_chrome["state"] in {"unusable", "unsupported"}:
@@ -90,42 +100,33 @@ def view(runtime):
         tool = True
     except (browser.BrowserError, OSError, ValueError):
         tool = False
+    return {"tool_installed": tool, "chrome_installed": chrome, "managed_chrome": own_chrome}
+
+
+def view(runtime):
+    """What the Settings card shows: the one browser's state, why it is not ready, and the agents connected to it."""
     from . import sign_in
-    from .agent_browsers import membership_damaged
-    for agent in agents:
-        if membership_damaged(runtime.paths, agent["agent_id"]):
-            # Not a dead end: choosing a browser in Settings replaces the damaged record (``use_own`` and ``use_shared`` both do).
-            agent.update({"state": "unavailable", "browser": "damaged", "diagnostic": "The saved browser choice is damaged.",
-                          "explanation": "This agent's saved browser choice is damaged. Choose its browser below to set it again."})
-            continue
-        if sign_in.active(agent["agent_id"]):
-            agent.update({"state": "signing_in", "diagnostic": "", "explanation": "Paused while you sign in. It comes back when you close the Chrome window."})
-            continue
-        try:
-            result = runtime.browser_manager.manage(owner, {"agent_id": agent["agent_id"], "action": "status"},
-                                                    owner_control=True)
-            agent.update({"state": result["state"], "diagnostic": result["diagnostic"], "browser": result["browser"],
-                          "explanation": explanation(result["state"], stop_requested=bool(result.get("stop_requested")),
-                                                     failure_code=LAST_FAILURES.get(agent["agent_id"]))})
-        except DomainError as error:
-            agent.update({"state": "unavailable", "diagnostic": str(error), "explanation": explanation("unavailable")})
-        except Exception:
-            logger.exception("Could not read the status of agent browser %s", agent["agent_id"])
-            agent.update({"state": "unavailable", "diagnostic": "This browser's status could not be read.",
-                          "explanation": explanation("unavailable")})
-    return {"kind": "built_in", "tool_installed": tool, "chrome_installed": chrome, "managed_chrome": own_chrome,
-            "ready": tool and bool(agents) and all(agent["state"] in {"healthy", "signing_in"} for agent in agents), "agents": agents}
-
-
-def choose(runtime, agent_id, browser):
-    """The owner's choice for one agent: its own browser, or the one Shared browser. Returns the readiness view."""
     owner, agents = targets(runtime)
-    if not isinstance(browser, str) or browser not in CHOICES or agent_id not in [agent["agent_id"] for agent in agents]:
-        raise DomainError("validation_error", "Choose this agent's own browser or the Shared browser")
-    runtime.browser_manager.manage(owner, {"agent_id": agent_id, "action": CHOICES[browser]},
-                                   idempotency_key="owner-browser-choice-" + str(uuid.uuid4()), owner_control=True)
-    LAST_FAILURES.pop(agent_id, None)
-    return view(runtime)
+    result = {"kind": "built_in", **host(runtime), "diagnostic": "",
+              "agents": [{"agent_id": agent["agent_id"], "name": agent["name"]} for agent in agents]}
+    if sign_in.active():
+        result.update({"state": "signing_in", "explanation": SIGNING_IN})
+    else:
+        try:
+            status = runtime.browser_manager.manage(owner, {"action": "status"}, owner_control=True)
+            notes = [f"{agent['name']}: {agent['problem']}" for agent in status["agents"] if agent.get("problem")]
+            result.update({"state": status["state"], "diagnostic": status["diagnostic"], "agents": status["agents"],
+                           "explanation": " ".join(filter(None, [explanation(
+                               status["state"], stop_requested=bool(status.get("stop_requested")),
+                               failure_code=LAST_FAILURE.get("code")), *notes]))})
+        except DomainError as error:
+            result.update({"state": "unavailable", "diagnostic": str(error), "explanation": explanation("unavailable")})
+        except Exception:
+            logger.exception("Could not read the status of the agent browser")
+            result.update({"state": "unavailable", "diagnostic": "The browser's status could not be read.",
+                           "explanation": explanation("unavailable")})
+    result["ready"] = result["tool_installed"] and bool(agents) and result["state"] in {"healthy", "signing_in"}
+    return result
 
 
 def _wait_longer(backoff, key, clock):
@@ -137,8 +138,8 @@ def _wait_longer(backoff, key, clock):
 def prepare_chrome(runtime, backoff=None, clock=time.monotonic):
     """Start installing Qorqbot's own Chrome in the background when it is not installed yet, and return at once.
 
-    Nothing waits for it: agents are set up on the installed Chrome meanwhile, and where there is none, on the first pass
-    after the download. A failure waits longer each time like an agent's; the owner's retry (no ``backoff``) does not wait.
+    Nothing waits for it: the browser is set up on the installed Chrome meanwhile, and where there is none, on the first pass
+    after the download. A failure waits longer each time like the browser's; an explicit retry (no ``backoff``) does not wait.
     """
     failure = backoff.get(CHROME_BACKOFF) if backoff is not None else None
     if failure is not None and clock() < failure["next_attempt"]:
@@ -156,40 +157,66 @@ def prepare_chrome(runtime, backoff=None, clock=time.monotonic):
 
 
 def ensure_all(runtime, backoff=None, clock=time.monotonic):
-    """Converge each current browser. A failure leaves other agents eligible for setup.
+    """Converge the browser and connect every agent to it. Returns the card's view.
 
-    With ``backoff`` (the background loop's per-agent failure record) this is automatic setup: it respects a deliberate
-    stop and waits longer after each failure. Without it this is the owner's explicit retry, which does neither.
+    With ``backoff`` (the background loop's failure record) this is automatic setup: it respects a deliberate stop, waits
+    longer after each failure and never repairs. Without it this is the owner's Retry setup, which does none of those.
     """
     from . import sign_in
     prepare_chrome(runtime, backoff, clock)
-    owner, agents = targets(runtime)
-    for agent in agents:
-        agent_id = agent["agent_id"]
-        if sign_in.active(agent_id):
-            continue
-        failure = backoff.get(agent_id) if backoff is not None else None
-        if failure is not None and clock() < failure["next_attempt"]:
-            continue
+    failure = backoff.get(BROWSER_BACKOFF) if backoff is not None else None
+    if not sign_in.active() and (failure is None or clock() >= failure["next_attempt"]):
+        owner, _ = targets(runtime)
         try:
-            status = runtime.browser_manager.manage(owner, {"agent_id": agent_id, "action": "status"}, owner_control=True)
-            if status["state"] not in SETUP_STATES or (backoff is not None and status.get("stop_requested")):
-                if backoff is not None:
-                    backoff.pop(agent_id, None)
-                if status["state"] == "healthy":
-                    LAST_FAILURES.pop(agent_id, None)
-                continue
-            runtime.browser_manager.manage(owner, {"agent_id": agent_id, "action": "ensure"},
-                                           idempotency_key="automatic-browser-" + str(uuid.uuid4()),
-                                           owner_control=True)
-            LAST_FAILURES.pop(agent_id, None)
+            status = runtime.browser_manager.manage(owner, {"action": "status"}, owner_control=True)
+            state = status["state"]
+            action = ("ensure" if state in SETUP_STATES and not (backoff is not None and status.get("stop_requested")) else
+                      "repair" if state in REPAIR_STATES and backoff is None else None)
+            if action is not None:
+                runtime.browser_manager.manage(owner, {"action": action}, owner_control=True,
+                                               idempotency_key=("automatic" if backoff is not None else "owner")
+                                               + "-browser-" + str(uuid.uuid4()))
+            if action is not None or state == "healthy":
+                LAST_FAILURE.clear()
             if backoff is not None:
-                backoff.pop(agent_id, None)
+                backoff.pop(BROWSER_BACKOFF, None)
         except Exception as error:
             # Readiness reports the precise state and offers a retry after prerequisites are fixed.
-            LAST_FAILURES[agent_id] = error.code if isinstance(error, DomainError) else "unexpected"
+            LAST_FAILURE["code"] = error.code if isinstance(error, DomainError) else "unexpected"
             if not isinstance(error, (DomainError, OSError, ValueError)):
-                logger.exception("Automatic setup failed for agent browser %s", agent_id)
+                logger.exception("Automatic setup of the agent browser failed")
             if backoff is not None:
-                _wait_longer(backoff, agent_id, clock)
+                _wait_longer(backoff, BROWSER_BACKOFF, clock)
     return view(runtime)
+
+
+def agent_manage(runtime, principal_id, arguments, idempotency_key=None):
+    """Ordubashy's ``agent_browser_manage``: one action on the browser, answered with what the Settings card knows too.
+
+    ``ensure`` and ``repair`` are the card's Retry setup and more: they start the download of Qorqbot's own Chrome when it is
+    missing and do not wait out an earlier failure. Who may call this is decided by the manager, before anything starts."""
+    from . import sign_in
+    manager, action = runtime.browser_manager, arguments.get("action")
+    if action != "status":
+        manager.manage(principal_id, {"action": "status"})        # refuses anyone but Ordubashy before any effect
+        if sign_in.active():
+            raise DomainError("conflict", "The owner's sign-in window is open and the browser is paused for it. It comes back "
+                                          "by itself when they close that window; nothing was changed.", retryable=True)
+        if action in {"ensure", "repair"}:
+            prepare_chrome(runtime)
+    try:
+        result = manager.manage(principal_id, arguments, idempotency_key)
+    except DomainError as error:
+        if action != "status":
+            LAST_FAILURE["code"] = error.code
+        raise
+    if action != "status" and result["state"] == "healthy":
+        LAST_FAILURE.clear()
+    facts = host(runtime)
+    own_chrome = facts["managed_chrome"]
+    result["setup"] = {"tool_installed": facts["tool_installed"], "chrome_installed": facts["chrome_installed"],
+                       "own_chrome": {"state": own_chrome["state"], "explanation": for_agent(own_chrome["explanation"])},
+                       **({"sign_in_window_open": True} if sign_in.active() else {}),
+                       **({"last_failure": for_agent(explanation(result["state"], failure_code=LAST_FAILURE["code"]))}
+                          if LAST_FAILURE.get("code") and result["state"] != "healthy" else {})}
+    return result

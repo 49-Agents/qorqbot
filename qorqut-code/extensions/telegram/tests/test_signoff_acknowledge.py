@@ -20,7 +20,7 @@ class AcknowledgeSignoffTelegramTests(unittest.TestCase):
         self.assertFalse(SignoffBridge.answers_alone(self.row, 'Read it, thanks'))
         text = self.bridge.render({'category': 'input_request', 'title': self.form['title'], 'input': self.form,
             'preview': {'input': self.form}}, 'input', 'https://example.test/signoffs')
-        self.assertTrue(text.startswith('To read: Daily report, 12 Nov'))
+        self.assertTrue(text.startswith('For your attention: Daily report, 12 Nov'))
         self.assertIn('The Linden contract was sent.', text)
         self.assertIn('Acknowledge it in the dashboard. Replies add comments; reactions do not acknowledge.', text)
         self.assertNotIn('Reply to this message with your answer', text)

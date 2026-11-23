@@ -25,8 +25,9 @@ audited ``task_moves`` identity: its id and immutable creation time, read throug
 through the scopes it stayed in before, but only with what was established during that very stay: an Action whose current task
 evidence was established while the Task was there (the earliest of the unbroken run of immutable revisions that all carry
 that evidence, so a text-only correction detaches nothing and a later re-pointing starts a new run), or a Signoff whose
-frozen expected target named the Task when it was proposed. Another Task that merely reuses the bare ID in a scope, before
-this one arrived or after it left, is a different lifetime and links nothing; the user-editable ``occurred_at`` is never
+frozen expected target named the Task when it was proposed, or an explicit ``concerns`` relationship written there during
+the stay (a relocation leaves such a relationship in place when its other end does not move). Another Task that merely
+reuses the bare ID in a scope, before this one arrived or after it left, is a different lifetime and links nothing; the user-editable ``occurred_at`` is never
 identity evidence. The same stay rule bounds the destination's own evidence for a moved Task, and the owner-only shared
 Global inference holds across a move only when the evidence, the explicit sharing and the unique bare ID are all proven at
 the time the evidence was established. A typed reference on a Story Task's own discussion is read in the scope the message
@@ -150,8 +151,8 @@ class TaskAssociatedRecords:
         """``(raw record ID, source Task ID, origin scope)`` triples; a record may be found by several routes, Tasks and origins.
 
         The origin is the scope the association was established in, where the record's ID is resolved and where the
-        caller's authority is checked. It is the current scope for everything a Task that never moved has, and for a
-        relationship, which a relocation never lets cross a scope."""
+        caller's authority is checked. It is the current scope for everything a Task that never moved has; a relationship
+        whose other end stayed behind in a move keeps the scope it was written in (``stay_concerns``)."""
         stays = self.stays(uow, business_id, task_ids)
         plain = set(task_ids) - stays.keys()
         found = self.concerns(uow, business_id, task_ids, record_type)
@@ -337,9 +338,26 @@ class TaskAssociatedRecords:
         for task_id, spans in stays.items():
             for scope, since, until in spans:
                 by_scope.setdefault(scope, {}).setdefault(task_id, []).append((since, until))
+        found = self.stay_concerns(uow, by_scope, record_type)
         if record_type == "signoff":
-            return self.stay_signoff_targets(uow, by_scope)
-        return self.stay_action_evidence(uow, by_scope) | self.stay_shared_evidence(ctx, uow, stays, by_scope)
+            return found | self.stay_signoff_targets(uow, by_scope)
+        return found | self.stay_action_evidence(uow, by_scope) | self.stay_shared_evidence(ctx, uow, stays, by_scope)
+
+    def stay_concerns(self, uow, by_scope, record_type):
+        """``concerns`` relationships a relocation left in an earlier scope: written there, during that Task's stay.
+
+        A relocation carries a relationship only when both ends move; one whose record stays behind remains in that scope as
+        written, so an earlier stay's own relationships still belong to the Task (and to no other lifetime of its id)."""
+        found = set()
+        for scope, tasks in by_scope.items():
+            for task_id, spans in tasks.items():
+                for row in uow.connection.execute(
+                        "SELECT from_type, from_id, to_type, to_id, created_at FROM relationships WHERE business_id IS ? AND role=? AND "
+                        "((from_type='task' AND from_id=? AND to_type=?) OR (to_type='task' AND to_id=? AND from_type=?))",
+                        (scope, RELATION_ROLE, task_id, record_type, task_id, record_type)):
+                    if any(self.within(row["created_at"], *span) for span in spans):
+                        found.add((row["to_id"] if row["from_type"] == "task" else row["from_id"], task_id, scope))
+        return found
 
     def stay_action_evidence(self, uow, by_scope):
         """Actions whose present ``refs_json.task`` was established, in the Action's own scope, during a stay in that scope."""

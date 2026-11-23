@@ -18,20 +18,24 @@ Codex. For each site, one at a time:
 
 1. Say in Chat exactly which website you are opening.
 2. Call `website_sign_in` with action `open` and the site.
-3. The owner signs in themselves in the Chrome window and closes it. Your
-   browser is paused until the window closes. If the reply says `live_view`
+3. The owner signs in themselves in the Chrome window and closes it. The
+   Shared browser is paused for every agent until the window closes. If the reply says `live_view`
    (this computer has no screen), tell the owner to open your Browser tab in the
    dashboard and sign in there, and wait until they say it is done. Only if
    they cannot use it, ask for the password or code and type it yourself; never
    repeat it or write it anywhere else.
 4. Confirm it worked: `website_sign_in` with action `status` only shows that the
-   site left cookies, so open the site in your own browser and check that the
+   site left cookies, so open the site and check that the
    owner's account is signed in. Read only; send, change or post nothing.
 5. Tell the owner in one line that the site is connected, or what went wrong.
 
-If the agent browser is not ready, point the owner to its card in Settings,
-which explains the fix. Do not install tooling or launch Chrome yourself.
-Record the site as not connected with that reason and continue.
+If the agent browser is not ready, set it up yourself: call
+`agent_browser_manage` with action `status`, then `ensure` (or `repair` when
+status says so), and check `status` again. Do not send the owner to Settings
+for this. Do not install tooling or launch Chrome yourself. Only if `status`
+still names something the owner must do (install Google Chrome, restart the
+computer), tell them exactly that, record the site as not connected with that
+reason and continue.
 
 ## What you cannot set up yourself
 
@@ -39,8 +43,9 @@ Tell the owner plainly, once, and only for tools they asked about:
 
 - **Connectors in the owner's Claude account** are not part of Qorqbot and
   are not shown in Settings. Do not suggest them; offer the agent browser.
-- **API keys and other secrets** are entered by the owner in Settings. Never
-  ask for one in Chat, and do not repeat one that is pasted there.
+- **API keys and other secrets**: never ask for one in Chat, and do not repeat
+  one that is pasted there. When the owner gives you one anyway, save it in
+  Global Settings with `environment_set`.
 - **OpenRouter** (voice input) has its own step after this one. Do not offer it
   here.
 - **Telegram, WhatsApp and Fastmail** are optional parts of the installation

@@ -1,8 +1,8 @@
-"""Registered browser access: own configured browsers, Ordubashy's managed Global desktops and assignment turns.
+"""Registered browser access: the agents' configured browser, Ordubashy's managed Global desktops and assignment turns.
 
-Projects have no browsers. Every target is an agent's own configured browser (``configured:<agent>``) or a managed Global
-desktop (``desktop:<surface>``). The configured Ordubashy may also select a permanent worker's own browser by the worker's
-agent ID, for example to sign a website in there."""
+Projects have no browsers. Every target is an agent's configured browser (``configured:<agent>``: the agent's tabs in the
+Shared browser) or a managed Global desktop (``desktop:<surface>``). The configured Ordubashy may also select a permanent
+worker's tabs by the worker's agent ID, for example to see the page that worker is on."""
 
 from contextlib import contextmanager
 import hashlib
@@ -63,7 +63,7 @@ class BrowserAccess:
         return config['browser_runtime'] if config else str(component(self.runtime.paths, 'app') / 'tools/browser')
 
     def configured_control(self, principal, action, *, consumer_id=None, turn_id=None, lease_id=None):
-        """Main-session access to the agent's own configured Chrome is lease-free; nothing is stored."""
+        """Main-session access to the agent's configured browser is lease-free; nothing is stored."""
         browser_key = "configured:" + principal.id
         if action == "acquire":
             return {"turn": {"id": None, "lease_id": None, "state": "owning"},
@@ -101,7 +101,7 @@ class BrowserAccess:
                 or next((agent for agent in self.worker_browsers(principal_id) if names(agent)), None))
 
     def worker_browsers(self, principal_id):
-        """The active permanent workers whose own browsers the configured Ordubashy may select, as ``{agent ID: name}``.
+        """The active permanent workers whose tabs the configured Ordubashy may select, as ``{agent ID: name}``.
         Read afresh on every call, so a worker who left is no longer selectable and an issued handle stops resolving."""
         from . import setup
         from qorqut.agents.roles import GLOBAL_WORKER_ROLE
@@ -111,7 +111,7 @@ class BrowserAccess:
 
     @staticmethod
     def _browser_owner(actor, browser_key):
-        """The agent whose workspace configures a lease-free target: the caller, or the worker whose own browser the
+        """The agent whose workspace configures a lease-free target: the caller, or the worker whose tabs the
         configured Ordubashy selected."""
         return browser_key.split(":", 1)[1] if browser_key.startswith("configured:") else actor.principal.id
 
@@ -124,8 +124,8 @@ class BrowserAccess:
             if owner == actor.principal.id or error.code not in {
                     "browser_not_configured", "browser_configuration_invalid", "browser_not_ready"}:
                 raise
-            raise DomainError(error.code, "That worker's browser is not usable now. Run agent_browser_manage for the worker "
-                              "with action ensure or repair, then try again.") from None
+            raise DomainError(error.code, "The Shared browser is not usable for that worker now. Run agent_browser_manage with "
+                              "action ensure or repair, then try again.") from None
 
     def _native(self, actor, action, body, browser_key, handle):
         """Configured browsers are lease-free: no turn, lease, fence or durable intent gates a call."""
@@ -160,8 +160,8 @@ class BrowserAccess:
         try:
             with self._selected_worker(actor, owner):
                 with self._managed_use(browser_key):
-                    # Read with the use lock held: a switch between own and Shared waits for it, so this command cannot be
-                    # run against the browser the agent has just left.
+                    # Read with the use lock held: a management action waits for it, so this command cannot be run
+                    # against a browser that is being restarted or replaced.
                     target = self._worker_target(browser_key, owner)
                     code, stdout, errors = run(workspace, command, target=(target["cdp_endpoint"],
                         browser.runtime_executable(target["runtime_dir"])), instance=target["instance"], capture=True,
@@ -189,10 +189,12 @@ class BrowserAccess:
             raise DomainError("validation_error", "commands must be a list of 1 to %d commands, each a non-empty list of strings"
                               % _BATCH_LIMIT)
         # Every command is checked before the first one runs: a refused tenth must not leave nine half-done steps.
-        from . import captcha
+        from . import captcha, tab_reference
         for index, command in enumerate(commands):
             if captcha.is_command(command):
                 raise DomainError("validation_error", f"commands[{index}]: captcha goes in a call of its own, as command.")
+            if tab_reference.is_command(command):
+                raise DomainError("validation_error", f"commands[{index}]: tab-reference goes in a call of its own, as command.")
             try:
                 browser.validate_arguments(command)
             except browser.BrowserError as exc:
@@ -274,11 +276,14 @@ class BrowserAccess:
         return result
 
     def _runner(self, actor, command):
-        """What runs a checked command: ``agent-browser`` for a page command, the server itself for ``captcha``."""
+        """What runs a checked command: ``agent-browser`` for a page command, the server itself for ``captcha`` and
+        ``tab-reference``."""
         from qorqut.bootstrap import browser
-        from . import captcha
+        from . import captcha, tab_reference
         if captcha.is_command(command):
             return captcha.runner(self.runtime, actor.principal.id)
+        if tab_reference.is_command(command):
+            return tab_reference.runner()
         try:
             browser.validate_arguments(command)
         except browser.BrowserError as exc:
@@ -332,13 +337,22 @@ class BrowserAccess:
 
     def catalog(self, actor):
         """The browsers the configured Ordubashy can select by id, as ``{id, label}``: the managed Global desktops, then each
-        permanent worker's own browser under the worker's agent ID. Read only: it takes no turn, lease or handle and returns
-        no URL or endpoint."""
+        permanent worker's tabs in the Shared browser under the worker's agent ID. Read only: it takes no turn, lease or handle and returns no URL or endpoint."""
         self.authorize_ordubashy(actor)
         with self.runtime.database.read() as uow:
             browsers = self.targets.catalog(uow, actor.principal.id)
-        return {"browsers": browsers + [{"id": agent, "label": f"{name}'s own browser"}
+        return {"browsers": browsers + [{"id": agent, "label": self._worker_label(agent, name)}
                                         for agent, name in self.worker_browsers(actor.principal.id).items()]}
+
+    def _worker_label(self, agent, name):
+        """A worker's entry is its tabs in the Shared browser. A worker that is not connected to it yet (or whose record
+        cannot be read) is named plainly; ``agent_browser_manage`` reports why and connects it."""
+        from .agent_browsers import uses_shared
+        try:
+            shared = uses_shared(self.runtime.paths, agent)
+        except DomainError:
+            shared = False
+        return f"Shared browser, {name}'s tabs" if shared else f"{name}'s browser"
 
     def _selected(self, actor, action, handle, body):
         """The managed desktop (surface ID) or the worker (agent ID) whose browser a native call addresses, or ``None`` for
@@ -608,7 +622,7 @@ class BrowserAccess:
 
     def _artifact_handles(self, workspace, assignment_id, turn_id, before):
         """The files this command created or changed. Files from earlier commands stay readable through their handles
-        but are not listed again: the folder of an agent's own browser never empties, and listing it with every reply
+        but are not listed again: an agent's folder never empties, and listing it with every reply
         put the same 64 entries (about 20,000 characters) on each click."""
         items = []
         for relative, (size, changed) in self._artifact_state(workspace).items():
@@ -672,5 +686,5 @@ class BrowserAccess:
         expected = shared_target(self.runtime.paths) if chosen else None
         if chosen != marked or (chosen and (expected is None or expected["cdp_endpoint"] != endpoint)):
             raise DomainError("browser_configuration_invalid", "Your browser target file does not match your saved browser "
-                              "choice, so no browser was used. Tell Ordubashy; he can repair it with agent_browser_manage.")
+                              "record, so no browser was used. Ordubashy repairs it with agent_browser_manage (action repair).")
         return chosen

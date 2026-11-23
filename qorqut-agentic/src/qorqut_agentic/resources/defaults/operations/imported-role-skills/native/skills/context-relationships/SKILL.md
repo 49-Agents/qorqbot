@@ -33,8 +33,7 @@ remove edges through `relationships_create`, `relationships_update` and
 
 Use `tasks_assign` with `assignee_ids` for task assignment and normal task tools
 for blockers. Multiple assignees share one task and status. Generic relationship tools cannot bypass these
-workflow rules. Assigning a task creates inbox work; the backend can notify an existing native session,
-but never starts an agent.
+workflow rules. Assigning a task creates inbox work; the backend notifies the assignee's session and opens it if it is closed, unless the assignee runs in a terminal.
 Archive items instead of deleting their content. Archiving preserves edges and
 history; `context_items_archive` retains the item's normal mutation permissions.
 

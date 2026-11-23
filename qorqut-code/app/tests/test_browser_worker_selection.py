@@ -1,4 +1,4 @@
-"""The configured Ordubashy can operate a permanent worker's own browser by the worker's agent ID; nobody else can."""
+"""The configured Ordubashy can operate in a permanent worker's tabs by the worker's agent ID; nobody else can."""
 
 from contextlib import contextmanager
 from pathlib import Path
@@ -29,7 +29,7 @@ class WorkerBrowserSelectionTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = Path(folder.name).resolve()    # a Mac's temporary folder is reached through a symbolic link
         connection = sqlite3.connect(":memory:")
         connection.row_factory = sqlite3.Row
         connection.execute("CREATE TABLE browser_handles (id TEXT, turn_id TEXT, binding_json TEXT, arguments_json TEXT, superseded INT)")
@@ -137,13 +137,36 @@ class WorkerBrowserSelectionTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "forbidden")
         self.assertEqual(self.ran, [])
 
+    def test_the_list_leaves_out_the_email_engine_s_outlook_desktop_which_stays_selectable_by_the_engine(self):
+        registry = {"agents": {}, "surfaces": {name: {"kind": "browser", "label": name} for name in ("ordubashy-browser", "outlook-browser")}}
+        from qorqut.browser import targets
+        # managed desktops exist on Linux only; the list is empty on any other system
+        with mock.patch.object(self.access.targets, "registry", return_value=registry), mock.patch.object(targets.sys, "platform", "linux"):
+            listed = self.access.targets.catalog(None, ORDUBASHY)
+        self.assertEqual(listed, [{"id": "ordubashy-browser", "label": "ordubashy-browser"}])
+        self.assertIn("outlook-browser", targets.DESKTOP_TARGETS)
+
     def test_the_list_names_each_workers_browser(self):
         with mock.patch.object(self.access.targets, "catalog", return_value=[{"id": "ordubashy-browser", "label": "Ordubashy"}]):
             listed = self.access.tool(actor(ORDUBASHY), "list", {"action": "list"})["browsers"]
         self.assertEqual(listed, [{"id": "ordubashy-browser", "label": "Ordubashy"},
-                                  {"id": ATLAS, "label": "Atlas's own browser"}, {"id": COMPASS, "label": "Compass's own browser"}])
+                                  {"id": ATLAS, "label": "Atlas's browser"}, {"id": COMPASS, "label": "Compass's browser"}])
         with self.assertRaises(DomainError):
             self.access.tool(actor(ATLAS), "list", {"action": "list"})
+
+    def test_the_list_names_a_workers_tabs_in_the_shared_browser(self):
+        record = agent_browsers.agent_state(self.access.runtime.paths, ATLAS) / agent_browsers.MEMBERSHIP_FILE
+        record.parent.mkdir(parents=True, mode=0o700)
+        record.touch(mode=0o600)                                   # browser records are read only when private to their owner
+        record.write_text('{"agent_id":"%s","browser":"shared","schema_version":1}' % ATLAS)
+        with mock.patch.object(self.access.targets, "catalog", return_value=[]):
+            listed = self.access.tool(actor(ORDUBASHY), "list", {"action": "list"})["browsers"]
+        self.assertEqual(listed, [{"id": ATLAS, "label": "Shared browser, Atlas's tabs"},
+                                  {"id": COMPASS, "label": "Compass's browser"}])
+        record.write_text("{}")                                    # a record that cannot be read
+        with mock.patch.object(self.access.targets, "catalog", return_value=[]):
+            listed = self.access.tool(actor(ORDUBASHY), "list", {"action": "list"})["browsers"]
+        self.assertEqual(listed[0], {"id": ATLAS, "label": "Atlas's browser"})
 
     def test_a_workers_browser_that_is_down_tells_ordubashy_to_repair_it(self):
         def missing(_browser_key, _owner):

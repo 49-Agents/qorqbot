@@ -3,7 +3,7 @@
 const AGPAD_POLL_MS = 12000; // Shared poll cadence; the Viewbox reads at this interval.
 const AGENT_PANE_RATIO_KEY = "agent-pane-ratio";
 const AGENT_PANE_DEFAULT_RATIO = 1 / 2.15;
-const AGENT_PANE_MIN_TERMINAL = 260, AGENT_PANE_MIN_OVERVIEW = 240;
+const AGENT_PANE_MIN_CHAT = 260, AGENT_PANE_MIN_OVERVIEW = 240;
 let _agpad = null;
 
 // ------------------------------------------------------------ workspace registry
@@ -111,13 +111,15 @@ function agpadWorkspaceView(view) { return !WORKSPACE_BASE_VIEWS.has(view); }
 // Activity/Inbox overview never add a right-pane tab or restore a stale pane selection; Business keeps its
 // stable key so links work. Project data stays reachable through
 // Project records and status/inbox delivery through the
-// backend the roster reads.
-const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status", "inbox", "activity"]);
+// backend the roster reads. The removed Todo board (attentionBoard) is retired the same way: a remembered or
+// linked selection opens Focus, where task links now open and the owner keeps todos as "-" lines in the notes.
+const AGPAD_RETIRED_PANE_VIEWS = new Set(["business", "campaign_review", "status", "inbox", "activity", "attentionBoard"]);
 // Browser appears for any agent with a configured browser binding; the full
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
 function agentPaneViewAllowed(roleId, view) {
   if (view === "files" || view === "timeline") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
+  if (view === "explorer" || view === "work") return roleId === "ordubashy";
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
 }
@@ -126,14 +128,12 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_RENDERERS.get(type.renderer)?.leading ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
   leading.unshift(...personal.filter(view => !['journal', 'calendar'].includes(view)));
-  // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer. A permanent worker gets
-  // the same shared Todo board for its own commitments; its Focus stays the existing workspace view.
-  if (roleId === "ordubashy" || roleId === "global-worker") leading.push("attentionBoard");
+  // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (roleId === "ordubashy") leading.push("timeline");
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
-  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
+  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["work", "explorer", "files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
     .filter(view => agentPaneViewAllowed(roleId, view));
 }
 // The agent workspace app's compact header keeps Viewbox beside Focus; an embedded page has no header to arrange.
@@ -203,7 +203,8 @@ if (typeof testingModeSubscribe === 'function') testingModeSubscribe(() => {
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
   if (view === "files") { agentFilesMount(p); return; }
-  if (view === "attentionBoard" && (p.workspaceRole === "ordubashy" || p.workspaceRole === "global-worker")) { attentionBoardMount(p); return; }
+  if (view === "work") { agentWorkMount(p); return; }
+  if (view === "explorer") { agentExplorerMount(p); return; }
   if (view === "timeline" && p.workspaceRole === "ordubashy") { agentTimelineMount(p); return; }
   if (view === "changes" && p.workspaceRole === "learning-applier") { overseerMount(p); return; }
   if (typeof agentWorkspaceMount === 'function' && agentWorkspaceMount(p, view)) return;
@@ -252,7 +253,7 @@ function agTakeLinkedWorkspace(hash) {
 // declaration is still loading, an unrecognized key waits on that read (the default view stays usable) and is
 // honored only if it turns out to be installed and the owner has not moved elsewhere. Anything else is ignored.
 function agpadRequestView(p, view) {
-  // Built-in views keep their camelCase keys (attentionBoard); registered workspace types are lowercase.
+  // Built-in views keep their camelCase keys (attentionBoard was one); registered workspace types are lowercase.
   if (typeof view !== "string" || !(p.views.includes(view) || /^[a-z][a-z0-9_]{0,63}$/.test(view))) return false;
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return false;
   // Tables lives in the shared drawer: the retired key never adds a tab (links translate first).
@@ -288,7 +289,7 @@ function agpadWorkspaceTick(p) {
 
 function agentPaneDividerMount(root) {
   const divider = root?.querySelector?.("[data-agent-pane-divider]");
-  const chat = root?.querySelector?.(".chat.termmode");
+  const chat = root?.querySelector?.(".chat.agentchat");
   const terminal = root?.querySelector?.(".global-agent-session") || chat;
   const pane = root?.querySelector?.(".agpad");
   if (!root || !divider || !chat || !terminal || !pane || !root.style) return () => {};
@@ -306,14 +307,14 @@ function agentPaneDividerMount(root) {
   const bounds = () => {
     const width = span().width;
     if (!width) return [0, 1];
-    const low = AGENT_PANE_MIN_TERMINAL / width;
+    const low = AGENT_PANE_MIN_CHAT / width;
     const high = 1 - AGENT_PANE_MIN_OVERVIEW / width;
     return low <= high ? [low, high] : [.5, .5];
   };
   const apply = (next, save = false) => {
     const [low, high] = bounds();
     ratio = Math.min(high, Math.max(low, Number(next) || AGENT_PANE_DEFAULT_RATIO));
-    root.style.setProperty("--ag-terminal-fr", `${ratio}fr`);
+    root.style.setProperty("--ag-chat-fr", `${ratio}fr`);
     root.style.setProperty("--ag-pane-fr", `${1 - ratio}fr`);
     divider.setAttribute("aria-valuemin", String(Math.round(low * 100)));
     divider.setAttribute("aria-valuemax", String(Math.round(high * 100)));
@@ -383,11 +384,13 @@ function agentPaneDividerMount(root) {
   };
 }
 
+// The views whose record reader can show a thread in the Chat area beside the pane: leaving one hands that area back.
+const agpadPairedView = p => p?.view === 'focus' || p?.view === 'explorer' || p?.view === 'work';
 function agpadDispose() {
   if (_agpad) agpadSurfaceDispose(_agpad);
   _agpad?.focusDetail?.dispose?.();
   if (_agpad?.workspaceFrame && typeof agentWorkspacePairedDetach === 'function') agentWorkspacePairedDetach(_agpad.workspaceFrame.contentWindow);
-  else if (_agpad?.view === 'focus' && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
+  else if (agpadPairedView(_agpad) && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
   _agpad?.workspaceDispose?.();
   for (const renderer of WORKSPACE_RENDERERS.values()) if (_agpad && renderer.dispose) renderer.dispose(_agpad);
   _agpad?.dividerDispose?.();
@@ -421,7 +424,7 @@ function agpadMount(name, el, options = {}) {
   if (_agpad) agpadSurfaceDispose(_agpad);
   _agpad?.focusDetail?.dispose?.();
   if (_agpad?.workspaceFrame && typeof agentWorkspacePairedDetach === 'function') agentWorkspacePairedDetach(_agpad.workspaceFrame.contentWindow);
-  else if (_agpad?.view === 'focus' && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
+  else if (agpadPairedView(_agpad) && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
   _agpad?.workspaceDispose?.();
   _agpad?.dividerDispose?.();
   if (_agpad) _agpad.focusDetail = null;
@@ -448,7 +451,7 @@ function agpadMount(name, el, options = {}) {
   el.onclick = e => {
     const row = e.target.closest(".trow");
     // Focus rows reuse the row look, but they are not tasks: their clicks open their own details.
-    if (row && !row.closest(".agfocus, .attention-board") && agpadActive(p)) tOpenTask(row.dataset.id);
+    if (row && !row.closest(".agfocus") && agpadActive(p)) tOpenTask(row.dataset.id);
   };
   // A linked view is honored only when it is a usable key; anything else leaves
   // the pane on its normal first view instead of an empty pane.
@@ -482,8 +485,8 @@ function agpadSetView(p, view, leaveChecked = false) {
     if (AGPAD_FOCUS_SURFACES.has(view)) return agpadSurfaceRequest(p, view, leaveChecked);
     if (view === "focus" && p.view === "focus" && p.surface) return agpadSurfaceClose(p);
   }
-  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.()
-      || (p.view === 'focus' && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy())) && typeof agentWorkspaceCanLeave === 'function') {
+  if (!leaveChecked && (p.workspaceFrame || p.journalMount || p.surface?.beforeLeave || p.focusWorkspace?.isOpen?.() || p.explorerWorkspace?.isOpen?.() || p.workWorkspace?.isOpen?.()
+      || (agpadPairedView(p) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy())) && typeof agentWorkspaceCanLeave === 'function') {
     // Resume only against the exact screen the guard inspected: a replaced frame or Journal mount was
     // never checked for unsaved edits, so its own guard has to run instead of this one's result.
     const frame = p.workspaceFrame, journal = p.journalMount, surface = p.surface, priorView = p.view;
@@ -492,7 +495,7 @@ function agpadSetView(p, view, leaveChecked = false) {
     });
   }
   if (p.workspaceFrame && typeof agentWorkspacePairedDetach === 'function') agentWorkspacePairedDetach(p.workspaceFrame.contentWindow);
-  else if (p.view === 'focus' && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
+  else if (agpadPairedView(p) && typeof agentWorkspacePairedRecord === 'function') agentWorkspacePairedRecord(window, null, null);
   if (p.view === 'focus' && view !== p.view) p.focusScroll = $('.agfocus-layout', p.el)?.scrollTop || 0;
   agpadSurfaceDispose(p);
   p.focusDetail?.dispose?.();
@@ -760,7 +763,6 @@ function agpadPaint(p) {
 function agpadTick() {
   const p = _agpad;
   if (!agpadActive(p)) return;
-  if (p.view === "attentionBoard") attentionBoardTick(p);
   if (p.view === "timeline") agentTimelineTick(p);
   agpadWorkspaceTick(p);
   if (agpadWorkspaceView(p.view)) return;

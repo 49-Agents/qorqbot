@@ -74,6 +74,14 @@ _COMMAND_PREFIXES = ("<local-command-", "<command-name>", "<system-reminder>")
 # Claude Code records a slash command as ``<command-name>/x</command-name> … <command-args>a b</command-args>``. Chat shows it
 # as the command the owner typed (``/x a b``), so a command sent from Chat finds its own entry instead of waiting forever.
 _COMMAND_RECORD = re.compile(r"<command-name>\s*(/?[^<\s]{1,200})\s*</command-name>.*?(?:<command-args>(.*?)</command-args>|$)", re.S)
+# What Claude Code records, as a user message, when a turn is stopped (with or without "for tool use"). It is the client's note about
+# a Stop, never something the owner typed: it is dropped, and the stopped turn ends.
+_INTERRUPT_RECORD = re.compile(r"\[Request interrupted by user(?: for tool use)?\]")
+# Claude Code's own filler: when a conversation whose last turn was stopped is resumed, it writes an assistant record with this
+# model and this text so the conversation alternates. The agent did not say it. Other records of that model (a usage limit, an
+# API error) are the owner's only explanation for a missing answer and stay visible.
+_SYNTHETIC_MODEL = "<synthetic>"
+_FILLER_TEXT = "No response requested."
 MAX_ENTRY_CHARS = 200_000
 SEND_SERVER = "qorqut"
 SEND_TOOL = "agents_message_send"
@@ -171,7 +179,8 @@ def _result_receipts(content: Any) -> list[str]:
 
 def _user_input(text: Any) -> dict | None:
     """The presentation of one successful ``request_user_input`` result, or ``None``. Only a text that is itself the JSON success
-    envelope counts (``status`` ok and ``data`` holding exactly ``user_input``), never quoted or embedded JSON."""
+    envelope counts (``status`` ok and ``data`` holding ``user_input`` and at most ``tabs``, the page titles told to the agent only and never shown),
+    never quoted or embedded JSON."""
     if not isinstance(text, str) or len(text) > MAX_RECEIPT_CHARS or '"user_input"' not in text:
         return None  # the cheap tests first: nearly every tool result is some other output
     try:
@@ -179,7 +188,7 @@ def _user_input(text: Any) -> dict | None:
     except (ValueError, RecursionError):
         return None
     data = value.get("data") if isinstance(value, dict) and value.get("status") == "ok" else None
-    if not isinstance(data, dict) or set(data) != {"user_input"}:
+    if not isinstance(data, dict) or not {"user_input"} <= set(data) <= {"user_input", "tabs"}:
         return None
     return user_input.presentation(data["user_input"])
 
@@ -423,6 +432,8 @@ class Projector:
             notice = self._record_entries(identity, _claude_receipts(message.get("content")),
                                           _claude_inputs(message.get("content")), value, record)
             return notice if notice.entries else result
+        if message.get("model") == _SYNTHETIC_MODEL and text.strip() == _FILLER_TEXT:
+            return Result(hidden=True)  # no state change: it is written between turns, before the message that resumes
         final = message.get("stop_reason") in COMPLETING_STOPS
         if not text.strip():
             if final:
@@ -447,6 +458,9 @@ class Projector:
         if not text.strip():
             return Result()
         stripped = text.lstrip(_LEADING_SPACE)
+        if _INTERRUPT_RECORD.fullmatch(text.strip()):
+            self.state.end_turn()
+            return Result(hidden=True)
         if stripped.startswith("<command-name>"):
             command = _COMMAND_RECORD.match(stripped)
             if command is None:

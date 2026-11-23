@@ -1,13 +1,13 @@
 """The agent's selected native conversation.
 
-One durable fact says which native conversation an agent's Chat and Terminal show and control: the agent's
+One durable fact says which native conversation an agent's Chat shows and controls: the agent's
 ``native_session_owners`` row (consumer = the native conversation id, ``binding_json`` = the verified runtime and process
-identity, ``generation`` = the owner generation that fences helpers). It persists across any terminal viewer disconnect.
+identity, ``generation`` = the owner generation that fences helpers). It persists across any session close.
 ``native_sessions`` stays the history of process bindings and captures; it is never a second authority for "current".
 
-This module only reads that row. The native observer follows the verified foreground terminal conversation through the
+This module only reads that row. The native observer follows the verified session's conversation through the
 existing binding transaction (``NativeChat.select`` / ``InboxService.start_session``). Hooks supply evidence, while the
-observer verifies the registered terminal before adoption. Native session history and queued-input identities remain intact.
+observer verifies the registered session before adoption. Native session history and queued-input identities remain intact.
 """
 
 from __future__ import annotations
@@ -48,9 +48,10 @@ class Selection:
         return value if isinstance(value, str) else None
 
     @property
-    def shared_server(self) -> bool:
-        """A shared Codex app-server thread: its owner is ``pid:ticks:fd:dev:inode`` (the held writer lock)."""
-        return self.provider == "codex" and self.owner is not None and len(self.owner.split(":")) == 5
+    def managed(self) -> bool:
+        """A conversation adopted from a managed runtime session: the verified binding names the host it was made under.
+        The host is evidence for the probe and liveness, never authority; nothing here trusts it."""
+        return isinstance(self.binding.get("managed_host"), dict)
 
     @property
     def pid(self):
@@ -72,16 +73,17 @@ class Selection:
         return observation is not None and self.matches(observation.provider, observation.conversation_id)
 
     def holds(self, observation) -> bool:
-        """Whether ``observation`` is the selected conversation held by exactly the process (and, for a shared Codex thread,
-        the exact writer-lock tuple) the owner row was adopted for. Provider and conversation alone are not enough: a
-        same-conversation observation of a new process is only ``PENDING`` until bootstrap adopts it."""
+        """Whether ``observation`` is the selected conversation held by exactly the process the owner row was adopted for.
+        Provider and conversation alone are not enough: a same-conversation observation of a new process is only ``PENDING``
+        until bootstrap adopts it. A managed session's observation owner is its host (``host:<pid>:<ticks>``), which the owner row
+        never holds: the hook that adopted the conversation recorded the client process, ``pid:ticks``. Either agrees; any other
+        owner tuple is a different process arrangement. A terminal observation has no owner: the row has to agree with its process."""
         if not self.matches_observation(observation):
             return False
         if observation.pid != self.pid or observation.started != self.started:
             return False
-        if self.shared_server:
-            return observation.owner == self.owner
-        # A terminal-owned conversation's owner tuple is its process, ``pid:ticks``; the row has to agree with the observation.
+        if observation.transport == "managed":
+            return self.owner in (None, f"{observation.pid}:{observation.started}", observation.owner)
         return observation.owner is None and self.owner in (None, f"{observation.pid}:{observation.started}")
 
     def relation(self, observation) -> str | None:
@@ -92,9 +94,10 @@ class Selection:
             return CANDIDATE
         return HELD if self.holds(observation) else PENDING
 
-    def public(self) -> dict:
+    def public(self, *, terminal: bool = False) -> dict:
+        """``terminal`` is the installation's mode (``mode.is_terminal``): the transport names what serves the conversation now."""
         return {"provider": self.provider, "conversation_id": self.conversation_id, "generation": self.generation,
-                "revision": self.revision, "transport": "codex_queue" if self.shared_server else "terminal",
+                "revision": self.revision, "transport": "terminal" if terminal else "managed",
                 "desired_state": self.desired_state}
 
 

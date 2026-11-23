@@ -11,7 +11,7 @@ async function fixture() {
   const browser = await chromium.launch({headless:true});
   const page = await browser.newPage();
   await page.setViewportSize({width:1024,height:700});
-  await page.setContent('<div id="controls">Focus controls</div><div class="agfocus" data-attention-board><div class="agfocus-layout agfocus-record-open"><aside class="agfocus-dock"><div id="host" class="agfocus-dock-content"></div></aside></div></div><div id="chat">Agent chat</div>');
+  await page.setContent('<div id="controls">Focus controls</div><div class="agfocus"><div class="agfocus-layout agfocus-record-open"><aside class="agfocus-dock"><div id="host" class="agfocus-dock-content"></div></aside></div></div><div id="chat">Agent chat</div>');
   for (const file of ['agent-focus.css','record-workspace.css','task-move.css']) await page.addStyleTag({path:path.join(__dirname,'../css',file)});
   await page.addStyleTag({content:'.agfocus-layout { height: 580px; display:flex; } .agfocus-dock { flex:1; }'});
   await page.evaluate(() => {
@@ -112,11 +112,11 @@ browserTest('different agent selection and Focus controls await the inline dirty
       window.route=(new Function('ws',`let selectionVersion=0, selected='a', gated=false;
         let _agpad={agentId:'a',view:'focus',focusWorkspace:ws};
         const root={},c={},pane={dataset:{},querySelector(){return null;}},agents=[{agent_id:'a',role:{id:'ordubashy'}},{agent_id:'b',role:{id:'global-worker'}}];
-        const current=()=>true,globalWorkspaceTerminal=()=>null,overseerRole=()=>false,testingModeEnabled=()=>true;
+        const current=()=>true,overseerRole=()=>false,testingModeEnabled=()=>true;
         const enterComingSoon=()=>{},leaveComingSoon=()=>{},paintSelection=()=>{},disposeChat=()=>{},ls=()=>{};
         const agentWorkspaceCanLeave=async p=>{await p.focusWorkspace.close();return !p.focusWorkspace.isOpen();};
         const agpadRequestView=async(p,v)=>{if(!await agentWorkspaceCanLeave(p))return false;p.view=v;return true;},agpadShownView=p=>p?.view;
-        const mountAgentView=()=>{},mountTerminal=()=>{},agviewboxReveal=()=>{};
+        const mountAgentView=()=>{},agviewboxReveal=()=>{};
         const agpadMount=(name,el,opts)=>{_agpad={agentId:opts.agentId,view:opts.initialView||'focus'};};
         const $=(selector)=>selector==='.global-agents'?root:{};
         ${select}\n${open}\nreturn {open:(id,opts)=>root.openAgent(id,opts),current:()=>_agpad,view:v=>agpadRequestView(_agpad,v)};`))(ws);

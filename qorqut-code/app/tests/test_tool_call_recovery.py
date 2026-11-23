@@ -200,7 +200,8 @@ class ArgumentAliasTests(Harness):
                 'owner_conversation_send': {'source', 'text', 'summary'},
                 'fastmail_messages_search': {'q', 'from', 'to', 'subject', 'limit'},
                 'fastmail_reply': {'account_id', 'reply_message_id', 'body', 'subject', 'to'},
-                'tables_rows_list': {'table_id', 'query', 'limit'}}
+                'tables_rows_list': {'table_id', 'query', 'limit'},
+                'conversation_history_search': {'query', 'days', 'limit'}}
         self.assertEqual(set(mcp.ARGUMENT_ALIASES), set(real))
         for operation, aliases in mcp.ARGUMENT_ALIASES.items():
             descriptor = NS(name=operation, input_schema={'properties': {name: {} for name in real[operation]}})

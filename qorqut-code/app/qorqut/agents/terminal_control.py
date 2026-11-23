@@ -1,7 +1,8 @@
-"""Exact owner authorization and durable, at-most-once terminal dispatch."""
+"""Exact owner authorization and durable, at-most-once control of an agent: its managed session (turn on and open, restart, turn off,
+direct message) or, in Terminals mode, its terminal (``terminal_actions.py``). The installation's mode is asked at every call.
+The tool names keep their ``agent_terminal_`` prefix: they are the contract Ordubashy and the stored plans use."""
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
-import json
 import logging
 from threading import Event, Thread
 
@@ -9,10 +10,20 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, utc_now, plain
 from qorqut_operations.application.plans import PlanBuilder, UUID, TEXT, schema, apply_records, ref
 from qorqut.management.identity import require_protected_control
+from qorqut.managed_runtime import mode
+from . import terminal_actions
 from .global_scope import active_global
 from .roles import ORDUBASHY_ROLE
 from .worker_access import require_worker_manager
 
+DESCRIPTIONS = {
+    'status': 'Whether the agent is on or off, whether its session is open, and whether it is working.',
+    'start': 'Turn the agent on and open its session.',
+    'restart': "Close the agent's session and open it again in the same conversation.",
+    'kill': "Close the agent's session and turn it off, ending active work.",
+    'ping': 'Send the owner-issued direct message.',
+    'execute_command': 'Run the owner-issued session command, such as compacting.',
+}
 PLUGIN = 'agent-terminal-control'
 PREFIX = 'agent_terminal_'
 ACTIONS = ('start', 'restart', 'kill', 'ping')
@@ -40,42 +51,38 @@ def validate_package(package):
         raise DomainError('invalid_artifact', 'Terminal control requires the exact bounded tool contract')
 
 
+# A managed worker is closed (restart) and has to be gone before it is opened again; the wait for that.
+RESTART_CLOSE_SECONDS = 30.0
+RESTART_POLL_SECONDS = 0.5
+
+
 def execution_outcome(error):
-    """The recorded state of an action whose execution raised: ``failed`` when it was definitely never typed (the native input
-    arbiter refused it before the first input), otherwise ``uncertain``: an effect may have happened and is never replayed."""
+    """The recorded state of an action whose execution raised: ``failed`` when nothing was delivered (the input arbiter refused the
+    message before the first input, or the session could not be opened), otherwise ``uncertain``: an effect may have happened and
+    is never replayed."""
     if isinstance(error, DomainError) and error.code == 'not_delivered':
         return 'failed', error.message
-    return 'uncertain', 'Terminal execution could not be confirmed; inspect before issuing a new command'
+    return 'uncertain', 'The action could not be confirmed; inspect before issuing a new command'
 
 
 class TerminalControl:
     def __init__(self, runtime):
-        self.runtime, self.app, self.backend = runtime, runtime.application, None
+        self.runtime, self.app = runtime, runtime.application
+        # The terminal backend; the service sets it at start. Only Terminals mode ever reaches it.
+        self.backend = None
         self.app.terminal_control = self
         self.stop_event, self.thread = Event(), None
 
     def message_target(self, ctx, identity, uow):
-        """Recorded direct terminal messages targeted a business Dev. Businesses have no resident agents, and a
+        """Recorded direct messages targeted a business Dev. Businesses have no resident agents, and a
         business-home identity is never dispatched to whatever its stored status; inbox delivery remains."""
         if ctx.principal_kind == 'human':
             self.owner(ctx, uow)
-        raise DomainError('forbidden', 'Direct terminal messages targeted retired project Dev agents; use inbox delivery')
+        raise DomainError('forbidden', 'Direct messages targeted retired project Dev agents; use inbox delivery')
 
     def queue_message(self, ctx, message, uow):
-        target = self.message_target(ctx, message['recipient_id'], uow)
-        binding = self.binding(target)
-        self.backend.validate('ping', binding['terminal'])
-        identity = message['id']
-        sender = uow.repository('principals').get(ctx.principal_id)
-        text = (f"Qorqut internal message {message['id']} from {json.dumps(sender['display_name'])} "
-                f"({ctx.principal_id}). Business: {message['business_id']}.\n"
-                "This is a coordination message; use its recorded sender identity and existing authority. The same message is in your inbox; "
-                "do not execute it twice. Reply with agents_message_send(reply_to=the message ID) and acknowledge "
-                "the inbox event once handled. Existing owner scope and holds still apply.\n\n" + message['body'])
-        uow.repository('terminal_actions').insert({'id': identity, 'batch_id': new_id(),
-            'proposer_id': ctx.principal_id, 'target_id': target['agent_id'], 'action': 'ping',
-            'message': text, 'binding_json': {**binding, 'message_id': message['id']},
-            'state': 'queued', 'detail': 'Queued for the existing Dev client; processing is unconfirmed'})
+        """Direct messages to a business Dev are retired: the target check refuses every caller."""
+        self.message_target(ctx, message['recipient_id'], uow)
 
     def owner(self, ctx, uow):
         owner = uow.repository('installation').get('service')
@@ -124,10 +131,122 @@ class TerminalControl:
         # Invalid explicit IDs or unauthorized selections reject the whole request.
         return [self.target(ctx, identity, uow) for identity in sorted(identities)]
 
+    def in_terminal_mode(self):
+        """Whether this installation runs its agents in terminals; asked every time, the owner can switch while the service runs."""
+        return mode.is_terminal(getattr(self.runtime, 'paths', None))
+
     def binding(self, row):
-        if self.backend is None:
-            raise DomainError('operation_unavailable', 'Terminal controller is not attached')
-        return {'profile_revision': row['revision'], 'terminal': self.backend.snapshot(row)}
+        return {'profile_revision': row['revision'], 'terminal': self.snapshot(row)}
+
+    def snapshot(self, row):
+        if self.in_terminal_mode():
+            return terminal_actions.snapshot(self, row)
+        return self.managed_snapshot(row)
+
+    def managed_snapshot(self, row):
+        """The observation a plan is prepared against: ``absent`` without a verified session, otherwise ``present`` with that
+        session's identity. It changes only when the session or the selected conversation does, never with the turn state, so an
+        owner command prepared against it stays valid until then. (The ``terminal`` key and the field names are kept: stored plans
+        and owner commands carry them.)"""
+        from qorqut.managed_runtime.manager import managed_of
+        from qorqut.native_chat import selection
+        with self.runtime.database.read() as uow:
+            chosen = selection.selected(uow.connection, row['agent_id'])
+        revision = chosen.revision if chosen is not None else None
+        managed = managed_of(self.runtime)
+        identity = managed.identity(row['agent_id']) if managed is not None else None
+        if not identity:
+            return {'state': 'absent', 'managed': True, 'client': 'claude', 'selection_revision': revision}
+        return {'state': 'present', 'managed': True, 'client': 'claude', 'command': 'claude', 'selection_revision': revision,
+                'session_id': identity.get('conversation_id'), 'foreground_pid': identity.get('pid'),
+                'foreground_started': identity.get('started'), 'owner': identity.get('owner')}
+
+    def _opener(self):
+        native = getattr(self.runtime, 'native_chat', None)
+        opener = getattr(native, 'opener', None)
+        if opener is None or opener.managed is None:
+            raise DomainError('operation_unavailable', 'Managed sessions are unavailable')
+        return opener
+
+    def session_state(self, row):
+        """Where a managed agent's session stands: ``on`` (not turned off), ``open``, ``asleep`` (on and not open: the next input
+        opens it) and ``working`` (a turn is running); the one status Ordubashy reads for a worker."""
+        opener = self._opener()
+        found = opener.managed.snapshot(row['agent_id'])
+        found = found if isinstance(found, dict) else {}
+        is_open = bool(found.get('open'))
+        off = opener.is_off(row['agent_id'])
+        working = is_open and found.get('phase') in ('working', 'blocked')
+        return {'state': 'off' if off else ('open' if is_open else 'asleep'), 'turn': 'working' if working else 'idle',
+                'client': self._client(row), 'on': not off, 'off': off, 'open': is_open, 'asleep': not is_open and not off,
+                'working': working, 'phase': found.get('phase'), 'activity': found.get('activity')}
+
+    def _client(self, row):
+        """The client the agent's session runs: the stored choice, else the one its profile names."""
+        from qorqut.managed_runtime import options
+        try:
+            stored = options.read(self.runtime.paths, row['agent_id']).client
+            return stored or options.profile_client(dict(row))
+        except Exception:  # noqa: BLE001 - a status read never fails for this
+            return 'claude'
+
+    def _execute(self, target, action, message, input_key, binding=None):
+        """The meaning of the four actions: on the terminal in Terminals mode, otherwise on the managed session.
+
+        ping is a direct message through the shared input arbiter like every input: it opens an asleep agent that is on (waiting for
+        the open, outside the agent's lock) and is then delivered once; an agent that is off is not opened and the message is
+        reported not delivered.
+
+        The target's intent was recorded before this ran (``DESIRED_STATES``: start and restart turn it on, kill turns it off).
+        start opens the session (and waits for it to bind); restart closes it, waits for its host to be gone, and opens it again
+        (the same conversation resumes); kill closes it for good until a start. A session that cannot be opened is a failed action
+        (nothing was delivered), never an uncertain one."""
+        if self.in_terminal_mode():
+            return terminal_actions.execute(self, target, action, message, binding, input_key)
+        opener = self._opener()
+        agent_id = target['agent_id']
+        if action == 'ping':
+            return self._ping(agent_id, message, input_key)
+        if action == 'kill':
+            opener.managed.close(agent_id, 'now')
+            return 'Managed session closed; the agent stays off until it is started again'
+        from qorqut.native_chat import store
+        with self.runtime.database.read() as uow:
+            profile = store.active_profile(uow.connection, agent_id, self.runtime.paths)
+        if profile is None:
+            raise DomainError('not_delivered', 'The agent is not active')
+        opener.turn_on(agent_id)
+        if action == 'restart' and opener.managed.close(agent_id, 'graceful'):
+            self._wait_closed(opener, agent_id)
+        try:
+            opener.wake(profile, 'ordubashy', wait=True, force=True)
+        except DomainError as error:
+            raise DomainError('not_delivered', f'The session could not be opened ({error.code}): {error.message}') from None
+        return 'Managed session restarted' if action == 'restart' else 'Managed session open'
+
+    def _ping(self, agent_id, message, key):
+        from qorqut.native_chat.contracts import (InputRequest, NativeChatError, STATE_SUBMITTED, STATE_UNCERTAIN, TYPE_DIRECT,
+                                                  managed_menu_command)
+        if managed_menu_command(message) is not None:
+            # The same refusal owner Chat gives: a command that opens a menu has nothing to show in a headless session.
+            raise DomainError('not_delivered', 'That command opens a menu a managed session cannot show')
+        try:
+            result = self.runtime.native_chat.arbiter.submit(InputRequest(agent_id, TYPE_DIRECT, key, message))
+        except NativeChatError as error:
+            raise DomainError('not_delivered', error.message) from None
+        if result.state == STATE_SUBMITTED:
+            return 'Direct message submitted to the agent; processing is not confirmed'
+        if result.state == STATE_UNCERTAIN:
+            raise DomainError('operation_failed', 'Direct message outcome could not be confirmed')
+        raise DomainError('not_delivered', f"Direct message was not delivered: {result.reason or 'the session is not ready'}")
+
+    def _wait_closed(self, opener, agent_id):
+        import time
+        deadline = time.monotonic() + RESTART_CLOSE_SECONDS
+        while opener.managed.handle(agent_id) is not None:
+            if time.monotonic() >= deadline:
+                raise DomainError('not_delivered', 'The session did not close in time, so it was not opened again')
+            time.sleep(RESTART_POLL_SECONDS)
 
     def command(self, ctx, identity, uow):
         row = uow.repository('terminal_commands').get(identity, required=True)
@@ -154,6 +273,7 @@ class TerminalControl:
             action = args['action'] if name == 'terminal_command_issue' else name.removeprefix(PREFIX)
             message = args.get('message')
             rows = self.select_targets(ctx, args, uow)
+        terminal_actions.refuse_while_switching(self, action)
         if action == 'ping':
             if not message or not message.strip() or any(ord(c)<32 and c not in '\n\t' for c in message):
                 raise DomainError('validation_error', 'Direct ping requires nonblank text without terminal control characters')
@@ -162,7 +282,8 @@ class TerminalControl:
         targets = []
         for row in rows:
             binding = self.binding(row)
-            self.backend.validate(action, binding['terminal'])
+            if self.in_terminal_mode():
+                terminal_actions.validate(self, action, binding['terminal'])
             builder.expect(ref('agent_profiles', row['agent_id'], row['home_business_id']), row)
             targets.append({'target_id':row['agent_id'], 'binding':binding})
             builder.effects.append(f"{action.capitalize()} {row['name']} ({row['agent_id']})")
@@ -219,7 +340,15 @@ class TerminalControl:
                 self.target(ctx, action['target_id'], uow, control=False)
             return {'batch_id':args['batch_id'], 'actions':actions}
         row = self.target(ctx, args['target_agent_id'], uow, control=False)
-        result = {'target_agent_id':row['agent_id'], **self.binding(row)}
+        # Session terms only: the stored plan binding keeps its ``terminal`` key (see ``binding``), the status an agent reads does not.
+        if self.in_terminal_mode():
+            result = {'target_agent_id':row['agent_id'], **self.binding(row)}
+        else:
+            result = {'target_agent_id':row['agent_id'], 'profile_revision':row['revision']}
+            try:
+                result['session'] = self.session_state(row)
+            except DomainError:
+                result['session'] = None
         if args.get('action_id'):
             action = uow.repository('terminal_actions').get(args['action_id'], required=True)
             if action['target_id'] != row['agent_id']:
@@ -232,15 +361,18 @@ class TerminalControl:
         self.app.registry.register(OperationDescriptor(PREFIX+'status', {**schema({'target_agent_id':UUID,'action_id':UUID,'batch_id':UUID}),
                 'oneOf':[{'required':['target_agent_id'], 'not':{'required':['batch_id']}},
                          {'required':['batch_id'], 'not':{'anyOf':[{'required':['target_agent_id']},{'required':['action_id']}]}}]},
-            effect_kind='read', supports_signoff=False, plugin_requirement=PLUGIN, read=self.status, **common))
+            effect_kind='read', supports_signoff=False, plugin_requirement=PLUGIN, read=self.status,
+            description=DESCRIPTIONS['status'], **common))
         for action in ('start','restart','kill'):
             name = PREFIX+action
             self.app.registry.register(OperationDescriptor(name, selection_schema({'rationale':TEXT}, ['rationale']),
-                plugin_requirement=PLUGIN, prepare=lambda c,a,o,u,n=name:self.prepare(n,c,a,o,u), apply=self.apply, **common))
+                plugin_requirement=PLUGIN, prepare=lambda c,a,o,u,n=name:self.prepare(n,c,a,o,u), apply=self.apply,
+                description=DESCRIPTIONS[action], **common))
         for action in ('ping','execute_command'):
             name = PREFIX+action
             self.app.registry.register(OperationDescriptor(name, schema({'command_id':UUID}, ['command_id']), supports_signoff=False,
-                plugin_requirement=PLUGIN, prepare=lambda c,a,o,u,n=name:self.prepare(n,c,a,o,u), apply=self.apply, **common))
+                plugin_requirement=PLUGIN, prepare=lambda c,a,o,u,n=name:self.prepare(n,c,a,o,u), apply=self.apply,
+                description=DESCRIPTIONS[action], **common))
         self.app.registry.register(OperationDescriptor('terminal_command_issue', selection_schema({'action':{'enum':list(ACTIONS)},
             'message':{'type':'string','minLength':1,'maxLength':16000}}, ['action']),
             supports_signoff=False, owner_only=True, exposure={'dashboard'}, prepare=lambda c,a,o,u:self.prepare('terminal_command_issue',c,a,o,u), apply=self.apply, **common))
@@ -267,6 +399,8 @@ class TerminalControl:
             if not row: return False
             actions = uow.repository('terminal_actions')
             action = actions.get(row['id'])
+            if terminal_actions.switching(self) and action['action'] in ('start', 'restart'):
+                return False  # stays queued: nothing opens a session while the installation is being switched
             # Before a batch's first effect, every saved target's authorization is rechecked: a
             # request that reaches an unauthorized target fails whole, never partly run.
             # A changed terminal binding still fails only its own action.
@@ -299,8 +433,8 @@ class TerminalControl:
                                        (DESIRED_STATES[action['action']], target['agent_id']))
             uow.repository('terminal_actions').update(action['id'], {'state':'uncertain','detail':'Execution started; do not retry without inspection'}, expected_revision=action['revision'])
         try:
-            detail = self.backend.execute(target, action['action'], action['message'], action['binding_json']['terminal'],
-                                          input_key=f"terminal-action:{action['id']}")
+            detail = self._execute(target, action['action'], action['message'], f"terminal-action:{action['id']}",
+                                   action['binding_json']['terminal'])
             state = 'completed'
         except Exception as exc:
             state, detail = execution_outcome(exc)

@@ -5,7 +5,7 @@ Build tooling only. Input is a prepare-local output of the filtered export. Neve
 No venv, configuration, HOME, build log or instance is copied from either input.
 
 With --bundled-tools (the output of macos_tools.py, built on the same Mac chip) the package is self-contained:
-it ships a ready-made Python environment in runtime/venv and tmux, git and the agents' browser tool in
+it ships a ready-made Python environment in runtime/venv and git and the agents' browser tool in
 runtime/native, so nothing is installed or built on the user's Mac.
 """
 from __future__ import annotations
@@ -14,7 +14,6 @@ import argparse
 import base64
 import csv
 import hashlib
-import importlib.util
 import io
 from email.parser import BytesParser
 import re
@@ -27,6 +26,8 @@ import sys
 import tarfile
 import tempfile
 import zipfile
+
+import payload_signing
 
 
 def sha(path):
@@ -153,34 +154,80 @@ def ready_made_environment(tools, runtime, platform_tag):
 
 
 def bundle_tools(tools, runtime, target):
-    """Copy tmux, git and the agents' browser tool into runtime/native."""
+    """Copy git and the agents' browser tool into runtime/native."""
     import native_launch
     native = runtime / 'native'
     shutil.copytree(tools / 'native', native, symlinks=True)
     shutil.copy2(tools / 'TOOLS.json', native / 'TOOLS.json')
     machine = 'arm64' if target.endswith('arm64') else 'x86_64'
-    name = native_launch.agent_browser_binary_name('Darwin', machine)
+    ship_agent_browser('Darwin', machine, native / 'bin/agent-browser', native / 'licenses/agent-browser.txt')
+    return json.loads((tools / 'TOOLS.json').read_text())
+
+
+def ship_agent_browser(system, machine, target, license_target):
+    """Put the pinned browser tool for ``system``/``machine`` at ``target`` and its license beside it. The download is checked
+    against the pinned checksum, and the tool is run once when it was built for the computer doing the build."""
+    import native_launch
+    name = native_launch.agent_browser_binary_name(system, machine)
+    for path in (target, license_target):
+        path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='qorqbot-agent-browser-') as work:
         archive = Path(work) / 'package.tgz'
         if native_launch._download(native_launch.AGENT_BROWSER_URL, archive, native_launch.AGENT_BROWSER_LIMIT) != native_launch.AGENT_BROWSER_SHA512:
             raise ValueError('The agent-browser download does not match its pinned checksum')
-        native_launch.extract_agent_browser(archive, name, native / 'bin/agent-browser')
+        native_launch.extract_agent_browser(archive, name, target)
         with tarfile.open(archive, 'r:gz') as package:
             for member in ('package/LICENSE', 'package/LICENSE.md', 'package/LICENSE.txt'):
                 if member in package.getnames():
-                    (native / 'licenses/agent-browser.txt').write_bytes(package.extractfile(member).read())
+                    license_target.write_bytes(package.extractfile(member).read())
                     break
-    check = subprocess.run([native / 'bin/agent-browser', '--version'], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+    if native_launch.agent_browser_binary_name() != name:
+        return
+    check = subprocess.run([target, '--version'], capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
     if check.returncode != 0 or native_launch.AGENT_BROWSER_VERSION not in check.stdout:
         raise ValueError('The bundled agent-browser does not run on this machine')
-    return json.loads((tools / 'TOOLS.json').read_text())
 
 
-def strip_wheel(source, target):
+SIGNED_PROGRAM_CHECKS = (
+    (('native/bin/git', '--version'), 'git'),
+    (('native/bin/agent-browser', '--version'), 'agent-browser'),
+    (('venv/bin/python3.12', '-I', '-B', '-c',
+      'import ctypes, _cffi_backend, cryptography.hazmat.bindings._rust, pydantic_core._pydantic_core, '
+      'psutil._psutil_osx, rpds, websockets.speedups, yaml._yaml'), 'Python with its compiled libraries'),
+)
+
+
+def sign_shipped_programs(runtime, identity):
+    """Sign the Python, git and agent-browser files that no wheel brought, then prove the package is ready for Apple.
+
+    Compiled files of installed libraries were signed inside their wheels, so they are only checked here. Every
+    compiled file must read back as signed with the Developer ID certificate, a secure timestamp and (for a
+    program) the hardened runtime, and the signed programs must still start: a missing entitlement shows up
+    now, not on a user's Mac or after Apple's queue.
+    """
+    native, venv = runtime / 'native', runtime / 'venv'
+    signed = (payload_signing.sign_tree(native, identity)
+              + payload_signing.sign_tree(venv, identity, skip=(payload_signing.INSTALLED_PACKAGES,)))
+    problems = payload_signing.check_tree(native) + payload_signing.check_tree(venv)
+    if problems:
+        raise ValueError('Signing check failed:\n' + '\n'.join(problems[:20]))
+    for command, label in SIGNED_PROGRAM_CHECKS:
+        argv = [runtime / command[0], *command[1:]]
+        result = subprocess.run(argv, cwd=runtime.parent, env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'},
+                                capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+        if result.returncode != 0:
+            raise ValueError(f'The signed {label} does not start (exit {result.returncode}): {(result.stderr or result.stdout)[-500:]}')
+    return {'programs': sum(kind == 'program' for _, kind in signed), 'libraries': sum(kind == 'library' for _, kind in signed),
+            'files': sorted(str(path.relative_to(runtime)) for path, _ in signed)}
+
+
+def strip_wheel(source, target, identity=None):
     """Strip third-party test/development trees and regenerate the wheel RECORD.
 
     The original wheel hash stays in the private build report. License files and
     metadata are retained, and pip verifies the new RECORD at installation.
+    With a Developer ID identity, each compiled file in the wheel is signed first, so the RECORD
+    and the recorded wheel hash describe the signed files (Apple's notary opens wheels too).
     """
     removed, files = [], {}
     with zipfile.ZipFile(source) as wheel:
@@ -194,7 +241,10 @@ def strip_wheel(source, target):
                     or path.name in {'RECORD', 'RECORD.jws', 'RECORD.p7s'}):
                 removed.append(item.filename)
                 continue
-            files[item.filename] = (item, wheel.read(item))
+            data = wheel.read(item)
+            if identity:
+                data = payload_signing.sign_bytes(path.name, data, identity)
+            files[item.filename] = (item, data)
         records = [name for name in wheel.namelist() if name.endswith('.dist-info/RECORD')]
         if len(records) != 1:
             raise ValueError('Wheel needs exactly one RECORD')
@@ -218,10 +268,14 @@ def main(argv=None):
     parser.add_argument('--version', required=True)
     parser.add_argument('--target', choices=tuple(TARGETS), default='ubuntu24-x86_64')
     parser.add_argument('--bundled-tools', type=Path, help='macos_tools.py output for this Mac chip; makes the package self-contained')
+    parser.add_argument('--sign-identity', help='Developer ID Application certificate (name or SHA-1) that signs every program and '
+                        'library in the package, as Apple notarization requires; needs --bundled-tools')
     args = parser.parse_args(argv)
     platform_name, platform_tag = TARGETS[args.target]
     if args.bundled_tools and (platform_tag is None or sys.platform != 'darwin'):
         raise ValueError('A self-contained package is built for a Mac target, on a Mac')
+    if args.sign_identity and not args.bundled_tools:
+        raise ValueError('Signing applies to a self-contained Mac package: add --bundled-tools')
     if not re.fullmatch(r'[0-9A-Za-z][0-9A-Za-z._-]{0,79}', args.version):
         raise ValueError('Invalid package version')
     prepared, output, report = (p.resolve() for p in (args.prepared, args.output, args.report))
@@ -268,7 +322,7 @@ def main(argv=None):
     subprocess.run([python, '-I', '-m', 'pip', 'download', '--only-binary=:all:', '--no-deps', '--dest', downloads,
                     *download_options, *requirements], check=True)
     (runtime / 'wheelhouse').mkdir()
-    wheel_records = [strip_wheel(w, runtime / 'wheelhouse' / w.name) for w in sorted(downloads.glob('*.whl'))]
+    wheel_records = [strip_wheel(w, runtime / 'wheelhouse' / w.name, args.sign_identity) for w in sorted(downloads.glob('*.whl'))]
     shutil.copy2(Path(__file__).with_name('native_launch.py'), runtime / 'launch.py')
     shutil.copy2(Path(__file__).with_name('native_update.py'), runtime / 'update.py')
     shutil.copy2(Path(__file__).with_name('native_extension.py'), runtime / 'extension_install.py')
@@ -303,22 +357,34 @@ def main(argv=None):
         tools = args.bundled_tools.resolve()
         shipped_tools = bundle_tools(tools, runtime, args.target)
         environment_record = ready_made_environment(tools, runtime, platform_tag)
+        if args.sign_identity:
+            environment_record['signed'] = sign_shipped_programs(runtime, args.sign_identity)
+    else:
+        # A package that uses the computer's own Python and git still ships the agents' browser tool: one program with
+        # nothing to install around it, so agents can browse after a first launch without a network.
+        import native_launch
+        system, machine = (('Linux', 'x86_64') if platform_tag is None
+                           else ('Darwin', 'arm64' if platform_tag.endswith('arm64') else 'x86_64'))
+        ship_agent_browser(system, machine, runtime / 'tools/agent-browser', runtime / 'tools/licenses/agent-browser.txt')
     dependencies = {
         'platform': platform_name,
         'required': {'python': '3.12.x with venv/pip support', 'git': '2.43 or newer'},
-        'optional': {'tmux': '3.4 or newer for agent terminals', 'agent_client': 'user-installed Codex or Claude Code',
-                     'browser': 'user-installed compatible Chrome and agent-browser',
-                     'node': 'as required by the selected external client/browser tool',
+        'optional': {'agent_client': 'Claude Code and Codex, downloaded by Qorqbot from its Settings',
+                     'browser': "Chrome: Qorqbot's own downloaded build or an installed Google Chrome",
+                     'node': 'as required by the selected external client',
+                     'tmux': 'only for the legacy Terminals mode; not bundled',
                      'desktop': 'Linux only: TigerVNC, Openbox, X11, D-Bus and keyring if a desktop is configured'},
         'python_libraries': 'requirements.lock', 'external_tools_bundled': False,
+        'bundled': {'agent-browser': native_launch.AGENT_BROWSER_VERSION, 'details': 'tools/agent-browser, tools/licenses'},
     }
     if args.bundled_tools:
         dependencies.update({
             'required': {}, 'external_tools_bundled': True,
-            'bundled': {'python': shipped_tools['reported_versions']['python'], 'tmux': shipped_tools['reported_versions']['tmux'],
+            'bundled': {'python': shipped_tools['reported_versions']['python'],
                         'git': shipped_tools['reported_versions']['git'], 'agent-browser': native_launch.AGENT_BROWSER_VERSION,
                         'details': 'native/TOOLS.json, native/licenses'},
-            'optional': {'agent_client': 'user-installed Codex or Claude Code', 'browser': 'user-installed Google Chrome'}})
+            'optional': {'agent_client': 'Claude Code and Codex, downloaded by Qorqbot from its Settings', 'browser': 'user-installed Google Chrome',
+                         'tmux': 'only for the legacy Terminals mode; not bundled'}})
     (runtime / 'DEPENDENCIES.json').write_text(json.dumps(dependencies, indent=2) + '\n')
     if args.bundled_tools:
         bundled = {name: native_launch.tree_digest(runtime / name) for name in native_launch.BUNDLED_TREES}

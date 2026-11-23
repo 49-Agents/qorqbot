@@ -1,13 +1,13 @@
 """The Task a read-and-acknowledge report belongs to.
 
-A report is a Signoff (``category='input_request'``, ``form.kind='acknowledge'``) and never stands alone: it is created
-with the Task it reports on, and one Task may hold many reports. This association is *not* ``signoff_source_links``: a
+A report is a Signoff (``category='input_request'``, ``form.kind='acknowledge'``) that may name the Task it reports on;
+one Task may hold many reports, and a report that is about no Task names none. This association is *not* ``signoff_source_links``: a
 source link says a Task or record waits on the owner's input and drives Needs-your-input, so a report never has one.
 The report link only says which Task a document belongs to; it never changes the Task, its status or the Signoff.
 
 Scope rule: a Global report names a Global Task, and a report in a project names a Task of that same project. The rule is
-enforced when the report is created. The link then follows its Task when the Task is moved to another project (the report
-itself stays where it was posted). A report posted before this link existed has no row and reads ``report_task: null``.
+enforced when a report that names a Task is created. The link then follows its Task when the Task is moved to another project (the report
+itself stays where it was posted). A report with no Task has no row and reads ``report_task: null``.
 """
 from dataclasses import replace
 
@@ -19,9 +19,6 @@ from qorqut_operations.storage.specs import TableSpec
 TABLE = 'signoff_report_tasks'
 REPORT_TASK = schema({'id': {'type': 'string', 'minLength': 1, 'maxLength': 300},
     'business_id': {'type': ['string', 'null'], 'format': 'uuid'}}, ('id', 'business_id'))
-MISSING = ('A report belongs to a Task: name it in report_task as {id, business_id} (business_id null for a Global Task, '
-           'the project for a project Task). Name the real Task whose work the report is about; never create a Task only to '
-           'hold a report')
 SCHEMA = (
     '''CREATE TABLE signoff_report_tasks (
  signoff_id TEXT PRIMARY KEY REFERENCES signoffs(id),

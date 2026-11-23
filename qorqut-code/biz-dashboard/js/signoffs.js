@@ -508,6 +508,8 @@ function sgCreateView(options) {
       let group = [...fields.children].find(node => node.dataset.questionId === q.id);
       if (!group) {
         group = document.createElement('fieldset'); group.className = 'sg-question'; group.dataset.questionId = q.id;
+        // A single question that only repeats the card's title: Chat shows the title once (css/signoffs.css).
+        if (s.input.questions.length === 1 && q.required && q.prompt.trim() === String(s.input.title || s.title || '').trim()) group.classList.add('sg-question-titled');
         const legend = document.createElement('legend'); legend.id = id; legend.textContent = q.required ? q.prompt : `${q.prompt} (optional)`;
         const explanation = document.createElement('p'); explanation.className = 'sg-question-explanation'; explanation.innerHTML = q.explanation ? renderSafeLinks(q.explanation) : ''; explanation.hidden = !q.explanation;
         const guidance = document.createElement('p'); guidance.className = 'sg-notice';
@@ -885,7 +887,7 @@ function sgCreateView(options) {
     let controls = "";
     const withFeedback = !s.input && !!draft(s).trim();
     const plainDecisionControls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id
-      ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}${withFeedback ? "Send and approve" : "Approve"}</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}${withFeedback ? "Send and reject" : "Reject"}</button></div>` : "";
+      ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}Approve</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}Reject</button></div>` : "";
     if (s.input) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-approve${sgIsAcknowledge(s) ? ' sg-primary-action' : ''}" data-sg="respond"${disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '')}>${sgIsAsk(s) ? 'Send' : sgIsDraftReview(s) ? 'Return draft' : sgIsAcknowledge(s) ? `${SVG_CHECK}Acknowledge` : 'Submit'}</button></div>` : "";
     else controls = plainDecisionControls;
     if (busy) controls += `<p class="sg-notice" role="status">${busy.unknown ? "The response was lost. Checking the saved decision..." : "Saving decision..."}</p>${busy.unknown ? `<button type="button" class="sg-command" data-sg="reconcile"${busy.checking ? " disabled" : ""}>Check decision</button>` : ""}`;
@@ -979,7 +981,7 @@ function sgCreateView(options) {
         }
         const appearance = {...(business?.agent_meta?.[agentName] || {}), ...(agent || {})};
         const proposerPortrait = identityAvatar(s.proposer_agent_id ? 'agent' : s.proposer_principal_id === owner() ? 'founder' : 'unknown', proposer, appearance, proposer + initiator, true);
-        html(row.querySelector(".sg-rowmeta"), options.inline ? `<span class="sg-inline-kind">${sgIsDraftReview(s) ? "Draft review" : sgIsAcknowledge(s) ? "To read" : "Signoff"}</span>${businessPortrait}` : `${businessPortrait}${proposerPortrait}`);
+        html(row.querySelector(".sg-rowmeta"), options.inline ? `<span class="sg-inline-kind">${sgIsDraftReview(s) ? "Draft review" : sgIsAcknowledge(s) ? "For your attention" : "Signoff"}</span>${businessPortrait}` : `${businessPortrait}${proposerPortrait}`);
         row.dataset.input = s.input ? "1" : "";
         row.dataset.kind = sgIsAcknowledge(s) ? "acknowledge" : "";
         if (options.inline) {
@@ -1354,7 +1356,7 @@ function sgCreateView(options) {
     body.classList.toggle("sg-inline", !!options.inline);
     body.classList.toggle("sg-chat", !!options.chatLayout);
     body.classList.toggle("sg-single", !!options.item);
-    body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section><section class="sg-toread" hidden><h2>To read</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
+    body.innerHTML = `<div class="sg"><div class="sg-listnotice"></div><section class="sg-urgent"><h2>Urgent / blocking · All projects</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div><div class="sg-foreign"></div></section><section class="sg-waiting"><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section><section class="sg-toread" hidden><h2>For your attention</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>${options.execution ? '<section class="sg-execution"><h2>Execution and history</h2><div class="sg-sectionempty"></div><div class="sg-rows mkcards"></div></section>' : ""}<button type="button" class="sg-command sg-more" data-sg="more" hidden>Load more</button></div>`;
     body.onclick = event => {
       if (event.target.matches('.sg-draft-editor')) return;
       if(event.target.matches('.sg-message-editor'))return;
@@ -1449,7 +1451,9 @@ function sgCreateView(options) {
       const submitKey = event.ctrlKey && !event.metaKey || event.metaKey && !event.ctrlKey && event.target.matches('.sg-question-notes');
       if (event.key === 'Enter' && submitKey && !event.shiftKey && !event.altKey && !event.isComposing && event.target.matches('.sg-feedback')) {
         event.preventDefault(); event.stopPropagation();
-        if (!event.repeat) event.target.closest('.sg-detail')?.querySelector('.sg-approve:not(:disabled)')?.click();
+        // A decision with a note has Reject highlighted, and the shortcut presses that one.
+        const detail = event.target.closest('.sg-detail'), main = detail?.querySelector('.sg-reject.sg-primary-action') || detail?.querySelector('.sg-approve:not(:disabled)');
+        if (!event.repeat && main && !main.disabled) main.click();
         return;
       }
       const choice = event.target.closest('[role="radio"]');
@@ -1460,7 +1464,7 @@ function sgCreateView(options) {
         choices[(choices.indexOf(choice)+delta+choices.length)%choices.length]?.click();
       }
     };
-    // Typing a decision message updates the Send and approve/reject labels.
+    // Typing a decision message moves the highlight, and the shortcut, from Approve to Reject.
     body.oninput = event => {
       if (event.target.matches('.sg-question-notes')) {
         const s = sg.items.get(event.target.closest('.sg-row').dataset.id);

@@ -7,17 +7,42 @@ names, so the request and result of an input have exactly one definition.
 
 from __future__ import annotations
 
+from collections import namedtuple
 from dataclasses import dataclass, field
 from typing import Any, Mapping
+
+# What an adapter reports once an input was attempted. ``receipt`` names what was observed (client, host, message id); it
+# never carries the typed text.
+OwnerInputOutcome = namedtuple("OwnerInputOutcome", "status reason receipt", defaults=(None,))
 
 # Archive providers; the registered profile runtime names them ``claude-code`` and ``codex``.
 PROVIDERS = ("claude", "codex")
 RUNTIME_PROVIDERS = {"claude-code": "claude", "codex": "codex"}
 PROVIDER_RUNTIMES = {value: key for key, value in RUNTIME_PROVIDERS.items()}
 
-# How an input reaches the native session. ``terminal`` types into the registered tmux pane's verified empty composer;
-# ``codex_queue`` queues into one conversation of a shared Codex desktop server.
-TRANSPORTS = ("terminal", "codex_queue")
+# How an input reaches the native session. ``managed`` is the headless session of a managed runtime host (its owner
+# ``host:<host pid>:<host start ticks>``); ``terminal`` is the verified composer of the agent's tmux pane (Terminals mode, Claude
+# Code only). ``codex_queue`` is never written now: it stays a valid value because rows of earlier installations carry it and the
+# stored CHECK and the nudge contract still list it.
+EXECUTION_TERMINAL, EXECUTION_MANAGED = "terminal", "managed"
+TRANSPORTS = ("terminal", "codex_queue", "managed")
+
+# Claude Code commands that open a menu or panel only a terminal can show. A managed session has no terminal, so Chat refuses
+# them for it rather than send text the headless client cannot act on. ``/model`` is refused only without a model name.
+MANAGED_MENU_COMMANDS = frozenset({"/model", "/resume", "/cost", "/usage", "/status", "/context", "/permissions", "/mcp",
+                                   "/memory", "/agents", "/config", "/doctor", "/help", "/clear"})
+
+
+def managed_menu_command(text: str) -> str | None:
+    """The terminal-only Claude command ``text`` runs, or ``None``. Only the first word counts, as the CLI reads it: ``/tmp/foo``
+    is ordinary text and ``/model sonnet`` names a model, so it is not a menu."""
+    words = text.split()
+    if not words:
+        return None
+    word = words[0].lower()
+    if word not in MANAGED_MENU_COMMANDS or (word == "/model" and len(words) > 1):
+        return None
+    return word
 
 # Application origin of an input. It states who the application says wrote it. It is never inferred from the transcript:
 # providers record every input as a user turn and give no origin, so a native user entry carries no origin of its own.

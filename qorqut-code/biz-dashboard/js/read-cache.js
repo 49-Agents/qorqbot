@@ -58,7 +58,4 @@ function agentFocusRead(id, options) {
 }
 // Change events invalidate only read snapshots. Components keep their normal refresh lifecycle.
 onChange(['agents'], null, ()=>uiReads.invalidate('agent-roster'));
-onChange(['attention','tasks','workflows'], null, ()=>{
-  uiReads.invalidate('agent-focus:');
-  uiReads.invalidate('agent-todo-preview:');
-});
+onChange(['attention','tasks','workflows'], null, ()=>uiReads.invalidate('agent-focus:'));

@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from qorqut.agents import unreachable
 from qorqut.inbox.messages import MessageHost, WORKER_MESSAGE_LIMIT
+from qorqut.native_chat import opener
 from qorqut.native_chat.nudges import paced
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.inbox.messages import Messages
@@ -21,6 +22,7 @@ SCHEMA = (
     'CREATE TABLE inbox_events(id INTEGER PRIMARY KEY AUTOINCREMENT,source_type TEXT,source_id TEXT,event_type TEXT,'
     'summary TEXT,created_at TEXT)',
     'CREATE TABLE inbox_deliveries(agent_id TEXT,event_id INTEGER,acknowledged_at TEXT,required INTEGER)',
+    'CREATE TABLE native_session_owners(agent_id TEXT PRIMARY KEY,desired_state TEXT)',
 )
 
 
@@ -66,14 +68,14 @@ class UnreachableWorkerTests(unittest.TestCase):
 
     def test_a_worker_blocked_for_a_while_is_reported_once_with_the_repair(self):
         self.need(SCOUT)
-        self.attempts(SCOUT, ('submitted', 'processing_not_confirmed', 90), ('deferred', 'composer_not_empty', 25),
-                      ('deferred', 'composer_not_empty', 1))
+        self.attempts(SCOUT, ('submitted', 'processing_not_confirmed', 90), ('deferred', 'host_unverified', 25),
+                      ('deferred', 'host_unverified', 1))
         self.conn.executemany('INSERT INTO inbox_deliveries VALUES(?,?,?,1)', [(SCOUT, 1, None), (SCOUT, 2, None), (SCOUT, 3, ago(hours=1))])
         self.assertEqual(self.told(), [SCOUT])
         self.assertEqual(self.sent, [[COORDINATOR]])
         event = dict(self.conn.execute('SELECT * FROM inbox_events').fetchone())
         self.assertEqual((event['source_type'], event['source_id'], event['event_type']), ('agent_profiles', SCOUT, 'unreachable'))
-        for part in ('scout cannot receive inbox notices since 2026-11-12 11:35 UTC', 'its input box holds unsent text',
+        for part in ('scout cannot receive inbox notices since 2026-11-12 11:35 UTC', 'its session could not be verified',
                      '2 inbox items waiting', 'agent_terminal_status', 'agent_terminal_restart', 'reassign its open work'):
             self.assertIn(part, event['summary'])
         self.assertLessEqual(len(event['summary']), 500)
@@ -86,10 +88,10 @@ class UnreachableWorkerTests(unittest.TestCase):
 
     def test_a_short_stretch_a_busy_turn_and_a_recovered_worker_are_not_reported(self):
         self.need(SCOUT)
-        self.attempts(SCOUT, ('deferred', 'composer_unrecognized', 10))
+        self.attempts(SCOUT, ('deferred', 'host_unverified', 10))
         self.assertEqual(self.told(), [])
         self.need(COMPASS)
-        self.attempts(COMPASS, ('deferred', 'composer_busy', 60), ('deferred', 'composer_busy', 2))
+        self.attempts(COMPASS, ('deferred', 'turn_running', 60), ('deferred', 'turn_running', 2))
         self.assertEqual(self.told(), [])
         # A notice that got through ends the stretch, and a superseded reservation says nothing either way.
         self.attempts(SCOUT, ('submitted', 'processing_not_confirmed', 3), ('stale', 'coverage_handled', 2))
@@ -102,15 +104,55 @@ class UnreachableWorkerTests(unittest.TestCase):
         self.assertEqual(self.told(), [])
         self.assertIsNone(unreachable.blocked(self.conn, COMPASS, NOW))
 
-    def test_a_worker_without_a_session_is_reported(self):
+    def test_a_worker_that_is_asleep_and_on_is_not_reported_however_long_it_waits(self):
+        """Was reported as having "no running session": a managed session closes when idle and the next input opens it."""
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        self.assertEqual(self.told(), [])
+        self.conn.execute("INSERT INTO native_session_owners VALUES(?, 'running')", (SCOUT,))
+        self.assertEqual(self.told(), [])
+
+    def test_a_worker_that_is_off_with_something_waiting_is_reported_with_a_repair_that_works(self):
         self.need(SCOUT, reason='offline', updated=ago(minutes=30))
         self.need(COMPASS, reason='offline', updated=ago(minutes=5))
+        self.conn.executemany("INSERT INTO native_session_owners VALUES(?, 'stopped')", [(SCOUT,), (COMPASS,)])
+        self.assertEqual(self.told(), [SCOUT])  # COMPASS has waited under the period
+        summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+        self.assertIn('it is turned off', summary)
+        self.assertIn('agent_terminal_start', summary)
+        self.assertNotIn('agent_terminal_restart', summary)
+
+    def test_an_open_that_keeps_failing_is_reported_after_the_period_with_the_repair_for_its_reason(self):
+        clock = [NOW - timedelta(hours=1)]
+        failures = opener.OpenFailures(clock=lambda: clock[0])
+        patch.object(opener, 'FAILURES', failures).start()
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        failures.failed(SCOUT, 'cli_unavailable')
+        self.assertEqual(self.told(), [])  # one failure is not a streak
+        clock[0] = NOW - timedelta(minutes=30)
+        failures.failed(SCOUT, 'cli_unavailable')
         self.assertEqual(self.told(), [SCOUT])
-        self.assertIn('it has no running session', self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0])
+        summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+        self.assertIn('is not installed or not usable on this computer', summary)
+        self.assertIn('tell the owner to download the client under Settings > Agents', summary)
+
+    def test_a_busy_or_slow_host_never_makes_a_streak_and_a_success_ends_one(self):
+        clock = [NOW - timedelta(hours=1)]
+        failures = opener.OpenFailures(clock=lambda: clock[0])
+        patch.object(opener, 'FAILURES', failures).start()
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        for code in ('open_busy', 'open_timeout', 'session_opening', 'host_unverified'):
+            failures.failed(SCOUT, code)
+            failures.failed(SCOUT, code)
+        self.assertEqual(self.told(), [])
+        clock[0] = NOW - timedelta(minutes=45)
+        failures.failed(SCOUT, 'resume_unavailable')
+        failures.failed(SCOUT, 'resume_unavailable')
+        failures.opened(SCOUT)
+        self.assertEqual(self.told(), [])
 
     def test_a_new_stretch_after_a_recovery_is_reported_within_the_period(self):
         self.need(SCOUT)
-        self.attempts(SCOUT, ('deferred', 'composer_unrecognized', 40))
+        self.attempts(SCOUT, ('deferred', 'host_unverified', 40))
         self.assertEqual(self.told(), [SCOUT])
         self.now = NOW + timedelta(hours=1)
         self.conn.execute('INSERT INTO inbox_nudge_attempts VALUES(?,?,?,?,?)', (SCOUT, 2, 'submitted', None, stamp(NOW + timedelta(minutes=5))))
@@ -121,11 +163,76 @@ class UnreachableWorkerTests(unittest.TestCase):
     def test_only_permanent_workers_are_reported_and_only_to_a_configured_coordinator(self):
         for agent in (APPLIER, COORDINATOR, SCOUT):
             self.need(agent)
-            self.attempts(agent, ('deferred', 'composer_unrecognized', 120))
+            self.attempts(agent, ('deferred', 'host_unverified', 120))
         self.assertEqual(self.told(), [SCOUT])
         self.conn.execute('DELETE FROM inbox_events')
         self.coordinator = None
         self.assertEqual(self.told(), [])
+
+
+class TerminalUnreachableWorkerTests(unittest.TestCase):
+    """Terminals mode (``terminal=True``): nothing opens a terminal by itself, so a worker with waiting work and no running terminal
+    is reported again, as before managed sessions, and the composer reasons and busy codes apply."""
+    setUp = UnreachableWorkerTests.setUp
+    need = UnreachableWorkerTests.need
+    attempts = UnreachableWorkerTests.attempts
+
+    def told(self, terminal=True):
+        return [row['agent_id'] for row in unreachable.reconcile(self.uow, now=self.now, terminal=terminal)]
+
+    def test_a_worker_with_waiting_work_and_no_terminal_is_reported_and_told_to_start_it(self):
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        self.need(COMPASS, reason='offline', updated=ago(minutes=5))
+        self.assertEqual(self.told(), [SCOUT])  # COMPASS has waited under the period
+        summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+        self.assertIn('it has no running session', summary)
+        self.assertIn('agent_terminal_start', summary)
+        self.assertNotIn('agent_terminal_restart', summary)
+
+    def test_the_same_worker_is_not_reported_in_managed_mode(self):
+        self.need(SCOUT, reason='offline', updated=ago(hours=5))
+        self.assertEqual(self.told(terminal=False), [])
+        self.assertEqual(unreachable.reconcile(self.uow, now=self.now), [])
+        self.assertIsNone(unreachable.blocked(self.conn, SCOUT, NOW))
+        self.assertEqual(unreachable.blocked(self.conn, SCOUT, NOW, terminal=True),
+                         {'since': ago(hours=5), 'reason': 'offline'})
+
+    def test_a_turned_off_worker_is_reported_by_its_missing_terminal_and_a_managed_open_streak_is_not_counted(self):
+        self.need(SCOUT, reason='offline', updated=ago(hours=1))
+        self.conn.execute("INSERT INTO native_session_owners VALUES(?, 'stopped')", (SCOUT,))
+        clock = [NOW - timedelta(hours=1)]
+        failures = opener.OpenFailures(clock=lambda: clock[0])
+        patch.object(opener, 'FAILURES', failures).start()
+        failures.failed(SCOUT, 'cli_unavailable')
+        failures.failed(SCOUT, 'cli_unavailable')
+        self.assertEqual(self.told(), [SCOUT])
+        summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+        self.assertIn('it has no running session', summary)
+        self.assertNotIn('turned off', summary)
+        self.assertNotIn('not installed', summary)
+
+    def test_the_composer_reasons_are_worded_and_a_busy_composer_is_not_a_fault(self):
+        for reason, words in (('composer_not_empty', 'its input box holds unsent text'),
+                              ('composer_unrecognized', 'its screen shows something other than the input box'),
+                              ('composer_modal', 'a dialog is open in its terminal')):
+            self.conn.execute('DELETE FROM inbox_nudge_attempts')
+            self.conn.execute('DELETE FROM inbox_events')
+            self.need(SCOUT)
+            self.attempts(SCOUT, ('deferred', reason, 60), ('deferred', reason, 1))
+            self.assertEqual(self.told(), [SCOUT], reason)
+            summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
+            self.assertIn(words, summary)
+            self.assertIn('agent_terminal_restart', summary)
+        for busy in ('composer_busy', 'submit_interrupts'):
+            self.conn.execute('DELETE FROM inbox_nudge_attempts')
+            self.conn.execute('DELETE FROM inbox_events')
+            self.attempts(SCOUT, ('deferred', busy, 60), ('deferred', busy, 1))
+            self.assertEqual(self.told(), [], busy)
+
+    def test_the_managed_rules_still_hold_with_terminals_for_a_worker_that_has_a_terminal(self):
+        self.need(SCOUT)
+        self.attempts(SCOUT, ('deferred', 'host_unverified', 40))
+        self.assertEqual(self.told(), [SCOUT])
 
 
 class WorkerMessageLimitTests(unittest.TestCase):

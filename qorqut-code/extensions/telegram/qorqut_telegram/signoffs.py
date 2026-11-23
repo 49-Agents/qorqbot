@@ -194,7 +194,7 @@ class SignoffBridge:
             draft_review = (dto.get('input') or {}).get('kind') == 'draft_review'
             grouped = is_questionnaire(dto.get('input'))
             reading = (dto.get('input') or {}).get('kind') == 'acknowledge'
-            head = [f"{'Draft review' if draft_review else 'To read' if reading else KINDS.get(dto['category'], 'Approval')}: {dto['title']}",
+            head = [f"{'Draft review' if draft_review else 'For your attention' if reading else KINDS.get(dto['category'], 'Approval')}: {dto['title']}",
                     f"{dto.get('business_name') or 'Global'} · requested by {dto.get('proposer_display_name') or 'an agent'}"]
             tail = []
             if attention.get("reason"):
@@ -656,7 +656,7 @@ class SignoffBridge:
 
         Returns whether a handoff now exists. A proposer that cannot receive it is reported once and nothing is deleted:
         the reply and the post it answered are held (``handoff_json`` on the post) until reconciliation finds a valid handoff.
-        The queued direct input never expires; an offline agent receives it when its terminal is next available. ``binding`` is
+        The queued direct input never expires; an agent whose session is closed receives it when the session is next open. ``binding`` is
         the identity the reply was accepted under (the current one when omitted): direct input is queued only under it.
         """
         binding = binding or self.bridge.check_binding(uow)
@@ -676,7 +676,7 @@ class SignoffBridge:
         return bool(proposer) and active_global(uow.connection, proposer) is not None
 
     def _queue_input(self, uow, row, note_id, message, now, binding):
-        """Queue the direct terminal input under the identity the reply was accepted under, then clean up the Telegram reply.
+        """Queue the direct input under the identity the reply was accepted under, then clean up the Telegram reply.
 
         If that identity is no longer current (an owner or binding change since), no input is queued: the canonical note and
         the proposer's inbox event already hold the reply, and old authority is never carried into the new generation.

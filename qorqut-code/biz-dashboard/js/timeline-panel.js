@@ -1,4 +1,4 @@
-// What holds now on a Task, a Project or Global: goal, decisions, facts, latest progress and open questions, with a History
+// The timeline of a Task, a Project or Global: goal, decisions, facts, latest progress and open questions, with a History
 // switch that shows every entry (removed ones struck, the owner's quoted words, links to subtasks, approvals and reports).
 // Read-only: only Ordubashy writes timelines. An item with no timeline shows nothing.
 const TIMELINE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -8,7 +8,7 @@ function timelineDay(stamp) {
   const match = /^\d{4}-(\d\d)-(\d\d)/.exec(String(stamp || ''));
   return match && TIMELINE_MONTHS[Number(match[1]) - 1] ? `${Number(match[2])} ${TIMELINE_MONTHS[Number(match[1]) - 1]}` : '';
 }
-// True when nothing holds now and nothing was ever filed.
+// True when nothing is current and nothing was ever filed.
 function timelineEmpty(data) {
   const s = data?.state;
   return !s || !(s.goal || s.decisions?.length || s.facts?.length || s.progress || s.questions?.length || data.revision > 0);
@@ -16,7 +16,7 @@ function timelineEmpty(data) {
 const timelineStanding = state => !!(state.goal || state.decisions?.length || state.facts?.length || state.progress || state.questions?.length);
 const timelineLine = row => `<li>${timelineEsc(row.text)}${timelineDay(row.created_at) ? ` <span class="tlp-day">${timelineEsc(timelineDay(row.created_at))}</span>` : ''}</li>`;
 function timelineStateHtml(state) {
-  if (!timelineStanding(state)) return '<p class="tlp-none">Nothing holds now.</p>';
+  if (!timelineStanding(state)) return '<p class="tlp-none">Nothing current.</p>';
   const list = (label, rows) => rows?.length ? `<section class="tlp-block"><h4>${label}</h4><ul>${rows.map(timelineLine).join('')}</ul></section>` : '';
   const one = (label, row) => row ? `<section class="tlp-block"><h4>${label}</h4><p>${timelineEsc(row.text)}${timelineDay(row.created_at) && label === 'Progress' ? ` <span class="tlp-day">${timelineEsc(timelineDay(row.created_at))}</span>` : ''}</p></section>` : '';
   const questions = state.questions?.length ? `<section class="tlp-block"><h4>Open questions</h4><ul>${state.questions.map(q =>
@@ -54,7 +54,7 @@ function timelineHistoryHtml(history) {
 function timelineHtml(data, view = {}) {
   if (timelineEmpty(data)) return view.error ? `<p class="tlp-error" role="alert">${timelineEsc(view.error)}</p>` : '';
   const open = !!view.open;
-  return `<div class="tlp-head"><h3 class="tlp-title">What holds now</h3><button type="button" class="quiet tlp-switch" data-tlp-switch aria-pressed="${open}">${open ? 'Hide history' : 'History'}</button></div>`
+  return `<div class="tlp-head"><button type="button" class="quiet tlp-switch" data-tlp-switch aria-pressed="${open}">${open ? 'Hide history' : 'History'}</button></div>`
     + (open ? (view.history ? timelineHistoryHtml(view.history) : view.error ? '' : '<p class="tlp-none">Loading…</p>') : timelineStateHtml(data.state))
     + (view.error ? `<p class="tlp-error" role="alert">${timelineEsc(view.error)}</p>` : '');
 }
@@ -99,13 +99,87 @@ function timelinePanelMount(host, {readHistory, openTask} = {}) {
       paint();
       if (open && changed) void load(false);
     },
-    // The thread context could not be read again: show the panel's own error line, not the old content.
+    // The timeline could not be read again: show the panel's own error line, not the old content.
     fail(message) {
       data = null; history = null; open = false; error = ''; generation++;
-      contextError = message || "Couldn't load what holds now. Try again";
+      contextError = message || "Couldn't load the timeline. Try again";
       paint();
     },
     dispose() { disposed = true; generation++; host.replaceChildren(); host.hidden = true; },
   };
 }
-if (typeof window !== 'undefined') Object.assign(window, {timelineHtml, timelinePanelMount});
+// The same timeline as a journal, in the look of the rail Timeline page (css/agent-timeline.css): every entry, open question and
+// closed question on one line of dots, newest first, the owner's quoted words behind the row's chevron. A removed entry stays on
+// its own date, struck, and says when and why it was removed.
+const timelineWhen = stamp => typeof acOccurred === 'function' && typeof sjDate === 'function'
+  ? acOccurred({occurred: stamp ? {date: sjDate(stamp), precision: 'instant', instant: stamp} : {}}) : timelineDay(stamp);
+function timelineJournalRows(data) {
+  const entries = data?.entries || [], byId = new Map(entries.map(row => [row.id, row]));
+  const quotesOf = row => (row?.sources || []).map(source => source.quote).filter(Boolean);
+  const rows = [];
+  entries.forEach((row, order) => {
+    if (row.action === 'remove') {
+      if (!byId.has(row.removes_id)) rows.push({id: row.id, at: row.created_at, order, text: `Removed an earlier entry${row.text ? `: ${row.text}` : ''}`, meta: ['Removed'], quotes: quotesOf(row)});
+      return;
+    }
+    const removed = !!row.removed_by, by = removed ? byId.get(row.removed_by) : null;
+    rows.push({id: row.id, at: row.created_at, order, text: row.text, struck: removed,
+      meta: [TIMELINE_KINDS[row.kind] || row.kind, ...(removed ? [`Removed${by && timelineDay(by.created_at) ? ` ${timelineDay(by.created_at)}` : ''}${by?.text ? `: ${by.text}` : ''}`] : [])],
+      quotes: [...quotesOf(row), ...quotesOf(by)]});
+  });
+  (data?.state?.questions || []).forEach((q, order) => rows.push({id: `q:${q.id}`, at: q.created_at || '', order: entries.length + order, text: q.text,
+    meta: ['Open question', ...(q.blocking ? ['Blocks work'] : [])], quotes: []}));
+  (data?.closed_questions || []).forEach((q, order) => {
+    const answer = q.state === 'answered' && q.answer_entry_id ? byId.get(q.answer_entry_id) : null;
+    rows.push({id: `q:${q.id}`, at: q.closed_at || '', order: -1 - order, text: q.text, meta: [q.state === 'answered' ? 'Question answered' : 'Question dropped'], notes: answer?.text ? [answer.text] : [], quotes: []});
+  });
+  // Newest first; an open question with no date is current, so it leads.
+  const time = row => { const at = Date.parse(row.at); return Number.isFinite(at) ? at : Infinity; };
+  return rows.sort((a, b) => time(b) - time(a) || b.order - a.order);
+}
+function timelineJournalRow(row) {
+  const chevron = typeof AGENT_TIMELINE_CHEVRON === 'string' ? AGENT_TIMELINE_CHEVRON : '';
+  const text = timelineEsc(row.text), meta = (row.meta || []).filter(Boolean), evidence = [...(row.notes || []), ...(row.quotes || []).map(quote => `“${quote}”`)];
+  const content = `<div class="agent-timeline-copy"><p class="agent-timeline-text">${row.struck ? `<s>${text}</s>` : text}</p>${meta.length ? `<p class="agent-timeline-meta">${meta.map(timelineEsc).join(' · ')}</p>` : ''}</div>`;
+  return `<li class="agent-timeline-row" data-entry-id="${timelineEsc(row.id)}"><time${row.at ? ` datetime="${timelineEsc(row.at)}"` : ''}>${timelineEsc(timelineWhen(row.at))}</time>${evidence.length
+    ? `<details class="agent-timeline-entry"><summary>${content}<span class="agent-timeline-expand">${chevron}</span></summary><div class="agent-timeline-evidence" aria-label="Evidence">${evidence.map(line => `<p>${timelineEsc(line)}</p>`).join('')}</div></details>`
+    : content}</li>`;
+}
+// Owns one ``section.agent-timeline``. ``read(args)`` is the history read of the item; ``refresh`` reads it again, every page.
+function timelineJournalMount(host, {read} = {}) {
+  let generation = 0, disposed = false, painted = null;
+  host.innerHTML = `<div class="agent-timeline-caption"><p role="status" aria-live="polite" data-status>Loading…</p></div>
+    <div class="agent-timeline-error" hidden><p role="alert"></p><button type="button" class="quiet" data-retry>Retry</button></div>
+    <div class="agent-timeline-empty" hidden><p class="muted">This timeline is empty. Ordubashy has not filed anything here yet.</p></div>
+    <ol class="agent-timeline-list" aria-label="Timeline entries, newest first"></ol>`;
+  const status = host.querySelector('[data-status]'), caption = host.querySelector('.agent-timeline-caption'), problem = host.querySelector('.agent-timeline-error');
+  const none = host.querySelector('.agent-timeline-empty'), list = host.querySelector('ol');
+  async function refresh() {
+    const mine = ++generation;
+    try {
+      let data = await read({}), cursor = data?.next_cursor;
+      // The server pages oldest first; the journal leads with the newest, so it reads to the end before it paints.
+      for (let page = 1; cursor && page < 40; page++) {
+        const next = await read({cursor});
+        data = {...data, entries: [...(data.entries || []), ...(next.entries || [])]}; cursor = next.next_cursor;
+      }
+      if (disposed || mine !== generation) return;
+      const rows = timelineJournalRows(data), html = rows.map(timelineJournalRow).join('');
+      if (html !== painted) {
+        const open = new Set([...list.querySelectorAll('details[open]')].map(node => node.closest('[data-entry-id]')?.dataset.entryId));
+        list.innerHTML = painted = html;
+        for (const node of list.querySelectorAll('details')) if (open.has(node.closest('[data-entry-id]')?.dataset.entryId)) node.open = true;
+      }
+      // An empty timeline says so in its own line, in place of the count.
+      problem.hidden = true; list.hidden = caption.hidden = !rows.length; none.hidden = !!rows.length;
+      status.textContent = rows.length ? `${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}` : '';
+    } catch (_) {
+      if (disposed || mine !== generation) return;
+      painted = null; list.innerHTML = ''; list.hidden = none.hidden = true; caption.hidden = false; status.textContent = '';
+      problem.querySelector('p').textContent = "Couldn't load the timeline. Try again"; problem.hidden = false;
+    }
+  }
+  host.addEventListener('click', event => { if (event.target.closest?.('[data-retry]')) void refresh(); });
+  return {refresh, dispose() { disposed = true; generation++; host.replaceChildren(); }};
+}
+if (typeof window !== 'undefined') Object.assign(window, {timelineHtml, timelinePanelMount, timelineJournalMount});

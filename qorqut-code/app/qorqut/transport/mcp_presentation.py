@@ -7,6 +7,7 @@ must never enter a prepared mutation or replace an evidence read.
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from collections import Counter
+import copy
 import hashlib
 import json
 import re
@@ -144,6 +145,144 @@ def serialize(value):
         return "response_detail: text\n" + yaml.dump(rendered, Dumper=_TextDumper,
             sort_keys=False, allow_unicode=True, width=100000)
     return json.dumps(value, separators=(",", ":"))
+
+
+# A harness refuses a tool result above its own size limit and hands the agent a file path instead of an answer; the
+# smallest result refused so far was 52,551 characters and the largest accepted 46,419. Results are cut below that here,
+# where the cut can say what is missing and how to read it.
+RESULT_CHARACTER_BUDGET = 40_000
+RESULT_NOTICE_ROOM = 2_500
+# Bytes an agent reads by range and reassembles; shortening them would corrupt the file. They are never measured or cut.
+BOUND_PROTECTED_KEYS = frozenset({"content_base64", "_mcp_images"})
+# Arguments that make a read smaller, in the order an agent should reach for them.
+NARROWING_ARGUMENTS = ("limit", "cursor", "position", "offset", "projection", "response_detail", "text_limit",
+    "text_cursor", "history_limit", "history_cursor", "sections", "tool_names", "columns", "fields", "state", "since",
+    "until", "hours", "q", "query", "search")
+BOUND_NOTICE_KEY = "result_cut"
+_CUT_TEXT_FLOOR = 400
+_CUT_MARK = " …[cut: see result_cut]"
+
+
+def _unprotected(value):
+    if isinstance(value, dict):
+        return {key: _unprotected(item) for key, item in value.items() if key not in BOUND_PROTECTED_KEYS}
+    if isinstance(value, list):
+        return [_unprotected(item) for item in value]
+    return value
+
+
+def _json_size(value):
+    return len(json.dumps(value, separators=(",", ":"), default=str))
+
+
+def _path(steps):
+    return "".join(f"[{step}]" if isinstance(step, int) else ("." if index else "") + str(step)
+                   for index, step in enumerate(steps))
+
+
+def _largest(value):
+    """The largest list of several entries and the largest text below ``value``, each with where it sits."""
+    best_list, best_text = None, None
+    stack = [(value, (), None, None)]
+    while stack:
+        item, where, holder, key = stack.pop()
+        if isinstance(item, dict):
+            stack.extend((child, (*where, name), item, name)
+                         for name, child in item.items() if name not in BOUND_PROTECTED_KEYS and name != BOUND_NOTICE_KEY)
+        elif isinstance(item, list):
+            if len(item) > 1:
+                size = _json_size(item)
+                if best_list is None or size > best_list[0]:
+                    best_list = (size, where, holder, key)
+            stack.extend((child, (*where, index), item, index) for index, child in enumerate(item))
+        elif isinstance(item, str) and holder is not None and len(item) > _CUT_TEXT_FLOOR:
+            if best_text is None or len(item) > best_text[0]:
+                best_text = (len(item), where, holder, key)
+    return best_list, best_text
+
+
+def bound(value, *, narrowing=(), budget=RESULT_CHARACTER_BUDGET):
+    """``value`` as it fits the result size limit, and what was cut (``None`` when nothing was).
+
+    The largest list loses entries from its end and the largest text loses its tail, largest first, until the result
+    fits. Every cut is named in ``result_cut`` with how much was returned of how much, so a shortened result never reads
+    as a complete one. This is presentation only: it runs after the operation, including an idempotent replay, and never
+    touches what a write stored. Attachment and image bytes are left whole.
+    """
+    if not isinstance(value, dict):
+        return value, None
+    measured = _unprotected(value)
+    full = len(serialize(measured))
+    if full <= budget:
+        return value, None
+    # Text detail is measured as the YAML it is sent as; cuts are sized on the JSON form and scaled by this ratio.
+    ratio = full / max(_json_size(measured), 1)
+    work = copy.deepcopy(value)
+    lists, texts = {}, {}
+    target = budget - RESULT_NOTICE_ROOM
+    for _ in range(3):
+        for _ in range(40):
+            size = _json_size(_unprotected(work)) * ratio
+            if size <= target:
+                break
+            excess = int((size - target) / ratio) + 1
+            biggest_list, biggest_text = _largest(work)
+            if biggest_list and (biggest_text is None or biggest_list[0] >= biggest_text[0]):
+                list_size, where, holder, key = biggest_list
+                items, kept, room = holder[key], 0, list_size - excess
+                used = 2
+                for item in items:
+                    used += _json_size(item) + 1
+                    if used > room and kept:
+                        break
+                    kept += 1
+                kept = max(1, min(kept, len(items) - 1))
+                lists.setdefault(where, len(items))
+                holder[key] = items[:kept]
+            elif biggest_text:
+                length, where, holder, key = biggest_text
+                kept = max(_CUT_TEXT_FLOOR // 2, length - excess - 80)
+                if kept >= length:
+                    break
+                texts.setdefault(where, length)
+                holder[key] = holder[key][:kept].removesuffix(_CUT_MARK) + _CUT_MARK
+            else:
+                break
+        notice = {"reason": "result_too_large", "full_characters": full, "limit": budget,
+            "lists": [{"path": _path(where), "returned": len(_at(work, where)), "of": total} for where, total in lists.items()
+                      if _at(work, where) is not None],
+            "texts": [{"path": _path(where), "returned_characters": len(_at(work, where)) - len(_CUT_MARK), "of_characters": total}
+                      for where, total in texts.items() if _at(work, where) is not None],
+            "narrow_with": [name for name in NARROWING_ARGUMENTS if name in narrowing],
+            "note": instruction_text('mcp-presentation-result-cut-to-fit-the-size-limit')}
+        if "limit" in narrowing and notice["lists"]:
+            notice["retry"] = {"limit": min(row["returned"] for row in notice["lists"])}
+        notice = {key: item for key, item in notice.items() if item != []}
+        # The notice comes before the data, so a reader meets it before the shortened lists and texts.
+        result = {**{key: work[key] for key in ("status",) if key in work}, BOUND_NOTICE_KEY: notice,
+                  **{key: item for key, item in work.items() if key != "status"}}
+        if len(serialize(_unprotected(result))) <= budget:
+            return result, notice
+        target = int(target * 0.8)
+    # Nothing left to shorten sensibly: say what the result holds instead of sending something a harness will refuse.
+    data = value.get("data")
+    outline = ({key: {"characters": _json_size(_unprotected(item))} for key, item in data.items()}
+               if isinstance(data, dict) else {"characters": full})
+    notice = {"reason": "result_too_large", "full_characters": full, "limit": budget, "outline": outline,
+        "narrow_with": [name for name in NARROWING_ARGUMENTS if name in narrowing],
+        "note": instruction_text('mcp-presentation-result-cut-to-fit-the-size-limit')}
+    kept = {key: item for key, item in value.items() if key not in ("data", "status")}
+    return {**{key: value[key] for key in ("status",) if key in value}, BOUND_NOTICE_KEY: notice, **kept, "data": {}}, notice
+
+
+def _at(value, path):
+    """The entry a cut path names, or ``None`` when an earlier cut removed it."""
+    for step in path:
+        try:
+            value = value[step]
+        except (KeyError, IndexError, TypeError):
+            return None
+    return value
 
 
 def finalize(value):

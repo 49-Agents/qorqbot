@@ -1,6 +1,6 @@
 schema_version: 1
 id: global-worker
-version: 1.8.0
+version: 1.12.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/global-worker/BRIEF.md
@@ -10,6 +10,8 @@ skills:
   path: operations/imported-role-skills/native/skills/managed-browser-control/SKILL.md
 - id: owner-reminders
   path: operations/imported-role-skills/native/skills/owner-reminders/SKILL.md
+- id: personal-record
+  path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
 default_tool_policy:
   signoffs_input_create: allow
   signoffs_source_link: allow

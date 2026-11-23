@@ -8,13 +8,15 @@ from pathlib import Path
 import stat
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest import mock
+import uuid
 import zipfile
 
 from qorqut_operations.contracts import DomainError
 from qorqut.browser import managed_chrome as mc
-from tests.test_browser_shared_profile import ATLAS, SCOUT, SharedProfileTest
+from tests.test_browser_shared_profile import SharedProfileTest
 
 TOP = "chrome-linux64"
 PAGE = "#!/bin/sh\necho '<html><head></head><body></body></html>'\n"
@@ -305,7 +307,6 @@ class BackOffTest(ManagedChromeTest):
         self.assertEqual(runs, [{"automatic": True}, {}])
 
     def test_setup_passes_it_on(self):
-        from types import SimpleNamespace
         from qorqut.browser import setup
         with mock.patch.object(mc, "start") as start:
             setup.prepare_chrome(SimpleNamespace(paths=SimpleNamespace(runtime=self.runtime)), backoff={})
@@ -642,65 +643,83 @@ class NewAndExistingBrowsersTest(SharedProfileTest):
         for name in ("QORQUT_CHROME_EXECUTABLE", "QORQUT_NATIVE_ROOT"):
             os.environ.pop(name, None)
         self.install = lambda: mc.converge(self.paths.runtime, download=Download(data), check=lambda *_a: None)
+        # The permanent agents the one browser serves; who they are does not matter to which Chrome it runs on.
+        agents = []
+        for name in ("Atlas", "Scout"):
+            workspace = self.paths.instance_root / "chrome-agents" / name
+            workspace.mkdir(parents=True)
+            agents.append(SimpleNamespace(agent_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, name)), name=name, lead=name == "Atlas",
+                                          workspace=workspace))
+        self.manager._authorize = lambda _principal, owner_control=False: agents
+        self.keys = 0
 
-    def chrome(self, agent):
+    def manage(self, action):
+        self.keys += 1
+        return self.manager.manage("owner", {"action": action}, None if action == "status" else f"chrome-key-{self.keys}",
+                                   owner_control=True)
+
+    def chrome(self):
         import json
-        return json.loads((self.state(agent) / "meta.json").read_text())["managed"]["chrome"]
+        from qorqut.browser.agent_browsers import SHARED_ID, agent_state
+        return json.loads((agent_state(self.paths, SHARED_ID) / "meta.json").read_text())["managed"]["chrome"]
+
+    def profile(self):
+        from qorqut.browser.agent_browsers import SHARED_ID, agent_state
+        return agent_state(self.paths, SHARED_ID) / "profile"
 
     def test_without_qorqbots_own_chrome_a_new_browser_runs_on_the_installed_one(self):
-        self.manage(ATLAS, "ensure")
-        self.assertEqual(self.chrome(ATLAS), self.manager.chrome)
+        self.manage("ensure")
+        self.assertEqual(self.chrome(), self.manager.chrome)
 
     def test_a_new_browser_runs_on_qorqbots_own_chrome_once_it_is_installed(self):
         managed = str(self.install())
-        self.assertEqual(self.manage(ATLAS, "ensure")["state"], "healthy")
-        self.assertEqual(self.chrome(ATLAS), managed)
+        self.assertEqual(self.manage("ensure")["state"], "healthy")
+        self.assertEqual(self.chrome(), managed)
         self.assertIn("/chrome/current/", managed)
 
     def test_an_existing_browser_keeps_its_chrome_and_profile_when_qorqbots_own_appears(self):
-        self.manage(ATLAS, "ensure")
-        (self.state(ATLAS) / "profile/Cookies").write_text("signed in")
-        managed = str(self.install())
+        self.manage("ensure")
+        (self.profile() / "Cookies").write_text("signed in")
+        self.install()
         for action in ("ensure", "restart", "repair", "stop", "ensure"):
-            self.manage(ATLAS, action)
-        self.assertEqual(self.chrome(ATLAS), self.manager.chrome)
-        self.assertEqual((self.state(ATLAS) / "profile/Cookies").read_text(), "signed in")
-        self.manage(SCOUT, "ensure")
-        self.assertEqual(self.chrome(SCOUT), managed)
+            result = self.manage(action)
+        self.assertEqual(self.chrome(), self.manager.chrome)
+        self.assertEqual((self.profile() / "Cookies").read_text(), "signed in")
+        self.assertEqual([agent["connected"] for agent in result["agents"]], [True, True])    # every agent, on that one Chrome
 
     def test_qorqbots_own_chrome_is_enough_where_no_chrome_is_installed(self):
         self.manager.chrome = "/usr/bin/google-chrome-stable-is-not-installed"
-        self.assertEqual(self.manage(ATLAS, "status")["state"], "unsupported")
+        self.assertEqual(self.manage("status")["state"], "unsupported")
         managed = str(self.install())
-        self.assertEqual(self.manage(ATLAS, "status")["state"], "missing")
-        self.assertEqual(self.manage(ATLAS, "ensure")["state"], "healthy")
-        self.assertEqual(self.chrome(ATLAS), managed)
+        self.assertEqual(self.manage("status")["state"], "missing")
+        self.assertEqual(self.manage("ensure")["state"], "healthy")
+        self.assertEqual(self.chrome(), managed)
 
-    def refused(self, agent, action="ensure"):
+    def refused(self, action="ensure"):
         with self.assertRaises(DomainError) as raised:
-            self.manage(agent, action)
+            self.manage(action)
         self.assertEqual(raised.exception.code, "browser_capability_missing")
         return str(raised.exception)
 
     def test_a_browser_that_has_no_chrome_yet_is_told_that_qorqbots_own_is_on_its_way(self):
         self.manager.chrome = "/usr/bin/google-chrome-stable-is-not-installed"
         with mock.patch.object(self.manager, "_capable", return_value=True):      # as when Chrome goes after the check
-            message = self.refused(ATLAS)
+            message = self.refused()
             self.assertIn("downloaded", message)
             self.assertIn(self.manager.chrome, message)
             self.assertNotRegex(message, "(?i)install chrome|nothing is downloaded")
             with mock.patch.dict(os.environ, {"QORQUT_CHROME_EXECUTABLE": self.manager.chrome}):
-                message = self.refused(ATLAS)                # an explicit choice: nothing is downloaded, and it says so
+                message = self.refused()                # an explicit choice: nothing is downloaded, and it says so
             self.assertNotIn("downloaded", message)
             self.assertIn(self.manager.chrome, message)
 
     def test_a_browser_whose_own_chrome_is_gone_is_told_what_brings_it_back(self):
         import shutil
         managed = str(self.install())
-        self.manage(ATLAS, "ensure")
-        self.manage(ATLAS, "stop")
+        self.manage("ensure")
+        self.manage("stop")
         shutil.rmtree(mc.chrome_root(self.paths.runtime))
-        message = self.refused(ATLAS)
+        message = self.refused()
         self.assertIn(managed, message)
         self.assertIn("downloaded again", message)
         self.assertNotIn("nothing is downloaded", message)
@@ -708,8 +727,8 @@ class NewAndExistingBrowsersTest(SharedProfileTest):
     def test_an_explicitly_chosen_chrome_is_never_replaced(self):
         self.install()
         with mock.patch.dict(os.environ, {"QORQUT_CHROME_EXECUTABLE": self.manager.chrome}):
-            self.manage(ATLAS, "ensure")
-        self.assertEqual(self.chrome(ATLAS), self.manager.chrome)
+            self.manage("ensure")
+        self.assertEqual(self.chrome(), self.manager.chrome)
 
 
 del SharedProfileTest          # its own tests run from their module, not again from here

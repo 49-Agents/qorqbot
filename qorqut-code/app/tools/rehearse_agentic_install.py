@@ -34,7 +34,7 @@ from qorqut.service.runtime import build_runtime
 from qorqut.service.web import create_app
 from qorqut.transport.auth import Authentication
 
-VERSIONS = {"claude-code": "2.1.263 (Claude Code)", "codex": "codex-cli 0.153.4"}
+VERSIONS = {"claude-code": "2.1.263 (Claude Code)", "codex": "codex-cli 0.170.0"}
 
 
 def check(value, message):

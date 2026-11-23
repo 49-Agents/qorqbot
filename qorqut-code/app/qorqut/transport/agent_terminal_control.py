@@ -1,46 +1,55 @@
-"""Host tmux adapter: registered targets only; no caller-provided commands."""
+"""Host tmux adapter (Terminals mode, Claude Code only): registered targets only; no caller-provided commands."""
 import hashlib
 import json
 import logging
 import os
+import shlex
 import sys
 import threading
 import time
-from collections import namedtuple
 from pathlib import Path
 from uuid import uuid4
 from qorqut.agents import roles
+from qorqut.managed_runtime import clients, mode, models, options
+from qorqut.native_chat.contracts import OwnerInputOutcome
 from qorqut_operations.contracts import DomainError
 from qorqut.transport import terminal_composer
 
 SHELLS = frozenset({'bash','zsh','sh','fish'})
 DEV_ROLE = 'dev'
 # The fixed launcher of Dev and of a global worker per trusted profile runtime: the normal configured client, no arguments.
-LAUNCH_CLIENTS = {'claude-code':'claude', 'codex':'codex'}
-CLIENT_PROCESSES = {'codex':frozenset({'codex'}), 'claude':frozenset({'claude','claude.exe'})}
+# Terminals run Claude Code only (the installation's mode never offers Codex here).
+LAUNCH_CLIENTS = {'claude-code':'claude'}
+CLIENT_PROCESSES = {'claude':frozenset({'claude','claude.exe'})}
 # A profile's runtime names the client its terminal must be running for owner input.
-RUNTIME_CLIENTS = {'claude-code':'claude', 'codex':'codex'}
-CLIENT_NAMES = {'claude':'Claude Code', 'codex':'Codex'}
+RUNTIME_CLIENTS = {'claude-code':'claude'}
+CLIENT_NAMES = {'claude':'Claude Code'}
 NATIVE_ONLY = 'Terminal control currently requires native host execution'
+CLAUDE_ONLY = 'Only Claude Code agents can run in terminals.'
+READY_SECONDS = 30.0
+# Every entry point of the terminal backend answers this on an installation that runs managed sessions.
+TERMINAL_MODE_OFF = 'Agents run as managed sessions on this installation.'
 MAX_OWNER_INPUT_CHARS = 17000
 # A busy CLI can take several frames to display a bracketed paste. Re-read only:
 # never paste twice or submit without the existing checks.
 PASTE_VERIFY_ATTEMPTS = 10
 PASTE_VERIFY_INTERVAL = .2
-# ``receipt`` names what was observed once input was attempted (client, a hash of the terminal identity, the composer
-# fingerprint); it never carries screen text or the typed text.
-OwnerInputOutcome = namedtuple('OwnerInputOutcome', 'status reason receipt', defaults=(None,))
+
+
+def _holds_role(row, role_id):
+    value = row.get('profile_json') if isinstance(row, dict) else None
+    data = json.loads(value) if isinstance(value, str) else value
+    return data if isinstance(data, dict) and (data.get('role') or {}).get('id') == role_id else None
 
 
 def _launch_client(row, role_id):
     """The launcher from a trusted profile runtime when the profile holds ``role_id``; None for every other role."""
-    value = row.get('profile_json') if isinstance(row, dict) else None
-    data = json.loads(value) if isinstance(value, str) else value
-    if not isinstance(data, dict) or (data.get('role') or {}).get('id') != role_id:
+    data = _holds_role(row, role_id)
+    if data is None:
         return None
     client = LAUNCH_CLIENTS.get(data.get('runtime'))
     if client is None:
-        raise DomainError('unsupported_runtime', 'Terminal control supports Claude Code and Codex only')
+        raise DomainError('unsupported_runtime', CLAUDE_ONLY)
     return client
 
 
@@ -55,7 +64,7 @@ def worker_client(row):
 
 
 def runtime_client(row):
-    """The client (``codex`` or ``claude``) a registered profile's runtime runs; None when it is not one of those."""
+    """The client (``claude``) a registered profile's runtime runs; None when it is not Claude Code."""
     value = row.get('profile_json') if isinstance(row, dict) else None
     data = json.loads(value) if isinstance(value, str) else value
     return RUNTIME_CLIENTS.get(data.get('runtime')) if isinstance(data, dict) else None
@@ -64,7 +73,7 @@ def runtime_client(row):
 def agent_client(row):
     """The client a registered agent's trusted profile runtime runs, for every role: Dev and a global worker per their own
     launcher rules, every other agent (Ordubashy and the rest) by its profile runtime. None when the profile names no supported
-    runtime; the caller refuses then, and never assumes Codex."""
+    runtime; the caller refuses then."""
     return dev_client(row) or worker_client(row) or runtime_client(row)
 
 
@@ -76,22 +85,76 @@ class OwnerInputDeferred(Exception):
         self.reason = reason
 
 
+def start_flags(paths, agent_id) -> str:
+    """The agent's stored model and effort as the words a typed Claude Code start command ends with (leading space), else ''.
+
+    The same flags and checks the managed Claude driver gets (``clients.launch_arguments``, ``models.fits``): a stored model of the
+    other client's family is not passed, an effort Claude does not take is dropped, and each word is quoted for the shell."""
+    chosen = options.read(paths, agent_id)
+    model = chosen.model if models.fits(clients.CLAUDE, chosen.model) else None
+    return ''.join(' ' + shlex.quote(word) for word in clients.launch_arguments(clients.CLAUDE, model, chosen.effort))
+
+
 class AgentTerminalBackend:
-    def __init__(self, terminals, *, timeout=30, sleep=time.sleep, screen_settle=.15, paste_settle=.3, submit_settle=1.0):
+    def __init__(self, terminals, *, timeout=30, sleep=time.sleep, screen_settle=.15, paste_settle=.3, submit_settle=1.0,
+                 ready=None, clock=time.monotonic):
         self.terminals, self.runtime = terminals, terminals.runtime
+        # ``ready(client)``: that CLI is installed and signed in. Asked only for an agent with no stored client; the answer is
+        # kept for a few seconds, so reading status never starts a check each time.
+        self._ready_source, self._clock, self._ready_seen = ready, clock, None
         self.timeout, self.sleep = timeout, sleep
         self.screen_settle, self.paste_settle, self.submit_settle = screen_settle, paste_settle, submit_settle
         self._owner_locks = {}
 
+    def require_terminal_mode(self):
+        """Every entry point asks first: a managed installation has no terminals, and nothing here may touch tmux for it."""
+        if not mode.is_terminal(getattr(self.runtime, 'paths', None)):
+            raise DomainError('terminal_mode_off', TERMINAL_MODE_OFF)
+
+    def _client_ready(self, client):
+        now = self._clock()
+        if self._ready_seen is None or now - self._ready_seen[0] > READY_SECONDS:
+            source = self._ready_source or options.ready_function()
+            self._ready_seen = (now, {name: bool(source(name)) for name in clients.CLIENTS})
+        return self._ready_seen[1].get(client, False)
+
+    def terminal_client(self, row):
+        """The client this agent's terminal runs: ``claude`` when the agent's effective client is Claude Code, else None.
+
+        The effective client is the one an open of the agent uses in managed mode (``options.effective_client``: the owner's
+        choice in Settings, else the profile's client when ready, else the other one when ready), so an agent whose profile says
+        Codex but who runs on Claude Code in Settings starts Claude Code. It reads one small file and starts nothing."""
+        try:
+            effective = options.effective_client(getattr(self.runtime, 'paths', None), row['agent_id'], row, self._client_ready)
+        except (KeyError, IndexError, TypeError):
+            return None
+        return 'claude' if effective == clients.CLAUDE else None
+
+    def require_client(self, row):
+        """``claude``, or the plain refusal for an agent whose effective client is Codex."""
+        client = self.terminal_client(row)
+        if client is None:
+            raise DomainError('unsupported_runtime', CLAUDE_ONLY)
+        return client
+
+    def _dev(self, row):
+        """Dev's launcher: Dev is owner-project-led, so only its role (not its profile runtime) decides, once the client is Claude."""
+        return self.terminal_client(row) if _holds_role(row, DEV_ROLE) is not None else None
+
     def selected_client(self, row):
-        """The client of the agent's selected conversation, which may differ from the profile runtime after a terminal
-        switch between Claude and Codex; None when nothing is selected."""
+        """``claude`` when the agent runs Claude Code in terminals and its selected conversation is a Claude Code one; None when
+        nothing usable is selected (a conversation of any other client is not resumed in a terminal)."""
         from qorqut.native_chat import selection
+        self.require_terminal_mode()
+        if self.terminal_client(row) is None:
+            return None
         with self.runtime.database.read() as uow:
             chosen = selection.selected(uow.connection, row['agent_id'])
-        return chosen.provider if chosen is not None and chosen.provider in ('claude', 'codex') else None
+        return chosen.provider if chosen is not None and chosen.provider == 'claude' else None
 
     def selected(self, row):
+        """The registered tmux target of the agent: ``(broker, key, session, workspace, business)``."""
+        self.require_terminal_mode()
         with self.runtime.database.read() as uow:
             business = uow.repository('businesses').get(row['home_business_id']) if row['home_business_id'] else None
         execution = self.terminals.execution(business)
@@ -105,8 +168,9 @@ class AgentTerminalBackend:
 
     def snapshot(self, row, *, client=None):
         """The registered terminal's observation. ``client`` (owner input) names the client to verify for any role."""
-        selected = client or agent_client(row)
-        client = selected or 'codex'
+        self.require_terminal_mode()
+        selected = client or self.terminal_client(row)
+        client = selected or 'claude'
         native = getattr(self.runtime, 'native_chat', None)
         revision = native.attachment.revision(row['agent_id']) if native is not None else None
         broker, _, session, _, _ = self.selected(row)
@@ -123,7 +187,7 @@ class AgentTerminalBackend:
             # exposes the pane shell's foreground process group in /proc instead.
             if sys.platform == 'darwin':
                 from qorqut import process_info
-                foreground = int(process_info.fields(int(fields[3]))[5])
+                foreground = int(process_info.fields(int(fields[3]), terminal=True)[5])
             else:
                 stat = Path(f'/proc/{fields[3]}/stat').read_text()
                 foreground = int(stat[stat.rfind(')')+2:].split()[5])
@@ -159,10 +223,7 @@ class AgentTerminalBackend:
                         args = (process / 'cmdline').read_bytes().split(b'\0')
                     if group != foreground or name not in CLIENT_PROCESSES[client]:
                         continue
-                    # Lifecycle control owns the viewer pane, never the shared server.
                     # Current-conversation proof for raw input lives in AttachmentService.
-                    if b'app-server' in args:
-                        raise DomainError('operation_unavailable', 'A shared app-server is not a terminal viewer')
                     command, verified = client, True
                     break
                 except PermissionError:
@@ -189,8 +250,7 @@ class AgentTerminalBackend:
                      shares its session and controlling terminal. ``client`` carries its pid, start ticks and argv.
         * ``other``  anything else, including an ambiguous foreground.
 
-        Unlike ``snapshot`` it also describes a Codex client attached to a shared server (``--remote``), which control and input
-        never act on. Nothing is typed or changed; an observation that cannot be made raises, and a caller fails closed."""
+        Nothing is typed or changed; an observation that cannot be made raises, and a caller fails closed."""
         broker, _, session, _, _ = self.selected(row)
         if not broker.session_alive(session):
             return {'state': 'absent'}
@@ -259,7 +319,7 @@ class AgentTerminalBackend:
         [5] foreground group of that tty, [19] start ticks."""
         if sys.platform == 'darwin':
             from qorqut.process_info import fields
-            return fields(pid)
+            return fields(pid, terminal=True)
         text = Path(f'/proc/{pid}/stat').read_text()
         return text[text.rfind(')')+2:].split()
 
@@ -284,11 +344,11 @@ class AgentTerminalBackend:
                 raise DomainError('invalid_transition', 'Start requires an absent terminal or idle shell')
         elif snapshot['state']!='present':
             raise DomainError('invalid_transition', 'Action requires an existing terminal')
-        # A Dev binding names its runtime's client; every other target keeps Codex.
-        if action=='ping' and snapshot.get('command')!=snapshot.get('client', 'codex'):
+        # A Dev binding names its runtime's client; every other target keeps Claude Code.
+        if action=='ping' and snapshot.get('command')!=snapshot.get('client', 'claude'):
             raise DomainError('invalid_transition', 'Direct ping requires the agent\'s verified foreground client')
 
-    # The terminal's foreground shell is what receives the launcher and what carries Qorqbot's claude and codex wrappers, which
+    # The terminal's foreground shell is what receives the launcher and what carries Qorqbot's claude wrapper, which
     # apply only in the agent's own workspace root (bootstrap/preparation.py). Start never moves it there or types a cd.
     @staticmethod
     def _physical(path):
@@ -334,7 +394,7 @@ class AgentTerminalBackend:
             self.sleep(.2)
         raise DomainError('operation_unavailable', 'Cannot identify the foreground terminal process')
 
-    def wait_ready(self, row, client='codex'):
+    def wait_ready(self, row, client='claude'):
         broker, _, session, _, _ = self.selected(row)
         until = time.monotonic()+self.timeout
         while time.monotonic()<until:
@@ -351,14 +411,11 @@ class AgentTerminalBackend:
                 raise DomainError('reprepare_required', 'Agent preparation failed')
             if not code and snap.get('command')==client:
                 # Only a verified idle composer: never type into trust/login/error prompts.
-                if client=='claude':
-                    try:
-                        self._ready(row, client)
-                        return
-                    except OwnerInputDeferred:
-                        pass
-                elif any(line.lstrip().startswith('›') for line in screen.splitlines()):
+                try:
+                    self._ready(row, client)
                     return
+                except OwnerInputDeferred:
+                    pass
             self.sleep(.2)
         raise DomainError('operation_unavailable', f"{CLIENT_NAMES[client]} did not reach its input prompt; inspect terminal")
 
@@ -366,22 +423,44 @@ class AgentTerminalBackend:
         """One owner-authorized terminal action. It runs under the agent's one lock (shared with Chat sends, selection,
         reconnect and raw terminal input), so none of them can land between the checks below and the change to the terminal."""
         from contextlib import nullcontext
+        self.require_terminal_mode()
         native = getattr(self.runtime, 'native_chat', None)
         with native.arbiter.locks(row['agent_id']) if native is not None else nullcontext():
             return self._execute(row, action, message, expected, input_key, native)
+
+    def start_agent(self, agent_id):
+        """Start one agent in its own terminal, as the Start action does but without a ``terminal_actions`` batch (the owner's
+        installation-wide switch to Terminals calls this once per agent). The terminal is opened with the prepared shell, then the
+        agent's selected Claude Code conversation is resumed, or, when nothing usable is selected, the client is launched fresh
+        and ``/role`` sent. Returns ``{"agent_id", "resumed"}``; any refusal is a ``DomainError`` with a plain message."""
+        from contextlib import nullcontext
+        self.require_terminal_mode()
+        with self.runtime.database.read() as uow:
+            found = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=? AND status='active'", (agent_id,)).fetchone()
+        if found is None:
+            raise DomainError('not_found', 'Registered active agent was not found')
+        row = dict(found)
+        native = getattr(self.runtime, 'native_chat', None)
+        with native.arbiter.locks(agent_id) if native is not None else nullcontext():
+            expected = self.snapshot(row)
+            self.validate('start', expected)
+            launcher = self.require_client(row)
+            if expected.get('client') != launcher:
+                raise DomainError('revision_conflict', 'Agent runtime changed before dispatch')
+            _, resumed = self._start_client(row, launcher, expected.get('selection_revision'), native)
+        return {'agent_id': agent_id, 'resumed': resumed}
 
     def _execute(self, row, action, message, expected, input_key, native):
         if self.snapshot(row)!=expected:
             raise DomainError('revision_conflict', 'Terminal changed before dispatch')
         self.validate(action, expected)
-        dev = dev_client(row)
-        launcher = agent_client(row)
+        launcher = self.terminal_client(row)
         if launcher and expected.get('client') != launcher:
             raise DomainError('revision_conflict', 'Agent runtime changed before dispatch')
         # The selection this action was authorized against, read before the old pane is touched; start/restart may resume only
         # exactly this one, never whichever selection exists after the old terminal is gone.
         authorized = expected.get('selection_revision')
-        broker, key, session, workspace, business = self.selected(row)
+        broker, key, _, _, _ = self.selected(row)
         if action=='ping':
             return self._ping(row, message, input_key or f"terminal-action:{uuid4()}", launcher)
         if action in {'kill','restart'}:
@@ -390,6 +469,14 @@ class AgentTerminalBackend:
             if code: raise DomainError('operation_failed', 'Terminal termination could not be confirmed')
             broker.stop(key)
             if action=='kill': return 'Bound terminal terminated'
+        return self._start_client(row, launcher, authorized, native)[0]
+
+    def _start_client(self, row, launcher, authorized, native):
+        """The part Start, Restart and ``start_agent`` share, from an absent or ended terminal to a launched client: open the
+        prepared shell, check it, record folder trust, then resume the selected conversation or launch afresh. Returns the
+        message and whether a conversation was resumed."""
+        broker, _, session, workspace, business = self.selected(row)
+        dev = self._dev(row)
         # Authorization has already been persisted and consumed by the controller.
         # Reconstitute owner context solely for the existing trusted preparation path.
         with self.runtime.database.read() as uow:
@@ -399,10 +486,9 @@ class AgentTerminalBackend:
         snap = self.opened_snapshot(row)
         if snap.get('command') not in SHELLS:
             raise DomainError('invalid_transition', 'Terminal is not an idle shell')
-        # Every agent runs the client its trusted profile runtime names; there is no Codex default, and nothing is typed for one
-        # whose runtime is not a supported client.
+        # Every agent runs its effective client; nothing is typed for one that is not Claude Code.
         if launcher is None:
-            raise DomainError('unsupported_runtime', 'Terminal control supports Claude Code and Codex agents only')
+            raise DomainError('unsupported_runtime', CLAUDE_ONLY)
         # An agent's launcher is typed into its shell, whose wrappers belong to the agent's own folder: a terminal the owner
         # has moved elsewhere is refused before any trust is recorded or anything is typed. Dev's owner-project launch is
         # exempt.
@@ -425,29 +511,26 @@ class AgentTerminalBackend:
         # shell by process identity and does its own line-clear, so nothing is typed before it has.
         resumed = native.attachment.resume_selected(row['agent_id'], authorized) if native is not None else None
         if resumed is not None:
-            return resumed
+            return resumed, True
         # Clear any partially typed shell command before entering the fixed launcher.
         code, _ = broker.tmux('send-keys','-t',snap['pane_id'],'C-u')
         if code: raise DomainError('operation_failed', 'Could not prepare shell input')
         if dev:
             # Dev is owner-project-led: no role, work prompt or readiness scraping follows.
             broker.submit_input(session, dev)
-            return 'Startup command submitted; readiness/work is not confirmed'
+            return 'Startup command submitted; readiness/work is not confirmed', False
         client = launcher
-        name, role_command = CLIENT_NAMES[client], '/role' if client=='claude' else '$role'
-        # The agent shell's wrapper would otherwise open a bare launch with the role prompt typed again just below.
-        broker.submit_input(session, 'QORQBOT_ROLE_SENT=1 ' + client)
+        name, role_command = CLIENT_NAMES[client], '/role'
+        # The agent shell's wrapper would otherwise open a bare launch with the role prompt typed again just below. The stored
+        # model and effort ride on the command, as they do for a managed session.
+        broker.submit_input(session, 'QORQBOT_ROLE_SENT=1 ' + client + start_flags(self.runtime.paths, row['agent_id']))
         self.wait_ready(row, client)
         broker.submit_input(session, role_command)
         self.sleep(.2)
         snap = self.snapshot(row)
         if snap.get('command') != client:
             raise DomainError('operation_failed', f'{name} exited during role submission')
-        if client=='codex':
-            # Codex shows a skill picker for $role; one more Enter selects it.
-            code, _ = broker.tmux('send-keys', '-t', snap['pane_id'], 'Enter')
-            if code: raise DomainError('operation_failed', 'Role submission could not be confirmed')
-        return f'{name} started and {role_command} submitted; role work completion is not implied'
+        return f'{name} started and {role_command} submitted; role work completion is not implied', False
 
     # ----- owner input --------------------------------------------------------------------------------------
     # Typed into the exact registered client only when its screen positively shows an idle, empty composer. This is a
@@ -526,7 +609,7 @@ class AgentTerminalBackend:
         ``workdir`` is a private (0700) directory for the short-lived paste file, which never carries the text in argv.
         """
         self.validate_owner_text(text)
-        client = self.selected_client(row) or runtime_client(row)
+        client = self.selected_client(row) or self.terminal_client(row)
         if client is None:
             return OwnerInputOutcome('failed', 'unsupported_runtime')
         lock = self._owner_locks.setdefault(row['agent_id'], threading.Lock())

@@ -43,7 +43,13 @@ class AgentContext:
         if not identity or ctx.principal_kind not in {'human', 'agent'}:
             raise DomainError('forbidden', 'Agent context requires an agent or installation owner')
         if ctx.principal_kind == 'agent' and identity != ctx.agent_id:
-            raise DomainError('forbidden', 'Agents may access only their own context')
+            # The configured coordinator inspects a worker it manages, as the owner inspects any agent; the Learning Applier
+            # and every other agent stay out of its reach, and a worker reads only its own.
+            from qorqut.agents.worker_access import is_worker
+            from qorqut.management.identity import configured_ordubashy
+            if (ctx.delegation_assignment_id is not None or ctx.principal_id != configured_ordubashy(uow)
+                    or not is_worker(uow.connection, identity)):
+                raise DomainError('forbidden', 'Agents may access only their own context')
         if ctx.principal_kind == 'human':
             installation = uow.repository('installation').get('service')
             if not installation or installation['owner_principal_id'] != ctx.principal_id:
@@ -85,7 +91,8 @@ class AgentContext:
             configuration, _ = TaskOperations.configuration(ctx, uow)
             closed = [s['name'] for s in configuration['states'] if s['kind'] == 'closed']
             role = ctx.role_artifact_ref.id if ctx.role_artifact_ref else None
-            manager = role == roles.ORDUBASHY_ROLE
+            # The coordinator's own context lists all active work; a worker's context it inspects lists that worker's.
+            manager = role == roles.ORDUBASHY_ROLE and identity == ctx.agent_id
             query = "SELECT t.id,t.title,t.status,t.revision FROM tasks t WHERE t.business_id IS ? AND t.archived=0 AND " + ACTIVE_SQL
             params = [ctx.business_id, timestamp(self.clock)]
             if closed:

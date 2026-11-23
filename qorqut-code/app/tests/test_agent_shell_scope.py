@@ -1,6 +1,6 @@
-"""The prepared agent shell's claude and codex wrappers change a launch only in the agent's own workspace root.
+"""The prepared agent shell's claude wrapper changes a launch only in the agent's own workspace root (Terminals mode).
 
-Everything runs in disposable directories with stand-in claude and codex executables that record their arguments, a
+Everything runs in disposable directories with a stand-in claude executable that records its arguments, a
 stand-in trust command that records that it ran, and the CLI configuration variables pointed at
 a temporary directory (isolated_cli_environment). Nothing here reads or writes a real user's CLI files.
 """
@@ -37,7 +37,7 @@ class Scope:
         bin_dir = self.base / "bin"
         for directory in (self.runtime, self.records, bin_dir):
             directory.mkdir()
-        for name in ("claude", "codex"):
+        for name in ("claude",):
             path = bin_dir / name
             path.write_text('#!/bin/sh\n{ for a in "$@"; do printf \'%s\\0\' "$a"; done; } > "$QORQBOT_TEST_RECORDS/'
                             + name + '.$$"\n')
@@ -84,7 +84,7 @@ class Scope:
         # The hostile folder name is echoed by some error messages; only a command substitution prints a line of just this.
         self.assertNotIn("hacked", process.stderr.splitlines())
         calls = [[part.decode() for part in entry.read_bytes().split(b"\0")[:-1]] for entry in sorted(self.records.glob("*.*"))
-                 if entry.name.split(".")[0] in ("claude", "codex")]
+                 if entry.name.split(".")[0] == "claude"]
         return calls, process
 
     def launch(self, cwd, client, *arguments, **options):
@@ -98,34 +98,35 @@ class Scope:
     def in_root_claude(self, *arguments):
         return ["--settings", str(self.launch_settings), *arguments]
 
-    def in_root_codex(self, *arguments, bypass):
-        return [*(["--dangerously-bypass-hook-trust"] if bypass else []), *arguments]
-
     # -- the exact workspace root keeps every Qorqbot behaviour --------------------------------------------------------
 
-    def test_the_exact_root_applies_settings_and_the_consented_bypass(self):
+    def test_the_exact_root_applies_the_settings_and_refreshes_trust_only_with_consent(self):
         for granted in (False, True):
             with self.subTest(consent=granted):
                 self.consent(granted)
                 self.assertEqual(self.launch(self.workspace, "claude", *USER_ARGUMENTS), self.in_root_claude(*USER_ARGUMENTS))
                 self.assertEqual(self.ran("trust"), granted)
-                self.assertEqual(self.launch(self.workspace, "codex", *USER_ARGUMENTS),
-                                 self.in_root_codex(*USER_ARGUMENTS, bypass=granted))
+                (self.records / "trust.flag").unlink(missing_ok=True)
+
+    def test_there_is_no_codex_wrapper(self):
+        self.consent(True)
+        self.assertEqual(self.launch(self.workspace, "claude", "hi"), self.in_root_claude("hi"))
+        text = self.shell_file.read_text()
+        self.assertNotIn("codex", text.lower())
+        self.assertNotIn("dangerously", text)
 
     def test_the_trust_refresh_runs_in_the_root_only_with_consent(self):
         self.launch(self.workspace, "claude", "hi")
         self.assertFalse(self.ran("trust"))
         self.consent(True)
-        self.launch(self.workspace, "codex", "hi")
+        self.launch(self.workspace, "claude", "hi")
         self.assertTrue(self.ran("trust"))
 
     def test_a_bare_launch_in_the_root_opens_with_the_role_prompt_unless_start_sent_it(self):
         self.consent(True)
         self.assertEqual(self.launch(self.workspace, "claude"), self.in_root_claude("/role"))
-        self.assertEqual(self.launch(self.workspace, "codex"), self.in_root_codex("$role", bypass=True))
         sent = {"QORQBOT_ROLE_SENT": "1"}
         self.assertEqual(self.launch(self.workspace, "claude", environ=sent), self.in_root_claude())
-        self.assertEqual(self.launch(self.workspace, "codex", environ=sent), self.in_root_codex(bypass=True))
         calls, _ = self.run_in(self.workspace, "QORQBOT_ROLE_SENT=1 claude")
         self.assertEqual(calls, [self.in_root_claude()])
         self.assertEqual(self.launch(self.workspace, "claude", "go"), self.in_root_claude("go"))
@@ -133,7 +134,6 @@ class Scope:
     def test_the_root_reached_through_a_symlink_is_still_the_root(self):
         self.consent(True)
         self.assertEqual(self.launch(self.link, "claude", "hi"), self.in_root_claude("hi"))
-        self.assertEqual(self.launch(self.link, "codex", "hi"), self.in_root_codex("hi", bypass=True))
         # A symlink into the workspace from anywhere else is the same physical folder.
         elsewhere = self.project / "link into agent"
         elsewhere.symlink_to(self.workspace)
@@ -160,16 +160,15 @@ class Scope:
         for granted in (True, False):
             self.consent(granted)
             for where, cwd in self.outside().items():
-                for client in ("claude", "codex"):
+                for client in ("claude",):
                     with self.subTest(consent=granted, where=where, client=client):
                         self.assertEqual(self.launch(cwd, client, *USER_ARGUMENTS), USER_ARGUMENTS)
-                        self.assertFalse(self.ran("trust"))
                         self.assertFalse(self.ran("trust"))
 
     def test_other_folders_add_no_role_prompt_to_a_bare_launch(self):
         self.consent(True)
         for where, cwd in self.outside().items():
-            for client in ("claude", "codex"):
+            for client in ("claude",):
                 with self.subTest(where=where, client=client):
                     self.assertEqual(self.launch(cwd, client), [])
                     self.assertFalse(self.ran("trust"))
@@ -179,7 +178,7 @@ class Scope:
         self.consent(True)
         self.assertEqual(self.launch(self.project, "claude", "--settings", "mine.json", "-p", "x"),
                          ["--settings", "mine.json", "-p", "x"])
-        self.assertEqual(self.launch(self.subdirectory, "codex", "resume", "--last"), ["resume", "--last"])
+        self.assertEqual(self.launch(self.subdirectory, "claude", "--resume", "x"), ["--resume", "x"])
 
     def test_the_exit_status_of_the_cli_is_kept_outside_the_root(self):
         failing = self.base / "bin" / "claude"
@@ -201,8 +200,8 @@ class Scope:
         # The current folder is removed under the shell; so is the whole workspace in the second run.
         gone = self.subdirectory / "gone"
         gone.mkdir()
-        calls, _ = self.run_in(gone, "rmdir " + shlex.quote(str(gone)) + "; claude hi; codex hi")
-        self.assertEqual(sorted(calls), [["hi"], ["hi"]])
+        calls, _ = self.run_in(gone, "rmdir " + shlex.quote(str(gone)) + "; claude hi")
+        self.assertEqual(calls, [["hi"]])
         self.assertFalse(self.ran("trust"))
         doomed = self.base / "doomed"
         doomed.mkdir()
@@ -218,7 +217,7 @@ class Scope:
                 shell_file = self.write_shell(workspace, "agent-shell-" + name)
                 (self.base / "agent").mkdir(exist_ok=True)
                 self.assertEqual(self.launch(self.base / "agent", "claude", "hi", shell_file=shell_file), ["hi"])
-                self.assertEqual(self.launch(self.base, "codex", "hi", shell_file=shell_file), ["hi"])
+                self.assertEqual(self.launch(self.base, "claude", "hi", shell_file=shell_file), ["hi"])
 
 
 class BashScope(Scope, unittest.TestCase):

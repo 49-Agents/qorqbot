@@ -7,6 +7,7 @@ The program registry is frozen with the operation registry by ``Runtime.freeze_r
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
+from qorqut.management.identity import configured_ordubashy
 from qorqut.signoffs.privacy import PRIVATE_JOB_KINDS
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError
@@ -22,6 +23,14 @@ from qorqut_operations.background.programs import Program
 from .repository import repository_status
 from qorqut_operations.background.routines import RoutineScheduler
 from qorqut_operations.background.service import BackgroundService
+
+
+def reads_whole_job(ctx, row, uow) -> bool:
+    """Whether the caller reads an ordinary (not private) job in full: the owner, the agent that started it, or the
+    configured coordinator in person, which has to diagnose a job another agent started. Every other agent gets status."""
+    if ctx.principal_kind != "agent" or row["initiated_by_principal_id"] == ctx.principal_id:
+        return True
+    return ctx.delegation_assignment_id is None and ctx.principal_id == configured_ordubashy(uow)
 
 
 def register_programs(programs, *, models=None, transcript_source=None,
@@ -102,7 +111,7 @@ def register_operations(runtime, programs, authority, *, clock=None):
         # reason text stays with the initiator and the owner, other agents get the error code only.
         filing = runtime.domains.documents.job_filing(uow, ctx, row)
         extra = {} if filing is None else {"filing": filing}
-        if ctx.principal_kind == "agent" and row["initiated_by_principal_id"] != ctx.principal_id:
+        if not reads_whole_job(ctx, row, uow):
             # Shared coordination needs status, not another agent's provider
             # payloads, private source text or frozen plugin configuration.
             fields = ("id", "business_id", "kind", "state", "created_at", "updated_at", "attempts",

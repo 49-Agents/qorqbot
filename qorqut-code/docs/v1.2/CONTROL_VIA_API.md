@@ -112,7 +112,7 @@ Native fields and applicable invocation options belong together in the top-level
 ## 4. Use Focus from an external coding task
 
 **UI:** Global → Agents → configured Ordubashy → **Focus**, in the pane beside
-its terminal. The owner and the exact configured coordinator curate this board.
+its Chat. The owner and the exact configured coordinator curate this board.
 External coding tasks use the owner HTTP identity above; no Ordubashy session
 or browser clicking is required.
 
@@ -240,7 +240,7 @@ Send an internal message only when explicitly asked to communicate. First read
 with `reply_to` instead of inventing sender identity. Keep the returned thread ID;
 use `agents_messages_list` with `thread_id` to read replies. External coding tasks
 share the owner identity. Sending delivers to the inbox; it does not start or
-restart a terminal, acknowledge another message, or promise that an agent acted.
+restart a session, acknowledge another message, or promise that an agent acted.
 
 System Dev listing uses `{"status":"open","details":true,"limit":50}` and
 `next_offset` pagination. Only close a ticket after verifying its actual fix;

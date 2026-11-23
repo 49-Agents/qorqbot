@@ -25,8 +25,22 @@ class QorqbotGuideTest(unittest.TestCase):
 
     def test_it_never_tells_the_owner_to_use_role_commands(self):
         text = qorqbot_guide.SKILL
-        self.assertIn("Never tell the owner to start an agent from Terminal.app", text)
+        self.assertIn("Never tell the owner to open a terminal window on their computer, `cd` into an agent folder, or type `/role`", text)
+        self.assertIn("With managed sessions the owner types no command at all", text)
+        self.assertIn("with Terminals the only command is `claude`, typed in\nthe agent's own Terminal in the dashboard", text)
         self.assertNotIn("qorqut-role-qorqbot-guide", text)
+
+    def test_it_describes_both_ways_agents_run_and_no_terminal_start_by_the_owner(self):
+        text = qorqbot_guide.SKILL
+        for phrase in ("Qorqbot downloads Claude Code and Codex itself", "**Settings > Agents**", "closes after 15 idle minutes",
+                       "**End session**", "stays off until the owner", "**How agents run**", "**Managed sessions (recommended)**",
+                       "**Terminals (legacy)**", "the default", "Only the owner can switch", "tmux", "Claude Code agents only",
+                       "conversations carry over", "`managed: true`", "nothing starts it by itself",
+                       "until the owner opens that Terminal and runs `claude` there"):
+            self.assertIn(phrase, text)
+        for gone in (">_", "Trusted agent folders", "trust this folder", "Chat has no Start button.\n- To start Ordubashy",
+                     "Qorqbot starts every agent itself", "starts and runs itself"):
+            self.assertNotIn(gone, text)
 
 
 class GuideProjectionTest(unittest.TestCase):

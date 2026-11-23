@@ -7,19 +7,20 @@ phases of ``PolicyRules`` exactly where v1 evaluated them:
 * ``before_override``: rules that decide before an agent's explicit override is consulted, either because they
   refuse it (selected extension roles, the restricted user-input presentation, the CRM and Table-discussion operations that
   may never exceed the existing operation they build on, Global table archive, Project archive, terminal control, owner-action
-  proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools that follow the caller's current
-  ``context_edit`` decision);
+  proposals, ``learning-applier`` only operations, the Learning Applier-only Context question tools and the coordinator-only
+  ``personal_set``, which both follow the caller's current ``context_edit`` decision);
 * ``after_override``: standing core defaults that sit between the explicit override and the role default;
-* ``after_default``: core defaults that apply only when neither an override nor a role default names the operation.
+* ``after_default``: core defaults that apply only when neither an override nor a role default names the operation, then
+  the coordinator's owner parity: what is still undecided is allowed to ``ordubashy`` unless ``ORDUBASHY_WITHHELD`` names it.
 
 ``resolve`` is the evaluator's re-entry (``tasks_notes_list`` reads as ``tasks_get``, ``actions_thread_get`` as
 ``actions_get``, and so on). New mutations take no fallback: ``actions_correct``, ``actions_withdraw``, ``actions_comment``
-and ``tags_create`` are denied until a role default or an override names them. The
-human-owner and worker constraints stay in the evaluator's principal-aware resolver."""
+and ``tags_create`` are denied until a role default or an override names them (to every role but the coordinator, whose
+owner parity allows them). The human-owner and worker constraints stay in the evaluator's principal-aware resolver."""
 
 from __future__ import annotations
 
-from qorqut_context.integration.registration import question_rule, shared_read_decision
+from qorqut_context.integration.registration import personal_rule, question_rule, shared_read_decision
 from qorqut_operations.contracts import DomainError, PolicyDecision
 from qorqut_operations.inbox.policy import INBOX_OPERATIONS
 from qorqut_operations.policy.rules import PolicyRules, resolve_operation_policy as evaluate
@@ -34,7 +35,9 @@ READS_AS_TASK = frozenset({"tasks_notes_list", "tasks_thread_get", "tasks_associ
 PROJECT_OPERATIONS = frozenset({"project_record_get", "project_items_list", "project_items_candidates",
                                 "project_item_get", "project_items_link", "project_items_unlink",
                                 # Move to project: the handler also rechecks the Task tools it stands on in both scopes.
-                                "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project"})
+                                "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project",
+                                "tables_move_to_project_preview", "tables_move_to_project",
+                                "notes_move_to_project_preview", "notes_move_to_project"})
 # CRM and Table-discussion operations and the existing operation whose decision each may never exceed. This is a
 # prerequisite, not only a fallback: the new name's own override, else role default, else the prerequisite's mode is
 # combined with the prerequisite's effective decision, strongest of deny > signoff > allow. An ``allow`` on the new name never
@@ -65,18 +68,27 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # files_link only builds a link: a path is checked lexically and a document ID through the caller's own
 # document read rules. Content is read solely by the owner's viewer, never through this grant.
 # records_health and records_reconcile answer only the owner and the configured coordinator; each refuses everyone else.
-# So do owner_inputs_list and owner_input_get, the read of the owner's own messages, and work_review_get, what was done.
+# So does work_review_get, what was done. conversation_history_search and conversation_history_get, the read of the
+# conversation with the owner, are allowed here for Ordubashy only: ``_ordubashy_reads`` refuses every other role
+# before a role file or an override is looked at, and the handler still proves the exact configured Ordubashy.
 # So do thread_pins_list and thread_pins_set, the owner's pinned-threads row in Focus: the handler admits only the owner or the
 # configured coordinator in person, writes only the owner's file, and pins only a record the caller may read.
-# So does timeline_get, the timelines of Tasks, Projects and Global: the reader needs the ordinary read of the item. timeline_file
+# So does timeline_get, the timelines of Tasks and Projects: the reader needs the ordinary read of the item. timeline_file
 # is not here: it declares its own standing mode (approval during the trial) and the handler admits only the coordinator in person.
 # Nor is timeline_file_answer: it declares allow (the owner's own answer to a question Signoff) and admits only the coordinator.
+# settings_get and settings_set, the owner's Settings page as tools: the handler admits only the configured coordinator in
+# person and changes a setting through the function behind the owner's own route, so that function's checks still apply.
 CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
                                   "agent_context_get",
                                   "agents_activity_list", "agent_work_update", "business_briefing", "files_link", "agentic_access",
-                                  "records_health", "records_reconcile", "owner_inputs_list", "owner_input_get",
-                                  "work_review_get", "thread_pins_list", "thread_pins_set", "timeline_get"})
-
+                                  "records_health", "records_reconcile", "conversation_history_search",
+                                  "conversation_history_get",
+                                  "work_review_get", "thread_pins_list", "thread_pins_set", "timeline_get",
+                                  "settings_get", "settings_set"})
+# What the owner and the agents wrote to each other, across every chat and thread.
+ORDUBASHY_READS = frozenset({"conversation_history_search", "conversation_history_get"})
+# The owner's Settings page as tools, Ordubashy's alone in the same way: no other role sees or calls them.
+ORDUBASHY_SETTINGS = frozenset({"settings_get", "settings_set"})
 
 
 def _extension_policy(name, defaults, overrides, registry, **scope):
@@ -111,11 +123,20 @@ def _user_input(name, defaults, overrides, registry, *, role_id, scope, resolve)
         return PolicyDecision("deny", "user_input_ordubashy_only")
 
 
+def _ordubashy_reads(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    # Among agents the conversation with the owner is Ordubashy's alone: no role file and no override gives it to
+    # another role. Ordubashy's own decision follows below, so an explicit deny on it is still respected.
+    if name in ORDUBASHY_READS and role_id != ORDUBASHY_ROLE:
+        return PolicyDecision("deny", "conversation_history_ordubashy_only")
+    if name in ORDUBASHY_SETTINGS and role_id != ORDUBASHY_ROLE:
+        return PolicyDecision("deny", "owner_settings_ordubashy_only")
+
+
 def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, resolve):
     if name in {"agent_browser_manage", "website_sign_in"}:
-        # Standing owner authority for the configured Ordubashy over his workers' browsers: no per-action Signoff and no role
-        # file or override can widen it to another role. The handler still proves the exact configured Ordubashy and an
-        # active worker target; an explicit deny override remains respected.
+        # Standing owner authority for the configured Ordubashy over the browser the agents use: no per-action Signoff and no role
+        # file or override can widen it to another role. The handler still proves the exact configured Ordubashy; an
+        # explicit deny override remains respected.
         if role_id != ORDUBASHY_ROLE or overrides.get(name) == "deny":
             return PolicyDecision("deny", "browser_management_role")
         return PolicyDecision("allow", "browser_management_owner_authority")
@@ -141,6 +162,12 @@ def _context_questions(name, defaults, overrides, registry, *, role_id, scope, r
     # The rule is Context's; the host supplies the Learning Applier role.
     return question_rule(name, defaults, overrides, registry, role_id=role_id, scope=scope, resolve=resolve,
                          learning_applier_role=LEARNING_APPLIER_ROLE)
+
+
+def _personal_record(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    # The rule is Context's; the host supplies the coordinator role.
+    return personal_rule(name, defaults, overrides, registry, role_id=role_id, scope=scope, resolve=resolve,
+                         coordinator_role=ORDUBASHY_ROLE)
 
 
 def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
@@ -208,12 +235,35 @@ def _fallback_defaults(name, defaults, overrides, registry, *, role_id, scope, r
         return PolicyDecision("allow", "core_default")
 
 
+# Owner parity for the coordinator. The owner works through Ordubashy, so an agent tool that nothing above decided is
+# allowed to that role instead of denied: a tool added later reaches the coordinator without a role republish, and a
+# forgotten role entry can no longer lock it out of operational work. What stays the owner's is written down, never
+# implied: an owner-only operation (the evaluator refuses it before any rule), an explicit deny in the role file or an
+# override, the approval rules above (a Signoff stays a Signoff), a tool no agent can call (not exposed on MCP), and the
+# names below. The plugin grant, the global capability and each handler's own identity check still apply.
+ORDUBASHY_WITHHELD = frozenset({
+    # The Learning Applier's own pipeline: the coordinator reads learnings and proposes extraction, nothing more.
+    "learnings_legacy_pending", "learnings_review_get", "learnings_review_list",
+    # The channel other agents use to reach the coordinator; it cannot write to itself.
+    "management_message_send",
+    # Orientation of the owner's own code sessions.
+    "owner_session_bootstrap",
+    # The owner's dashboard progress views; their handlers answer the owner alone.
+    "business_progress_get", "global_progress_get",
+})
+
+
+def _ordubashy_parity(name, defaults, overrides, registry, *, role_id, scope, resolve):
+    if role_id == ORDUBASHY_ROLE and name not in ORDUBASHY_WITHHELD and "mcp" in registry.metadata(name).exposure:
+        return PolicyDecision("allow", "ordubashy_owner_parity")
+
+
 HOST_POLICY_RULES = PolicyRules(
     # ``_prerequisites`` precedes the blanket Global-table rule so a new Table operation is never decided by it alone.
-    before_override=(_extension_policy, _user_input, _prerequisites, global_tables, archive_approval_rule, _owner_approvals,
-                    _learning_applier, _context_questions),
+    before_override=(_extension_policy, _user_input, _ordubashy_reads, _prerequisites, global_tables, archive_approval_rule,
+                    _owner_approvals, _learning_applier, _context_questions, _personal_record),
     after_override=(_standing_defaults,),
-    after_default=(_fallback_defaults,),
+    after_default=(_fallback_defaults, _ordubashy_parity),
 )
 
 

@@ -7,7 +7,10 @@ command fence or durable action intent for native `browser_turn` callers or the
 main-session launcher. `command` runs at once, with or without a handle.
 `acquire` returns a stateless handle immediately; the handle is bound to the
 agent and never expires. `status`, `renew`, `checkpoint` and `reconcile` are
-instant no-ops, and `release` succeeds without changing anything.
+instant no-ops, and `release` succeeds without changing anything. Only this
+path takes `commands`, up to 10 commands in one call; a batch stops at the first
+command that fails or times out and reports what ran (see
+[browser handles](BROWSER-HANDLES.md#several-commands-in-one-call)).
 
 A timed-out or failed command returns an error and leaves nothing blocked. The
 CLI is killed at its timeout, but the agent-browser daemon and page scripts may
@@ -19,7 +22,8 @@ the same session fails fast instead of waiting.
 Native turns left from the leased model no longer gate anything. Once expired,
 they are released at the next queue check, including startup recovery, and
 their uncertain actions stay as history. Durable assignment workers, including
-those scoped to a configured browser, keep the exclusive-turn model below.
+those scoped to a configured browser, keep the exclusive-turn model below and
+send one command per call (`commands` is refused).
 
 ## Native JavaScript dialogs
 

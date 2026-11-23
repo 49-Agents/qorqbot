@@ -17,7 +17,7 @@ from qorqut_operations.storage.repositories import decode_row
 from .lookup import LOCATED
 from .ports import ABSENT
 from .sources import SOURCE
-from .reports import MISSING, REPORT_TASK
+from .reports import REPORT_TASK
 from . import questions
 from .questions import TEXT, CHOICE
 
@@ -163,9 +163,8 @@ class InputRequests:
                     raise DomainError('forbidden', 'Only Ordubashy posts read-and-acknowledge requests; hand the document to Ordubashy')
                 if 'source' in args:
                     raise DomainError('validation_error', 'A read-and-acknowledge request cannot be what a Task or record waits on')
-                if 'report_task' not in args:
-                    raise DomainError('validation_error', MISSING)
-                self.service.reports.check(ctx, args['report_task'], uow)
+                if 'report_task' in args:
+                    self.service.reports.check(ctx, args['report_task'], uow)
             elif 'report_task' in args:
                 raise DomainError('validation_error', 'report_task belongs only to a read-and-acknowledge report')
             if 'source' in args:
@@ -189,13 +188,14 @@ class InputRequests:
                 replaced, row = row, None
             if row and acknowledge:
                 link = self.service.reports.find(row['id'], uow)
-                if link and (link['task_id'], link['task_business_id']) != (args['report_task']['id'], args['report_task']['business_id']):
+                given = args.get('report_task')
+                if link and (not given or (link['task_id'], link['task_business_id']) != (given['id'], given['business_id'])):
                     raise DomainError('request_conflict', 'This report already belongs to another Task; use a new request_key for a report on a different Task')
             identity = row['id'] if row else new_id()
             builder.record('signoffs', identity, row, {'form': form, 'request_key': args['request_key'],
                 **({'attention': attention} if not row or 'attention' in args else {}),
                 **({'replaces_id': replaced['id']} if replaced else {}),
-                **({'report_task': args['report_task']} if acknowledge else {})}, action='input_create')
+                **({'report_task': args['report_task']} if acknowledge and 'report_task' in args else {})}, action='input_create')
             if replaced:
                 builder.record('signoffs', replaced['id'], replaced, {'state': 'cancelled'}, action='input_replace')
         else:
@@ -223,10 +223,14 @@ class InputRequests:
             self.service._context(ctx, uow, owner=True)
         elif row['proposer_principal_id'] != ctx.principal_id:
             proposer = uow.repository('principals').get(row['proposer_principal_id'])
-            delegated = (name == 'signoffs_attention_set' and self.is_ordubashy(ctx, uow)
-                and proposer and proposer['kind'] == 'agent')
+            # The coordinator stands in for the owner over every agent's request: it sets the alert and withdraws a
+            # request whose proposer is gone or idle, so a stale one cannot keep a Task waiting or block its move.
+            # Withdrawing is the coordinator's in person, never one of its delegated workers'.
+            delegated = (self.is_ordubashy(ctx, uow) and proposer and proposer['kind'] == 'agent'
+                and (name == 'signoffs_attention_set'
+                     or name == 'signoffs_input_cancel' and not ctx.delegation_assignment_id))
             if not delegated:
-                raise DomainError('forbidden', 'Only the proposer or authorized Ordubashy can update this signoff attention')
+                raise DomainError('forbidden', 'Only the proposer, the owner or the coordinator can update this input request')
         if row['state'] != 'pending' or row['superseded_by_id']:
             raise DomainError('invalid_transition', 'Only pending signoffs can be updated')
 
@@ -280,7 +284,7 @@ class InputRequests:
                 'expected_targets_json': [], 'policy_binding_json': plain(plan.policy_binding),
                 'affected_scope_json': plain(plan.affected_scope), 'state': 'pending',
                 'updated_sequence': uow.next_sequence('signoffs'), 'created_at': self.service.clock()})
-            if acknowledges(form):
+            if acknowledges(form) and values.get('report_task'):
                 scoped = replace(ctx, business_id=change.resource.business_id, review_business_id=change.resource.business_id)
                 self.service.reports.check(scoped, values['report_task'], uow)
                 self.service.reports.link(ctx, identity, values['report_task'], uow)

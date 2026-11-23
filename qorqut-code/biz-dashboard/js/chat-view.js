@@ -373,7 +373,7 @@ function chatViewFit(width, height, displayWidth, displayHeight) {
   return {width: displayWidth * scale, height: displayHeight * scale};
 }
 const chatViewTypedRoute = ref => JSON.stringify([ref.type, ref.business_id || null, ref.business_slug || null, ref.type === 'browser' ? ref.viewer_url : null]);
-const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation, ref.type === 'task' || ref.type === 'table' ? ref : null]);
+const chatViewTypedSignature = ref => JSON.stringify([ref.type, ref.business_id || null, ref.id, ref.available !== false, ref.label, ref.state, ref.viewer_url, ref.business_slug || null, ref.width, ref.height, ref.role, ref.presentation, ref.agent_id, ref.tab_id, ref.agent_label, ref.type === 'task' || ref.type === 'table' ? ref : null]);
 function chatViewTypedChip(ref, cls) {
   const chip = document.createElement('span');
   chip.className = `gchat-reference ${cls}`;
@@ -388,12 +388,6 @@ function chatViewTypedChip(ref, cls) {
     dot.setAttribute('aria-hidden', 'true');
     dot.append(Object.assign(document.createElement('span'), {className: 'core'}));
     chip.append(dot);
-  }
-  // Agent: the shared identity glyph (Tiny Spirit) before the current display name; informational, like native Chat's recipients.
-  if (ref.type === 'agent' && ref.available !== false && typeof agentGlyph === 'function') {
-    const icon = document.createElement('span'); icon.className = 'gchat-agent-icon'; icon.setAttribute('aria-hidden', 'true');
-    icon.innerHTML = agentGlyph({...(ref.presentation || {}), agent_id: ref.id, display_name: ref.label, role: ref.role}, 18);
-    chip.append(icon);
   }
   const label = document.createElement('span'); label.textContent = ref.label || '';
   chip.append(label);
@@ -454,6 +448,34 @@ function chatViewBrowserCard(ref, url) {
   }};
 }
 
+// Tab: one tab of an agent's own browser, as a button. Its label is the page's own title, which is untrusted, so it is only ever set as
+// text; nothing in the reference is followed. The click asks the dashboard to show its own live view of this (agent, tab), and does
+// nothing where the dashboard cannot (no entry point, agent not shown here). The entry point reports its own failures.
+const chatViewTabTarget = ref => typeof ref?.agent_id === 'string' && typeof ref.tab_id === 'string'
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.agent_id) && /^[0-9A-F]{32}$/.test(ref.tab_id)
+  ? {agentId: ref.agent_id, tabId: ref.tab_id} : null;
+function chatViewTabButton(ref) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  let target = null;
+  const paint = next => {
+    target = chatViewTabTarget(next);
+    const title = String(next.label ?? '').trim() || 'Untitled page', agent = String(next.agent_label ?? '').trim();
+    button.className = 'gchat-reference gchat-tab-reference';
+    button.title = agent ? `${title} — ${agent}` : title;
+    button.setAttribute('aria-label', `Open tab: ${button.title}`);
+    const icon = document.createElement('span'); icon.className = 'gchat-tab-icon'; icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = CHAT_VIEW_ICONS.browser;
+    const name = document.createElement('span'); name.className = 'gchat-tab-title'; name.textContent = title;
+    button.replaceChildren(icon, name);
+    if (agent) { const owner = document.createElement('span'); owner.className = 'gchat-tab-agent'; owner.textContent = agent; button.append(owner); }
+  };
+  button.onclick = () => { if (target) Promise.resolve(window.agentBrowserOpenTab?.(target.agentId, target.tabId)).catch(() => {}); };
+  paint(ref);
+  // A change of availability or of the ids is not an in-place update: the caller replaces the item (and so shows the placeholder).
+  return {el: button, update(next) { if (next.available === false || !chatViewTabTarget(next)) return false; paint(next); return true; },
+    dispose() { button.onclick = null; button.remove(); }};
+}
+
 function chatViewTypedMount(ref, host, options, entryKey) {
   const unavailable = () => {
     const item = {el: chatViewTypedChip({...ref, label: 'Unavailable reference'}, 'gchat-reference-unavailable'), dispose() { item.el.remove(); }};
@@ -479,11 +501,6 @@ function chatViewTypedMount(ref, host, options, entryKey) {
     update(ref);
     return {el:button,update(next){update(next);return true;},dispose(){button.remove();}};
   }
-  if (ref.type === 'agent') {
-    const item = {el: chatViewTypedChip(ref, 'gchat-agent-reference'), dispose() { item.el.remove(); }};
-    item.update = next => next.available !== false && (item.el.replaceChildren(...chatViewTypedChip(next, 'gchat-agent-reference').childNodes), true);
-    return item;
-  }
   if (ref.type === 'delta') {
     const el = document.createElement('button'); el.type = 'button'; el.className = 'gchat-reference';
     el.textContent = ref.label || 'Change'; el.onclick = () => window.overseerOpenDelta?.(ref.id);
@@ -493,6 +510,7 @@ function chatViewTypedMount(ref, host, options, entryKey) {
     const url = chatViewViewerUrl(ref.viewer_url);
     return url ? chatViewBrowserCard(ref, url) : unavailable();
   }
+  if (ref.type === 'tab') return chatViewTabTarget(ref) ? chatViewTabButton(ref) : unavailable();
   if (ref.type === 'signoff' && options.mountSignoff) {
     const el = document.createElement('div');
     el.className = 'gchat-signoff-reference';
@@ -559,6 +577,9 @@ function mountChatView(host, options = {}) {
   const referenceRows = options.recordReferences === true;
   const groupNodes = new Map();                  // group key -> {el, rows}
   const cleanups = [];
+  // olderOnScroll: the reader asks for older messages by moving up at the top; the button is never shown. Nothing loads on mount, render or resize.
+  const olderOnScroll = options.olderOnScroll === true, OLDER_EDGE = 80, OLDER_DRAG = 24;
+  let lastTop = 0;     // scrollTop at the last scroll event or programmatic move: a prepend restores the anchor downward and must not read as "up"
   const copyTimers = new Set();
   cleanups.push(() => { copyTimers.forEach(clearTimeout); copyTimers.clear(); });
   let disposed = false, ready = false, initial = true, atBottom = true, unseen = 0, deferBottom = false, pendingState = null;
@@ -654,16 +675,16 @@ function mountChatView(host, options = {}) {
     const node = anchor?.anchorKey != null && nodes.get(anchor.anchorKey);
     if (!node?.isConnected || !node.getClientRects().length) return false;
     const delta = node.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.anchorOffset;
-    if (delta) scroller.scrollTop += delta;
+    if (delta) { scroller.scrollTop += delta; lastTop = scroller.scrollTop; }
     return true;
   }
   function toBottom() {
-    scroller.scrollTop = scroller.scrollHeight;
+    scroller.scrollTop = scroller.scrollHeight; lastTop = scroller.scrollTop;
     atBottom = true; unseen = 0; jump.hidden = true; initial = false; pendingState = null; deferBottom = false;
   }
   function applyState(saved) {
     if (saved.atBottom) toBottom();
-    else if (!restoreAnchor(saved)) scroller.scrollTop = saved.top || 0;
+    else if (!restoreAnchor(saved)) { scroller.scrollTop = saved.top || 0; lastTop = scroller.scrollTop; }
     atBottom = nearBottom();
   }
   // Applies whatever was deferred while the container had no layout.
@@ -674,7 +695,10 @@ function mountChatView(host, options = {}) {
     atBottom = nearBottom();
     lastState = capture();
   }
+  const askOlder = () => { if (olderOnScroll && model.older.visible && !model.older.disabled && scroller.scrollTop <= OLDER_EDGE) emit('onOlder'); };
   listen(scroller, 'scroll', () => {
+    const up = scroller.scrollTop < lastTop; lastTop = scroller.scrollTop;
+    if (up) askOlder();
     atBottom = nearBottom();
     if (atBottom) { unseen = 0; jump.hidden = true; }
     if (shown()) lastState = capture();
@@ -682,12 +706,21 @@ function mountChatView(host, options = {}) {
   });
   jump.onclick = () => { toBottom(); input.focus(); emit('onViewportChange'); };
   cleanups.push(() => { jump.onclick = null; });
+  if (olderOnScroll) {
+    // A feed too short to scroll, or one resting at 0, fires no scroll event: wheel, touch and keys at the top cover it.
+    let dragFrom = null;
+    listen(scroller, 'wheel', event => { if (event.deltaY < 0) askOlder(); }, {passive: true});
+    listen(scroller, 'touchstart', event => { dragFrom = scroller.scrollTop <= OLDER_EDGE && event.touches.length === 1 ? event.touches[0].clientY : null; }, {passive: true});
+    listen(scroller, 'touchmove', event => { if (dragFrom != null && event.touches[0].clientY - dragFrom > OLDER_DRAG) { dragFrom = null; askOlder(); } }, {passive: true});
+    listen(scroller, 'touchend', () => { dragFrom = null; }, {passive: true});
+    listen(scroller, 'keydown', event => { if (event.target === scroller && ['PageUp', 'Home', 'ArrowUp'].includes(event.key)) askOlder(); });
+  }
   // Per-element only: a container that gains layout (details, tab, dock) settles its deferred scroll; a bottom-pinned feed stays pinned.
   if (typeof ResizeObserver === 'function') {
     const resizes = new ResizeObserver(() => {
       if (disposed || !shown()) return;
       if (deferBottom || pendingState || initial) settle();
-      else if (atBottom) scroller.scrollTop = scroller.scrollHeight;
+      else if (atBottom) { scroller.scrollTop = scroller.scrollHeight; lastTop = scroller.scrollTop; }
     });
     resizes.observe(scroller);
     cleanups.push(() => resizes.disconnect());
@@ -1050,7 +1083,8 @@ function mountChatView(host, options = {}) {
     node._typedHost?.remove(); node._typedHost = null;
   }
   function paintTyped(node, entry) {
-    const refs = entry.referenceOnly || (entry.speaker === 'agent' && entry.partial !== true) ? (entry.typedReferences || []) : [];
+    // Agent references are retired: one from an older message or server is not drawn.
+    const refs = (entry.referenceOnly || (entry.speaker === 'agent' && entry.partial !== true) ? (entry.typedReferences || []) : []).filter(ref => ref.type !== 'agent');
     if (!refs.length) { if (node._typedHost) disposeTyped(node); return; }
     if (!node._typedHost) {
       node._typedHost = document.createElement('div'); node._typedHost.className = 'gchat-typed';
@@ -1073,11 +1107,11 @@ function mountChatView(host, options = {}) {
       }
       next.set(key, item);
       // Only a resolved Task is a flat attachment row; every other typed reference keeps its own component.
-      sequence.push({key, view: item, kind: ref.type === 'agent' ? 'agent' : (['table', 'task'].includes(ref.type) && available ? 'attachment' : null)});
+      sequence.push({key, view: item, kind: ['table', 'task'].includes(ref.type) && available ? 'attachment' : null});
     }
     for (const [key, item] of node._typed) if (!next.has(key)) item.dispose();
     node._typed = next;
-    // Consecutive agents and attachments each share a group while retaining canonical reference order.
+    // Consecutive attachments share a group while retaining canonical reference order.
     const slots = [];
     let run = null;
     for (const mounted of sequence) {
@@ -1090,8 +1124,8 @@ function mountChatView(host, options = {}) {
       const key = JSON.stringify([slot.kind, slot.items[0].key]);
       let container = node._typedGroups.get(key);
       if (!container) {
-        container = document.createElement('div'); container.className = slot.kind === 'agent' ? 'gchat-agent-references' : 'gchat-attachment';
-        container.setAttribute('role', 'group'); container.setAttribute('aria-label', slot.kind === 'agent' ? 'Agent references' : 'Table and record references');
+        container = document.createElement('div'); container.className = 'gchat-attachment';
+        container.setAttribute('role', 'group'); container.setAttribute('aria-label', 'Table and record references');
       }
       groups.set(key, container);
       let rowCursor = container.firstChild;
@@ -1151,10 +1185,10 @@ function mountChatView(host, options = {}) {
     node.dataset.inputId = item.key; node.dataset.state = item.state || ''; node.dataset.inputType = item.inputType || '';
     node.dataset.resendable = String(!!item.resendable);
     const signature = JSON.stringify([item.state, item.stateLabel, item.text, item.notice?.label, !!item.resendable, item.collapsedSource,
-      (item.actions || []).map(action => [action.key, action.label, !!action.disabled])]);
+      (item.actions || []).map(action => [action.key, action.label, !!action.disabled, action.title || ''])]);
     if (node.chatSignature !== signature) {
       node.chatSignature = signature;
-      const actions = (item.actions || []).map(action => `<button type="button" class="quiet" data-pending-action="${esc(action.key)}" data-${esc(action.key)}="${esc(item.key)}" ${action.disabled ? 'disabled' : ''}>${esc(action.label)}</button>`).join('');
+      const actions = (item.actions || []).map(action => `<button type="button" class="quiet" data-pending-action="${esc(action.key)}" data-${esc(action.key)}="${esc(item.key)}" ${action.disabled ? `disabled${action.title ? ` title="${esc(action.title)}"` : ''}` : ''}>${esc(action.label)}</button>`).join('');
       node.innerHTML = `${item.collapsedSource === 'telegram' ? telegramBody(item.text) : `<div class="gchat-body">${markerHtml(item.notice)}${item.text ? `<span class="gchat-text">${speaker === 'user' ? renderSafeLinks(item.text) : esc(item.text)}</span>` : ''}</div>`}
         <span class="gchat-state" data-state="${esc(item.state || '')}">${esc(item.stateLabel || '')}</span>
         ${actions ? `<span class="gchat-pending-actions">${actions}</span>` : ''}`;
@@ -1171,30 +1205,47 @@ function mountChatView(host, options = {}) {
   function paintComposer() {
     const c = model.composer;
     form.hidden = !!c.hidden;
-    input.disabled = !!c.inputDisabled; send.disabled = !!c.sendDisabled;
+    input.disabled = !!c.inputDisabled;
     if (attach) attach.disabled = !!c.inputDisabled || !!c.filesDisabled;
-    mic?.setLocked(!!c.hidden || !!c.inputDisabled);
+    mic?.setLocked(!!c.hidden || !!c.inputDisabled, c.disabledReason || '');
+    // A control that is off says why, in plain words, and says what it is for again when it is on.
+    const why = c.inputDisabled ? c.disabledReason || '' : '';
+    if (c.inputDisabled) input.title = why; else input.removeAttribute('title');
+
+    if (attach) attach.title = c.inputDisabled ? why || 'Attach files' : c.filesDisabled ? c.filesReason || 'Attach files' : 'Attach files';
     const files = c.attachments || [];
     attachments.hidden = !files.length;
-    const signature = JSON.stringify([files, !!c.filesDisabled]);
+    const signature = JSON.stringify([files, !!c.filesDisabled, c.filesReason || '']);
     if (attachments.signature !== signature) {
       attachments.signature = signature;
       attachments.innerHTML = files.map(file => {
         const kind = chatViewFileKind(file.name);
-        return `<span class="gchat-file-choice gchat-file-card" data-file-kind="${kind[0]}">${chatViewFileFace(file.name, kind)}<button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? 'disabled' : ''}>×</button></span>`;
+        return `<span class="gchat-file-choice gchat-file-card" data-file-kind="${kind[0]}">${chatViewFileFace(file.name, kind)}<button type="button" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${c.filesDisabled ? `disabled title="${esc(c.filesReason || '')}"` : ''}>×</button></span>`;
       }).join('');
     }
-    if (send.dataset.label !== c.sendLabel) {
-      send.dataset.label = c.sendLabel; send.setAttribute('aria-label', c.sendLabel);
-      send.classList.toggle('gchat-icon-send', c.sendLabel === 'Send');
-      send.innerHTML = c.sendLabel === 'Send' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-7 7 7-7 7 7"/></svg>' : esc(c.sendLabel);
-    }
+    paintSend();
     input.placeholder = c.placeholder; input.setAttribute('aria-label', c.ariaLabel);
     if (input.maxLength !== c.maxLength) input.maxLength = c.maxLength;
     resizeComposer();
   }
+  // While the agent works and nothing is typed or attached, Send is Stop (`composer.stop`): one press stops the agent. Typing
+  // anything turns it back into Send, so a message can still go in mid-turn.
+  const stopMode = () => !!model.composer.stop && !model.composer.hidden && !input.value.trim() && !(model.composer.attachments || []).length;
+  function paintSend() {
+    const c = model.composer, stopping = stopMode(), label = stopping ? 'Stop' : c.sendLabel;
+    send.type = stopping ? 'button' : 'submit';
+    send.disabled = stopping ? !!c.stopDisabled : !!c.sendDisabled;
+    send.title = stopping ? c.stopTitle || 'Stop' : c.sendDisabled ? (c.inputDisabled && c.disabledReason) || c.sendingReason || '' : '';
+    if (!send.title) send.removeAttribute('title');
+    send.classList.toggle('gchat-stop', stopping);
+    if (send.dataset.label === label) return;
+    send.dataset.label = label; send.setAttribute('aria-label', label);
+    send.classList.toggle('gchat-icon-send', label === 'Send' || label === 'Stop');
+    send.innerHTML = label === 'Send' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-7 7 7-7 7 7"/></svg>'
+      : label === 'Stop' ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg>' : esc(label);
+  }
   function paintOlder() {
-    olderButton.hidden = !model.older.visible;
+    olderButton.hidden = olderOnScroll || !model.older.visible;
     olderButton.disabled = !!model.older.disabled;
     olderButton.textContent = model.older.label;
   }
@@ -1298,7 +1349,8 @@ function mountChatView(host, options = {}) {
   });
   olderButton.onclick = () => emit('onOlder');
   cleanups.push(() => { olderButton.onclick = null; });
-  listen(input, 'input', () => { resizeComposer(); emit('onDraft', input.value); });
+  listen(input, 'input', () => { resizeComposer(); paintSend(); emit('onDraft', input.value); });
+  listen(send, 'click', () => { if (send.type === 'button' && stopMode() && !send.disabled) emit('onStop'); });
   if (picker) {
     listen(input, 'paste', event => {
       const data = event.clipboardData;
@@ -1365,7 +1417,7 @@ function mountChatView(host, options = {}) {
     root,
     elements: {scroll: scroller, log, pending: pendingHost, composer: form, input, send, older: olderButton, jump, banner, empty: emptyNote},
     render,
-    setDraft(text) { const value = String(text ?? ''); if (!disposed && input.value !== value) { input.value = value; recall = null; resizeComposer(); } },
+    setDraft(text) { const value = String(text ?? ''); if (!disposed && input.value !== value) { input.value = value; recall = null; resizeComposer(); paintSend(); } },
     getDraft: () => input.value,
     focusComposer() { if (!disposed && !input.disabled && !form.hidden) input.focus(); },
     getScrollState() { if (!disposed && shown()) lastState = capture(); return {...lastState}; },
