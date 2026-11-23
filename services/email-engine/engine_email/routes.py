@@ -109,6 +109,12 @@ def view(service, row, *, request_id=None, operation=None):
         "client_id": row["client_id"], "project_id": row["project_id"], "mailbox_ref": row["mailbox_ref"],
         "purpose": row["purpose"], "sender_ref": row["sender_ref"], "active": bool(row["active"]),
         "state": row["state"], "ready": ready, "blocker": blocker, "updated_at": row["updated_at"]}
+    # Operational health is separate from the durable, revisioned route binding.
+    # A tab crash must not revoke approvals or change a campaign's route pin.
+    health = service.sender_health(sender) if sender else None
+    if health is not None:
+        result['sender_health'] = health
+        result['send_available'] = ready and health['status'] == 'healthy'
     if request_id is not None:
         result["receipt"] = {"request_id": request_id, **({"folder_operation": operation} if operation else {})}
     return result

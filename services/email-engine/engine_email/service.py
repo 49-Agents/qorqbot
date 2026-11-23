@@ -59,6 +59,9 @@ class EmailService:
             self.reset_sync()
         self.send_lock, self.sync_lock = threading.Lock(), threading.Lock()
         self.history_lock = threading.Lock()
+        # Enqueue/lookup never waits for provider I/O. Cancellation takes send_lock
+        # first, then intent_lock; no path may take these in the opposite order.
+        self.intent_lock = threading.Lock()
 
     def close(self):
         try:
@@ -82,11 +85,28 @@ class EmailService:
             item = {**sender.model_dump(), "shared_quota": shared_quota, "send_available": sender.enabled and (
                 sender.transport == "fastmail" or status.get("available") is True)}
             if sender.transport == "outlook_web":
+                health = self.sender_health(sender)
+                if health is not None:
+                    item['health'] = health
+                    item['send_available'] = sender.enabled and health['status'] == 'healthy'
                 collector = status.get("collector", {})
                 item["collector"] = {"state": collector.get("state", "unavailable"),
                     "last_success_at": collector.get("last_success_at")}
             metadata.append(item)
         return metadata
+
+    def sender_health(self, sender):
+        if sender.transport != 'outlook_web' or self.settings.outlook_health_file is None:
+            return None
+        from .outlook_health import read_health
+        health = read_health(self.settings.outlook_health_file, sender.account_ref)
+        # A responding UI cannot clear a known provider/authentication failure;
+        # a successful bridge operation clears that separately.
+        status = self.outlook_provider.status() if self.outlook_provider is not None else {}
+        if (health['status'] == 'healthy' and status.get('available') is False
+                and status.get('error')):
+            health = {**health, 'status': 'unavailable', 'reason': status['error']}
+        return health
 
     def collect_outlook(self):
         if self.outlook_provider is None:
@@ -490,9 +510,16 @@ class EmailService:
         with self.send_lock:
             self.store.flush_history()
             rows = self.store.pending_sends(due_only=scheduled, as_of=store_module.now())
-            results = [self.reconcile(row, scheduled=scheduled) for row in rows]
-            self.store.flush_history()
-            return results
+        results = []
+        for pending in rows:
+            with self.send_lock:
+                # Cancellation or another dispatcher may have changed this row
+                # since the batch snapshot. Never dispatch that stale snapshot.
+                row = self.store.send(pending["request_id"])
+                if row is not None:
+                    results.append(self.reconcile(row, scheduled=scheduled))
+                self.store.flush_history()
+        return results
 
     def cancel(self, mailbox, request_id):
         with self.send_lock:
@@ -559,7 +586,7 @@ class EmailService:
         message = Outgoing.model_validate(substituted)
         mailbox = self.settings.mailbox(message.mailbox)
         payload_digest = message.digest()
-        with self.send_lock:
+        with self.intent_lock:
             # Checked inside the same critical section as begin_integration_intent below, so a
             # cancel that tombstoned this id always wins a race with a late, lock-queued submit.
             if self.store.cancellation_tombstone(client.client_id, submission.intent_id):
@@ -583,18 +610,20 @@ class EmailService:
             return self.intent_receipt(intent_row, row)
 
     def intent(self, client, intent_id):
-        intent_row = self.store.integration_intent(client.client_id, intent_id)
-        if intent_row is not None:
-            return self.intent_receipt(intent_row, self.store.send(intent_row["request_id"]))
-        tombstone = self.store.cancellation_tombstone(client.client_id, intent_id)
-        if tombstone is not None:
-            return self.tombstone_receipt(client, intent_id, tombstone)
-        return None
+        # Hide the short interval between the intent and send-ledger commits.
+        with self.intent_lock:
+            intent_row = self.store.integration_intent(client.client_id, intent_id)
+            if intent_row is not None:
+                return self.intent_receipt(intent_row, self.store.send(intent_row["request_id"]))
+            tombstone = self.store.cancellation_tombstone(client.client_id, intent_id)
+            if tombstone is not None:
+                return self.tombstone_receipt(client, intent_id, tombstone)
+            return None
 
     def cancel_intent(self, client, intent_id):
         """A never-submitted id is tombstoned rather than 404ed, so a late submit that was
-        waiting on send_lock is rejected instead of silently queuing; see the contract doc."""
-        with self.send_lock:
+        waiting on intent_lock is rejected instead of silently queuing; see the contract doc."""
+        with self.send_lock, self.intent_lock:
             intent_row = self.store.integration_intent(client.client_id, intent_id)
             if intent_row is not None:
                 row = self.store.cancel_send_if_queued(intent_row["request_id"], reason="integration_canceled")

@@ -590,3 +590,15 @@ submission that arrives after that id was tombstoned.
 `"already_transferred": true` — for a second handoff call under a new
 idempotency key, for the same `(thread_or_message_id, destination_owner)` a
 prior key already transferred.
+
+### Optional Outlook watchdog health
+
+When the operator configures `EMAIL_OUTLOOK_HEALTH_FILE`, scoped route responses
+include `sender_health: {status, checked_at, reason}` and `send_available` for
+Outlook senders. Status is `healthy`, `unavailable`, `login_required`, or `unknown`.
+Missing or older-than-two-minute observations are unknown and unavailable for
+reporting. `ready` still describes the durable route binding; these additive
+health fields do not change route revisions, generations, approvals or receipts.
+Consumers must use `send_available` for live sender readiness when present and
+continue using confirmed receipts as the only evidence of sending. Shared-sender
+metadata under `/mailboxes` exposes the same observation as `health`.

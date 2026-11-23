@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the dedicated Outlook browser every thirty seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=30s
+AccuracySec=1s
+Unit=qorqut-outlook-watchdog.service
+
+[Install]
+WantedBy=timers.target

@@ -391,6 +391,7 @@ class Settings:
     outlook_web: OutlookWebConfig | None = None
     admin_token: str = ""
     integrations: tuple[IntegrationClient, ...] = ()
+    outlook_health_file: Path | None = None
 
     def __post_init__(self):
         if self.admin_token and (len(self.admin_token) < 32 or not self.admin_token.isascii()
@@ -480,6 +481,8 @@ class Settings:
                 if os.environ.get("EMAIL_HISTORY_FILE") else None,
             outlook_web=OutlookWebConfig.model_validate_json(Path(os.environ["EMAIL_OUTLOOK_WEB_FILE"]).read_text())
                 if os.environ.get("EMAIL_OUTLOOK_WEB_FILE") else None,
+            outlook_health_file=Path(os.environ['EMAIL_OUTLOOK_HEALTH_FILE'])
+                if os.environ.get('EMAIL_OUTLOOK_HEALTH_FILE') else None,
             integrations=tuple(IntegrationClient.model_validate(item) for item in
                 json.loads(Path(os.environ["EMAIL_INTEGRATIONS_FILE"]).read_text()))
                 if os.environ.get("EMAIL_INTEGRATIONS_FILE") else ())
