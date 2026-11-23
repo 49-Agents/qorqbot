@@ -174,8 +174,6 @@ class PrivateSignoffVisibility:
             return '', []
         excluded = [name for name in self.operations if name not in self.rules or not self.rules[name](context, uow)]
         predicates = ['s.operation_name NOT IN (' + ','.join('?' for _ in excluded) + ')'] if excluded else []
-        if context.principal_kind != 'agent' or context.principal_id != configured_ordubashy(uow):
-            predicates.append("s.category != 'side_chat'")
         return (' AND (' + ' AND '.join(predicates) + ')' if predicates else ''), excluded
 
 

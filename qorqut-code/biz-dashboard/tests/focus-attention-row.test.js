@@ -15,11 +15,12 @@ browserTest('retry buttons at the end of a full Focus attention row keep it one 
     const page = await browser.newPage({viewport: {width: 700, height: 700}});
     const chips = Array.from({length: 20}, () => '<button type="button" class="focus-signoff-chip"><span class="attention-signoff"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/></svg></span></button>').join('');
     const retry = ['signoffs', 'reminders', 'calendar'].map(name => `<button type="button" class="quiet" data-${name}-retry>Retry ${name}</button>`).join('');
-    await page.setContent(`<body class="agent-workspace-app"><div class="agfocus" style="width:600px"><section class="attention-queue agfocus-queues">
-      <div class="agfocus-surface-board focus-signoff-queue agfocus-attention-row" role="group">${chips}${retry}</div></section></div></body>`);
+    await page.setContent(`<body class="agent-workspace-app"><div class="agfocus" style="width:600px"><section class="attention-queue agfocus-queues"><div class="attention-stack agfocus-surfaces">
+      <div class="agfocus-fixed"><button type="button" class="attention-chip agfocus-surface-chip">N</button></div><span class="agfocus-divider"></span>
+      <div class="agfocus-surface-board focus-signoff-queue" role="group">${chips}${retry}</div></div></section></div></body>`);
     for (const file of ['app.css', 'css/agent-focus.css', 'css/agent-workspace.css']) await page.addStyleTag({path: path.join(root, file)});
     const sizes = await page.evaluate(() => {
-      const row = document.querySelector('.agfocus-attention-row'), chip = row.querySelector('.focus-signoff-chip');
+      const row = document.querySelector('.agfocus-surface-board'), chip = row.querySelector('.focus-signoff-chip');
       return {row: row.getBoundingClientRect().height, chip: chip.getBoundingClientRect().height, overflow: row.scrollWidth > row.clientWidth,
         retry: [...row.querySelectorAll('.quiet')].map(b => ({height: b.getBoundingClientRect().height, width: b.getBoundingClientRect().width, text: b.scrollWidth <= b.clientWidth + 1}))};
     });

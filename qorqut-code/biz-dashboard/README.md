@@ -201,23 +201,18 @@ reads or writes the notes, and agents cannot place anything on Focus. Check:
   thread's title; the record's details fill the board on the right, under the launcher
   row, with a pill Close. "‹ Chat" or Close hands the left side back to the main Chat,
   draft and all. The record-type icon tab shows that record's full-width dashboard, Back
-  restores a prior record's tab and edits, and Escape closes. Side chats open on the left
-  the same way, with Focus left as it was on the right; their header holds the rename
-  and Close side chat. Where Focus runs without that Chat area beside it, threads and side
-  chats stay in the board. Thread messages render like the main Chat: no box, no avatars,
-  the same size, and sender names only when more than one agent replied. Task threads
-  and side chats take attached files.
+  restores a prior record's tab and edits, and Escape closes. Where Focus runs without
+  that Chat area beside it, threads stay in the board. Thread messages render like the
+  main Chat: no box, no avatars, the same size, and sender names only when more than one
+  agent replied. Task threads take attached files.
   Reads and sends use `owner_conversation_get`, `owner_conversation_send` and
   `owner_conversation_mark_read`; only a visible Chat selection/load through the latest
   sequence acknowledges it. Source-keyed drafts survive closing and reopening the record. See
   [the record workspace](docs/RECORD-WORKSPACE.md). Check: `node --test tests/chat-takeover.test.js`.
-- The pin button in a thread's header pins that thread to the launcher row, after the
-  open side chats; the chip shows unread replies, opens the thread, and a right-click
-  unpins it. Pins are owner-only presentation saved per owner (`GET/POST
-  /api/root/thread-pins`, at most 50). Checks: `node --test tests/side-chat-focus.test.js`,
-  `python -m unittest tests.test_thread_pins` (from `app/`).
-- The launcher row includes open side chats and pinned threads; a separate row below it holds pending
-  Signoffs, due reminders and recovery actions (`/root/attention-queue`). Reply
+- Focus's top area is one row: Notes, Browser and Desktop, a thin divider that shows only while the
+  queue does, then the attention queue (pending Signoffs, due reminders, calendar events and recovery
+  actions, `/root/attention-queue`), which scrolls sideways when it does not fit. Check:
+  `node --test tests/focus-strip-row.test.js`. Reply
   notifications poll `/root/reply-notifications` every 10 seconds while visible and
   every 30 seconds hidden. Checks: `tests/test_attention_queue_browser.js`,
   `tests/test_owner_attention_browser.js`, `tests/test_reply_notifications_browser.js`.

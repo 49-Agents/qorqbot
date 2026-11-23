@@ -118,7 +118,11 @@ class WhatsAppSendOperations:
             raise DomainError("forbidden", "The connected WhatsApp account differs from the installation binding")
         chat = client.chat(chat_id)
         if not chat["known"]:
-            raise DomainError("not_found", "chat_id is not an existing indexed conversation; find it using whatsapp_read")
+            # Every check on the installation itself has passed by now, so say so: an agent must not read this refusal
+            # as "sending is off".
+            raise DomainError("not_found", "chat_id is not in the owner's WhatsApp chat list; use the exact chat id that "
+                              "whatsapp_read (action chats) returns. This concerns this chat only: WhatsApp sending "
+                              "itself is set up and working")
         return self._build(ctx, args, settings, chat["name"], uow)
 
     def revise(self, ctx, original, changes, uow):

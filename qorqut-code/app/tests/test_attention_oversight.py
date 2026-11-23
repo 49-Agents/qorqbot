@@ -55,6 +55,36 @@ class OversightTextTests(unittest.TestCase):
         self.assertIn('up to 10 shown): none', text)
         self.assertIn('check whether you can clear the blocker): none', text)
 
+    def test_the_coordinator_is_told_to_move_or_clear_a_focus_he_is_not_acting_on(self):
+        text = attention.render('focus', self.snapshot({'available': [], 'stalled': [], 'stalled_count': 0}),
+                                instructions=self.instructions)
+        self.assertIn('Your todo_focus must point only at the Task you are acting on right now.', text)
+        self.assertIn('attention_focus_set', text)
+        self.assertIn('attention_focus_clear', text)
+        self.assertIn('that clears your todo_focus', text)
+        self.assertNotIn('Keep your todo_focus on the Task you are coordinating', text)
+
+    def test_a_focus_held_for_hours_is_named_in_the_coordinators_reminder(self):
+        team = {'available': [], 'stalled': [], 'stalled_count': 0}
+        held = {**self.snapshot(team), 'focused_for': '4d 1h 29m', 'focus_held_minutes': 5849}
+        text = attention.render('focus', held, instructions=self.instructions)
+        self.assertIn('This todo_focus has been held for 4d 1h 29m. If you are not acting on this Task right now, '
+                      'move it with attention_focus_set or clear it with attention_focus_clear.', text)
+        self.assertLess(text.index('has been held for'), text.index('Todo snapshot'))
+        for minutes, shown in ((attention.HELD_MINUTES - 1, False), (attention.HELD_MINUTES, True), (None, False)):
+            text = attention.render('focus', {**held, 'focus_held_minutes': minutes}, instructions=self.instructions)
+            self.assertEqual('has been held for' in text, shown, minutes)
+        unfocused = attention.render('board_normal', {**self.snapshot(team, None), 'focus_held_minutes': 5849},
+                                     instructions=self.instructions)
+        self.assertNotIn('has been held for', unfocused)
+
+    def test_a_workers_reminder_is_unchanged_by_a_long_focus(self):
+        worker = attention.render('focus', {**self.snapshot(None), 'focused_for': '4d 1h 29m', 'focus_held_minutes': 5849},
+                                  instructions=self.instructions)
+        self.assertNotIn('has been held for', worker)
+        self.assertNotIn('Task you are acting on right now', worker)
+        self.assertIn('Your todo_focus must point only at a Task you are actively working on.', worker)
+
     def test_a_worker_and_a_blocked_workflow_keep_their_own_text(self):
         worker = attention.render('focus', self.snapshot(None), instructions=self.instructions)
         self.assertIn('Continue the Task your todo_focus points at', worker)

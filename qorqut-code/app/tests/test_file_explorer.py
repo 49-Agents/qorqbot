@@ -160,7 +160,7 @@ class ProjectBadgesTests(unittest.TestCase):
     def test_live_counts_use_task_type_lifecycle_scope_and_signoff_visibility(self):
         self.signoff()
         # The fixture helper takes overrides without relying on any production write path.
-        for overrides in [dict(state='answered'), dict(category='side_chat'), dict(review_business_id=self.denied),
+        for overrides in [dict(state='answered'), dict(review_business_id=self.denied),
                           dict(expected_targets_json=json.dumps([{'resource':{'business_id':self.denied}}]))]:
             self.signoff(**overrides)
         result = explorer.directory(self.viewer, [('path', 'projects')])

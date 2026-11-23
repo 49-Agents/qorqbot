@@ -589,17 +589,6 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
-            if parts == ["root", "thread-pins"] and request.method in {"GET", "POST"}:
-                if request.headers.get("authorization") is not None:
-                    raise DomainError("forbidden", "Pinned threads are for the owner's dashboard")
-                from qorqut.dashboard_preferences import thread_pins
-                body = await read_json(request, limit=65536) if request.method == "POST" else None
-                if body is not None and not isinstance(body, dict):
-                    raise DomainError("validation_error", "A pinned thread change must be an object")
-                data = await anyio.to_thread.run_sync(partial(thread_pins, self.runtime.paths.runtime, actor.principal.id, body))
-                result = response(OperationResult.ok(data, request_id=request_id))
-                result.headers["Cache-Control"] = "private, no-store"
-                return result
             if parts == ["root", "testing-mode"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Testing mode is for the owner's dashboard")
@@ -723,7 +712,6 @@ class HTTPAPI:
                     "workspace_types", "workspace_get",
                     "owner_conversation_get", "owner_conversation_send", "owner_conversation_mark_read", "owner_conversations_list", "owner_conversation_related", "owner_conversation_peers",
                     "timeline_view",
-                    "side_chats_create", "side_chats_rename", "side_chats_close",
                     # Project record reads and explicit links: the six project_* operations and the narrow reminder read.
                     # The root route names the Project with scope=global and no business option; a business route must agree
                     # with project_id, and the engine refuses any target differing from the selected project.

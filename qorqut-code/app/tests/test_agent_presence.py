@@ -12,7 +12,7 @@ from qorqut_operations.contracts import DomainError, Principal, new_id
 
 from qorqut.agents.activity import AgentActivity
 
-from test_side_chat_rename import build_runtime, invoke
+from private_thread_runtime import build_runtime, invoke
 
 try:
     from starlette.applications import Starlette

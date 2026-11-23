@@ -83,9 +83,8 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   - Slash commands: type `/` at the start of the Chat box to list the commands Chat accepts, for example `/compact`.
     Commands that need a menu or panel are not offered in Chat.
 - **Ordubashy's right-hand pane** has tabs:
-  - **Focus**: what needs the owner in one place. The top row holds side chats and the threads the owner pinned;
-    Signoffs waiting on the owner, due reminders and calendar alerts show as chips below it; the rest is the owner's
-    personal notes, which agents cannot read or write. It does not show calendar events.
+  - **Focus**: what needs the owner in one place. Signoffs waiting on the owner, due reminders and calendar alerts
+    show as chips at its top; the rest is the owner's personal notes, which agents cannot read or write. It does not show calendar events.
   - **Todo**: the work on Ordubashy's board, the owner's and the agents'. The person icon shows only the owner's tasks.
   - **Calendar**: day, 3-day and week views, **Add event**, **My calendars**. It shows events only once Google Calendar
     is connected (see Calendar below).

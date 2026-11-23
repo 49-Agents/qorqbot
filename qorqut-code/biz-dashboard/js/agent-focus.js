@@ -1,12 +1,12 @@
-// Owner Focus: the launcher and side-chat row, the attention row, then the owner's own notes.
-// Records opened from Chat references, side chats and other expansions fill the same area while open.
+// Owner Focus: one row of launchers and the attention queue, then the owner's own notes.
+// Records opened from Chat references and other expansions fill the same area while open.
 const AGFOCUS_POLL_MS = 60000;
 function agfocusPath(p) { return `/me/agents/${encodeURIComponent(p.agentId)}/focus`; }
 function agfocusText(el, value) { if (el && el.textContent !== value) el.textContent = value; }
 const agfocusTextHost=()=>typeof focusText!=='undefined'?focusText:null;
 
 function agfocusQueueMount(p,queue) {
-  // An agent with Focus gets launchers and open side chats above attention; other agents keep their views and queue.
+  // An agent with Focus gets launchers and the attention queue in one row; other agents keep their views and queue.
   p.focusSurfaces=agpadFocusSurfaces(p) && typeof agviewboxSurfacesMount==='function'?agviewboxSurfacesMount(p,queue):null;
   const strip=p.focusSurfaces;
   const disposeAttention=strip?()=>{strip.dispose();if(p.focusSurfaces===strip)p.focusSurfaces=null;}
@@ -16,7 +16,7 @@ function agfocusQueueMount(p,queue) {
     signoffQueue.className='focus-signoff-queue';signoffQueue.setAttribute('aria-label','Signoff queue');signoffQueue.hidden=true;
     queue.after(signoffQueue);
   }
-  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue,undefined,undefined,{sideChatHost:strip?.sideChatHost}):()=>{};
+  const disposeSignoffs=typeof attentionQueue!=='undefined'?attentionQueue.mountSignoffs(signoffQueue):()=>{};
   return ()=>{disposeAttention();disposeSignoffs();if(!strip)signoffQueue.remove();};
 }
 
@@ -178,7 +178,7 @@ function agfocusWorkspaceOptions(p) {
     onPairedSource:(record,parentTable)=>agfocusPairedSource(record,parentTable),
     visible:()=>agpadActive(p) && p.view==='focus' && p.focusMount && !p.focusMount.hidden,
     onClose:()=>agfocusClearSelection(p),
-    // Reading or receiving a reply updates the shared unread markers, including pinned threads in the top row.
+    // Reading or receiving a reply updates the shared unread markers.
     onRead:()=>{if(typeof replyNotifications!=='undefined')void replyNotifications.refresh?.();},
     onUnread:()=>{if(typeof replyNotifications!=='undefined')void replyNotifications.refresh?.();}};
 }

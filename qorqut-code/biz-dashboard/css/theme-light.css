@@ -61,7 +61,7 @@
 :root[data-theme="light"] .onboarding-card button:hover { background: #fff; color: var(--accent-fg); }
 :root[data-theme="light"] .onboarding-card .ghost:hover { color: var(--fg); background: rgba(255,255,255,.04); }
 
-/* Pinned strip chips, the Journal heatmap and Journal rows (hard-coded dark fills). */
+/* Focus strip chips, the Journal heatmap and Journal rows (hard-coded dark fills). */
 :root[data-theme="light"] .agent-workspace-app .agfocus .attention-chip { background: rgba(0,0,0,.05); color: var(--fg-2); }
 :root[data-theme="light"] .jrheat { background: var(--wash); }
 :root[data-theme="light"] .ntrow:hover { background: rgba(0,0,0,.035); }
