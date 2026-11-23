@@ -25,6 +25,7 @@ from qorqut_operations.contracts import DomainError
 from qorqut_operations.storage.core_schema import CORE_SCHEMA
 from qorqut_operations.document_history.lifecycle import DocumentLifecycle, RESOURCE_TYPE as DOCUMENTS
 from qorqut_operations.storage.database import Database
+from qorqut_operations.storage.list_indexes import storage_contribution as list_index_storage
 from qorqut_operations.storage.queue_indexes import storage_contribution as queue_index_storage
 
 from qorqut.extensions import NO_EXTENSIONS
@@ -91,6 +92,7 @@ def host_contributions(change_feed, extensions=NO_EXTENSIONS):
             TransactionContribution("inbox", finalizers=inbox_finalizers(extensions.sources)),
             TransactionContribution("change-feed", change_publisher=require_change_feed(change_feed)),
             queue_index_storage(),
+            list_index_storage(),
             *extensions.storage())
 
 
