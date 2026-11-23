@@ -875,6 +875,27 @@ def session_name(workspace: Path, endpoint: str, instance: str = "") -> str:
     return "qorqut-" + hashlib.sha256((str(workspace.resolve()) + "\n" + endpoint + instance).encode()).hexdigest()[:20]
 
 
+def upload_arguments(args: list[str], directory: Path) -> list[str]:
+    """``upload <ref> <file>...`` with each file named by a path the browser can open.
+
+    The tool gives Chrome the path, not the file, and Chrome opens it itself. A managed Chrome runs outside this process's
+    private bind mounts, where a path below one names nothing, or another file. Chrome then hands the page an empty file of
+    that name which cannot be read, and the tool still reports success. So each file has to exist here, and goes to the
+    tool by the path it has outside the private mounts (``agent_browsers.outside_private_mounts``). Links in the folder's
+    path are followed first, since they too are read differently out there; the file's own name is kept, because the page
+    sees it. A relative path is read from ``directory``, the tool's working directory, as the tool itself would."""
+    from qorqut.browser.agent_browsers import outside_private_mounts      # imported here: that module imports this one
+    files = []
+    for value in args[2:]:
+        given = os.path.abspath(os.path.join(directory, value))
+        path = Path(os.path.realpath(os.path.dirname(given)), os.path.basename(given))
+        if not path.exists():
+            raise BrowserError(f"upload: there is no file at {value}. Nothing was sent to the page. Give the absolute path "
+                               "of a file that exists.")
+        files.append(str(outside_private_mounts(path)))
+    return [*args[:2], *files]
+
+
 def run(workspace: Path, args: list[str], *, target=None, instance="", capture=False, pinned=None):
     """Run one browser command. ``pinned`` says the target is a Chrome that several agents share (see
     ``agent_browser.command``); left out, it is read from the workspace's own saved target when that is the target used."""
@@ -888,6 +909,8 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     if path_has_symlink(directory):
         raise BrowserError("Browser work directory crosses a symbolic link.")
+    if args[0] == "upload":
+        args = upload_arguments(args, directory)
     env = agent_browser.environment(os.environ)
     with (directory / "command.lock").open("a") as lock:
         try:

@@ -45,12 +45,9 @@ Needs an Apple silicon Mac (M1 or newer) on macOS 14 or newer.
    [Releases page](https://github.com/49-Agents/qorqbot/releases), open it and
    drag **Qorqbot** to **Applications**. Everything Qorqbot needs to run is
    inside the app; there is nothing to install first.
-2. Open Qorqbot from Applications. The app is not notarized yet, so macOS says it
-   "could not verify" Qorqbot. Click **Done**, not **Move to Trash**. Then open
-   **System Settings > Privacy & Security**, scroll down to **Security**, click
-   **Open Anyway** next to "Qorqbot was blocked" and enter your password. Open
-   Qorqbot again and click **Open Anyway** in the dialog. You do this once.
-   Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/Qorqbot.app`
+2. Open Qorqbot from Applications. The app is signed and notarized by Apple, so
+   macOS asks once whether to open an app downloaded from the internet; click
+   **Open**.
 3. The first open sets Qorqbot up in `~/Qorqbot/qorqbot` in a few seconds and
    opens the dashboard. Sign in with your email: Qorqbot sends a code, and you
    do this once.

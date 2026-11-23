@@ -136,6 +136,7 @@ that cannot run is refused before it starts, on every path that calls it.
 | `wait <ms>`, `wait <selector>`, `wait --text <t>`, `wait --url <pattern>`, `wait --load <state>`, `wait --fn <expression>` | Passed through. A time is at most 30,000 ms, so the wait ends inside the 45-second limit of a command. A wait for a selector or text that never comes ends by itself after 25 seconds. |
 | `get url`, `get title`, `get text <sel>`, `get value <sel>`, `get attr <sel> <name>`, `get count <sel>` | Passed through |
 | `frame <ref or selector>`, `frame main` | Passed through: enter a frame, or go back to the page |
+| `upload <ref or selector> <file>...` | Passed through, each file by the path the browser can open it at; see Uploads below |
 | `dialog accept [text]`, `dialog dismiss` | `dialog-accept`, `dialog-dismiss` |
 | `eval <function>` | The function is called, as before |
 | `eval <expression or statements>` | Run as written; the value of the last statement is printed |
@@ -161,6 +162,19 @@ the launcher sends every `--option=value` as `--option value`.
 Two refusals protect against a silent wrong result. `type` takes one text argument: the tool's own `type <selector>
 <text>` would type "e5 text" into whatever has focus. `find <locator> <value>` needs an action, because the tool would
 click.
+
+Uploads. The tool gives Chrome the path of each file, not its content, and Chrome opens the file itself. Chrome accepts
+a path it cannot open: the page then gets a file of that name with 0 bytes whose reading fails (`NotFoundError`), and
+the tool still prints "Done". A managed Chrome runs outside the application service's mount namespace (see
+[BROWSER-MANAGEMENT.md](BROWSER-MANAGEMENT.md)), so where the service sees its instance through a private bind mount
+(`BindPaths=`), every path below that mount was such a path. `upload_arguments` in `qorqut/bootstrap/browser.py`
+therefore sends each file by the path it has on the underlying filesystem (`outside_private_mounts`, the translation
+the browser's own folders use), after following links in the folder's path; the file's name, which the page sees, is
+kept. A file that does not exist is refused before anything reaches the page, and `upload` without a file is refused
+by `validate_arguments`. A relative path is read from the tool's working folder. A file that has no path where Chrome
+runs, such as one under a temporary folder private to the service, still arrives empty. Checked on 2026-11-22 with the
+command run inside a mount namespace and a throwaway Chrome outside it: before, the page got the file's name with
+0 bytes; now it reads the whole file.
 
 Frames. Fields inside a frame are in `snapshot` with refs of their own, and `fill` and `click` reach them directly.
 `frame <css>` enters only a frame of the same site; for a frame of another site the tool answers "Frame not found".
