@@ -301,6 +301,45 @@ def storage_error(exc: sqlite3.Error) -> DomainError:
     return DomainError("storage_error", "Operational storage failed")
 
 
+# ``DomainError`` codes that always stand for the store failing, not for the operation refusing. ``storage_error`` is
+# SQLite's generic failure; ``busy`` is also raised without a cause when a nested unit gives up waiting for the writer.
+_STORAGE_CODES = frozenset({"busy", "storage_error", "storage_configuration"})
+
+
+def is_application_refusal(exc: BaseException) -> bool:
+    """True for a ``DomainError`` that is the operation refusing (forbidden, archived, stale, not found, ...).
+
+    False for anything that stands for a storage failure: a code in ``_STORAGE_CODES``, or any ``sqlite3.Error`` in its
+    cause or context chain. ``storage_error`` turns every SQLite failure into a ``DomainError`` chained ``from`` it,
+    including ``validation_error`` and ``revision_conflict`` for constraint violations, so the code alone cannot tell
+    these apart from an application's own ``validation_error``; the chain can."""
+    if not isinstance(exc, DomainError) or exc.code in _STORAGE_CODES:
+        return False
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        if isinstance(exc, sqlite3.Error):
+            return False
+        seen.add(id(exc))
+        exc = exc.__cause__ or exc.__context__
+    return True
+
+
+def _idle(connection) -> bool:
+    """True when no statement of ``connection`` is still active, so the next unit can start on it.
+
+    Since Python 3.11 ``rollback()`` no longer resets cursors, so a cursor that was only partly read and is still
+    referenced (a refusal raised inside ``for row in connection.execute(...)``, whose frames the traceback keeps alive)
+    leaves its statement open although ``in_transaction`` is already false. On such a connection the next ``BEGIN``
+    keeps reading the old snapshot, ``BEGIN IMMEDIATE`` fails as locked, and ``create_function`` is refused. The last is
+    the probe: SQLite will not redefine a function while any statement of the connection is active, and every
+    ``UnitOfWork`` rebinds this one anyway, so restoring its default (as ``install_sql_functions`` sets it) is harmless."""
+    try:
+        connection.create_function("inbox_actor", 0, lambda: None)
+    except sqlite3.Error:
+        return False
+    return True
+
+
 def active_tables(tables=None):
     """The table catalog for a catalog-dependent helper: an explicit mapping, else the running unit's."""
     if tables is not None:
@@ -394,7 +433,11 @@ class Database:
         connection.row_factory = sqlite3.Row
         install_sql_functions(connection)
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA synchronous = FULL")
+        # NORMAL, not FULL, on purpose: in WAL mode a commit then no longer waits for the disk (and no longer holds the one
+        # writer lock through that wait). After a power cut or an operating-system crash the file stays consistent but the
+        # last few commits may be gone; a crash of this process alone loses nothing. Code that must survive a power cut in
+        # order (a file effect, an outside send) must not rely on a commit having reached the disk.
+        connection.execute("PRAGMA synchronous = NORMAL")
         connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout * 1000)}")
         # Pool-lifetime cache/mmap sizing, set once at connection creation
         # rather than per acquire: these are page-cache tuning, not per-unit
@@ -667,9 +710,15 @@ class Database:
             outcome = 'writer_required' if abandoned else 'rolled_back'
             healthy = False
             connection.rollback()
-            # An abandoned attempt only read, and its one refused statement changed nothing: once rolled back the
-            # connection is as sound as after a commit. No other failure vouches for the state it leaves behind.
-            healthy = abandoned
+            # Once rolled back, the connection is as sound as after a commit when the body ended in a refusal the
+            # operation chose to make (``is_application_refusal``) or in an abandoned optimistic attempt, which only
+            # read: a unit sets nothing on its connection that outlives its transaction (``query_only`` and the
+            # busy timeout are set again by every unit, the SQL functions are rebound by each ``UnitOfWork``, the
+            # unit memo and the deferred foreign-key check end with the transaction), and ``_release`` still
+            # refuses a connection left in a transaction and ``_idle`` one that still has a statement open (a cursor
+            # the body left half read survives the rollback). No other failure vouches for the state it leaves behind:
+            # a storage failure, an unexpected exception, or a cancellation may have stopped anywhere.
+            healthy = (abandoned or is_application_refusal(exc)) and _idle(connection)
             raise
         finally:
             ACTIVE_ASSEMBLY.reset(catalog_token)
