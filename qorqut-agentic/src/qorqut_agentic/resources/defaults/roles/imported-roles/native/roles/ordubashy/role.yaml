@@ -1,6 +1,6 @@
 schema_version: 1
 id: ordubashy
-version: 1.86.0
+version: 1.87.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
@@ -36,6 +36,14 @@ skills:
   path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
 - id: owner-settings
   path: operations/imported-role-skills/native/skills/owner-settings/SKILL.md
+- id: environment
+  path: operations/imported-role-skills/native/skills/environment/SKILL.md
+- id: fastmail
+  path: operations/imported-role-skills/native/skills/fastmail/SKILL.md
+- id: whatsapp
+  path: operations/imported-role-skills/native/skills/whatsapp/SKILL.md
+- id: get-set-up
+  path: operations/imported-role-skills/native/skills/get-set-up/SKILL.md
 default_tool_policy:
   agentic_change_propose: allow
   agentic_change_get: allow

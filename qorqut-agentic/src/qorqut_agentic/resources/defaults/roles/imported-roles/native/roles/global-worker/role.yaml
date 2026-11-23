@@ -1,6 +1,6 @@
 schema_version: 1
 id: global-worker
-version: 1.13.0
+version: 1.14.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/global-worker/BRIEF.md
@@ -12,6 +12,10 @@ skills:
   path: operations/imported-role-skills/native/skills/reminders/SKILL.md
 - id: personal-record
   path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
+- id: environment
+  path: operations/imported-role-skills/native/skills/environment/SKILL.md
+- id: fastmail
+  path: operations/imported-role-skills/native/skills/fastmail/SKILL.md
 default_tool_policy:
   signoffs_input_create: allow
   signoffs_source_link: allow

@@ -268,7 +268,9 @@ owner preferences and requests for detail override the brevity default.
 SessionStart always emits the bounded full bundle; failure emits a visible
 preparation error. The primary composer emits core and topic instructions before
 identity, assignment and contextual data. It incorporates the always-loaded skills
-instead of installing a second skills hook. The combined limit preserves the
+instead of installing a second skills hook. While the owner is new, the composer
+also asks the hook for the get-set-up skill (`extra`), which stays out of the
+hook's digest. The combined limit preserves the
 previous mandatory-context and skill budgets (120,000 characters each).
 UserPromptSubmit uses the same composer, emits a replacement when changed, and
 blocks when unready. Ordubashy's operational-intake reminder is emitted on every

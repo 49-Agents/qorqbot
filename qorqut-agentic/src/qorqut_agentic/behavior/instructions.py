@@ -106,11 +106,12 @@ def completion_wrapper(instructions, correction):
     return instructions.render("completion-wrapper") + correction
 
 
-def render_skills(instructions, workspace, runtime, limit=SKILL_BUDGET):
+def render_skills(instructions, workspace, runtime, limit=SKILL_BUDGET, extra=()):
     root = Path(workspace) / SKILL_ROOTS[runtime]
     header = instructions.render("skills-header")
     parts, notes, size = [header], [], len(header)
-    for name in ALWAYS_SKILLS:
+    names = (*ALWAYS_SKILLS, *extra)
+    for name in names:
         path = root / name / "SKILL.md"
         try:
             if path.is_symlink() or any(parent.is_symlink() for parent in path.parents):
@@ -120,7 +121,7 @@ def render_skills(instructions, workspace, runtime, limit=SKILL_BUDGET):
             notes.append(f"- {name}: not available in this workspace; skipped.")
             continue
         block = f'<skill name="{name}" path="{path}">\n{text}\n</skill>'
-        if size + len(block) + 2 > limit - 250 * len(ALWAYS_SKILLS):
+        if size + len(block) + 2 > limit - 250 * len(names):
             notes.append(instructions.render("skills-omitted", NAME=name, PATH=str(path)))
             continue
         parts.append(block)

@@ -167,3 +167,23 @@ entries:
     the agent browser, theme, text size, desktop alerts or the Qorqbot
     account. Do it yourself instead of sending the owner to Settings.
   path: native/skills/owner-settings/SKILL.md
+- id: asset-d93fbfd34422c8e6ffa9
+  kind: skill
+  description: "Read or save Settings variables and credentials with environment_list, environment_get and environment_set: see which names exist, read a value a task needs, or save a key the owner gave you. Load it before using any of the three."
+  when_to_use: "Read or save Settings variables and credentials with environment_list, environment_get and environment_set: see which names exist, read a value a task needs, or save a key the owner gave you. Load it before using any of the three."
+  path: native/skills/environment/SKILL.md
+- id: asset-49efae41de903e2f1474
+  kind: skill
+  description: "Work with a Fastmail account through the fastmail_* tools: reading and searching mail, drafts, sending, replying and forwarding, identities and aliases, labels, receipts. Load it before using any fastmail_* tool. It applies only when those tools are available to you."
+  when_to_use: "Work with a Fastmail account through the fastmail_* tools: reading and searching mail, drafts, sending, replying and forwarding, identities and aliases, labels, receipts. Load it before using any fastmail_* tool. It applies only when those tools are available to you."
+  path: native/skills/fastmail/SKILL.md
+- id: asset-d363a8f72ad1967bb2c3
+  kind: skill
+  description: "Read the owner's personal WhatsApp with whatsapp-personal.whatsapp_read (status, chats, messages, changes) and propose a send with whatsapp_send. Load it before reading or proposing a send. It applies only when the WhatsApp reader is connected for you."
+  when_to_use: "Read the owner's personal WhatsApp with whatsapp-personal.whatsapp_read (status, chats, messages, changes) and propose a send with whatsapp_send. Load it before reading or proposing a send. It applies only when the WhatsApp reader is connected for you."
+  path: native/skills/whatsapp/SKILL.md
+- id: asset-97db9c0803a6e4ae8d78
+  kind: skill
+  description: "The first conversation with a new owner: the welcome, then the agentic-management/get-set-up workflow (the basics about the owner, the tools they want connected, an offer of voice input). Load it when your startup context says FIRST CONVERSATION or FIRST MESSAGE, and when the owner asks to get set up or to redo it."
+  when_to_use: "The first conversation with a new owner: the welcome, then the agentic-management/get-set-up workflow (the basics about the owner, the tools they want connected, an offer of voice input). Load it when your startup context says FIRST CONVERSATION or FIRST MESSAGE, and when the owner asks to get set up or to redo it."
+  path: native/skills/get-set-up/SKILL.md

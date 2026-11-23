@@ -1,6 +1,6 @@
 schema_version: 1
 id: learning-applier
-version: 1.23.0
+version: 1.24.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/learning-applier/BRIEF.md
@@ -18,6 +18,8 @@ skills:
   path: operations/imported-role-skills/native/skills/reminders/SKILL.md
 - id: personal-record
   path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
+- id: environment
+  path: operations/imported-role-skills/native/skills/environment/SKILL.md
 default_tool_policy:
   agentic_change_propose: allow
   agentic_change_get: allow
