@@ -287,16 +287,28 @@ class CompactionHandoffTests(HandoffCase):
         compact(closed='other', session='third')
         self.assertEqual(continued('third'), {'conversation_id': 'other', 'at': self.rows()[-1]['opened_at']})
 
-    def test_the_opening_names_the_rules_the_agent_proposed_and_the_owner_has_not_decided(self):
+    def test_the_opening_names_the_owner_rules_the_agent_filed_until_an_approved_proposal_names_them(self):
         with self.db.transaction() as uow:
-            uow.connection.execute('PRAGMA defer_foreign_keys=ON')
-            columns = {row[1]: row for row in uow.connection.execute('PRAGMA table_info(signoffs)')}
-            values = {'id': str(uuid4()), 'proposer_principal_id': self.lead, 'category': 'input_request', 'state': 'pending',
-                      'request_key': 'direct-instruction:abc', 'review_scope_kind': 'global', 'preview_json': '{"input": {"title": "Ask every question in a Signoff, never in chat"}}'}
-            for name, column in columns.items():      # the other required columns of an approval, which this read ignores
-                if name not in values and column[3] and column[4] is None:
-                    values[name] = 1 if column[2] == 'INTEGER' else '{}' if name.endswith('_json') or name == 'change_set' else 'x'
-            uow.connection.execute(f"INSERT INTO signoffs({','.join(values)}) VALUES({','.join('?' * len(values))})", tuple(values.values()))
-            self.assertEqual(self.tool.rules(uow, self.lead), ['Ask every question in a Signoff, never in chat'])
-            self.assertEqual(self.tool.rules(uow, self.worker), [])
-            uow.connection.execute('DELETE FROM signoffs')
+            run = uow.connection.execute
+            run('PRAGMA defer_foreign_keys=ON')
+            run("INSERT INTO experience_clusters(id,label,created_by,created_at) VALUES('filed-by-agents','Filed by agents',?,'x')", (self.lead,))
+
+            def filed(identity, who, kind, text, at, in_run=None):
+                run('INSERT INTO experience_observations(id,run_id,cluster_id,kind,subject,text,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',
+                    (identity, in_run, 'filed-by-agents', kind, 'all agents', text, who, at))
+            filed('a', self.lead, 'owner_complaint', 'Ask every question  in a Signoff,\nnever in chat.', '2026-11-23T10:00:00Z')
+            filed('b', self.lead, 'agent_failure', 'I guessed an identifier.', '2026-11-23T10:01:00Z')
+            filed('c', self.worker, 'owner_complaint', 'Never send a LinkedIn note.', '2026-11-23T10:02:00Z')
+            filed('d', self.lead, 'owner_complaint', 'x' * 500, '2026-11-23T10:03:00Z')
+            filed('e', self.lead, 'owner_complaint', 'Seen by the extraction, not filed by the agent.', '2026-11-23T10:04:00Z', in_run='r1')
+            self.assertEqual(self.tool.rules(uow, self.lead), ['Ask every question in a Signoff, never in chat.', 'x' * 399 + '…'])
+            self.assertEqual(self.tool.rules(uow, self.worker), ['Never send a LinkedIn note.'])
+            # A proposal that only waits leaves the rule listed; an approved one that names it takes it off the list.
+            run("INSERT INTO agentic_delta_proposals(id,number,title,problem,change,state,created_by,created_at,updated_at) "
+                "VALUES('p',1,'Questions as Signoffs','Asked in chat.','Ask in a Signoff.','waiting_for_approval',?,'x','x')", (self.lead,))
+            run("INSERT INTO agentic_delta_proposal_links(proposal_id,target_type,target_id) VALUES('p','observation','a')")
+            self.assertEqual(len(self.tool.rules(uow, self.lead)), 2)
+            run("UPDATE agentic_delta_proposals SET state='approved', decided_at='x' WHERE id='p'")
+            self.assertEqual(self.tool.rules(uow, self.lead), ['x' * 399 + '…'])
+            for table in ('agentic_delta_proposal_links', 'agentic_delta_proposals', 'experience_observations', 'experience_clusters'):
+                run(f'DELETE FROM {table}')

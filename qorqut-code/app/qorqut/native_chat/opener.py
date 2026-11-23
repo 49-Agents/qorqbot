@@ -315,7 +315,8 @@ class SessionOpener:
 
     def replace(self, profile: dict, closing: str, compose, key: str, *, close_seconds: float = 45.0) -> str:
         """Close the agent's conversation ``closing`` and open a fresh one whose next message after its instructions is the text
-        ``compose()`` returns. Returns the fresh conversation's id. ``native_chat/compaction.py`` is the only caller.
+        ``compose()`` returns. Returns the fresh conversation's id. The callers are ``native_chat/compaction.py`` and
+        ``experience/runs.py`` (a scheduled workflow run starts in a fresh conversation).
 
         All of it runs under the agent's flight: no wake and no owner open can start a session between the close and the open,
         which would resume the conversation just closed. They wait, and find the fresh one bound. ``compose`` is called once the

@@ -551,7 +551,10 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             "checkpoint_protocol": dict(checkpoint_protocol or {}),
             "read_operations": read_operations, **({"runtime_mode": "terminal"} if terminal else {})}),
     }
-    files[".qorqut/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": "bypassPermissions"}})
+    # Claude Code's own memory is off for every agent: the file is passed with ``--settings`` at each launch, which
+    # outranks the owner's own Claude settings for that launch only and changes none of them.
+    from qorqut.managed_runtime.clients import CLAUDE_MEMORY_SETTING
+    files[".qorqut/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": "bypassPermissions"}, **CLAUDE_MEMORY_SETTING})
     if terminal:
         # The prepared shell exists only while terminals are the mode, so a managed projection (and its hash) is untouched.
         from qorqut.agent_trust import marker_path

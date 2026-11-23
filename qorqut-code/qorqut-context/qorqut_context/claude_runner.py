@@ -34,6 +34,8 @@ PREFIX = "mcp__" + SERVER + "__"
 EFFORTS = {"none": "low", "minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
 # The CLI must not believe it runs inside another Claude Code session or inherit that session's identity.
 DROPPED_ENVIRONMENT = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_AGENT_SDK_VERSION")
+# Claude Code's own memory stays off in a filing run, as in every Claude that Qorqbot starts.
+MEMORY_OFF = {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
 USAGE_SOURCE = "claude-stream-json/result"
 
 
@@ -157,6 +159,7 @@ class ClaudeRunner:
         # -- the CLI ------------------------------------------------------------------------------------------
         environment = {key: value for key, value in os.environ.items()
                        if key not in DROPPED_ENVIRONMENT and not key.startswith("ACLA_")}
+        environment.update(MEMORY_OFF)
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    cwd=scratch, env=environment, start_new_session=True)
         events = queue.Queue(maxsize=1024)

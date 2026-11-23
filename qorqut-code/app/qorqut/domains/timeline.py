@@ -5,8 +5,8 @@ changes it. An item is named by its type and id as ``thread_pins_set`` names a r
 Project (``project`` and its id). Its project is found from the id: ``project_id`` is the Task's Project (null for a Global
 Task) or the Project's own id, and may be stated.
 
-Global has no timeline (the owner's decision, 22 November 2026): what holds for all work is a standing instruction and goes
-through an agentic change. A call that names Global (``global``, id ``global``) is still accepted by the
+Global has no timeline (the owner's decision, 22 November 2026): what holds for all work is an instruction, which an agent
+files for the Learning Applier's review (``experience_observation_file``). A call that names Global (``global``, id ``global``) is still accepted by the
 schemas so that it is answered with that advice (``NO_GLOBAL``) instead of a bare schema refusal; nothing is read or filed.
 Entries filed on Global before the decision stay in the store and are not read.
 
@@ -14,9 +14,10 @@ Who may read: a Task's timeline follows the ordinary ``tasks_get`` read of that 
 participant of that Project. Who may file: the configured coordinator in person, never a delegated identity, never the
 dashboard.
 
-Filing is split so that a later review step can sit between the two halves: ``check`` is the caller's gate, the item's
-existence and ``filing.check`` of the changes (it is what ``prepare`` runs and what lists the rows a removal or answer depends
-on, to be pinned with ``pin``); ``file`` appends the changes. ``apply`` calls ``file`` with the plan's own arguments and proposer.
+A filing is applied at once. It is split so that a review step can sit between the two halves when a permission override
+holds filings for the owner: ``check`` is the caller's gate, the item's existence and ``filing.check`` of the changes (it is
+what ``prepare`` runs and what lists the rows a removal or answer depends on, to be pinned with ``pin``); ``file`` appends the
+changes. ``apply`` calls ``file`` with the plan's own arguments and proposer.
 """
 from __future__ import annotations
 
@@ -46,8 +47,8 @@ GET_DESCRIPTION = (
     "read the Task and a Project's when you take part in the Project. Changes nothing.")
 FILE_DESCRIPTION = (
     "Coordinator write. Changes the timeline of a Task or a Project, which every agent that opens the item is then told. "
-    "item names it as in timeline_get. Global has no timeline: a rule every agent must keep in mind is a standing instruction, "
-    "proposed as an agentic change with agentic_change_propose. changes is 1 to 10 of: {action: add, kind: goal|decision|fact|progress, text, refs?} "
+    "item names it as in timeline_get. Global has no timeline: a rule about how agents work is an instruction, filed with "
+    "experience_observation_file for the Learning Applier's review. changes is 1 to 10 of: {action: add, kind: goal|decision|fact|progress, text, refs?} "
     "(text 1 to 400 characters, one or two sentences; a goal and a progress note replace the previous one, a decision and a fact "
     "hold until removed; an add that repeats what already stands is skipped and listed under filed.skipped); {action: remove, "
     "entry_id, reason?} (takes out an entry that no longer holds, and removing the current goal or progress note leaves none; read the ids with "
@@ -57,9 +58,7 @@ FILE_DESCRIPTION = (
     "sources is up to ten {quote, ref}: the owner's own words behind the change (at most 1000 "
     "characters each) and a link to the message. The entries are never edited or deleted, so file at the most general level that "
     "fits and keep what you file true. The result is the item's new state; when it passes about 3,000 characters it asks you to "
-    "remove what no longer holds. During the trial every filing is first held for the owner's review: the call returns "
-    "signoff_required, which means the filing was submitted for the owner's review and is filed by itself when the owner "
-    "approves it, with no further call from you. Do not file it again; timeline_get lists the filings still waiting.")
+    "remove what no longer holds. The filing is applied at once, without the owner's review.")
 ANSWER_DESCRIPTION = (
     "Coordinator write. Files the owner's answer to one of your question Signoffs on a timeline, at once and without review, "
     "since the words are the owner's: signoff_id is the answered question (signoffs_input_create, now answered), kind is "
@@ -70,15 +69,14 @@ ANSWER_DESCRIPTION = (
     "an answer that settles a decision or fact; when the owner says the question is not needed or was settled already, file "
     "nothing. If unclear, please ask the user.")
 # Global has no timeline. A call that names it is told where its content belongs, so the caller is not left to guess.
-NO_GLOBAL = ("Global has no timeline. Why should this hold at Global? A rule every agent must keep in mind is a standing "
-             "instruction: consider proposing it as an agentic change with agentic_change_propose. What holds for one Project "
-             "or Task is filed on that Project or Task.")
+NO_GLOBAL = ("Global has no timeline. Why should this hold at Global? A rule about how agents work is an instruction: "
+             "consider filing it with experience_observation_file, which puts it before the Learning Applier's review. What "
+             "holds for one Project or Task is filed on that Project or Task.")
 NO_GLOBAL_READ = ("Global has no timeline. What holds for all work is in the standing instructions; read the timeline of a "
                   "Project or a Task.")
 NO_GLOBAL_ANSWER = ("This question was asked about no Task or Project, and Global has no timeline. Name the Task or Project "
-                    "the answer holds on with item. If the answer is a rule every agent must keep in mind, consider proposing "
-                    "it as an agentic change with agentic_change_propose; otherwise file nothing: the answered Signoff is the "
-                    "record.")
+                    "the answer holds on with item. If the answer is a rule about how agents work, consider filing it "
+                    "with experience_observation_file; otherwise file nothing: the answered Signoff is the record.")
 REVIEW_NOTICE = ("Submitted for the owner's review. It is filed by itself when the owner approves it; do not file it again. "
                  "timeline_get lists the filings still waiting.")
 
@@ -127,12 +125,13 @@ class Timeline:
         self.runtime.registry.register(OperationDescriptor(
             "timeline_get", GET_SCHEMA, description=GET_DESCRIPTION, effect_kind="read", read=self.get, supports_signoff=False,
             scope_kinds=frozenset({"project", "global"}), resolve_namespace=task_namespace, **common))
-        # During the trial a filing is held for the owner's approval and applied by the service as its proposer; an agent override
-        # (``permissions_set``) for the coordinator replaces this standing mode, which is how the trial ends.
+        # A filing is applied at once (the owner's decision, 23 November 2026: what holds on a Task or a Project needs no
+        # Signoff of theirs). It can still be held: an agent override (``permissions_set``) that says ``signoff`` for the
+        # coordinator sends each filing to the owner's review, and the service applies an approved one as its proposer.
         self.runtime.registry.register(OperationDescriptor(
             "timeline_file", FILE_SCHEMA, description=FILE_DESCRIPTION, effect_kind="records", prepare=self.prepare,
             apply=self.apply, scope_kinds=frozenset({"global"}), resolve_namespace=lambda ctx, args: "global",
-            supports_signoff=True, default_mode="signoff", project_result=self.project, **common))
+            supports_signoff=True, default_mode="allow", project_result=self.project, **common))
         # The owner's answer to a question Signoff is the owner's own words, so filing it needs no second review.
         self.runtime.registry.register(OperationDescriptor(
             "timeline_file_answer", ANSWER_SCHEMA, description=ANSWER_DESCRIPTION, effect_kind="records", prepare=self.prepare_answer,

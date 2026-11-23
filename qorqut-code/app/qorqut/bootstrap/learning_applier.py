@@ -1,8 +1,9 @@
 """Explicit standalone learning-applier provisioning; never launches a session.
 
-The Learning Applier is the Overseer executor: it extracts evidence-backed agentic proposals, reviews them with the
-owner and applies accepted ones through the managed Overseer package. It is a supported global, so it reaches every
-active project through derived access and no explicit project list is selected or saved.
+The Learning Applier runs two scheduled workflows (``qorqut.experience``): the daily experience extraction files
+observations, and the weekly review and application files agentic layer delta proposals for the owner to approve or
+reject. It is a supported global, so it reaches every active project through derived access and no explicit project
+list is selected or saved.
 """
 
 from qorqut_agentic.behavior.seeds import runtime_text as runtime_seed

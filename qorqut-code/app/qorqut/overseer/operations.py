@@ -31,7 +31,6 @@ def _schema(properties, required=()):
 
 
 READS = {
-    'agentic_change_get': ({'submission_id': _UUID}, ('submission_id',)),
     'overseer_evidence_list': ({'run_id': _STR, 'selection': _OBJ, **_PAGE}, ('run_id', 'selection')),
     'overseer_episode_get': ({'run_id': _STR, 'episode_ref': _OBJ, 'frontier': _OBJ,
         'cursor': {'type': 'string', 'maxLength': 4096}, 'max_chars': {'type': 'integer', 'minimum': 1}},
@@ -52,14 +51,6 @@ READS = {
 START = {'invocation': _OBJ, 'interpretation': _OBJ, 'operation_id': _STR,
          'response_interpretation': {'type': ['object', 'null']}}
 WRITE = {
-    'agentic_change_propose': ({'request_key': _STR,
-        'instruction_text': {'type': 'string', 'minLength': 1, 'maxLength': 17000},
-        'source_id': _UUID, 'summary': {'type': 'string', 'minLength': 1, 'maxLength': 160},
-        'change_direction': {'type': 'string', 'minLength': 1, 'maxLength': 4000},
-        'scope': _OBJ, 'target_refs': {'type': 'array', 'items': _STR, 'maxItems': 20}},
-        ('request_key', 'instruction_text', 'summary', 'change_direction', 'scope', 'target_refs')),
-    'agentic_change_reconcile': ({'submission_id': _UUID, 'response': _OBJ, 'operation_id': _STR},
-        ('submission_id', 'response', 'operation_id')),
     'overseer_outside_delta_record': ({'id': _UUID, 'summary': {'type': 'string', 'minLength': 1, 'maxLength': 8000},
         'sources': {'type': 'array', 'minItems': 1, 'maxItems': 100, 'items': _OBJ},
         'suggested_improvement': {'type': ['string', 'null'], 'minLength': 1, 'maxLength': 8000}, 'operation_id': _STR},
@@ -112,8 +103,7 @@ class OverseerOperations:
             self.runtime.registry.register(OperationDescriptor(name, _schema(properties, required), effect_kind='read',
                 supports_signoff=False, exposure=frozenset({'mcp'}), scope_kinds=frozenset({'global'}),
                 global_capability=capability, resolve_namespace=lambda c, a: 'global',
-                description=(instruction_text('operations-read-your-submitted-instruction-exact-review-signoff-and')
-                             if name == 'agentic_change_get' else instruction_text('operations-read-authorized-overseer-records-and-current-source-availability')),
+                description=instruction_text('operations-read-authorized-overseer-records-and-current-source-availability'),
                 read=lambda c, a, o, u, n=name: self.safe_read(n, c, a, u)))
         from .due import DueRecord, OUTPUT as DUE_OUTPUT, ARGUMENTS as DUE_ARGUMENTS
         due = DueRecord(self.runtime)
@@ -131,9 +121,7 @@ class OverseerOperations:
             self.runtime.registry.register(OperationDescriptor(name, _schema(properties, required), effect_kind='compound',
                 supports_signoff=False, exposure=frozenset({'mcp'}), scope_kinds=frozenset({'global'}),
                 global_capability='manage_agentic_layer', transport_only=True, external_read=True,
-                description=({'agentic_change_propose': instruction_text('operations-submit-an-explicit-owner-chat-instruction-as-a'),
-                              'agentic_change_reconcile': instruction_text('operations-read-the-actual-owner-answer-to-your-exact')}.get(name,
-                             instruction_text('operations-run-an-authorized-overseer-bridge-operation-with-its')))))
+                description=instruction_text('operations-run-an-authorized-overseer-bridge-operation-with-its')))
         from .executor import configure
         from qorqut_agentic.errors import AgenticError
         try:
@@ -196,9 +184,6 @@ class OverseerOperations:
         return {**result, 'presentation_ref': presentation_ref}
 
     def read(self, name, context, args, uow):
-        if name == 'agentic_change_get':
-            from .direct import get
-            return get(self.runtime, context, **args)
         if name in ('overseer_evidence_list', 'overseer_episode_get'):
             # Retried transports must not race inventory cursors or publish a
             # duplicate page presentation. Refuse before provider/admission work.
@@ -339,9 +324,6 @@ class OverseerOperations:
                 'availability': 'available', 'gaps': []}
 
     def mutate(self, name, context, args):
-        if name in ('agentic_change_propose', 'agentic_change_reconcile'):
-            from . import direct
-            return (direct.propose if name == 'agentic_change_propose' else direct.reconcile)(self.runtime, context, **args)
         if name == 'overseer_outside_delta_record':
             from .outside import record
             return record(self.runtime, context, args)

@@ -335,7 +335,7 @@ function sgMessageFieldError(s,key,value) {
   if(custom)return custom.fieldError(key,value);
   return 'This field cannot be edited.';
 }
-// The coordinator's filing on a timeline during the review trial: the item, one line per change, the owner's quoted words.
+// The coordinator's filing on a timeline, when a permission setting holds it for the owner's review: the item, one line per change, the owner's quoted words.
 const SG_TIMELINE_TYPES = { task: 'Task', project: 'Project', global: 'Global' };
 function sgTimelineLine(c) {
   const text = sgNonblank(c?.text) ? c.text : '', question = sgNonblank(c?.question) ? c.question : '';

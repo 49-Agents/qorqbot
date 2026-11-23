@@ -152,6 +152,11 @@ class TerminalProjection(Fixture):
         name = ".qorqut/claude-launch-settings.json"
         self.assertEqual(self.build(False).files[name], self.build(True).files[name])
 
+    def test_the_launch_settings_switch_claude_codes_own_memory_off(self):
+        settings = json.loads(self.build(False).files[".qorqut/claude-launch-settings.json"])
+        self.assertIs(settings["autoMemoryEnabled"], False)
+        self.assertIn(settings["permissions"]["defaultMode"], ("bypassPermissions", "dontAsk"))
+
 
 if __name__ == "__main__":
     unittest.main()

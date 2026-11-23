@@ -404,6 +404,13 @@ own downloaded copy runs, named by its stable `tools/<provider>-current/` path
 `DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1` for Claude Code and
 `-c check_for_update_on_startup=false` for Codex. The owner's own CLI is never touched.
 
+Claude Code's own memory (the notes it keeps for itself under its configuration folder) is off in
+everything Qorqbot starts: the launch file carries `"autoMemoryEnabled": false`, and managed sessions,
+worker runs and Context filing runs are started with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. Both act on
+that one launch and change nothing in the owner's own Claude Code settings, so Claude Code used
+outside Qorqbot on the same computer keeps its memory. What an agent has to keep is filed in
+Qorqbot's records instead (Task, Context, or the Learning Applier's queue).
+
 Already-open Claude sessions keep their launch settings until the session is
 closed and opened again; preparing files never sends model input or kills a
 session. Personal/managed ask rules, interaction tools, and platform-enforced

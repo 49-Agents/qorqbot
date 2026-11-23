@@ -34,6 +34,18 @@ class SignoffDomains:
 
     def __init__(self):
         self._bound = {}
+        self._observers = []
+
+    def observe(self, observer):
+        """Add ``observer(before, after, uow)``, called inside the transaction of every Signoff status update after the Focus
+        board has been told. An observer keeps its own records in step with a decision; it never changes the Signoff."""
+        if not callable(observer):
+            raise AssemblyError('A Signoff observer must be callable')
+        self._observers.append(observer)
+        return self
+
+    def observers(self):
+        return tuple(self._observers)
 
     def bind(self, **domains):
         for name, value in domains.items():
@@ -140,6 +152,8 @@ class HostFocus:
 
     def release_signoff(self, row, updated, uow):
         self.domains.focus_board.release_signoff(row, updated, uow)
+        for observer in self.domains.observers():
+            observer(row, updated, uow)
 
 
 class PrivateSignoffVisibility:

@@ -419,9 +419,9 @@ const between = (from, to) => {
 };
 function statusParts({session, entries = 0, inputs = 0, viewing = true, local = false, sending = false}) {
   const body = between('  const hasHistory = ', '  // ---- slash commands') + between('  function emptyState() {', '  // ---- managed runtime') + between('  const sessionLineText = ', '  // One repaint');
-  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'GLOBAL_CHAT_INFLIGHT', 'composerScope', 'GLOBAL_CHAT_OPENING', 'agentId',
+  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'GLOBAL_CHAT_INFLIGHT', 'composerScope', 'GLOBAL_CHAT_OPENING', 'agentId', 'earlier',
     `${body}; return {sessionSummary, emptyState, sessionLineText, hasHistory};`)(session, 'Ada', runtime, () => viewing, {size: entries}, {length: inputs}, local,
-    {has: () => sending}, 'scope', {has: () => false}, 'agent-1');
+    {has: () => sending}, 'scope', {has: () => false}, 'agent-1', []);
 }
 // What the owner reads in each state: the session line, the empty state in the middle of the pane, and the composer's placeholder.
 function wording(options) {

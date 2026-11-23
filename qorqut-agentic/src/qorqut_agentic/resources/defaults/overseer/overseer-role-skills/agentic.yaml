@@ -5,10 +5,12 @@ description: Preserved native role assets; metadata does not grant authority.
 entries:
 - id: asset-62a64c8c7ec4380b32db
   kind: skill
-  description: Extract evidence-backed agentic proposals, review them with the owner,
-    and apply selected accepted changes through the managed Overseer workflows; factual
-    Context remains separate.
-  when_to_use: Extract evidence-backed agentic proposals, review them with the owner,
-    and apply selected accepted changes through the managed Overseer workflows; factual
-    Context remains separate.
+  description: Apply an accepted agentic change through the managed Overseer
+    application workflow, only when the owner invokes it. Not for the scheduled
+    experience extraction or the review and application, which have their own
+    skills.
+  when_to_use: Apply an accepted agentic change through the managed Overseer
+    application workflow, only when the owner invokes it. Not for the scheduled
+    experience extraction or the review and application, which have their own
+    skills.
   path: native/skills/learning-application/SKILL.md
