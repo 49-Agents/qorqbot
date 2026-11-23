@@ -13,8 +13,8 @@ invocation. Acceptance alone queues dormant work.
 The package's `extract` and `review` entries are no longer started. The scheduled
 experience extraction and the review and application replace them; follow the
 experience-extraction and delta-proposals skills for those. This procedure applies
-only what is in the accepted queue: a change the owner accepted through
-`agentic_change_propose`, or an earlier accepted delta. An approved delta proposal
+only what is in the accepted queue: a change or a delta the owner accepted
+earlier. An approved delta proposal
 of the review and application is not in that queue and is not applied here.
 
 When the owner should decide whether to begin application, use the dedicated

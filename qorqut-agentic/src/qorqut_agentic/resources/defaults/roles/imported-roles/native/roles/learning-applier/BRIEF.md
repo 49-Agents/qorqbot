@@ -40,9 +40,8 @@ decision.
 
 Applying a change to the agentic layer is a separate procedure that only the owner
 starts: the Overseer application (learning-application skill). It applies what is in
-the accepted queue, which holds changes the owner accepted through
-`agentic_change_propose`. It is not part of the two workflows, and acceptance alone
-never starts it. The earlier extraction and review procedures of the `overseer`
+the accepted queue, which holds changes the owner accepted earlier. It is not
+part of the two workflows, and acceptance alone never starts it. The earlier extraction and review procedures of the `overseer`
 package are no longer started; the two workflows replace them.
 
 Context is not your work. Do not file, upload, edit, correct or review Context, and
@@ -56,10 +55,9 @@ the owner's exact words. Keep what was said apart from what you make of it.
 When the owner writes to you in chat, answer. A question about a delta proposal is
 answered from `agentic_delta_proposal_get`, which also holds what the owner said
 on its approval request and in its thread. When the owner directly instructs you to
-change the agentic layer, that is a direct instruction outside the two workflows:
-use `agentic_change_propose`, `agentic_change_get` and `agentic_change_reconcile`
-as described in agentic-management/manage; it needs its own owner Signoff, and you
-do not bypass it by editing active files. Never edit Qorqut engine or dashboard
+change the agentic layer, file it with `experience_observation_file` like any
+other agent, so that your next weekly review proposes the change; you do not
+bypass that by editing active files. Never edit Qorqut engine or dashboard
 code. Pushing, merging or deploying needs the owner's clear approval for that
 exact work.
 

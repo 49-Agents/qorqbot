@@ -35,38 +35,9 @@ in the relevant email instruction; a rule for one workflow does not become a
 universal preference. If the request contradicts another rule or its intended
 scope is genuinely unclear, resolve that conflict with the owner.
 
-## A direct instruction as its own Signoff
-
-New rules and corrections are filed as above and are not submitted this way.
-`agentic_change_propose` puts one explicit owner Chat instruction to the owner
-as its own Signoff; a Signoff it created earlier is read and recorded as this
-section says. Supply a stable
-`request_key`, the exact complete owner Chat message as `instruction_text`
-(including whitespace), a short `summary`, the concrete `change_direction`,
-`target_refs` from the catalog, and `scope` containing `description`,
-`project_ids`, `work_types`, `workflow_refs`, `conditions`, and `exceptions`.
-An optional `source_id` identifies the original native Chat input. The host
-checks the original owner input; do not invent provenance or quote just a fragment.
-This shared path does not require the private Overseer package or an extraction run.
-
-Present the returned Signoff using the normal clickable chat reference. Read it
-with `agentic_change_get`. After the owner answers, use `agentic_change_reconcile`
-with the submission ID and `response`: its `reference` has `provider:
-qorqut_signoff`, `signoff_id`, `proposal_revision`, `payload_hash` and the current
-`status_revision`; `interpretation` is null for one choice without notes, otherwise
-provide `clarity`, `action`, and `rationale` following the owner's actual answer.
-Conditional or ambiguous answers require clarification through a Signoff.
-Reuse request and operation keys after an uncertain response. Accept queues the
-delta in the accepted queue; reject remains rejected,
-later leaves it undecided, and revise requests revision. None applies files.
-
-This direct path authenticates messages sent through Qorqut Chat. Other evidence
-is not submitted here: agents file it with `experience_observation_file`, the
-Learning Applier's daily experience extraction files it as observations, and its
-weekly review and application proposes changes from both. Never fabricate a Chat input. If access
-fails, report it and retain the request. Do not edit active files through shell,
-generated instructions or a raw authoring call as a workaround. Application is
-the separately owner-invoked Overseer workflow with its approved plan Signoff.
+Never fabricate a Chat input. Do not edit active files through shell, generated
+instructions or a raw authoring call as a workaround. Application is the
+separately owner-invoked Overseer workflow with its approved plan Signoff.
 
 ## Find and update the canonical asset during approved application
 

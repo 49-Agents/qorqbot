@@ -23,9 +23,6 @@ skills:
 - id: personal-record
   path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
 default_tool_policy:
-  agentic_change_propose: allow
-  agentic_change_get: allow
-  agentic_change_reconcile: allow
   actions_config_get: allow
   actions_get: allow
   actions_list: allow
