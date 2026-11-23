@@ -5,6 +5,10 @@
 .agwork-top .agfiles-icon-btn[aria-pressed="false"] { color: var(--fg-2); }
 .agwork-top .agfiles-icon-btn[aria-pressed="true"] { background: var(--nav-selected, var(--hover)); color: var(--fg); }
 .agwork-layout { display: flex; flex: none; gap: 2px; }
+/* The search field, the scope button and the two layout buttons are one height, with icons of one size. */
+.agwork-top > .agfiles-search { height: 32px; box-sizing: border-box; padding-block: 0; }
+.agwork-top .agfiles-icon-btn { width: 32px; height: 32px; }
+.agwork-top .agfiles-icon-btn svg { width: 16px; height: 16px; }
 /* The scope button: a quiet 12px bordered control as tall as the search field. */
 .agwork .agwork-scope { display: flex; flex: none; align-items: center; gap: 6px; height: 32px; max-width: 180px; padding: 0 9px; box-sizing: border-box;
   background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-sm); color: var(--fg-2); font-size: 12px; }
@@ -23,12 +27,15 @@
 .agwork-body .agfiles-status { padding: 12px 4px; }
 .agwork .agwork-fold { margin-left: 4px; padding: 3px 7px; border-radius: var(--r-sm); font-size: 11px; color: var(--fg-2); }
 /* A row: marker, the title with its second line, then the chip, due date and workers. */
-.agwork-row { gap: 10px; }
+.agwork-row { gap: 10px; min-height: 40px; }
 .agwork-row .ball, .agwork-row .task-type-marker { cursor: inherit; }
 .agwork-main { flex: 1; min-width: 0; padding: 4px 0; }
 .agwork-main .ttl { display: block; }
 .agwork-line { display: block; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.4; }
 .agwork-tail { display: flex; align-items: center; gap: 8px; flex: none; }
+.agwork-project { flex: none; margin: 0; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Workers sit in a column of one width, so chips, dates and project names line up from row to row. */
+.agwork-tail .task-workers { min-width: 46px; justify-content: flex-end; }
 .agwork-body .task-chip { display: inline-block; border: 1px solid var(--line); font-size: 11px; line-height: 1.2; min-height: 0; padding: 3px 7px; }
 .agwork-body button.task-chip:hover { background: var(--hover) !important; color: var(--fg) !important; }
 .agwork-children { margin: 0 0 6px 34px; }
@@ -47,6 +54,7 @@
 .agwork-card .agwork-line { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 .agwork-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }
 .agwork-card-foot .task-workers { margin-left: auto; }
+.agwork-card-foot .agwork-project { flex: 0 1 auto; min-width: 0; }
 /* Narrow panes: the subtasks chip keeps its number only. */
 @container (max-width: 560px) {
   .agwork-body { padding-inline: 10px; }

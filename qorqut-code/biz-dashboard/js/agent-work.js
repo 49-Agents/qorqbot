@@ -4,7 +4,7 @@
 T_VIEW_LABEL.work = 'Work';
 T_VIEW_ICON.work = agentFilesIcon('tasks');
 
-const AGWORK_PAGE = 100, AGWORK_MAX_PAGES = 10, AGWORK_PARALLEL = 4;
+const AGWORK_PAGE = 100, AGWORK_MAX_PAGES = 10, AGWORK_PARALLEL = 6;
 const AGWORK_MOVING = ['needs_input', 'working', 'blocked', 'open'];
 const AGWORK_WORKERS_SHOWN = 3;
 const agentWorkFinished = status => status === 'done' || status === 'cancelled';
@@ -32,6 +32,8 @@ function agentWorkRoutineCompare(a, b) {
 }
 // The scope key of a row is '' for Global or the project's slug; a row key is `${scope}:${id}`.
 const agentWorkKey = (scope, id) => `${scope}:${id}`;
+// What was last read, by scope key, kept for the page's life: the tab paints from it at once and then reads again quietly.
+const agentWorkSnapshot = {tasks: new Map(), routines: new Map()};
 
 function agentWorkMount(p) {
   if (!agentPaneViewAllowed(p.workspaceRole, 'work')) return;
@@ -80,7 +82,8 @@ function agentWorkMount(p) {
     }));
   }
   async function readTasks(generation, background) {
-    const found = new Map();
+    // A first read shows each scope's rows as they arrive; a quiet re-read swaps everything in at the end.
+    const found = background ? new Map() : s.tasks;
     let failed = 0;
     await pool(scopes(), async scope => {
       const path = scope ? `/biz/${encodeURIComponent(scope)}` : '/root';
@@ -97,6 +100,8 @@ function agentWorkMount(p) {
           cursor = next;
         }
         found.set(scope, rows);
+        agentWorkSnapshot.tasks.set(scope, rows);
+        if (!background) paintBody();
       } catch (_) {
         if (!live() || generation !== s.generation) return;
         // A quiet re-read that fails keeps the rows already shown for that scope.
@@ -116,6 +121,7 @@ function agentWorkMount(p) {
         const data = await api(scope ? `/biz/${encodeURIComponent(scope)}/routines` : '/root/routines');
         if (!live() || generation !== s.generation) return;
         found.set(scope, (data?.routines || []).filter(routine => scope ? routine.scope !== 'global' : routine.scope === 'global'));
+        agentWorkSnapshot.routines.set(scope, found.get(scope));
         if (!background) paintBody();
       } catch (_) {
         // A routines read that fails is silent: the group is simply missing, or stays as it was on a quiet re-read.
@@ -129,7 +135,14 @@ function agentWorkMount(p) {
   // A background read keeps what is shown until the answer arrives, so nothing flashes "Loading…".
   function reload(background = false) {
     const generation = ++s.generation;
-    if (!background) { s.tasks = new Map(); s.routines = new Map(); s.tasksLoaded = false; s.routinesLoaded = false; s.failed = 0; }
+    if (!background) {
+      // Scopes read earlier on this page paint at once from the snapshot; the read that follows is then a quiet one.
+      const keep = (from, list) => new Map(list.filter(scope => from.has(scope)).map(scope => [scope, from.get(scope)]));
+      const list = scopes();
+      s.tasks = keep(agentWorkSnapshot.tasks, list); s.routines = keep(agentWorkSnapshot.routines, list);
+      s.tasksLoaded = s.tasks.size === list.length; s.routinesLoaded = s.tasksLoaded && s.routines.size === list.length; s.failed = 0;
+      background = s.tasksLoaded;
+    }
     paintBody();
     void readTasks(generation, background).then(() => readRoutines(generation, background));
   }
@@ -142,7 +155,7 @@ function agentWorkMount(p) {
       if (task.task_type === 'customer' || task.task_type === 'email' || agentWorkFinished(task.status)) continue;
       const project = projectName(scope);
       // The search reads what the row shows: the project's name only where rows carry it.
-      if (needle() && !`${task.title || ''} ${task.status_line || ''} ${s.scope === '*' ? project : ''}`.toLocaleLowerCase().includes(needle())) continue;
+      if (needle() && !`${task.title || ''} ${s.scope === '*' ? project : ''}`.toLocaleLowerCase().includes(needle())) continue;
       rows.push({task, scope, project, group: agentWorkGroup(task)});
     }
     return rows.sort(agentWorkCompare);
@@ -167,10 +180,13 @@ function agentWorkMount(p) {
     const more = ids.length > AGWORK_WORKERS_SHOWN ? `<span class="task-assignee-more">+${ids.length - AGWORK_WORKERS_SHOWN}</span>` : '';
     return `<span class="task-workers" aria-label="Workers">${shown}${more}</span>`;
   }
-  function secondLine(entry, withProject) {
-    const text = [withProject ? entry.project : '', taskSnoozed(entry.task) ? taskSnoozeLabel(entry.task) : '', entry.task.status_line].filter(Boolean).join(' · ');
-    return text ? `<small class="task-snooze-label agwork-line" title="${esc(text)}">${esc(text)}</small>` : '';
+  // Under the title only a snoozed Task says until when. The status line is the row's tooltip, not text on screen.
+  function secondLine(entry) {
+    const text = taskSnoozed(entry.task) ? taskSnoozeLabel(entry.task) : '';
+    return text ? `<small class="task-snooze-label agwork-line">${esc(text)}</small>` : '';
   }
+  const projectLabel = entry => s.scope === '*' ? `<small class="task-snooze-label agwork-project" title="${esc(entry.project)}">${esc(entry.project)}</small>` : '';
+  const hint = task => task.status_line ? ` title="${esc(task.status_line)}"` : '';
   function chipText(task) {
     const count = agentWorkActiveChildren(task).length;
     if (!count) return null;
@@ -192,18 +208,18 @@ function agentWorkMount(p) {
   function listRow(entry) {
     const {task, scope} = entry, key = agentWorkKey(scope, task.id), chip = chipText(task), expanded = s.expanded.has(key);
     const tail = (chip ? `<button type="button" class="task-chip" data-children="${esc(key)}" aria-expanded="${expanded}" aria-label="${esc(chip.label)}">${chipInner(chip)}</button>` : '')
-      + (task.due ? tDue(task) : '') + workerAvatars(task);
+      + (task.due ? tDue(task) : '') + projectLabel(entry) + workerAvatars(task);
     const title = task.title || 'Untitled task';
-    return `<div class="trow agwork-row ${esc(task.status)}" data-task="${esc(key)}" tabindex="0" role="button" aria-label="${esc(title)}">${marker(task)}
-      <div class="agwork-main"><p class="ttl">${esc(title)}</p>${secondLine(entry, s.scope === '*')}</div>
+    return `<div class="trow agwork-row ${esc(task.status)}" data-task="${esc(key)}" tabindex="0" role="button" aria-label="${esc(title)}"${hint(task)}>${marker(task)}
+      <div class="agwork-main"><p class="ttl">${esc(title)}</p>${secondLine(entry)}</div>
       ${tail ? `<span class="agwork-tail">${tail}</span>` : ''}</div>`
       + (chip && expanded ? `<div class="record-child-list agwork-children">${agentWorkActiveChildren(task).map(child => childRow(child, scope)).join('')}</div>` : '');
   }
   function card(entry) {
     const {task, scope} = entry, chip = chipText(task), title = task.title || 'Untitled task';
-    const foot = (chip ? `<span class="task-chip">${chipInner(chip)}</span>` : '') + (task.due ? tDue(task) : '') + workerAvatars(task);
-    return `<article class="agwork-card" data-task="${esc(agentWorkKey(scope, task.id))}" tabindex="0" role="button" aria-label="${esc(title)}">
-      <p class="ttl">${esc(title)}</p>${secondLine(entry, s.scope === '*')}${foot ? `<div class="agwork-card-foot">${foot}</div>` : ''}</article>`;
+    const foot = projectLabel(entry) + (chip ? `<span class="task-chip">${chipInner(chip)}</span>` : '') + (task.due ? tDue(task) : '') + workerAvatars(task);
+    return `<article class="agwork-card" data-task="${esc(agentWorkKey(scope, task.id))}" tabindex="0" role="button" aria-label="${esc(title)}"${hint(task)}>
+      <p class="ttl">${esc(title)}</p>${secondLine(entry)}${foot ? `<div class="agwork-card-foot">${foot}</div>` : ''}</article>`;
   }
   const heading = (label, count, extra = '', lead = '') => `<div class="tsh">${lead}<h2>${esc(label)}</h2><span class="c">${count}</span>${extra}</div>`;
   function parkedGroup(rows) {
@@ -229,14 +245,14 @@ function agentWorkMount(p) {
     const active = body.contains(document.activeElement) ? document.activeElement : null;
     const focus = active ? ['data-task', 'data-children', 'data-fold', 'data-retry'].map(name => [name, active.getAttribute(name)]).find(pair => pair[1] !== null) : null;
     let html = '';
-    if (!s.tasksLoaded) html = '<div class="agfiles-status" role="status">Loading…</div>';
+    if (!s.tasksLoaded && !s.tasks.size) html = '<div class="agfiles-status" role="status">Loading…</div>';
     else {
       const rows = taskRows(), routines = routineRows();
       const parked = rows.filter(entry => entry.group === 'parked');
       if (s.failed) html += `<div class="agfiles-status" role="alert">${s.failed === 1 ? 'One project' : s.failed + ' projects'} could not be loaded. <button type="button" data-retry>Try again</button></div>`;
       if (!rows.length && !routines.length) {
         // Routines arrive on their own: nothing is called empty before they have, nor when a project failed to load.
-        if (!s.routinesLoaded) html += s.failed ? '' : '<div class="agfiles-status" role="status">Loading…</div>';
+        if (!s.tasksLoaded || !s.routinesLoaded) html += s.failed ? '' : '<div class="agfiles-status" role="status">Loading…</div>';
         else if (s.filter) html += '<p class="agfiles-status">Nothing matches.</p>';
         else if (!s.failed) html += '<p class="agfiles-status">No active work here.</p>';
       } else if (s.layout === 'board') {
