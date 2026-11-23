@@ -20,9 +20,10 @@ VIEW_DESCRIPTION = (
     "history true, every entry oldest first with removed ones marked, the owner's quoted words, and the item's subtasks, "
     "approvals and reports as links. Changes nothing.")
 VIEW_SCHEMA = GET_SCHEMA
-# A pending question Signoff: an input request that asks or requests something, not a draft to review or a report to read.
+# A pending question Signoff: an input request that asks or requests something, or asks the owner to act in a browser tab;
+# not a draft to review or a report to read.
 ASKS = ("s.category='input_request' AND s.state='pending' AND s.superseded_by_id IS NULL "
-        "AND json_extract(s.preview_json,'$.input.kind') IN ('question','request')")
+        "AND json_extract(s.preview_json,'$.input.kind') IN ('question','request','browser_action')")
 QUESTION_ROW = ("SELECT s.id, json_extract(s.preview_json,'$.title') AS text, s.created_at, COALESCE(a.blocking,0) AS blocking "
                 "FROM signoffs s LEFT JOIN signoff_attention a ON a.signoff_id=s.id")
 

@@ -22,7 +22,7 @@ from qorqut_operations.storage.locks import LockPaths
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
 from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.storage.specs import TableSpec
-from .inputs import ACKNOWLEDGE_SQL, InputRequests, acknowledges, validate_response
+from .inputs import ACKNOWLEDGE_SQL, InputRequests, acknowledges, browser_action, validate_response
 from .lookup import LOCATED, SignoffLookup
 from . import questions
 from .drafts import SCHEMA as DRAFT_SCHEMA, DraftReviews, is_draft, validate_values
@@ -237,6 +237,12 @@ class SignoffService:
             if acknowledges(value["input"]):
                 # The Task a report belongs to; None for a report posted before reports had one.
                 value["report_task"] = self.reports.view(row, uow)
+            if (detail and browser_action(value["input"]) and self.ports.tabs is not ABSENT
+                    and row["state"] == "pending" and not row["superseded_by_id"]):
+                # The tab as the browser lists it now, for the owner to open. Only a detail read of a request still waiting
+                # asks the browser: the attention queue polls the list rows, and a decided request has no tab to open (so
+                # the owner's answer, which returns the decided row, never waits on the browser).
+                value["tab"] = plain(self.ports.tabs.view(value["input"]["tab"], uow))
         attention = uow.connection.execute("SELECT * FROM signoff_attention WHERE signoff_id=?", (row["id"],)).fetchone()
         value["attention"] = dict(attention) if attention else {"notify": False, "urgent": False, "blocking": False}
         if attention and attention["priority_updated_by"]:

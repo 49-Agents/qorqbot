@@ -149,12 +149,16 @@ const attentionQueue=(()=>{
   const toRead=s=>!!s.to_read || s.input?.kind==='acknowledge';
   // A question for the owner (an input request asking or requesting something): a queue row says so itself, a listed Signoff by its form.
   // ``asks`` names the kind on a queue row ('question' or 'request'; true from an older server means a question).
-  const askKind=s=>s.asks===true ? 'question' : ['question','request'].includes(s.asks) ? s.asks : ['question','request'].includes(s.input?.kind) ? s.input.kind : null;
+  const askKinds=['question','request','browser_action'];
+  const askKind=s=>s.asks===true ? 'question' : askKinds.includes(s.asks) ? s.asks : askKinds.includes(s.input?.kind) ? s.input.kind : null;
   const asks=s=>!!askKind(s);
   // A timeline filing wears the Timeline view's own icon from the agent pane, the one the pane's navigation shows.
   const timelineIcon=()=>typeof T_VIEW_ICON==='object' ? (T_VIEW_ICON.timeline || '').replace('<svg ','<svg width="15" height="15" ') : '';
+  // A browser action wears the browser icon the Chat tab card uses.
+  const browserIcon=()=>typeof CHAT_VIEW_ICONS==='object' ? (CHAT_VIEW_ICONS.browser || '').replace('<svg ','<svg width="15" height="15" ') : '';
   const signoffIcon=s=>{
     if(s.operation_name==='timeline_file' && timelineIcon())return `<span class="attention-signoff" data-signoff-kind="filing" aria-hidden="true">${timelineIcon()}</span>`;
+    if(!toRead(s) && askKind(s)==='browser_action' && browserIcon())return `<span class="attention-signoff" data-signoff-kind="browser" aria-hidden="true">${browserIcon()}</span>`;
     const kind=toRead(s) ? 'read' : asks(s) ? askKind(s) : (window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
       || ['email.send','email.batch'].includes(s.platform?.submission?.tool) ? 'email'
       : (messageOperations.has(s.operation_name) || window.signoffMessageRenderer?.(s.operation_name)?.message) ? 'message' : 'approval';
@@ -166,7 +170,7 @@ const attentionQueue=(()=>{
     ? signoffIcon(item)
     : item.kind==='viewbox' ? '<span class="attention-viewbox" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3H6v18h12V7zM14 3v5h4M9 12h6M9 16h6"/></svg></span>'
     : typeof identityAvatar==='function' ? identityAvatar('agent',item.agent_name,{agent_id:item.agent_id,...(typeof globalAgentProfile==='function'?globalAgentProfile(item.agent_id):null),...item.presentation}) : '<span aria-hidden="true">✉</span>';
-  const label=item=>item.kind==='signoff'?(toRead(item)?'Attention · ':askKind(item)==='question'?'Question · ':askKind(item)==='request'?'Request · ':'Review · ')+item.title:item.agent_name+' · '+item.text;
+  const label=item=>item.kind==='signoff'?(toRead(item)?'Attention · ':askKind(item)==='question'?'Question · ':askKind(item)==='request'?'Request · ':askKind(item)==='browser_action'?'Browser · ':'Review · ')+item.title:item.agent_name+' · '+item.text;
   const button=item=>`<button type="button" class="attention-chip" data-attention-key="${esc(item.id)}" title="${esc(label(item))}\nRight-click to dismiss" aria-label="${esc(label(item))}">${icon(item)}<span class="attention-label">${esc(item.kind==='signoff'?item.title:item.text)}</span></button>`;
   function paint(host){
     if(!host.isConnected){mounts.delete(host);return;}
@@ -292,7 +296,7 @@ const attentionQueue=(()=>{
       const due=[...bells,...events].sort((a,b)=>a.at-b.at).map(item=>item.html).join('');
       const recovery=recoveryCount ? '<button type="button" class="quiet" data-reminder-recovery>Unconfirmed reminder changes</button>' : recoveryError ? '<button type="button" class="quiet" data-reminder-recovery-check>Retry reminder session</button>' : '';
       const grouped=signoffs.filter(isFiling).length>1;
-      const markup=due+recovery+(grouped?filingsChip():'')+[...signoffs.filter(s=>!toRead(s) && !(grouped && isFiling(s))),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);const blocking=signoffBlocking(s);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}"${blocking?' data-blocking="true"':''} aria-label="${toRead(s)?'Read':askKind(s)==='question'?'Question':askKind(s)==='request'?'Request':'Review'} ${esc(title)}${blocking?' · Blocking':''}${unread?' · Unread':''}" title="${esc(title)}${blocking?' (blocking)':''}\nRight-click to mark ${unread?'read':'unread'}">${signoffIcon(s)}</button>`;}).join('');
+      const markup=due+recovery+(grouped?filingsChip():'')+[...signoffs.filter(s=>!toRead(s) && !(grouped && isFiling(s))),...signoffs.filter(toRead)].map(s=>{const title=mount.name?.(s.id)||s.title,unread=signoffUnread(s.id);const blocking=signoffBlocking(s);return `<button type="button" class="focus-signoff-chip" data-signoff-key="${esc(s.id)}" data-unread="${unread}"${blocking?' data-blocking="true"':''} aria-label="${toRead(s)?'Read':askKind(s)==='question'?'Question':askKind(s)==='request'?'Request':askKind(s)==='browser_action'?'Browser action':'Review'} ${esc(title)}${blocking?' · Blocking':''}${unread?' · Unread':''}" title="${esc(title)}${blocking?' (blocking)':''}\nRight-click to mark ${unread?'read':'unread'}">${signoffIcon(s)}</button>`;}).join('');
       const html=markup+(signoffsError?'<button type="button" class="quiet" data-signoffs-retry>Retry signoffs</button>':'')+(remindersError?'<button type="button" class="quiet" data-reminders-retry>Retry reminders</button>':'')+(calendarError?'<button type="button" class="quiet" data-calendar-retry title="'+esc(calendarError)+'">Retry calendar</button>':'');
       if(host._signoffHTML!==html){
         const focused=document.activeElement, key=host.contains?.(focused) && focused?.matches?.('[data-signoff-key],[data-reminder-key]') ? chipKey(focused) : null;

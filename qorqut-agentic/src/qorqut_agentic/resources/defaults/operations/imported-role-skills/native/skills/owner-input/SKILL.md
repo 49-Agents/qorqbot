@@ -77,7 +77,7 @@ with that question filled in from the answer, or without it. The personal-record
 explains the record's tools.
 
 The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, `draft_review`, or
-Ordubashy's `acknowledge`, described under "Read and acknowledge"), and
+Ordubashy's `acknowledge` and `browser_action`, each described under its own heading), and
 `selection_mode` (`none`, `single`, or `multiple`). For choices provide at least
 two entries with unique stable `id`, a one/two-word `label`, and `explanation`.
 Use `selection_required` and `notes_required` only when that information is
@@ -219,6 +219,24 @@ exact events. Events that arrive while your session is closed wait. Qorqbot open
 itself unless you are turned off or run in a terminal; then they wait until you are started. Retain submitted answers with the signoff; lasting project
 instructions can enter Context through its existing authorized source input
 (`context_upload` or a focused `context_instruct`) when appropriate.
+
+## Browser action
+
+When the owner must do something in a browser page (sign in, solve a captcha, type a code, confirm a payment), Ordubashy
+files `form.kind: browser_action` with the tab: run `tab-reference` in the page and put its reference id in `tab`. A worker
+gives Ordubashy the reference, the page and what the owner must do. The tab must be open; the result's `tab` gives its
+`title` and `url`, so check it is the page you mean. Say in plain words what to do in the page.
+
+```
+signoffs_input_create(request_key="sign-in-mercury", form={"title": "Sign in to Mercury", "kind": "browser_action",
+    "explanation": "Sign in with your usual account and approve the code on your phone.", "selection_mode": "none",
+    "tab": "<agent uuid>:<tab id>"}, attention={"notify": true, "blocking": true, "reason": "The payout run waits on it"},
+    source={"type": "task", "id": "<task id>", "business_id": null})
+```
+
+Send no choices or required notes: the owner opens the tab from the attention queue and answers **Done** or **Could not
+do it**, with an optional note (`decision.selected_choices` is `["done"]` or `["not_done"]`). After Done, check the page
+yourself before going on; after Could not do it, read the note. The answer approves nothing.
 
 ## Work, questions, and discussion
 

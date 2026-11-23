@@ -14,6 +14,8 @@ behaves exactly as it does without them. Every optional domain the host retains 
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from qorqut_operations.signoffs import ABSENT, ReferenceTarget, SignoffPorts
 from qorqut_operations.storage.assembly import AssemblyError
 
@@ -30,7 +32,7 @@ class SignoffDomains:
 
     Using a port before its domain is bound is a composition error, never a silent default."""
 
-    NAMES = ('management', 'focus_board')
+    NAMES = ('management', 'focus_board', 'user_input')
 
     def __init__(self):
         self._bound = {}
@@ -205,9 +207,44 @@ class HostInputSources:
             raise DomainError('forbidden', 'Linking input requires direct write authority over its source')
 
 
+class HostTabs:
+    """The open tabs of the Shared browser for a browser-action request, read exactly as Chat's tab card reads them
+    (``native_chat.user_input``): the caller's ``agents_get`` read of the tab's agent, then Chrome's current tab list."""
+
+    def __init__(self, domains):
+        self.domains = domains
+
+    def check(self, application, context, tab_id, uow):
+        from qorqut_operations.contracts import DomainError
+        from qorqut_operations.items import UNAVAILABLE
+        user_input = self.domains.user_input
+        # A tab is Global, as in Chat: the agent is read without a Project selected.
+        ctx = application.current_context(replace(context, business_id=None, review_business_id=None), uow)
+        try:
+            found = user_input.tab(ctx, tab_id, uow)
+        except DomainError as error:
+            if error.code not in UNAVAILABLE:
+                raise
+            raise DomainError('not_found', 'This tab is not open, or its browser is not answering. Run tab-reference in the '
+                                           'page again and use the reference it prints') from None
+        return {'title': found['title'], 'url': found['url']}
+
+    def view(self, tab_id, uow):
+        from qorqut.native_chat import references, store
+        agent_id, chrome_id = references.tab_parts(tab_id)
+        user_input = self.domains.user_input
+        tab = (user_input._open_tabs(agent_id) or {}).get(chrome_id)
+        agent = store.agent_identity(uow.connection, agent_id) if tab else None
+        available = bool(tab and agent)
+        return {'id': tab_id, 'agent_id': agent_id, 'tab_id': chrome_id, 'available': available,
+                'label': user_input.tab_label(tab['title'], tab['url']) if available else None,
+                'agent_label': agent['display_name'] if available else None}
+
+
 def signoff_ports(domains: SignoffDomains, private_signoffs=None, outcomes=None) -> SignoffPorts:
     """The one ``SignoffPorts`` of this host: every retained optional integration is enabled with its real domain."""
     return SignoffPorts(execution=HostExecution(outcomes), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                         platform=ABSENT, email=ABSENT,
                         management=HostManagement(domains), focus=HostFocus(domains),
-                        narrowing=PrivateSignoffVisibility(private_signoffs or {}), sources=HostInputSources())
+                        narrowing=PrivateSignoffVisibility(private_signoffs or {}), sources=HostInputSources(),
+                        tabs=HostTabs(domains))
