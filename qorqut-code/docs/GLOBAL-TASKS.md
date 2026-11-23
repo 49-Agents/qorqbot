@@ -104,9 +104,7 @@ and `next_cursor`. Each scope separates `active` and `snoozed` entries. Entries
 contain only ID, title, status, due date, owner/self assignee labels and, when
 currently deferred, snooze metadata. They also contain `tags`, the complete
 normalized ordinary tag list (or `[]` when untagged). Shared owner/self
-assignments appear once. The configured `tags.list` projection includes the
-built-in `design/software` tag without rewriting saved scope configuration; it
-is independent of assignee and task kind.
+assignments appear once.
 Titles longer than 180 characters are shortened and marked `title_truncated`.
 Notes, custom fields, dependencies, execution details and revisions are not loaded.
 Read `tasks_get` with the full task id (its scope is found from the id) for

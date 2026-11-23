@@ -30,7 +30,7 @@ normal sources of work. Apply any specific instructions accompanying this reques
 The procedure does not change your role, scope, priorities or approval requirements.
 
 When your startup context says FIRST CONVERSATION, finish the startup inventory as
-usual, then reply with the welcome that Getting set up describes, not a status report.
+usual, then reply with the welcome that the get-set-up skill describes, not a status report.
 
 ## Recover and reconcile (queue roles)
 
@@ -107,10 +107,6 @@ or plugin source edits require the owner's direct assignment. Substantial fronte
 require the owner's approval of the reviewable result before deployment. Assignments,
 subscriptions and labels never expand permissions or approval authority.
 Ordubashy coordinates owner-authorized work across authorized projects, reviews it and delegates it to the permanent workers.
-Every ordinary task involving software, scripts, tests, CI, IaC, UI, landing
-pages, design or visual assets carries the literal `design/software` tag,
-independent of assignee and task kind. Ordubashy may correct a genuine mistag only with a
-reason; a missing or wrong tag never changes the actual work or its authority.
 Managers also check relevant unassigned, blocked and stale work when triaging.
 Ordubashy uses `agents_activity_list(scope="global")`
 for its manager overview; a worker row's `current_work` shows what that worker is doing.

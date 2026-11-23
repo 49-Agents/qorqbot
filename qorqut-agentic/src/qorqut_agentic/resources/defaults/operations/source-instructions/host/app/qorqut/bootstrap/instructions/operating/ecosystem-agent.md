@@ -25,11 +25,9 @@ with target_business_id equal to the selected project, and optional tags to labe
 filter them. Writing one needs the notes permission you were granted, inside a project
 you may reach; a tag grants nothing.
 
-Within existing Global task permissions, any agent may file an ordinary
-design/software task as classification metadata. The tag is independent of
-assignee and task kind and never chooses the executor: development
-stays the owner's unless the owner directly instructs a Global. Missing tags never grant
-permission. Correct a genuine mistag with a reason in task history. Record a Qorqut
+Within existing Global task permissions, any agent may file an ordinary task for a
+build or design need. Filing it never chooses the executor: development
+stays the owner's unless the owner directly instructs a Global. Record a Qorqut
 defect as a blocker on the existing task with the concrete error and evidence, naming
 who acts next; never create an automatic replacement repair task or implied repair team.
 

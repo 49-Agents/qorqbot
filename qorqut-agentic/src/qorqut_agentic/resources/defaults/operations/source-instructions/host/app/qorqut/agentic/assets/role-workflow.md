@@ -235,10 +235,6 @@ project's code workspace. Never edit Qorqut engine or dashboard code. Shared rol
 or plugin source edits require the owner's direct assignment. Substantial frontend/UI changes
 require the owner's approval of the reviewable result before deployment. Assignments,
 subscriptions and labels never expand permissions or approval authority.
-Every ordinary task involving software, scripts, tests, CI, IaC, UI, landing
-pages, design or visual assets carries the literal `design/software` tag,
-independent of assignee and task kind. Ordubashy may correct a genuine mistag only with a
-reason; a missing or wrong tag never changes the actual work or its authority.
 Task dependencies notify their assignees through the existing inbox; inspect blocks
 and blocked_by in tasks_get, and prioritize useful work that unblocks others within
 owner priorities. A signoff reference is context, not approval or a new dependency.
