@@ -35,15 +35,26 @@ release does not end a running turn.
 - The host gets a small allow-listed environment. The agent's own environment,
   with its secrets, travels only in a private `launch.json` that the host reads
   and deletes at once. It never appears in a command line.
-- The client runs as the owner's own command line would. On a folder or Mac
-  installation the service has a private `HOME` and an explicit
-  `CLAUDE_CONFIG_DIR`; the launcher records what the owner had
+- The client runs with the owner's own `HOME` and `PATH`, and with the client
+  folders the launcher chose (`native_launch.client_homes`), the same way for
+  Claude Code (`CLAUDE_CONFIG_DIR`) and Codex (`CODEX_HOME`). An installation
+  set up from this version on has its own two folders, `instance/home/claude`
+  and `instance/home/codex`: its own sign-in for each client, and none of the
+  instructions, skills, commands, hooks, MCP servers, memory or settings the
+  owner keeps for their own use of the client. An installation set up earlier
+  has no `instance/config/own-client-homes` marker and keeps the owner's own
+  folders. A folder named in the environment Qorqbot is started from wins in
+  both cases. On a folder or Mac installation the service itself has a private
+  `HOME`; the launcher records what the client must get
   (`QORQUT_NATIVE_USER_ENV`), and the manager gives the client those values,
   unset ones included (`agent_cli_launch.owner_variables`). The setup screen's
   sign-in check and the sign-in button use the same environment, so all three
   read one sign-in. This matters on macOS, where Claude Code names its Keychain
-  item after an explicit `CLAUDE_CONFIG_DIR`. What the owner set in Settings
-  still wins.
+  item after an explicit `CLAUDE_CONFIG_DIR`, so Qorqbot's own folder is also a
+  Keychain item of its own. What the owner set in Settings still wins.
+- Each client's own memory is off in every session: Claude Code by environment
+  variable and launch setting, Codex by `-c features.memories=false`
+  (`clients.launch_environment`, `clients.always_arguments`).
 - The client's `PATH` is the programs a self-contained installation ships
   (`runtime/native/bin`: git and the browser tool), then the folders the
   session names, then the owner's own search path

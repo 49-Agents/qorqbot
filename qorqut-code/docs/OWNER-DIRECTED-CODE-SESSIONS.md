@@ -242,9 +242,11 @@ and does not depend on Python at runtime.
 - Claude Code: `cd <prepared root> && claude` (plain; project `.mcp.json`
   supplies the `qorqut-owner` server).
 - Codex: `cd <prepared root> && codex`. The project-local MCP configuration
-  augments the normal user configuration. Do not change `CODEX_HOME`: existing
-  authentication, models, permissions, plugins and user MCP settings keep their
-  usual location and precedence.
+  augments the configuration in the Codex folder the installation uses. Do not
+  change `CODEX_HOME` by hand: authentication, models, permissions, plugins and
+  MCP settings are read from the folder Qorqbot starts Codex with (its own
+  `instance/home/codex` on an installation set up with its own client folders,
+  otherwise the user's `~/.codex`).
 - Complete each provider's ordinary project-trust/MCP approval prompts on first
   use. Codex only loads project configuration in trusted projects; Claude may
   initially show the project MCP server as pending approval. Preparation does

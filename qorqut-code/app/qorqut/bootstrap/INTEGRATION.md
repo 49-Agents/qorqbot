@@ -451,8 +451,17 @@ Claude Code's own memory (the notes it keeps for itself under its configuration 
 everything Qorqbot starts: the launch file carries `"autoMemoryEnabled": false`, and managed sessions,
 worker runs and Context filing runs are started with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. Both act on
 that one launch and change nothing in the owner's own Claude Code settings, so Claude Code used
-outside Qorqbot on the same computer keeps its memory. What an agent has to keep is filed in
-Qorqbot's records instead (Task, Context, or the Learning Applier's queue).
+outside Qorqbot on the same computer keeps its memory. Codex's own memory is off the same way: every
+managed session is started with `-c features.memories=false`, and worker runs and Context filing runs
+disable the feature in their own launch. What an agent has to keep is filed in Qorqbot's records
+instead (Task, Context, or the Learning Applier's queue).
+
+On a download installation set up from this version on, both clients also keep their folder inside
+the installation (`instance/home/claude` as `CLAUDE_CONFIG_DIR`, `instance/home/codex` as
+`CODEX_HOME`; `tools/distribution/native_launch.py`, `client_homes`). Qorqbot then has its own
+sign-in for each client, and the instructions, skills, commands, hooks, MCP servers and settings the
+owner keeps for their own use of the client do not reach an agent. An installation set up earlier
+keeps the owner's folders.
 
 Already-open Claude sessions keep their launch settings until the session is
 closed and opened again; preparing files never sends model input or kills a

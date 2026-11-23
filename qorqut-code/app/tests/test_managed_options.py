@@ -210,6 +210,12 @@ class ClientTable(base.Fixture):
         self.assertEqual(clients.TABLE[clients.CLAUDE]["always"], {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"})
         self.assertEqual(clients.CLAUDE_MEMORY_SETTING, {"autoMemoryEnabled": False})
 
+    def test_codexs_own_memory_is_off_in_every_session_on_its_command_line(self):
+        self.assertEqual(clients.always_arguments(clients.CODEX), ["-c", "features.memories=false"])
+        self.assertEqual(clients.always_arguments(clients.CLAUDE), [])
+        clients.always_arguments(clients.CODEX).append("x")                                                  # a copy each time
+        self.assertEqual(clients.TABLE[clients.CODEX]["always_arguments"], ["-c", "features.memories=false"])
+
     def test_permission_mode_fails_closed(self):
         workspace = self.base / "ws"
         (workspace / ".qorqut").mkdir(parents=True)
@@ -328,7 +334,7 @@ class ManagerLaunch(base.ManagerFixture):
         self.assertEqual((spec["client"], spec["driver"], spec["send_role"], spec["model"], spec["effort"]),
                          ("codex", "qorqut.managed_runtime.codex_driver:CodexSession", "$role", "gpt-x", "high"))
         self.assertEqual(spec["permission_mode"], "deny")
-        self.assertEqual(spec["args"], ["--model", "gpt-x", "--effort", "high", "--scoped-permissions"])
+        self.assertEqual(spec["args"], ["-c", "features.memories=false", "--model", "gpt-x", "--effort", "high", "--scoped-permissions"])
         self.assertEqual(spec["ready_seconds"], 0)
         self.assertEqual(resume.call_args.args[-1], "codex")
 

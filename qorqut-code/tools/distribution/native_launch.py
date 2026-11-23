@@ -60,6 +60,37 @@ def link_user_keychains(home, user_home):
     link.symlink_to(target, target_is_directory=True)
 
 
+# The variable that names each agent client's own folder (its sign-in, settings, own instructions, skills, plugins, memory
+# and conversations), with the folder Qorqbot keeps for it and the one the client uses by default in the user's home.
+CLIENT_HOMES = {'CLAUDE_CONFIG_DIR': ('instance/home/claude', '.claude'), 'CODEX_HOME': ('instance/home/codex', '.codex')}
+OWN_CLIENT_HOMES = 'instance/config/own-client-homes'
+
+
+def own_client_homes(root):
+    """Whether this installation gives Claude Code and Codex folders of its own. Every installation initialized by this
+    build or a later one does (``initialize`` records it). One initialized earlier keeps using the user's own folders, where
+    its sign-in and its agents' conversations are, until it is switched."""
+    return (root / OWN_CLIENT_HOMES).is_file()
+
+
+def client_homes(root, user_home, env):
+    """``{variable: (folder, own)}`` for both agent clients. A folder named in the environment Qorqbot was started from is
+    kept as given. Otherwise the folder is Qorqbot's own, inside the installation: the clients then sign in separately from
+    the user's own Claude Code and Codex and read none of the user's instructions, settings, skills, plugins or memory, and
+    nothing Qorqbot's agents do is written into the user's. Without the record (``own_client_homes``) it is the user's."""
+    own, homes = own_client_homes(root), {}
+    for variable, (folder, default) in CLIENT_HOMES.items():
+        if env.get(variable):
+            homes[variable] = (env[variable], False)
+        elif own:
+            path = root / folder
+            path.mkdir(parents=True, exist_ok=True, mode=0o700)
+            homes[variable] = (str(path), True)
+        else:
+            homes[variable] = (str(user_home / default), False)
+    return homes
+
+
 def environment(root, home):
     runtime = root / 'runtime'
     env = dict(os.environ)
@@ -75,6 +106,13 @@ def environment(root, home):
     native_env = {key: env.get(key) for key in native_keys}
     native_env['HOME'] = str(user_home)
     native_env['PATH'] = user_path
+    # The clients keep the user's HOME (their login keychain, git and SSH setup) and get their own folders by name. With
+    # the user's folders the recorded value stays as the user had it, unset included: on macOS Claude Code names its
+    # Keychain item after an explicitly named folder, so naming the default one would read a different sign-in.
+    homes = client_homes(root, user_home, env)
+    for variable, (folder, own) in homes.items():
+        if own:
+            native_env[variable] = folder
     env['QORQUT_NATIVE_USER_ENV'] = json.dumps(native_env)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'QORQUT_INSTALLATION_CONFIG',
                 'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'BIZ_DASH_TOKEN',
@@ -107,13 +145,13 @@ def environment(root, home):
         'PIP_CONFIG_FILE': os.devnull, 'PIP_NO_INDEX': '1',
         'LANG': 'C.UTF-8',
     })
-    # Vendor clients remain user-installed and use the user's existing account
-    # configuration. Qorqbot's own state and generated workspace files stay here.
-    env.setdefault('CODEX_HOME', str(user_home / '.codex'))
+    # The service names both client folders explicitly (``client_homes``): Qorqbot's own, or the user's on an installation
+    # initialized before it kept its own.
+    for variable, (folder, _own) in homes.items():
+        env[variable] = folder
     browser_tool = shipped_agent_browser(root) or agent_browser_path(root)
     if 'QORQUT_AGENT_BROWSER_EXECUTABLE' not in env and browser_tool.is_file():
         env['QORQUT_AGENT_BROWSER_EXECUTABLE'] = str(browser_tool)
-    env.setdefault('CLAUDE_CONFIG_DIR', str(user_home / '.claude'))
     timezone_file = root / 'instance/config/operational-timezone'
     if timezone_file.exists():
         zone = timezone_file.read_text().strip()
@@ -697,6 +735,8 @@ def initialize(root, env):
     run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.initialize',
          '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root)
     (instance / 'config/operational-timezone').write_text(env['QORQUT_TIMEZONE'] + '\n')
+    # A new installation keeps Claude Code and Codex in folders of its own from its first start (``client_homes``).
+    (root / OWN_CLIENT_HOMES).write_text('1\n')
     return read_json(receipt)
 
 
