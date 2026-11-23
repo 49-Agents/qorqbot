@@ -508,6 +508,194 @@ class UnitMemoTests(StoreCase):
         self.assertEqual(found, [None, {}])
 
 
+class PooledConnectionTests(StoreCase):
+    """A unit that ends in a refusal the operation chose to make hands its rolled-back connection back to the pool."""
+
+    @staticmethod
+    def is_closed(connection):
+        try:
+            connection.execute("SELECT 1")
+        except sqlite3.ProgrammingError:
+            return True
+        return False
+
+    def connection_of(self, unit):
+        with unit() as uow:
+            return uow.connection
+
+    def failing(self, unit, error):
+        """The connection a unit used, which ended by raising ``error`` (a new instance each call)."""
+        used = []
+        with self.assertRaises(type(error)):
+            with unit() as uow:
+                used.append(uow.connection)
+                raise error
+        return used[0]
+
+    def test_a_read_unit_that_refuses_keeps_its_connection_for_the_next_unit(self):
+        first = self.connection_of(self.db.read)
+        pooled = len(self.db._pool)
+        used = self.failing(self.db.read, DomainError("forbidden", "No"))
+        self.assertIs(used, first)
+        self.assertEqual(len(self.db._pool), pooled)
+        self.assertFalse(self.is_closed(used))
+        self.assertIs(self.connection_of(self.db.read), used)
+
+    def test_a_write_unit_that_refuses_rolls_back_and_keeps_a_clean_connection(self):
+        def insert_then_refuse():
+            with self.db.transaction() as uow:
+                used.append(uow.connection)
+                uow.connection.execute("INSERT INTO change_sequences(name,value) VALUES('refused',1)")
+                raise DomainError("archived", "Archived")
+        used = []
+        with self.assertRaises(DomainError):
+            insert_then_refuse()
+        connection = used[0]
+        self.assertEqual(list(self.db._pool), [connection])
+        self.assertFalse(connection.in_transaction)
+        with self.db.read() as uow:
+            self.assertIs(uow.connection, connection)
+            self.assertIsNone(uow.connection.execute("SELECT 1 FROM change_sequences WHERE name='refused'").fetchone())
+            self.assertEqual(uow.connection.execute("PRAGMA query_only").fetchone()[0], 1)
+            with self.assertRaises(sqlite3.OperationalError):
+                uow.connection.execute("UPDATE change_sequences SET value=value+1")
+        with self.db.transaction() as uow:
+            self.assertIs(uow.connection, connection)
+            self.assertEqual(uow.connection.execute("PRAGMA query_only").fetchone()[0], 0)
+            uow.connection.execute("UPDATE change_sequences SET value=value+1 WHERE name=?", (COUNTER,))
+        self.assertEqual(self.value(), 1)
+
+    def test_an_unexpected_exception_still_discards_the_connection(self):
+        before = len(self.db._pool)
+        used = self.failing(self.db.read, RuntimeError("no"))
+        self.assertTrue(self.is_closed(used))
+        self.assertNotIn(used, self.db._pool)
+        self.assertLessEqual(len(self.db._pool), before)
+
+    def test_a_storage_failure_still_discards_the_connection(self):
+        used = []
+        with self.assertRaises(DomainError) as caught:
+            with self.db.read() as uow:
+                used.append(uow.connection)
+                uow.connection.execute("SELECT * FROM no_such_table")
+        self.assertEqual(caught.exception.code, "storage_error")
+        self.assertTrue(self.is_closed(used[0]))
+        self.assertNotIn(used[0], self.db._pool)
+
+    def test_a_refusal_that_stands_for_a_storage_failure_discards_the_connection(self):
+        def chained(code):
+            try:
+                raise sqlite3.OperationalError("disk I/O error")
+            except sqlite3.Error as exc:
+                error = storage.storage_error(exc)
+                error.code = code
+                try:
+                    raise error from exc
+                except DomainError as raised:
+                    return raised
+        cases = [chained("storage_error"), chained("validation_error"),
+                 DomainError("busy", "Busy", retryable=True), DomainError("storage_configuration", "No"),
+                 self._raised_in_handler()]
+        for error in cases:
+            with self.subTest(code=error.code, cause=type(error.__cause__ or error.__context__).__name__):
+                used = self.failing(self.db.read, error)
+                self.assertTrue(self.is_closed(used))
+                self.assertNotIn(used, self.db._pool)
+
+    @staticmethod
+    def _raised_in_handler():
+        try:
+            try:
+                raise sqlite3.IntegrityError("constraint")
+            except sqlite3.Error:
+                raise DomainError("validation_error", "Not valid")
+        except DomainError as error:
+            return error
+
+    def seed(self, count=5):
+        with self.db.transaction() as uow:
+            for number in range(count):
+                uow.connection.execute("INSERT INTO change_sequences(name,value) VALUES(?,?)", (f"seed-{number}", number))
+
+    def rows(self):
+        with self.db.read() as uow:
+            return uow.connection.execute("SELECT COUNT(*) FROM change_sequences").fetchone()[0]
+
+    def refuse_inside_scan(self, held, *, drain=False):
+        """A read unit that refuses while a cursor over several rows is (or, if ``drain``, is not) still open."""
+        used = []
+        with self.assertRaises(DomainError):
+            with self.db.read() as uow:
+                used.append(uow.connection)
+                cursor = uow.connection.execute("SELECT name FROM change_sequences")
+                held.append(cursor)
+                if drain:
+                    cursor.fetchall()
+                else:
+                    cursor.fetchone()
+                raise DomainError("forbidden", "No")
+        return used[0]
+
+    def test_a_refusal_with_a_half_read_cursor_discards_the_connection(self):
+        self.seed()
+        total = self.rows()
+        held = []
+        used = self.refuse_inside_scan(held)
+        self.assertTrue(self.is_closed(used))
+        self.assertNotIn(used, self.db._pool)
+        with self.db.read() as uow:
+            self.assertIsNot(uow.connection, used)
+            self.assertEqual(uow.connection.execute("SELECT COUNT(*) FROM change_sequences").fetchone()[0], total)
+
+    def test_a_refusal_after_the_cursor_was_fully_read_keeps_the_connection(self):
+        self.seed()
+        held = []
+        used = self.refuse_inside_scan(held, drain=True)
+        self.assertEqual(list(self.db._pool), [used])
+        self.assertFalse(self.is_closed(used))
+
+    def test_an_open_statement_is_what_makes_a_connection_not_idle(self):
+        self.seed()
+        connection = self.db._connect()
+        self.addCleanup(connection.close)
+        cursor = connection.execute("SELECT name FROM change_sequences")
+        cursor.fetchone()
+        connection.execute("BEGIN")
+        connection.rollback()  # since Python 3.11 this leaves the cursor's statement open
+        self.assertFalse(connection.in_transaction)
+        self.assertFalse(storage._idle(connection))
+        cursor.close()
+        self.assertTrue(storage._idle(connection))
+
+    def test_an_abandoned_attempt_that_leaves_a_cursor_open_discards_the_connection(self):
+        self.seed()
+        holder = self.other()
+        holder.execute("BEGIN IMMEDIATE")
+        held, used = [], []
+
+        def body(uow):
+            if not used:
+                used.append(uow.connection._connection)  # the real connection under the optimistic handle
+                cursor = uow.connection.execute("SELECT name FROM change_sequences")
+                held.append(cursor)
+                cursor.fetchone()
+                self.bump(uow)  # refused at once: the other writer holds the lock
+                return None
+            return self.bump(uow)
+
+        threading.Timer(0.3, lambda: holder.execute("ROLLBACK")).start()
+        self.assertEqual(self.db.write_if_needed(body, operation="test.cursor"), 1)
+        self.assertTrue(self.is_closed(used[0]))
+        self.assertNotIn(used[0], self.db._pool)
+
+    def test_the_classification_names_only_refusals_of_the_operation(self):
+        self.assertTrue(storage.is_application_refusal(DomainError("forbidden", "No")))
+        self.assertTrue(storage.is_application_refusal(DomainError("validation_error", "No")))
+        self.assertFalse(storage.is_application_refusal(RuntimeError("no")))
+        self.assertFalse(storage.is_application_refusal(KeyboardInterrupt()))
+        self.assertFalse(storage.is_application_refusal(storage.storage_error(sqlite3.OperationalError("x"))))
+
+
 class QueueUnitTests(unittest.TestCase):
     def test_a_turn_handed_over_at_the_moment_of_giving_up_is_used_not_lost(self):
         queue = WriterQueue()
