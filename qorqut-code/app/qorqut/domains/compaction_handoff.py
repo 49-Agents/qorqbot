@@ -82,15 +82,15 @@ FILE_DESCRIPTION = (
     "wait for from each. not_recorded: only what no record can hold. Filing writes each note onto its Task and sets its "
     "next step, so the next conversation is pointed at records that exist; do not write those notes yourself as well. It is "
     "refused, saying why, when a listed message has no entry, an open message names no Task or a Task is not found: fix "
-    "that and file again. A rule the owner stated that should keep applying is not filed here: propose it with "
-    "agentic_change_propose before you file.")
+    "that and file again. A rule the owner stated on how agents work that should keep applying is not filed here: "
+    "file it with experience_observation_file before you file.")
 ASK = """Your context is nearly full. Stop the work you are doing now: do not start another step, message the owner or send \
 anything outside. This conversation will be closed and a fresh one opened for you with the same instructions, tools and \
 access. It gets your instructions, then the owner's messages listed below in their exact words, then the handoff you file \
 now. Nothing else of this conversation reaches it.
 
 First, for each rule or preference the owner stated in this conversation that should keep applying and that you have not \
-proposed yet, call agentic_change_propose.
+filed yet, call experience_observation_file.
 
 Then call compaction_handoff_file once, from memory, without looking anything up. It writes every note and next step you \
 give onto the Task you name, so name the Task that really holds the work, and create one first where an open message has \

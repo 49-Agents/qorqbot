@@ -24,6 +24,17 @@ So: read the observations themselves, not only the labels. One delta proposal ma
 take observations from several clusters. One cluster may need several delta
 proposals, or hold observations that belong to none.
 
+One cluster is no cluster at all: "Filed by agents". It holds what the agents
+filed themselves with `experience_observation_file`: rules and corrections the
+owner gave on how work is done, lessons from their own mistakes, tools that
+failed or misled them. `filed_by` names the agent. The agent only said what
+happened and what should hold; which instruction, skill or tool changes is yours
+to work out. Read every observation in it that no proposal addresses yet, group
+the ones that belong together with each other and with your own observations,
+and link them by `observation_ids`. A proposal that names this cluster in
+`cluster_ids` is refused. Bundle: a few proposals that each settle several
+points, not one proposal for each point.
+
 ## The steps
 
 1. `experience_run_get`. `running` is your run; its `id` is the `run_id` you file

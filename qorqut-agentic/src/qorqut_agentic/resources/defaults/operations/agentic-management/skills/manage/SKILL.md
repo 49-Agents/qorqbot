@@ -12,9 +12,18 @@ credentials or plugin authority. Only plugins and user preferences are editable
 through these APIs; protected roles, operations and Overseer are not. This API
 boundary is not an OS sandbox.
 
-## Decide whether the instruction is explicit
+## File a rule, a correction or a lesson for review
 
-Every standing change needs an owner Signoff, including an explicit instruction.
+Any agent files a point about how agents work with `experience_observation_file`:
+a rule or correction the owner gave, a lesson from a mistake, a tool that failed
+or misled. It is filed at once, with no Signoff, and the filing agent does not
+work out which asset should change. The Learning Applier's weekly review and
+application reads what was filed together with its own observations and files
+agentic layer delta proposals; the owner approves or rejects those.
+
+## Decide what a change needs
+
+Every standing change needs the owner's approval of the change itself.
 A lesson inferred from conversation, accepted work or an edit is also a proposal.
 Keep proposed changes out of active files until review and approved application. Present
 the evidence references, proposed diff, applicability, uncertainty and relevant
@@ -26,9 +35,12 @@ in the relevant email instruction; a rule for one workflow does not become a
 universal preference. If the request contradicts another rule or its intended
 scope is genuinely unclear, resolve that conflict with the owner.
 
-## Submit a direct instruction for review
+## A direct instruction as its own Signoff
 
-Both Ordubashy and Overseer use `agentic_change_propose`. Supply a stable
+New rules and corrections are filed as above and are not submitted this way.
+`agentic_change_propose` puts one explicit owner Chat instruction to the owner
+as its own Signoff; a Signoff it created earlier is read and recorded as this
+section says. Supply a stable
 `request_key`, the exact complete owner Chat message as `instruction_text`
 (including whitespace), a short `summary`, the concrete `change_direction`,
 `target_refs` from the catalog, and `scope` containing `description`,
@@ -49,9 +61,9 @@ delta in the accepted queue; reject remains rejected,
 later leaves it undecided, and revise requests revision. None applies files.
 
 This direct path authenticates messages sent through Qorqut Chat. Other evidence
-is not submitted here: the Learning Applier's daily experience extraction files it
-as observations, and its weekly review and application proposes changes from
-them. Never fabricate a Chat input. If access
+is not submitted here: agents file it with `experience_observation_file`, the
+Learning Applier's daily experience extraction files it as observations, and its
+weekly review and application proposes changes from both. Never fabricate a Chat input. If access
 fails, report it and retain the request. Do not edit active files through shell,
 generated instructions or a raw authoring call as a workaround. Application is
 the separately owner-invoked Overseer workflow with its approved plan Signoff.

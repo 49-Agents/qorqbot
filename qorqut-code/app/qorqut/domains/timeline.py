@@ -4,8 +4,8 @@
 changes it. An item is ``{type, id, business_id}`` as ``thread_pins_set`` names a record: a Task (``task``, its id, its Project
 or null for a Global Task) or a Project (``project``, its id as both id and business_id).
 
-Global has no timeline (the owner's decision, 22 November 2026): what holds for all work is a standing instruction and goes
-through an agentic change. A call that names Global (``global``, id ``global``, business_id null) is still accepted by the
+Global has no timeline (the owner's decision, 22 November 2026): what holds for all work is an instruction, which an agent
+files for the Learning Applier's review (``experience_observation_file``). A call that names Global (``global``, id ``global``, business_id null) is still accepted by the
 schemas so that it is answered with that advice (``NO_GLOBAL``) instead of a bare schema refusal; nothing is read or filed.
 Entries filed on Global before the decision stay in the store and are not read.
 
@@ -45,8 +45,8 @@ GET_DESCRIPTION = (
     "read the Task and a Project's when you take part in the Project. Changes nothing.")
 FILE_DESCRIPTION = (
     "Coordinator write. Changes the timeline of a Task or a Project, which every agent that opens the item is then told. "
-    "item names it as in timeline_get. Global has no timeline: a rule every agent must keep in mind is a standing instruction, "
-    "proposed as an agentic change with agentic_change_propose. changes is 1 to 10 of: {action: add, kind: goal|decision|fact|progress, text, refs?} "
+    "item names it as in timeline_get. Global has no timeline: a rule about how agents work is an instruction, filed with "
+    "experience_observation_file for the Learning Applier's review. changes is 1 to 10 of: {action: add, kind: goal|decision|fact|progress, text, refs?} "
     "(text 1 to 400 characters, one or two sentences; a goal and a progress note replace the previous one, a decision and a fact "
     "hold until removed; an add that repeats what already stands is skipped and listed under filed.skipped); {action: remove, "
     "entry_id, reason?} (takes out an entry that no longer holds, and removing the current goal or progress note leaves none; read the ids with "
@@ -67,15 +67,14 @@ ANSWER_DESCRIPTION = (
     "an answer that settles a decision or fact; when the owner says the question is not needed or was settled already, file "
     "nothing. If unclear, please ask the user.")
 # Global has no timeline. A call that names it is told where its content belongs, so the caller is not left to guess.
-NO_GLOBAL = ("Global has no timeline. Why should this hold at Global? A rule every agent must keep in mind is a standing "
-             "instruction: consider proposing it as an agentic change with agentic_change_propose. What holds for one Project "
-             "or Task is filed on that Project or Task.")
+NO_GLOBAL = ("Global has no timeline. Why should this hold at Global? A rule about how agents work is an instruction: "
+             "consider filing it with experience_observation_file, which puts it before the Learning Applier's review. What "
+             "holds for one Project or Task is filed on that Project or Task.")
 NO_GLOBAL_READ = ("Global has no timeline. What holds for all work is in the standing instructions; read the timeline of a "
                   "Project or a Task.")
 NO_GLOBAL_ANSWER = ("This question was asked about no Task or Project, and Global has no timeline. Name the Task or Project "
-                    "the answer holds on with item. If the answer is a rule every agent must keep in mind, consider proposing "
-                    "it as an agentic change with agentic_change_propose; otherwise file nothing: the answered Signoff is the "
-                    "record.")
+                    "the answer holds on with item. If the answer is a rule about how agents work, consider filing it "
+                    "with experience_observation_file; otherwise file nothing: the answered Signoff is the record.")
 REVIEW_NOTICE = ("Submitted for the owner's review. It is filed by itself when the owner approves it; do not file it again. "
                  "timeline_get lists the filings still waiting.")
 

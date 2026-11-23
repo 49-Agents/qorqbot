@@ -22,6 +22,22 @@ rank is the number of observations in it (`experience_clusters_list`).
 The run cannot be finished before the report of conversations was read to its end (`experience_run_finish` takes the
 `end_token`).
 
+## What agents file themselves
+
+Any agent adds to the same queue with `experience_observation_file`: a rule or correction the owner gave on how work is
+done, a lesson from a mistake of its own, a tool that failed or misled it. The agent says what happened and what should
+hold from now on, and does not work out which instruction, skill or tool should change: that is the review's work. The
+point is filed at once, with no Signoff and outside any run, and changes nothing by itself.
+
+What agents file is kept under one standing cluster, "Filed by agents" (`AGENTS_CLUSTER`), which the first filing makes.
+It is unsorted and states no one problem, so a delta proposal links the observations in it and is refused when it names
+the cluster. Each observation shows who filed it (`filed_by`); one an agent filed itself has no `run_id`. The same agent
+files the same text once.
+
+This is the third of the three places an agent records what lasts. Work (what the owner wants done or decided for one
+Task or Project) is the Task and its timeline, and Context is a fact about a person, a company or the world; the
+coordinator files both directly, with no Signoff from the owner. Only a point about how agents work comes here.
+
 ## Review and application (weekly, Sunday 06:00)
 
 The agent reads the clusters and their observations, decides which are ready for a solution, and files agentic layer
@@ -75,9 +91,10 @@ then what the system says), and UTC when none does. The Runs tab shows the zone 
 
 ## Who can call what
 
-The host policy (`composition/policy.py`, `_experience`) gives the tools of a run to the Learning Applier alone, and the
-reads (`experience_run_get`, `experience_run_request`, `experience_clusters_list`, `experience_cluster_get`,
-`agentic_delta_proposals_list`, `agentic_delta_proposal_get`) to the Learning Applier and Ordubashy. The owner reads the
+The host policy (`composition/policy.py`, `_experience`) gives `experience_observation_file` to every agent, the tools of
+a run to the Learning Applier alone, and the reads (`experience_run_get`, `experience_run_request`,
+`experience_clusters_list`, `experience_cluster_get`, `agentic_delta_proposals_list`, `agentic_delta_proposal_get`) to the
+Learning Applier and Ordubashy. The owner reads the
 same through the dashboard: the Overseer's Changes view has Delta proposals, Observations and Runs. A proposal's page
 shows its approval request and its thread in place, so the owner decides and talks there.
 

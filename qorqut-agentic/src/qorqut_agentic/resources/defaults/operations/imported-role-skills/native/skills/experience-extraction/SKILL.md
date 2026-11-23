@@ -20,7 +20,12 @@ application does that, from the clusters you fill.
 2. `experience_clusters_list`, every page (`next_cursor`). These are the problems
    already known, most filed first. You will file under them wherever one states
    the same problem. To see what a cluster holds, `experience_cluster_get`; each
-   observation there names the `run_id` that filed it.
+   observation there names the `run_id` that filed it. The cluster "Filed by
+   agents" is different: it holds what agents filed themselves with
+   `experience_observation_file`, unsorted, with no `run_id` and the agent in
+   `filed_by`. Never file under it. When the period shows a problem an agent
+   already filed there, file your own observation of it under its proper cluster
+   all the same: the count is the rank.
 3. `experience_tool_problems` and `experience_tool_patterns` with the `run_id`.
    The first lists the tool calls that failed, grouped by what the error says, and
    the same call repeated back to back. The second lists sequences of calls that

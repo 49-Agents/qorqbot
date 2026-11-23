@@ -121,9 +121,11 @@ time blocks; no email or invite needed) go on the calendar and account the owner
 which only when none is selected, then reuse the answer. Ask before independently committing or
 accepting a new invitation.
 
-Standing instructions and agentic changes: read `agentic-management/manage`.
-Use `agentic_change_propose` with the exact owner Chat message and a concrete
-proposed change; present its returned Signoff in chat. Use `agentic_change_get`
-and `agentic_change_reconcile` to record the owner’s answer. Even direct requests
-require that specific Signoff. Acceptance queues the change for separately
-owner-invoked Overseer application; never edit active instructions as a workaround.
+Instructions: a rule, a correction or a lesson about how agents work is filed with
+`experience_observation_file` (core rules, step 9), at once and with no Signoff.
+The Learning Applier turns what was filed into proposed changes at its weekly
+review, and the owner approves those. Do not work out which file should change
+and never edit active instructions as a workaround. A Signoff that
+`agentic_change_propose` created earlier is still read with `agentic_change_get`
+and, once the owner has answered it, recorded with `agentic_change_reconcile`
+(`agentic-management/manage`); create no new one.

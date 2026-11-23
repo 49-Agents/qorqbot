@@ -3,6 +3,7 @@ and the approval request each one gets, and what the owner's answer does to a pr
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import json
 import tempfile
 from types import SimpleNamespace as NS
 import unittest
@@ -319,10 +320,10 @@ class PolicyTests(ExperienceCase):
         return resolve_operation_policy(name, defaults or {}, overrides or {}, self.runtime.registry, role_id=role, scope='global').mode
 
     def test_the_tools_of_a_run_are_the_learning_appliers_and_the_reads_also_the_coordinators(self):
-        from qorqut.composition.policy import EXPERIENCE_READS, EXPERIENCE_WORK
+        from qorqut.composition.policy import EXPERIENCE_FILING, EXPERIENCE_READS, EXPERIENCE_WORK
         registered = {entry.name for entry in self.runtime.registry.entries()
                       if entry.name.startswith(('experience_', 'agentic_delta_proposal'))}
-        self.assertEqual(registered, EXPERIENCE_WORK | EXPERIENCE_READS)
+        self.assertEqual(registered, EXPERIENCE_WORK | EXPERIENCE_READS | EXPERIENCE_FILING)
         for name in EXPERIENCE_WORK:
             self.assertEqual([self.decision(name, role) for role in ('learning-applier', 'ordubashy', 'global-worker', None)],
                              ['allow', 'deny', 'deny', 'deny'], name)
@@ -334,6 +335,117 @@ class PolicyTests(ExperienceCase):
         self.assertEqual(self.decision('experience_clusters_list', 'global-worker', defaults={'experience_clusters_list': 'allow'}), 'deny')
         self.assertEqual(self.decision('experience_clusters_list', 'ordubashy', overrides={'experience_clusters_list': 'deny'}), 'deny')
         self.assertEqual(self.decision('experience_run_finish', 'learning-applier', defaults={'experience_run_finish': 'deny'}), 'deny')
+
+
+class FilingTests(ExperienceCase):
+    def point(self, text='The owner said: never send an email without a Signoff.', **more):
+        return {'scope': 'global', 'kind': 'owner_complaint', 'subject': 'all agents', 'text': text, **more}
+
+    def stored(self, **where):
+        with self.runtime.database.read() as uow:
+            rows = uow.connection.execute('SELECT * FROM experience_observations').fetchall()
+        return [row for row in rows if all(row[key] == value for key, value in where.items())]
+
+    def count(self, table):
+        with self.runtime.database.read() as uow:
+            return uow.connection.execute(f'SELECT count(*) FROM {table}').fetchone()[0]
+
+    def clusters(self):
+        with self.runtime.database.read() as uow:
+            return [dict(row) for row in uow.connection.execute('SELECT * FROM experience_clusters').fetchall()]
+
+    def test_a_worker_the_coordinator_and_the_learning_applier_each_file_a_point_at_once(self):
+        from qorqut.experience.operations import AGENTS_CLUSTER, FILED_NOTE
+        for ctx, text, extra in ((self.runtime.worker, '  Rule number one.  ', {}), (self.runtime.coordinator, 'Rule number two.', {}),
+                                 (self.applier, 'Rule number three.', {'evidence': [{'ref': 'chat:abc123', 'quote': 'never'}]})):
+            data = self.ok('experience_observation_file', self.point(text, subject='  all   agents ', **extra), ctx=ctx)
+            row = self.stored(created_by=ctx.principal_id)[0]
+            self.assertEqual(data, {'filed': {'id': row['id'], 'kind': 'owner_complaint', 'subject': 'all agents',
+                                              'filed_at': row['created_at']}, 'note': FILED_NOTE})
+            self.assertEqual((row['run_id'], row['cluster_id'], row['kind'], row['subject'], row['text'], json.loads(row['evidence_json'])),
+                             (None, AGENTS_CLUSTER, 'owner_complaint', 'all agents', text.strip(), extra.get('evidence', [])))
+
+    def test_the_first_filing_creates_the_standing_cluster_and_a_later_one_by_another_agent_reuses_it(self):
+        from qorqut.experience.operations import (AGENTS_CLUSTER, AGENTS_CLUSTER_DESCRIPTION, AGENTS_CLUSTER_LABEL)
+        self.assertEqual(self.clusters(), [])
+        self.ok('experience_observation_file', self.point('First point filed.'), ctx=self.runtime.worker)
+        (cluster,) = self.clusters()
+        self.assertEqual((cluster['id'], cluster['label'], cluster['description'], cluster['run_id']),
+                         (AGENTS_CLUSTER, AGENTS_CLUSTER_LABEL, AGENTS_CLUSTER_DESCRIPTION, None))
+        self.ok('experience_observation_file', self.point('Second point filed.'), ctx=self.runtime.coordinator)
+        self.assertEqual(([item['id'] for item in self.clusters()], len(self.stored(cluster_id=AGENTS_CLUSTER))), ([AGENTS_CLUSTER], 2))
+
+    def test_a_cluster_with_the_same_label_in_another_letter_case_is_used_instead_of_a_second_one(self):
+        extraction = self.start('extraction')
+        made = self.file(extraction, self.observation(new_cluster={'label': 'filed by agents'}))['new_clusters'][0]['id']
+        self.ok('experience_observation_file', self.point(), ctx=self.runtime.worker)
+        self.assertEqual([item['id'] for item in self.clusters()], [made])
+        self.assertEqual([row['run_id'] for row in self.stored(cluster_id=made, created_by=self.runtime.worker.principal_id)], [None])
+
+    def test_the_same_agent_filing_the_same_text_twice_is_refused_but_another_agent_may_file_it(self):
+        self.ok('experience_observation_file', self.point(), ctx=self.runtime.worker)
+        self.refused('experience_observation_file', self.point(' ' + self.point()['text'] + ' '), ctx=self.runtime.worker,
+                     says='filed this point already')
+        self.ok('experience_observation_file', self.point(), ctx=self.runtime.coordinator)
+        self.assertEqual(len(self.stored()), 2)
+
+    def test_the_owner_does_not_file_a_point(self):
+        from qorqut.experience.access import filer
+        result = self.call('experience_observation_file', self.point(), ctx=self.runtime.owner)
+        self.assertEqual((result.status, result.error['code']), ('error', 'forbidden'), result.error)
+        self.assertEqual(self.stored(), [])
+        with self.runtime.database.read() as uow, self.assertRaises(DomainError) as raised:
+            filer(self.runtime.application, self.runtime.owner, uow)
+        self.assertEqual(raised.exception.code, 'forbidden')
+
+    def test_an_occurred_at_that_is_not_an_iso_date_is_refused_and_a_valid_one_is_stored(self):
+        self.refused('experience_observation_file', self.point(occurred_at='last Tuesday'), ctx=self.runtime.worker, says='ISO-8601')
+        self.assertEqual(self.stored(), [])
+        self.ok('experience_observation_file', self.point(occurred_at='2026-11-20T10:00:00Z'), ctx=self.runtime.worker)
+        self.assertEqual([row['occurred_at'] for row in self.stored()], ['2026-11-20T10:00:00Z'])
+
+    def test_filing_creates_no_signoff_and_needs_no_run(self):
+        before = self.count('signoffs')
+        self.ok('experience_observation_file', self.point(), ctx=self.runtime.worker)
+        self.assertEqual((self.count('signoffs'), self.count('experience_runs')), (before, 0))
+
+    def test_the_standing_cluster_shows_who_filed_each_observation_and_the_run_of_those_filed_in_one(self):
+        from qorqut.experience.operations import AGENTS_CLUSTER
+        self.ok('experience_observation_file', self.point(), ctx=self.runtime.worker)
+        shown = self.ok('experience_cluster_get', {'cluster_id': AGENTS_CLUSTER}, ctx=self.runtime.coordinator)['observations']
+        with self.runtime.database.read() as uow:
+            name = uow.connection.execute('SELECT display_name FROM principals WHERE id=?', (self.worker,)).fetchone()[0]
+        self.assertEqual([(item['filed_by'], item['run_id']) for item in shown], [(name, None)])
+        extraction = self.start('extraction')
+        filed = self.file(extraction, self.observation(new_cluster={'label': 'A problem'}))['observations'][0]['cluster']['id']
+        item = self.ok('experience_cluster_get', {'cluster_id': filed}, ctx=self.runtime.coordinator)['observations'][0]
+        self.assertEqual((item['filed_by'], item['run_id']), ('Overseer', extraction))
+
+    def test_a_delta_proposal_names_filed_observations_but_never_the_standing_cluster(self):
+        from qorqut.experience.operations import AGENTS_CLUSTER
+        extraction = self.start('extraction')
+        end = self.ok('experience_conversations', {'run_id': extraction})['end_token']
+        self.ok('experience_run_finish', {'run_id': extraction, 'summary': 'Read one day.', 'conversations_end': end})
+        observation = self.ok('experience_observation_file', self.point(), ctx=self.runtime.worker)['filed']['id']
+        self.now += timedelta(hours=3)
+        review = self.start('review')
+        base = {'run_id': review, 'title': 'Ask for a Signoff before sending mail', 'change': 'In the mail skill, require a Signoff first.',
+                'problem': 'Agents sent mail the owner had not approved.'}
+        self.refused('agentic_delta_proposal_submit', {**base, 'cluster_ids': [AGENTS_CLUSTER]}, says='not the cluster')
+        before = self.ok('experience_clusters_list')['clusters'][0]['unaddressed']
+        self.ok('agentic_delta_proposal_submit', {**base, 'observation_ids': [observation]})
+        self.assertEqual(self.ok('experience_clusters_list')['clusters'][0]['unaddressed'], before - 1)
+
+    def test_every_role_may_file_unless_a_deny_says_otherwise_and_the_other_write_tools_stay_denied(self):
+        from qorqut.composition.policy import resolve_operation_policy
+
+        def mode(name, role, **settings):
+            return resolve_operation_policy(name, settings.get('defaults', {}), settings.get('overrides', {}), self.runtime.registry,
+                                            role_id=role, scope='global').mode
+        for role in ('global-worker', 'ordubashy', 'learning-applier'):
+            self.assertEqual(mode('experience_observation_file', role), 'allow', role)
+            self.assertEqual(mode('experience_observation_file', role, overrides={'experience_observation_file': 'deny'}), 'deny', role)
+        self.assertEqual(mode('experience_observations_submit', 'global-worker'), 'deny')
 
 
 if __name__ == '__main__':

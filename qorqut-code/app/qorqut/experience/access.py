@@ -23,6 +23,15 @@ def applier(app, ctx, uow):
     return ctx
 
 
+def filer(app, ctx, uow):
+    """Any agent, at Global. Whoever does the work may file a point about how agents work for the Learning Applier's
+    review; the owner does not file here, since everything the owner writes reaches the extraction by itself."""
+    ctx = at_global(app, ctx, uow)
+    if ctx.principal_kind != 'agent':
+        raise DomainError('forbidden', 'Points for the Learning Applier\'s review are filed by agents')
+    return ctx
+
+
 def reader(app, ctx, uow):
     """Whoever may read observations, clusters and delta proposals: the Learning Applier, the owner, or Ordubashy in person."""
     ctx = at_global(app, ctx, uow)

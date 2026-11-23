@@ -138,11 +138,20 @@ def _ordubashy_reads(name, defaults, overrides, registry, *, role_id, scope, res
         return PolicyDecision("deny", "owner_settings_ordubashy_only")
 
 
+# What any agent adds to the same queue itself: a point about how agents work, for the Learning Applier's review.
+EXPERIENCE_FILING = frozenset({"experience_observation_file"})
+
+
 def _experience(name, defaults, overrides, registry, *, role_id, scope, resolve):
     # The Learning Applier's two workflows. What reads and files in a run is that role's alone, and what shows the
     # clusters, the delta proposals and the runs is also the coordinator's. No role file names these tools and none can
     # give them to another role; an explicit deny in a role file or an override is still respected. Each handler proves
     # the exact identity again.
+    if name in EXPERIENCE_FILING:
+        # Every role files: no role file has to name the tool, and an explicit deny is still respected.
+        if "deny" in (overrides.get(name), defaults.get(name)):
+            return PolicyDecision("deny", "experience_filing_denied")
+        return PolicyDecision("allow", "experience_filing")
     roles = ((LEARNING_APPLIER_ROLE,) if name in EXPERIENCE_WORK else
              (LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE) if name in EXPERIENCE_READS else None)
     if roles is None:

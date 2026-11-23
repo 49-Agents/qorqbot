@@ -14,7 +14,14 @@ where the owner talks about it. Choosing sets the proposal ``approved`` or ``rej
 in words alone decides nothing: the proposal stays waiting, and ``agentic_delta_proposal_revise`` files a new request.
 Nothing here applies an approved proposal.
 
-Every write tool belongs to the active Learning Applier in person; the lists are also read by the owner and Ordubashy.
+Every agent adds to the same queue with ``experience_observation_file`` (the owner's decision, 23 November 2026): a rule
+or correction the owner gave on how work is done, a lesson from a mistake, a tool that failed or misled. It is filed at
+once, with no Signoff, as an observation of no run under the standing cluster ``AGENTS_CLUSTER``, and changes nothing by
+itself: the weekly review reads it like any other observation. The filing agent decides only that the point is about how
+agents work; where a change belongs is the Learning Applier's to work out.
+
+Every other write tool belongs to the active Learning Applier in person; the lists are also read by the owner and
+Ordubashy.
 """
 from __future__ import annotations
 
@@ -27,7 +34,7 @@ from qorqut_operations.application.plans import PlanBuilder, apply_records, sche
 from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
 
 from . import conversations, tools
-from .access import applier, reader
+from .access import applier, filer, reader
 from .runs import EXTRACTION, REVIEW, TITLES, Runs
 from .schema import (APPROVED, CLUSTERS, LINKS, OBSERVATION_KINDS, OBSERVATIONS, PROPOSALS, PROPOSAL_STATES, REJECTED, RUNS,
                      WAITING)
@@ -39,6 +46,15 @@ INTERN = ('The clusterings were made of observations by an inexperienced intern.
           'clustering you see here should act more like a hint rather than a limiting constraint. You do not have to abide '
           'by it: you can merge and disintegrate observations from different clusters. The agentic layer delta proposal '
           'should link to the observations and clusters you think it applies to, fixes, addresses or adjusts.')
+# Where what agents file themselves is kept: one standing cluster, made by the first filing. It is not a statement of one
+# problem, so a delta proposal links the observations in it and never the cluster (``check_links``).
+AGENTS_CLUSTER = 'filed-by-agents'
+AGENTS_CLUSTER_LABEL = 'Filed by agents'
+AGENTS_CLUSTER_DESCRIPTION = (
+    'What agents filed themselves with experience_observation_file: rules and corrections the owner gave on how work is done, '
+    'lessons from their own mistakes, tools that failed or misled them. Not sorted: each observation here stands on its own.')
+FILED_NOTE = ('Filed for the Learning Applier\'s review. It changes nothing by itself: the Learning Applier reads what was filed '
+              'at its weekly review and proposes changes to instructions, skills and tools, which the owner approves.')
 EXPLANATION_LIMIT = 8000
 RECENT = timedelta(days=30)
 
@@ -114,6 +130,20 @@ DESCRIPTIONS = {
         'there are any), optionally occurred_at, and its cluster: cluster_id of an existing cluster that states the same '
         'problem (experience_clusters_list), or new_cluster with a label that states the problem in one line and a short '
         'description. File the same problem seen twice as two observations under one cluster: the count is the rank.'),
+    'experience_observation_file': (
+        'Any agent. Files one point about how agents work for the Learning Applier\'s review, at once and with no Signoff: a '
+        'rule or correction the owner gave on how work is done ("never send emails without a Signoff"), a lesson from a '
+        'mistake of yours, or a tool that failed or misled you. You do not work out which instruction, skill or tool should '
+        'change: the Learning Applier reads what was filed at its weekly review and proposes the changes, which the owner '
+        'approves together. Filing changes nothing by itself. Not for work the owner wants done ("make a daily report every '
+        'day for the next year"): that is a Task and its timeline. Not for facts about people, companies or the world: those '
+        'are Context. text says in plain words what happened and what should hold from now on, with the owner\'s exact words '
+        'when the owner said it; name no file or instruction to edit. kind is owner_complaint (the owner said it: a rule, a '
+        'correction or a complaint), agent_failure (a lesson from a mistake, yours or another agent\'s), tool_problem (a tool '
+        'failed, misled or needed a workaround), tool_pattern (the same manual steps again and again) or other. subject is '
+        'who or what it is about: an agent\'s name, a tool, or "all agents". evidence is optional, up to twelve {ref, quote}: '
+        'where it was seen (ref: a Task id, a Signoff id or the link to a message) and the exact words. Each point is filed '
+        'once.'),
     'agentic_delta_proposal_submit': (
         'Learning Applier only, in a running review and application. File one agentic layer delta proposal: a solution '
         'proposal for the owner to approve or reject. title; problem (what goes wrong, from the observations); change (what to '
@@ -197,6 +227,11 @@ class Experience:
         write('experience_observations_submit',
               {'run_id': IDENTITY, 'observations': {'type': 'array', 'items': OBSERVATION, 'minItems': 1, 'maxItems': 50}},
               ('run_id', 'observations'), self.observations_prepare, self.observations_apply)
+        write('experience_observation_file',
+              {'kind': {'enum': list(OBSERVATION_KINDS)}, 'subject': OBSERVATION['properties']['subject'],
+               'text': OBSERVATION['properties']['text'], 'occurred_at': OBSERVATION['properties']['occurred_at'],
+               'evidence': {'type': 'array', 'items': EVIDENCE, 'maxItems': 12}},
+              ('kind', 'subject', 'text'), self.file_prepare, self.file_apply)
         write('agentic_delta_proposal_submit',
               {'run_id': IDENTITY, 'title': TITLE, 'problem': PROBLEM, 'change': CHANGE, 'observation_ids': IDS,
                'cluster_ids': IDS, 'replaces_id': IDENTITY}, ('run_id', 'title', 'problem', 'change'),
@@ -371,9 +406,12 @@ class Experience:
             f"SELECT DISTINCT p.id, p.number, p.state FROM {PROPOSALS} p JOIN {LINKS} l ON l.proposal_id=p.id "
             f"WHERE (l.target_type='observation' AND l.target_id=?) OR (l.target_type='cluster' AND l.target_id=? "
             f"AND p.created_at>=?) ORDER BY p.number", (row['id'], row['cluster_id'], row['created_at']))]
+        name = uow.connection.execute('SELECT display_name FROM principals WHERE id=?', (row['created_by'],)).fetchone()
+        # ``run_id`` is null for what an agent filed itself (``experience_observation_file``); ``filed_by`` names that agent.
         return {'id': row['id'], 'cluster_id': row['cluster_id'], 'kind': row['kind'], 'subject': row['subject'],
                 'text': row['text'], 'evidence': row['evidence_json'], 'occurred_at': row['occurred_at'],
-                'filed_at': row['created_at'], 'run_id': row['run_id'], 'delta_proposals': addressed}
+                'filed_at': row['created_at'], 'filed_by': (name['display_name'] if name else None) or row['created_by'],
+                'run_id': row['run_id'], 'delta_proposals': addressed}
 
     def cluster_get(self, ctx, args, options, uow):
         reader(self.app, ctx, uow)
@@ -443,6 +481,50 @@ class Experience:
                                  for kind, row in made if kind == OBSERVATIONS],
                 'new_clusters': [{'id': row['id'], 'label': row['label']} for kind, row in made if kind == CLUSTERS]}
 
+    # ----- what agents file themselves ------------------------------------------------------------------------------------
+
+    @staticmethod
+    def agents_cluster(uow):
+        """The id of the standing cluster of what agents file themselves, or ``None`` before the first filing."""
+        found = uow.connection.execute(
+            f'SELECT id FROM {CLUSTERS} WHERE id=? OR lower(label)=lower(?) ORDER BY id=? DESC LIMIT 1',
+            (AGENTS_CLUSTER, AGENTS_CLUSTER_LABEL, AGENTS_CLUSTER)).fetchone()
+        return found['id'] if found else None
+
+    def file_prepare(self, ctx, args, options, uow):
+        ctx = filer(self.app, ctx, uow)
+        subject, text = ' '.join(args['subject'].split()), args['text'].strip()
+        if args.get('occurred_at'):
+            try:
+                datetime.fromisoformat(args['occurred_at'].replace('Z', '+00:00'))
+            except ValueError:
+                raise DomainError('validation_error', 'occurred_at is not an ISO-8601 date or time.') from None
+        same = uow.connection.execute(f'SELECT id FROM {OBSERVATIONS} WHERE created_by=? AND run_id IS NULL AND text=?',
+                                      (ctx.principal_id, text)).fetchone()
+        if same:
+            raise DomainError('validation_error',
+                              f'You filed this point already (observation {same["id"]}). Each point is filed once.')
+        builder = self.builder(ctx, 'experience_observation_file', args, 'File a point for the Learning Applier')
+        cluster = self.agents_cluster(uow)
+        if cluster is None:
+            cluster = AGENTS_CLUSTER
+            builder.record(CLUSTERS, cluster, None, {
+                'id': cluster, 'label': AGENTS_CLUSTER_LABEL, 'description': AGENTS_CLUSTER_DESCRIPTION, 'run_id': None,
+                'created_by': ctx.principal_id, 'created_at': builder.at}, label=AGENTS_CLUSTER_LABEL)
+        identity = new_id()
+        builder.record(OBSERVATIONS, identity, None, {
+            'id': identity, 'run_id': None, 'cluster_id': cluster, 'kind': args['kind'], 'subject': subject, 'text': text,
+            'evidence_json': args.get('evidence', []), 'occurred_at': args.get('occurred_at'),
+            'created_by': ctx.principal_id, 'created_at': builder.at}, label=subject)
+        return builder.build()
+
+    def file_apply(self, ctx, plan, uow):
+        ctx = filer(self.app, ctx, uow)
+        rows = apply_records(ctx, plan, uow)
+        row = next(row for change, row in zip(plan.changes, rows) if change.resource.resource_type == OBSERVATIONS)
+        return {'filed': {'id': row['id'], 'kind': row['kind'], 'subject': row['subject'], 'filed_at': row['created_at']},
+                'note': FILED_NOTE}
+
     # ----- delta proposals ------------------------------------------------------------------------------------------------
 
     @staticmethod
@@ -458,6 +540,9 @@ class Experience:
         problems = [f'No observation has the id {identity}.' for identity in observations
                     if uow.repository(OBSERVATIONS).get(identity) is None]
         problems += [f'No cluster has the id {identity}.' for identity in clusters if uow.repository(CLUSTERS).get(identity) is None]
+        if Experience.agents_cluster(uow) in clusters:
+            problems.append(f'The cluster "{AGENTS_CLUSTER_LABEL}" holds what agents filed themselves and states no one problem: '
+                            'name the observations in it that this proposal addresses, not the cluster.')
         if not observations and not clusters:
             problems.append('A delta proposal names at least one observation or cluster it addresses.')
         if problems:
