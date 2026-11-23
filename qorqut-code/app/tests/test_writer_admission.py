@@ -68,6 +68,14 @@ class StoreCase(unittest.TestCase):
         return True
 
 
+class ConnectionSettingTests(StoreCase):
+    def test_a_pooled_connection_commits_without_waiting_for_the_disk_in_wal_mode(self):
+        for _ in range(2):  # the second unit reuses the pooled connection
+            with self.db.read() as uow:
+                self.assertEqual(uow.connection.execute("PRAGMA synchronous").fetchone()[0], 1)  # NORMAL
+                self.assertEqual(uow.connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+
+
 class WriteIfNeededTests(StoreCase):
     def test_a_unit_that_only_reads_never_needs_the_writer(self):
         holder = self.other()

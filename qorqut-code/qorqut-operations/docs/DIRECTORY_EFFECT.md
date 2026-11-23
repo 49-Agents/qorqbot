@@ -22,7 +22,7 @@ what exists, or nothing) so ordinary preparation and recovery checks can compare
 ## Phases and proof
 
 Recorded in the receipt progress for the resource, each only after the step it names (SQLite runs with
-`synchronous = FULL`, so the commit is the durable record):
+`synchronous = NORMAL`: the commit is the record, but after a power cut it can be older than the filesystem):
 
 | Phase | Meaning |
 | --- | --- |

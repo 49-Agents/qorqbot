@@ -394,7 +394,11 @@ class Database:
         connection.row_factory = sqlite3.Row
         install_sql_functions(connection)
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA synchronous = FULL")
+        # NORMAL, not FULL, on purpose: in WAL mode a commit then no longer waits for the disk (and no longer holds the one
+        # writer lock through that wait). After a power cut or an operating-system crash the file stays consistent but the
+        # last few commits may be gone; a crash of this process alone loses nothing. Code that must survive a power cut in
+        # order (a file effect, an outside send) must not rely on a commit having reached the disk.
+        connection.execute("PRAGMA synchronous = NORMAL")
         connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout * 1000)}")
         # Pool-lifetime cache/mmap sizing, set once at connection creation
         # rather than per acquire: these are page-cache tuning, not per-unit
