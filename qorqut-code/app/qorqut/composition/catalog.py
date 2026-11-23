@@ -93,6 +93,12 @@ BUILTIN_CATALOG = (
     # experience_observation_file instead; a role or saved permission map written before that may still name these.
     CatalogEntry("agentic_change_get", False, "read", frozenset({"mcp"})),
     *(CatalogEntry(name, False, "compound", frozenset({"mcp"})) for name in ("agentic_change_propose", "agentic_change_reconcile")),
+    # Retired the same way: side chats and the pinned-threads row of Focus are removed as features. The private owner
+    # threads stay on their records; a role or saved permission map written before the removal may still name these.
+    *(CatalogEntry(name, False, "records", frozenset({"dashboard", "worker"}))
+      for name in ("side_chats_create", "side_chats_rename", "side_chats_close")),
+    CatalogEntry("thread_pins_list", False, "read", frozenset({"mcp"})),
+    CatalogEntry("thread_pins_set", False, "records", frozenset({"mcp"})),
     CatalogEntry("focus_get", False, "read", frozenset({"dashboard"})),
     *(CatalogEntry(name, False, "records", frozenset({"dashboard"})) for name in ("focus_present", "focus_edit", "focus_move", "focus_set_archived", "focus_reply", "focus_show", "focus_clear", "focus_browser_input")),
     CatalogEntry("working_memory_update", False, "compound"),
@@ -117,8 +123,6 @@ BUILTIN_CATALOG = (
     CatalogEntry("owner_conversation_related", False, "read", frozenset({"dashboard", "worker"}), True),
     CatalogEntry("owner_conversation_peers", False, "read", frozenset({"dashboard", "worker"}), True),
     CatalogEntry("owner_conversation_mark_read", False, "records", frozenset({"dashboard", "worker"}), True),
-    *(CatalogEntry(name, False, "records", frozenset({"dashboard", "worker"}), True)
-      for name in ("side_chats_create", "side_chats_rename", "side_chats_close")),
     # Project records: one existing Project's inventory, neutral references and explicit cross-scope links. The
     # handler adds the owner/configured-Ordubashy identity gate and the Project's current reach to every call.
     *(CatalogEntry(name, False, kind) for name, kind in (

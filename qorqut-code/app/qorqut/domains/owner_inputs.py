@@ -5,7 +5,7 @@ time window or the owner's last N messages:
 
 * ``chat``: every agent's native conversation. The index (``native_owner_turns``) holds where each turn starts in the
   transcript archive; the text is read from the archive for this answer and is stored nowhere else.
-* ``thread``: the private owner–Ordubashy channel of a Task, Signoff, Table, Project or Focus Reference, side chats included.
+* ``thread``: the private owner–Ordubashy channel of a Task, Signoff, Table, Project or Focus Reference.
 * ``note``: what the owner wrote personally in a Task or Table discussion, on a Signoff or on a Focus card.
 
 Each item is the exact text with its time and place and, where the records can tell, what followed it: the reply that
@@ -67,7 +67,7 @@ SEARCH_DESCRIPTION = (
     "Only the owner and Ordubashy may call it. The conversation between the owner and Ordubashy, read in one of two ways. "
     "WITH query it searches: it returns the messages of the period that hold every word of query, newest first. Searched: "
     "the owner's messages in every agent's chat, in the private owner threads (on Tasks, Signoffs, Tables, Projects and Focus "
-    "References, side chats included) and in the owner's own notes; and Ordubashy's chat replies and thread messages. Not "
+    "References) and in the owner's own notes; and Ordubashy's chat replies and thread messages. Not "
     "searched: what other agents replied, tool calls and what tools returned, messages between agents, WhatsApp, mail, and "
     "the text of Tasks and Signoffs themselves. query is the few words that must appear, in any "
     "order: a name, a number, a subject. Not a sentence. Case is ignored. A word matches any word that starts with it: "

@@ -151,11 +151,6 @@ const agentTerminalView = (() => {
         if (!chat || chatHost.hidden) return false;
         return chat.selectPairedSource?.(source, generation, onUnavailable, onReference, onBack) ?? false;
       },
-      openSide(spec) {
-        if (disposed || !opts.isCurrent?.()) return null;
-        if (chatHost.hidden) showChat();
-        return chat && !chatHost.hidden ? chat.openSide?.(spec) ?? null : null;
-      },
       clearPairedSource(generation) {
         if (!chat) return false;
         return chat.clearPairedSource?.(generation) ?? false;

@@ -3,7 +3,7 @@
 Everything the owner wrote and decided in the period, in time order, with what was said back in the same places:
 
 * every agent's chat: the owner's messages and the agents' replies to the owner;
-* the private owner threads (on Tasks, Signoffs, Tables, Projects and Focus References, side chats included): both sides;
+* the private owner threads (on Tasks, Signoffs, Tables, Projects and Focus References): both sides;
 * the owner's own notes in Task and Table discussions, on Signoffs and on Focus cards;
 * the owner's Signoff decisions: what was approved, rejected or answered, with the owner's words.
 
@@ -87,7 +87,7 @@ class Report:
     def _decisions(self):
         """The Signoffs decided in the period that the coordinator may read, as rows of the timeline."""
         outcomes = self.runtime.signoffs.recent_outcomes(self.ctx, self.uow, since=self.window['since'],
-                                                         until=self.window['until'], limit=MAX_ROWS, side_chats=False)
+                                                         until=self.window['until'], limit=MAX_ROWS)
         if outcomes['count'] > len(outcomes['items']):
             self.capped.append('Signoff decisions')
         return [{'item': 'signoff:' + item['id'], 'at': item['updated_at'], 'channel': 'decision', 'reply': False, 'signoff': item}

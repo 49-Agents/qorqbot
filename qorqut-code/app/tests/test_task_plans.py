@@ -834,22 +834,6 @@ class CheckTests(PlanFixture):
                      'was replaced by a newer one')
         self.ok(self.step(self.worker, 'done', task, step_id='s1', evidence={'signoff_id': second['id']}))
 
-    def test_a_side_chat_decides_nothing(self):
-        from qorqut.inbox.private_conversations import PrivateConversations
-        from qorqut.inbox.side_chats import SideChats
-        conversations = PrivateConversations(NS(app=self.app, domains=NS(tasks=self.tasks)), references=self.signoffs.notes).register()
-        SideChats(NS(application=self.app, signoffs=self.signoffs, private_conversations=conversations)).register()
-        chat = plain(self.ok(self.app.invoke(self.deciding_owner(), 'side_chats_create', {'scope': 'global', 'text': 'A private word'},
-                                             {'idempotency_key': str(uuid4())})))['signoff']
-        self.assertEqual(self.signoff_state(chat)[2], 'side_chat')
-        task = self.checked({'kind': 'signoff'})
-        self.refused(self.step(self.worker, 'done', task, step_id='s1', evidence={'signoff_id': chat['id']}), 'is a side chat')
-        # Whatever state the chat's shell is in, it is not a response to anything.
-        with self.db.transaction() as uow:
-            uow.connection.execute("UPDATE signoffs SET state='answered' WHERE id=?", (chat['id'],))
-        self.refused(self.step(self.worker, 'done', task, step_id='s1', evidence={'signoff_id': chat['id']}), 'is a side chat')
-        self.assertEqual(self.first(task), ('s1', 'pending'))
-
     def test_a_signoff_the_caller_may_not_read_is_refused_like_one_that_does_not_exist(self):
         answered = self.question()
         self.answer(answered)

@@ -61,7 +61,7 @@ browserTest('a first start shows the sample text and saves nothing until the own
   } finally { await browser.close(); }
 });
 
-browserTest('an item opened on Focus (signoff, browser, side chat) hides the notes until it closes', async () => {
+browserTest('an item opened on Focus (signoff, browser) hides the notes until it closes', async () => {
   const {browser, page} = await fixture({revision: 0, card_ids: [], blocks: []});
   try {
     const notesShown = () => page.evaluate(() => {
