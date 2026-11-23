@@ -152,14 +152,16 @@ class TerminalProjection(Fixture):
         name = ".qorqut/claude-launch-settings.json"
         self.assertEqual(self.build(False).files[name], self.build(True).files[name])
 
-    def test_only_ordubashy_is_denied_the_claude_tools_he_does_not_work_with(self):
+    def test_every_agent_is_denied_what_no_agent_works_with_and_ordubashy_three_tools_more(self):
         name = ".qorqut/claude-launch-settings.json"
-        self.assertEqual(json.loads(self.build(False).files[name]), {"permissions": {"defaultMode": "bypassPermissions"}})
+        everyone = ["AskUserQuestion", "Workflow", "Agent(claude)", "Agent(Explore)", "Agent(Plan)", "Agent(statusline-setup)"]
+        self.assertEqual(json.loads(self.build(False).files[name]),
+                         {"permissions": {"defaultMode": "bypassPermissions", "deny": everyone}})
         self.data["role"] = {"id": "ordubashy"}
         with mock.patch("qorqut.management.identity.configured_ordubashy", lambda uow: "agent-1"):
             for terminal in (False, True):
                 self.assertEqual(json.loads(self.build(terminal).files[name]), {"permissions": {
-                    "defaultMode": "bypassPermissions", "deny": ["ListAgents", "ReportFindings", "ScheduleWakeup", "Workflow"]}})
+                    "defaultMode": "bypassPermissions", "deny": [*everyone, "ListAgents", "ReportFindings", "ScheduleWakeup"]}})
 
 
 if __name__ == "__main__":

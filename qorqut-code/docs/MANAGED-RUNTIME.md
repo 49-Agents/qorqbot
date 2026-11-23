@@ -198,10 +198,11 @@ Codex `default_permissions` `:danger-full-access`) and denies otherwise. Claude
 Code also gets the prepared `permissions.allow` rules as `--allowedTools`,
 because an untrusted folder would otherwise ignore them.
 
-Questions an agent asks on purpose (Claude Code `AskUserQuestion`, Codex
-`item/tool/requestUserInput`) still reach the owner as question cards. MCP
-elicitation requests are declined. The pending list in the host status holds
-questions only.
+Questions an agent asks on purpose (Codex `item/tool/requestUserInput`; Claude
+Code `AskUserQuestion` when a session has that tool) still reach the owner as
+question cards. Prepared agents are denied `AskUserQuestion` in their launch
+settings and ask through a question Signoff instead. MCP elicitation requests
+are declined. The pending list in the host status holds questions only.
 
 ## Chat routes
 
