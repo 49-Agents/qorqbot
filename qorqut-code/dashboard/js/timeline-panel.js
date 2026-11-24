@@ -140,11 +140,20 @@ function timelineSortRows(rows) {
   const time = row => { const at = Date.parse(row.at); return Number.isFinite(at) ? at : Infinity; };
   return rows.sort((a, b) => time(b) - time(a) || b.order - a.order);
 }
+// Signoff and Action rows (the Project reader's extra rows) carry their section's icon on the rail instead of the dot.
+const TIMELINE_KIND_ICON = {signoff: 'signoffs', action: 'actions'};
+function timelineKindMark(row) {
+  const name = TIMELINE_KIND_ICON[row.kind];
+  if (!name) return '';
+  const icon = typeof T_VIEW_ICON === 'object' && T_VIEW_ICON ? T_VIEW_ICON[name] : '';
+  return icon ? `<span class="agent-timeline-kind" aria-hidden="true">${icon}</span>` : '';
+}
 function timelineJournalRow(row) {
   const chevron = typeof AGENT_TIMELINE_CHEVRON === 'string' ? AGENT_TIMELINE_CHEVRON : '';
   const text = timelineEsc(row.text), meta = (row.meta || []).filter(Boolean), evidence = [...(row.notes || []), ...(row.quotes || []).map(quote => `“${quote}”`)];
   const content = `<div class="agent-timeline-copy${row.open ? ' agent-timeline-link' : ''}"${row.open ? ` role="button" tabindex="0" data-tl-open="${timelineEsc(row.id)}"` : ''}><p class="agent-timeline-text">${row.struck ? `<s>${text}</s>` : text}</p>${meta.length ? `<p class="agent-timeline-meta">${meta.map(timelineEsc).join(' · ')}</p>` : ''}</div>`;
-  return `<li class="agent-timeline-row" data-entry-id="${timelineEsc(row.id)}"><time${row.at ? ` datetime="${timelineEsc(row.at)}"` : ''}>${timelineEsc(timelineWhen(row.at))}</time>${evidence.length
+  const mark = timelineKindMark(row);
+  return `<li class="agent-timeline-row" data-entry-id="${timelineEsc(row.id)}"${mark ? ` data-kind="${timelineEsc(row.kind)}"` : ''}>${mark}<time${row.at ? ` datetime="${timelineEsc(row.at)}"` : ''}>${timelineEsc(timelineWhen(row.at))}</time>${evidence.length
     ? `<details class="agent-timeline-entry"><summary>${content}<span class="agent-timeline-expand">${chevron}</span></summary><div class="agent-timeline-evidence" aria-label="Evidence">${evidence.map(line => `<p>${timelineEsc(line)}</p>`).join('')}</div></details>`
     : content}</li>`;
 }

@@ -228,3 +228,15 @@ test('the journal merges extra dated rows into the newest-first list and counts 
   // Without ``extra`` a row is not a link.
   assert.equal(api.timelineJournalRows(JOURNAL).map(api.timelineJournalRow).join('').includes('data-tl-open'),false);
 });
+
+test('signoff and action rows carry their section icon on the rail; journal rows keep the dot',()=>{
+  const {api}=load({T_VIEW_ICON:{signoffs:'<svg data-i="signoffs"></svg>',actions:'<svg data-i="actions"></svg>'}});
+  const mk=kind=>api.timelineJournalRow({id:kind+':1',at:'2026-11-13T10:00:00Z',text:'T',meta:['M'],kind,open:true});
+  const signoff=mk('signoff'),action=mk('action');
+  assert.ok(signoff.includes('data-kind="signoff"')&&signoff.includes('class="agent-timeline-kind"')&&signoff.includes('data-i="signoffs"'));
+  assert.ok(action.includes('data-kind="action"')&&action.includes('data-i="actions"'));
+  assert.ok(action.includes('data-tl-open="action:1"'));
+  const [plain]=api.timelineJournalRows(JOURNAL).map(api.timelineJournalRow);
+  assert.equal(plain.includes('agent-timeline-kind'),false);assert.equal(plain.includes('data-kind'),false);
+  assert.equal(api.timelineJournalRow({id:'x',text:'T',kind:'other'}).includes('agent-timeline-kind'),false);
+});

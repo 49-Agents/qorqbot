@@ -69,6 +69,8 @@ const T_VIEW_ICON = {
   activity: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path></svg>`,
 };
 T_VIEW_ICON.viewbox = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="11" y="11" width="7" height="5" rx="1"/></svg>`;
+// Action: a lightning bolt (the timeline mark of an Action row).
+T_VIEW_ICON.actions = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.2 2.8 5 13.4h6.2l-.8 7.8 8.6-11h-6.2l.4-7.4Z"/></svg>`;
 T_VIEW_ICON.globalNotes = T_VIEW_ICON.projectNotes = T_VIEW_ICON.notes;
 const embeddedTaskPane = typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane;
 let tView = embeddedTaskPane ? 'tasks' : globalThis.ovInitialView?.() || ls("tview") || "tasks";

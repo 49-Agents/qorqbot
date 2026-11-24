@@ -1880,7 +1880,7 @@ async function rwProjectTimelineRows(projectId) {
   };
   const lists = await Promise.all([read('actions'), read('signoffs')]);
   return lists.flat().filter(item => kinds[item.type]).map(item => ({
-    id: `${item.type}:${item.id}`, at: item.updated_at || item.created_at || '', text: item.label || 'Untitled',
+    id: `${item.type}:${item.id}`, at: item.updated_at || item.created_at || '', text: item.label || 'Untitled', kind: item.type,
     meta: [kinds[item.type] + (item.type === 'signoff' && item.state ? ` · ${item.state}` : '')], quotes: [], item,
   }));
 }
