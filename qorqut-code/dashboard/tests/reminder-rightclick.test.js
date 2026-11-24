@@ -11,7 +11,7 @@ test('right-click surfaces coalesce an occurrence and retain uncertain request f
     api:async()=>({items:[]}),remindersOpenDetail:()=>{opened++},esc:String,URLSearchParams,Date,Intl,accessLost:()=>false,
     setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId},clearTimeout:id=>timers.delete(id),requestAnimationFrame(){},$ :()=>box,agentGlyph:()=>''};
   class Node {constructor(){this.listeners={};this.children=[];this.style={setProperty(){}};this.classList={add(){},remove(){}};this.isConnected=true;} addEventListener(n,f){this.listeners[n]=f} setAttribute(){} appendChild(n){n.parent=this;this.children.push(n)} remove(){this.parent.children=this.parent.children.filter(x=>x!==this)} }
-  const box=new Node();vm.createContext(context);vm.runInContext(source('reminders.js')+'\nthis.dismissDue=remindersDismissDue;this.attempts=remAttempts;this.submit=remSubmitAttempt;',context);
+  const box=new Node();vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));vm.runInContext(source('reminders.js')+'\nthis.dismissDue=remindersDismissDue;this.attempts=remAttempts;this.submit=remSubmitAttempt;',context);
   context.remindersOpenDetail=()=>{opened++};context.remindersOwnerDue=async()=>[reminder];
   const host={isConnected:true,innerHTML:'',addEventListener(n,f){listeners[n]=f},removeEventListener(n){delete listeners[n]},contains:()=>true};
   vm.runInContext(source('attention-queue.js')+'\nthis.queue=attentionQueue;',context);const dispose=context.queue.mountSignoffs(host);await tick();
@@ -35,7 +35,7 @@ test('left-click opens reminder and unrelated reply has no context handler',asyn
   class Node {constructor(){this.listeners={};this.style={setProperty(){}};this.classList={add(){},remove(){}};} addEventListener(n,f){this.listeners[n]=f} setAttribute(){} }
   const box={children:[],appendChild(n){this.children.push(n)}},calls=[];
   const ctx={document:{createElement:()=>new Node()},$:()=>box,esc:String,agentGlyph:()=>'',requestAnimationFrame(){},setTimeout:()=>0,clearTimeout(){},Date,Promise};
-  vm.createContext(ctx);const s=source('core.js');vm.runInContext(s.slice(s.indexOf('const NOTE_MAX'),s.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',ctx);
+  vm.createContext(Object.assign(ctx,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));const s=source('core.js');vm.runInContext(s.slice(s.indexOf('const NOTE_MAX'),s.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',ctx);
   ctx.notify({text:'due',reminder:true,onClick:()=>calls.push('open'),onDismiss:()=>calls.push('write')});ctx.notify({text:'reply',replyAgentId:'a',onClick:()=>calls.push('reply')});
   assert.equal(box.children[1].listeners.contextmenu,undefined);box.children[0].listeners.click();await tick();assert.deepEqual(calls,['open']);
 });
@@ -43,7 +43,7 @@ test('left-click opens reminder and unrelated reply has no context handler',asyn
 test('incomplete, inaccessible and wrong-owner reminders cannot be dismissed',async()=>{
   let writes=0;const ctx={document:{dispatchEvent(){}},Event:class{},window:{},embeddedAgentPane:true,state:{session:{principal_id:'owner'},projects:[]},
     loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),post:async()=>{writes++},coreData:x=>x,newRequestId:()=> 'key',Date,Intl};
-  vm.createContext(ctx);vm.runInContext(source('reminders.js')+'\nthis.dismissDue=remindersDismissDue;',ctx);
+  vm.createContext(Object.assign(ctx,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));vm.runInContext(source('reminders.js')+'\nthis.dismissDue=remindersDismissDue;',ctx);
   const r={reminder_id:'r',revision:1,state:'due',occurrence_id:'o',recipient_id:'owner'};
   await assert.rejects(ctx.dismissDue({...r,occurrence_id:null}),/occurrence/);
   await assert.rejects(ctx.dismissDue({...r,project_id:'missing'}),/project/);
@@ -54,7 +54,7 @@ test('every note has a close button that only closes it, and notes last 10 secon
   class Node {constructor(){this.listeners={};this.style={setProperty(){}};this.classList={add(){},remove(){}};} addEventListener(n,f){this.listeners[n]=f} setAttribute(){} remove(){} }
   const box={children:[],appendChild(n){this.children.push(n)}},calls=[],timers=[];
   const ctx={document:{createElement:()=>new Node()},$:()=>box,esc:String,agentGlyph:()=>'',requestAnimationFrame(){},setTimeout:(fn,ms)=>{timers.push({fn,ms});return timers.length},clearTimeout(){},Date,Promise};
-  vm.createContext(ctx);const s=source('core.js');vm.runInContext(s.slice(s.indexOf('const NOTE_MAX'),s.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',ctx);
+  vm.createContext(Object.assign(ctx,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));const s=source('core.js');vm.runInContext(s.slice(s.indexOf('const NOTE_MAX'),s.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',ctx);
   ctx.notify({text:'reply',replyAgentId:'a',onClick:()=>calls.push('open')});ctx.notify({text:'plain'});
   for(const el of box.children){assert.match(el.innerHTML,/class="toast-x" aria-label="Close notification"/);assert.match(el.className,/has-x/);}
   assert.equal(timers[0].ms,10000-260);
@@ -68,7 +68,7 @@ test('a note with actions shows them on their own line, stays until handled and 
   class Node {constructor(){this.listeners={};this.style={setProperty(){}};this.classList={add(){},remove(){}};} addEventListener(n,f){this.listeners[n]=f} setAttribute(){} remove(){} }
   const box={children:[],appendChild(n){this.children.push(n)}},calls=[],timers=[],toasts=[];
   const ctx={document:{createElement:()=>new Node()},$:()=>box,esc:String,agentGlyph:()=>'',requestAnimationFrame(){},setTimeout:(fn,ms)=>{timers.push({fn,ms});return timers.length},clearTimeout(){},Date,Promise};
-  vm.createContext(ctx);const s=source('core.js');vm.runInContext(s.slice(s.indexOf('const NOTE_MAX'),s.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',ctx);
+  vm.createContext(Object.assign(ctx,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));const s=source('core.js');vm.runInContext(s.slice(s.indexOf('const NOTE_MAX'),s.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',ctx);
   let fail=true;
   ctx.notify({text:'Text Fares.',sub:'Reminder · due now',reminder:true,onClick:()=>calls.push('open'),actions:[
     {label:'In 1 hour',run:()=>calls.push('hour')},{label:'Tomorrow',run:()=>calls.push('tomorrow')},{label:'Done',run:async()=>{if(fail)throw new Error('Could not dismiss');calls.push('done');}}]});
@@ -95,7 +95,7 @@ test('a due reminder note offers In 1 hour, Tomorrow and Done wired to snooze an
     loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`k${writes.length}`,coreData:x=>x,Date,Intl,Map,Set,JSON,Promise,
     setTimeout:()=>0,clearTimeout(){},notify:n=>notes.push(n),
     post:async(url,args)=>{if(url.endsWith('reminders_list'))return {reminders:[reminder]};writes.push({url,args:{...args}});return {reminder:{...reminder,state:'scheduled',occurrence_id:null}};}};
-  vm.createContext(ctx);vm.runInContext(source('relative-time.js')+source('reminders.js'),ctx);
+  vm.createContext(Object.assign(ctx,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));vm.runInContext(source('relative-time.js')+source('reminders.js'),ctx);
   await tick();await tick();await tick();
   assert.equal(notes.length,1);assert.equal(notes[0].text,'Text Fares.');assert.equal(notes[0].sub,'Reminder · due now');
   assert.deepEqual(Array.from(notes[0].actions,a=>a.label),['In 1 hour','Tomorrow','Done']);

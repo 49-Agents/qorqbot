@@ -10,11 +10,12 @@ const attentionQueue=(()=>{
   const mounts=new Set(),lists=new Set(),acknowledged=new Set(),signoffMounts=new Map();
   // Signoffs the owner just marked unread from the strip, shown unread until the server answers.
   const pendingUnread=new Set();
-  let queueOkAt=0,signoffOkAt=0;
+  let queueOkAt=0,signoffOkAt=0,queueStartedAt=0,signoffStartedAt=0,recoveryStartedAt=0;
   let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
   // Due reminders addressed to the owner. Opening or reading one never changes it; only an explicit dismiss/snooze/cancel does.
   let dueReminders=[],remindersError='',recoveryCount=0,recoveryError=false,recoveryGeneration=0;
   async function refreshReminderRecovery(){
+    recoveryStartedAt=Date.now();
     const request=++recoveryGeneration; recoveryCount=0; recoveryError=false; paintSignoffs();
     try { const owner=await remVerifiedOwner(); if(request===recoveryGeneration) recoveryCount=[...remAttempts.values()].filter(a=>a.owner===owner).length; }
     catch (_) { if(request===recoveryGeneration) recoveryError=remAttempts.size>0; }
@@ -339,7 +340,11 @@ const attentionQueue=(()=>{
   }
   // One read at a time; an explicit call in flight records a single trailing read.
   // `ordinary` is a mount: it reuses an in-flight read or a recent success and never records a trailing read.
+  // A hidden tab reads nothing here (nothing outside the page depends on the strip or the queue); the focus and visibility
+  // triggers below read once when the tab is back, and every trigger arriving in the same second shares that read.
   function refreshSignoffs(ordinary=false){
+    if(document.hidden)return Promise.resolve();
+    if(!ordinary && tabReturnCovered(signoffStartedAt))return signoffPromise||Promise.resolve();
     if(!ordinary)signoffOkAt=0;
     if(!signoffMounts.size)return Promise.resolve();
     if(ordinary && signoffPromise)return signoffPromise;
@@ -348,6 +353,7 @@ const attentionQueue=(()=>{
       return Promise.resolve();
     }
     if(signoffPromise){signoffAgain=true;return signoffPromise;}
+    signoffStartedAt=Date.now();
     signoffPromise=(async()=>{
       try{do{signoffAgain=false;await Promise.all([loadSignoffs(),typeof remindersOwnerDue==='function'?loadReminders():null,loadCalendar()]);paintSignoffs();}while(signoffAgain && signoffMounts.size);}
       finally{signoffPromise=null;clearTimeout(signoffTimer);if(signoffMounts.size)signoffTimer=setTimeout(()=>{void (signoffPromise||refreshSignoffs());},60000);}
@@ -424,6 +430,7 @@ const attentionQueue=(()=>{
   // record a single trailing read and resolve after it; the poll timer never does.
   // `ordinary` is a mount: it reuses an in-flight read or a recent success and never records a trailing read.
   function refresh(ordinary=false){
+    if(document.hidden)return Promise.resolve();
     if(ordinary && !saving){
       if(loadPromise)return loadPromise;
       if(!error && Date.now()-queueOkAt<10000){
@@ -433,7 +440,9 @@ const attentionQueue=(()=>{
     }
     // During a save the caller gets the write chain: the deferred read starts after it settles and is not awaited.
     if(saving){refreshAfterSave=true;return writes;}
+    if(!ordinary && tabReturnCovered(queueStartedAt))return loadPromise||Promise.resolve();
     if(loadPromise){loadAgain=true;return loadPromise;}
+    queueStartedAt=Date.now();
     loadPromise=(async()=>{
       try{
         do{loadAgain=false;await loadQueue();}while(loadAgain && !saving && (mounts.size || signoffMounts.size));
@@ -540,7 +549,9 @@ const attentionQueue=(()=>{
   }
   document.addEventListener('reminder-attempts-changed',()=>{if(signoffMounts.size)void refreshReminderRecovery();});
   document.addEventListener('reply-notifications-changed',()=>{if(signoffMounts.size)paintSignoffs();if(mounts.size || signoffMounts.size)void refresh();});
-  window.addEventListener('focus',()=>{if(mounts.size || signoffMounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size)void refreshReminderRecovery();});
+  const back=()=>{if(document.hidden)return;if(mounts.size || signoffMounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size && !tabReturnCovered(recoveryStartedAt))void refreshReminderRecovery();};
+  window.addEventListener('focus',back);
+  document.addEventListener('visibilitychange',back);
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();if(mounts.size || signoffMounts.size)void refresh();});
   return {discardCalendar,signoffViewed,reminderViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
     mountSignoffs(host,name,opener){const calendarListener=()=>void refreshSignoffs();if(typeof calendarChanges!=='undefined')calendarChanges.add(calendarListener);signoffMounts.set(host,{name,opener,calendarListener});host.addEventListener('click',signoffClick);host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refresh(true);void refreshReminderRecovery();
