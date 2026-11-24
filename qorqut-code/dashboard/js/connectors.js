@@ -144,8 +144,7 @@ const connectorsPanel = (() => {
         <button type="button" class="quiet" data-cx-browser-retry hidden>Retry setup</button></div>
       <section class="cx-accounts" data-cx-accounts hidden>
         <h3>Websites your agents can use as you</h3>
-        <p>To connect a website, ask Ordubashy in Chat, for example “connect my Slack”. It opens Chrome on this computer and you sign in yourself: your password goes only to that website, and your agent keeps just the signed-in session. On a computer without a screen, Ordubashy asks you for the password and signs in for you.</p>
-        <p class="cx-signin-note" data-cx-signin-note role="status" hidden></p>
+        <p>To connect a website, ask Ordubashy in Chat, for example “connect my Slack”. It opens the website’s sign-in page in the agent browser, and you sign in yourself through the agent’s Browser tab: your password goes only to that website, and your agent keeps just the signed-in session.</p>
         <p class="cx-accounts-empty" data-cx-accounts-empty hidden>No websites connected yet.</p>
         <p class="cx-error" data-cx-accounts-error role="alert" hidden></p>
         <div class="cx-rows" data-cx-accounts-list hidden></div>
@@ -165,20 +164,17 @@ const connectorsPanel = (() => {
       const section = root.querySelector('[data-cx-accounts]'), rows = accountsView?.sites;
       section.hidden = !rows;
       if (section.hidden) return;
-      const busy = accountsView.signing_in, note = root.querySelector('[data-cx-signin-note]');
-      note.hidden = !busy;
-      if (busy) note.textContent = `Finish signing in to ${busy} in the Chrome window, then close that window. The agents’ browser is paused until you do.`;
       const list = root.querySelector('[data-cx-accounts-list]');
       list.hidden = !rows.length;
-      root.querySelector('[data-cx-accounts-empty]').hidden = !!rows.length || !!busy;
+      root.querySelector('[data-cx-accounts-empty]').hidden = !!rows.length;
       list.innerHTML = rows.map(item => {
         const [label, tone] = SIGN_IN_STATUS[item.session_saved ?? null];
         return `<div class="cx-row cx-account-row" data-cx-site="${esc(item.site)}"><div class="cx-row-main"><div class="cx-row-title"><h3>${esc(item.site)}</h3><span class="cx-status" data-tone="${tone}">${label}</span></div></div>
-          <div class="cx-row-action"><button type="button" class="quiet" data-cx-site-action="sign_out" data-cx-site-name="${esc(item.site)}"${busy ? ' disabled' : ''}>${item.session_saved === false ? 'Remove' : 'Sign out'}</button></div></div>`;
+          <div class="cx-row-action"><button type="button" class="quiet" data-cx-site-action="sign_out" data-cx-site-name="${esc(item.site)}">${item.session_saved === false ? 'Remove' : 'Sign out'}</button></div></div>`;
       }).join('');
       clearTimeout(accountsTimer);
       // Ordubashy starts sign-ins from Chat, so this list has to notice them on its own.
-      if (live()) accountsTimer = setTimeout(() => { loadAccounts(); if (busy) loadBrowser(); }, busy ? 2500 : 5000);
+      if (live()) accountsTimer = setTimeout(loadAccounts, 5000);
       root.dispatchEvent(new CustomEvent('connectors-painted', {bubbles: true}));
     }
     const accountsError = text => { const el = root.querySelector('[data-cx-accounts-error]'); el.textContent = text || ''; el.hidden = !text; };
@@ -186,10 +182,7 @@ const connectorsPanel = (() => {
       try {
         const next = coreData(change ? await post('/root/browser-accounts', change) : await api('/root/browser-accounts'));
         if (!live()) return true;
-        const wasBusy = !!accountsView?.signing_in;
         accountsView = next; accountsError(''); paintAccounts();
-        // The session list only settles once the agent's browser is back after the window closes.
-        if (wasBusy && !next.signing_in) { clearTimeout(accountsTimer); accountsTimer = setTimeout(() => { loadAccounts(); loadBrowser(); }, 1500); }
         return true;
       } catch (failure) {
         if (live()) accountsError(failure.message || 'Website sign-ins could not be loaded.');

@@ -90,11 +90,17 @@ const replyNotifications=(()=>{
     })();
     return inflight;
   }
-  const poll=()=>inflight || run();
+  // A hidden tab keeps polling at the slow pace only while replies are on for desktop notifications; otherwise it waits for the
+  // return to the tab (below).
+  const poll=()=>{
+    if(inflight)return inflight;
+    if(tabHiddenFor('replies')){clearTimeout(timer);timer=setTimeout(poll,30000);return undefined;}
+    return run();
+  };
   function refresh(){
     if(inflight){trailing=true;return inflight;}
     return run();
   }
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refresh();});
+  onTabBack(()=>void refresh(),{focus:false});
   return {start:poll,refresh,unread,unreadAgent,unreadChat,paint:paintDots,open};
 })();

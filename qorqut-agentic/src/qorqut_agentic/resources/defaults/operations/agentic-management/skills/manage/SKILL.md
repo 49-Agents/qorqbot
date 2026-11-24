@@ -16,8 +16,12 @@ boundary is not an OS sandbox.
 
 Any agent files a point about how agents work with `experience_observation_file`:
 a rule or correction the owner gave, a lesson from a mistake, a tool that failed
-or misled. It is filed at once, with no Signoff, and the filing agent does not
-work out which asset should change. The Learning Applier's weekly review and
+or misled. It is filed at once, and the filing agent does not work out which
+asset should change. A rule the owner gave (kind `owner_complaint`) also puts a
+card before the owner, by itself, to check its wording: the owner approves it,
+edits it (the owner's wording then replaces yours) or rejects it (it leaves the
+queue and the owner's note comes to you). Do not also ask the owner about it in
+chat, and follow the rule from then on. The Learning Applier's weekly review and
 application reads what was filed together with its own observations and files
 agentic layer delta proposals; the owner approves or rejects those.
 

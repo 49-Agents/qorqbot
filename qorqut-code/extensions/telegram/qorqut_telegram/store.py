@@ -388,6 +388,33 @@ def enqueue_cleanup(uow, message_id, reason, *, now, not_before=None):
         "next_attempt_at": not_before, "created_at": now, "updated_at": now})
 
 
+# The error code of a cleanup that stopped because its message's send is uncertain: nothing is known to delete until the
+# owner resolves that send, and only that resolution queues it again.
+CLEANUP_SEND_UNCERTAIN = "send_uncertain"
+
+
+def requeue_cleanup(uow, outbox, *, now):
+    """Queue again the cleanup of the message this send delivers, if it stopped because the send was uncertain.
+
+    Called in the transaction that resolves the send. A cleanup is only ever asked for a message that is to go (a closed secret
+    request, a retired Signoff post, a handed-off reply) and nothing withdraws that, so a stopped job still holds. Any other
+    job (none, queued, deleting, deleted, or failed for another reason) is left as it is, and a repeated resolution never
+    queues one twice. Returns the queued job or ``None``.
+    """
+    if outbox["message_id"] is None:
+        return None
+    sent = message(uow, outbox["message_id"])
+    # An edit's row names the message it changes; that message's cleanup waited on its own send, never on the edit.
+    if sent is None or sent["outbox_id"] != outbox["id"]:
+        return None
+    row = uow.connection.execute("SELECT * FROM telegram_cleanup_jobs WHERE message_id=? AND state='failed' AND error_code=?",
+                                 (sent["id"], CLEANUP_SEND_UNCERTAIN)).fetchone()
+    if row is None:
+        return None
+    return uow.repository("telegram_cleanup_jobs").update(row["id"], {
+        "state": "queued", "error_code": None, "error_message": None, "next_attempt_at": now}, expected_revision=row["revision"])
+
+
 # ----- status -----------------------------------------------------------------------------------------------
 
 
@@ -426,5 +453,7 @@ def status_counts(uow, now):
         "cleanup_failures": [dict(row) for row in c.execute(
             "SELECT j.message_id, j.error_code, j.reason, m.chat_name, m.chat_id, m.message_thread_id, m.telegram_message_id "
             "FROM telegram_cleanup_jobs j "
-            "JOIN telegram_messages m ON m.id=j.message_id WHERE j.state='failed' ORDER BY j.created_at LIMIT 20")],
+            # A cleanup stopped on an uncertain send has nothing to delete by hand yet; that send is listed with the uncertain ones.
+            "JOIN telegram_messages m ON m.id=j.message_id WHERE j.state='failed' AND j.error_code IS NOT ? "
+            "ORDER BY j.created_at LIMIT 20", (CLEANUP_SEND_UNCERTAIN,))],
     }

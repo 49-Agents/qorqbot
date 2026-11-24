@@ -551,11 +551,13 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
         isolated(uow, "Due extraction reconcile", lambda: reconcile_due(runtime, uow))
         isolated(uow, "Unreachable worker reconcile", lambda: unreachable_workers(uow))
         # The Learning Applier's scheduled workflows: queue a run whose time has come, and let a delta proposal follow an
-        # approval the Signoff observer missed. Starting a run is the native Chat backend's pass (``experience/runs.py``).
+        # approval the Signoff observer missed (and a rule its card's edit or rejection). Starting a run is the native Chat backend's pass (``experience/runs.py``).
         isolated(uow, "Experience runs due", lambda: runtime.experience.runs.due(uow))
         isolated(uow, "Delta proposal decisions", lambda: settle_proposals(uow))
+        isolated(uow, "Rule check decisions", lambda: settle_checks(uow))
 
     settle_proposals = paced(60.0, lambda uow: runtime.experience.settle(uow))
+    settle_checks = paced(60.0, lambda uow: runtime.experience.settle_checks(uow))
     runtime.inbox_nudges = NudgeBackend.build(runtime, inbox, reconcile=reconcile_inbox)
     from qorqut.agentic.inbox import attach_agentic_inbox
     attach_agentic_inbox(runtime, agentic_layer, inbox)

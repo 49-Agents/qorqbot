@@ -50,7 +50,8 @@ from .contracts import PROVIDERS
 
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _CONVERSATION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
-POLL_SECONDS = 0.4
+POLL_SECONDS = 0.4  # the shortest gap between two reads of one stream, and how often it checks for a stop or a disconnect
+FALLBACK_SECONDS = 5  # a stream reads this often even when no commit woke it
 HEARTBEAT_SECONDS = 15
 
 
@@ -123,10 +124,12 @@ async def route(runtime, request, principal_id, parts, request_id):
             from .commands import catalog
             client = request.query_params.get("client") or ""
             workspace = agent_workspace(runtime.paths, agent_id)
-            return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace,
+            environment = _probe_environment()
+            return ok(await run(partial(catalog, client, home=environment.get("HOME"),
+                                        claude_home=environment.get("CLAUDE_CONFIG_DIR"), workspace=workspace,
                                         managed=not mode.is_terminal(runtime.paths))))
         if tail == ["events"]:
-            return await _events(chat, request, principal_id, agent_id)
+            return await _events(chat, request, principal_id, agent_id, changes=getattr(runtime, "changes", None))
         if tail == ["options"]:
             from . import launch_options
             return ok(await run(partial(launch_options.view, chat, runtime, principal_id, agent_id)))
@@ -191,20 +194,29 @@ async def route(runtime, request, principal_id, parts, request_id):
     raise DomainError("not_found", "Chat endpoint is not registered")
 
 
-async def _events(chat, request, principal_id, agent_id):
-    """SSE replay-then-tail by durable cursor (``Last-Event-ID`` or ``?cursor=``); each poll re-authorizes the owner."""
+async def _events(chat, request, principal_id, agent_id, *, changes=None):
+    """SSE replay-then-tail by durable cursor (``Last-Event-ID`` or ``?cursor=``); each read re-authorizes the owner.
+
+    With the change feed (``changes``) a stream reads only after a commit that advanced its agent or a write by another process woke it, at most once per
+    ``POLL_SECONDS``, and once every ``FALLBACK_SECONDS`` regardless. Everything the read reports moves with the agent's revision,
+    which only a database write changes. Without the feed it reads every ``POLL_SECONDS``."""
+    from .stream_wake import wakes_for
     run = anyio.to_thread.run_sync
     await run(partial(chat.check_events, principal_id, agent_id))
     header = request.headers.get("last-event-id")
     if header is not None and not re.fullmatch(r"[0-9]{1,18}", header):
         header = None
     cursor = int(header) if header is not None else _integer(request, "cursor", 0)
+    wakes = wakes_for(changes)
 
     from ..transport.http import STOPPING  # set when the service is asked to stop; the stream ends instead of holding the shutdown
 
     async def stream():
         position, beat = cursor, time.monotonic()
         limiter = anyio.CapacityLimiter(1)
+        # Opened inside the generator, so the finally below always closes it: a stream that ends, fails or is cancelled on a
+        # disconnect leaves nothing in the fan-out.
+        wake = wakes.open(agent_id) if wakes is not None else None
         try:
             found, latest = await run(partial(chat.events, principal_id, agent_id, position, limit=1), limiter=limiter)
             if position > latest:
@@ -212,7 +224,10 @@ async def _events(chat, request, principal_id, agent_id):
                 yield b"event: reset\ndata: {}\n\n"
                 position = 0
             while not STOPPING.is_set() and not await request.is_disconnected():
+                if wake is not None:
+                    wake.clear()  # before the read: a commit while it runs wakes the next one
                 events, latest = await run(partial(chat.events, principal_id, agent_id, position), limiter=limiter)
+                read_at = time.monotonic()
                 for event in events:
                     position = event["cursor"]
                     yield (f"id: {position}\nevent: chat\ndata: " + json.dumps(event, separators=(",", ":")) + "\n\n").encode()
@@ -222,9 +237,32 @@ async def _events(chat, request, principal_id, agent_id):
                 if time.monotonic() - beat >= HEARTBEAT_SECONDS:
                     yield b": heartbeat\n\n"
                     beat = time.monotonic()
-                await anyio.sleep(POLL_SECONDS)
+                if wake is None:
+                    await anyio.sleep(POLL_SECONDS)
+                elif not await _until_due(wake, request, STOPPING, read_at, beat):
+                    break
         except DomainError:
             yield b"event: done\ndata: {}\n\n"
+        finally:
+            if wakes is not None:
+                wakes.close(wake)
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+async def _until_due(wake, request, stopping, read_at, beat) -> bool:
+    """Wait until the stream's next read is due: woken and ``POLL_SECONDS`` after the last read, the fallback, or the heartbeat.
+    False when the service stops or the client went away first. Checking those reads no database, so it keeps today's cadence."""
+    while True:
+        now = time.monotonic()
+        due = min(read_at + FALLBACK_SECONDS, beat + HEARTBEAT_SECONDS)
+        if now >= due or (wake.is_set() and now >= read_at + POLL_SECONDS):
+            return True
+        if stopping.is_set() or await request.is_disconnected():
+            return False
+        if wake.is_set():
+            await anyio.sleep(read_at + POLL_SECONDS - now)
+        else:
+            with anyio.move_on_after(min(due - now, POLL_SECONDS)):
+                await wake.wait()

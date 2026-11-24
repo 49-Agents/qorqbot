@@ -18,6 +18,15 @@ def eligible(uow, signoff_id):
         AND n.created_by IN (i.owner_principal_id,i.management_coordinator_id) LIMIT 1''', (signoff_id,)).fetchone())
 
 
+def note_required(app, uow, row):
+    """Whether rejecting this Signoff still needs a note from the owner or the configured Ordubashy: none has been left yet
+    and its operation does not let the owner reject without one."""
+    name = row['operation_name'] if 'operation_name' in row.keys() else None
+    if name and app.registry.known(name) and getattr(app.registry.get(name), 'rejection_note_optional', False):
+        return False
+    return not eligible(uow, row['id'])
+
+
 def note_refs_schema(targets):
     """The note-reference array schema for the host's reference vocabulary (v1 ``NOTE_REFS``)."""
     return {"type": "array", "maxItems": 10, "items": schema({
@@ -74,7 +83,7 @@ class SignoffNotes:
         if installation: people.add(installation['owner_principal_id'])
         people.update(n['author_id'] for n in notes)
         return {'participants':participants(uow,people),'notes':list(reversed(notes)), 'next_before':notes[-1]['sequence'] if more else None,
-            'rejection_requires_message':not eligible(uow,row['id'])}
+            'rejection_requires_message':note_required(self.service.app,uow,row)}
 
     def prepare(self, ctx, args, options, uow):
         ctx,row=self.context(ctx,args,uow)
@@ -146,7 +155,7 @@ class SignoffNotes:
         summary=normalize_summary(summary)
         if summary and not (text and text.strip()):
             raise DomainError('validation_error','A summary requires its full message')
-        if rejecting and not eligible(uow,row['id']):
+        if rejecting and note_required(self.service.app,uow,row):
             installation=uow.repository('installation').get('service')
             allowed=installation and ctx.principal_id in {installation['owner_principal_id'],installation['management_coordinator_id']}
             if not allowed or not text or not text.strip():

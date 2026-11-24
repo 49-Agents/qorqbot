@@ -426,6 +426,8 @@ browserTest('navigation shows safe focus previews and unread dots follow working
       window.loadGlobalAgentProfiles=async()=>globalAgentProfiles;
       window.api=async()=>({items:[{id:'reply',kind:'global',agent_id:'ord',chat:true,unread:true}]});
     });
+    // As in index.html, the store comes first: reply notifications take the hidden-tab helpers from it.
+    await page.addScriptTag({path:path.join(root,'js/store.js')});
     await page.addScriptTag({path:path.join(root,'js/reply-notifications.js')});
     await page.evaluate(()=>replyNotifications.refresh());
     await page.mouse.move(34,32);

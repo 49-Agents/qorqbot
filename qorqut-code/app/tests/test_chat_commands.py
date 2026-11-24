@@ -41,6 +41,15 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(found["/compact"]["source"], "built-in")
         self.assertNotIn("/standup", {item["name"] for item in commands.catalog("codex", home=self.home)["commands"]})
 
+    def test_with_a_client_folder_of_its_own_the_commands_are_read_there_and_not_in_the_owners_home(self):
+        own = self.home / "qorqbot/instance/home/claude"
+        self.write(self.home / ".claude/commands/standup.md", "The owner's own Claude Code command")
+        self.write(own / "commands/release.md", "---\ndescription: Cut a release\n---\n")
+        self.write(own / "skills/pdf/SKILL.md", "---\nname: pdf\ndescription: Read PDFs\n---\n")
+        found = {item["name"]: item for item in commands.catalog("claude", home=self.home, claude_home=own)["commands"]}
+        self.assertEqual((found["/release"]["description"], found["/pdf"]["source"]), ("Cut a release", "skill"))
+        self.assertNotIn("/standup", found)
+
 
 class CodexBuiltinTest(unittest.TestCase):
     def test_the_first_word_decides(self):

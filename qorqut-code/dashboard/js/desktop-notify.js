@@ -12,6 +12,8 @@ const desktopNotify = (() => {
     } catch (_) { return Object.fromEntries(KINDS.map(kind => [kind, false])); }
   }
   const permission = () => supported() ? Notification.permission : 'unsupported';
+  // Whether a notification of this kind would be shown now: the browser allows it and this kind is on.
+  const wants = kind => supported() && Notification.permission === 'granted' && prefs()[kind] === true;
   async function enable(kind, on) {
     if (on && supported() && Notification.permission === 'default') await Notification.requestPermission();
     const next = {...prefs(), [kind]: !!on && permission() === 'granted'};
@@ -38,6 +40,6 @@ const desktopNotify = (() => {
       return note;
     } catch (_) { return null; }
   }
-  return {prefs, permission, enable, set, send, supported, KINDS};
+  return {prefs, permission, enable, set, send, supported, wants, KINDS};
 })();
 if (typeof module !== 'undefined') module.exports = desktopNotify;

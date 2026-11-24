@@ -49,7 +49,7 @@ class NativeLauncher:
         search_path = os.environ.get('PATH', os.defpath) if native_paths.folder_root() else os.defpath
         env = native_paths.environment({'PATH': search_path, 'HOME': str(directory), 'LANG': 'C.UTF-8',
                                         'PYTHONDONTWRITEBYTECODE': '1'})
-        # The supervisor must run this service's code: the sign-in window and the headless browser share cookie settings.
+        # The supervisor must run this service's code: the headless browser reads its cookie settings from it.
         import qorqut
         env['PYTHONPATH'] = os.pathsep.join(filter(None, [str(Path(qorqut.__file__).resolve().parent.parent),
                                                           os.environ.get('PYTHONPATH', '')]))

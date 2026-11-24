@@ -12,7 +12,8 @@ import os
 from pathlib import Path
 import re
 import stat as stat_module
-from threading import RLock
+from threading import Lock, RLock, local
+import time
 from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -37,15 +38,21 @@ from .models import AgentProfile, EffectiveAgentConfig
 from .roles import SUPPORTED_GLOBAL_ROLES
 
 PROFILE_CACHE_LIMIT = 128
+# How long one full verification of the instruction tree stands for later calls that find nothing changed. Changes
+# through the authoring lock or the state store are seen at once; only a hand edit to the tree waits up to this long.
+# Zero turns the reuse off.
+SNAPSHOT_REUSE_SECONDS = 2.0
 FINGERPRINT_CACHE_LIMIT = 256
 # Only global agents run; these are the registered mandatory orientation sources, all in the Global namespace.
+# The active projects the latest snapshot on this thread read, as (resolver, ids); invocation_context takes it.
+_SNAPSHOT_PROJECTS = local()
 BOOTSTRAP_KEYS = frozenset({"foundation", "ecosystem-agent", "ecosystem"})
 # Private account capabilities: an operation declaring one is available only to a profile holding it.
 EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
 
 
 def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=()) -> list[dict]:
-    from qorqut.composition.policy import GLOBAL_DISCOVERY_OPERATIONS, resolve_operation_policy
+    from qorqut.composition.policy import GLOBAL_DISCOVERY_OPERATIONS, HOST_STAGED_OPERATIONS, resolve_operation_policy
     overrides = profile.data["tool_policy"]["overrides"]
     defaults = role.manifest["default_tool_policy"]
     granted = {item["id"] for item in profile.data["plugins"]}
@@ -54,6 +61,9 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
     visible = {p.id: visible_plugin_tools(p) for p in packages if p.kind == "plugin"}
     tools = []
     for metadata in registry.entries():
+        if metadata.name in HOST_STAGED_OPERATIONS:
+            # The host stages these as an agent's proposal itself; no agent calls them.
+            continue
         decision = resolve_operation_policy(metadata.name, defaults, overrides, registry, role_id=profile.data["role"]["id"])
         modes = None
         if (metadata.name in (GLOBAL_DISCOVERY_OPERATIONS | getattr(registry, "extension_global_discovery", frozenset()))
@@ -161,9 +171,54 @@ def _tree_signature(path: Path) -> tuple:
     return _legacy_tree_signature(path)
 
 
+class SnapshotReuse:
+    """The one record of this process's last full verification of the instruction tree.
+
+    A record is ``(revision, change marker, time)``: the revision both verifications of a read snapshot agreed on,
+    and the marker and clock read while that snapshot held the authoring lock, before its body ran. It stands for a
+    later call only while the marker is unchanged and the record is younger than ``seconds``.
+    """
+
+    def __init__(self, *, seconds: float = SNAPSHOT_REUSE_SECONDS, clock=time.monotonic):
+        self.seconds = seconds
+        self.clock = clock
+        self._mutex = Lock()
+        self._record: tuple[str, Any, float] | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.seconds > 0
+
+    def current(self, view) -> str | None:
+        """The verified revision when the record still stands, else ``None``."""
+        with self._mutex:
+            record = self._record
+        if record is None:
+            return None
+        revision, marker, at = record
+        if not 0 <= self.clock() - at < self.seconds:
+            return None
+        found = view.change_marker()
+        return revision if found is not None and found == marker else None
+
+    def observe(self, view) -> tuple[Any, float] | None:
+        """Marker and time, read inside a read snapshot that holds the lock, before its body."""
+        at = self.clock()
+        marker = view.change_marker()
+        return None if marker is None else (marker, at)
+
+    def remember(self, revision: str, observed: tuple[Any, float]) -> None:
+        """Keep a record after both verifications passed; a racing older verification never replaces a newer one."""
+        marker, at = observed
+        with self._mutex:
+            if self._record is None or self._record[2] <= at:
+                self._record = (revision, marker, at)
+
+
 class AgentConfigResolver:
     def __init__(self, database: Any, paths: InstancePaths, registry: Any, *, catalog: Catalog | None = None,
-                 plugin_handlers: Mapping[str, Any] | None = None, native_connections: Mapping[str, Any] | None = None):
+                 plugin_handlers: Mapping[str, Any] | None = None, native_connections: Mapping[str, Any] | None = None,
+                 snapshot_reuse_seconds: float = SNAPSHOT_REUSE_SECONDS, clock=time.monotonic):
         self.database = database
         self.paths = paths
         self.root = paths.operations
@@ -183,6 +238,7 @@ class AgentConfigResolver:
         self._profiles_lock = RLock()
         self._fingerprints: OrderedDict[tuple, tuple[str, str]] = OrderedDict()
         self._fingerprints_registry: Any = None
+        self._snapshot_reuse = SnapshotReuse(seconds=snapshot_reuse_seconds, clock=clock)
 
     def _remembered_hashes(self, inputs: tuple | None, compute) -> tuple[str, str]:
         """``compute()`` for these exact inputs, once per registry; ``inputs`` of ``None`` always computes."""
@@ -300,10 +356,17 @@ class AgentConfigResolver:
     def invocation_context(self, principal: Principal, *, project_id: str | None = None,
                            source: str = "mcp", session_registration_id: str | None = None,
                            review_project_id: str | None = None) -> InvocationContext:
+        _SNAPSHOT_PROJECTS.seen = None
         config = self.resolve_agent_config(principal, project_id=project_id, include_preparation=False)
         data = config.data
-        with self.database.read() as uow:
-            allowed = active_project_ids(uow.connection)
+        # The active projects the snapshot of this very call read (never part of the cached configuration); an
+        # override of the resolution that took no snapshot reads them in a unit of its own.
+        seen, _SNAPSHOT_PROJECTS.seen = _SNAPSHOT_PROJECTS.seen, None
+        if seen is not None and seen[0] is self:
+            allowed = seen[1]
+        else:
+            with self.database.read() as uow:
+                allowed = active_project_ids(uow.connection)
         if review_project_id and review_project_id not in allowed:
             raise DomainError("forbidden", "Review project is outside the current scope")
         return InvocationContext(principal, project_id=data.get("project_id"),
@@ -345,7 +408,12 @@ class AgentConfigResolver:
             enabled_plugin_refs=tuple(ArtifactRef(id=item["id"], version=item["version"], digest=item["digest"], kind="plugin") for item in profile.data["plugins"]),
             context_refresh_required=ctx.profile_revision != profile.revision)
 
-    def _snapshot(self, principal: Principal, project_id: str | None, *, proposed: tuple[AgentProfile, dict] | None = None) -> dict:
+    def _snapshot(self, principal: Principal, project_id: str | None, *, proposed: tuple[AgentProfile, dict] | None = None,
+                  agentic_revision: str | None = None) -> dict:
+        """Everything a configuration is composed from, and its cache key.
+
+        ``agentic_revision`` is given only by the reuse path, with the revision its record verified; otherwise the
+        revision is read from the caller's read snapshot."""
         with self.database.read() as uow:
             connection = uow.connection
             profile, row = proposed or self.profile(principal, connection=connection)
@@ -355,6 +423,8 @@ class AgentConfigResolver:
             projects = [{**dict(project), "display_name": project["name"]} for project in connection.execute(
                 "SELECT * FROM projects WHERE archived_at IS NULL ORDER BY id")]
             selected = next((item for item in projects if item["id"] == target), None)
+            # Same rows and filter as active_project_ids, for the caller of this call (invocation_context).
+            _SNAPSHOT_PROJECTS.seen = (self, frozenset(item["id"] for item in projects))
             registration = connection.execute("SELECT * FROM machine_registrations WHERE principal_id=? AND workspace=?", (principal.id, row["workspace"])).fetchone()
             owner_names = [item[0] for item in connection.execute(
                 "SELECT p.display_name FROM installation i JOIN principals p ON p.id=i.owner_principal_id WHERE i.id='service' AND p.active=1")]
@@ -374,17 +444,6 @@ class AgentConfigResolver:
                 if artifact is None:
                     raise DomainError("missing_artifact", f"Missing pinned {kind}: {ref['id']}@{ref['version']}")
                 artifacts.append(dict(artifact))
-            installed_reads = {item.name for item in self.registry.installed()
-                               if "mcp" in item.exposure and not item.owner_only}
-
-            def allowed(reads):
-                if not reads <= installed_reads:
-                    return False
-                from qorqut.composition.policy import resolve_operation_policy
-                role = self.catalog.get("role", profile.data["role"], connection=connection)
-                return all(resolve_operation_policy(
-                    name, role.manifest["default_tool_policy"], profile.data["tool_policy"]["overrides"],
-                    self.registry, role_id=role.id).mode == "allow" for name in reads)
 
         selected_docs, signatures = {}, []
         if "read_global_context" not in profile.scope.global_capabilities:
@@ -409,8 +468,8 @@ class AgentConfigResolver:
         for artifact in artifacts:
             path = Path(artifact["stored_path"])
             signatures.append((artifact["kind"], artifact["digest"], str(path), _tree_signature(path)))
-        view = self.require_agentic_view()
-        agentic_revision = view.catalog_revision
+        if agentic_revision is None:
+            agentic_revision = self.require_agentic_view().catalog_revision
 
         def hashes():
             fingerprint = canonical_hash({"agentic_catalog_revision": agentic_revision, "profile": profile.data, "workspace": row["workspace"], "target": target,
@@ -445,25 +504,78 @@ class AgentConfigResolver:
                              session_registration: Mapping | str | None = None,
                              include_preparation: bool = True) -> EffectiveAgentConfig:
         from qorqut.agentic.view import CONSISTENCY_ATTEMPTS
+        if not include_preparation and not session_registration:
+            config = self._reused_config(principal, project_id)
+            if config is not None:
+                return config
         for _ in range(CONSISTENCY_ATTEMPTS):
             try:
-                with self.require_agentic_view().read_snapshot():
-                    return self._resolve_agent_config(principal, project_id=project_id,
-                                                      session_registration=session_registration,
-                                                      include_preparation=include_preparation)
+                view = self.require_agentic_view()
+                reuse = self._reuse_for(view)
+                # A snapshot nested in the caller's own is verified by the caller, not here: it records nothing.
+                reuse = reuse if reuse is not None and not view.snapshot_active() else None
+                with view.read_snapshot():
+                    observed = reuse.observe(view) if reuse is not None else None
+                    revision = view.catalog_revision if observed is not None else None
+                    config = self._resolve_agent_config(principal, project_id=project_id,
+                                                        session_registration=session_registration,
+                                                        include_preparation=include_preparation)
+                # Both verifications of the snapshot passed.
+                if observed is not None:
+                    reuse.remember(revision, observed)
+                return config
             except DomainError as exc:
                 if exc.code != "agentic_revision_conflict":
                     raise
         raise DomainError("agentic_revision_conflict", "Managed instructions kept changing during composition", retryable=True)
 
-    def _resolve_agent_config(self, principal: Principal, *, project_id: str | None = None,
-                              session_registration: Mapping | str | None = None,
-                              include_preparation: bool = True) -> EffectiveAgentConfig:
-        snapshot = self._snapshot(principal, project_id)
+    def _reuse_for(self, view) -> SnapshotReuse | None:
+        """The reuse record, when it is on and the view can report changes without walking the tree."""
+        reuse = getattr(self, "_snapshot_reuse", None)
+        if reuse is None or not reuse.enabled:
+            return None
+        if not callable(getattr(view, "change_marker", None)) or not callable(getattr(view, "snapshot_active", None)):
+            return None
+        return reuse
+
+    def _reused_config(self, principal: Principal, project_id: str | None) -> EffectiveAgentConfig | None:
+        """The cached configuration on the last verified revision, without a lock, a store connection or a tree walk.
+
+        Taken only while nothing has changed the authored state through the authoring lock or the state store since
+        that verification, it is younger than the reuse period, and this thread holds no read snapshot of its own.
+        The profile, project, document and artifact reads are the same as on every other call, and the result is
+        only ever a configuration already composed from that revision. ``None`` sends the call to the full path.
+        """
+        if getattr(self, "_snapshot_reuse", None) is None or self.agentic_view is None:
+            return None
+        view = self.agentic_view
+        reuse = self._reuse_for(view)
+        if reuse is None or view.snapshot_active():
+            return None
+        revision = reuse.current(view)
+        if revision is None:
+            return None
+        snapshot = self._snapshot(principal, project_id, agentic_revision=revision)
+        key, _ = self._config_key(snapshot)
+        with self._lock:
+            config = self._cache.get(key)
+        if config is None or snapshot["agentic_catalog_revision"] != revision:
+            return None
+        return config
+
+    def _config_key(self, snapshot: dict) -> tuple[str, str | None]:
+        """The composed-configuration cache key for ``snapshot``, with the Context home text it includes."""
         provider = getattr(self, "context_home", None)
         home_text = provider(snapshot["project"]["id"] if snapshot["project"] else None) if provider else None
         key = (canonical_hash({"key": snapshot["cache_key"], "context_home": home_text})
                if home_text else snapshot["cache_key"])
+        return key, home_text
+
+    def _resolve_agent_config(self, principal: Principal, *, project_id: str | None = None,
+                              session_registration: Mapping | str | None = None,
+                              include_preparation: bool = True) -> EffectiveAgentConfig:
+        snapshot = self._snapshot(principal, project_id)
+        key, home_text = self._config_key(snapshot)
         with self._lock:
             config = self._cache.get(key)
         if config is None:

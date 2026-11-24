@@ -41,8 +41,7 @@ is moved to the Shared browser too; that other browser is not stopped and its pr
 
 Through MCP the answer also carries `setup`, the facts the Settings card shows: `tool_installed`, `chrome_installed`,
 `own_chrome` (`state` and what it means: `ready`, `downloading`, `waiting`, `failed`, `unusable`, `unsupported` or
-`not_used`), `last_failure` when the last setup failed, and `sign_in_window_open` while the owner's sign-in window has the
-browser paused (a mutation is then refused with `conflict`). Ordubashy asks the owner only for what these say needs them:
+`not_used`), and `last_failure` when the last setup failed. Ordubashy asks the owner only for what these say needs them:
 installing Google Chrome where Qorqbot's own cannot run, or restarting the computer when an unidentifiable browser
 process holds the profile (`browser_state_unverified`).
 
@@ -70,8 +69,8 @@ The first `ensure` creates the Shared browser, a **headless managed browser**:
 * the user agent of a visible Chrome. Left alone, a headless Chrome writes `HeadlessChrome` where a visible one writes
   `Chrome`, and websites refuse it for that word: sign-up pages that turned this browser away on 2026-11-22 opened in the
   same browser without it. The supervisor asks the Chrome it is about to start for its version
-  (`--version`) and starts it with `--user-agent=` set to what a visible window of that version sends on this platform:
-  the same as the owner's [sign-in window](#website-sign-in) on this profile. Pages and their workers read that value.
+  (`--version`) and starts it with `--user-agent=` set to what a visible window of that version sends on this platform.
+  Pages and their workers read that value.
   It follows a Chrome update at the browser's next start; a running browser keeps what it started with. When Chrome
   does not say its version the browser starts as before and the supervisor's log says so. Chrome answers less to a page
   that asks for the details while this is set: the full version list, the full version and the architecture come back
@@ -99,7 +98,7 @@ The first `ensure` creates the Shared browser, a **headless managed browser**:
 
 Ownership (`meta.json`) is written before launch, so a timeout can never lead to a second browser. A random listener on the
 reserved port is never adopted; processes are signalled only by their recorded identity, never by port, name or unverified PID.
-The supervisor (and the owner's sign-in window) asks Chrome to close itself over DevTools before terminating it, but only when the Chrome it launched owns the port's listener; anything else answering there is left alone. Chrome's profile lock files are never removed. An agent's browser commands re-check the managed identity under the use lock,
+The supervisor asks Chrome to close itself over DevTools before terminating it, but only when the Chrome it launched owns the port's listener; anything else answering there is left alone. Chrome's profile lock files are never removed. An agent's browser commands re-check the managed identity under the use lock,
 so a worker never talks to a foreign process that took over a dead browser's port; it gets `browser_not_ready` pointing to
 Ordubashy. After a host reboot (or any other loss) `status` reports `stopped` and `repair`/`ensure` starts the same profile
 again. `stop` ends exactly that supervisor (and, only if it ignored the stop, exactly its derived unit).
@@ -171,8 +170,7 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
   the picture). If finding the agent's configured viewer fails, the error is shown, not the live view.
 * Watching is use: a tab with an open view is not [unloaded as idle](#idle-tabs-and-cookie-banners), and opening a view
   on an unloaded tab loads its page again without waiting for it, so the owner sees it load.
-* The visible sign-in window stays for what a picture cannot do: file pickers, passkeys, downloads. On a computer without a
-  screen it cannot open, and the live view is how the owner signs in.
+* The live view is how the owner signs in to a website, on every computer ([website sign-in](#website-sign-in)).
 
 ## Website sign-in
 
@@ -180,10 +178,7 @@ The dashboard's Browser tab of a global agent shows that agent's managed browser
 has the sign-in. `open` and `sign_out` take a `site` (a domain or its https sign-in address) and nothing else. `status` lists
 the sites recorded for the browser.
 
-* **With a screen**, `open` shows a Chrome window on the browser's profile. The owner signs in and closes it; the browser, and so
-  every agent, is paused until then.
-* **Without a screen** (Linux with neither `DISPLAY` nor `WAYLAND_DISPLAY`, as on a server) `open` opens the sign-in address in a
-  new tab of the Shared browser and answers
+* `open` opens the sign-in address in a new tab of the Shared browser, on every computer, and answers
   `{"opened": "slack.com", "where": "live_view", "agent": "Ordubashy", "next": "..."}`. `agent` is the caller, whose **Browser** tab
   the owner opens in the dashboard ([the live view](#the-owners-live-view)); the site's page is among that tab's pages, and the
   panel shows the first listed page when it opens. `next` carries the instruction: wait until the owner says they are done, then
@@ -197,14 +192,13 @@ the sites recorded for the browser.
   minutes and loads again when the owner opens it. The port is used only while the browser's supervisor reports the exact
   Chrome ready; otherwise the answer is `browser_not_ready`, as for the live view.
 * **`status` and what "signed in" means.** Qorqbot cannot see that the owner has signed in. It records the site when its page
-  opens, so the site is listed with `signing_in` empty (there is no window) and `session_saved` as before: only whether the
+  opens, so the site is listed with `session_saved` as before: only whether the
   browser holds cookies of that site, which many sites set before login. Settings shows it under "Websites your agents can use
   as you" as "No session" until such cookies appear. The agent is told to rely on the owner saying they are done and on its own
   look at the page. `sign_out` works unchanged on a site opened this way.
-* **Session cookies.** The owner signs in in the agent's own running Chrome, so no cookies are copied. The window flow copies
-  cookies that end with the browser session into the restarted browser (`lasting_copies`) because it restarts the browser; this
-  flow never learns when the owner is done and cannot. A login that only has such cookies may therefore not survive a restart of
-  that browser, as when an agent signs in itself on a server; the agent signs in again then. Not tested.
+* **Session cookies.** The owner signs in in the agent's own running Chrome, so no cookies are copied. Qorqbot never learns
+  when the owner is done and cannot. A login that only has cookies that end with the browser session may therefore not survive
+  a restart of that browser, as when an agent signs in itself on a server; the agent signs in again then. Not tested.
 * A repeated `open` for the same site opens another tab and lists the site once. Only Ordubashy may call the tool, as before.
 
 ## Qorqbot's own Chrome
@@ -242,7 +236,7 @@ installed Google Chrome is not required (`qorqut/browser/managed_chrome.py`).
   not recorded.
 * **No automatic update.** Chrome for Testing does not update itself. The version changes only with the pin; a browser
   moves to a new pin the next time it starts, and a superseded build is deleted once no process runs from it.
-* **Differences from Google Chrome.** In a visible window (owner sign-in) it shows a banner that it is for automated
+* **Differences from Google Chrome.** In a visible window it shows a banner that it is for automated
   testing. It honours `--load-extension` (with `--disable-extensions-except`), which Google Chrome 137 and later ignore.
 
 Settings reports `managed_chrome` in `/api/root/browser-setup`: `state` is `ready`, `downloading`, `waiting`, `failed`

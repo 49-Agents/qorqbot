@@ -79,6 +79,58 @@ class EnvironmentTests(unittest.TestCase):
             self.assertNotIn(name, after)
         self.assertEqual(json.loads(after['QORQUT_NATIVE_USER_ENV'])['PATH'], '/usr/bin:/bin')
 
+    def own_homes(self):
+        marker = self.root / native_launch.OWN_CLIENT_HOMES
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text('1\n')
+
+    def test_an_installation_from_before_keeps_the_users_own_client_folders(self):
+        # Its sign-in and its agents' conversations are there. The service names the folders; the clients get them as the
+        # user had them (unset: Claude Code on a Mac names its Keychain item after an explicitly named folder).
+        env = self.environment()
+        self.assertEqual((env['CLAUDE_CONFIG_DIR'], env['CODEX_HOME']), (str(self.root / '.claude'), str(self.root / '.codex')))
+        native = json.loads(env['QORQUT_NATIVE_USER_ENV'])
+        self.assertEqual((native['CLAUDE_CONFIG_DIR'], native['CODEX_HOME'], native['HOME']), (None, None, str(self.root)))
+        self.assertFalse((self.root / 'instance').exists())
+
+    def test_an_installation_with_its_own_client_folders_gives_both_clients_theirs_and_keeps_the_users_home(self):
+        self.own_homes()
+        env = self.environment()
+        claude, codex = self.root / 'instance/home/claude', self.root / 'instance/home/codex'
+        self.assertEqual((env['CLAUDE_CONFIG_DIR'], env['CODEX_HOME']), (str(claude), str(codex)))
+        native = json.loads(env['QORQUT_NATIVE_USER_ENV'])
+        self.assertEqual((native['CLAUDE_CONFIG_DIR'], native['CODEX_HOME'], native['HOME']), (str(claude), str(codex), str(self.root)))
+        for folder in (claude, codex):
+            self.assertTrue(folder.is_dir())
+            self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+        self.assertFalse((self.root / '.claude').exists() or (self.root / '.codex').exists())
+
+    def test_a_client_folder_named_where_qorqbot_was_started_is_kept_either_way(self):
+        for own in (False, True):
+            if own:
+                self.own_homes()
+            env = self.environment(CLAUDE_CONFIG_DIR='/srv/claude')
+            native = json.loads(env['QORQUT_NATIVE_USER_ENV'])
+            self.assertEqual((env['CLAUDE_CONFIG_DIR'], native['CLAUDE_CONFIG_DIR']), ('/srv/claude', '/srv/claude'))
+            self.assertEqual(env['CODEX_HOME'], str(self.root / ('instance/home/codex' if own else '.codex')))
+            self.assertEqual(native['CODEX_HOME'], str(self.root / 'instance/home/codex') if own else None)
+
+    def test_a_new_installation_is_recorded_as_keeping_its_own_client_folders_and_an_existing_one_is_not(self):
+        instance = self.root / 'instance'
+        receipt = {'state': 'initialized', 'instance_root': str(instance), 'components': {}}
+
+        def bootstrap(argv, *, env, cwd):
+            (instance / 'config').mkdir(parents=True)
+            (instance / 'config/initialization-receipt.json').write_text(json.dumps(receipt))
+
+        with mock.patch.object(native_launch, 'run', side_effect=bootstrap):
+            native_launch.initialize(self.root, {'QORQUT_TIMEZONE': 'UTC'})
+        self.assertTrue(native_launch.own_client_homes(self.root))
+        (self.root / native_launch.OWN_CLIENT_HOMES).unlink()
+        with mock.patch.object(native_launch, 'run'), mock.patch.object(native_launch, 'ensure_context_repository'):
+            native_launch.initialize(self.root, {'QORQUT_TIMEZONE': 'UTC'})
+        self.assertFalse(native_launch.own_client_homes(self.root))
+
     def test_an_override_the_owner_set_is_passed_on_untouched(self):
         self.install('claude')
         env = self.environment(QORQUT_CLAUDE_EXECUTABLE='/opt/mine/claude', DISABLE_AUTOUPDATER='0')

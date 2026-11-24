@@ -133,6 +133,11 @@ def _ordubashy_reads(name, defaults, overrides, registry, *, role_id, scope, res
 
 # What any agent adds to the same queue itself: a point about how agents work, for the Learning Applier's review.
 EXPERIENCE_FILING = frozenset({"experience_observation_file"})
+# The owner's check of a rule an agent filed from the owner's words: always held for the owner, whatever a role file or an
+# override says, because the card is the check. Only the filing stages it, in its own transaction.
+EXPERIENCE_RULE_CHECK = "experience_rule_check"
+# Operations the host itself stages as an agent's proposal: offered to no agent as a tool and refused over MCP.
+HOST_STAGED_OPERATIONS = frozenset({EXPERIENCE_RULE_CHECK})
 
 
 def _experience(name, defaults, overrides, registry, *, role_id, scope, resolve):
@@ -145,6 +150,8 @@ def _experience(name, defaults, overrides, registry, *, role_id, scope, resolve)
         if "deny" in (overrides.get(name), defaults.get(name)):
             return PolicyDecision("deny", "experience_filing_denied")
         return PolicyDecision("allow", "experience_filing")
+    if name == EXPERIENCE_RULE_CHECK:
+        return PolicyDecision("signoff", "experience_rule_check_owner")
     roles = ((LEARNING_APPLIER_ROLE,) if name in EXPERIENCE_WORK else
              (LEARNING_APPLIER_ROLE, ORDUBASHY_ROLE) if name in EXPERIENCE_READS else None)
     if roles is None:

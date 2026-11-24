@@ -150,7 +150,10 @@ function overseerMount(p) {
     append(first);
   }
   const proposalLine = x => `Delta proposal ${x.number}: ${x.title} · ${STATES[x.state] || x.state}`;
-  const observationHtml = o => `<div class="overseer-item"><strong>${e(o.subject)}</strong> · ${e(KINDS[o.kind] || o.kind)} · filed ${e(when(o.filed_at))}\n${e(o.text)}${(o.evidence || []).map(x => `\n<small>${e(x.ref)}${x.quote ? ': “' + e(x.quote) + '”' : ''}</small>`).join('')}${(o.delta_proposals || []).length ? `\n<small>Addressed by ${o.delta_proposals.map(x => 'delta proposal ' + e(x.number) + ' (' + e(STATES[x.state] || x.state) + ')').join(', ')}</small>` : ''}</div>`;
+  // The owner's check of a rule an agent filed from the owner's words (no mark: no check was asked).
+  const CHECKS = {unchecked: 'not checked by you', approved: 'approved by you', rejected: 'rejected by you'};
+  const checkMark = o => CHECKS[o.owner_check] ? ` · <span class="overseer-check" data-owner-check="${e(o.owner_check)}">${e(CHECKS[o.owner_check])}</span>` : '';
+  const observationHtml = o => `<div class="overseer-item"><strong>${e(o.subject)}</strong> · ${e(KINDS[o.kind] || o.kind)} · filed ${e(when(o.filed_at))}${checkMark(o)}\n${e(o.text)}${(o.evidence || []).map(x => `\n<small>${e(x.ref)}${x.quote ? ': “' + e(x.quote) + '”' : ''}</small>`).join('')}${(o.delta_proposals || []).length ? `\n<small>Addressed by ${o.delta_proposals.map(x => 'delta proposal ' + e(x.number) + ' (' + e(STATES[x.state] || x.state) + ')').join(', ')}</small>` : ''}</div>`;
   function proposals(filter) {
     selected = {kind: 'proposals', filter};
     const args = cursor => ({...(filter ? {state: filter} : {}), ...(cursor ? {cursor} : {})});

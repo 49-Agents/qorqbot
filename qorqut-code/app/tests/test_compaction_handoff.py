@@ -303,6 +303,11 @@ class CompactionHandoffTests(HandoffCase):
             filed('e', self.lead, 'owner_complaint', 'Seen by the extraction, not filed by the agent.', '2026-11-23T10:04:00Z', in_run='r1')
             self.assertEqual(self.tool.rules(uow, self.lead), ['Ask every question in a Signoff, never in chat.', 'x' * 399 + '…'])
             self.assertEqual(self.tool.rules(uow, self.worker), ['Never send a LinkedIn note.'])
+            # A rule the owner rejected on its card is not listed; one approved or not yet checked is.
+            run("UPDATE experience_observations SET owner_check='rejected' WHERE id='c'")
+            self.assertEqual(self.tool.rules(uow, self.worker), [])
+            run("UPDATE experience_observations SET owner_check='approved' WHERE id='c'")
+            self.assertEqual(self.tool.rules(uow, self.worker), ['Never send a LinkedIn note.'])
             # A proposal that only waits leaves the rule listed; an approved one that names it takes it off the list.
             run("INSERT INTO agentic_delta_proposals(id,number,title,problem,change,state,created_by,created_at,updated_at) "
                 "VALUES('p',1,'Questions as Signoffs','Asked in chat.','Ask in a Signoff.','waiting_for_approval',?,'x','x')", (self.lead,))

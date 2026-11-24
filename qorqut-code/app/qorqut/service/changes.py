@@ -224,6 +224,7 @@ class ChangeFeed:
         self._subscribers: dict[int, Subscriber] = {}
         self._listeners: list = []
         self._commit_listeners: list = []
+        self._wildcard_listeners: list = []
         self.publish_failures = 0
         self._ticker_stop = None
         self._ticker_thread = None
@@ -360,8 +361,16 @@ class ChangeFeed:
             event = {"seq": seq, "tables": ["*"], "kinds": ["*"], "project_id": None, "operation": "external_write"}
             self._ring.append(event)
             subscribers = list(self._subscribers.values())
+            listeners = list(self._wildcard_listeners)
         for subscriber in subscribers:
             subscriber.offer(event)
+        for listener in listeners:
+            try:
+                listener()
+            except Exception:
+                with self._lock:
+                    self.publish_failures += 1
+                LOGGER.exception("wildcard_listener_failed")
 
     # -- versions (read by PR3's ETag) ------------------------------------
     def version(self, kind, scope):
@@ -411,6 +420,15 @@ class ChangeFeed:
         with self._lock:
             if listener not in self._commit_listeners:
                 self._commit_listeners.append(listener)
+
+    def add_wildcard_listener(self, listener):
+        """Call ``listener()`` after every wildcard (a write by another process), on the ticker's thread.
+
+        Commit listeners never see such a write. Same rules as a commit listener: it must only schedule work, and a failure is
+        counted and logged, never raised."""
+        with self._lock:
+            if listener not in self._wildcard_listeners:
+                self._wildcard_listeners.append(listener)
 
     def add_listener(self, listener):
         """Call ``listener(event)`` after every published commit event, on the committing thread, after the commit.

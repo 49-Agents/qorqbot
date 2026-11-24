@@ -9,7 +9,7 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import patch
 
-from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, Principal, new_id, plain
+from qorqut_operations.contracts import DomainError, InvocationContext, InvocationOptions, PolicyDecision, Principal, new_id, plain
 
 from qorqut.domains.owner_inputs import OwnerInputs
 from qorqut.experience.operations import Experience
@@ -60,6 +60,11 @@ class ExperienceCase(unittest.TestCase):
         self.applier = self.agent('learning-applier', 'Overseer')
         contexts = {ctx.principal_id: ctx for ctx in (runtime.owner, runtime.coordinator, runtime.worker, self.applier)}
         runtime.application.policy.context_for = lambda agent, **_: contexts[agent]
+        # As the host's policy does (``composition.policy._experience``), the owner's check of a rule is always held.
+        allow, self.held = runtime.application.policy.resolve, {'experience_rule_check'}
+        runtime.application.policy.resolve = lambda ctx, descriptor, targets, uow: (
+            PolicyDecision('signoff', 'test', {'global_capability': descriptor.global_capability})
+            if descriptor.name in self.held else allow(ctx, descriptor, targets, uow))
         # The Signoff service tells the Focus port of every status change; the host adds the proposals' observer to it.
         domains = SignoffDomains().bind(focus_board=NS(release_signoff=lambda *a: None))
         runtime.signoffs.ports = replace(runtime.signoffs.ports, focus=HostFocus(domains))
@@ -320,10 +325,10 @@ class PolicyTests(ExperienceCase):
         return resolve_operation_policy(name, defaults or {}, overrides or {}, self.runtime.registry, role_id=role, scope='global').mode
 
     def test_the_tools_of_a_run_are_the_learning_appliers_and_the_reads_also_the_coordinators(self):
-        from qorqut.composition.policy import EXPERIENCE_FILING, EXPERIENCE_READS, EXPERIENCE_WORK
+        from qorqut.composition.policy import EXPERIENCE_FILING, EXPERIENCE_READS, EXPERIENCE_RULE_CHECK, EXPERIENCE_WORK
         registered = {entry.name for entry in self.runtime.registry.entries()
                       if entry.name.startswith(('experience_', 'agentic_delta_proposal'))}
-        self.assertEqual(registered, EXPERIENCE_WORK | EXPERIENCE_READS | EXPERIENCE_FILING)
+        self.assertEqual(registered, EXPERIENCE_WORK | EXPERIENCE_READS | EXPERIENCE_FILING | {EXPERIENCE_RULE_CHECK})
         for name in EXPERIENCE_WORK:
             self.assertEqual([self.decision(name, role) for role in ('learning-applier', 'ordubashy', 'global-worker', None)],
                              ['allow', 'deny', 'deny', 'deny'], name)
@@ -358,12 +363,13 @@ class FilingTests(ExperienceCase):
         from qorqut.experience.operations import AGENTS_CLUSTER, FILED_NOTE
         for ctx, text, extra in ((self.runtime.worker, '  Rule number one.  ', {}), (self.runtime.coordinator, 'Rule number two.', {}),
                                  (self.applier, 'Rule number three.', {'evidence': [{'ref': 'chat:abc123', 'quote': 'never'}]})):
-            data = self.ok('experience_observation_file', self.point(text, subject='  all   agents ', **extra), ctx=ctx)
+            data = self.ok('experience_observation_file', self.point(text, kind='agent_failure', subject='  all   agents ', **extra), ctx=ctx)
             row = self.stored(created_by=ctx.principal_id)[0]
-            self.assertEqual(data, {'filed': {'id': row['id'], 'kind': 'owner_complaint', 'subject': 'all agents',
+            self.assertEqual(data, {'filed': {'id': row['id'], 'kind': 'agent_failure', 'subject': 'all agents',
                                               'filed_at': row['created_at']}, 'note': FILED_NOTE})
             self.assertEqual((row['run_id'], row['cluster_id'], row['kind'], row['subject'], row['text'], json.loads(row['evidence_json'])),
-                             (None, AGENTS_CLUSTER, 'owner_complaint', 'all agents', text.strip(), extra.get('evidence', [])))
+                             (None, AGENTS_CLUSTER, 'agent_failure', 'all agents', text.strip(), extra.get('evidence', [])))
+            self.assertEqual((row['owner_check'], row['check_signoff_id']), (None, None))
 
     def test_the_first_filing_creates_the_standing_cluster_and_a_later_one_by_another_agent_reuses_it(self):
         from qorqut.experience.operations import (AGENTS_CLUSTER, AGENTS_CLUSTER_DESCRIPTION, AGENTS_CLUSTER_LABEL)
@@ -404,9 +410,10 @@ class FilingTests(ExperienceCase):
         self.ok('experience_observation_file', self.point(occurred_at='2026-11-20T10:00:00Z'), ctx=self.runtime.worker)
         self.assertEqual([row['occurred_at'] for row in self.stored()], ['2026-11-20T10:00:00Z'])
 
-    def test_filing_creates_no_signoff_and_needs_no_run(self):
+    def test_filing_anything_but_an_owner_rule_creates_no_signoff_and_needs_no_run(self):
         before = self.count('signoffs')
-        self.ok('experience_observation_file', self.point(), ctx=self.runtime.worker)
+        for kind in ('agent_failure', 'tool_problem', 'tool_pattern', 'other'):
+            self.ok('experience_observation_file', self.point(f'A point of kind {kind}.', kind=kind), ctx=self.runtime.worker)
         self.assertEqual((self.count('signoffs'), self.count('experience_runs')), (before, 0))
 
     def test_the_standing_cluster_shows_who_filed_each_observation_and_the_run_of_those_filed_in_one(self):
@@ -446,6 +453,182 @@ class FilingTests(ExperienceCase):
             self.assertEqual(mode('experience_observation_file', role), 'allow', role)
             self.assertEqual(mode('experience_observation_file', role, overrides={'experience_observation_file': 'deny'}), 'deny', role)
         self.assertEqual(mode('experience_observations_submit', 'global-worker'), 'deny')
+
+
+
+class RuleCheckTests(ExperienceCase):
+    """The owner's check of a rule an agent filed from the owner's words: the card, and what each answer does."""
+
+    RULE = 'Never send an email without a Signoff.'
+
+    def file_rule(self, text=RULE, ctx=None, **more):
+        args = {'kind': 'owner_complaint', 'subject': 'all agents', 'text': text, **more}
+        return self.ok('experience_observation_file', args, ctx=ctx or self.runtime.worker)
+
+    def rule(self, identity):
+        with self.runtime.database.read() as uow:
+            row = uow.connection.execute('SELECT * FROM experience_observations WHERE id=?', (identity,)).fetchone()
+        return dict(row) if row else None
+
+    def decide(self, signoff_id, decision, feedback=None):
+        signoff = self.signoff(signoff_id)
+        result = self.runtime.signoffs.review(
+            self.runtime.owner, signoff_id, decision=decision, proposal_revision=signoff['proposal_revision'],
+            payload_hash=signoff['payload_hash'], expected_status_revision=signoff['status_revision'], idempotency_key=new_id(),
+            feedback=feedback)
+        self.assertEqual(result.status, 'accepted' if decision == 'approve' else 'ok', result.error and plain(result.error))
+        return result
+
+    def edit(self, signoff_id, text):
+        signoff = self.signoff(signoff_id)
+        result = self.runtime.signoffs.amend(
+            self.runtime.owner, signoff_id, changes={'text': text}, proposal_revision=signoff['proposal_revision'],
+            payload_hash=signoff['payload_hash'], expected_status_revision=signoff['status_revision'], idempotency_key=new_id())
+        self.assertEqual(result.status, 'ok', result.error and plain(result.error))
+        return plain(result.data)['signoff']['id']
+
+    def test_an_owner_rule_gets_one_card_in_the_same_filing_and_the_agent_is_told(self):
+        from qorqut.experience.operations import CHECK_NOTE
+        data = self.file_rule()
+        row = self.rule(data['filed']['id'])
+        self.assertEqual(data['owner_check'], {'state': 'unchecked', 'signoff_id': row['check_signoff_id']})
+        self.assertEqual(data['note'], CHECK_NOTE)
+        self.assertIn('do not ask the owner about it in chat', CHECK_NOTE)
+        self.assertEqual((row['owner_check'], row['checked_at']), ('unchecked', None))
+        signoff = self.signoff(row['check_signoff_id'])
+        self.assertEqual((signoff['operation_name'], signoff['state'], signoff['category'], signoff['proposer_agent_id']),
+                         ('experience_rule_check', 'pending', 'internal_change', self.worker))
+        self.assertEqual(signoff['preview']['title'], 'Approve proposed learning')
+        (preview,) = signoff['preview']['changes']
+        self.assertEqual(preview['resource'], {'resource_type': 'experience_rule', 'resource_id': row['id'], 'label': 'Rule'})
+        with self.runtime.database.read() as uow:
+            name = uow.connection.execute('SELECT display_name FROM principals WHERE id=?', (self.worker,)).fetchone()[0]
+        self.assertEqual({field['path']: field['after'] for field in preview['fields']},
+                         {'text': self.RULE, 'applies_to': 'all agents', 'filed_by': name})
+        # A rejection needs no note on this card.
+        self.assertFalse(signoff['rejection_requires_message'])
+        self.assertIn('No instruction, skill or tool changes until the weekly review', ' '.join(signoff['preview']['effects']))
+        self.assertEqual(signoff['editable_fields'], ['text'])
+
+    def test_approving_marks_the_rule_and_changes_nothing_else(self):
+        filed = self.file_rule()['filed']['id']
+        card = self.rule(filed)['check_signoff_id']
+        self.decide(card, 'approve')
+        self.runtime.signoffs.run_pending()
+        row = self.rule(filed)
+        self.assertEqual((row['owner_check'], row['text']), ('approved', self.RULE))
+        self.assertIsNotNone(row['checked_at'])
+        self.assertEqual(self.signoff(card)['state'], 'applied')
+        shown = self.ok('experience_cluster_get', {'cluster_id': row['cluster_id']}, ctx=self.runtime.coordinator)['observations'][0]
+        self.assertEqual((shown['owner_check'], shown['text'], shown['check_signoff_id']), ('approved', self.RULE, card))
+
+    def test_an_edited_rule_replaces_the_agents_wording_on_approval(self):
+        filed = self.file_rule()['filed']['id']
+        first = self.rule(filed)['check_signoff_id']
+        self.assertEqual(self.runtime.signoffs.amend(
+            self.runtime.owner, first, changes={'text': '   '}, **{key: self.signoff(first)[key] for key in (
+                'proposal_revision', 'payload_hash')}, expected_status_revision=self.signoff(first)['status_revision'],
+            idempotency_key=new_id()).error['code'], 'validation_error')
+        second = self.edit(first, '  Never send any email or message without a Signoff.  ')
+        self.assertNotEqual(second, first)
+        self.assertEqual((self.signoff(first)['state'], self.rule(filed)['check_signoff_id']), ('conflicted', second))
+        self.assertEqual(self.rule(filed)['text'], self.RULE)        # nothing changes before the approval
+        self.decide(second, 'approve')
+        self.runtime.signoffs.run_pending()
+        row = self.rule(filed)
+        self.assertEqual((row['owner_check'], row['text']), ('approved', 'Never send any email or message without a Signoff.'))
+
+    def test_rejecting_removes_the_rule_and_the_note_is_the_filing_agents_to_read(self):
+        filed = self.file_rule()['filed']['id']
+        card = self.rule(filed)['check_signoff_id']
+        self.decide(card, 'reject', feedback='That is not what I said.')
+        self.assertIsNone(self.rule(filed))
+        signoff = self.signoff(card, ctx=self.runtime.worker)
+        self.assertEqual((signoff['state'], signoff['proposer_agent_id']), ('rejected', self.worker))
+        self.assertIn('That is not what I said.', json.dumps(signoff))
+        # Without a note the rule is removed the same way.
+        other = self.file_rule('Always reply in English.')['filed']['id']
+        self.decide(self.rule(other)['check_signoff_id'], 'reject')
+        self.assertIsNone(self.rule(other))
+
+    def test_rejecting_a_rule_a_delta_proposal_already_names_marks_it_instead(self):
+        extraction = self.start('extraction')
+        end = self.ok('experience_conversations', {'run_id': extraction})['end_token']
+        self.ok('experience_run_finish', {'run_id': extraction, 'summary': 'Read one day.', 'conversations_end': end})
+        filed = self.file_rule()['filed']['id']
+        self.now += timedelta(hours=3)
+        review = self.start('review')
+        self.ok('agentic_delta_proposal_submit', {'run_id': review, 'title': 'Ask for a Signoff before sending mail',
+                                                  'change': 'In the mail skill, require a Signoff first.',
+                                                  'problem': 'Agents sent mail the owner had not approved.', 'observation_ids': [filed]})
+        self.decide(self.rule(filed)['check_signoff_id'], 'reject')
+        row = self.rule(filed)
+        self.assertEqual((row['owner_check'], row['text']), ('rejected', self.RULE))
+        self.assertIsNotNone(row['checked_at'])
+
+    def test_with_no_answer_the_rule_stays_in_the_queue_unchecked(self):
+        from qorqut.experience.operations import AGENTS_CLUSTER
+        filed = self.file_rule()['filed']['id']
+        self.runtime.signoffs.run_pending()
+        self.assertEqual(self.rule(filed)['owner_check'], 'unchecked')
+        shown = self.ok('experience_cluster_get', {'cluster_id': AGENTS_CLUSTER}, ctx=self.runtime.coordinator)['observations']
+        self.assertEqual([(item['id'], item['owner_check']) for item in shown], [(filed, 'unchecked')])
+
+    def test_a_repeat_filing_is_still_refused_and_asks_no_second_card(self):
+        self.file_rule()
+        before = self.count_signoffs()
+        self.refused('experience_observation_file', {'kind': 'owner_complaint', 'subject': 'all agents', 'text': self.RULE},
+                     ctx=self.runtime.worker, says='filed this point already')
+        self.assertEqual(self.count_signoffs(), before)
+
+    def count_signoffs(self):
+        with self.runtime.database.read() as uow:
+            return uow.connection.execute("SELECT count(*) FROM signoffs WHERE operation_name='experience_rule_check'").fetchone()[0]
+
+    def test_no_agent_calls_the_check_itself(self):
+        filed = self.file_rule()['filed']['id']
+        before = self.count_signoffs()
+        self.refused('experience_rule_check', {'observation_id': filed, 'text': 'My own better wording.'}, ctx=self.runtime.worker,
+                     code='invalid_transition', says='already asked')
+        self.refused('experience_rule_check', {'observation_id': filed, 'text': 'My own better wording.'},
+                     ctx=self.runtime.coordinator, code='not_found')
+        self.assertEqual(self.count_signoffs(), before)
+        from qorqut.transport.mcp import RegisteredAgentCaller
+        self.assertFalse(RegisteredAgentCaller.exposes(self.runtime.registry.get('experience_rule_check')))
+        self.assertTrue(RegisteredAgentCaller.exposes(self.runtime.registry.get('experience_observation_file')))
+        from qorqut.agents.resolver import effective_tool_policy
+        profile = NS(data={'tool_policy': {'overrides': {}}, 'plugins': [], 'role': {'id': 'global-worker'}}, revision=1,
+                     scope=NS(global_capabilities={'read_global_context'}))
+        offered = {tool['canonical_operation'] for tool in effective_tool_policy(profile, NS(manifest={'default_tool_policy': {}}, ref='role'),
+                                                                   self.runtime.registry)}
+        self.assertIn('experience_observation_file', offered)
+        self.assertNotIn('experience_rule_check', offered)
+
+    def test_a_policy_that_does_not_hold_the_check_files_nothing(self):
+        self.held = set()
+        self.refused('experience_observation_file', {'kind': 'owner_complaint', 'subject': 'all agents', 'text': self.RULE},
+                     ctx=self.runtime.worker, code='operation_unavailable', says='not filed')
+        with self.runtime.database.read() as uow:
+            self.assertEqual(uow.connection.execute('SELECT count(*) FROM experience_observations').fetchone()[0], 0)
+
+    def test_the_host_policy_always_holds_the_check_and_offers_it_to_no_agent(self):
+        from qorqut.composition.policy import resolve_operation_policy
+        for role in ('global-worker', 'ordubashy', 'learning-applier', None):
+            for overrides in ({}, {'experience_rule_check': 'allow'}, {'experience_rule_check': 'deny'}):
+                self.assertEqual(resolve_operation_policy('experience_rule_check', overrides, overrides, self.runtime.registry,
+                                                          role_id=role, scope='global').mode, 'signoff', (role, overrides))
+
+    def test_an_edit_and_a_rejection_the_observer_missed_are_settled_later(self):
+        filed = self.file_rule()['filed']['id']
+        first = self.rule(filed)['check_signoff_id']
+        with patch.object(self.experience, 'rule_check_updated', lambda *a: None):
+            card = self.edit(first, 'A rule in the owner\'s own words.')
+            self.assertEqual(self.rule(filed)['check_signoff_id'], first)
+            self.decide(card, 'reject')
+        self.assertIsNotNone(self.rule(filed))
+        with self.runtime.database.transaction() as uow:
+            self.assertEqual(self.experience.settle_checks(uow), [filed])
+        self.assertIsNone(self.rule(filed))
 
 
 if __name__ == '__main__':
