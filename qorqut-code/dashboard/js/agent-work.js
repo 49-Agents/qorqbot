@@ -1,6 +1,9 @@
 // The Work tab: the active work (Tasks and Stories, plus Routines) in one read-only view, for all projects or for one,
 // grouped by status, as a List or a Board. Rows open the existing record reader (js/record-workspace.js), as in the Explorer.
 // The shell is the Explorer's (css/agent-files.css, css/agent-explorer.css); css/agent-work.css adds the few rules of its own.
+// The same view also mounts inside a Project record's reader as its Tasks tab (js/record-workspace.js): agentWorkMount(null, embed)
+// with embed = {host, scope: the project's slug, project, open(record)}. The project picker is then absent, and a row opens through
+// embed.open (the reader's own navigation, with Back) instead of the pane's reader.
 T_VIEW_LABEL.work = 'Work';
 T_VIEW_ICON.work = agentFilesIcon('tasks');
 
@@ -35,21 +38,22 @@ const agentWorkKey = (scope, id) => `${scope}:${id}`;
 // What was last read, by scope key, kept for the page's life: the tab paints from it at once and then reads again quietly.
 const agentWorkSnapshot = {tasks: new Map(), routines: new Map()};
 
-function agentWorkMount(p) {
-  if (!agentPaneViewAllowed(p.workspaceRole, 'work')) return;
-  const host = $('#agpad-body', p.el);
-  if (!host) return;
+function agentWorkMount(p, embed = null) {
+  if (embed) p = {workspaceRole: 'ordubashy'};
+  else if (!agentPaneViewAllowed(p.workspaceRole, 'work')) return;
+  const host = embed ? embed.host : $('#agpad-body', p.el);
+  if (!host) return null;
   host.classList.add('agfiles-host');
   const saved = p.workState || {};
   // scope: '*' all projects, '' Global, or a project slug. tasks / routines: what was read, by scope key.
-  const s = {scope: typeof saved.scope === 'string' ? saved.scope : '*', layout: saved.layout === 'board' ? 'board' : 'list',
+  const s = {scope: embed ? embed.scope : typeof saved.scope === 'string' ? saved.scope : '*', layout: saved.layout === 'board' ? 'board' : 'list',
     parkedOpen: !!saved.parkedOpen, expanded: new Set(saved.expanded || []), filter: '',
     tasks: new Map(), routines: new Map(), tasksLoaded: false, routinesLoaded: false, failed: 0, closed: false, generation: 0, open: false, scroll: 0};
   const shell = document.createElement('section');
   shell.className = 'agfiles agwork';
-  shell.setAttribute('aria-label', 'Work');
+  shell.setAttribute('aria-label', embed ? 'Tasks' : 'Work');
   shell.innerHTML = `<div class="agexplorer-top agwork-top"><div class="agfiles-search">${agentFilesIcon('search')}<input type="search" placeholder="Find a task" aria-label="Find a task"></div>
-    <button type="button" class="agwork-scope" data-scope aria-haspopup="listbox"><span class="agwork-scope-name">All projects</span>${agentFilesIcon('chevron')}</button>
+    ${embed ? '' : `<button type="button" class="agwork-scope" data-scope aria-haspopup="listbox"><span class="agwork-scope-name">All projects</span>${agentFilesIcon('chevron')}</button>`}
     <span class="agwork-layout" role="group" aria-label="Layout">
       <button type="button" class="agfiles-icon-btn" data-layout="list" aria-pressed="true" title="List" aria-label="List">${agentFilesIcon('tasks')}</button>
       <button type="button" class="agfiles-icon-btn" data-layout="board" aria-pressed="false" title="Board" aria-label="Board">${agentFilesIcon('board')}</button>
@@ -60,16 +64,17 @@ function agentWorkMount(p) {
   p.workMount = shell;
   const top = shell.querySelector('.agwork-top'), body = shell.querySelector('.agwork-body'), recordHost = shell.querySelector('.agwork-record');
   const scopeButton = shell.querySelector('[data-scope]'), scopeName = shell.querySelector('.agwork-scope-name');
+  // The embedded view's project may not be in the loaded project list under this slug; it is known from the record.
+  const embedProject = embed?.project || null;
   const live = () => !s.closed && shell.isConnected;
   const projects = () => typeof workspaceProjects === 'function' ? workspaceProjects() : (state.projects || []);
-  const projectOf = slug => (state.projects || []).find(project => project.slug === slug) || null;
+  const projectOf = slug => (state.projects || []).find(project => project.slug === slug) || (embedProject?.slug === slug ? embedProject : null);
   const projectName = slug => slug ? projectOf(slug)?.name || slug : 'Global';
-  if (s.scope !== '*' && s.scope !== '' && !projectOf(s.scope)) s.scope = '*';
+  if (!embed && s.scope !== '*' && s.scope !== '' && !projectOf(s.scope)) s.scope = '*';
   const scopes = () => s.scope === '*' ? ['', ...projects().map(project => project.slug)] : [s.scope];
 
   function paintControls() {
-    scopeName.textContent = s.scope === '*' ? 'All projects' : projectName(s.scope);
-    scopeButton.title = scopeName.textContent;
+    if (scopeName) { scopeName.textContent = s.scope === '*' ? 'All projects' : projectName(s.scope); scopeButton.title = scopeName.textContent; }
     shell.querySelectorAll('[data-layout]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.layout === s.layout)));
   }
 
@@ -319,6 +324,7 @@ function agentWorkMount(p) {
   }
   async function openRecord(record) {
     if (!record || record.scopeMissing) { toast('This record is unavailable.'); return false; }
+    if (embed) return (await embed.open(record)) !== false;
     if (!s.open) s.scroll = body.scrollTop;
     showRecord(true);
     const opened = await reader().open(record, {root: true});
@@ -373,9 +379,11 @@ function agentWorkMount(p) {
   const pairedUnavailable = source => workspace?.invalidate?.(source) ?? false;
   const pairedReference = ref => openReference(ref);
   const pairedClose = () => workspace?.close?.();
-  window.agentWorkspacePairedUnavailable = pairedUnavailable;
-  window.agentWorkspacePairedReference = pairedReference;
-  window.agentWorkspacePairedClose = pairedClose;
+  if (!embed) {
+    window.agentWorkspacePairedUnavailable = pairedUnavailable;
+    window.agentWorkspacePairedReference = pairedReference;
+    window.agentWorkspacePairedClose = pairedClose;
+  }
   // Leaving the Work tab asks before dropping unsaved edits in the open record.
   p.workCanLeave = async () => {
     if (!workspace?.isOpen?.() || !workspace.hasUnsaved?.()) return true;
@@ -395,4 +403,5 @@ function agentWorkMount(p) {
 
   paintControls();
   reload(false);
+  return embed ? {refresh: () => reload(true), dispose: () => p.workspaceDispose()} : null;
 }

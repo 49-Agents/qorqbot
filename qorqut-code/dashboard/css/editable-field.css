@@ -1,0 +1,54 @@
+/* The shared click-to-edit field, its select/date/inline-input variant, its label and its Save / Discard pair
+   (js/editable-field.js). One look for every editable field of a record or Task view:
+   padding 6px 12px; a 2px left edge aligned with the label's left edge; label -> field 6px; field -> actions 8px;
+   actions -> next block the view's normal gap (--ef-gap), so showing the actions never changes the rhythm. */
+:root { --ef-gap: 12px; --ef-size: 13px; }
+.tdetail { --ef-gap: 14px; }
+.editable-field.editable-field, .ef-control.ef-control.ef-control {
+  display: block; box-sizing: border-box; min-height: 0; height: auto; margin: 0; padding: 6px 12px;
+  border: 0; border-left: 2px solid var(--line-2); border-radius: 0; background-color: var(--wash); color: var(--fg);
+  font: 13px/1.65 var(--sans); letter-spacing: normal; text-transform: none; box-shadow: none; outline: none;
+  -webkit-appearance: none; appearance: none; transition: none;
+}
+.editable-field.editable-field { width: 100%; resize: none; overflow: hidden; }
+/* Selects, date and inline text inputs that save on change or through their own button: same look, no click-to-edit. */
+select.ef-control.ef-control.ef-control { padding-right: 28px; cursor: pointer; }
+.ef-control.ef-control.ef-control:is(input, select) { min-width: 0; height: calc(var(--ef-size) * 1.65 + 12px); }
+.tag-picker-chips:empty { display: none; }
+.editable-field.editable-field::placeholder, .ef-control.ef-control.ef-control::placeholder { color: var(--fg-3); }
+.editable-field.editable-field:hover { border-left-color: var(--fg-3); background-color: var(--hover); cursor: text; }
+.ef-control.ef-control.ef-control:hover:not(:disabled) { border-left-color: var(--fg-3); background-color: var(--hover); }
+.editable-field.editable-field.ef-editing, .editable-field.editable-field:focus, .ef-control.ef-control.ef-control:focus {
+  border-left-color: var(--fg); background-color: var(--hover); box-shadow: none; outline: none;
+}
+.editable-field.editable-field:disabled, .ef-control.ef-control.ef-control:disabled { opacity: 1; cursor: default; }
+.ef-control.ef-control.ef-control:disabled { color: var(--fg-3); }
+.editable-field.editable-field.ef-title { font: 600 14px/1.45 var(--sans); }
+
+/* A labelled field: heading-style label text, then the field 6px below it. */
+label.ef-label.ef-label.ef-label {
+  display: grid; gap: 6px; margin-bottom: 0; font-size: 10px; font-weight: 700; line-height: 1.1; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--fg-2);
+}
+.tdetail label.ef-label.ef-label.ef-label { font-size: 9px; letter-spacing: .08em; color: color-mix(in srgb, var(--fg-2) 70%, transparent); }
+/* Labels and fields stacked in one block keep one gap between them. */
+.ef-stack.ef-stack.ef-stack > * + * { margin-top: var(--ef-gap); }
+.record-section > h4.ef-section-title.ef-section-title { margin-bottom: var(--ef-gap); }
+/* A plain button that belongs to one field (Set state): right-aligned 8px under it, like a Save / Discard row. */
+.ef-label > button.ef-inline-btn.ef-inline-btn.ef-inline-btn { justify-self: end; width: auto; height: auto; min-height: 28px; margin: 2px 0 0; padding: 4px 12px; border: 1px solid transparent; border-radius: var(--r-sm); background: none; color: var(--fg); font: 500 12px/18px var(--sans); letter-spacing: normal; text-transform: none; transform: none; cursor: pointer; }
+.ef-label > button.ef-inline-btn.ef-inline-btn.ef-inline-btn:hover { background: var(--hover); transform: none; }
+
+.ef-actions.ef-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin: 8px 0 0; }
+.ef-actions.ef-actions[hidden] { display: none; }
+.ef-actions.ef-actions + * { margin-top: var(--ef-gap); }
+.ef-actions .ef-btn { min-width: 0; height: auto; min-height: 28px; padding: 4px 12px; border: 1px solid transparent; border-radius: var(--r-sm); font: 500 12px/18px var(--sans); transform: none; cursor: pointer; }
+.ef-actions .ef-discard { background: none; border-color: transparent; color: var(--fg-2); }
+.ef-actions .ef-save { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.ef-actions .ef-btn:hover { transform: none; filter: brightness(.92); }
+.ef-actions .ef-discard:hover { background: var(--hover); color: var(--fg); filter: none; }
+.ef-actions .ef-btn:disabled { opacity: .4; cursor: default; }
+@media (pointer: coarse) {
+  :root { --ef-size: 16px; }
+  .editable-field.editable-field, .editable-field.editable-field.ef-title, .ef-control.ef-control.ef-control { font-size: 16px; }
+  .ef-actions .ef-btn { min-height: 44px; min-width: 44px; }
+}

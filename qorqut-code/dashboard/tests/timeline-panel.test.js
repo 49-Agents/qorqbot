@@ -208,3 +208,23 @@ test('the journal reads every page before it paints, counts its rows, and a fail
   assert.equal(empty.parts['.agent-timeline-empty'].hidden,false);assert.equal(empty.parts['.agent-timeline-caption'].hidden,true);assert.equal(empty.parts.ol.hidden,true);assert.equal(empty.parts['[data-status]'].textContent,'');
   journal.dispose();assert.equal(el.innerHTML,'');
 });
+test('the journal merges extra dated rows into the newest-first list and counts them; a click or Enter opens one, a failed extra read changes nothing',async()=>{
+  const {api}=load();
+  const el=journalHost(),opened=[];let failExtra=false;
+  const extra=[{id:'signoff:s1',at:'2026-11-14T10:00:00Z',text:'Approve <batch>',meta:['Signoff · pending'],quotes:[],item:{id:'s1'}}];
+  const journal=api.timelineJournalMount(el,{read:async()=>({...JOURNAL,entries:HISTORY.entries.slice(0,2),next_cursor:null}),
+    extra:async()=>{if(failExtra)throw new Error('down');return extra;},open:row=>opened.push(row.item.id)});
+  await journal.refresh();
+  const html=el.parts.ol.innerHTML;
+  assert.equal(el.parts['[data-status]'].textContent,'6 entries');
+  assert.ok(html.includes('data-entry-id="signoff:s1"'));assert.ok(html.includes('data-tl-open="signoff:s1"'));
+  assert.ok(html.includes('Approve &lt;batch&gt;'));assert.ok(html.includes('Signoff · pending'));
+  assert.ok(html.indexOf('signoff:s1')>html.indexOf('Kept fact.'),'placed by its date among the journal rows');
+  el.handlers.click({target:{closest:sel=>sel==='[data-tl-open]'?{dataset:{tlOpen:'signoff:s1'}}:null}});
+  el.handlers.keydown({key:'Enter',preventDefault(){},target:{closest:sel=>sel==='[data-tl-open]'?{dataset:{tlOpen:'signoff:s1'}}:null}});
+  assert.deepEqual(opened,['s1','s1']);
+  failExtra=true;await journal.refresh();
+  assert.equal(el.parts['[data-status]'].textContent,'5 entries');assert.equal(el.parts['.agent-timeline-error'].hidden,true);
+  // Without ``extra`` a row is not a link.
+  assert.equal(api.timelineJournalRows(JOURNAL).map(api.timelineJournalRow).join('').includes('data-tl-open'),false);
+});

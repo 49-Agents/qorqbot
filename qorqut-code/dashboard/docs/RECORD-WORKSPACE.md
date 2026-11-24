@@ -184,29 +184,21 @@ composer per record. Approve/Reject/Respond remain the canonical controls.
 
 ### Project
 
-`rwProjectDashboard` reads `project_record_get` and shows:
+A Project's reader has the tabs Timeline, Project (folder icon), Tasks, Automation and Chat, and opens on Project.
 
-- the Project's **real name** (a Focus display-name override never renames it), summary,
-  archived marker and a Link-existing-item action. A rename from the authoritative
-  `project_record_get` updates the workspace header and Threads row without
-  changing the source identity;
-- sections Work, Signoffs, Actions, Documents, Tables, Automation, Other, lazily loaded
-  and independently paged (25 rows per read) with `project_items_list`;
-- **Closed work** and **Archived** as separate boolean opt-ins sent to the read contract
-  (the second Archived click requests `false` and the pressed state says `false`);
-- re-reading the visible section when it becomes visible, clearing authorized rows and
-  cursors on a revoked append, and a working Retry distinct from "no matches";
-- association badges and the owning Project/Global scope on every row, keyed by
-  `type + scope + id` so two Projects may present the same source id;
-- **Unlink** only for an explicit association link, with its link id and expected
-  revision. Ownership-derived rows are never unlinked.
+- **Project** (`rwProjectDashboard`, from `project_record_get`): the Project's **real name** (a Focus display-name
+  override never renames it), summary and archived marker, then one list of the Project's Documents and Tables
+  (`project_items_list`, both sections read in parallel, newest `updated_at` first, paged with More). A rename from the
+  authoritative `project_record_get` updates the workspace header and Threads row without changing the source identity.
+  **Unlink** shows only for an explicit association link, with its link id and expected revision; ownership-derived rows
+  are never unlinked. There is no Link-existing-item action and no Closed work / Archived toggles.
+- **Timeline**: the Project's journal (js/timeline-panel.js) with its Actions and Signoffs merged in as dated rows
+  (`project_items_list` for `actions` and `signoffs`, closed included); such a row opens its record.
+- **Tasks**: the Work view (js/agent-work.js) limited to this Project.
+- **Automation**: the `automation` section of `project_items_list`.
 
-Link uses `project_items_candidates` scoped by Global or an accessible Project (archived
-Projects are labelled), an optional kind and a query, then `project_items_link` with an
-idempotency key shared by an uncertain retry. `project_items_unlink` sends `link_id` and
-`expected_revision`. The picker's canonical document/reference kinds are
-`material`/`person`/`topic` (the existing neutral resolver), not a fabricated `document`
-kind; "Document" is only a presentation label for the Documents section.
+The Work and Other sections are no longer shown in the reader. `project_items_candidates` and `project_items_link`
+remain on the server but the dashboard no longer calls them.
 
 ### Readers
 

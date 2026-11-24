@@ -20,7 +20,7 @@
 .agfiles-crumbs button { flex-shrink: 0; color: var(--fg-2); font-size: 11px; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px; }
 .agfiles-crumbs button:hover, .agfiles-crumbs button:disabled { color: var(--fg); }
 .agfiles-crumbs svg { width: 10px; height: 10px; color: var(--fg-3); }
-.agfiles-layout { display: grid; grid-template-columns: minmax(220px, 43%) minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; }
+.agfiles-layout { position: relative; display: grid; grid-template-columns: var(--agfiles-list-w, minmax(220px, 43%)) minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; }
 .agfiles-tree { overflow: auto; padding: 10px 6px; border-right: 1px solid var(--line); min-width: 0; }
 .agfiles-row { display: flex; align-items: center; min-height: 33px; padding: 0 6px 0 calc(3px + var(--depth) * 13px); border-radius: 5px; font-size: 12px; gap: 2px; }
 .agfiles-row:hover { background: var(--hover); }
@@ -63,7 +63,14 @@
 .agfiles-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 10px; color: var(--fg-2); }
 .agfiles-footer > span:last-child { display: inline-flex; align-items: center; gap: 5px; }
 .agfiles-footer svg { width: 11px; height: 11px; margin-left: 3px; }
+/* The draggable divider between list and reader (agentSplitMount in js/agent-explorer.js); it sits over the border, so nothing shifts. */
+.agfiles-split { position: absolute; top: 0; bottom: 0; width: 7px; cursor: col-resize; touch-action: none; z-index: 2; background: linear-gradient(to right, transparent 3px, transparent 3px); }
+.agfiles-split:hover, .agfiles-split.dragging { background: linear-gradient(to right, transparent 2px, var(--line-2) 2px, var(--line-2) 5px, transparent 5px); }
+.agfiles-split.dragging { background: linear-gradient(to right, transparent 2px, var(--fg-3) 2px, var(--fg-3) 5px, transparent 5px); }
+.agfiles-split:focus-visible { outline: 2px solid var(--fg-2); outline-offset: -2px; }
+.agfiles-resizing { user-select: none; -webkit-user-select: none; cursor: col-resize; }
 @container (max-width: 540px) {
+  .agfiles-split { display: none; }
   .agfiles-layout { grid-template-columns: 1fr; grid-template-rows: minmax(140px, 38%) minmax(0, 1fr); }
   .agfiles-tree { border-right: 0; border-bottom: 1px solid var(--line); }
   .agfiles-footer > span:last-child { display: none; }
