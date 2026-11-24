@@ -469,10 +469,11 @@ class CompactionHandoff:
     @staticmethod
     def rules(uow, agent_id):
         """The owner's rules the agent filed itself for the Learning Applier's review (``experience_observation_file``, kind
-        ``owner_complaint``) that no approved delta proposal names yet: the newest ``RULES_LIMIT``, oldest first, each cut to
-        ``RULE_LENGTH`` characters."""
+        ``owner_complaint``) that no approved delta proposal names yet and the owner has not rejected on its card: the newest
+        ``RULES_LIMIT``, oldest first, each cut to ``RULE_LENGTH`` characters."""
         rows = uow.connection.execute(
             "SELECT o.text FROM experience_observations o WHERE o.created_by=? AND o.run_id IS NULL AND o.kind='owner_complaint' "
+            "AND o.owner_check IS NOT 'rejected' "
             "AND NOT EXISTS (SELECT 1 FROM agentic_delta_proposal_links l JOIN agentic_delta_proposals p ON p.id=l.proposal_id "
             "WHERE p.state='approved' AND l.target_type='observation' AND l.target_id=o.id) "
             "ORDER BY o.created_at DESC, o.id DESC LIMIT ?", (agent_id, RULES_LIMIT)).fetchall()
