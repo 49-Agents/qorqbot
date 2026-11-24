@@ -194,10 +194,10 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 /* Tab reference: a button chip. The page title is untrusted text clipped to one line; the agent's name beside it is secondary.
    The global filled-pill button (fixed height, white hover, scale) is reset here; :not(:disabled) lifts the hover above theme-light.css's
    `:root[data-theme="light"] button:hover`, which would otherwise make it dark with white text. */
-.chat-view button.gchat-tab-reference { justify-content:flex-start; height:auto; min-height:0; margin:0; line-height:1.35; text-align:left; transition:none; cursor:pointer; box-sizing:border-box; }
-.chat-view button.gchat-tab-reference:hover:not(:disabled) { background:color-mix(in srgb, var(--fg) 9%, transparent); border-color:var(--line-2); color:var(--fg); transform:none; }
-.chat-view button.gchat-tab-reference:active { transform:none; }
-.chat-view button.gchat-tab-reference:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
+.chat-view button.gchat-tab-reference, .sg-browser-tab button.gchat-tab-reference { justify-content:flex-start; height:auto; min-height:0; margin:0; line-height:1.35; text-align:left; transition:none; cursor:pointer; box-sizing:border-box; }
+.chat-view button.gchat-tab-reference:hover:not(:disabled), .sg-browser-tab button.gchat-tab-reference:hover:not(:disabled) { background:color-mix(in srgb, var(--fg) 9%, transparent); border-color:var(--line-2); color:var(--fg); transform:none; }
+.chat-view button.gchat-tab-reference:active, .sg-browser-tab button.gchat-tab-reference:active { transform:none; }
+.chat-view button.gchat-tab-reference:focus-visible, .sg-browser-tab button.gchat-tab-reference:focus-visible { outline:2px solid var(--fg-2); outline-offset:2px; }
 .gchat-tab-reference .gchat-tab-icon { display:inline-flex; align-items:center; flex:none; overflow:visible; color:var(--fg-2); }
 .gchat-tab-reference .gchat-tab-title { flex:0 1 auto; unicode-bidi:isolate; }
 .gchat-tab-reference .gchat-tab-agent { flex:0 0 auto; max-width:45%; color:var(--fg-2); font-size:10px; unicode-bidi:isolate; }

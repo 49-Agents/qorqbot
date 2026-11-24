@@ -42,6 +42,15 @@ test('an individual approval capsule opens its exact signoff and mutates nothing
   assert.deepEqual(t.posts, []);
 });
 
+test('a capsule names what is wanted: an approval, something to read, or a browser action', () => {
+  const heading = kind => /class="reply-name">([^<]*)</.exec(setup([{id: 'd9', kind: 'individual',
+    items: [{...item('s1', 'p', 'Project'), ...(kind ? {input: {kind}} : {})}]}]).host.innerHTML)[1];
+  assert.equal(heading(null), 'Approval needed');
+  assert.equal(heading('question'), 'Approval needed');
+  assert.equal(heading('acknowledge'), 'For your attention');
+  assert.equal(heading('browser_action'), 'Browser action needed');
+});
+
 test('a grouped capsule opens its single project list, or lists projects in Focus', async () => {
   const one = setup([{id: 'd2', kind: 'group', items: [item('a', 'p', 'Project'), item('b', 'p', 'Project')]}]);
   await one.handlers.click({target: one.pill});

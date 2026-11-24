@@ -568,9 +568,10 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     runtime.focus = FocusService(inbox, signoffs).register()
     from qorqut.native_chat.user_input import UserInput
     UserInput(runtime).register()
-    # Retained Signoff domains are management routing and the Focus attention board. Selected connectors
-    # supply their own private visibility and outcome callbacks through the explicit extension declarations.
-    signoff_domains.bind(management=management, focus_board=runtime.focus.board).require()
+    # Retained Signoff domains are management routing, the Focus attention board and Chat's tab reads (the open tabs a
+    # browser-action request names). Selected connectors supply their own private visibility and outcome callbacks through
+    # the explicit extension declarations.
+    signoff_domains.bind(management=management, focus_board=runtime.focus.board, user_input=runtime.user_input).require()
     from qorqut.inbox.private_conversations import PrivateConversations
     runtime.private_conversations = PrivateConversations(inbox, references=signoffs.notes).register()
     # The owner's own messages across every agent's chat and the private threads, for the owner and the coordinator.

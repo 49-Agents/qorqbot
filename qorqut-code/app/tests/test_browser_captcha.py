@@ -579,7 +579,7 @@ class CommandTest(unittest.TestCase):
             reply = json.loads(out)
             self.assertEqual((code, reply["reference"]), (1, {"type": "tab", "id": f"{AGENT}:{TAB}"}), outcome["captcha"])
             self.assertEqual(reply["next"], f"{outcome['next']} {tab_reference.SHOW_FIELD}")
-            self.assertIn("request_user_input", reply["next"])
+            self.assertIn("browser_action", reply["next"])         # Ordubashy files a browser-action Signoff with it
             self.assertNotIn("tab", reply)                  # the id is in the reference, not beside it
             self.assertNotIn("tab", self.log()[-1])         # nor in the log
 

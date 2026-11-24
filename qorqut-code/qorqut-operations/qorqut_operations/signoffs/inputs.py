@@ -3,6 +3,13 @@
 One kind asks for nothing: ``acknowledge`` puts a report or document in front of the owner and records that they read
 it. Only the coordinator creates one, it never blocks a Task, it notifies once, and its response carries no text or
 choice; the owner's comments go in the Signoff's private conversation.
+
+Another asks the owner to do something in a page: ``browser_action`` names one open tab of an agent's browser (``tab``, the
+reference the browser command ``tab-reference`` prints), so the request lands on the owner's attention queue with the tab
+to open instead of a description of where to click. Only the coordinator files one, and the tab must be open when it does
+(the ``tabs`` port; the engine cannot see a browser). The answer is fixed and is an ordinary single choice, ``done`` or
+``not_done`` with an optional note, so it needs no answer path of its own and a Task linked by ``source`` waits on it
+exactly as on a question.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -26,6 +33,16 @@ MANAGEMENT_UNAVAILABLE = "The management domain is not installed"
 ACKNOWLEDGE = "acknowledge"
 # Over alias ``s``: a pending or decided read-and-acknowledge request. Only input requests carry ``$.input``.
 ACKNOWLEDGE_SQL = "(s.category='input_request' AND json_extract(s.preview_json,'$.input.kind')='acknowledge')"
+BROWSER_ACTION = "browser_action"
+# A tab reference id: the agent's UUID, a colon and Chrome's 32-hex id of the tab. The host's ``native_chat.references.TAB``
+# is the same pattern; it is spelled here because this package never imports the host.
+TAB_REFERENCE = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9A-F]{32}$"
+# The owner's whole answer to a browser action. The agent sends none of it; the server fills it in.
+BROWSER_ACTION_ANSWERS = {"selection_mode": "single", "selection_required": True, "notes_required": False,
+    "response_policy": "owner_only", "choices": [
+        {"id": "done", "label": "Done", "explanation": "The owner did what the page needed."},
+        {"id": "not_done", "label": "Could not do it", "explanation": "The owner could not do it; the note may say why."}]}
+TABS_UNAVAILABLE = "Browser actions need the agents' browser, which this installation does not have"
 
 ATTENTION = schema({"notify": {"type": "boolean"}, "urgent": {"type": "boolean"},
     "blocking": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 2000},
@@ -34,7 +51,8 @@ DRAFT_FIELD = schema({"id": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-
     "label": {**TEXT, "maxLength": 100}, "value": {"type": "string", "maxLength": 16000},
     "multiline": {"type": "boolean"}, "required": {"type": "boolean"}}, ("id", "label", "value"))
 LEGACY_FORM = schema({"title": {**TEXT, "maxLength": 200}, "explanation": TEXT,
-    "kind": {"enum": ["question", "request", "draft_review", ACKNOWLEDGE]}, "selection_mode": {"enum": ["none", "single", "multiple"]},
+    "kind": {"enum": ["question", "request", "draft_review", ACKNOWLEDGE, BROWSER_ACTION]},
+    "selection_mode": {"enum": ["none", "single", "multiple"]}, "tab": {"type": "string", "pattern": TAB_REFERENCE},
     "response_policy": {"enum": ["management_allowed", "owner_only"]},
     "choices": {"type": "array", "items": CHOICE, "maxItems": 26},
     "selection_required": {"type": "boolean"}, "notes_required": {"type": "boolean"},
@@ -48,6 +66,11 @@ SCOPE = {"scope": {"enum": ["project", "global"]}}
 def acknowledges(form):
     """Whether an input form (``preview_json.input`` or a DTO's ``input``) is a read-and-acknowledge request."""
     return isinstance(form, dict) and form.get('kind') == ACKNOWLEDGE
+
+
+def browser_action(form):
+    """Whether an input form asks the owner to act in a browser tab."""
+    return isinstance(form, dict) and form.get('kind') == BROWSER_ACTION
 
 
 def normalize_attention(values, *, acknowledge=False):
@@ -74,6 +97,16 @@ def validate_form(form):
         if mode != 'none' or form['notes_required']:
             raise DomainError('validation_error', 'A read-and-acknowledge request takes no choices and no written answer')
         form['response_policy'] = 'owner_only'
+    if browser_action(form):
+        if not form.get('tab'):
+            raise DomainError('validation_error', 'A browser action names its tab: put the reference tab-reference printed in tab')
+        if mode != 'none' or form['notes_required']:
+            raise DomainError('validation_error', 'A browser action takes no choices and no required note: send selection_mode none; '
+                                                  'the owner answers Done or Could not do it')
+        # The answer set is the server's: the stored form is always the same for the same request, so a repeat stays idempotent.
+        form.update(BROWSER_ACTION_ANSWERS, choices=[dict(choice) for choice in BROWSER_ACTION_ANSWERS['choices']])
+    elif 'tab' in form:
+        raise DomainError('validation_error', 'tab belongs only to a browser_action request')
     if form['kind'] == 'draft_review':
         if not form.get('draft_fields'):
             raise DomainError('validation_error', 'Draft review requires editable fields')
@@ -171,6 +204,11 @@ class InputRequests:
                     self.service.reports.check(ctx, args['report_task'], uow)
             elif 'report_task' in args:
                 raise DomainError('validation_error', 'report_task belongs only to a read-and-acknowledge report')
+            if browser_action(form):
+                if not self.is_ordubashy(ctx, uow):
+                    raise DomainError('forbidden', 'Only Ordubashy asks the owner to act in a browser tab; give Ordubashy the tab '
+                                                   'reference, the page and what the owner must do there')
+                self.tab(ctx, form['tab'], uow)
             if 'source' in args:
                 self.service.sources.check_source(ctx, args['source'], uow)
                 if form['response_policy'] != 'owner_only':
@@ -211,6 +249,12 @@ class InputRequests:
                       if name == 'signoffs_attention_set' else {})
             builder.record('signoffs', row['id'], row, values, action='attention_set' if values else 'input_cancel')
         return builder.build()
+
+    def tab(self, ctx, tab_id, uow):
+        """The tab a browser action names, as the browser lists it now: ``{"id", "title", "url"}``. A closed tab is refused
+        when the request is filed, so the owner is never sent to a page that is already gone."""
+        found = self.service.ports.require('tabs', TABS_UNAVAILABLE).check(self.service.app, ctx, tab_id, uow)
+        return {'id': tab_id, 'title': found.get('title') or '', 'url': found.get('url') or ''}
 
     def is_ordubashy(self, ctx, uow):
         """Whether the caller is the active ecosystem coordinator (Ordubashy)."""
@@ -265,6 +309,9 @@ class InputRequests:
             row = self.service._row(scoped, identity, uow)
             self.authorize_update(scoped, row, plan.operation_name, uow)
         existed = row is not None
+        # The tab is checked again where the request is written: it may have closed since it was prepared.
+        tab = (self.tab(ctx, values['form']['tab'], uow)
+               if change.action == 'input_create' and browser_action(values['form']) else None)
         if change.action == 'input_create' and not row:
             form = values['form']
             replaces = values.get('replaces_id')
@@ -297,6 +344,9 @@ class InputRequests:
             if existed and changed:
                 row = self.service._update(row, {}, uow)
         result = {'signoff': self.service._dto(row, uow)}
+        if tab:
+            # The page as it is now, so the agent can check it is the one it told the owner about; the owner sees only its label.
+            result['tab'] = tab
         if 'source' in plan.arguments:
             source = plain(plan.arguments['source'])
             self.service.sources.check_source(ctx, source, uow)
