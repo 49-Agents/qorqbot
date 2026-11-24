@@ -1,4 +1,4 @@
-/* One row per agent in Settings > Agents: client, model and effort (js/agent-options.js). */
+/* One row per agent in Settings > Model/Provider: client, model and effort (js/agent-options.js). */
 .ao-title { margin: 22px 0 4px; font-size: 13.5px; font-weight: 500; color: var(--fg); }
 .ao-intro { margin: 0 0 10px; }
 .ao-list { display: grid; }

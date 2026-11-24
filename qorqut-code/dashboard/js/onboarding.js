@@ -74,7 +74,7 @@ const onboarding = (() => {
       hint: 'His replies appear here in Chat. He starts with your first message.',
       // Neither Claude Code nor Codex is connected: nothing would answer. Settings is where one gets connected.
       setup: {none: 'Ordubashy needs Claude Code or Codex to answer, and neither is connected yet. Connect one in Settings, then come back and say hello.',
-        chosen: name => `Ordubashy is set to use ${name}, which isn’t connected. Connect it in Settings, or choose the other one under Agents, then say hello.`},
+        chosen: name => `Ordubashy is set to use ${name}, which isn’t connected. Connect it in Settings, or choose the other one under Model/Provider, then say hello.`},
       // A first walkthrough types the hello for the owner, and done sends it.
       typed: '“hi, help me get set up” is typed in below. Press done to send it. Ordubashy asks a few quick questions about you, then connects the tools you want him to use.',
       target: () => document.querySelector('#global-agent-chat .gchat-composer'),
@@ -390,7 +390,7 @@ const onboarding = (() => {
       }
     }
   }
-  // Leaves the tour for Settings, Agents, where Claude Code and Codex get connected. Progress stays on this step, as with Esc. The tour
+  // Leaves the tour for Settings, Model/Provider, where Claude Code and Codex get connected. Progress stays on this step, as with Esc. The tour
   // steps aside completely (nothing of it stays on the screen to block a click) and comes back to this same step when the owner
   // leaves Settings or a client becomes ready, whichever is first.
   let comeBack = 0;
@@ -436,7 +436,7 @@ const onboarding = (() => {
       <h2 id="onboarding-title">${step.title}</h2><p id="onboarding-description">${step.body}</p>${step.instructions ? `<ol class="onboarding-instructions">${step.instructions.map(text => `<li>${text}</li>`).join('')}</ol>` : ''}${step.hint ? `<p class="onboarding-hint">${step.hint}</p>` : ''}
       ${step.example?`<div class="onboarding-example" aria-label="Example signoff"><span class="onboarding-example-tag">Example</span><p class="onboarding-example-from">${esc(step.example.agent)} asks</p><p class="onboarding-example-title">${esc(step.example.title)}</p><p class="onboarding-example-detail">${esc(step.example.detail)}</p><div class="onboarding-example-actions"><span>Approve</span><span>Decline</span></div></div>`:''}
       ${step.action?`<button type="button" class="onboarding-action" data-tour-action disabled>${step.action}<span aria-hidden="true">↗</span></button>`:''}
-      ${step.hello?'<button type="button" class="onboarding-action" data-tour-settings hidden>open Settings &gt; Agents<span aria-hidden="true">→</span></button>':''}
+      ${step.hello?'<button type="button" class="onboarding-action" data-tour-settings hidden>open Settings &gt; Model/Provider<span aria-hidden="true">→</span></button>':''}
       <p class="onboarding-notice" data-tour-notice role="status">Opening this part of your workspace…</p>
       <div class="onboarding-footer"><div><button type="button" class="ghost onboarding-skip" data-tour-skip>skip</button>${following >= 0 ? '<button type="button" class="ghost onboarding-skip" data-tour-chapter>skip chapter</button>' : ''}</div><div><button type="button" class="ghost" data-tour-back ${index?'':'disabled'}>back</button><button type="button" data-tour-next disabled>${index===steps.length-1?'done':'next'}</button></div></div>`;
     card.querySelector('[data-tour-skip]').onclick = () => exit();

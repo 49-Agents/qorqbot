@@ -60,11 +60,11 @@ const onboardingPlan = (() => {
   function helloMissing(clients, readiness, agent = 'Ordubashy') {
     if (!readiness || !clients || typeof clients !== 'object') return '';
     if (readiness.state === 'none') {
-      return `${agent} needs Claude Code or Codex to answer, and neither is ready: Claude Code ${clientProblem(clients.claude)}, and Codex ${clientProblem(clients.codex)}. Open Settings > Agents to fix one, then come back and say hello.`;
+      return `${agent} needs Claude Code or Codex to answer, and neither is ready: Claude Code ${clientProblem(clients.claude)}, and Codex ${clientProblem(clients.codex)}. Open Settings > Model/Provider to fix one, then come back and say hello.`;
     }
     if (readiness.state === 'chosen' && CLIENT_NAMES[readiness.client]) {
       const name = CLIENT_NAMES[readiness.client], other = CLIENT_NAMES[readiness.client === 'claude' ? 'codex' : 'claude'];
-      return `${agent} is set to use ${name}, and ${name} ${clientProblem(clients[readiness.client])}. Open Settings > Agents to fix it, or switch ${agent} to ${other} there, then say hello.`;
+      return `${agent} is set to use ${name}, and ${name} ${clientProblem(clients[readiness.client])}. Open Settings > Model/Provider to fix it, or switch ${agent} to ${other} there, then say hello.`;
     }
     return '';
   }

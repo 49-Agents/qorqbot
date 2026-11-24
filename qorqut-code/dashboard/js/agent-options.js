@@ -1,4 +1,4 @@
-// Which client, model and effort each agent uses: one row per agent in Settings > Agents, so the owner never has to type
+// Which client, model and effort each agent uses: one row per agent in Settings > Model/Provider, so the owner never has to type
 // claude or codex anywhere. Server (qorqut/managed_runtime/options.py), owner only:
 //   GET  /root/agents/<id>/chat/options -> {client, model, effort, effective_client, clients: {claude: {ready}, codex: {ready}}, session_open}
 //   POST the same path with any of {client, model, effort} (null clears) -> the same view.
