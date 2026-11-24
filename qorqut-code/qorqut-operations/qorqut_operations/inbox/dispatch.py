@@ -20,6 +20,11 @@ from qorqut_operations.contracts import DomainError, new_id
 from qorqut_operations.background.schedule import next_slot, zone
 from .broadcasts import _stamp
 
+# The next occurrence to claim: a manual request first, then the earliest due schedule.
+DUE = ("SELECT * FROM broadcasts WHERE status!='cancelled' AND "
+       "(manual_count>0 OR (status='active' AND next_due_at IS NOT NULL AND next_due_at<=?)) "
+       "ORDER BY CASE WHEN manual_count>0 THEN 0 ELSE 1 END,next_due_at,id LIMIT 1")
+
 
 class BroadcastDispatch:
     def __init__(self, application, database, broadcasts, *, require_authority, require_protected_control, input_existing,
@@ -57,11 +62,16 @@ class BroadcastDispatch:
             self._deliver(pending["broadcast_id"], pending["occurrence"])
             return pending["broadcast_id"]
         now = self.clock()
+        # The check runs every few seconds and usually finds nothing due: look first, under the same maintenance check,
+        # so that an idle check opens no write unit. The write unit selects again; nothing found there is the ordinary
+        # empty result, and a broadcast that becomes due after this look is claimed by the next check.
+        with self.database.read() as uow:
+            self.application.ensure_writes_open(uow)
+            if not uow.connection.execute(DUE, (_stamp(now),)).fetchone():
+                return None
         with self.database.transaction() as uow:
             self.application.ensure_writes_open(uow)
-            found = uow.connection.execute("SELECT * FROM broadcasts WHERE status!='cancelled' AND "
-                "(manual_count>0 OR (status='active' AND next_due_at IS NOT NULL AND next_due_at<=?)) "
-                "ORDER BY CASE WHEN manual_count>0 THEN 0 ELSE 1 END,next_due_at,id LIMIT 1", (_stamp(now),)).fetchone()
+            found = uow.connection.execute(DUE, (_stamp(now),)).fetchone()
             if not found:
                 return None
             row = dict(found)

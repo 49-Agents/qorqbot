@@ -22,6 +22,8 @@ PAYLOAD_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 MEDIA_KINDS = ("document", "photo")
 TOO_OLD = {"state": "failed", "error_code": "too_old_48h",
            "error_message": "Telegram allows deleting a message only within 48 hours; delete it manually"}
+EXPIRED_REQUESTS = ("SELECT * FROM telegram_messages WHERE request_state='pending' AND direction='outbound' "
+                    "AND request_expires_at<=?")
 
 
 class AuthorityMoved(Exception):
@@ -216,6 +218,14 @@ class Dispatcher:
             with bridge.read() as uow:
                 if not store.due_outbox(uow, now, limit=1, uploads=True):
                     return False
+        else:
+            # The step for every other send runs on every pass too. Its look also checks the identity the claim checks, so a
+            # moved binding is still refused when there is nothing to send.
+            def due(uow):
+                bridge.check_binding(uow)
+                return store.due_outbox(uow, now, limit=1, uploads=uploads)
+            if not bridge.has_work(due):
+                return False
         with bridge.write("dispatch.claim") as uow:
             binding = bridge.check_binding(uow)
             for row in store.due_outbox(uow, now, limit=BATCH, uploads=uploads):
@@ -431,10 +441,10 @@ class Dispatcher:
         bridge = self.bridge
         now = bridge.now()
         worked = False
+        if not bridge.has_work(lambda uow: uow.connection.execute(EXPIRED_REQUESTS, (now,)).fetchone()):
+            return False
         with bridge.write("requests.expire") as uow:
-            rows = [dict(r) for r in uow.connection.execute(
-                "SELECT * FROM telegram_messages WHERE request_state='pending' AND direction='outbound' AND request_expires_at<=?",
-                (now,))]
+            rows = [dict(r) for r in uow.connection.execute(EXPIRED_REQUESTS, (now,))]
             for row in rows:
                 store.close_request(uow, row, "expired", row["request_expires_at"])
                 worked = True
@@ -490,6 +500,12 @@ class Cleanup:
         config = bridge.current_config()
         now = bridge.now()
         target = None
+
+        def due(uow):
+            bridge.check_binding(uow)
+            return self._due(uow, now)
+        if not bridge.has_work(due):
+            return False
         with bridge.write("cleanup.claim") as uow:
             bridge.check_binding(uow)
             repository = uow.repository("telegram_cleanup_jobs")

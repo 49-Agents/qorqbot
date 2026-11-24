@@ -25,12 +25,12 @@ class RoutineScheduler:
 
     def tick(self, now):
         now = now.replace(second=0, microsecond=0)
-        queued = []
         self.errors = []
-        # No operation of its own otherwise; the host change feed's coarse
-        # "jobs_routines" kind is the only signal a queued routine run exists
-        # at all, since routine_runs/jobs have no capture trigger.
-        with self.database.transaction(operation="jobs_routines_tick") as uow:
+
+        def body(uow):
+            # A tick refused the writer at its first write runs again from here, so its report starts afresh.
+            queued = []
+            self.errors = []
             Application.ensure_writes_open(uow)
             definitions = [decode_row(row) for row in uow.connection.execute(
                 "SELECT * FROM routines WHERE status='active' ORDER BY created_at,id LIMIT 2001")]
@@ -114,4 +114,14 @@ class RoutineScheduler:
                     repo.update(key, {"slot": fire, "wall_slot": fire_wall,
                         "state_json": {"job_id": job_id, "done": False, "missed": missed, "missed_capped": capped}}, expected_revision=prior["revision"])
                     queued.append(job_id)
-        return queued
+            return queued
+
+        # No operation of its own otherwise; the host change feed's coarse
+        # "jobs_routines" kind is the only signal a queued routine run exists
+        # at all, since routine_runs/jobs have no capture trigger.
+        # The tick runs every few seconds and usually finds nothing due, so it
+        # takes SQLite's writer only from its first real change; until then it
+        # holds no other writer up. Everything before that change is a read (and
+        # this object's report), so a tick refused the writer there can simply
+        # run again in an ordinary write unit.
+        return self.database.write_if_needed(body, operation="jobs_routines_tick")
