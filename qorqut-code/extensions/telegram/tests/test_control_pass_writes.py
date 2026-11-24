@@ -136,7 +136,8 @@ class ControlPassWrites(unittest.TestCase):
         for name, step in self.steps().items():
             with self.subTest(step=name):
                 self.assertFalse(step())
-                self.assertEqual(self.units.take(), [("transaction", "telegram." + name)])
+                # It looks first and opens no write unit for nothing.
+                self.assertEqual(self.units.take(), [])
         self.assertEqual(self.api.sent + self.api.deleted, [])
 
     def test_an_idle_pass_still_refuses_during_maintenance(self):
@@ -155,6 +156,55 @@ class ControlPassWrites(unittest.TestCase):
             with self.subTest(step=name), self.assertRaises(DomainError) as raised:
                 self.steps()[name]()
             self.assertEqual(raised.exception.code, "binding_changed")
+
+    # ----- work that moves between the look and the write unit ------------------------------------------------------
+
+    @contextmanager
+    def between(self, change):
+        """Run ``change`` right after the step's look, before its write unit would open."""
+        look = self.bridge.has_work
+
+        def has_work(probe):
+            found = look(probe)
+            change()
+            return found
+        self.bridge.has_work = has_work
+        try:
+            yield
+        finally:
+            self.bridge.has_work = look
+
+    def arrivals(self):
+        return {"requests.expire": lambda: self.pending_request(PAST),
+                "dispatch.claim": self.queued_send,
+                "cleanup.claim": lambda: self.queued_cleanup(provider_id=77),
+                "input.reconcile": lambda: self.queued_input(PAST)}
+
+    def test_work_that_arrives_after_the_look_is_taken_on_the_next_pass(self):
+        for name, step in self.steps().items():
+            with self.subTest(step=name):
+                with self.between(self.arrivals()[name]):
+                    self.assertFalse(step())
+                self.assertTrue(step())
+                self.assertFalse(step())
+
+    def test_work_that_is_gone_by_the_write_unit_is_an_ordinary_empty_result(self):
+        def close_everything():
+            with self.database.transaction() as uow:
+                uow.connection.execute("UPDATE telegram_messages SET request_state='cancelled',request_closed_at=? "
+                                       "WHERE request_state='pending'", (NOW,))
+                uow.connection.execute("UPDATE telegram_outbox SET state='cancelled' WHERE state='queued'")
+                uow.connection.execute("UPDATE telegram_cleanup_jobs SET state='failed' WHERE state='queued'")
+                uow.connection.execute("UPDATE telegram_owner_inputs SET state='cancelled' WHERE state='queued'")
+        for name, step in self.steps().items():
+            with self.subTest(step=name):
+                self.arrivals()[name]()
+                self.units.take()
+                with self.between(close_everything):
+                    self.assertFalse(step())
+                # The step's own write unit opened, found nothing and did nothing (the other unit is the change above).
+                self.assertEqual([unit for unit in self.units.take() if unit[1]], [("transaction", "telegram." + name)])
+        self.assertEqual(self.api.sent + self.api.deleted, [])
 
     # ----- a pass with work -----------------------------------------------------------------------------------------
 

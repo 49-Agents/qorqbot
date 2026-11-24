@@ -74,6 +74,16 @@ PREFACE = ("Qorqut owner message via Telegram (correlation {correlation}). The s
 SIGNOFF_PREFACE = ("Qorqut owner reply via Telegram on your Signoff \"{title}\" (note {correlation}). The same reply is saved on "
                    "the Signoff and in your inbox; handle it once. It is the owner's answer or comment, not blanket authorization.")
 
+# What the reconcile closes: queued input past its expiry, and final input still missing its cleanup or its owner notice.
+EXPIRED_INPUTS = "SELECT * FROM telegram_owner_inputs WHERE state='queued' AND expires_at IS NOT NULL AND expires_at<=?"
+UNRESOLVED_INPUTS = (
+    "SELECT i.* FROM telegram_owner_inputs i WHERE i.state IN ('uncertain','failed','expired','submitted') "
+    "AND ((i.sensitive=1 AND NOT EXISTS (SELECT 1 FROM telegram_cleanup_jobs c WHERE c.message_id=i.message_id)) "
+    "OR (i.purpose='owner_message' AND i.state IN ('uncertain','failed','expired') "
+    f"AND EXISTS (SELECT 1 FROM telegram_messages m WHERE m.id=i.message_id AND m.chat_name IN ({','.join('?' * len(AGENT_CHATS))})) "
+    "AND NOT EXISTS (SELECT 1 FROM telegram_outbox o WHERE o.source_kind='notice' "
+    "AND o.source_key='input:'||i.id||':'||i.state))) LIMIT 20")
+
 
 def notice(bridge, uow, message, text, source_key):
     """Tell the owner in the chat the input arrived in. An input from a chat that is no longer an agent chat (Founder's and
@@ -396,9 +406,14 @@ class OwnerInputs:
         now = bridge.now()
         worked = False
         spools = []
+
+        def due(uow):
+            return (uow.connection.execute(EXPIRED_INPUTS, (now,)).fetchone()
+                    or uow.connection.execute(UNRESOLVED_INPUTS, tuple(AGENT_CHATS)).fetchone())
+        if not bridge.has_work(due):
+            return False
         with bridge.write("input.reconcile") as uow:
-            expired = [dict(row) for row in uow.connection.execute(
-                "SELECT * FROM telegram_owner_inputs WHERE state='queued' AND expires_at IS NOT NULL AND expires_at<=?", (now,))]
+            expired = [dict(row) for row in uow.connection.execute(EXPIRED_INPUTS, (now,))]
             for row in expired:
                 current = uow.repository("telegram_owner_inputs").get(row["id"])
                 changes = {"state": "expired", "error_code": "expired", "deferral_reason": None, "next_attempt_at": None}
@@ -407,14 +422,7 @@ class OwnerInputs:
                 if row["spool_id"]:
                     spools.append(row["spool_id"])
                 worked = True
-            agent_chats = ",".join("?" * len(AGENT_CHATS))
-            unresolved = [dict(row) for row in uow.connection.execute(
-                "SELECT i.* FROM telegram_owner_inputs i WHERE i.state IN ('uncertain','failed','expired','submitted') "
-                "AND ((i.sensitive=1 AND NOT EXISTS (SELECT 1 FROM telegram_cleanup_jobs c WHERE c.message_id=i.message_id)) "
-                "OR (i.purpose='owner_message' AND i.state IN ('uncertain','failed','expired') "
-                f"AND EXISTS (SELECT 1 FROM telegram_messages m WHERE m.id=i.message_id AND m.chat_name IN ({agent_chats})) "
-                "AND NOT EXISTS (SELECT 1 FROM telegram_outbox o WHERE o.source_kind='notice' "
-                "AND o.source_key='input:'||i.id||':'||i.state))) LIMIT 20", tuple(AGENT_CHATS))]
+            unresolved = [dict(row) for row in uow.connection.execute(UNRESOLVED_INPUTS, tuple(AGENT_CHATS))]
             for row in unresolved:
                 self._after(uow, row, now)
                 worked = True
