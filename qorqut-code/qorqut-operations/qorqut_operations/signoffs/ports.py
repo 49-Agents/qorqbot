@@ -185,6 +185,21 @@ class SourceAuthority(Protocol):
     def check(self, application, context: InvocationContext, source: Mapping[str, Any], uow) -> None: ...
 
 
+class BrowserTabs(Protocol):
+    """The open tabs of the host's browser, for a browser-action request that names the tab the owner acts in.
+
+    Whether a tab is open is a fact only the host's browser knows, so the engine never decides it. ``check(application,
+    context, tab_id, uow)`` -> ``{"title", "url"}`` of the tab as the browser lists it now, read through the caller's own read
+    of the tab's agent; it raises an unavailable ``DomainError`` for a closed tab, a browser that does not answer or an agent
+    the caller may not read. ``view(tab_id, uow)`` -> ``{"id", "agent_id", "tab_id", "available", "label", "agent_label"}``
+    for the owner's detail read of a Signoff already admitted to them; it never raises, and a tab it cannot list is
+    ``available: False`` with null labels. ``label`` is short page text (the title, else the host), never the address."""
+
+    def check(self, application, context: InvocationContext, tab_id: str, uow) -> Mapping[str, Any]: ...
+
+    def view(self, tab_id: str, uow) -> Mapping[str, Any]: ...
+
+
 # -- the assembled set --------------------------------------------------------------------------------------------
 
 def _check(value, label: str, methods: Sequence[str] = (), attributes: Sequence[str] = ()) -> None:
@@ -199,7 +214,8 @@ class SignoffPorts:
     """All host ports of one Signoff service. ``execution``, ``peers``, ``tasks`` and ``references`` are required;
     ``platform``, ``email``, ``management`` and ``focus`` are optional domains that must be declared,
     either with an implementation or with ``ABSENT``. ``narrowing`` is an optional extension that defaults to ``ABSENT``
-    (visibility exactly as before)."""
+    (visibility exactly as before); so are ``sources`` (no source-linked requests) and ``tabs`` (no browser-action
+    requests)."""
 
     execution: ExecutionPresentation
     peers: PeerIdentities
@@ -211,6 +227,7 @@ class SignoffPorts:
     focus: FocusAttention | Absent
     narrowing: VisibilityNarrowing | Absent = ABSENT
     sources: SourceAuthority | Absent = ABSENT
+    tabs: BrowserTabs | Absent = ABSENT
 
     def __post_init__(self):
         for name, value in (("execution", self.execution), ("peers", self.peers), ("tasks", self.tasks),
@@ -232,7 +249,8 @@ class SignoffPorts:
                 ("management", ("coordinator", "routing_for"), ("managed_input_sql",)),
                 ("focus", ("release_signoff",), ()),
                 ("narrowing", ("narrow",), ()),
-                ("sources", ("check",), ())):
+                ("sources", ("check",), ()),
+                ("tabs", ("check", "view"), ())):
             value = getattr(self, name)
             if value is None:
                 raise AssemblyError(f"Optional Signoff domain {name} must be declared: pass a port or ABSENT")

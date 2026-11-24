@@ -440,3 +440,8 @@
 .sg-chat .sg .sg-choice { min-height:24px; padding:2px 8px; }
 .sg-chat .sg .sg-choice-name { font-size:11.5px; font-weight:500; }
 @media (pointer:coarse) { .sg-chat .sg .sg-choice { min-height:36px; } }
+/* Browser action: the heading, the tab's card (Chat's own button, styled in chat-view.css) and a plain line when the tab is gone. */
+.sg-browser-heading { margin:0 0 6px; font-size:14px; font-weight:600; color:var(--fg); }
+.sg-browser-tab { margin:0 0 14px; min-width:0; max-width:100%; }
+.sg-browser-tab button.gchat-tab-reference { max-width:100%; padding:7px 10px; font-size:12px; }
+.sg-browser-tab .sg-notice { margin:0; }

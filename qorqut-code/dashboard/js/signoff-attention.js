@@ -164,13 +164,15 @@ function sgAttentionPaint() {
   clearTimeout(host._timer);
   host._timer=setTimeout(() => { if (host.dataset.delivery===delivery.id) host._hide(delivery.id); }, typeof NOTE_MS==='number' ? NOTE_MS : 10000);
   const row=delivery.items[0], individual=delivery.kind==='individual';
-  // Something to read is announced as that, never as an approval.
-  const reading=individual && row.input?.kind==='acknowledge', heading=reading?'For your attention':'Approval needed';
+  // Something to read is announced as that, and a tab to act in as that, never as an approval.
+  const reading=individual && row.input?.kind==='acknowledge', browser=individual && row.input?.kind==='browser_action';
+  const heading=reading?'For your attention':browser?'Browser action needed':'Approval needed';
+  const icon=browser && typeof CHAT_VIEW_ICONS==='object' && CHAT_VIEW_ICONS.browser ? CHAT_VIEW_ICONS.browser : SG_CLIPBOARD;
   const title=individual ? row.title : `${delivery.items.length} signoffs need your response`;
   if(typeof desktopNotify!=='undefined')desktopNotify.send({kind:'signoffs',title:individual?row.title:'Waiting on you',
     body:reading?(row.attention?.reason||'For your attention'):individual?(row.attention?.reason||row.project_name||''):`${delivery.items.length} signoffs need your response`,tag:'signoff:'+delivery.id});
   // Share the reply notification card styling; signoff delivery and decision behavior stay independent.
-  host.innerHTML=`<div class="toast reply-toast sg-toast has-x" role="button" tabindex="0" aria-keyshortcuts="Shift+F10" aria-label="${heading}: ${esc(title)}. Press Shift+F10 for dismiss and snooze options."><span class="reply-icon" aria-hidden="true">${SG_CLIPBOARD}</span><span class="reply-copy"><span class="reply-name">${heading}</span><span class="reply-preview">${esc(title)}</span></span><button type="button" class="toast-x" aria-label="Dismiss notification">${SVG_X}</button></div>`;
+  host.innerHTML=`<div class="toast reply-toast sg-toast has-x" role="button" tabindex="0" aria-keyshortcuts="Shift+F10" aria-label="${heading}: ${esc(title)}. Press Shift+F10 for dismiss and snooze options."><span class="reply-icon" aria-hidden="true">${icon}</span><span class="reply-copy"><span class="reply-name">${heading}</span><span class="reply-preview">${esc(title)}</span></span><button type="button" class="toast-x" aria-label="Dismiss notification">${SVG_X}</button></div>`;
 }
 window.sgAttentionRefresh = async () => {
   if (sgAttention.loading) return;
