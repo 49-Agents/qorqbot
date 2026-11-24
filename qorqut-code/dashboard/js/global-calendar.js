@@ -833,6 +833,8 @@ function calendarStatusEditor(el, target, surface, clicked, calendar, onSaved = 
     if (saved && onSaved) await onSaved();
   };
   for (const pill of pills) pill.onclick = () => choose(pill.dataset.calendarStatusChoice);
+  // Opened from the Focus strip, nothing else has read the statuses yet: read them now instead of waiting for a Retry.
+  if (!calendarStatuses.state.known && !calendarStatuses.state.denied) void calendarStatuses.refresh();
   sync();
   return calendarStatuses.subscribe(() => { if (!busy) sync(); });
 }
