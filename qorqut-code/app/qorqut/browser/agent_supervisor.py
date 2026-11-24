@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import stat
@@ -34,6 +35,9 @@ from .control import owns_listener, process_identity
 EXIT_STOPPED, EXIT_FAILED, EXIT_BUSY, EXIT_CONFIG = 0, 1, 75, 78
 START_TIMEOUT = 40
 SOCKET_PATH_LIMIT = 104
+VERSION_TIMEOUT = 10             # Seconds Chrome gets to print its version before the browser starts without a user agent of its own.
+# What a visible Chrome puts in its user agent for the computer it runs on. It is the same for every processor.
+USER_AGENT_PLATFORMS = {"linux": "X11; Linux x86_64", "darwin": "Macintosh; Intel Mac OS X 10_15_7"}
 
 
 def load_meta(state: Path, recorded: Path | None = None) -> dict:
@@ -60,18 +64,53 @@ def load_meta(state: Path, recorded: Path | None = None) -> dict:
     return meta
 
 
-def chrome_command(meta: dict) -> list[str]:
+def chrome_command(meta: dict, user_agent: str | None = None) -> list[str]:
     """The only Chrome argv this supervisor ever runs: normal sandbox, loopback CDP, a profile private to the agent.
 
     No WebGL or other 3D: the host has no GPU, so 3D content (embedded maps, animated widgets) is drawn in software,
     and a headless browser always has one tab in front (the newest, or the one the owner watches) that it treats as
     visible, so a forgotten tab keeps redrawing and holds a CPU core. Tabs behind it are throttled like any background
     tab; ``idle_tabs`` unloads what nobody uses.
-    The owner's sign-in window keeps 3D: it is short-lived and shows whatever the sign-in page needs."""
+    The owner's sign-in window keeps 3D: it is short-lived and shows whatever the sign-in page needs.
+
+    ``user_agent`` is ``normal_user_agent``'s answer for this Chrome. Without one the browser names itself
+    ``HeadlessChrome``, as it does when left alone."""
     managed = meta["managed"]
     return [managed["chrome"], "--headless=new", *profile_flags(managed),
             "--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={managed['port']}",
-            "--disable-background-networking", "--disable-3d-apis", "about:blank"]
+            "--disable-background-networking", "--disable-3d-apis",
+            *([f"--user-agent={user_agent}"] if user_agent else []), "about:blank"]
+
+
+def normal_user_agent(chrome: str, environment: dict) -> str | None:
+    """The user agent a visible window of this Chrome sends, or ``None`` when that cannot be told.
+
+    A headless Chrome writes ``HeadlessChrome`` where a visible one writes ``Chrome``, and websites refuse a browser for
+    that word alone. Chrome's user agent is otherwise only the computer's platform and Chrome's major version, so the
+    browser is told to send exactly what the owner's sign-in window on the same profile sends. The version is asked from
+    the program that is about to start (``--version`` prints it and opens no profile), so it is right after every Chrome
+    update. Chrome answers less about its version to a page that asks for the details while this is set; see
+    ``docs/BROWSER-MANAGEMENT.md``."""
+    platform = USER_AGENT_PLATFORMS.get(sys.platform)
+    if platform is None:
+        return None
+    try:
+        child = subprocess.Popen([chrome, "--version"], env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, text=True, errors="replace", start_new_session=True)
+    except OSError:
+        return None
+    try:
+        answer = child.communicate(timeout=VERSION_TIMEOUT)[0]
+    except subprocess.TimeoutExpired:
+        answer = ""
+        try:
+            os.killpg(child.pid, signal.SIGKILL)       # the group it made for itself, so nothing it started is left behind
+        except (ProcessLookupError, PermissionError):
+            pass
+        child.wait()
+        child.stdout.close()
+    version = re.search(r"(?<![\d.])(\d{2,4})\.\d+\.\d+\.\d+(?![\d.])", answer)
+    return version and f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version[1]}.0.0.0 Safari/537.36"
 
 
 def profile_flags(managed: dict) -> list[str]:
@@ -247,7 +286,12 @@ def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> i
             raise RuntimeError("profile_not_owned")
         if not port_free(managed["port"]):
             raise RuntimeError("port_in_use")
-        child = subprocess.Popen(chrome_command(meta), cwd=state, env=chrome_environment(state), stdin=subprocess.DEVNULL,
+        environment = chrome_environment(state)
+        user_agent = normal_user_agent(managed["chrome"], environment)
+        if user_agent is None:
+            print("Browser supervisor: this Chrome did not say its version, so the browser names itself HeadlessChrome and "
+                  "some websites will refuse it.", file=sys.stderr)
+        child = subprocess.Popen(chrome_command(meta, user_agent), cwd=state, env=environment, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         publish(chrome_pid=child.pid, chrome_identity=process_identity(child.pid))
         deadline = time.monotonic() + START_TIMEOUT

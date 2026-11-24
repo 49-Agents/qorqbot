@@ -67,6 +67,15 @@ The first `ensure` creates the Shared browser, a **headless managed browser**:
   It is [Qorqbot's own Chrome](#qorqbots-own-chrome) when that is installed and starts on this computer, otherwise the
   installed Google Chrome (`/usr/bin/google-chrome-stable`). The choice is made when the browser is created and saved in
   its ownership record;
+* the user agent of a visible Chrome. Left alone, a headless Chrome writes `HeadlessChrome` where a visible one writes
+  `Chrome`, and websites refuse it for that word: sign-up pages that turned this browser away on 2026-11-22 opened in the
+  same browser without it. The supervisor asks the Chrome it is about to start for its version
+  (`--version`) and starts it with `--user-agent=` set to what a visible window of that version sends on this platform:
+  the same as the owner's [sign-in window](#website-sign-in) on this profile. Pages and their workers read that value.
+  It follows a Chrome update at the browser's next start; a running browser keeps what it started with. When Chrome
+  does not say its version the browser starts as before and the supervisor's log says so. Chrome answers less to a page
+  that asks for the details while this is set: the full version list, the full version and the architecture come back
+  empty, and their `Sec-CH-UA-*` request headers are not sent. The brand list (`Sec-CH-UA`) is unchanged;
 * one profile at `operations/.runtime/agent-browsers/da69c2a4-cd9c-5aa7-9a94-176338b13618/profile`, kept private (`0700`).
   That fixed identifier is not an agent and cannot be managed by that identifier;
 * a CDP port from the reserved range **20400–21399** (project browsers use 19400–20399). The port is chosen *and* the
