@@ -125,8 +125,9 @@ class CalendarAccessTests(unittest.TestCase):
         self.profile_reads.clear()
         result = self.create(self.worker)
         self.assertEqual("ok", result.status, plain(result.error))
-        # The read unit checks in prepare and in validate_targets; the write unit in validate_targets and in apply.
-        self.assertEqual([2, 2], sorted(self.profile_reads.values()))
+        # The read unit checks in prepare and in validate_targets, the write unit in validate_targets and in apply:
+        # each unit reads the profile once (it was twice before the grant was kept for the unit).
+        self.assertEqual([1, 1], sorted(self.profile_reads.values()))
 
 
 if __name__ == "__main__":
