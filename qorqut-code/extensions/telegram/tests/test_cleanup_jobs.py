@@ -10,6 +10,7 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock
 
+from qorqut_operations.contracts import DomainError
 from qorqut_operations.storage.repositories import UNSET, Repository
 from qorqut_telegram import store
 from qorqut_telegram.api import TelegramApiError
@@ -276,6 +277,99 @@ class WaitingForTheSendTests(CleanupCase):
                 # About one look every 15 minutes once at the cap, instead of one every 30 seconds.
                 self.assertLess(passes, 210)
         self.bridge.api.delete_message.assert_not_called()
+
+
+class OwnerResolvesTheSendTests(CleanupCase):
+    """The owner settles an uncertain send with ``telegram_delivery_resolve``; a cleanup that stopped on it follows."""
+
+    def setUp(self):
+        super().setUp()
+        from qorqut_telegram.operations import TelegramOperations
+        runtime = NS(application=NS(current_context=lambda ctx, uow: ctx), extensions={"telegram": NS(bridge=self.bridge)})
+        self.operations = TelegramOperations(runtime)
+        self.operations.view = lambda uow, message, owner=False: message
+        self.ctx = NS(principal_id=None)
+
+    def resolve(self, message, action, **extra):
+        outbox = self.outbox_of(message)
+        args = {"outbox_id": outbox["id"], "expected_revision": outbox["revision"], "action": action, **extra}
+        return self.operations.apply_resolve(self.ctx, NS(arguments=args), self.uow)
+
+    def stopped(self):
+        message = self.message("uncertain")
+        self.enqueue(message)
+        self.cleanup.one()
+        self.assertEqual(self.job(message)["error_code"], store.CLEANUP_SEND_UNCERTAIN)
+        self.bridge.advance(600)
+        return message
+
+    def test_marked_delivered_queues_the_cleanup_again_and_it_deletes_the_message(self):
+        message = self.stopped()
+        self.resolve(message, "mark_delivered", provider_message_id=77)
+        # In the resolving transaction itself: no write unit of its own.
+        self.assertEqual(self.bridge.writes, ["cleanup.claim"])
+        job = self.job(message)
+        self.assertEqual((job["state"], job["error_code"], job["attempts"]), ("queued", None, 0))
+        self.assertEqual(job["next_attempt_at"], self.bridge.now())
+        self.assertTrue(self.cleanup.one())
+        self.bridge.api.delete_message.assert_called_once_with(CHAT.chat_id, 77)
+        self.assertEqual(self.job(message)["state"], "deleted")
+
+    def test_a_repeated_resolution_neither_queues_twice_nor_reopens_the_job(self):
+        message = self.stopped()
+        outbox = self.outbox_of(message)
+        self.resolve(message, "mark_delivered", provider_message_id=77)
+        queued = self.job(message)
+        # The same request again is refused (the send is no longer uncertain) and leaves the queued job as it was.
+        args = {"outbox_id": outbox["id"], "expected_revision": self.outbox_of(message)["revision"],
+                "action": "mark_delivered", "provider_message_id": 77}
+        with self.assertRaises(DomainError) as refused:
+            self.operations.apply_resolve(self.ctx, NS(arguments=args), self.uow)
+        self.assertEqual(refused.exception.code, "invalid_transition")
+        self.assertEqual(self.job(message), queued)
+        # The helper itself, run again in a later transaction, changes nothing either; a deleted job stays deleted.
+        self.assertIsNone(store.requeue_cleanup(self.uow, self.outbox_of(message), now=self.bridge.now()))
+        self.cleanup.one()
+        self.assertIsNone(store.requeue_cleanup(self.uow, self.outbox_of(message), now=self.bridge.now()))
+        self.assertEqual(self.job(message)["state"], "deleted")
+        self.assertEqual(self.jobs(), 1)
+
+    def test_resolving_a_send_with_no_stopped_cleanup_creates_none(self):
+        message = self.message("uncertain")
+        self.resolve(message, "mark_delivered", provider_message_id=77)
+        self.assertEqual(self.jobs(), 0)
+
+    def test_a_cleanup_that_failed_for_another_reason_is_not_reopened(self):
+        message = self.message("uncertain")
+        job = self.enqueue(message)
+        self.uow.repository("telegram_cleanup_jobs").update(job["id"], {"state": "failed", "error_code": "unknown_chat"},
+                                                            expected_revision=job["revision"])
+        self.resolve(message, "mark_delivered", provider_message_id=77)
+        self.assertEqual((self.job(message)["state"], self.job(message)["error_code"]), ("failed", "unknown_chat"))
+
+    def test_retry_queues_the_cleanup_to_wait_for_the_new_send(self):
+        message = self.stopped()
+        self.resolve(message, "retry")
+        self.assertEqual(self.outbox_of(message)["state"], "queued")
+        job = self.job(message)
+        self.assertEqual((job["state"], job["error_code"], job["attempts"]), ("queued", None, 0))
+        # Waiting on the resent send starts again from the base delay, not from how long the job existed.
+        self.assertFalse(self.cleanup.one())
+        self.assertEqual((store.parse(self.job(message)["next_attempt_at"]) - self.bridge.time).total_seconds(), 5.0)
+        self.wait_due(message)
+        outbox = store.set_outbox(self.uow, self.outbox_of(message), state="dispatching", attempts=1,
+                                  dispatch_started_at=self.bridge.now())
+        store.set_outbox(self.uow, outbox, state="sent", provider_message_id=88, sent_at=self.bridge.now())
+        store.update_message(self.uow, store.message(self.uow, message["id"]), telegram_message_id=88)
+        self.assertTrue(self.cleanup.one())
+        self.bridge.api.delete_message.assert_called_once_with(CHAT.chat_id, 88)
+
+    def test_retry_that_ends_unsent_closes_the_cleanup_as_never_sent(self):
+        message = self.stopped()
+        self.resolve(message, "retry")
+        store.set_outbox(self.uow, self.outbox_of(message), state="cancelled", error_code="request_ended")
+        self.assertFalse(self.cleanup.one())
+        self.assertEqual((self.job(message)["state"], self.job(message)["error_code"]), ("deleted", "never_sent"))
 
 
 if __name__ == "__main__":
