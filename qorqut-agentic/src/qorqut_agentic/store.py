@@ -27,6 +27,18 @@ LOCK_TIMEOUT_SECONDS = 30.0
 
 _LOCK_REGISTRY = {}
 _LOCK_REGISTRY_MUTEX = threading.RLock()
+# Raised each time this process releases an authoring lock held exclusively, whether or not its body raised.
+# Every in-process change to an authored tree happens under that lock, so an unchanged value means no such change
+# finished since it was read. It is never compared across processes.
+_AUTHORING_GENERATION = 0
+
+
+_INHERITED_CONNECTIONS = []
+
+
+def authoring_generation() -> int:
+    with _LOCK_REGISTRY_MUTEX:
+        return _AUTHORING_GENERATION
 
 
 def _locks_after_fork():
@@ -235,8 +247,46 @@ class Store:
         self.db_path = self.state_dir / DB_NAME
         self.lock_path = self.state_dir / LOCK_NAME
         self.scratch_dir = self.state_dir / SCRATCH_DIR
+        # One kept read-only connection, used for nothing but ``data_version``: its values are comparable only on
+        # the same connection, so each opening gets its own serial and a value is never compared across two.
+        self._version_mutex = threading.Lock()
+        self._version_conn: sqlite3.Connection | None = None
+        self._version_pid = os.getpid()
+        self._version_serial = 0
 
     # -- connections -----------------------------------------------------------
+    def data_version(self) -> tuple[int, int] | None:
+        """``(connection serial, PRAGMA data_version)``; it moves whenever another connection commits a change.
+
+        ``None`` means it could not be read, and must be taken as "changed". A failed connection is discarded and
+        the next call opens a new one under a new serial.
+        """
+        if self._version_pid != os.getpid():
+            # A connection must not be used across fork, and the mutex may have been held by a thread that is gone.
+            # The inherited connection is kept referenced, never closed or used, in the child.
+            if self._version_conn is not None:
+                _INHERITED_CONNECTIONS.append(self._version_conn)
+            self._version_mutex = threading.Lock()
+            self._version_conn = None
+            self._version_pid = os.getpid()
+            self._version_serial += 1
+        with self._version_mutex:
+            try:
+                if self._version_conn is None:
+                    self._version_serial += 1
+                    self._version_conn = sqlite3.connect(self.db_path.absolute().as_uri() + "?mode=ro", uri=True,
+                                                         timeout=1.0, isolation_level=None, check_same_thread=False)
+                row = self._version_conn.execute("PRAGMA data_version").fetchone()
+                return self._version_serial, int(row[0])
+            except (sqlite3.Error, TypeError, ValueError):
+                conn, self._version_conn = self._version_conn, None
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except sqlite3.Error:
+                        pass
+                return None
+
     def connect(self, *, readonly: bool = False, create: bool = False) -> sqlite3.Connection:
         mode = "rwc" if create else ("ro" if readonly else "rw")
         try:
@@ -408,6 +458,7 @@ class Store:
     @contextmanager
     def lock(self, *, exclusive: bool, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
         """Cross-process flock with same-thread, same-inode nested ownership."""
+        global _AUTHORING_GENERATION
         fd = None
         try:
             fd = os.open(self.lock_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -462,6 +513,9 @@ class Store:
             finally:
                 with _LOCK_REGISTRY_MUTEX:
                     _LOCK_REGISTRY.pop(key, None)
+                    if exclusive:
+                        # Before the unlock, so a reader that starts after the release already sees it moved.
+                        _AUTHORING_GENERATION += 1
                 fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
