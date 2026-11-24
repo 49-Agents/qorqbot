@@ -16,16 +16,16 @@ and mandatory usage instructions. Explicit owner tool overrides remain effective
 ### Owner-directed code sessions
 
 An owner-directed session may use these same three operations through the
-`/mcp/owner` route, but only in the credential's bound business. The sender is
+`/mcp/owner` route, but only in the credential's bound project. The sender is
 the installation owner; the session is not an agent, does not receive an inbox
-or watcher, and cannot use Global messaging or `all_businesses=true`. Bootstrap
-identifies the configured Ordubashy when that agent is active in the business.
+or watcher, and cannot use Global messaging. Bootstrap
+identifies the configured Ordubashy when that agent is active in the project.
 Object-attached owner conversations remain a separate private channel; direct
 messages are for objectless coordination and replies.
 
 Message bodies sent through these operations contain 1–16,000 characters and cannot be whitespace-only. The stored body maximum is 24,000 characters so Ordubashy's private notice of an accepted owner message to a permanent worker (the complete original, at most 20,000 characters, plus a short wrapper) fits in one row.
 Sender identity comes from the authenticated connection; callers cannot override
-it. Replies keep the business/Global scope and go to the current counterpart.
+it. Replies keep the project/Global scope and go to the current counterpart.
 Each message has an immutable ID, thread ID, optional parent ID, sender, recipient,
 body and timestamp. History includes the current recipient's acknowledgement time
 and outcome, when present. There is no automatic deletion or expiry.
@@ -35,13 +35,13 @@ and outcome, when present. There is no automatic deletion or expiry.
 The original `sender_*`/`recipient_*` fields attribute authorship and never change.
 `current_sender_id`/`current_recipient_id` (with names) route the conversation:
 visibility, history, reply destination, inbox delivery and acknowledgement, and
-management and delegated routing use them plus business scope. `counterpart_id` is
+management and delegated routing use them plus project scope. `counterpart_id` is
 the current participant other than the caller; `counterpart_id` as a history filter
 returns whole threads with that counterpart. A reply goes to the parent's current
 counterpart after present-day scope and contact checks, and `to_agent_id`, if given,
 must equal it; reply/thread links are unchanged and no retired identity is resolved.
 A message whose two original participants are now one current agent is read-only
-history: readable within its business, never delivered or notified, and a reply to
+history: readable within its project, never delivered or notified, and a reply to
 it fails with `invalid_transition`. Self-reminders keep one original participant and
 are delivered normally. Writers set current equal to original participants; only
 reviewed maintenance changes them.
@@ -52,9 +52,9 @@ acknowledge its parent. Inbox reads and history reads never acknowledge anything
 agents continue to acknowledge exact handled event IDs using their watcher UUID.
 The inbox event includes the full message, so no context-source lookup is needed.
 
-Business messages require both participants to have current access to the chosen
-business. Ordubashy selects the relevant business to contact its business agent;
-the business agent can reply in that same business. Global messages require both participants to have
+Project messages require both participants to have current access to the chosen
+project. Ordubashy selects the project the work is about and sends in that project;
+the recipient replies in the same project. Global messages require both participants to have
 Global context access. Inactive recipients cannot receive new messages. Current
 scope revocation hides history/delivery from the affected agent; unrelated agents
 cannot read or reply to a thread. This does not provide an external public inbox.
@@ -84,12 +84,12 @@ Host/Origin values. This change does not remove MCP authentication or add a publ
 anonymous endpoint. Local owner-API messages are attributed to the owner, not to
 an invented registered agent or a caller-supplied name.
 
-For business scope, POST JSON to:
+For project scope, POST JSON to:
 
 ```
-/api/biz/<business-slug>/operations/agents_message_recipients
-/api/biz/<business-slug>/operations/agents_message_send
-/api/biz/<business-slug>/operations/agents_messages_list
+/api/project/<project-slug>/operations/agents_message_recipients
+/api/project/<project-slug>/operations/agents_message_send
+/api/project/<project-slug>/operations/agents_messages_list
 ```
 
 For Global scope use `/api/root/operations/<same-operation-name>`. Include
@@ -109,12 +109,12 @@ The local helper wraps these same API operations; it does not access SQLite or
 another agent's credentials. Run with the installed core interpreter:
 
 ```sh
-/absolute/path/to/venv/bin/python -I -m qorqut.inbox.client --business '<project UUID>' recipients
-/absolute/path/to/venv/bin/python -I -m qorqut.inbox.client --business '<project UUID>' send --to '<agent UUID>' --message-file /tmp/message.txt --idempotency-key '<stable send UUID>'
-/absolute/path/to/venv/bin/python -I -m qorqut.inbox.client --business '<project UUID>' history --thread-id '<returned thread UUID>'
+/absolute/path/to/venv/bin/python -I -m qorqut.inbox.client --project '<project UUID>' recipients
+/absolute/path/to/venv/bin/python -I -m qorqut.inbox.client --project '<project UUID>' send --to '<agent UUID>' --message-file /tmp/message.txt --idempotency-key '<stable send UUID>'
+/absolute/path/to/venv/bin/python -I -m qorqut.inbox.client --project '<project UUID>' history --thread-id '<returned thread UUID>'
 ```
 
-`--message-file -` reads stdin; `--global` replaces `--business`. `--url` selects
+`--message-file -` reads stdin; `--global` replaces `--project`. `--url` selects
 another configured service origin. Reuse the same key after an uncertain timeout;
 do not generate a new key until sending a genuinely different message. To reply,
 use `send --reply-to '<message UUID>'` instead of `--to`.
@@ -153,23 +153,16 @@ service runtime because direct standalone storage-maintenance collection exposes
 a pre-existing circular import, also reproduced on the parent branch. Those 29
 checks passed. This change does not modify that unrelated import ordering.
 
-## Ordubashy directory
+## Agent directory
 
-Ordubashy's profile is required to include every registered business. Business
-creation extends that scope and its memberships in the same transaction, and
-ordinary profile edits cannot narrow it. Its live bootstrap briefing therefore
-includes the business agent directory: one business agent per business, each
-titled Onbashy, so rows are told apart by agent and business ID. Refresh with
-`agents_message_recipients(all_businesses=true, role_id="business-agent", scope="global")`.
-It also includes the Dev directory, one Dev peer per business that has adopted
-it, each titled Dev (`role_id="dev"`). Ordubashy routes implementation to Dev
-through these messages and tasks; it never controls Dev's session.
-Results include agent ID, role, business ID and slug, plus the businesses checked
-so a business without an agent is visible. Use the returned business ID as the send
-operation's `business_id` option, and omit `scope="global"` for that business send.
-To read the conversation with one business agent, call `agents_messages_list` with
-`counterpart_id` set to its agent ID in that business.
-The local helper supports `--global recipients --all-businesses --role-id business-agent`
+Every active agent reaches every active project. Ordubashy's live bootstrap briefing
+lists the active agents. Refresh with `agents_message_recipients(scope="global")`, or
+with the selected project's scope, and filter with `role_id` (for example
+`global-worker`). Each agent is listed once. Results include agent ID, name, role and
+the project ID and slug of the selected scope. Use the returned agent ID as
+`to_agent_id` and the returned project ID as the send operation's `project_id` option;
+omit `scope="global"` for a project send.
+To read the conversation with one agent, call `agents_messages_list` with
+`counterpart_id` set to its agent ID in the same scope.
+The local helper supports `--global recipients --role-id global-worker`
 and `history --counterpart-id <agent_id>`.
-Future businesses require the usual explicit profile scope grant; discovery does
-not silently expand authority.

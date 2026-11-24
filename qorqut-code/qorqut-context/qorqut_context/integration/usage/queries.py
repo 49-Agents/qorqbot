@@ -36,7 +36,7 @@ class UsageCall:
     """One recorded call with the sync fact of its input and Context event (``None`` before any scan was recorded)."""
 
     call_id: str
-    business_id: str | None
+    project_id: str | None
     input_id: str
     context_event_id: str
     attempt_id: str
@@ -57,7 +57,7 @@ class UsageCall:
 
     def as_dict(self) -> dict:
         usage = {**self.usage, "cost_usd": None if self.usage["cost_usd"] is None else decimal_text(self.usage["cost_usd"])}
-        return {"call_id": self.call_id, "business_id": self.business_id, "input_id": self.input_id,
+        return {"call_id": self.call_id, "project_id": self.project_id, "input_id": self.input_id,
                 "context_event_id": self.context_event_id, "attempt_id": self.attempt_id,
                 "library_attempt_sequence": self.library_attempt_sequence, "stage": self.stage, "state": self.state,
                 "started_at": self.started_at, "finished_at": self.finished_at, "configured": dict(self.configured),
@@ -157,7 +157,7 @@ def _filters(input_id, start_date, end_date):
 
 def _scan(row, prefix: str = "") -> ScanRecord:
     code = row[prefix + "error_code"]
-    return ScanRecord(row[prefix + "input_id"], row[prefix + "context_event_id"], row[prefix + "business_id"],
+    return ScanRecord(row[prefix + "input_id"], row[prefix + "context_event_id"], row[prefix + "project_id"],
                       row[prefix + "status"], None if code is None else {"code": code, "message": row[prefix + "error_message"]},
                       row[prefix + "checked_at"])
 
@@ -167,11 +167,11 @@ def _call(row) -> UsageCall:
     cost = None if row["cost_usd"] is None else Decimal(row["cost_usd"])
     flags = derived_flags(state=row["state"], counters=counters, cost_usd=cost, ignored_updates=row["ignored_updates"])
     sync = None if row["sync_status"] is None else ScanRecord(
-        row["input_id"], row["context_event_id"], row["business_id"], row["sync_status"],
+        row["input_id"], row["context_event_id"], row["project_id"], row["sync_status"],
         None if row["sync_error_code"] is None else {"code": row["sync_error_code"], "message": row["sync_error_message"]},
         row["sync_checked_at"])
     return UsageCall(
-        call_id=row["call_id"], business_id=row["business_id"], input_id=row["input_id"], context_event_id=row["context_event_id"],
+        call_id=row["call_id"], project_id=row["project_id"], input_id=row["input_id"], context_event_id=row["context_event_id"],
         attempt_id=row["attempt_id"], library_attempt_sequence=row["library_attempt_sequence"], stage=row["stage"],
         state=row["state"], started_at=row["started_at"], finished_at=row["finished_at"],
         configured={"model": row["configured_model"], "effort": row["configured_effort"],

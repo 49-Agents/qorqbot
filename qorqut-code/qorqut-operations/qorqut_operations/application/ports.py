@@ -37,7 +37,7 @@ class DelegationProvider(Protocol):
     """Stored-row access, role support and committed-action recording for delegated workers.
 
     The engine keeps the authorization logic itself (binding, generation, live authentication, assignment
-    operations and business/record boundaries, the explicit-selector rule for reads); this port only supplies
+    operations and project/record boundaries, the explicit-selector rule for reads); this port only supplies
     the host's delegation rows and vocabulary. ``None`` from any lookup means "not found" and is refused."""
 
     worker_operations: frozenset[str]

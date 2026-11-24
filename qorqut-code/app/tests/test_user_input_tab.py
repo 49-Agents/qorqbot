@@ -26,7 +26,7 @@ def page(tab, title="Checkout", url="https://shop.example/pay?session=secret"):
 
 
 def tab(agent, which=TAB):
-    return {"type": "tab", "id": f"{agent}:{which}", "business_id": None}
+    return {"type": "tab", "id": f"{agent}:{which}", "project_id": None}
 
 
 class Case(unittest.TestCase):
@@ -119,7 +119,7 @@ class ResolveTest(Case):
     def test_the_tab_ids_are_compared_whole(self):
         for identity in (TAB[:-1], TAB.lower(), TAB + "0", ""):
             with self.assertRaises(DomainError):
-                self.resolve({"type": "tab", "id": f"{AGENT}:{identity}", "business_id": None})
+                self.resolve({"type": "tab", "id": f"{AGENT}:{identity}", "project_id": None})
 
     def test_a_memo_keeps_one_listing_for_an_agent_and_remembers_a_browser_that_did_not_answer(self):
         memo = {}
@@ -137,7 +137,7 @@ class OwnerViewTest(Case):
     def test_an_available_tab_is_a_card_with_its_agent_title_and_both_ids(self):
         views = self.views(tab(AGENT))
         self.assertEqual(views, {("tab", f"{AGENT}:{TAB}", None): {
-            "type": "tab", "id": f"{AGENT}:{TAB}", "business_id": None, "label": "Checkout", "available": True,
+            "type": "tab", "id": f"{AGENT}:{TAB}", "project_id": None, "label": "Checkout", "available": True,
             "agent_id": AGENT, "tab_id": TAB, "agent_label": "Ada"}})
 
     def test_nothing_the_page_controls_but_its_title_reaches_the_card_and_that_only_as_text(self):
@@ -149,7 +149,7 @@ class OwnerViewTest(Case):
         written = json.dumps(list(views.values()))
         self.assertNotIn("steal", written)
         self.assertNotIn("javascript", written)
-        self.assertEqual(set(first), {"type", "id", "business_id", "label", "available", "agent_id", "tab_id", "agent_label"})
+        self.assertEqual(set(first), {"type", "id", "project_id", "label", "available", "agent_id", "tab_id", "agent_label"})
         self.assertNotIn("viewer_url", first)
 
     def test_the_label_is_the_trimmed_title_then_the_host_then_tab(self):
@@ -177,7 +177,7 @@ class OwnerViewTest(Case):
         entry = projection.Entry("assistant", "k", projection.SPEAKER_AGENT, "Look.", 0, 1, None, references=tuple(map(refs.key, named)))
         shown = reader.entry_view(entry, projection.Lineage("a", "claude", "c", "r"), {}, None, None, views)["references"]
         self.assertEqual([item["available"] for item in shown], [True, False, False, False])
-        self.assertEqual(shown[1], {"type": "tab", "id": f"{AGENT}:{THIRD}", "business_id": None, "label": "Unavailable tab",
+        self.assertEqual(shown[1], {"type": "tab", "id": f"{AGENT}:{THIRD}", "project_id": None, "label": "Unavailable tab",
                                     "available": False})
 
     def test_a_page_of_chat_lists_each_agent_s_tabs_once_however_many_of_them_it_names(self):
@@ -199,7 +199,7 @@ class OwnerViewTest(Case):
 
     def test_a_retired_agent_reference_of_the_page_is_left_out(self):
         with mock.patch.object(UserInput, "agent", return_value={"agent_id": AGENT, "display_name": "Ada", "role": {"id": "ordubashy"}}):
-            views = self.views({"type": "agent", "id": AGENT, "business_id": None}, tab(AGENT))
+            views = self.views({"type": "agent", "id": AGENT, "project_id": None}, tab(AGENT))
         # A retired agent reference is not shown; the tab still names its agent.
         self.assertEqual(list(views), [("tab", f"{AGENT}:{TAB}", None)])
         self.assertEqual(views[("tab", f"{AGENT}:{TAB}", None)]["agent_label"], "Ada")
@@ -237,7 +237,7 @@ class ToolTest(Case):
             self.assertNotIn(identity, raised.exception.message)
 
     def test_a_malformed_tab_reference_is_a_validation_error_and_nothing_is_looked_up(self):
-        for reference in ({"type": "tab", "id": AGENT}, {"type": "tab", "id": f"{AGENT}:{TAB}", "business_id": AGENT}):
+        for reference in ({"type": "tab", "id": AGENT}, {"type": "tab", "id": f"{AGENT}:{TAB}", "project_id": AGENT}):
             with self.assertRaises(DomainError) as raised:
                 self.read([reference])
             self.assertEqual(raised.exception.code, "validation_error")

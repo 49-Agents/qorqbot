@@ -15,7 +15,7 @@ from qorqut_operations.contracts import DomainError
 
 # Refusals meaning "this caller may not read that now"; callers treat them as an absent (or undisclosed) source.
 REFUSED = frozenset({"forbidden", "policy_denied", "not_found", "operation_unavailable", "validation_error", "scope_required",
-                     "business_archived", "context_refresh_required", "invalid_principal"})
+                     "project_archived", "context_refresh_required", "invalid_principal"})
 
 
 def admit_read(application, ctx, operation, arguments, uow):
@@ -25,7 +25,7 @@ def admit_read(application, ctx, operation, arguments, uow):
     bound = application.registry.bind_arguments(operation, arguments)
     namespace = application.namespace(ctx, descriptor, bound)
     if namespace == "global":
-        ctx = replace(ctx, business_id=None, review_business_id=None)
+        ctx = replace(ctx, project_id=None, review_project_id=None)
     decision = application.authorize(ctx, descriptor, (), uow, namespace=namespace, arguments=bound)
     if decision.mode != "allow":
         raise DomainError("policy_denied", "The read operation is not permitted")

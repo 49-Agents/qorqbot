@@ -63,7 +63,7 @@ class ApplyReceipts:
 
     @staticmethod
     def resource_key(plan, resource):
-        return {"target_namespace": ("business:" + resource.business_id) if resource.business_id
+        return {"target_namespace": ("project:" + resource.project_id) if resource.project_id
                 else resource.namespace or plan.target_namespace,
                 "resource_type": resource.resource_type, "resource_id": resource.resource_id}
 

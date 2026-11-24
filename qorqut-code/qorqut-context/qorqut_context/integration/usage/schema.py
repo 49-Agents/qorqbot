@@ -2,7 +2,7 @@
 
 ``context_usage_calls`` keeps one durable row per stable library ``call_id``. A row is bound immutably to the stored queue
 input, the Context event that input reserved, the library attempt (its ID, its own 1-based ``library_attempt_sequence`` and
-the stage). The owning namespace is the input's (``business_id`` NULL is Global) and is never supplied by a caller. The
+the stage). The owning namespace is the input's (``project_id`` NULL is Global) and is never supplied by a caller. The
 library attempt sequence is deliberately not the queue attempt number; nothing here relates the two.
 
 ``context_usage_sync`` keeps what the later host collector last observed about one queue input and Context event:
@@ -35,7 +35,7 @@ _COUNTERS = ",\n    ".join(
 SCHEMA = (
     f"""CREATE TABLE context_usage_calls (
     call_id TEXT PRIMARY KEY CHECK (call_id = attempt_id || ':' || stage),
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     input_id TEXT NOT NULL REFERENCES context_inputs(id),
     context_event_id TEXT NOT NULL CHECK ({_EVENT.format(c='context_event_id')}),
     attempt_id TEXT NOT NULL CHECK (length(attempt_id) = 32 AND attempt_id NOT GLOB '*[^0-9a-f]*'),
@@ -74,7 +74,7 @@ SCHEMA = (
     """CREATE INDEX context_usage_calls_by_bootstrap ON context_usage_calls(bootstrap_call_id)""",
     """CREATE TRIGGER context_usage_calls_binding
 BEFORE INSERT ON context_usage_calls
-WHEN NEW.business_id IS NOT (SELECT business_id FROM context_inputs WHERE id = NEW.input_id)
+WHEN NEW.project_id IS NOT (SELECT project_id FROM context_inputs WHERE id = NEW.input_id)
     OR NOT EXISTS (SELECT 1 FROM context_input_attempts a
                    WHERE a.input_id = NEW.input_id AND a.context_event_id = NEW.context_event_id)
 BEGIN
@@ -92,7 +92,7 @@ BEGIN
     SELECT RAISE(ABORT, 'A bootstrap call and every call that references it belong to one input and Context event');
 END""",
     """CREATE TRIGGER context_usage_calls_immutable_identity
-BEFORE UPDATE OF call_id, business_id, input_id, context_event_id, attempt_id, library_attempt_sequence, stage, started_at,
+BEFORE UPDATE OF call_id, project_id, input_id, context_event_id, attempt_id, library_attempt_sequence, stage, started_at,
     configured_model, configured_effort, configured_service_tier, bootstrap_call_id, recorded_at
 ON context_usage_calls
 BEGIN
@@ -125,7 +125,7 @@ END""",
     f"""CREATE TABLE context_usage_sync (
     input_id TEXT NOT NULL REFERENCES context_inputs(id),
     context_event_id TEXT NOT NULL CHECK ({_EVENT.format(c='context_event_id')}),
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     status TEXT NOT NULL CHECK (status IN ('partial','ready','unavailable')),
     error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),
     error_message TEXT CHECK (error_message IS NULL OR length(error_message) <= 300),
@@ -137,14 +137,14 @@ END""",
 )""",
     """CREATE TRIGGER context_usage_sync_binding
 BEFORE INSERT ON context_usage_sync
-WHEN NEW.business_id IS NOT (SELECT business_id FROM context_inputs WHERE id = NEW.input_id)
+WHEN NEW.project_id IS NOT (SELECT project_id FROM context_inputs WHERE id = NEW.input_id)
     OR NOT EXISTS (SELECT 1 FROM context_input_attempts a
                    WHERE a.input_id = NEW.input_id AND a.context_event_id = NEW.context_event_id)
 BEGIN
     SELECT RAISE(ABORT, 'A usage sync record belongs to its queue input''s namespace and a Context event that input reserved');
 END""",
     """CREATE TRIGGER context_usage_sync_immutable_identity
-BEFORE UPDATE OF input_id, context_event_id, business_id ON context_usage_sync
+BEFORE UPDATE OF input_id, context_event_id, project_id ON context_usage_sync
 BEGIN
     SELECT RAISE(ABORT, 'A usage sync record identity is immutable');
 END""",
@@ -156,14 +156,14 @@ END""",
 )
 
 TABLES = {
-    "context_usage_calls": TableSpec(("call_id",), "business_id", True, None),
-    "context_usage_sync": TableSpec(("input_id", "context_event_id"), "business_id", True, None),
+    "context_usage_calls": TableSpec(("call_id",), "project_id", True, None),
+    "context_usage_sync": TableSpec(("input_id", "context_event_id"), "project_id", True, None),
 }
 IMMUTABLE_FIELDS = {
     "context_usage_calls": frozenset({
-        "call_id", "business_id", "input_id", "context_event_id", "attempt_id", "library_attempt_sequence", "stage",
+        "call_id", "project_id", "input_id", "context_event_id", "attempt_id", "library_attempt_sequence", "stage",
         "started_at", "configured_model", "configured_effort", "configured_service_tier", "bootstrap_call_id", "recorded_at"}),
-    "context_usage_sync": frozenset({"input_id", "context_event_id", "business_id"}),
+    "context_usage_sync": frozenset({"input_id", "context_event_id", "project_id"}),
 }
 # Calls are bound to the stored queue input and to one of its attempts; the queue contribution owns both tables.
 REQUIRED_TABLES = frozenset({"context_inputs", "context_input_attempts"})

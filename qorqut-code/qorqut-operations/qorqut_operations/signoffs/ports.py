@@ -76,11 +76,11 @@ class OwnerTaskAttention(Protocol):
     """Task/snooze knowledge for the owner attention overview (v1 ``tasks.models.DEFAULT_CONFIG`` and
     ``tasks.snooze.ACTIVE_SQL`` inside ``SignoffNotifications.overview``).
 
-    ``open_assigned_count(uow, business_id, principal_id, now)`` -> the number of non-archived, non-closed,
-    not-snoozed tasks assigned to that person in that business (``None`` is the Global workspace). ``now`` is the
+    ``open_assigned_count(uow, project_id, principal_id, now)`` -> the number of non-archived, non-closed,
+    not-snoozed tasks assigned to that person in that project (``None`` is the Global workspace). ``now`` is the
     normalized UTC stamp the engine compares against."""
 
-    def open_assigned_count(self, uow, business_id: str | None, principal_id: str, now: str) -> int: ...
+    def open_assigned_count(self, uow, project_id: str | None, principal_id: str, now: str) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -161,15 +161,13 @@ class ManagementQueries(Protocol):
     """Management routing knowledge (v1 ``management.service`` and ``management.identity``).
 
     ``managed_input_sql`` is v1 ``MANAGED_INPUT_SQL`` over alias ``s``. ``coordinator(uow)`` is
-    ``ManagementService._coordinator`` (raises ``management_unavailable`` exactly as v1). ``auto_route_input(ctx,
-    row, uow)`` runs in the transaction that creates an input request. ``routing_for(uow, signoff_id)`` returns
-    the stored routing row of a Signoff (v1 queried ``management_routing`` directly) or ``None``."""
+    ``ManagementService._coordinator`` (raises ``management_unavailable`` exactly as v1). ``routing_for(uow,
+    signoff_id)`` returns the stored routing row of a Signoff (v1 queried ``management_routing`` directly) or
+    ``None``."""
 
     managed_input_sql: str
 
     def coordinator(self, uow) -> str: ...
-
-    def auto_route_input(self, context: InvocationContext, row: Mapping[str, Any], uow) -> None: ...
 
     def routing_for(self, uow, signoff_id: str) -> Mapping[str, Any] | None: ...
 
@@ -248,7 +246,7 @@ class SignoffPorts:
                 ("platform", ("staging_values", "staged", "transition", "replaceable_after_cancel", "view",
                               "is_email_submission"), ()),
                 ("email", ("visibility", "email_context"), ()),
-                ("management", ("coordinator", "auto_route_input", "routing_for"), ("managed_input_sql",)),
+                ("management", ("coordinator", "routing_for"), ("managed_input_sql",)),
                 ("focus", ("release_signoff",), ()),
                 ("narrowing", ("narrow",), ()),
                 ("sources", ("check",), ()),

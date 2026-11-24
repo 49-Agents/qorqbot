@@ -106,7 +106,7 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 
 ## Projects
 
-- A project keeps the work, records and context for one client or business apart. There is no "new project" button:
+- A project keeps the work, records and context for one client or company apart. There is no "new project" button:
   the owner asks Ordubashy in Chat ("Create a project for …" with a name and its purpose), and he prepares it and asks
   for a Signoff before anything is created.
 - Opening a link or record that belongs to a project switches the workspace to that project.

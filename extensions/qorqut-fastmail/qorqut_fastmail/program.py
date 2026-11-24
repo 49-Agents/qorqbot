@@ -36,7 +36,7 @@ class FastmailMutationProgram:
         return self._dispatch(control, args, recover=True)
 
     def _dispatch(self, control, args, *, recover):
-        if args.get("scope") != "global" or control.business_id:
+        if args.get("scope") != "global" or control.project_id:
             raise DomainError("invalid_plan", "Fastmail mutation job has an invalid scope")
         account_id = args.get("account_id")
         operation, payload = args.get("operation"), args.get("arguments")
@@ -104,7 +104,7 @@ class FastmailMutationProgram:
         if control.job.get("definition_ref_json", {}).get("fastmail_operation") != operation:
             raise DomainError("forbidden", "Fastmail job has no bound operation")
         app = control.service.app
-        ctx = app.policy.context_for(control.job["initiated_by_principal_id"], business_id=None, review_business_id=None, uow=uow)
+        ctx = app.policy.context_for(control.job["initiated_by_principal_id"], project_id=None, review_project_id=None, uow=uow)
         app.authorize(ctx, app.registry.get(operation), (), uow, namespace="global")
         app.registry.bind_arguments(operation, payload)
         app.fastmail.access(ctx, uow)

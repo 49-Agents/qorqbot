@@ -1,1 +1,1 @@
-"""Bounded background jobs, separate from Claude Code business agents."""
+"""Bounded background jobs, separate from agent sessions."""

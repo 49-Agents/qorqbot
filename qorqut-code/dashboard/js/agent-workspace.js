@@ -1,0 +1,575 @@
+// One document hosts the native screens. Navigation reuses it, while its page
+// state stays separate from the selected agent, transcript and chat draft.
+const AGENT_WORKSPACE_PROJECT_KEY = 'agent-workspace:project:v1';
+const AGENT_WORKSPACE_SECTION_KEY = 'agent-workspace:section:v1';
+const AGENT_WORKSPACE_SECTIONS = [
+  ['tasks', 'Tasks'], ['progress', 'Progress'], ['tables', 'Tables'],
+];
+const AGENT_WORKSPACE_GLOBAL_SECTIONS = [
+  ['overview', 'Overview'], ['costs', 'Costs'], ['context', 'Context'], ['tables', 'Tables'],
+];
+// The embedded page is showing Tables: the Tables section of Project management (or the retired standalone view key).
+const embeddedTablesView = () => {
+  const params = new URLSearchParams(location.search), view = params.get('agent-pane-embed');
+  return view === 'tables' || (view === 'project' && params.get('section') === 'tables');
+};
+const agentWorkspaceEmbedded = () => new URLSearchParams(location.search).has('agent-pane-embed');
+const agentWorkspaceSections = project => project === 'global' ? AGENT_WORKSPACE_GLOBAL_SECTIONS : AGENT_WORKSPACE_SECTIONS;
+const agentWorkspaceSectionKey = project => AGENT_WORKSPACE_SECTION_KEY + (project === 'global' ? ':global' : '');
+// The sections a pane offers: a project has no Tables section here (the shared drawer's Tables tab covers it). An embedded
+// page validates against the full list, since the pane that frames it has already chosen.
+const agentWorkspaceOffered = (project, role) => agentWorkspaceSections(project).filter(([key]) => !(project !== 'global' && key === 'tables'));
+const agentWorkspaceSection = (project, section = ls(agentWorkspaceSectionKey(project)), role = null) => {
+  const sections = role ? agentWorkspaceOffered(project, role) : agentWorkspaceSections(project);
+  return sections.some(([key]) => key === section) ? section : sections[0][0];
+};
+const agentWorkspaceSectionIcon = key => ({overview: GLOBAL_ICONS.globe, costs: GLOBAL_ICONS.costs,
+  context: SVG_BRAIN, tables: GLOBAL_ICONS.tables,
+  progress: GLOBAL_ICONS.analytics, tasks: T_VIEW_ICON.tasks})[key];
+
+// Copy only the shared directory and owner session, never the parent's mutable
+// navigation or editor state. The child still uses native authenticated reads.
+function agentWorkspaceSnapshot() { return structuredClone({projects: state.projects, session: state.session}); }
+
+Object.assign(T_VIEW_LABEL, {project: 'Project management', global_context: 'Context', journal: 'Journal', calendar: 'Calendar'});
+Object.assign(T_VIEW_ICON, {
+  project: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>',
+  global_context: SVG_BRAIN,
+  journal: T_VIEW_ICON.notes,
+});
+
+// The old standalone Context page is a view of one registered agent, selected by stable role id (Tables is a
+// shared-drawer tab; Project management keeps its own contextual Tables section). A missing agent is an explicit
+// unavailable state, never another agent's content.
+const AGENT_PANE_DESTINATIONS = {
+  context: {role: 'learning-applier', view: 'global_context', label: 'Context'},
+  calendar: {role: 'ordubashy', view: 'calendar', label: 'Calendar'},
+  journal: {role: 'ordubashy', view: 'journal', label: 'Journal'},
+  notes: {role: 'ordubashy', view: 'journal', label: 'Journal'},
+};
+let agentWorkspaceRequest = null, agentWorkspaceApplied = 'null';
+// Only a role whose pane offers the view may store or restore its descriptor; no role inherits another's.
+const AGENT_PANE_DESCRIPTOR_VIEWS = ['global_context', 'project', 'journal', 'calendar'];
+const agentWorkspaceDescriptorRole = (view, role) => view === 'global_context' ? role === 'learning-applier'
+  : view === 'journal' || view === 'calendar' ? role === 'ordubashy'
+  : view === 'project' && agentWorkspaceViews('global', role).includes('project');
+// Map an old top-level destination (including the legacy Context aliases) to its agent view and sub-route.
+function agentWorkspaceLegacyDestination(tab, hash) {
+  if (embeddedAgentPane) return null;
+  const parts = hash.split('/')[2] === tab ? hash.split('/').slice(3) : [];
+  const alias = {learning: ['context', ['learning']]}[tab];
+  const key = alias ? alias[0] : tab;
+  return AGENT_PANE_DESTINATIONS[key] ? {...AGENT_PANE_DESTINATIONS[key], tab: key, route: (alias ? alias[1] : parts).join('/')} : null;
+}
+async function agentWorkspaceRedirect(destination) {
+  const navigation = workspaceNavigation;
+  let agent = null;
+  try {
+    agent = (await loadGlobalAgentProfiles()).find(candidate => globalRosterAgent(candidate)
+      && (candidate.role?.id || candidate.role_id) === destination.role) || null;
+  } catch (_) { /* reported as unavailable below */ }
+  if (navigation !== workspaceNavigation) return false;
+  if (!agent) {
+    state.globalTab = destination.tab;
+    renderTab(); syncWorkspaceNav();
+    return false;
+  }
+  agentWorkspaceRequest = {agentId: agent.agent_id, view: destination.view, route: destination.route || ''};
+  ls('ag:scope:global', agent.agent_id);
+  // Replace, not push: Back must not return to the retired URL and redirect again. The outer history entry
+  // keeps a small descriptor (never editor contents) so a refresh or Back/Forward reopens the same destination.
+  history.replaceState({...(history.state || {}), agentPane: agentWorkspaceRequest}, '', location.pathname + location.search + '#/global/agents');
+  return true;
+}
+function agentWorkspaceTakeRequest() { const request = agentWorkspaceRequest; agentWorkspaceRequest = null; return request; }
+function agentWorkspaceStore(descriptor) {
+  if (embeddedAgentPane || location.hash !== '#/global/agents') return;
+  const next = {...(history.state || {})};
+  if (descriptor) next.agentPane = descriptor; else delete next.agentPane;
+  history.replaceState(next, '');
+  agentWorkspaceApplied = JSON.stringify(descriptor || null);
+}
+// A stored descriptor names its own agent; the roster then checks that agent is active and has the view's role.
+function agentWorkspaceRehydrate() {
+  let descriptor = history.state?.agentPane;
+  if (!descriptor || typeof descriptor !== 'object' || location.hash !== '#/global/agents') return null;
+  // The retired standalone Tables key translates here (a retired Tables record was always Global's).
+  if (descriptor.view === 'tables') {
+    agentWorkspaceStore(null);
+    globalThis.ovOpen?.('tables', {scope: 'global', id: descriptor.table, mode: descriptor.mode});
+    return null;
+  }
+  return AGENT_PANE_DESCRIPTOR_VIEWS.includes(descriptor.view) ? descriptor : null;
+}
+// A pane view or agent change that leaves the described destination drops it, so stale records never reopen.
+function agentWorkspaceViewChanged(p) {
+  const descriptor = history.state?.agentPane;
+  if (descriptor && (descriptor.agentId !== p.agentId || descriptor.view !== p.view)) agentWorkspaceStore(null);
+}
+// The embedded Context/Tables page reports its route or selection; the parent replaces its own history state.
+function agentWorkspaceReport(view, patch) {
+  const p = _agpad;
+  if (!p?.agentId || p.view !== view || !agentWorkspaceDescriptorRole(view, p.workspaceRole)) return;
+  const prior = history.state?.agentPane;
+  agentWorkspaceStore({...(prior?.agentId === p.agentId && prior.view === view ? prior : {agentId: p.agentId, view}), ...patch});
+}
+// A frame hosted by the shared Tables drawer reports only to that drawer, which checks the exact live frame; it never
+// falls back to the agent pane's report, even once the frame has been removed. `drawerOnly` fields concern only that host.
+const agentWorkspaceDrawerHost = () => window.frameElement?.dataset.workspaceHost === 'drawer-tables'
+  || new URLSearchParams(location.search).get('workspace-host') === 'drawer-tables';
+const agentWorkspaceReportParent = (patch, drawerOnly = false) => {
+  if (!embeddedAgentPane || !parent || parent === window) return;
+  if (agentWorkspaceDrawerHost()) parent.drawerTablesReport?.(window, {...patch, scope: state.scope === 'global' ? 'global' : state.project});
+  else if (!drawerOnly) parent.agentWorkspaceReport?.(new URLSearchParams(location.search).get('agent-pane-embed'), patch);
+};
+window.addEventListener('popstate', async () => {
+  if (embeddedAgentPane || state.scope !== 'global' || state.globalTab !== 'agents' || location.hash !== '#/global/agents') return;
+  if (JSON.stringify(history.state?.agentPane || null) === agentWorkspaceApplied) return;
+  if (await agentWorkspaceCanLeave(_agpad)) renderTab();
+});
+function agentWorkspaceUnavailable(c, tab) {
+  const {label, role} = AGENT_PANE_DESTINATIONS[tab];
+  c.innerHTML = `<section class="pane global-content" aria-label="${esc(label)}"><div class="global-eyebrow">Global</div><h1>${esc(label)}</h1>
+    <p role="alert">${esc(label)} opens in the ${role === 'ordubashy' ? 'Ordubashy' : 'Learning Applier'} agent pane, and that agent is not available.</p>
+    <button type="button" id="agent-pane-retry">Retry</button></section>`;
+  $('#agent-pane-retry', c).onclick = () => { globalAgentProfilesRequest = undefined; goGlobalTab(tab); };
+}
+// Embedded pages cannot change the surrounding app; they ask it to open an agent or a project view.
+async function agentWorkspaceEscape({agent, project, table, signoffs}) {
+  if (signoffs) return sgAttentionNavigate(null);
+  if (agent) return globalAgentsNavigate(agent);
+  if (table) return tablesOpen(table.scope === 'global' ? null : table.scope, table.id, table.mode);
+  if (!state.projects.some(b => b.slug === project)) { toast('This project is unavailable.'); return; }
+  // A selected agent with no Project pane leaves the project to the guarded top-level selection.
+  if (!_agpad?.views.includes('project')) return selectProject(project);
+  ls(AGENT_WORKSPACE_PROJECT_KEY, project); ls(agentWorkspaceSectionKey(project), 'tasks');
+  await agpadSetView(_agpad, 'project');
+}
+
+// The right agent pane keeps only Focus, the agent's own workspaces and Learning Applier's Context.
+// Project management left this navigation; its data stays reachable through Project records.
+// This offers a pane, not an agent tool grant. Backend authorization is unchanged.
+function agentWorkspaceViews(scope, role) {
+  if (scope !== 'global') return [];
+  if (role === 'learning-applier') return ['global_context'];
+  if (role === 'ordubashy') return ['calendar', 'journal'];
+  return [];
+}
+// Ordubashy opens Focus and Learning Applier Context; a general worker opens its first allowed view.
+function agentWorkspaceDefault(p) {
+  if (p.workspaceScope !== 'global') return null;
+  if (p.workspaceRole === 'ordubashy') return 'focus';
+  if (p.workspaceRole === 'global-worker') return null;
+  return agentWorkspaceViews(p.workspaceScope, p.workspaceRole)[0] || null;
+}
+
+let agentWorkspaceDocument = null;
+let agentWorkspacePairedGeneration = 0, agentWorkspacePairedRequest = 0, agentWorkspacePairedFrame = null;
+const AGENT_WORKSPACE_PRIVATE_TYPES = new Set(['task','table','reference','signoff','project']);
+function agentWorkspacePairedValidSource(source) {
+  return !!source && AGENT_WORKSPACE_PRIVATE_TYPES.has(source.type) && typeof source.id === 'string'
+    && source.id.length > 0 && source.id.length <= 300
+    && (source.project_id == null || (typeof source.project_id === 'string' && source.project_id.length > 0 && source.project_id.length <= 300));
+}
+function agentWorkspacePairedCurrent(child) {
+  const p = _agpad;
+  if (!p || !p.open || p.workspaceRole !== 'ordubashy' || !p.agentId || state.scope !== 'global'
+      || state.globalTab !== 'agents' || !['focus', 'explorer', 'work'].includes(p.view) || p.isCurrent?.() === false) return false;
+  if (child === window) return (p.view === 'explorer' ? p.explorerMount : p.view === 'work' ? p.workMount : p.focusMount)?.isConnected === true;
+  const frame = p.workspaceFrame;
+  return !!frame?.isConnected && frame.contentWindow === child && p.el?.contains(frame);
+}
+// Same-origin request from the exact selected Focus frame. It has no transport fallback:
+// detached, stale, foreign or malformed callers are ignored.
+async function agentWorkspacePairedRecord(child, source, parentTable = null) {
+  if (!agentWorkspacePairedCurrent(child)) return false;
+  const previousGeneration = agentWorkspacePairedGeneration, previousFrame = agentWorkspacePairedFrame;
+  const finish = async (result, generation) => {
+    const restore = () => {
+      if (agentWorkspacePairedGeneration === generation) {
+        agentWorkspacePairedGeneration = previousGeneration; agentWorkspacePairedFrame = previousFrame;
+      }
+    };
+    try {
+      const accepted = await result;
+      if (accepted === false) restore();
+      return accepted;
+    } catch (error) { restore(); throw error; }
+  };
+  if (source == null) {
+    const generation = agentWorkspacePairedGeneration = ++agentWorkspacePairedRequest;
+    agentWorkspacePairedFrame = child === window ? null : child;
+    return finish(globalAgentViewActive?.clearPairedSource?.(generation) ?? false, generation);
+  }
+  if (!agentWorkspacePairedValidSource(source)) return false;
+  if (parentTable != null && (!agentWorkspacePairedValidSource({...parentTable, type: 'table'})
+      || parentTable.type !== 'table' || source.type !== 'task')) return false;
+  const generation = agentWorkspacePairedGeneration = ++agentWorkspacePairedRequest;
+  agentWorkspacePairedFrame = child === window ? null : child;
+  const canonical = {type: source.type, id: source.id, project_id: source.project_id ?? null,
+    label: typeof source.label === 'string' ? source.label.slice(0, 200) : null};
+  const live = () => generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child);
+  return finish(globalAgentViewActive?.selectPairedSource?.(canonical, generation, async () => {
+    if (!live()) return false;
+    // The thread is independent of the record on the right: that record closes only if it is
+    // the same one, and the Chat area always leaves the thread that is gone.
+    if (typeof child.agentWorkspacePairedUnavailable === 'function') await child.agentWorkspacePairedUnavailable(canonical);
+    if (!live()) return false;
+    const cleared = await agentWorkspacePairedRecord(child, null, null);
+    if (cleared !== false && typeof toast === 'function') toast('This thread is no longer available.');
+    return cleared;
+  }, ref => {
+    if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child))
+      return child.agentWorkspacePairedReference?.(ref) ?? false;
+    return false;
+  }, () => {
+    // Returning to the main chat leaves the record dashboard on the right intact.
+    if (generation === agentWorkspacePairedGeneration && agentWorkspacePairedCurrent(child))
+      return agentWorkspacePairedRecord(child, null, null);
+    return false;
+  }) ?? false, generation);
+}
+function agentWorkspacePairedDetach(frame) {
+  if (!frame || frame !== agentWorkspacePairedFrame) return false;
+  agentWorkspacePairedFrame = null;
+  const generation = agentWorkspacePairedGeneration = ++agentWorkspacePairedRequest;
+  return globalAgentViewActive?.clearPairedSource?.(generation) ?? false;
+}
+// A thread in the Chat area that is still sending or holds an unsaved inline signoff. Leaving Focus
+// would close it, so every Focus leave guard waits for it instead.
+function agentWorkspacePairedBusy() {
+  return typeof globalAgentViewActive !== 'undefined' && globalAgentViewActive?.pairedCanLeave?.() === false;
+}
+window.agentWorkspacePairedRecord = agentWorkspacePairedRecord;
+window.agentWorkspacePairedDetach = agentWorkspacePairedDetach;
+window.agentWorkspacePairedBusy = agentWorkspacePairedBusy;
+function agentWorkspaceLoadDocument() {
+  if (!agentWorkspaceDocument) agentWorkspaceDocument = fetch('/', {credentials: 'same-origin'})
+    .then(response => {
+      if (!response.ok) throw new Error('This pane could not load.');
+      return response.text();
+    }).catch(error => { agentWorkspaceDocument = null; throw error; });
+  return agentWorkspaceDocument;
+}
+
+function agentWorkspaceFrame(view, project, section, hint) {
+  const frame = document.createElement('iframe');
+  const params = new URLSearchParams({'agent-pane-embed': view});
+  if (project) params.set('project', project);
+  if (section) params.set('section', section);
+  if (hint?.route) params.set('route', hint.route);
+  if (hint?.host) { params.set('workspace-host', hint.host); frame.dataset.workspaceHost = hint.host; }
+  for (const key of ['table', 'mode']) if (hint?.[key]) params.set(key, hint[key]);
+  frame.className = 'agent-workspace-frame';
+  frame.setAttribute('aria-label', ['project', 'tables'].includes(view) ? `${project === 'global' ? 'Global' : project} · ${section}` : T_VIEW_LABEL[view]);
+  // The production dashboard cannot itself be framed (CSP/X-Frame-Options).
+  // Populate our same-origin child with the trusted app shell instead. Keep its
+  // own URL/state and reuse the shell across panes without relaxing server policy.
+  const load = async () => {
+    try {
+      const html = await agentWorkspaceLoadDocument();
+      if (!frame.isConnected) return false;
+      await new Promise(resolve => {
+        const child = frame.contentWindow, doc = child.document;
+        doc.open();
+        child.history.replaceState(null, '', '/?' + params);
+        frame.addEventListener('load', () => resolve(child.agentWorkspaceReady), {once: true});
+        // Download the app's scripts concurrently; defer preserves their source
+        // order and completes them before the frame's load/ready boundary.
+        doc.write(html.replace(/<script src="/g, '<script defer src="'));
+        doc.close();
+      });
+      return true;
+    } catch (error) {
+      if (!frame.isConnected) return false;
+      const doc = frame.contentDocument;
+      doc.body.innerHTML = '<p role="alert"></p><button type="button">Retry</button>';
+      doc.querySelector('p').textContent = "Couldn't load. Retry";
+      doc.querySelector('button').onclick = () => { frame.workspaceReady = load(); };
+      return false;
+    }
+  };
+  frame.workspaceReady = load();
+  return frame;
+}
+
+function agentWorkspaceMount(p, view) {
+  if (!agentWorkspaceViews(p.workspaceScope, p.workspaceRole).includes(view)) return false;
+  const body = $('#agpad-body', p.el);
+  body.classList.add('agent-workspace-body');
+  // A redirected old URL carries its sub-route and record selection to the view it opens.
+  const hint = agentWorkspaceRequest?.view === view && agentWorkspaceRequest.agentId === p.agentId ? agentWorkspaceRequest : null;
+  if (view === 'calendar') {
+    // The existing Calendar page, mounted natively (no frame): it shares this document's personal-status store with Focus, and its
+    // disposer stops its polling and listeners whenever the pane leaves the view.
+    const host = document.createElement('div');
+    host.className = 'agent-calendar-host';
+    body.replaceChildren(host);
+    const dispose = calendarMount(host, {embedded: true, isCurrent: () => _agpad === p && p.view === 'calendar' && host.isConnected});
+    p.workspaceDispose = () => { dispose(); host.remove(); };
+    return true;
+  }
+  if (view === 'journal') {
+    // The Global Journal mounts natively in this pane: the same editor and API in this document, so opening it
+    // fetches no second app shell and none of the dashboard's assets, and its own leave guard still runs.
+    const host = document.createElement('div');
+    host.className = 'agent-journal-host';
+    body.replaceChildren(host);
+    const mount = journalMount(host, {scope: '/root',
+      isCurrent: () => _agpad === p && p.view === 'journal' && host.isConnected});
+    p.journalMount = mount;
+    p.workspaceDispose = () => { mount.dispose(); p.journalMount = null; host.remove(); };
+    return true;
+  }
+  if (view !== 'project') {
+    const frame = agentWorkspaceFrame(view, undefined, undefined, hint);
+    body.replaceChildren(frame);
+    p.workspaceFrame = frame;
+    p.workspaceDispose = () => { frame.remove(); p.workspaceFrame = null; };
+    return true;
+  }
+  const projects = workspaceProjects();
+  const wanted = hint?.scope || ls(AGENT_WORKSPACE_PROJECT_KEY);
+  let project = wanted === 'global' || projects.some(b => b.slug === wanted) ? wanted : 'global';
+  // A linked project that is not in the directory opens no record rather than another scope's.
+  if (hint?.scope && project !== hint.scope) hint.table = '';
+  // A Tables link opens the Tables section (Ordubashy only); a remembered section the role no longer offers falls to the first allowed.
+  const offered = () => agentWorkspaceOffered(project, p.workspaceRole);
+  let section = hint?.section === 'tables' && offered().some(([key]) => key === 'tables') ? 'tables' : agentWorkspaceSection(project, undefined, p.workspaceRole);
+  body.innerHTML = `<section class="agent-project-workspace" aria-label="Project management">
+    <div class="agent-project-controls"><nav class="agent-project-sections" aria-label="Project sections"></nav></div>
+    <div class="agent-project-screen"></div></section>`;
+  const picker = document.createElement('label'), head = $('.thead', p.el);
+  picker.className = 'agent-project-picker';
+  picker.innerHTML = `<select aria-label="Choose project"><option value="global">Global</option>${projects.map(b => `<option value="${esc(b.slug)}">${esc(b.name || b.slug)}</option>`).join('')}</select>`;
+  head.classList.add('agent-project-head');
+  head.append(picker);
+  const select = $('select', picker), screen = $('.agent-project-screen', body);
+  const paint = async () => {
+    select.value = project;
+    $('.agent-project-sections', body).innerHTML = offered().map(([key, label]) =>
+      `<button type="button" data-workspace-section="${key}" aria-label="${label}" aria-pressed="${key === section}">${agentWorkspaceSectionIcon(key)}</button>`).join('');
+    if (p.workspaceFrame) {
+      const frame = p.workspaceFrame;
+      if (!await frame.workspaceReady) return;
+      if (!frame.isConnected) return;
+      frame.setAttribute('aria-label', `${project === 'global' ? 'Global' : project} · ${section}`);
+      await frame.contentWindow.agentWorkspaceNavigateEmbedded(view, project, section);
+    } else {
+      p.workspaceFrame = agentWorkspaceFrame(view, project, section, hint);
+      screen.replaceChildren(p.workspaceFrame);
+    }
+  };
+  let changing = false;
+  const change = async (nextProject, nextSection) => {
+    if (changing) { select.value = project; return; }
+    changing = true;
+    try {
+      if (!await p.workspaceFrame.workspaceReady) { select.value = project; return; }
+      if (!await agentWorkspaceCanLeave(p) || _agpad !== p || p.view !== view) { select.value = project; return; }
+      project = nextProject; section = nextSection;
+      ls(AGENT_WORKSPACE_PROJECT_KEY, project);
+      if (section === 'tables') agentWorkspaceReport('project', {section: 'tables', scope: project, table: '', mode: ''});
+      else if (history.state?.agentPane?.view === 'project') agentWorkspaceStore(null);
+      ls(agentWorkspaceSectionKey(project), section);
+      await paint();
+    } finally { changing = false; }
+  };
+  select.onchange = () => change(select.value, agentWorkspaceSection(select.value, undefined, p.workspaceRole));
+  $('.agent-project-sections', body).onclick = event => {
+    const button = event.target.closest('[data-workspace-section]');
+    if (button && button.dataset.workspaceSection !== section) change(project, button.dataset.workspaceSection);
+  };
+  p.workspaceDispose = () => { picker.remove(); head.classList.remove('agent-project-head'); p.workspaceFrame?.remove(); p.workspaceFrame = null; };
+  paint();
+  if (section === 'tables') agentWorkspaceReport('project', {section: 'tables', scope: project, ...(hint ? {table: hint.table || '', mode: hint.mode || ''} : {})});
+  return true;
+}
+
+// Native editors retain their save/leave contract when hosted in a pane.
+async function agentWorkspaceCanLeave(p) {
+  // Leaving Focus closes the thread it opened in the Chat area, which must not drop a send or a signoff.
+  if ((p?.view === 'focus' || p?.view === 'explorer' || p?.view === 'work' || p?.workspaceFrame) && typeof agentWorkspacePairedBusy === 'function' && agentWorkspacePairedBusy()) {
+    if (typeof toast === 'function') toast(typeof PAIRED_THREAD_BUSY === 'string' ? PAIRED_THREAD_BUSY : 'Wait for the message to send, or save the signoff, before leaving this thread.');
+    return false;
+  }
+  if (p?.view === 'focus' && !await agpadFocusCanLeave(p)) return false;
+  if (p?.view === 'explorer' && p.explorerCanLeave && !await p.explorerCanLeave()) return false;
+  if (p?.view === 'work' && p.workCanLeave && !await p.workCanLeave()) return false;
+  if (p?.journalMount) return p.journalMount.flush();
+  const child = p?.workspaceFrame?.contentWindow;
+  if (child?.agentWorkspaceLeaveEmbedded) return child.agentWorkspaceLeaveEmbedded();
+  return true;
+}
+async function agentWorkspaceLeaveEmbedded() {
+  if (!await ntFlush()) return false;
+  if (_jState && (_jState.dirty || _jState.saving)) { await jSave(); if (_jState.dirty || _jState.saving) return false; }
+  const pending = new Event('beforeunload', {cancelable: true});
+  window.dispatchEvent(pending);
+  if (!pending.defaultPrevented) return true;
+  if (!confirm('This pane has unsaved edits. Discard them and leave?')) return false;
+  // These editors retain drafts in document-local maps. A confirmed discard
+  // must clear them now that section navigation no longer destroys the frame.
+  _dataDrafts.clear();
+  return true;
+}
+
+function overseerEmbeddedComingSoon(c) {
+  const error = testingModeFailed() ? `<p class="overseer-coming-soon-error" role="alert">${esc(testingModeMessage())}</p>` : '';
+  c.innerHTML = `<section class="overseer-coming-soon overseer-coming-soon-embed" aria-label="Overseer" aria-live="polite">
+    <div class="overseer-coming-soon-box">
+      <h2>Overseer</h2>
+      <p class="overseer-coming-soon-description">Overseer will be managing the agentic layer, tailoring Qorqbot for you on the lowest level.</p>
+      <p class="overseer-coming-soon-hint">Available in testing mode only</p>
+      ${error}
+    </div>
+  </section>`;
+}
+async function agentWorkspaceBootEmbedded() {
+  document.body.classList.add('agent-pane-embedded');
+  const params = new URLSearchParams(location.search), view = params.get('agent-pane-embed');
+  const c = $('#content');
+  c.innerHTML = '<p class="muted" role="status">Loading…</p>';
+  try {
+    // A directly opened Learning Applier workspace frame is still Overseer
+    // navigation and stays closed while Testing mode is off.
+    if (view === 'global_context' && !testingModeEnabled()) {
+      await testingModeReady();
+      if (!testingModeEnabled()) { overseerEmbeddedComingSoon(c); return; }
+    }
+    const snapshot = window.parent !== window && window.parent.agentWorkspaceSnapshot?.();
+    if (snapshot) { state.projects = snapshot.projects; state.session = snapshot.session; }
+    else state.projects = await api('/project');
+    await loadSession();
+    const project = params.get('project') || 'global';
+    // In-page route links change the pane's route without pushing history entries.
+    document.addEventListener('click', event => {
+      const link = event.target.closest?.('a[href^="#/"]');
+      if (link && !event.defaultPrevented && event.button === 0 && !(event.ctrlKey || event.metaKey || event.shiftKey)) { event.preventDefault(); routeTo(link.getAttribute('href')); }
+    });
+    await agentWorkspaceNavigateEmbedded(view, project, agentWorkspaceSection(project, params.get('section')), params.get('route') || '');
+    if (embeddedTablesView() && ['table', 'mode'].some(key => params.get(key))) await tablesOpen(project === 'global' ? null : project, params.get('table'), params.get('mode') || 'tables');
+    // Reuse the parent's data-change stream; no background drawers or agent feeds.
+    connectEvents();
+  } catch (error) {
+    c.innerHTML = `<p role="alert">Couldn't load. Retry</p><button type="button" data-embed-retry>Retry</button>`;
+    $('[data-embed-retry]', c).onclick = agentWorkspaceBootEmbedded;
+  }
+}
+
+async function agentWorkspaceNavigateEmbedded(view, project = 'global', section, route = '') {
+  if (project !== 'global' && !state.projects.some(b => b.slug === project)) throw new Error('This project is unavailable.');
+  if (view !== 'tables') section = agentWorkspaceSection(project, section);
+  const tablesView = view === 'tables' || (view === 'project' && section === 'tables');
+  state.scope = !['project', 'tables'].includes(view) || project === 'global' ? 'global' : 'project';
+  state.project = state.scope === 'global' ? null : project;
+  state.ctx = tablesView && state.scope === 'project' ? '_tables' : null;
+  let hash;
+  if (tablesView) {
+    state.tab = 'context';
+    state.globalTab = 'tables';
+    hash = state.scope === 'global' ? '#/global/tables' : '#' + project;
+  } else if (state.scope === 'project') {
+    state.tab = section === 'tasks' ? 'tasks' : 'progress';
+    hash = '#' + project;
+  } else {
+    state.globalTab = view === 'journal' ? 'journal' : view === 'project' ? section : 'context';
+    hash = '#/global/' + state.globalTab + (view === 'global_context' ? '/' + (route || 'graph') : '');
+  }
+  const params = new URLSearchParams({'agent-pane-embed': view, project, section: section || ''});
+  if (agentWorkspaceDrawerHost()) params.set('workspace-host', 'drawer-tables');
+  history.replaceState(null, '', location.pathname + '?' + params + hash);
+  renderedGlobalHash = hash;
+  renderTab();
+}
+
+function agentWorkspaceRenderEmbedded(c) {
+  if (!agentWorkspaceEmbedded()) return false;
+  const view = new URLSearchParams(location.search).get('agent-pane-embed');
+  if (view === 'journal') {
+    // Host the existing Notes/Journal editor unchanged, with its own save/leave lifecycle.
+    tView = 'notes';
+    c.innerHTML = '<section id="tbody" class="tbody nt" aria-label="Journal"></section>';
+    tPaintNotes();
+    return true;
+  }
+  if (state.scope === 'project' && state.tab === 'progress') {
+    renderProjectProgress(c);
+    return true;
+  }
+  if (embeddedTablesView()) {
+    // The native tables list/detail/edit/history controls, over the selected Global or project scope.
+    if (state.scope === 'project') { c.innerHTML = '<div id="ctxembedded"></div>'; renderTables($('#ctxembedded', c)); }
+    else renderTables(c);
+    return true;
+  }
+  if (state.scope !== 'global') return false;
+  if (view === 'project' && state.globalTab === 'overview') {
+    c.innerHTML = `<section class="pane global-content" aria-label="Overview"><header class="global-heading-row"><h1>Projects</h1></header>${state.projects.length ? '' : '<p class="muted" data-no-projects>No projects yet. Ask Ordubashy to create one.</p>'}<div id="global-progress"></div></section>`;
+    globalProgressMount($('#global-progress', c));
+    return true;
+  }
+  return false;
+}
+
+// The shell startup: the embedded editors' unsaved-edit prompt is forwarded from the outer document so a reload keeps their drafts.
+function agentWorkspaceShellStart() {
+  document.body.classList.add('agent-workspace-app');
+  $('#workspace-back button').onclick = () => selectGlobal('agents');
+  window.addEventListener('beforeunload', event => {
+    // A native editor cannot finish a save while the page is leaving, so warn instead of promising one.
+    // The mount reports false once its edit is saved and once it is disposed.
+    if (_agpad?.journalMount?.dirty()) { event.preventDefault(); event.returnValue = ''; return; }
+    const child = _agpad?.workspaceFrame?.contentWindow;
+    if (!child) return;
+    const pending = new Event('beforeunload', {cancelable: true});
+    child.dispatchEvent(pending);
+    if (pending.defaultPrevented) { event.preventDefault(); event.returnValue = ''; }
+  });
+}
+
+async function agentJournalOpen(id) {
+  if(embeddedAgentPane)return parent.agentJournalOpen(id);
+  await selectGlobal('journal');
+  const mount=_agpad?.journalMount;
+  if(!mount || _agpad?.view!=='journal' || !mount.root.isConnected)return;
+  await mount.fetch();
+  if(_agpad?.journalMount===mount && mount.root.isConnected)await mount.select(id);
+}
+
+// File readers use the same Focus expansion as the other owner-facing screens.
+async function agentFilePreviewOpen(reference) {
+  if(embeddedAgentPane)return parent.agentFilePreviewOpen(reference);
+  const target=chatViewReferenceTarget(reference?.href);
+  if(!target || !(target.image || target.viewer && target.url.pathname==='/files/view'))return false;
+  try {
+    const session=await window.focusExpansion.open({title:reference.title || 'File',mount(host,session){
+      const reader=document.createElement('section');reader.className='agent-file-preview';
+      const open=document.createElement('a');open.href=target.url.href;open.target='_blank';open.rel='noopener noreferrer';open.textContent='Open in new tab';
+      session.addHeaderAction(open);
+      const content=document.createElement('div');content.className='agent-file-preview-content';reader.append(content);
+      const media=document.createElement(target.image?'img':'iframe');media.referrerPolicy='no-referrer';
+      if(target.image){
+        media.alt=reference.title || 'Image';media.decoding='async';
+        media.src=target.viewer?`/api/root/files/image${target.url.search}`:target.url.href;
+        media.onerror=()=>{if(session.isCurrent())content.textContent='This image could not be displayed.';};
+      }else{media.setAttribute('aria-label',(reference.title || 'File')+' preview');media.src=target.url.href;}
+      content.append(media);host.append(reader);
+      return ()=>{media.onerror=null;if(media.tagName==='IFRAME')media.src='about:blank';media.remove();reader.remove();};
+    }});
+    return !!session;
+  }catch(_){toast('Could not open the file preview.');return false;}
+}
+
+// Exact record links remain usable after removing the drawer's management screens.
+// Every record, a Task included, opens in Ordubashy's Focus record workspace.
+async function agentOpenRecordReference(ref) {
+  if(embeddedAgentPane)return parent.agentOpenRecordReference(ref);
+  const agent=(await loadGlobalAgentProfiles()).find(a=>globalRosterAgent(a) && a.role?.id==='ordubashy');
+  if(!agent){toast('Ordubashy is unavailable.');return false;}
+  if(state.scope!=='global' || state.globalTab!=='agents')await selectGlobal('agents');
+  if(!await globalAgentsNavigate(agent.agent_id,{view:'focus'}))return false;
+  const pane=_agpad;
+  if(pane?.agentId!==agent.agent_id || pane.view!=='focus')return false;
+  return agfocusOpenRecord(pane,ref);
+}

@@ -13,9 +13,8 @@ EASTERN = ZoneInfo('America/New_York')
 
 # The one owner selection of the notification tick; the read-only preflight and the transaction share this text.
 ACTIVE_OWNERS_SQL = """SELECT DISTINCT p.id FROM principals p
-    WHERE p.active=1 AND p.kind='human' AND (EXISTS(SELECT 1 FROM business_memberships m
-    WHERE m.principal_id=p.id AND m.active=1 AND m.is_owner=1) OR EXISTS(
-    SELECT 1 FROM installation i WHERE i.owner_principal_id=p.id))"""
+    WHERE p.active=1 AND p.kind='human' AND EXISTS(
+    SELECT 1 FROM installation i WHERE i.owner_principal_id=p.id)"""
 
 
 def instant(value):
@@ -35,45 +34,45 @@ class SignoffNotifications:
         context = self.service.app.current_context(context, uow)
         if context.principal_kind != 'human':
             raise DomainError('forbidden', 'Owner attention is available only to humans')
-        businesses = [dict(b) for b in uow.connection.execute('''SELECT b.id,b.name,b.slug FROM businesses b
-            JOIN business_memberships m ON m.business_id=b.id WHERE m.principal_id=? AND m.active=1 AND m.is_owner=1 AND b.archived_at IS NULL''',
-            (context.principal_id,)) if b['id'] in context.allowed_business_ids]
+        projects = [dict(b) for b in uow.connection.execute('''SELECT b.id,b.name,b.slug FROM projects b
+            JOIN installation i ON i.owner_principal_id=? WHERE b.archived_at IS NULL''',
+            (context.principal_id,)) if b['id'] in context.allowed_project_ids]
         installation = uow.repository('installation').get('service')
         if installation and installation['owner_principal_id'] == context.principal_id:
-            businesses.append({'id': None, 'name': 'Global', 'slug': None})
-        return context, businesses
+            projects.append({'id': None, 'name': 'Global', 'slug': None})
+        return context, projects
 
     def _rows(self, context, uow, *, include_managed=False):
-        context, businesses = self._scopes(context, uow)
+        context, projects = self._scopes(context, uow)
         rows = []
-        for business in businesses:
-            scoped = replace(context, business_id=business['id'], review_business_id=business['id'])
+        for project in projects:
+            scoped = replace(context, project_id=project['id'], review_project_id=project['id'])
             clause, params = self.service._visibility(scoped,uow)
             if not include_managed and self.service.ports.management is not ABSENT:
                 clause += ' AND NOT ('+self.service.ports.management.managed_input_sql+')'
             found = uow.connection.execute(f'''SELECT s.* FROM signoffs s WHERE {clause}
-                AND s.review_business_id IS ?
-                AND s.state='pending' AND s.superseded_by_id IS NULL ORDER BY s.created_at,s.id''', [*params, business['id']])
+                AND s.review_project_id IS ?
+                AND s.state='pending' AND s.superseded_by_id IS NULL ORDER BY s.created_at,s.id''', [*params, project['id']])
             for raw in found:
                 row = self.service._dto(decode_row(raw), uow, detail=False)
-                row.update(business_slug=business['slug'], business_name=business['name'])
+                row.update(project_slug=project['slug'], project_name=project['name'])
                 rows.append(row)
-        return context, businesses, rows
+        return context, projects, rows
 
     def overview(self, context, *, all_items=False):
         with self.database.read() as uow:
-            context, businesses, rows = self._rows(context, uow, include_managed=all_items)
+            context, projects, rows = self._rows(context, uow, include_managed=all_items)
             counts = []
             now = stamp(instant(self.service.clock()))
-            for business in businesses:
-                scoped = [r for r in rows if r['review_business_id'] == business['id']]
+            for project in projects:
+                scoped = [r for r in rows if r['review_project_id'] == project['id']]
                 # Something to read is not a decision: it has its own count and is in neither ``signoffs`` nor ``total``.
                 pending = [r for r in scoped if not acknowledges(r['input'])]
-                tasks = self.service.ports.tasks.open_assigned_count(uow, business['id'], context.principal_id, now)
+                tasks = self.service.ports.tasks.open_assigned_count(uow, project['id'], context.principal_id, now)
                 urgent = sum(bool(r['attention']['urgent'] or r['attention']['blocking']) for r in pending)
-                counts.append({**business, 'signoffs': len(pending), 'tasks': tasks, 'total': len(pending)+tasks, 'urgent': urgent,
+                counts.append({**project, 'signoffs': len(pending), 'tasks': tasks, 'total': len(pending)+tasks, 'urgent': urgent,
                                'to_read': len(scoped) - len(pending)})
-            return {'businesses': counts, 'urgent': [r for r in rows if r['attention']['urgent'] or r['attention']['blocking']]}
+            return {'projects': counts, 'urgent': [r for r in rows if r['attention']['urgent'] or r['attention']['blocking']]}
 
     def _deliver(self, owner, kind, rows, key, now, uow):
         # A disconnected dashboard should see the newest reminder, not a backlog.
@@ -128,7 +127,7 @@ class SignoffNotifications:
             owners = [r[0] for r in uow.connection.execute(ACTIVE_OWNERS_SQL)]
             due, once = set(), set()
             for owner in owners:
-                context = self.service.app.policy.context_for(owner, business_id=None, review_business_id=None, uow=uow)
+                context = self.service.app.policy.context_for(owner, project_id=None, review_project_id=None, uow=uow)
                 _, _, rows = self._rows(context, uow)
                 ordinary = []
                 for row in rows:

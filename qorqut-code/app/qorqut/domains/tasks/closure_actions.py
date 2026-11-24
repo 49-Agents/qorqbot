@@ -7,7 +7,7 @@ recording it afterwards, so ``ClosureActions`` records it inside the Task write 
 * when a Task enters done from a state that is not closed, written by an agent whose role cannot record Actions itself.
   A cancelled Task, an edit of a closed Task, a Task closed along with its parent, and a closure by the coordinator, the
   learning applier or a person record nothing;
-* as one automatic Action stored in Global and credited to the closing agent: ``business-operational`` and linked to the
+* as one automatic Action stored in Global and credited to the closing agent: ``project-operational`` and linked to the
   Task's project, or ``global-operational`` for a Global Task, with the Task as its ``task`` reference. Its text is the
   result this write set, or the Task's title, cut to the 20 words of generated Action text; the full result stays on
   the Task;
@@ -51,18 +51,18 @@ UNRECORDED_WINDOW = timedelta(hours=48)
 # Task reads only the Actions linked to its project.
 BY_CLOSER = ("SELECT 1 FROM action_logs WHERE withdrawn=0 AND performed_by=? AND json_extract(refs_json,'$.task')=? "
              "LIMIT 1")
-RECORDED = ("SELECT a.action_key, a.action_text, COALESCE(p.display_name, r.display_name) AS performer FROM {source} "
+RECORDED = ("SELECT a.id, a.action_text, COALESCE(p.display_name, r.display_name) AS performer FROM {source} "
             "LEFT JOIN principals p ON p.id=a.performed_by LEFT JOIN principals r ON r.id=a.recorded_by "
             "WHERE {scope} AND a.withdrawn=0 AND json_extract(a.refs_json,'$.task')=? "
-            "ORDER BY a.created_at, a.action_key LIMIT 1")
-IN_PROJECT = RECORDED.format(source="action_businesses m JOIN action_logs a ON a.action_key=m.action_key",
-                             scope="m.business_id=?")
+            "ORDER BY a.created_at, a.id LIMIT 1")
+IN_PROJECT = RECORDED.format(source="action_projects m JOIN action_logs a ON a.id=m.action_id",
+                             scope="m.project_id=?")
 IN_GLOBAL = RECORDED.format(source="action_logs a", scope="a.category='global-operational'")
 
 
-def closure_identity(business_id, task_id) -> str:
+def closure_identity(project_id, task_id) -> str:
     """The id of the one Action the service records for a Task's closure."""
-    return models.source_identity(None, f"task-closure:{business_id or 'global'}:{task_id}")
+    return models.source_identity(None, f"task-closure:{project_id or 'global'}:{task_id}")
 
 
 def status_line(state) -> str:
@@ -75,11 +75,11 @@ def status_line(state) -> str:
     return line.strip() if isinstance(line, str) else ""
 
 
-def recorded_action(uow, business_id, task_id):
+def recorded_action(uow, project_id, task_id):
     """The first current Action that references the Task from the Task's own scope, or None: one linked to the Task's
     project, or a ``global-operational`` one for a Global Task."""
-    row = (uow.connection.execute(IN_GLOBAL, (task_id,)) if business_id is None
-           else uow.connection.execute(IN_PROJECT, (business_id, task_id))).fetchone()
+    row = (uow.connection.execute(IN_GLOBAL, (task_id,)) if project_id is None
+           else uow.connection.execute(IN_PROJECT, (project_id, task_id))).fetchone()
     return dict(row) if row else None
 
 
@@ -105,29 +105,29 @@ class ClosureActions:
 
     def write(self, ctx, uow, before, after):
         row = after["row"]
-        business_id, task_id, closer = row["business_id"], row["id"], ctx.principal_id
+        project_id, task_id, closer = row["project_id"], row["id"], ctx.principal_id
         profile = global_profile(uow.connection, closer)
         if profile is not None and profile["profile"]["role"]["id"] in RECORDING_ROLES:
             return None
-        identity = closure_identity(business_id, task_id)
-        if (uow.repository("action_logs", business_id=None).get(identity) is not None
+        identity = closure_identity(project_id, task_id)
+        if (uow.repository("action_logs", project_id=None).get(identity) is not None
                 or uow.connection.execute(BY_CLOSER, (closer, task_id)).fetchone() is not None):
             return None
         result = status_line(after)
         text = result if result and result != status_line(before) else row["title"]
         # Stored in Global, as the coordinator's own records of project work are: the project is a link, not the owner.
-        scope = replace(ctx, business_id=None, review_business_id=None)
+        scope = replace(ctx, project_id=None, review_project_id=None)
         builder = PlanBuilder(scope, "actions_record", {"task_id": task_id}, "Record the closed Task's result", clock=self.clock)
-        project = business_id is not None
+        project = project_id is not None
         action = new_action(builder, uow, text=models.concise(text), origin="automatic",
-                            category="business-operational" if project else "global-operational",
-                            businesses=[business_id] if project else [], refs={"task": task_id},
+                            category="project-operational" if project else "global-operational",
+                            projects=[project_id] if project else [], refs={"task": task_id},
                             occurrence=local_time.recorded_time(builder.at), identity=identity,
                             provenance={"via": PROVENANCE})
         plan = builder.build()
         apply_records(scope, plan, uow)
         settle(scope, plan, uow, on_revision=self.on_revision)
-        return action["action_key"]
+        return action["id"]
 
 
 def closed_within(closed_at, now, window) -> bool:
@@ -141,26 +141,26 @@ def closed_within(closed_at, now, window) -> bool:
 def coordinator_hint(runtime, ctx, task, *, clock=utc_clock):
     """What the configured coordinator is told about the Action of a done Task he read or wrote, or None.
 
-    ``task`` names the Task as stored (``id`` and ``business_id``). An Action that references it from its own scope is
+    ``task`` names the Task as stored (``id`` and ``project_id``). An Action that references it from its own scope is
     named, so it is not recorded again; without one, a Task closed within ``UNRECORDED_WINDOW`` is said to have none.
     Anyone else, and any Task that is not done, gets nothing. Read-only, after the call's own work."""
     if ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None:
         return None
-    business_id, task_id = task["business_id"], task["id"]
+    project_id, task_id = task["project_id"], task["id"]
     with runtime.application.database.read() as uow:
         if configured_ordubashy(uow) != ctx.principal_id:
             return None
-        row = uow.connection.execute("SELECT status, latest_completed_at FROM tasks WHERE business_id IS ? AND id=?",
-                                     (business_id, task_id)).fetchone()
+        row = uow.connection.execute("SELECT status, latest_completed_at FROM tasks WHERE project_id IS ? AND id=?",
+                                     (project_id, task_id)).fetchone()
         if row is None or row["status"] != "done":
             return None
-        action = recorded_action(uow, business_id, task_id)
+        action = recorded_action(uow, project_id, task_id)
         if action is None and not closed_within(row["latest_completed_at"], clock(), UNRECORDED_WINDOW):
             return None
     instructions = runtime.resolver.require_agentic_view().runtime_instructions()
     if action is None:
         return instructions.render("task-action-missing")
-    return instructions.render("task-action-recorded", ACTION_ID=action["action_key"],
+    return instructions.render("task-action-recorded", ACTION_ID=action["id"],
                                PERFORMER=action["performer"] or "an unnamed performer",
                                TEXT=models.one_line(action["action_text"]))
 

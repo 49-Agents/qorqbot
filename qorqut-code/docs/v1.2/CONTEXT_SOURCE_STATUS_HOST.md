@@ -63,7 +63,7 @@ prepare/apply still decides and rechecks every request.
   `current_revision` and no plan, effect or token replacement; omission keeps the existing permitted contract. Prepared-target
   checks at apply, current authority and ordinary idempotency replay are unchanged: an identical successful request replays its
   receipt even if the source has moved on since.
-* The retained business `POST …/context/retry` route fills `expected_revision` from the document it has just read when the body
+* The retained project `POST …/context/retry` route fills `expected_revision` from the document it has just read when the body
   gives none (unchanged); a body that supplies it is enforced as supplied.
 * The Global adapter `POST /api/root/context-library/{id}/(retry|retract)` accepts exactly `expected_revision` and
   `idempotency_key`. The invalid `force` argument is gone; an unsupported field is `validation_error` with `field_errors`.
@@ -72,11 +72,11 @@ prepare/apply still decides and rechecks every request.
 
 ## Namespace-limited queue status
 
-`app/qorqut/domains/documents/queue_status.py::context_queue_summary(connection, business_id)` reads the Operations queue's own
+`app/qorqut/domains/documents/queue_status.py::context_queue_summary(connection, project_id)` reads the Operations queue's own
 rows and returns `{queued, processing, blocked, discard_requested, publication_pending_completion, completion_conflict,
 queue_blocked, blocked_input_id}`:
 
-* the first four are the exact unfinished input states of this namespace (a business, or Global when `business_id` is None);
+* the first four are the exact unfinished input states of this namespace (a project, or Global when `project_id` is None);
 * the next two join this namespace's *published filings* with pending (or not yet recorded) and conflict receipts — an applied
   receipt counts for neither, and a graph or Action publication with no filing is never fabricated as pending;
 * `queue_blocked` is the shared queue's fact across all namespaces; `blocked_input_id` is the blocked input's ID only when it
@@ -84,28 +84,28 @@ queue_blocked, blocked_input_id}`:
 * nothing is derived from generic job activity, nothing starts, initializes or writes, and a database without the queue/filing
   tables is an explicit `operation_unavailable`, never an empty summary.
 
-Routes: `GET /api/biz/{slug}/context?view=processes` returns `{"context_queue": {…}}` and the full view carries the same object
+Routes: `GET /api/project/{slug}/context?view=processes` returns `{"context_queue": {…}}` and the full view carries the same object
 under `context_queue`; **new** `GET /api/root/context?view=processes` is the owner's read of Global-owned work (not a union of
-businesses). It refuses an agent or non-owner (`forbidden`), a selected business (`scope_required`) and any other view or query
+projects). It refuses an agent or non-owner (`forbidden`), a selected project (`scope_required`) and any other view or query
 field (`validation_error`). It is deliberately **uncached** (`Cache-Control: no-store`, no ETag), so it cannot serve a stale 304.
 
 ## Change-feed invalidation
 
 * `context_queue` is a new coarse, **global-only** kind (`GLOBAL_ONLY_KINDS`): a blocked head affects every namespace; payload
   reads stay authorized and namespace-limited. It is **additive** — a matching operation bumps it in addition to `jobs_routines`,
-  `learnings`, `signoffs` or `business_setup`, never instead of one.
+  `learnings`, `signoffs` or `project_setup`, never instead of one.
 * Mapped by committed operation-name prefix: `context_`, `actions_`, `notes_upload`, `journal_upload_to_filer`, and the `job`,
   `learning` and `signoff` families (conservative extra bumps are acceptable).
 * The three accepted queue-driver transactions are tagged: `_write` → `context_queue_driver_write`, `reconcile` →
   `context_queue_driver_reconcile`, `_start` → `context_queue_driver_start` (bodies, boundaries and order unchanged).
 * The existing gates are intact: only a successful commit that changed a row publishes, so an empty driver tick, a read and a
   rolled-back write do not advance it; no trigger, schema change or observer service was added.
-* Cacheable routes now depend on it: business `…/context` (graph/default/processes variants) and `…/notes` (also `root/notes`).
+* Cacheable routes now depend on it: project `…/context` (graph/default/processes variants) and `…/notes` (also `root/notes`).
 
 ## Body cursor
 
-A scoped `context_get` body cursor is bound to the document identity (id, business, kind), the query, the caller's scope
-(business, allowed businesses, global capabilities), the body text hash and the selected range. Row revision, stored metadata and
+A scoped `context_get` body cursor is bound to the document identity (id, project, kind), the query, the caller's scope
+(project, allowed projects, global capabilities), the body text hash and the selected range. Row revision, stored metadata and
 the file digest are not part of it, so a filing completion (which rewrites them) does not strand a reader in an unchanged body;
 a body change, another document or another scope still invalidates it.
 
@@ -126,25 +126,25 @@ Nothing else changes in the dispatcher:
 
 * it is still the owner's HTTP identity (`Authentication.installation_owner`), the registered schema, policy and prepared-application
   path, and the flat splitting of `idempotency_key`/`expected_revision` from the body;
-* a `business_id` or `review_business_id` in a root body is refused (`forbidden`) before anything runs, for every one of the eight;
+* a `project_id` or `review_project_id` in a root body is refused (`forbidden`) before anything runs, for every one of the eight;
 * there is no generic catalog dispatch, no new grant, and no queue `submit` or `list`: `context_queue_list`, `context_queue_submit`
   and other neighbours stay `not_found` at the root;
 * the library adapters `POST /api/root/context-library/{id}/(retry|retract)` keep working and share the same revision enforcement.
 
-Observed refusals of another namespace's records (existing behaviour, recorded, not changed): from Global a business source or
+Observed refusals of another namespace's records (existing behaviour, recorded, not changed): from Global a project source or
 input ID is `not_found` for `context_get`, `context_retry`, `context_retract` and for each queue command; a Global input is
-`not_found` from a business dispatcher. A business dispatcher's `context_retry` of a Global source reaches the prepared-target check
+`not_found` from a project dispatcher. A project dispatcher's `context_retry` of a Global source reaches the prepared-target check
 and is `revision_conflict` (409), and `context_retract` of it is `forbidden` (403), with no effects in either case; the unscoped read
-of a Global document by a business owner is existing access and is allowed. `state_conflict`, `control_pending` and
+of a Global document by a project owner is existing access and is allowed. `state_conflict`, `control_pending` and
 `invalid_transition` are 422 (the HTTP layer's fallback), `revision_conflict` and `idempotency_conflict` are 409.
 
 ## Captures, generator and checks
 
 `app/tests/context_source_status_capture.py` is a deterministic generator; `app/tests/fixtures/context_source_status/captures.json`
 is its output: `provenance`, `limitations`, `normalization` and `captures` (name, principal, transport, request, response). It covers
-the business source in every state (queued, processing, blocked with owner and other-agent redaction, retry with stale and correct
+the project source in every state (queued, processing, blocked with owner and other-agent redaction, retry with stale and correct
 revisions, published, applied, retraction, changed after publication, discard requested/discarded, completion conflict, stopped job,
-notes and journal snapshots, namespace queue summaries, ETag 200/304/changed, the Global adapter's errors, and a business body cursor
+notes and journal snapshots, namespace queue summaries, ETag 200/304/changed, the Global adapter's errors, and a project body cursor
 dying with a real body change) and, from a second fresh composition, the Global operation calls: raw list/get/search at
 `/api/root/operations/*` with `scope: shared`, long-body paging whose cursor survives the filing completion and is refused by another
 document, `context_queue_get` for a queued, blocked, retry-pending (with its pending control), published and never-started-discarded

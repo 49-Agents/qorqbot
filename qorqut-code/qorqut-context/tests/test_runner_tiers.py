@@ -113,7 +113,7 @@ class RunnerTierTests(unittest.TestCase):
 
     def test_submit_and_retry_accept_explicit_tier(self):
         for command in (("submit", "add", "foundation/source.txt", "--submitted-by", "owner"),
-                        ("submit-action", "add", "global/action", "--submitted-by", "owner"), ("retry", "event")):
+                        ("submit-action", "add", "action", "--submitted-by", "owner"), ("retry", "event")):
             with self.subTest(command=command[0]):
                 args = parser().parse_args(["--repo", "/unused", *command, "--service-tier", "ultrafast"])
                 self.assertEqual(args.service_tier, "ultrafast")

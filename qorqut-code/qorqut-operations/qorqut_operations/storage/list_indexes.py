@@ -10,14 +10,14 @@ from .assembly import StorageContribution
 OWNER = 'operations.list-indexes'
 SCHEMA = (
     # Newest first with no sort, for one scope.
-    "CREATE INDEX jobs_business_created ON jobs(business_id, created_at, id)",
-    "CREATE INDEX jobs_business_active ON jobs(business_id, created_at) WHERE state IN ('running','applying')",
-    "CREATE INDEX jobs_business_queued ON jobs(business_id, kind) WHERE state='queued'",
+    "CREATE INDEX jobs_project_created ON jobs(project_id, created_at, id)",
+    "CREATE INDEX jobs_project_active ON jobs(project_id, created_at) WHERE state IN ('running','applying')",
+    "CREATE INDEX jobs_project_queued ON jobs(project_id, kind) WHERE state='queued'",
     "CREATE INDEX routine_runs_namespace_created ON routine_runs(namespace, created_at, id)",
-    "CREATE INDEX routine_runs_business_created ON routine_runs(business_id, created_at, id)",
+    "CREATE INDEX routine_runs_project_created ON routine_runs(project_id, created_at, id)",
 )
-OBJECTS = frozenset({('index', 'jobs_business_created'), ('index', 'jobs_business_active'), ('index', 'jobs_business_queued'),
-                     ('index', 'routine_runs_namespace_created'), ('index', 'routine_runs_business_created')})
+OBJECTS = frozenset({('index', 'jobs_project_created'), ('index', 'jobs_project_active'), ('index', 'jobs_project_queued'),
+                     ('index', 'routine_runs_namespace_created'), ('index', 'routine_runs_project_created')})
 
 
 def storage_contribution():

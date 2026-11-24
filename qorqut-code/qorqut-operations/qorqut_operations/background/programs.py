@@ -20,7 +20,7 @@ class Program:
     global_capabilities: tuple[str, ...] = ()
     unavailable_reason: str | None = None
     timeout_seconds: int = 900
-    scope_kinds: tuple[str, ...] = ("business",)
+    scope_kinds: tuple[str, ...] = ("project",)
     external: bool = False
     recover: object = None
     # Host-owned programs that only an approved domain operation may queue (for example an owner-approved send) are
@@ -115,18 +115,18 @@ class ProgramRegistry:
     def job_values(self, context, kind, arguments, uow, *, job_id=None, dedupe_key=None, definition_extra=None):
         program = self.require(kind)
         program.validate(arguments)
-        if ("business" if context.business_id else "global") not in program.scope_kinds:
+        if ("project" if context.project_id else "global") not in program.scope_kinds:
             raise DomainError("forbidden", "Registered program does not support this target scope")
         if self.authority is None:
             raise DomainError("operation_unavailable", "Background authority is not installed")
         worker = self.authority.worker_id(kind, uow)
-        self.authority.require_worker(worker, context.business_id, uow)
+        self.authority.require_worker(worker, context.project_id, uow)
         identity = job_id or new_id()
         if set(definition_extra or {}) & set(program.definition):
             raise DomainError("invalid_plan", "Job attribution cannot replace a registered definition")
         definition = {**program.definition, **(definition_extra or {})}
-        return {"id": identity, "business_id": context.business_id,
-            "target_namespace": "business:" + context.business_id if context.business_id else "global",
+        return {"id": identity, "project_id": context.project_id,
+            "target_namespace": "project:" + context.project_id if context.project_id else "global",
             "kind": kind, "principal_id": worker, "initiated_by_principal_id": (context.initiated_by_principal_id
                 if context.principal_kind == "system" else context.principal_id),
             "arguments_json": plain(arguments), "definition_ref_json": definition,
@@ -135,7 +135,7 @@ class ProgramRegistry:
     def prepare_job(self, builder, uow, kind, arguments, *, definition_extra=None):
         values = self.job_values(builder.ctx, kind, arguments, uow, definition_extra=definition_extra)
         builder.record("jobs", values["id"], None, values)
-        builder.effects.append("Queues a registered background program; never launches a project agent.")
+        builder.effects.append("Queues a registered background program; never launches an agent.")
         return values["id"]
 
 

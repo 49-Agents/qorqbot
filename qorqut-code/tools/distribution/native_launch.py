@@ -77,7 +77,7 @@ def environment(root, home):
     native_env['PATH'] = user_path
     env['QORQUT_NATIVE_USER_ENV'] = json.dumps(native_env)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'QORQUT_INSTALLATION_CONFIG',
-                'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'BIZ_DASH_TOKEN',
+                'QORQUT_APP_MANIFEST', 'QORQUT_TELEGRAM_CONFIG_FILE', 'QORQUT_DASH_TOKEN',
                 'QORQUT_MCP_URL', 'BAZARLYK_MCP_URL', 'QORQUT_TERMINAL_WORKSPACE', 'PIP_TARGET',
                 'PIP_PREFIX', 'PIP_ROOT', 'PIP_USER', 'PYTHONUSERBASE',
                 'QORQUT_NATIVE_ROOT'):
@@ -99,7 +99,7 @@ def environment(root, home):
         'PATH': os.pathsep.join([str(runtime / 'venv/bin'), *shipped, user_path]),
         'QORQUT_FOLDER_ROOT': str(root),
         'QORQUT_CALENDAR_CONFIG': str(root / 'instance/config/calendar.json'),
-        'BIZ_DASH_HOST': '127.0.0.1',
+        'QORQUT_DASH_HOST': '127.0.0.1',
         # One installation's agent terminals (legacy Terminals mode) stay apart from another's on the same computer.
         'TMUX_TMPDIR': str(root / '.run'),
         'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,

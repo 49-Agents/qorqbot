@@ -38,10 +38,10 @@ Use `signoffs_input_create` for an owner response that is not an approval to
 execute a prepared action. Keep platform and internal-change approvals on their
 existing tools. An answer to a question does not bypass those approvals.
 
-When work or a record thread is waiting, pass `source: {type, id, business_id}` at creation.
-Use the actual source identity (`task`, `table`, `project`, or `reference`),
-with an explicit project UUID or `null` for Global. A Project source names its own UUID in both
-fields. Source and Signoff keep their own scopes. Omit source for a standalone question.
+When work or a record thread is waiting, pass `source: {type, id}` at creation.
+Use the actual source identity (`task`, `table`, `project`, or `reference`): a reference is the
+record's type and id, and its project is found from the id. A Project source names its own UUID as
+`id`. Source and Signoff keep their own scopes. Omit source for a standalone question.
 Link an existing pending approval with `signoffs_source_link` instead of creating another
 question. Call it again for each additional dependent source. Repeated links are idempotent.
 Only an explicit pending dependency produces Needs your input; contextual `concerns` links,
@@ -231,7 +231,7 @@ gives Ordubashy the reference, the page and what the owner must do. The tab must
 signoffs_input_create(request_key="sign-in-mercury", form={"title": "Sign in to Mercury", "kind": "browser_action",
     "explanation": "Sign in with your usual account and approve the code on your phone.", "selection_mode": "none",
     "tab": "<agent uuid>:<tab id>"}, attention={"notify": true, "blocking": true, "reason": "The payout run waits on it"},
-    source={"type": "task", "id": "<task id>", "business_id": null})
+    source={"type": "task", "id": "<task id>"})
 ```
 
 Send no choices or required notes: the owner opens the tab from the attention queue and answers **Done** or **Could not

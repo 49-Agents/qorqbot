@@ -11,6 +11,8 @@ from qorqut_operations.application.plans import PlanBuilder, schema, timestamp
 from qorqut.agents.global_scope import active_global
 from qorqut.agents.roles import ORDUBASHY_ROLE
 from qorqut_operations.items import UNAVAILABLE
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import reference_kind
 
 UUID = {'type': 'string', 'format': 'uuid'}
 TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 2000}
@@ -19,8 +21,8 @@ TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 2000}
 def item_schema(kinds):
     """A Focus reference of any registered item kind (the neutral kinds and the selected extensions' typed ones)."""
     return schema({'type': {'enum': list(kinds)}, 'id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
-        'business_id': {'anyOf': [UUID, {'type': 'null'}]}, 'reason': TEXT, 'needs_input': {'type': 'boolean'}},
-        ('type', 'id', 'business_id', 'reason'))
+        'project_id': {'anyOf': [UUID, {'type': 'null'}]}, 'reason': TEXT, 'needs_input': {'type': 'boolean'}},
+        ('type', 'id', 'reason'))
 
 
 class FocusService:
@@ -43,16 +45,19 @@ class FocusService:
                 'tab': {'type': 'string', 'minLength': 1, 'maxLength': 500}}, ('prompt', 'app', 'tab'),
                 instruction_text('focus-ask-the-owner-for-browser-input-on-the')),
         }
+        # A card names its record by type and id; its project is found from the id.
+        cards = References(Ref(('items', '*')), kinds={**KINDS, 'signoff': reference_kind(self.signoffs)})
         for name, (fields, required, description) in operations.items():
             self.app.registry.register(OperationDescriptor(name, schema({**shared, **fields},
                 ('consumer_id', 'expected_focus_revision', *required)), **common, description='Ordubashy only: ' + description,
+                complete_references=cards if name == 'focus_show' else None,
                 prepare=lambda c, a, o, u, op=name: self.prepare(op, c, a, u), apply=self.apply))
         from .attention import AttentionBoard
         self.board = AttentionBoard(self).register()
         return self
 
     def context(self, ctx, uow):
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         profile = active_global(uow.connection, ctx.principal_id) if ctx.principal_kind == 'agent' else None
         if profile is None or profile['role']['id'] != ORDUBASHY_ROLE:
             raise DomainError('forbidden', 'Focus is available only to active ecosystem Ordubashy')
@@ -69,27 +74,27 @@ class FocusService:
             raise DomainError('inbox_consumer_required', 'Use the consumer_id supplied by this prepared session startup')
 
     def resolve(self, ctx, item, uow):
-        business = item['business_id']
-        if business is not None and (business not in ctx.allowed_business_ids
-                or not self.inbox.business_member(ctx, business, uow)):
+        project_id = item['project_id']
+        if project_id is not None and (project_id not in ctx.allowed_project_ids
+                or not self.inbox.reaches_project(ctx, project_id, uow)):
             raise DomainError('not_found', 'Focus item is unavailable')
-        selected = replace(ctx, business_id=business, review_business_id=business)
+        selected = replace(ctx, project_id=project_id, review_project_id=project_id)
         if (handler := self.inbox.sources.for_type(item['type'])) is not None and handler.reference is not None:
-            resolved = handler.reference(self.inbox, ctx, item, business, uow)
+            resolved = handler.reference(self.inbox, ctx, item, project_id, uow)
         elif item['type'] == 'signoff':
             self.items.authorize(selected, 'signoffs_get', uow)
             row = self.signoffs._row(selected, item['id'], uow)
-            if row['review_business_id'] != business:
+            if row['review_project_id'] != project_id:
                 raise DomainError('not_found', 'Choose the signoff’s actual review scope')
             resolved = {'label': row['preview_json']['title'], 'state': row['state'], 'revision': row['status_revision'], 'category': row['category'],
                 'resource_type': 'signoffs', 'resource_id': item['id']}
         else:
             resolved = self.items.resolve(selected, {'type': item['type'], 'id': item['id']}, uow, allow_busy=True)
-        biz = uow.repository('businesses').get(business) if business else None
+        project = uow.repository('projects').get(project_id) if project_id else None
         card = {**item, 'label': resolved.get('label', item['id']), 'state': resolved.get('state'),
             'revision': resolved['revision'], 'resource_type': resolved['resource_type'],
             'category': resolved.get('category'), 'summary': resolved.get('summary', ''),
-            'business_slug': biz['slug'] if biz else None, 'business_name': biz['name'] if biz else 'Global'}
+            'project_slug': project['slug'] if project else None, 'project_name': project['name'] if project else 'Global'}
         if item['type'] == 'task':
             card['task_type'] = resolved.get('task_type', 'task')
             if card['task_type'] == 'customer':
@@ -97,7 +102,7 @@ class FocusService:
         if item['type'] == 'table':
             # A CRM and a general Table are one native source kind; the kind lets a client choose its expansion. The row is
             # read only after the item resolver has authorized this caller's read of the Table.
-            card['table_kind'] = uow.repository('data_tables', business_id=business).get(item['id'], required=True)['table_kind']
+            card['table_kind'] = uow.repository('data_tables', project_id=project_id).get(item['id'], required=True)['table_kind']
         if resolved.get('deep_link'):
             card['deep_link'] = resolved['deep_link']
         return card
@@ -149,11 +154,11 @@ class FocusService:
                 or session_owner['consumer_id'] != row['consumer_id']))}
 
     def owner_context(self, owner, agent_id, uow):
-        owner = self.app.current_context(replace(owner, business_id=None, review_business_id=None), uow)
+        owner = self.app.current_context(replace(owner, project_id=None, review_project_id=None), uow)
         installation = uow.repository('installation').get('service')
         if owner.principal_kind != 'human' or not installation or installation['owner_principal_id'] != owner.principal_id:
             raise DomainError('forbidden', 'Only the installation owner can read or respond to Focus')
-        agent = self.app.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
+        agent = self.app.policy.context_for(agent_id, project_id=None, review_project_id=None, uow=uow)
         return owner, self.context(agent, uow)
 
     def owner_snapshot(self, owner, agent_id):
@@ -200,7 +205,7 @@ class FocusService:
                 self.resolve(owner, item, uow)
                 if card['resource_type'] == 'documents':
                     store = self.inbox.domains.documents.store
-                    selected = replace(owner, business_id=item['business_id'])
+                    selected = replace(owner, project_id=item['project_id'])
                     return {'document': store.view(store.get(selected, document_id, uow), uow)}
             raise DomainError('not_found', 'Document is not on the current Focus board')
 

@@ -33,7 +33,7 @@ class HostNavigation:
     """``context_navigation_get``: authorized table counts plus the shared Context's person count.
 
     The person count comes only from the published graph's ``basic_entity_type=["person"]`` nodes; the graph is one shared
-    set, so it does not depend on the business. There is no fallback to the operational people items or the old document
+    set, so it does not depend on the project. There is no fallback to the operational people items or the old document
     store: when the graph cannot be read ``counts.person`` is ``null`` (unknown) and ``context`` says why. ``count=0`` is
     reserved for a ready graph that genuinely has no matching node. The result is::
 

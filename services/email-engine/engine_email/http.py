@@ -14,7 +14,7 @@ from starlette.routing import Route
 
 from .fastmail import ProviderError
 from .account import AccountAction, AccountMailService
-from .business import ATTACHMENT_PAGE_BYTES, BusinessMailService, parse_owned_ids
+from .project import ATTACHMENT_PAGE_BYTES, ProjectMailService, parse_owned_ids
 from .models import MAX_HTTP_BYTES, HandoffRequest, HistoryEvent, IntentSubmission, Outgoing
 from .service import IntentCancelled, IntentConflict
 from .store import HandoffTargetForbidden, HandoffTargetNotFound, Store
@@ -25,7 +25,7 @@ from . import routes as managed_routes
 def create_app(service, *, background=True):
     settings = service.settings
     account = AccountMailService(settings, service.store, service.provider)
-    business = BusinessMailService(settings, service.provider)
+    project = ProjectMailService(settings, service.provider)
 
     async def poll():
         while True:
@@ -176,8 +176,8 @@ def create_app(service, *, background=True):
         except ValueError as exc:
             return JSONResponse({"error": "mailbox_configuration_conflict", "message": str(exc)}, status_code=409)
         except ProviderError as exc:
-            invalid_setup = exc.code in {"business_folder_missing_or_not_dedicated",
-                "private_history_folder_missing_or_not_dedicated", "sender_outside_business",
+            invalid_setup = exc.code in {"project_folder_missing_or_not_dedicated",
+                "private_history_folder_missing_or_not_dedicated", "sender_outside_project",
                 "fastmail_sender_identity_missing_or_ambiguous", "fastmail_identity_remove_auto_bcc_and_reply_to"}
             return JSONResponse({"error": exc.code}, status_code=400 if invalid_setup else 502)
 
@@ -190,7 +190,7 @@ def create_app(service, *, background=True):
         return bytes(content)
 
     def refresh_views():
-        business.settings = account.settings = service.settings
+        project.settings = account.settings = service.settings
 
     async def route_ensure(request):
         denied = authenticate_account(request)
@@ -224,10 +224,10 @@ def create_app(service, *, background=True):
             managed_routes.client_for(service, client_id)
         except managed_routes.RouteRejected as exc:
             return JSONResponse({"error": exc.code}, status_code=404)
-        business_id = request.path_params.get("business_id")
-        if business_id is None:
+        project_id = request.path_params.get("project_id")
+        if project_id is None:
             return JSONResponse(await anyio.to_thread.run_sync(lambda: managed_routes.listing(service, client_id)))
-        row = await anyio.to_thread.run_sync(lambda: managed_routes.route(service.store, client_id, business_id))
+        row = await anyio.to_thread.run_sync(lambda: managed_routes.route(service.store, client_id, project_id))
         if row is None:
             return JSONResponse({"error": "route_not_found"}, status_code=404)
         return JSONResponse(managed_routes.view(service, row))
@@ -249,7 +249,7 @@ def create_app(service, *, background=True):
             mailbox = service.settings.mailbox(request.path_params["mailbox"])
             if kind == "send":
                 row = await anyio.to_thread.run_sync(lambda: service.store.send(request.query_params.get("request_id", "")))
-                if row is None or row["mailbox"] != mailbox.ref or row["business_id"] != mailbox.business_id:
+                if row is None or row["mailbox"] != mailbox.ref or row["project_id"] != mailbox.project_id:
                     return JSONResponse({"error": "send_not_found"}, status_code=404)
                 return JSONResponse(Store.receipt(row))
             identity = request.query_params.get("message_id", "")
@@ -261,7 +261,7 @@ def create_app(service, *, background=True):
                 try:
                     if kind == "attachments":
                         listed = await anyio.to_thread.run_sync(
-                            lambda: business.attachments(mailbox, identity, owned))
+                            lambda: project.attachments(mailbox, identity, owned))
                         return JSONResponse({"attachments": listed})
                     attachment_id = request.query_params.get("attachment_id", "")
                     offset = int(request.query_params.get("offset", "0"))
@@ -269,7 +269,7 @@ def create_app(service, *, background=True):
                     if offset < 0 or not 1 <= limit <= ATTACHMENT_PAGE_BYTES:
                         raise ValueError("Invalid attachment range")
                     content = await anyio.to_thread.run_sync(
-                        lambda: business.attachment(mailbox, identity, attachment_id, owned))
+                        lambda: project.attachment(mailbox, identity, attachment_id, owned))
                     if offset > len(content):
                         raise ValueError("Invalid attachment offset")
                     return Response(content[offset:offset + limit], media_type="application/octet-stream",
@@ -396,27 +396,27 @@ def create_app(service, *, background=True):
         except ValueError as exc:
             return JSONResponse({"error": "invalid_handoff_request", "message": str(exc)}, status_code=400)
 
-    async def business_search(request):
+    async def project_search(request):
         denied = authenticate(request)
         if denied is not None:
             return denied
         try:
             mailbox = service.settings.mailbox(request.path_params["mailbox"])
             params = dict(request.query_params)
-            return JSONResponse(await anyio.to_thread.run_sync(lambda: business.search(mailbox, params)))
+            return JSONResponse(await anyio.to_thread.run_sync(lambda: project.search(mailbox, params)))
         except ValueError:
             return JSONResponse({"error": "invalid_request"}, status_code=400)
         except ProviderError as exc:
             return JSONResponse({"error": exc.code}, status_code=exc.status or 502)
 
-    async def business_drafts(request):
+    async def project_drafts(request):
         denied = authenticate(request)
         if denied is not None:
             return denied
         try:
             mailbox = service.settings.mailbox(request.path_params["mailbox"])
             params = dict(request.query_params)
-            return JSONResponse(await anyio.to_thread.run_sync(lambda: business.drafts(mailbox, params)))
+            return JSONResponse(await anyio.to_thread.run_sync(lambda: project.drafts(mailbox, params)))
         except ValueError:
             return JSONResponse({"error": "invalid_request"}, status_code=400)
         except ProviderError as exc:
@@ -508,8 +508,8 @@ def create_app(service, *, background=True):
             return await read(request)
         routes.append(Route("/mailboxes/{mailbox}/" + kind, endpoint))
     routes.append(Route("/mailboxes/{mailbox}/messages", mailbox_messages))
-    routes.append(Route("/mailboxes/{mailbox}/search", business_search))
-    routes.append(Route("/mailboxes/{mailbox}/drafts", business_drafts))
+    routes.append(Route("/mailboxes/{mailbox}/search", project_search))
+    routes.append(Route("/mailboxes/{mailbox}/drafts", project_drafts))
     routes.insert(0, Route("/mailboxes/configure", configure_mailbox, methods=["POST"]))
     routes.append(Route("/fastmail", fastmail_account, methods=["GET"]))
     routes.append(Route("/fastmail/{path:path}", fastmail_account, methods=["GET", "POST"]))
@@ -519,5 +519,5 @@ def create_app(service, *, background=True):
     routes.append(Route("/integrations/threads/{thread_or_message_id}/handoff", integration_handoff, methods=["POST"]))
     routes.append(Route("/integrations/routes/{action:str}", route_ensure, methods=["POST"]))
     routes.append(Route("/integrations/routes", route_status, methods=["GET"]))
-    routes.append(Route("/integrations/routes/{business_id:str}", route_status, methods=["GET"]))
+    routes.append(Route("/integrations/routes/{project_id:str}", route_status, methods=["GET"]))
     return Starlette(routes=routes, lifespan=lifespan)

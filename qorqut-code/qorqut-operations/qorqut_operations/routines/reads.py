@@ -10,13 +10,13 @@ from qorqut_operations.storage.repositories import decode_row
 def history_scope(ctx, args):
     parameters = []
     if args.get("scope") == "global":
-        allowed = sorted(ctx.allowed_business_ids)
+        allowed = sorted(ctx.allowed_project_ids)
         marks = ",".join("?" for _ in allowed) or "NULL"
-        clause = f"namespace='global' AND (business_id IS NULL OR business_id IN ({marks}))"
+        clause = f"namespace='global' AND (project_id IS NULL OR project_id IN ({marks}))"
         parameters.extend(allowed)
     else:
-        clause = "business_id IS ?"
-        parameters.append(ctx.business_id)
+        clause = "project_id IS ?"
+        parameters.append(ctx.project_id)
     if args.get("routine_id"):
         clause += " AND routine_id=?"
         parameters.append(args["routine_id"])

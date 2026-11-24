@@ -19,19 +19,18 @@ kind: no ETag'd route (PR3) currently declares a dependency on it.
 Scope attribution is also incomplete for some trigger-covered tables, not
 only for the coarse ones: `signoff_attention`'s capture trigger and
 `agent_profiles`/`principals`' capture triggers (migration 035) never
-include a `business_id`/`review_business_id` key in the captured row (the
+include a `project_id`/`review_project_id` key in the captured row (the
 first has none of the signoff's own scope at all; the other two carry
-`home_business_id`, a differently-named column `_scope_of` does not look
-for) -- confirmed by reading those triggers directly, not assumed. Every
+no scope column) -- confirmed by reading those triggers directly, not assumed. Every
 write to those specific tables therefore lands at GLOBAL_SCOPE regardless
-of which business the row actually belongs to, while `business_memberships`
+of which project the row actually belongs to, while `project_person_details`
 and `relationships` (the other tables behind "agents" and "signoffs") do
-carry a real `business_id` and scope correctly. PR3's ETag must check both
+carry a real `project_id` and scope correctly. PR3's ETag must check both
 scopes for "signoffs" and "agents" -- see ALSO_GLOBAL_KINDS and
 `route_versions` below. (`signoff_notes` looked like a third instance of
 this on first read, since migration 066 defines no capture trigger for it
 at all -- but `qorqut/signoffs/notes.py:append` inserts its own
-`inbox_changes` row by hand, with a real `business_id` copied from the
+`inbox_changes` row by hand, with a real `project_id` copied from the
 signoff it belongs to, so it scopes correctly and needs no such widening.)
 """
 from __future__ import annotations
@@ -53,8 +52,8 @@ HEARTBEAT_SECONDS = 15
 EXTERNAL_WRITER_POLL_SECONDS = 1
 GLOBAL_SCOPE = "global"
 # Sentinel `scope` for ChangeFeed.route_versions: "every scope currently
-# known for this kind," not one business. A real scope is always a string
-# (a business id or GLOBAL_SCOPE), so this can't collide with one.
+# known for this kind," not one project. A real scope is always a string
+# (a project id or GLOBAL_SCOPE), so this can't collide with one.
 ANY_SCOPE = object()
 
 # Trigger-covered tables (the capture triggers of the committed host DDL and the
@@ -66,8 +65,8 @@ KIND_BY_TABLE = {
     "tasks": "tasks",
     "signoffs": "signoffs", "signoff_attention": "signoffs", "signoff_notes": "signoffs",
     "documents": "documents", "context_entities": "documents",
-    "action_logs": "action_logs", "action_businesses": "action_logs",
-    "agent_profiles": "agents", "principals": "agents", "business_memberships": "agents",
+    "action_logs": "action_logs", "action_projects": "action_logs",
+    "agent_profiles": "agents", "principals": "agents", "project_person_details": "agents",
     "data_tables": "tables", "data_rows": "tables",
     # A timeline row belongs to the Task or Project it names; the rows of a Global Task land at the global scope.
     "timeline_entries": "timeline", "timeline_questions": "timeline",
@@ -127,21 +126,21 @@ CONTEXT_QUEUE_OPERATION_PREFIXES = ("context_", "actions_", "notes_upload", "jou
 
 # Kinds with no trigger-covered table at all (see COARSE_KIND_BY_OPERATION_PREFIX):
 # every bump lands at GLOBAL_SCOPE, so a route depending on one must check
-# GLOBAL_SCOPE regardless of the route's own scope -- never the route's business
+# GLOBAL_SCOPE regardless of the route's own scope -- never the route's project
 # scope, which would never see a bump and would 304 forever.
 # "context_queue" is global because a blocked head holds back every namespace's later work; what a route then shows of it stays
 # authorized and namespace-limited by the route's own read.
 GLOBAL_ONLY_KINDS = frozenset({"jobs_routines", "learnings", "owner_settings", CONTEXT_QUEUE_KIND})
-# Kinds that are mostly trigger-covered with a real per-row business_id, but
+# Kinds that are mostly trigger-covered with a real per-row project_id, but
 # also have at least one contributing source that always lands at
 # GLOBAL_SCOPE: "signoffs" via `signoff_attention` (no scope column captured,
 # see the module docstring) and the coarse `signoffs_notification_*` writes;
-# "agents" via `agent_profiles`/`principals` (captured `home_business_id`/no
-# scope column at all, while `business_memberships` does carry a real
-# `business_id`). A route depending on one of these must check both its own
+# "agents" via `agent_profiles`/`principals` (no
+# scope column at all, while `project_person_details` does carry a real
+# `project_id`). A route depending on one of these must check both its own
 # scope and GLOBAL_SCOPE, or it can miss the global-only half of the kind's
 # writes and 304 on data that already changed. "action_logs": Global-stored
-# owner/ecosystem actions are shared into businesses through memberships.
+# owner/ecosystem actions are shared into projects through memberships.
 ALSO_GLOBAL_KINDS = frozenset({"signoffs", "tasks", "agents", "action_logs", "timeline"})
 
 
@@ -151,8 +150,8 @@ def _json(value):
 
 def _scope_of(after, before):
     data = after or before or {}
-    business_id = data.get("business_id", data.get("review_business_id"))
-    return business_id or GLOBAL_SCOPE
+    project_id = data.get("project_id", data.get("review_project_id"))
+    return project_id or GLOBAL_SCOPE
 
 
 def _kinds_for_row(source_type, after, before):
@@ -267,7 +266,7 @@ class ChangeFeed:
         return captured
 
     # -- publish ---------------------------------------------------------
-    def publish_commit(self, *, captured, operation, business_id, wrote=True):
+    def publish_commit(self, *, captured, operation, project_id, wrote=True):
         """Called once per successful writable commit. Never raises.
 
         Counts every writable commit unconditionally, including one that
@@ -287,13 +286,13 @@ class ChangeFeed:
                     self.publish_failures += 1
                 LOGGER.exception("commit_listener_failed")
         try:
-            self._publish_commit(captured, operation, business_id, wrote)
+            self._publish_commit(captured, operation, project_id, wrote)
         except Exception:
             with self._lock:
                 self.publish_failures += 1
             LOGGER.exception("change_feed_publish_failed operation=%s", operation)
 
-    def _publish_commit(self, captured, operation, business_id, wrote):
+    def _publish_commit(self, captured, operation, project_id, wrote):
         tables = sorted({row["table"] for row in captured})
         kinds_by_scope: dict[str, set[str]] = {}
         for row in captured:
@@ -310,17 +309,17 @@ class ChangeFeed:
         # already imply a real write, so that path needs no such gate.
         coarse_kinds = _coarse_kinds_for_operation(operation) if wrote else set()
         if coarse_kinds:
-            # Global, always -- not `business_id or GLOBAL_SCOPE`. A coarse
-            # kind has no row to read a real business out of, and the
-            # `business_id` a caller happens to pass to `database.transaction`
+            # Global, always -- not `project_id or GLOBAL_SCOPE`. A coarse
+            # kind has no row to read a real project out of, and the
+            # `project_id` a caller happens to pass to `database.transaction`
             # is not a reliable substitute: the one central write path nearly
             # everything goes through (`Application.invoke`,
             # qorqut/application/engine.py) never passes it, and the direct
             # callers this coarse path exists for (BackgroundService,
             # RoutineScheduler, SignoffNotifications) do not either. Bumping
-            # a specific business here would silently under-bump every other
-            # business watching the same coarse kind -- exactly the stale-304
-            # the handoff rules out. Global-only over-bumps every business's
+            # a specific project here would silently under-bump every other
+            # project watching the same coarse kind -- exactly the stale-304
+            # the handoff rules out. Global-only over-bumps every project's
             # dependency on this kind instead, which is always safe.
             kinds_by_scope.setdefault(GLOBAL_SCOPE, set()).update(coarse_kinds)
         if not tables and not coarse_kinds:
@@ -333,7 +332,7 @@ class ChangeFeed:
             event = {
                 "seq": seq, "tables": tables,
                 "kinds": sorted({kind for kinds in kinds_by_scope.values() for kind in kinds}),
-                "business_id": business_id, "operation": operation,
+                "project_id": project_id, "operation": operation,
             }
             self._ring.append(event)
             subscribers = list(self._subscribers.values())
@@ -358,7 +357,7 @@ class ChangeFeed:
             self._wildcard_seq = seq
             for key in list(self._versions):
                 self._versions[key] = seq
-            event = {"seq": seq, "tables": ["*"], "kinds": ["*"], "business_id": None, "operation": "external_write"}
+            event = {"seq": seq, "tables": ["*"], "kinds": ["*"], "project_id": None, "operation": "external_write"}
             self._ring.append(event)
             subscribers = list(self._subscribers.values())
         for subscriber in subscribers:
@@ -380,12 +379,12 @@ class ChangeFeed:
         entry left out is a write this route could silently miss.
 
         `scope=ANY_SCOPE` is for an owner-aggregate route (PR3's /me/attention)
-        that reads across every business the owner belongs to -- a set that
+        that reads across every project the owner belongs to -- a set that
         itself can only be discovered with a database read, which an ETag
         computed before any read cannot do. Every known scope is checked for
-        each kind instead of one specific business, which is safe (a change
-        to a business the owner does not even belong to just costs an extra
-        miss) and never under-bumps (any business the owner does belong to is
+        each kind instead of one specific project, which is safe (a change
+        to a project the owner does not even belong to just costs an extra
+        miss) and never under-bumps (any project the owner does belong to is
         necessarily among "every known scope").
         """
         with self._lock:

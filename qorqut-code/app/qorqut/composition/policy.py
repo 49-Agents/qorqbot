@@ -52,19 +52,14 @@ CRM_PREREQUISITES = {
     "crm_activity_list": "tasks_get",
     "crm_activity_record": "tasks_comment",
 }
-# The Table-based ones serve the Global Table namespace too, whose rule differs from the business one.
+# The Table-based ones serve the Global Table namespace too, whose rule differs from the project one.
 TABLE_PREREQUISITE_OPERATIONS = frozenset(name for name, base in CRM_PREREQUISITES.items() if base in GLOBAL_TABLE_OPERATIONS)
 STRENGTH = {"allow": 0, "signoff": 1, "deny": 2}
-# Operations whose Global rule differs from the business one, so effective-configuration discovery evaluates both scopes.
+# Operations whose Global rule differs from the project one, so effective-configuration discovery evaluates both scopes.
 GLOBAL_DISCOVERY_OPERATIONS = GLOBAL_TABLE_OPERATIONS | TABLE_PREREQUISITE_OPERATIONS
-# Repair-ticket removal, phase 1: the agent ticket/incident tools are gone. The one retained internal scoped
-# reader keeps its standing grant so surviving Task, Signoff and Project reference resolution still authorizes;
-# the agent MCP caller refuses it as a tool, so the grant exposes no callable agent operation. Phase 2 removes
-# the reader, this grant and the remaining owner views with the feature and its data.
-INTERNAL_TICKET_READS = frozenset({"dev_tickets_get"})
 WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace_present", "workspace_select",
                                   "workspace_attention"})
-# business_briefing composes other reads, each authorized again for the caller.
+# project_briefing composes other reads, each authorized again for the caller.
 # files_link only builds a link: a path is checked lexically and a document ID through the caller's own
 # document read rules. Content is read solely by the owner's viewer, never through this grant.
 # records_health and records_reconcile answer only the owner and the configured coordinator; each refuses everyone else.
@@ -78,7 +73,7 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # person and changes a setting through the function behind the owner's own route, so that function's checks still apply.
 CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
                                   "agent_context_get",
-                                  "agents_activity_list", "agent_work_update", "business_briefing", "files_link", "agentic_access",
+                                  "agents_activity_list", "agent_work_update", "project_briefing", "files_link", "agentic_access",
                                   "records_health", "records_reconcile", "conversation_history_search",
                                   "conversation_history_get",
                                   "work_review_get", "timeline_get",
@@ -104,8 +99,8 @@ def _prerequisites(name, defaults, overrides, registry, *, role_id, scope, resol
     base = CRM_PREREQUISITES.get(name)
     if base is None:
         return None
-    # Re-enter with the caller's own scope: the helper defaults to business, which would judge a Global call by the
-    # business rule. The prerequisite keeps its Global capability, role and explicit-grant rules; nothing carries over.
+    # Re-enter with the caller's own scope: the helper defaults to project, which would judge a Global call by the
+    # project rule. The prerequisite keeps its Global capability, role and explicit-grant rules; nothing carries over.
     required = resolve(base, scope=scope)
     if name in overrides:
         own = PolicyDecision(overrides[name], "agent_override")
@@ -198,8 +193,6 @@ def _personal_record(name, defaults, overrides, registry, *, role_id, scope, res
 
 
 def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, resolve):
-    if name in INTERNAL_TICKET_READS:
-        return PolicyDecision("allow", "core_default")
     if name == "signoffs_input_answer_delegated":
         return PolicyDecision("allow" if role_id == "ordubashy" else "deny", "management_delegated_input")
     if name in INBOX_OPERATIONS:
@@ -210,9 +203,9 @@ def _standing_defaults(name, defaults, overrides, registry, *, role_id, scope, r
     shared_read = shared_read_decision(name)
     if shared_read is not None:
         return shared_read
-    if name in {"owner_conversation_get", "owner_conversation_send"} and scope == "business" and name not in defaults:
-        # Exact active business membership and source reads are checked again by the conversation service.
-        return PolicyDecision("allow", "business_owner_channel")
+    if name in {"owner_conversation_get", "owner_conversation_send"} and scope == "project" and name not in defaults:
+        # The owner's reach of the active project and source reads are checked again by the conversation service.
+        return PolicyDecision("allow", "project_owner_channel")
 
 
 def _declared_default(registry, name):
@@ -276,7 +269,7 @@ ORDUBASHY_WITHHELD = frozenset({
     # Orientation of the owner's own code sessions.
     "owner_session_bootstrap",
     # The owner's dashboard progress views; their handlers answer the owner alone.
-    "business_progress_get", "global_progress_get",
+    "project_progress_get", "global_progress_get",
 })
 
 
@@ -295,6 +288,6 @@ HOST_POLICY_RULES = PolicyRules(
 )
 
 
-def resolve_operation_policy(operation_name, defaults, overrides, registry, *, role_id=None, scope="business"):
+def resolve_operation_policy(operation_name, defaults, overrides, registry, *, role_id=None, scope="project"):
     """The Operations evaluator bound to the host's rules, for effective-configuration inspection."""
     return evaluate(operation_name, defaults, overrides, registry, rules=HOST_POLICY_RULES, role_id=role_id, scope=scope)

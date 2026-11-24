@@ -17,20 +17,18 @@ request_user_input(message="The bank sign-in I asked you for is on your attentio
                    references=[{"type": "tab", "id": "<reference from the tab-reference command>"},
                                {"type": "signoff", "id": "<the browser-action signoff uuid>"}])
 request_user_input(message="Two decisions are ready for you.",
-                   references=[{"type": "signoff", "id": "<signoff uuid>", "business_id": "<project uuid>"},
+                   references=[{"type": "signoff", "id": "<signoff uuid>"},
                                {"type": "task", "id": "<task id>"}])
 request_user_input(message="Here is the cold outreach project.",
-                   references=[{"type": "project", "id": "<project uuid>", "business_id": "<same project uuid>"}])
+                   references=[{"type": "project", "id": "<project uuid>"}])
 ```
 
 - `message`: plain text, at most 4000 characters. Say what you need; the cards are not a substitute.
 - `references`: at most 8, shown in order, exact duplicates once. Each is only
-  `{type, id, business_id}`: no URL, label or other field.
+  `{type, id}`: no URL, label or other field. A reference is the record's type and id; its project is found from the id.
   - `task` and `signoff`: the Task's id (a short code for new Tasks, a UUID or other text for
-    older ones) or the Signoff's UUID, read first so the id is exact. `business_id` is the
-    owning project, omitted (or null) for a Global record.
-  - `project`: the Project's UUID as both `id` and `business_id`. The card opens the
-    project in the dashboard.
+    older ones) or the Signoff's UUID, read first so the id is exact.
+  - `project`: the Project's UUID as `id`. The card opens the project in the dashboard.
   - `browser`: the exact configured browser `id` from `browser_turn` `action=list`, only
     `{type, id}`; there is no project selector.
   - `tab`: one open page in the Shared browser, exactly as the browser command `tab-reference` printed it
@@ -40,11 +38,12 @@ request_user_input(message="Here is the cold outreach project.",
     refused once the tab is closed.
 - When the owner asks you to refer, link, open or show a Project, Task or Signoff ("refer the
   project", "where is the thread"), answer with its card. Chat makes only file links from
-  `files_link`, `/tables/view` links and website addresses clickable; a Project or Signoff
+  `files_link`, `/tables/view` links and website addresses clickable (a table link is
+  `/tables/view?table_id=<table id>`: the table is found from its id); a Project or Signoff
   has no written link, so a file, a folder or another record is never a substitute.
 - The card asks nothing and waits for nothing, so it is not one of the owner's questions:
   showing records this way is allowed even when the owner wants questions only as Signoffs.
-- An unknown, deleted or unreadable record, a wrong `business_id` or a malformed field is
+- An unknown, deleted or unreadable record, or a malformed field is
   refused and nothing is shown. Never guess an id.
 - The owner sees current records: a Task's title and state, a Signoff decided in its own card,
   a browser as a live view. The reference decides nothing: use `signoffs_input_create`
@@ -61,7 +60,7 @@ returns no URL or endpoint.
 browser_turn(action="acquire", protocol="handles", browser_id="<id from action=list>")
 ```
 
-- Without `browser_id` you get your own configured browser, as before. Pass no `business_id`:
+- Without `browser_id` you get your own configured browser. Pass no `project_id`:
   project context is not a browser selector.
 - `browser_id` is accepted only on `acquire` with `protocol="handles"`. The returned
   handle is bound to that exact browser: `command`, `status`, `artifact` and `release`

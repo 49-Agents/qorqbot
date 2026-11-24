@@ -1,7 +1,7 @@
 """Encrypted, installation-wide recovery generations.
 
 This module deliberately has no service integration.  A trusted runtime owns
-the quiescence context: entering it means that every business writer, browser,
+the quiescence context: entering it means that every project writer, browser,
 agent terminal, and service writer has actually stopped.  The recovery store
 cannot infer that state from a flag, a PID, or an SQLite transaction.
 """
@@ -28,7 +28,7 @@ from uuid import UUID
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut.migration.snapshots import _fsync_directory, restore_snapshot, verify_snapshot
 from qorqut_context.integration.recovery import CAPTURE_DIRECTORY, ContextRecovery
-from qorqut.storage.recovery import BackupStore, require_target_businesses
+from qorqut.storage.recovery import BackupStore, require_target_projects
 
 
 RESTIC_VERSION = "0.19.1"
@@ -134,18 +134,18 @@ def _contained_git_path(value: str, *, base: Path, root_git: Path, description: 
 
 
 def _validate_linked_gitdir(git_file: Path, root_git: Path) -> None:
-    line = _git_metadata_line(git_file, description=instruction_text('full-recovery-registered-hq-git-metadata'))
+    line = _git_metadata_line(git_file, description=instruction_text('full-recovery-registered-project-git-metadata'))
     if not line.startswith("gitdir: "):
-        raise DomainError("backup_incomplete", "Registered HQ Git metadata is invalid")
+        raise DomainError("backup_incomplete", "Registered project Git metadata is invalid")
     gitdir = _contained_git_path(line.removeprefix("gitdir: "), base=git_file.parent,
-                                 root_git=root_git, description=instruction_text('full-recovery-registered-hq-git-directory'))
+                                 root_git=root_git, description=instruction_text('full-recovery-registered-project-git-directory'))
     common = gitdir / "commondir"
     if common.exists() or common.is_symlink():
         common_dir = _contained_git_path(
-            _git_metadata_line(common, description=instruction_text('full-recovery-registered-hq-git-common-directory')), base=gitdir,
-            root_git=root_git, description=instruction_text('full-recovery-registered-hq-git-common-directory'))
+            _git_metadata_line(common, description=instruction_text('full-recovery-registered-project-git-common-directory')), base=gitdir,
+            root_git=root_git, description=instruction_text('full-recovery-registered-project-git-common-directory'))
         if common_dir != root_git:
-            raise DomainError("backup_incomplete", "Registered HQ Git common directory is not the installation Git directory")
+            raise DomainError("backup_incomplete", "Registered project Git common directory is not the installation Git directory")
 
 
 def _regular_secret_file(path: Path) -> None:
@@ -299,8 +299,8 @@ class FullRecoveryGeneration:
 class FullRecoveryStore:
     """Compose verified authority snapshots with a restic-encrypted full installation snapshot.
 
-    It only supports an all-installation generation.  It never restores a business
-    independently, because the SQLite authority covers every registered business.
+    It only supports an all-installation generation.  It never restores a project
+    independently, because the SQLite authority covers every registered project.
     ``restore`` is deliberately a closed-gate rehearsal into a separate empty root;
     activating an original-path recovery is an external all-installation runbook.
     Optional installation Git metadata preserves linked-worktree control data; root
@@ -326,7 +326,7 @@ class FullRecoveryStore:
             _no_symlink_ancestors(path)
         if any(_within(path, self.root) or _within(self.root, path)
                for path in (self.repository, self.password_file, self.authority_staging)):
-            raise DomainError("invalid_configuration", "Recovery repository, password file, and staging must be outside business mounts")
+            raise DomainError("invalid_configuration", "Recovery repository, password file, and staging must be outside project mounts")
         if _within(self.authority_staging, self.repository) or _within(self.repository, self.authority_staging):
             raise DomainError("invalid_configuration", "Authority staging must not overlap the encrypted repository")
         if _within(self.password_file, self.repository) or _within(self.repository, self.password_file):
@@ -353,11 +353,11 @@ class FullRecoveryStore:
     def _runtime_sources(self, authority: Path) -> list[Path]:
         try:
             manifest = json.loads((authority / "authored/manifest.json").read_text(encoding="utf-8"))
-            businesses = manifest["businesses"]
+            projects = manifest["projects"]
         except (OSError, TypeError, ValueError, KeyError) as exc:
-            raise DomainError("invalid_backup", "Authority snapshot has no valid registered-business manifest") from exc
-        # The installation repository is the common Git directory for linked HQ
-        # worktrees.  It is optional for legacy installations.  When present it
+            raise DomainError("invalid_backup", "Authority snapshot has no valid registered-project manifest") from exc
+        # The installation repository is the common Git directory for linked project
+        # worktrees.  It is optional.  When present it
         # must be a directory: a root gitdir file can redirect to an arbitrary
         # host repository that this generation cannot cover.
         root_git = self.root / ".git"
@@ -372,39 +372,43 @@ class FullRecoveryStore:
         paths = [authority]
         if root_git is not None:
             paths.append(root_git)
-        for business in businesses:
+        for project in projects:
             try:
-                hq = Path(business["hq"])
+                folder = Path(project["root"])
             except (TypeError, KeyError) as exc:
-                raise DomainError("invalid_backup", "Authority snapshot has an invalid registered business path") from exc
-            if hq.is_absolute() or ".." in hq.parts:
-                raise DomainError("invalid_backup", "Authority snapshot has an invalid registered business path")
-            code = self.root / hq.parent / "code"
-            # An existing directory symlink is a valid Git checkout reference: restic records the link itself.
+                raise DomainError("invalid_backup", "Authority snapshot has an invalid registered project path") from exc
+            if folder.is_absolute() or ".." in folder.parts or not folder.parts:
+                raise DomainError("invalid_backup", "Authority snapshot has an invalid registered project path")
+            code = self.root / folder / "code"
+            # A project may have no code root. An existing directory symlink is a valid Git checkout reference:
+            # restic records the link itself.
             try:
                 mode = code.lstat().st_mode
+            except FileNotFoundError:
+                mode = None
             except OSError as exc:
-                raise DomainError("backup_incomplete", "Registered business code root is missing") from exc
-            if not (stat.S_ISDIR(mode) or stat.S_ISLNK(mode)):
-                raise DomainError("backup_incomplete", "Registered business code root is not a directory or link")
-            paths.append(code)
-            hq_git = self.root / hq / ".git"
-            if hq_git.exists() or hq_git.is_symlink():
+                raise DomainError("backup_incomplete", "Registered project code root cannot be inspected") from exc
+            if mode is not None:
+                if not (stat.S_ISDIR(mode) or stat.S_ISLNK(mode)):
+                    raise DomainError("backup_incomplete", "Registered project code root is not a directory or link")
+                paths.append(code)
+            project_git = self.root / folder / ".git"
+            if project_git.exists() or project_git.is_symlink():
                 try:
-                    hq_git_mode = hq_git.lstat().st_mode
+                    project_git_mode = project_git.lstat().st_mode
                 except OSError as exc:
-                    raise DomainError("backup_incomplete", "Registered HQ Git metadata cannot be inspected") from exc
-                if stat.S_ISLNK(hq_git_mode) or not (stat.S_ISDIR(hq_git_mode) or stat.S_ISREG(hq_git_mode)):
-                    raise DomainError("backup_incomplete", "Registered HQ Git metadata is not a regular file or directory")
-                if stat.S_ISREG(hq_git_mode):
+                    raise DomainError("backup_incomplete", "Registered project Git metadata cannot be inspected") from exc
+                if stat.S_ISLNK(project_git_mode) or not (stat.S_ISDIR(project_git_mode) or stat.S_ISREG(project_git_mode)):
+                    raise DomainError("backup_incomplete", "Registered project Git metadata is not a regular file or directory")
+                if stat.S_ISREG(project_git_mode):
                     if root_git is None:
-                        raise DomainError("backup_incomplete", "Linked HQ Git metadata requires an installation Git directory")
-                    _validate_linked_gitdir(hq_git, root_git)
-                # A linked-worktree gitdir file is already an authored HQ file.
-                # A standalone HQ repository's `.git` directory is skipped by
+                        raise DomainError("backup_incomplete", "Linked project Git metadata requires an installation Git directory")
+                    _validate_linked_gitdir(project_git, root_git)
+                # A linked-worktree gitdir file is already an authored project file.
+                # A standalone project repository's `.git` directory is skipped by
                 # BackupStore, so carry only that directory in the runtime layer.
-                if stat.S_ISDIR(hq_git_mode):
-                    paths.append(hq_git)
+                if stat.S_ISDIR(project_git_mode):
+                    paths.append(project_git)
         return paths
 
     def _snapshot(self, generation: str) -> dict:
@@ -489,32 +493,33 @@ class FullRecoveryStore:
     def _merge_runtime(self, raw_root: Path, target: Path, authority: Path) -> None:
         try:
             manifest = json.loads((authority / "authored/manifest.json").read_text(encoding="utf-8"))
-            businesses = manifest["businesses"]
+            projects = manifest["projects"]
         except (OSError, TypeError, ValueError, KeyError) as exc:
             raise DomainError("invalid_backup", "Restored authority manifest is invalid") from exc
-        for item in businesses:
+        for item in projects:
             try:
-                hq = Path(item["hq"])
+                folder = Path(item["root"])
             except (TypeError, KeyError) as exc:
-                raise DomainError("invalid_restore", "Restored authority manifest has an invalid business path") from exc
-            if hq.is_absolute() or ".." in hq.parts or not hq.parts:
-                raise DomainError("invalid_restore", "Restored authority manifest has an invalid business path")
-            relative = hq.parent / "code"
+                raise DomainError("invalid_restore", "Restored authority manifest has an invalid project path") from exc
+            if folder.is_absolute() or ".." in folder.parts or not folder.parts:
+                raise DomainError("invalid_restore", "Restored authority manifest has an invalid project path")
+            relative = folder / "code"
             source, destination = raw_root / relative, target / relative
-            if not (source.exists() or source.is_symlink()) or destination.exists() or destination.is_symlink():
-                raise DomainError("invalid_restore", "Restored business code tree is missing or conflicts")
-            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if destination.parent.is_symlink():
-                raise DomainError("invalid_restore", "Restored business code parent is not safe")
-            os.rename(source, destination)
-            git_relative = hq / ".git"
+            if source.exists() or source.is_symlink():
+                if destination.exists() or destination.is_symlink():
+                    raise DomainError("invalid_restore", "Restored project code tree conflicts")
+                destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                if destination.parent.is_symlink():
+                    raise DomainError("invalid_restore", "Restored project code parent is not safe")
+                os.rename(source, destination)
+            git_relative = folder / ".git"
             git_source, git_destination = raw_root / git_relative, target / git_relative
             if git_source.exists() or git_source.is_symlink():
                 if git_destination.exists() or git_destination.is_symlink():
-                    raise DomainError("invalid_restore", "Restored HQ Git metadata conflicts with authority data")
+                    raise DomainError("invalid_restore", "Restored project Git metadata conflicts with authority data")
                 git_destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 if git_destination.parent.is_symlink():
-                    raise DomainError("invalid_restore", "Restored HQ Git parent is not safe")
+                    raise DomainError("invalid_restore", "Restored project Git parent is not safe")
                 os.rename(git_source, git_destination)
         for relative in (Path(".git"),):
             source, destination = raw_root / relative, target / relative
@@ -549,7 +554,7 @@ class FullRecoveryStore:
             manifest = verify_snapshot(authority / "authored")
             if manifest.root != self.root:
                 raise ValueError
-            require_target_businesses(manifest, authority / "state.sqlite3", self.paths)
+            require_target_projects(manifest, authority / "state.sqlite3", self.paths)
             restore_snapshot(authority / "authored", target)
             restored = self.database.restore(authority / "state.sqlite3", target / self.database_relative,
                                         expected_checksum=metadata["database"]["checksum"])

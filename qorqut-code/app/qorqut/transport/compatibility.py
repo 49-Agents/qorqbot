@@ -6,15 +6,15 @@ import base64
 from email import policy as email_policy
 from email.parser import BytesParser
 import json
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 import anyio
 from markdown_it import MarkdownIt
 from starlette.responses import JSONResponse, Response
-import yaml
 
-from qorqut.composition.locations import business_hq
+from qorqut.composition.locations import project_root
 from qorqut_operations.contracts import DomainError, InvocationOptions, canonical_hash, new_id, plain
+from qorqut_operations.project_lifecycle import owner_project_ids
 from qorqut_operations.team_channel import is_installation_owner
 from qorqut_operations.storage.repositories import decode_row
 from .http import check_body_length, checked_fields, read_json, revalidated
@@ -36,7 +36,7 @@ def integer_parameter(value, name, minimum, maximum):
     return result
 
 
-def business_task_page(tasks, query, business_id):
+def project_task_page(tasks, query, project_id):
     """Keep the dashboard's title/tag/note search and due-date ordering across pages.
 
     The compatibility reader still gathers the authorized list. This bounds browser
@@ -62,7 +62,7 @@ def business_task_page(tasks, query, business_id):
             search in str(note.get("text", "")).lower() for note in task.get("notes", []))
     filtered = [task for task in tasks if matches(task) and (visibility == "all" or
                 not closed(task) and snoozed(task) == (visibility == "snoozed"))]
-    selected, cursor = page(filtered, args, business_id, "dashboard_tasks", reverse=False,
+    selected, cursor = page(filtered, args, project_id, "dashboard_tasks", reverse=False,
                             key=lambda task: (int(closed(task)), task.get("due") or "9999", task["title"], task["id"]))
     return {"tasks": selected, "next_cursor": cursor}
 
@@ -115,7 +115,7 @@ class DashboardCompatibility:
         normalized query selection.
         """
         return 'W/"' + canonical_hash({"path": request.url.path, "query": sorted(request.query_params.items()),
-            "scope": context.business_id, "data": data}) + '"'
+            "scope": context.project_id, "data": data}) + '"'
 
     def learning_revalidated(self, request, context, operation, arguments):
         """Recheck authority and selected content on every request, then decide a conditional 304.
@@ -168,21 +168,6 @@ class DashboardCompatibility:
         return {"icon": presentation.get("icon", DEFAULT_AGENT_ICON), "color": presentation.get("color", DEFAULT_AGENT_COLOR),
                 "kind": profile.get("role", {}).get("id", "")}
 
-    def registered_agent(self, context, selector, *, include_inactive=False):
-        with self.runtime.database.read() as uow:
-            row = uow.connection.execute("SELECT agent_id FROM agent_profiles WHERE home_business_id=? AND (agent_id=? OR name=?) AND (status='active' OR ?)", (context.business_id, selector, selector, include_inactive)).fetchone()
-        if row is None:
-            raise DomainError("not_found", "Active registered agent was not found in this project")
-        return self.data(context, "agents_get", {"agent_id": row["agent_id"]})["agent"]
-
-    def agent_view(self, context, profile):
-        if profile.get("archival_record"):
-            return profile
-        notes = self.data(context, "notes_list", {"agent_id": profile["agent_id"], "limit": 30})["items"]
-        return {**profile, **self.appearance(profile), "agent_yaml": yaml.safe_dump({"generated": True, **profile}, sort_keys=False),
-                "notes": [Path(note["path"]).name for note in notes],
-                "sessions": self.local_files.session_names(context.business_id, profile["agent_id"]), "learnings": ""}
-
     def assignees(self, context):
         return self.data(context, "assignees_list")["assignees"]
 
@@ -192,7 +177,7 @@ class DashboardCompatibility:
         candidates = self.assignees(context)
         matches = [row for row in candidates if value == row["id"] or value == row["kind"] + ":" + (row.get("name") or row["display_name"])]
         if len(matches) != 1:
-            raise DomainError("invalid_assignee", "Select one active member of this project")
+            raise DomainError("invalid_assignee", "Select one active assignee of this project")
         return matches[0]["id"]
 
     def task_view(self, context, task, *, members=None):
@@ -239,9 +224,9 @@ class DashboardCompatibility:
             tail = parts[1:]
             if request.method == "POST":
                 body = await read_json(request)
-                return await anyio.to_thread.run_sync(lambda: self.business_post(request, context, None, tail, body))
+                return await anyio.to_thread.run_sync(lambda: self.project_post(request, context, None, tail, body))
             if request.method == "GET":
-                return await anyio.to_thread.run_sync(lambda: self.business_get(request, context, None, tail))
+                return await anyio.to_thread.run_sync(lambda: self.project_get(request, context, None, tail))
             raise DomainError("not_found", "Endpoint is not registered")
         if parts == ["root", "env"]:
             if request.method == "GET":
@@ -265,39 +250,36 @@ class DashboardCompatibility:
             if context.principal_kind != "human":
                 raise DomainError("forbidden", "Personal tasks require a human principal")
             with self.runtime.database.read() as uow:
-                businesses = [dict(row) for row in uow.connection.execute(
-                    "SELECT b.id,b.slug,b.name FROM businesses b JOIN business_memberships m ON m.business_id=b.id "
-                    "WHERE m.principal_id=? AND m.active=1 AND b.archived_at IS NULL ORDER BY b.slug", (context.principal_id,))
-                    if row["id"] in context.allowed_business_ids]
+                projects = [dict(row) for row in uow.connection.execute(
+                    "SELECT id,slug,name FROM projects WHERE archived_at IS NULL ORDER BY slug")
+                    if row["id"] in context.allowed_project_ids]
             tasks = []
-            for business in businesses:
-                selected = context.select_business(business["id"])
+            for project in projects:
+                selected = context.select_project(project["id"])
                 rows = self.collection(selected, "tasks_list", {"assignee_id": context.principal_id, "include_closed": True, "snooze_filter": "all"}, key="tasks")
                 members = {row["id"]: row for row in self.assignees(selected)} if rows else {}
-                tasks.extend({**self.task_view(selected, task, members=members), "business": business} for task in rows)
+                tasks.extend({**self.task_view(selected, task, members=members), "project": project} for task in rows)
             return JSONResponse({"principal_id": context.principal_id, "tasks": tasks})
-        if parts == ["biz"]:
+        if parts == ["project"]:
             with self.runtime.database.read() as uow:
-                registered = uow.connection.execute("SELECT b.* FROM businesses b JOIN business_memberships m ON m.business_id=b.id WHERE m.principal_id=? AND m.active=1 AND b.archived_at IS NULL ORDER BY b.slug", (context.principal_id,)).fetchall()
-            businesses = []
+                reachable = owner_project_ids(uow.connection, context.principal_id)
+                registered = [row for row in uow.connection.execute("SELECT * FROM projects WHERE archived_at IS NULL ORDER BY slug") if row["id"] in reachable]
+            projects = []
             for row in registered:
-                selected = context.select_business(row["id"])
-                profiles = self.data(selected, "agents_list")["agents"]
                 metadata = json.loads(row["config_json"])
-                businesses.append({"slug": row["slug"], "path": str(business_hq(self.runtime.paths, row)), "name": row["name"], "id": row["id"], "business_id": row["id"],
-                    "one_liner": metadata.get("one_liner", metadata.get("description", "")), "stage": row["stage"], "website": metadata.get("website"),
-                    "owner": context.principal.display_name, "agents": [profile["name"] for profile in profiles],
-                    "agent_meta": {profile["name"]: self.appearance(profile) for profile in profiles}})
-            return JSONResponse(businesses)
+                projects.append({"slug": row["slug"], "path": str(project_root(self.runtime.paths, row)), "name": row["name"], "id": row["id"], "project_id": row["id"],
+                    "one_liner": metadata.get("one_liner", metadata.get("description", "")), "website": metadata.get("website"),
+                    "owner": context.principal.display_name})
+            return JSONResponse(projects)
         if parts == ["marketplace"]:
-            if not context.allowed_business_ids:
+            if not context.allowed_project_ids:
                 return JSONResponse({"v": 2, "kinds": []})
-            selected = context.select_business(sorted(context.allowed_business_ids)[0])
+            selected = context.select_project(sorted(context.allowed_project_ids)[0])
             references = self.data(selected, "roles_list")["roles"]
             kinds = []
             for reference in references:
                 role = self.data(selected, "roles_get", {"role": reference})["role"]
-                if "business" not in role["manifest"]["scope_kinds"]:
+                if "project" not in role["manifest"]["scope_kinds"]:
                     continue
                 display = self.appearance({"role": reference})
                 kinds.append({"id": reference["id"], "role": reference, "label": role["manifest"].get("name", reference["id"]),
@@ -307,35 +289,21 @@ class DashboardCompatibility:
             return JSONResponse([])
         raise DomainError("not_found", "Endpoint is not registered")
 
-    async def business_route(self, request, context, business, tail):
+    async def project_route(self, request, context, project, tail):
         if request.method == "GET":
-            return await anyio.to_thread.run_sync(lambda: self.business_get(request, context, business, tail))
+            return await anyio.to_thread.run_sync(lambda: self.project_get(request, context, project, tail))
         if request.method == "POST":
             if tail == ["assets", "upload"]:
                 return await self.asset_upload(request, context)
             body = await read_json(request)
-            return await anyio.to_thread.run_sync(lambda: self.business_post(request, context, business, tail, body))
+            return await anyio.to_thread.run_sync(lambda: self.project_post(request, context, project, tail, body))
         raise DomainError("not_found", "Endpoint is not registered")
 
-    def business_get(self, request, context, business, tail):
+    def project_get(self, request, context, project, tail):
         if tail == ["env"]:
             return JSONResponse(self.local_files.environment_settings(context), headers={"Cache-Control": "no-store"})
-        if len(tail) == 3 and tail[0] == "session":
-            profile = self.registered_agent(context, tail[1], include_inactive=True)
-            return JSONResponse(self.local_files.session_events(context.business_id, profile["agent_id"], tail[2]))
         if tail == ["git"]:
-            return JSONResponse(self.local_files.git_recent(context.business_id))
-        if tail == ["agents"]:
-            def produce():
-                profiles = self.data(context, "agents_list", {"include_inactive": request.query_params.get("include_inactive") == "true"})["agents"]
-                return JSONResponse([{**profile, **self.appearance(profile)} for profile in profiles] if request.query_params.get("summary") == "1"
-                    else [self.agent_view(context, profile) for profile in profiles])
-            # agent_view() also reads notes (documents) per profile; summary
-            # mode does not, but declaring the union for both is simpler and only
-            # costs summary mode an occasional extra miss, never a stale one.
-            return revalidated(request, self.runtime.changes, {"agents", "documents"}, context.business_id, produce)
-        if len(tail) == 2 and tail[0] == "agents":
-            return response(self.invoke(context, "agents_get", {"agent_id": tail[1]}))
+            return JSONResponse(self.local_files.git_recent(context.project_id))
         if len(tail) == 2 and tail[0] == "task":
             task = self.data(context, "tasks_get", {"task_id": tail[1]})["task"]
             return JSONResponse({"task": self.task_view(context, task)})
@@ -348,7 +316,7 @@ class DashboardCompatibility:
                 members = {row["id"]: row for row in self.assignees(context)} if tasks else {}
                 views = [self.task_view(context, task, members=members) for task in tasks]
                 if request.query_params.get("paged") == "1":
-                    return JSONResponse(business_task_page(views, request.query_params, context.business_id), headers={"Cache-Control": "no-store"})
+                    return JSONResponse(project_task_page(views, request.query_params, context.project_id), headers={"Cache-Control": "no-store"})
                 return JSONResponse(views)
             # assignees_list (agents kind) only actually runs when tasks is
             # non-empty, but the declared kind set must cover every request
@@ -356,7 +324,7 @@ class DashboardCompatibility:
             # Snooze expiry changes page membership with time, even without a write event.
             if request.query_params.get("paged") == "1":
                 return produce()
-            return revalidated(request, self.runtime.changes, {"tasks", "agents"}, context.business_id, produce)
+            return revalidated(request, self.runtime.changes, {"tasks", "agents"}, context.project_id, produce)
         if tail == ["log"]:
             try:
                 limit = int(request.query_params.get("n", "40"))
@@ -365,7 +333,7 @@ class DashboardCompatibility:
             def produce():
                 entries = self.collection(context, "actions_list", key="actions") if limit == 0 else self.data(context, "actions_list", {"limit": limit})["actions"]
                 return JSONResponse([self.log_view(row) for row in entries])
-            return revalidated(request, self.runtime.changes, {"action_logs"}, context.business_id, produce)
+            return revalidated(request, self.runtime.changes, {"action_logs"}, context.project_id, produce)
         if tail == ["live"]:
             def produce():
                 platform, since = self.live_platform_signoffs(context, request.query_params.get("since") or None)
@@ -375,7 +343,7 @@ class DashboardCompatibility:
                     "learnings_open": learnings["counts"]["open"],
                     "routine_failures": self.live_routine_failures(context, datetime.now(timezone.utc)),
                     "signoffs_pending": signoffs["counts"]["pending"]})
-            return revalidated(request, self.runtime.changes, {"signoffs", "learnings", "jobs_routines"}, context.business_id, produce)
+            return revalidated(request, self.runtime.changes, {"signoffs", "learnings", "jobs_routines"}, context.project_id, produce)
         if tail[:1] == ["routines"]:
             return self.routine_get(request, context, tail[1:])
         if tail == ["learnings"]:
@@ -384,7 +352,7 @@ class DashboardCompatibility:
                 from qorqut.domains.learnings.shared import STATES
                 counts = {state: sum(row["state"] == state for row in items) for state in STATES}
                 return JSONResponse({"items": items, "counts": counts})
-            return revalidated(request, self.runtime.changes, {"learnings"}, context.business_id, produce)
+            return revalidated(request, self.runtime.changes, {"learnings"}, context.project_id, produce)
         # The literal history inventory is matched before the generic candidate-ID route: "history" is not an ID.
         if tail == ["learnings", "history"]:
             args = self.learning_history_arguments(request)
@@ -398,9 +366,9 @@ class DashboardCompatibility:
             return response(self.invoke(context, "learnings_intake_status", {"learning_id": tail[1]}))
         if len(tail) == 2 and tail[0] == "jobs":
             return response(self.invoke(context, "jobs_get", {"job_id": tail[1]}))
-        return self.document_get(request, context, business, tail)
+        return self.document_get(request, context, project, tail)
 
-    def business_post(self, request, context, business, tail, body):
+    def project_post(self, request, context, project, tail, body):
         if tail == ["env"]:
             checked_fields(body, {"pairs"}, {"pairs"})
             return JSONResponse({"ok": True, **self.local_files.replace_environment(context, body["pairs"])}, headers={"Cache-Control": "no-store"})
@@ -462,19 +430,7 @@ class DashboardCompatibility:
                 raise DomainError("not_found", "Task endpoint is not registered")
             result = self.invoke(context, operation, args, self.options(body, revision=current["revision"]))
             return response(result) if result.status != "ok" else JSONResponse({"task": self.task_view(context, plain(result.data["task"]))})
-        if tail == ["agent"]:
-            checked_fields(body, {"name", "display_name", "role", "assignment_brief", "kind", "plugins", "presentation"} | OPTIONS,
-                {"role"})
-            # A business agent's name is allocated; agents_create rejects a chosen one.
-            args = {key: body[key] for key in ("name", "display_name", "role", "assignment_brief", "plugins", "presentation") if key in body}
-            return response(self.invoke(context, "agents_create", args, self.options(body)), created=True)
-        if len(tail) == 3 and tail[0] == "agent" and tail[2] == "meta":
-            checked_fields(body, {"icon"} | OPTIONS)
-            profile = self.registered_agent(context, tail[1])
-            presentation = {**profile["presentation"], **{key: body[key] for key in ("icon",) if key in body}}
-            result = self.invoke(context, "agents_update", {"agent_id": profile["agent_id"], "changes": {"presentation": presentation}}, self.options(body, revision=profile["profile_revision"]))
-            return response(result) if result.status != "ok" else JSONResponse({"ok": True, **self.appearance({**profile, "presentation": presentation})})
-        return self.document_post(request, context, business, tail, body)
+        return self.document_post(request, context, project, tail, body)
 
     @staticmethod
     def journal_uploads(documents, uow):
@@ -502,7 +458,7 @@ class DashboardCompatibility:
         meta = document["metadata"]
         documents = self.runtime.domains.documents
         def resolve_filing(uow):
-            upload = uow.repository("documents", business_id=document["business_id"]).get(meta["upload_id"])
+            upload = uow.repository("documents", project_id=document["project_id"]).get(meta["upload_id"])
             return documents.source_filing(uow, context, upload) if upload and upload["kind"] in {"context_upload", "context_dump"} else None
         filing = None
         if meta.get("upload_id"):
@@ -549,9 +505,9 @@ class DashboardCompatibility:
         """The explicit Project UUID a Project-note request carries, forwarded unchanged. The route slug only selects the route; the
         operation compares this value with the selected Project and the stored note owner. A Project route without it is refused."""
         if supplied is not None:
-            return {"target_business_id": supplied}
-        if context.business_id is not None and context.agent_id is None:
-            raise DomainError("validation_error", "Project notes require target_business_id")
+            return {"target_project_id": supplied}
+        if context.project_id is not None and context.agent_id is None:
+            raise DomainError("validation_error", "Project notes require target_project_id")
         return {}
 
     def document_selector(self, context, selector, operation="context_list", *, prefix=None, kinds=None, arguments=None):
@@ -626,10 +582,10 @@ class DashboardCompatibility:
         return "\n".join(lines).strip()
 
     def context_queue(self, context):
-        """The read-only ``context_queue`` object of the caller's namespace (the business, or Global when none is selected)."""
+        """The read-only ``context_queue`` object of the caller's namespace (the project, or Global when none is selected)."""
         from qorqut_context.integration.filing.queue_status import context_queue_summary
         with self.runtime.database.read() as uow:
-            return context_queue_summary(uow.connection, context.business_id)
+            return context_queue_summary(uow.connection, context.project_id)
 
     def context_processes_view(self, context):
         """The processes view: only the namespace's Context queue summary, read from the queue's own rows.
@@ -639,11 +595,11 @@ class DashboardCompatibility:
         return {"context_queue": self.context_queue(context)}
 
     def global_context_get(self, request, context):
-        """``GET /api/root/context?view=processes``: the owner's read of Global-owned Context work (not a union of businesses)."""
+        """``GET /api/root/context?view=processes``: the owner's read of Global-owned Context work (not a union of projects)."""
         checked_fields(dict(request.query_params), {"view"}, {"view"})
         if request.query_params["view"] != "processes":
             raise DomainError("validation_error", "Only the processes view is available for Global Context")
-        if context.business_id is not None:
+        if context.project_id is not None:
             raise DomainError("scope_required", "The Global Context process view is read without a selected project")
         with self.runtime.database.read() as uow:
             if context.principal_kind != "human" or not is_installation_owner(context, uow):
@@ -699,18 +655,18 @@ class DashboardCompatibility:
         result["graph"] = self.data(context, "context_graph_get", {})
         return result
 
-    def document_get(self, request, context, business, tail):
+    def document_get(self, request, context, project, tail):
         if tail == ["notes"]:
             def produce():
                 tag = request.query_params.get("tag")
-                target = self.project_target(context, request.query_params.get("target_business_id"))
+                target = self.project_target(context, request.query_params.get("target_project_id"))
                 rows = self.collection(context, tail[0] + "_list", {**({"tag": tag} if tag else {}), **target})
                 with self.runtime.database.read() as uow:
                     uploads = self.journal_uploads(rows, uow)
                     return JSONResponse([self.page_view(row, uow, context, journal_uploads=uploads.get(row["id"], ())) for row in rows])
             # page_view()'s filing status reads the Context queue's rows (coarse, global-only context_queue) and `jobs` directly
             # (coarse jobs_routines).
-            return revalidated(request, self.runtime.changes, {"documents", "jobs_routines", "context_queue"}, context.business_id, produce)
+            return revalidated(request, self.runtime.changes, {"documents", "jobs_routines", "context_queue"}, context.project_id, produce)
         if tail == ["assets"]:
             groups = {"polished": [], "drafted": []}
             for row in self.collection(context, "assets_list"):
@@ -739,7 +695,7 @@ class DashboardCompatibility:
             # read context_list (documents) and the queue summary (coarse, global-only context_queue), processes/default read
             # `jobs` directly (coarse jobs_routines); the query string is already part
             # of the ETag's own identity, so the three variants never collide.
-            return revalidated(request, self.runtime.changes, {"documents", "jobs_routines", "context_queue"}, context.business_id, produce)
+            return revalidated(request, self.runtime.changes, {"documents", "jobs_routines", "context_queue"}, context.project_id, produce)
         if tail == ["context", "file"]:
             doc = self.document_selector(context, request.query_params.get("p", ""), "context_list", prefix="context")
             return JSONResponse({"path": request.query_params["p"], "dir": "context", "text": doc["body"], "document_id": doc["id"], "revision": doc["revision"], "content_hash": doc["content_hash"],
@@ -779,7 +735,7 @@ class DashboardCompatibility:
 
     @staticmethod
     def context_upload_args(body):
-        """The context_upload field mapping shared by the business and Global routes."""
+        """The context_upload field mapping shared by the project and Global routes."""
         checked_fields(body, {"text", "notes", "topic", "task_ids", "origin", "occurred_on", "participants"} | OPTIONS, {"text"})
         args = {"body": body["text"], "title": body.get("topic") or body.get("notes") or "Context upload",
                 "source": "dashboard", "task_ids": body.get("task_ids", [])}
@@ -795,12 +751,12 @@ class DashboardCompatibility:
         return JSONResponse({**result.to_dict(), "ok": True, "id": PurePosixPath(document["path"]).stem,
             "document_id": document["id"], "path": document["path"].removeprefix("context/")}, status_code=202)
 
-    def document_post(self, request, context, business, tail, body):
+    def document_post(self, request, context, project, tail, body):
         if tail[:1] == ["notes"]:
             domain = tail[0]
             checked_fields(body, {"title", "content", "pinned", "date", "statuses", "ordubashy_visible", "expected_content_hash", "task_ids", "tags",
-                                  "target_business_id"} | OPTIONS)
-            target = self.project_target(context, body.get("target_business_id"))
+                                  "target_project_id"} | OPTIONS)
+            target = self.project_target(context, body.get("target_project_id"))
             if len(tail) == 1:
                 args = {"title": body.get("title") or "Daily", "body": body.get("content", "")}
                 args.update({key: body[key] for key in ("pinned", "date", "task_ids", "tags") if key in body})
@@ -810,14 +766,14 @@ class DashboardCompatibility:
                 doc = self.document_selector(context, tail[1], domain + "_list", arguments=target)
                 revision = doc["revision"]
                 args = {"document_id": doc["id"], "expected_content_hash": body.get("expected_content_hash", doc["content_hash"]),
-                        **(target if doc["kind"] == "business_owned_note" else {})}
+                        **(target if doc["kind"] == "project_owned_note" else {})}
                 if len(tail) == 2:
                     operation = domain + "_update"
                     if "content" in body:
                         args["body"] = body["content"]
                     args["metadata"] = {key: body[key] for key in ("title", "pinned", "tags", "statuses", "ordubashy_visible") if key in body}
                 elif len(tail) == 3 and tail[2] in {"delete", "upload"}:
-                    operation = ("journal_upload_to_filer" if context.business_id is None and tail[2] == "upload"
+                    operation = ("journal_upload_to_filer" if context.project_id is None and tail[2] == "upload"
                                  else domain + "_" + tail[2])
                 else:
                     raise DomainError("not_found", "Document action is not registered")
@@ -912,22 +868,22 @@ class DashboardCompatibility:
             "occurred_hour": occurred.get("hour"), "time_precision": occurred.get("precision"), "time_zone": occurred.get("time_zone"),
             "refs": row["refs"], "actor_id": actor, "actor": actor}
 
-    def select_business(self, context, selector):
+    def select_project(self, context, selector):
         if not isinstance(selector, str) or not selector:
             raise DomainError("scope_required", "Select an explicit review project")
         with self.runtime.database.read() as uow:
-            row = uow.connection.execute("SELECT id FROM businesses WHERE id=? OR slug=?", (selector, selector)).fetchone()
-            if row is None or row["id"] not in context.allowed_business_ids:
+            row = uow.connection.execute("SELECT id FROM projects WHERE id=? OR slug=?", (selector, selector)).fetchone()
+            if row is None or row["id"] not in context.allowed_project_ids:
                 raise DomainError("not_found", "Selected project is not available to this principal")
-            return self.runtime.policy.context_for(context.principal_id, business_id=row["id"], review_business_id=row["id"], uow=uow)
+            return self.runtime.policy.context_for(context.principal_id, project_id=row["id"], review_project_id=row["id"], uow=uow)
 
     def routine_view(self, context, row):
-        scope = "global" if row["scope"] == "global" else "biz"
+        scope = "global" if row["scope"] == "global" else "project"
         preview = self.data(context, "routines_preview", {"schedule": row["schedule"], "timezone": row["timezone"],
             **({"scope": "global"} if scope == "global" else {})}) if row["status"] == "active" else {"slots": []}
         return {**row, "scope": scope, "key": row["namespace"] + "/" + row["id"],
-            "location": "global" if scope == "global" else "business:" + context.business_id,
-            "review_scope": {"kind": "global"} if scope == "global" else {"kind": "business", "business_id": context.business_id}, "when": row["schedule"], "tz": row["timezone"], "zone": row["timezone"],
+            "location": "global" if scope == "global" else "project:" + context.project_id,
+            "review_scope": {"kind": "global"} if scope == "global" else {"kind": "project", "project_id": context.project_id}, "when": row["schedule"], "tz": row["timezone"], "zone": row["timezone"],
             "next": preview["slots"][0]["utc"] if preview["slots"] else None, "timeout": row["timeout_seconds"],
             "why": row["metadata_json"].get("why", ""), "run": [row["program"]], "commit": []}
 
@@ -935,10 +891,10 @@ class DashboardCompatibility:
 
     @staticmethod
     def _routine_context(uow):
-        businesses = {row["id"]: row["slug"] for row in uow.connection.execute("SELECT id,slug FROM businesses")}
+        projects = {row["id"]: row["slug"] for row in uow.connection.execute("SELECT id,slug FROM projects")}
         definitions = {(row["namespace"], row["id"]): {"name": row["name"], "timezone": row["timezone"]}
             for row in uow.connection.execute("SELECT namespace,id,name,timezone FROM routines")}
-        return businesses, definitions
+        return projects, definitions
 
     def routine_history(self, context, *, limit=50, global_scope=False, routine_id=None, hourly=False):
         args = {"routine_id": routine_id} if routine_id else {}
@@ -946,16 +902,16 @@ class DashboardCompatibility:
         records = [] if global_scope else self.data(context, "routines_runs", args)["items"]
         if global_scope or "manage_global_routines" in context.global_capabilities:
             records.extend(self.data(context, "routines_runs", {**args, "scope": "global"})["items"])
-        # A business history read may contain this business's global executions.
+        # A project history read may contain this project's global executions.
         # Global aggregation requires the explicit capability above; never label
-        # a partial business-only cost as the total for a global routine.
+        # a partial project-only cost as the total for a global routine.
         if not global_scope and "manage_global_routines" not in context.global_capabilities:
             records = [row for row in records if row["namespace"] != "global"]
         if hourly:
             return records
         with self.runtime.database.read() as uow:
-            businesses, definitions = self._routine_context(uow)
-        return recent_runs(records, limit=limit, businesses=businesses, definitions=definitions)
+            projects, definitions = self._routine_context(uow)
+        return recent_runs(records, limit=limit, projects=projects, definitions=definitions)
 
     def live_routine_failures(self, context, now):
         """Failed-routine groups from the last 24h, without routine_history()'s
@@ -963,7 +919,7 @@ class DashboardCompatibility:
         state='failed' rows only (not decoded and discarded like every other
         state in the window would be), fed through the same recent_runs()
         grouping the Routines page itself uses so identities match and
-        js/routines.js's rtFailureToasts never double-toasts. A business row
+        js/routines.js's rtFailureToasts never double-toasts. A project row
         groups singly and a global row's group key needs no sibling row, so
         both group identity and the group's "failed" state are already fully
         determined by the failed row alone -- filtering to it here changes
@@ -972,13 +928,13 @@ class DashboardCompatibility:
         since = (now - timedelta(hours=24)).isoformat().replace("+00:00", "Z")
         with self.runtime.database.read() as uow:
             rows = [decode_row(row) for row in uow.connection.execute(
-                "SELECT * FROM routine_runs WHERE business_id IS ? AND namespace!='global' AND started_at>=? AND state='failed'",
-                (context.business_id, since))]
+                "SELECT * FROM routine_runs WHERE project_id IS ? AND namespace!='global' AND started_at>=? AND state='failed'",
+                (context.project_id, since))]
             if "manage_global_routines" in context.global_capabilities:
                 rows.extend(decode_row(row) for row in uow.connection.execute(
                     "SELECT * FROM routine_runs WHERE namespace='global' AND started_at>=? AND state='failed'", (since,)))
-            businesses, definitions = self._routine_context(uow)
-        return recent_runs(rows, limit=None, businesses=businesses, definitions=definitions)
+            projects, definitions = self._routine_context(uow)
+        return recent_runs(rows, limit=None, projects=projects, definitions=definitions)
 
     def live_platform_signoffs(self, context, since):
         """Pending platform_action signoffs, always, plus -- once the client has
@@ -993,7 +949,7 @@ class DashboardCompatibility:
         be redeemed by a no-"states" updated_after call or vice versa. The
         pending half is therefore its own bounded {"states": ["pending"]} call
         -- cheap, since it only ever reads and enriches actually-pending rows,
-        never the resolved remainder of a business's full signoff history.
+        never the resolved remainder of a project's full signoff history.
         The change-stream half keeps the old no-"states" filter set for its
         whole life so a pending-to-resolved transition is still visible to it:
         with no prior cursor, mint one with a throwaway limit:1 call (only
@@ -1025,21 +981,21 @@ class DashboardCompatibility:
     def routine_processes_view(self, context, *, global_scope):
         """current/queued/invalid only, straight from BackgroundService.status():
         no routines_list, no routine_history(), no schedule previews. Root asks
-        for the global-scoped job pool (business_id=None); a business asks for
+        for the global-scoped job pool (project_id=None); a project asks for
         its own. Unlike routine_status(), status() is not routine-linked-jobs-
         only -- current/recent can be any job kind for that scope -- which is
         why this is a distinct view rather than a trimmed routine_status().
         """
         if not self.background:
             return {"current": None, "queued": 0, "invalid": [], "error": "Background service is not attached"}
-        status = self.background.status(None if global_scope else context.business_id)
+        status = self.background.status(None if global_scope else context.project_id)
         return {key: status[key] for key in ("current", "running", "queues", "queued", "invalid")}
 
     def routine_get(self, request, context, tail, *, global_scope=False):
         scope = {"scope": "global"} if global_scope else {}
         if not tail:
             if request.query_params.get("view") == "processes":
-                return revalidated(request, self.runtime.changes, {"jobs_routines"}, context.business_id,
+                return revalidated(request, self.runtime.changes, {"jobs_routines"}, context.project_id,
                     lambda: JSONResponse(self.routine_processes_view(context, global_scope=global_scope)))
             rows = self.collection(context, "routines_list", scope)
             if not global_scope and "manage_global_routines" in context.global_capabilities:
@@ -1068,9 +1024,9 @@ class DashboardCompatibility:
         if tail:
             raise DomainError("not_found", "Routine action is not registered")
         scope = {"scope": "global"} if global_scope else {}
-        allowed = {"op", "id", "definition", "review_business_id", "job_id", "target_business_id"} | OPTIONS
+        allowed = {"op", "id", "definition", "review_project_id", "job_id", "target_project_id"} | OPTIONS
         checked_fields(body, allowed, {"op"})
-        if "review_business_id" in body and body["review_business_id"] != context.business_id:
+        if "review_project_id" in body and body["review_project_id"] != context.project_id:
             raise DomainError("validation_error", "Review destination is determined by routine ownership")
         operation = {"add": "routines_create", "set": "routines_update", "pause": "routines_pause", "resume": "routines_resume",
             "rm": "routines_delete", "run": "routines_run", "stop": "routines_stop"}.get(body["op"])
@@ -1084,7 +1040,7 @@ class DashboardCompatibility:
             if "definition" not in body:
                 raise DomainError("validation_error", "Routine editing requires a registered program and typed definition; shell commands are retired")
             args["definition"] = body["definition"]
-        for key in ("job_id", "target_business_id"):
+        for key in ("job_id", "target_project_id"):
             if key in body:
                 args[key] = body[key]
         result = self.invoke(context, operation, args, self.options(body, revision=revision))
@@ -1098,26 +1054,26 @@ class DashboardCompatibility:
             raise DomainError("validation_error", "Routine location must be a string")
         global_scope = parts[:2] == ["root", "routines"] or location == "global" or location.startswith("global:")
         if global_scope:
-            if any(key in body or key in request.query_params for key in ("review_business_id", "biz")) or location.startswith("global:"):
+            if any(key in body or key in request.query_params for key in ("review_project_id", "project")) or location.startswith("global:"):
                 raise DomainError("validation_error", "Global routines no longer accept a review project; use the Global workspace")
-            context = replace(context, business_id=None, review_business_id=None)
-        selector = body.get("review_business_id") or request.query_params.get("review_business_id") or request.query_params.get("biz")
-        if location.startswith(("business:", "global:")):
+            context = replace(context, project_id=None, review_project_id=None)
+        selector = body.get("review_project_id") or request.query_params.get("review_project_id") or request.query_params.get("project")
+        if location.startswith(("project:", "global:")):
             selected = location.split(":", 1)[1]
             if selector and selector != selected:
                 raise DomainError("validation_error", "Routine location and review project disagree")
             selector = selected
         if not global_scope:
-            context = self.select_business(context, selector)
+            context = self.select_project(context, selector)
         if parts[:2] == ["root", "routines"]:
             if "manage_global_routines" not in context.global_capabilities:
                 raise DomainError("forbidden", "Global routines require the registered global capability")
             return self.routine_get(request, context, parts[2:], global_scope=True) if request.method == "GET" else self.routine_post(context, parts[2:], body, global_scope=True)
         if parts == ["routines", "run"] and request.method == "POST":
-            checked_fields(body, {"location", "id", "review_business_id"} | OPTIONS, {"location", "id"})
+            checked_fields(body, {"location", "id", "review_project_id"} | OPTIONS, {"location", "id"})
             return self.routine_post(context, [], {key: value for key, value in {**body, "op": "run"}.items() if key != "location"}, global_scope=global_scope)
         if parts == ["routines", "kill"] and request.method == "POST":
-            checked_fields(body, {"location", "id", "job_id", "review_business_id", "target_business_id"} | OPTIONS, {"id", "job_id"})
+            checked_fields(body, {"location", "id", "job_id", "review_project_id", "target_project_id"} | OPTIONS, {"id", "job_id"})
             return self.routine_post(context, [], {key: value for key, value in {**body, "op": "stop"}.items() if key != "location"}, global_scope=global_scope)
         if parts == ["routines", "costs"] and request.method == "GET":
             args = {}
@@ -1130,7 +1086,7 @@ class DashboardCompatibility:
         if parts == ["routines"] and request.method == "GET":
             return self.routine_get(request, context, [])
         if parts in (["filer"], ["bridge", "status"]) and request.method == "GET":
-            status = self.background.status(context.business_id)
+            status = self.background.status(context.project_id)
             kinds = {"context.file"} if parts == ["filer"] else {"platform.dispatch", "platform.reconcile", "platform.cancel"}
             status["recent"] = [row for row in status["recent"] if row["kind"] in kinds]
             if status["current"] and status["current"]["kind"] not in kinds:

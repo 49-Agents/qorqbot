@@ -51,7 +51,7 @@ class ServiceEnvironment(Folder):
     def test_a_shipped_tmux_is_never_put_on_the_path(self):
         env = self.environment()
         self.assertNotIn('tmux', ' '.join(env['PATH'].split(os.pathsep)))
-        self.assertNotIn('BIZ_TMUX_SOCKET', env)
+        self.assertNotIn('QORQUT_TMUX_SOCKET', env)
 
     def test_an_inherited_terminal_workspace_does_not_leak_in(self):
         self.assertNotIn('QORQUT_TERMINAL_WORKSPACE', self.environment(QORQUT_TERMINAL_WORKSPACE='/somewhere'))

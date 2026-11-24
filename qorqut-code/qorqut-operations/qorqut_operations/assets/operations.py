@@ -48,7 +48,7 @@ class AssetOperations:
 
     def references(self, row, ctx, uow):
         found = []
-        for document in rows(uow, "documents", ctx.business_id):
+        for document in rows(uow, "documents", ctx.project_id):
             meta = document["metadata_json"]
             if row["id"] in meta.get("asset_ids", []) or row["path"] in meta.get("assets", []):
                 found.append({"resource_type": "documents", "resource_id": document["id"], "title": meta.get("title", document["path"])})
@@ -64,7 +64,7 @@ class AssetOperations:
         found = self.store.collection(ctx, uow, kinds={"asset"})
         for key in ("group", "topic", "batch"):
             if key in args: found = [row for row in found if row["metadata_json"].get(key) == args[key]]
-        selected, cursor = page(found, args, ctx.business_id, operation)
+        selected, cursor = page(found, args, ctx.project_id, operation)
         return {"items": [self.view(row, ctx, uow) for row in selected], "next_cursor": cursor,
                 "groups": sorted({row["metadata_json"].get("group", "") for row in found})}
 
@@ -76,7 +76,7 @@ class AssetOperations:
             if not data or len(data) > MAX_BYTES: raise DomainError("validation_error", "Assets must contain 1 byte to 100 MiB")
             name = filename(args["filename"])
             prefix = "assets/" + args["group"] + ("/" + args["topic"] if args.get("topic") else "")
-            path = self.store.free_path(uow, ctx.business_id, prefix, PurePosixPath(name).stem, suffix=PurePosixPath(name).suffix, builder=builder)
+            path = self.store.free_path(uow, ctx.project_id, prefix, PurePosixPath(name).stem, suffix=PurePosixPath(name).suffix, builder=builder)
             metadata = {key: value for key, value in args.items() if key in {"group", "topic", "notes", "batch"}}
             metadata.update(filename=PurePosixPath(path).name, media_type=args.get("media_type") or mimetypes.guess_type(name)[0] or "application/octet-stream",
                             size=len(data), at=builder.at, by=ctx.principal_id)
@@ -98,6 +98,6 @@ class AssetOperations:
     def apply(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
         change = next(change for change in plan.changes if change.resource.resource_type == "documents")
-        row = uow.repository("documents", business_id=ctx.business_id).get(change.resource.resource_id, required=True)
+        row = uow.repository("documents", project_id=ctx.project_id).get(change.resource.resource_id, required=True)
         return {"asset": {"id": row["id"], "path": row["path"], "revision": row["revision"], "archived": bool(row["archived"]), "content_hash": row["content_hash"],
                           "metadata": row["metadata_json"], "file_resource": self.store.view({**row, "availability": "ready"}, uow, include_body=False)["file_resource"]}}

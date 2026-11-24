@@ -11,7 +11,7 @@ FILTERS = {"material_type": {"enum": list(MATERIAL_TYPES)}, "origin": {"type": "
 
 def classification(row, resource="documents"):
     if resource != "documents" or row.get("kind") not in DOCUMENT_KINDS or row.get("owning_agent_id") \
-            or not (row.get("business_id") or row.get("namespace") == "global"):
+            or not (row.get("project_id") or row.get("namespace") == "global"):
         return {}
     kind, meta = row["kind"], row.get("metadata_json", {})
     default_type = "mixed" if kind in RAW_KINDS else "content" if kind == "content" else "conversation" if kind == "email_message" else "document"

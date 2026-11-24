@@ -8,7 +8,7 @@ Two trusted sources are joined here and nothing else:
   only place a managed desktop's loopback CDP port is named. The viewer URL is never a CDP source.
 
 Every browser is Global and is named by its surface ``id``; projects have no browsers, so a reference that names a project
-(``business_id``) resolves to nothing. Naming a browser grants nothing; control is the existing ``browser_turn`` path, with
+(``project_id``) resolves to nothing. Naming a browser grants nothing; control is the existing ``browser_turn`` path, with
 its own authorization."""
 
 from __future__ import annotations
@@ -51,16 +51,16 @@ class BrowserTargets:
 
     # ----- resolution ------------------------------------------------------------------------------------------------
 
-    def resolve(self, uow, principal_id, surface_id, business_id, *, viewer=False):
+    def resolve(self, uow, principal_id, surface_id, project_id, *, viewer=False):
         """The configured Global browser ``surface_id`` as ``principal_id`` reaches it, or ``not_found``. A project
-        (``business_id``) has no browser. With ``viewer`` the viewer URL is part of the answer."""
-        if business_id is not None:
+        (``project_id``) has no browser. With ``viewer`` the viewer URL is part of the answer."""
+        if project_id is not None:
             raise unavailable()
         registry = self.registry()
         surface = registry and registry["surfaces"].get(surface_id)
         if not surface or surface["kind"] != "browser":
             raise unavailable()
-        found = {"id": surface_id, "label": surface["label"], "business_id": None, "viewer_url": surface["viewer_url"]}
+        found = {"id": surface_id, "label": surface["label"], "project_id": None, "viewer_url": surface["viewer_url"]}
         if "width" in surface:
             found.update(width=surface["width"], height=surface["height"])
         return found

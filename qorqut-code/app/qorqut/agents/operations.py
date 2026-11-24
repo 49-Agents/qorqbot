@@ -14,8 +14,8 @@ from qorqut_operations.contracts import (ChangePreview, ChangeSet, DomainError, 
                                          PreparedChange, PreviewResource, Principal, ResourceRef, StructuredPreview,
                                          TextPreview, canonical_bytes, new_id, plain, utc_now)
 from qorqut.composition.locations import agent_workspace, document_root
+from qorqut_operations.project_lifecycle import active_project_ids
 from . import plugin_defaults, roles
-from .global_scope import with_effective_scope
 from .models import AgentProfile, PLUGIN_GRANT_SCHEMA, PROFILE_SCHEMA, REFERENCE_SCHEMA, GLOBAL_CAPABILITIES, scope_schema
 from qorqut_operations.document_history.files import seed_document
 from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, file_values
@@ -30,11 +30,11 @@ EMAIL_MANAGEMENT_PLUGIN_ID = plugin_defaults.EMAIL_PLUGIN
 DEFAULT_EMAIL_MANAGEMENT_CONFIG = plugin_defaults.default_config(EMAIL_MANAGEMENT_PLUGIN_ID)
 EDITABLE = {key: value for key, value in PROFILE_SCHEMA["properties"].items()
             if key in {"name", "display_name", "runtime", "role", "scope", "assignment_brief", "plugins", "tool_policy", "presentation"}}
-# A new worker reads the shared Context and reaches every business like any global; further access is chosen explicitly.
-WORKER_DEFAULT_SCOPE = {"kind": "ecosystem", "allowed_business_ids": [], "global_capabilities": ["read_global_context"]}
+# A new worker reads the shared Context and reaches every project like any global; further access is chosen explicitly.
+WORKER_DEFAULT_SCOPE = {"kind": "ecosystem", "global_capabilities": ["read_global_context"]}
 # Agent, role and shared-instruction administration and the old peer authority never pass to a worker; every other
 # capability may be delegated up to what the manager holds.
-WORKER_BARRED_CAPABILITIES = frozenset({"manage_ecosystem_agents", "coordinate_businesses", "manage_delegated_assignments",
+WORKER_BARRED_CAPABILITIES = frozenset({"manage_ecosystem_agents", "coordinate_projects", "manage_delegated_assignments",
                                         "publish_roles", "publish_plugins", "manage_shared_instructions", "manage_agentic_layer"})
 MODE_RANK = {"deny": 0, "signoff": 1, "allow": 2}
 
@@ -82,14 +82,12 @@ class AgentOperations:
 
     @staticmethod
     def _validate_roster(operation, profile, before, uow):
-        """An active profile is one supported global: ecosystem scope, no business home, one per singleton role.
+        """An active profile is one supported global: one per singleton role.
 
-        Deactivation stays available for every profile, including historical business-home ones.
+        Deactivation stays available for every profile.
         """
         if profile.data["status"] != "active":
             return
-        if profile.scope.kind != "ecosystem" or profile.scope.business_id is not None:
-            raise DomainError("invalid_profile", "Projects own resources only; agents are global with ecosystem scope")
         role_id = profile.role.id
         if role_id not in roles.SUPPORTED_GLOBAL_ROLES:
             raise DomainError("invalid_profile", "Active agents use one of the supported global roles: "
@@ -97,7 +95,7 @@ class AgentOperations:
         if role_id in roles.REPEATABLE_GLOBAL_ROLES:
             return
         others = [row["agent_id"] for row in uow.connection.execute(
-            "SELECT agent_id, profile_json FROM agent_profiles WHERE status='active' AND home_business_id IS NULL "
+            "SELECT agent_id, profile_json FROM agent_profiles WHERE status='active' "
             "AND agent_id<>? ORDER BY agent_id", (profile.agent_id,)) if roles.profile_role(row) == role_id]
         if others:
             raise DomainError("roster_conflict", f"An active {role_id} agent is already registered",
@@ -181,7 +179,7 @@ class AgentOperations:
             from .briefing import WorkBriefing
             self.resolver.work_briefing = WorkBriefing(application)
         read_schemas = {
-            "agent_config_get": {"business_id": UUID_SCHEMA}, "agents_list": {"include_inactive": {"type": "boolean"}, "scope": {"enum": ["business", "global"]}},
+            "agent_config_get": {"project_id": UUID_SCHEMA}, "agents_list": {"include_inactive": {"type": "boolean"}},
             "agents_get": {"agent_id": UUID_SCHEMA}, "permissions_get": {"agent_id": UUID_SCHEMA},
             "roles_list": {}, "roles_get": {"role": REFERENCE_SCHEMA}, "plugins_list": {}, "agents_icons_list": {},
         }
@@ -190,7 +188,7 @@ class AgentOperations:
             registry.register(OperationDescriptor(name, {"type": "object", "properties": properties, "required": required},
                 description=(instruction_text('operations-read-your-current-identity-role-grants-and-project') if name == "agent_config_get" else
                              instruction_text('operations-list-the-bundled-icons-a-worker-can-be') if name == "agents_icons_list" else ""),
-                effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"business", "global", "agent_workspace"}),
+                effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"project", "global", "agent_workspace"}),
                 global_capability="read_global_context",
                 resolve_namespace=self.roster_namespace if name == "agents_list" else None,
                 read=lambda ctx, args, options, uow, operation=name: self.read(operation, ctx, args, options, uow)))
@@ -207,7 +205,7 @@ class AgentOperations:
             registry.register(OperationDescriptor(name,
                 {"type": "object", "properties": {**properties, "rationale": {"type": "string", "maxLength": 2000}}, "required": required},
                 description=(instruction_text('operations-establish-a-supported-global-agent-with-ecosystem-scope') if name == "agents_create" else ""),
-                effect_kind="compound" if name == "agents_create" else "records", scope_kinds=frozenset({"business", "global"}),
+                effect_kind="compound" if name == "agents_create" else "records", scope_kinds=frozenset({"project", "global"}),
                 global_capability="manage_ecosystem_agents",
                 resolve_namespace=self.mutation_namespace,
                 prepare=lambda ctx, args, options, uow, operation=name: self.prepare(operation, ctx, args, options, uow),
@@ -221,43 +219,20 @@ class AgentOperations:
 
     @staticmethod
     def roster_namespace(ctx, arguments):
-        if arguments.get("scope", "business") == "global":
-            if ctx.business_id is not None or ctx.home_business_id is not None:
-                raise DomainError("forbidden", "Select Global to read its agent roster")
-            return "global"
-        if ctx.business_id is None:
-            raise DomainError("scope_required", "Select a permitted project or explicitly request the Global roster")
-        return "business:" + ctx.business_id
+        if ctx.project_id is not None:
+            raise DomainError("forbidden", "Select Global to read its agent roster")
+        return "global"
 
-    def mutation_namespace(self, ctx, arguments):
-        if "agent_id" in arguments:
-            with self.resolver.database.read() as uow:
-                row = uow.connection.execute("SELECT home_business_id FROM agent_profiles WHERE agent_id=?", (arguments["agent_id"],)).fetchone()
-            if row is not None and row["home_business_id"] is None:
-                return "global"
-        # A creation without a scope is a worker, which is always ecosystem-wide.
-        if arguments.get("scope", {} if "agent_id" in arguments else WORKER_DEFAULT_SCOPE).get("kind") == "ecosystem":
-            return "global"
-        return "business:" + ctx.business_id if ctx.business_id else "global"
+    @staticmethod
+    def mutation_namespace(ctx, arguments):
+        return "global"
 
-    def _access(self, ctx, row):
+    @staticmethod
+    def _access(ctx, row):
         if row is None:
             raise DomainError("not_found", "Agent profile does not exist")
-        home = row["home_business_id"]
-        if home is not None:
-            if home != ctx.business_id or home not in ctx.allowed_business_ids:
-                raise DomainError("forbidden", "Agent is outside the selected project")
-        elif ctx.home_business_id is not None or not ctx.global_capabilities:
+        if not ctx.global_capabilities:
             raise DomainError("forbidden", "Ecosystem agent requires explicit global scope")
-
-    def owner_config(self, ctx, agent_id):
-        with self.resolver.database.read() as uow:
-            membership = uow.repository("business_memberships", business_id=ctx.business_id).get(ctx.principal_id) if ctx.business_id else None
-            if ctx.principal_kind != "human" or not membership or not membership["active"] or not membership["is_owner"]:
-                raise DomainError("forbidden", "Configuration inspection requires the selected project owner")
-            row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (agent_id,)).fetchone()
-            self._access(ctx, row)
-        return self.resolver.resolve_agent_config(Principal(agent_id, "agent"), business_id=ctx.business_id).to_dict()
 
     def profile_view(self, row, connection):
         value = json.loads(row["profile_json"])
@@ -266,19 +241,14 @@ class AgentOperations:
             return {"agent_id": row["agent_id"], "name": row["name"],
                 "display_name": label if isinstance(label, str) and label else row["name"], "status": "retired",
                 "profile_revision": row["revision"], "archival_record": True}
-        profile = AgentProfile.from_dict(value, self.resolver.registry)
-        if row["status"] == "active" and row["home_business_id"] is None:
-            # The computed read projection: every active business, never the saved list.
-            profile = with_effective_scope(profile, connection)
-        result = profile.to_dict()
-        return result
+        return AgentProfile.from_dict(value, self.resolver.registry).to_dict()
 
     def read(self, operation, ctx, args, options, uow):
         if operation == "agent_config_get":
             if ctx.agent_id is None:
                 raise DomainError("invalid_principal", "Self configuration requires an authenticated agent")
             config = self.resolver.resolve_agent_config(ctx.principal,
-                business_id=args.get("business_id", ctx.business_id)).to_dict()
+                project_id=args.get("project_id", ctx.project_id)).to_dict()
             result = {"effective_config": config}
             # MCP compact/context projections discard the live briefing. Avoid
             # assembling it first: its domain reads can be slow or unavailable
@@ -299,12 +269,7 @@ class AgentOperations:
             package = self.resolver.catalog.get("role", args["role"], connection=uow.connection)
             return {"role": {**package.ref, "manifest": plain(package.manifest), "brief": package.files[package.manifest["brief"]].decode()}}
         if operation == "agents_list":
-            if args.get("scope") == "global":
-                rows = uow.connection.execute("SELECT * FROM agent_profiles WHERE home_business_id IS NULL AND (? OR status='active') ORDER BY name,agent_id", (bool(args.get("include_inactive")),))
-                return {"agents": [self.profile_view(row, uow.connection) for row in rows]}
-            if ctx.business_id is None or ctx.business_id not in ctx.allowed_business_ids:
-                raise DomainError("scope_required", "Select a permitted project to read its roster")
-            rows = uow.connection.execute("SELECT * FROM agent_profiles WHERE home_business_id=? AND (? OR status='active') ORDER BY name,agent_id", (ctx.business_id, bool(args.get("include_inactive"))))
+            rows = uow.connection.execute("SELECT * FROM agent_profiles WHERE (? OR status='active') ORDER BY name,agent_id", (bool(args.get("include_inactive")),))
             return {"agents": [self.profile_view(row, uow.connection) for row in rows]}
         identity = args.get("agent_id", ctx.agent_id)
         row = uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (identity,)).fetchone()
@@ -320,10 +285,10 @@ class AgentOperations:
 
     def resolve_name(self, ctx, resource, uow):
         try:
-            namespace, name = json.loads(resource.resource_id)
+            _, name = json.loads(resource.resource_id)
         except (ValueError, TypeError) as exc:
             raise DomainError("invalid_plan", "Invalid profile name expectation") from exc
-        return uow.connection.execute("SELECT revision,agent_id FROM agent_profiles WHERE namespace=? AND name=? AND status='active'", (namespace, name)).fetchone()
+        return uow.connection.execute("SELECT revision,agent_id FROM agent_profiles WHERE name=? AND status='active'", (name,)).fetchone()
 
     def resolve_file_target(self, resource):
         if resource.resource_type != "agent_bootstrap_files":
@@ -335,14 +300,7 @@ class AgentOperations:
         except (ValueError, TypeError, AttributeError) as exc:
             raise DomainError("invalid_plan", "Invalid initial agent document reference") from exc
         path = f"agents/{agent_id}/{leaf}"
-        if resource.business_id:
-            with self.resolver.database.read() as uow:
-                row = uow.connection.execute("SELECT slug FROM businesses WHERE id=?", (resource.business_id,)).fetchone()
-            if row is None:
-                raise DomainError("invalid_scope", "Initial document project is not registered")
-        else:
-            row = None
-        return RegisteredFileTarget(document_root(self.resolver.paths, row, path), path)
+        return RegisteredFileTarget(document_root(self.resolver.paths, None, path), path)
 
     def resolve_file_snapshot(self, ctx, resource, uow):
         digest = file_hash(self.resolve_file_target(resource).resolve())
@@ -360,20 +318,17 @@ class AgentOperations:
                 raise DomainError("role_unavailable", "No global-worker role package is published")
             self._require_creation_authority(ctx, role["id"], uow)
             worker = role["id"] == roles.GLOBAL_WORKER_ROLE
-            scope = args.get("scope") or (WORKER_DEFAULT_SCOPE if worker else {"kind": "business", "business_id": ctx.business_id})
+            scope = args.get("scope") or (WORKER_DEFAULT_SCOPE if worker else None)
             if role["id"] not in roles.SUPPORTED_GLOBAL_ROLES:
                 raise DomainError("unsupported_role", "Only the supported global roles operate")
-            if scope["kind"] != "ecosystem":
-                raise DomainError("invalid_profile", "Projects own resources only; agents are global with ecosystem scope")
+            if scope is None:
+                raise DomainError("validation_error", "A Global agent requires a scope with ecosystem kind")
             required = {"name", "assignment_brief"} if worker else {"name", "display_name", "assignment_brief"}
             if not required <= set(args):
                 raise DomainError("validation_error", "A Global agent requires name, display_name and assignment_brief"
                                   "; a worker requires name and assignment_brief")
-            if ctx.home_business_id is not None or not set(scope["global_capabilities"]).issubset(ctx.global_capabilities):
+            if not set(scope["global_capabilities"]).issubset(ctx.global_capabilities):
                 raise DomainError("forbidden", "New ecosystem profile cannot exceed current granted scope")
-            # Business access is derived; the saved list is never authority and stays empty.
-            scope = {**scope, "allowed_business_ids": []}
-            home = None
             name, assignment = args["name"], args["assignment_brief"]
             display_name = args.get("display_name", name)
             presentation = dict(args.get("presentation", {}))
@@ -385,8 +340,8 @@ class AgentOperations:
                 default_grants = self._default_grants(role["id"], scope, uow)
             plugins = args.get("plugins", json.loads(json.dumps(default_grants)))
             identity = new_id()
-            # The registered identity and home scope select the workspace; the name never does.
-            workspace = agent_workspace(self.resolver.paths, identity, home)
+            # The registered identity selects the workspace; the name never does.
+            workspace = agent_workspace(self.resolver.paths, identity)
             values = {"schema_version": 2, "agent_id": identity, "profile_revision": 1, "name": name,
                       "display_name": display_name, "status": "active", "runtime": args.get("runtime") or self._default_runtime(role["id"], uow),
                       "role": role,
@@ -407,14 +362,9 @@ class AgentOperations:
                 raise DomainError("inactive_agent", "Inactive profiles cannot be edited through active agent operations")
             values = before.to_dict()
             values["profile_revision"] += 1
-            home = (uow.connection.execute("SELECT slug FROM businesses WHERE id=?", (old["home_business_id"],)).fetchone()
-                    if old["home_business_id"] else None)
-            workspace = agent_workspace(self.resolver.paths, identity, home)
+            workspace = agent_workspace(self.resolver.paths, identity)
             if operation == "agents_update":
                 values.update(args["changes"])
-                if "scope" in args["changes"] and values["scope"].get("kind") == "ecosystem" and before.scope.kind == "ecosystem":
-                    # Callers echo the computed projection; the saved list is inert and never rewritten.
-                    values["scope"] = {**values["scope"], "allowed_business_ids": list(before.scope.allowed_business_ids)}
             elif operation == "permissions_set":
                 values["tool_policy"] = {"overrides": args["overrides"]}
             elif operation == "plugins_enable":
@@ -431,33 +381,31 @@ class AgentOperations:
         self._require_manager_authority(ctx, operation, profile, before, uow)
         self._validate_icon(profile, before)
         if before and before.scope.to_dict() != profile.scope.to_dict():
-            if (before.scope.kind != profile.scope.kind or before.scope.business_id != profile.scope.business_id
-                or not set(profile.scope.global_capabilities).issubset(ctx.global_capabilities)):
-                raise DomainError("forbidden", "A scope edit cannot transfer the agent or exceed current authority")
-        business_id = profile.scope.business_id
-        namespace = business_id or "ecosystem"
-        expected = [ExpectedTarget(ResourceRef("agent_profiles", identity, business_id, namespace), revision=before.revision if before else None, exists=not creating)]
+            if not set(profile.scope.global_capabilities).issubset(ctx.global_capabilities):
+                raise DomainError("forbidden", "A scope edit cannot exceed current authority")
+        namespace = "ecosystem"
+        expected = [ExpectedTarget(ResourceRef("agent_profiles", identity, None, namespace), revision=before.revision if before else None, exists=not creating)]
         if creating or before.data["name"] != profile.data["name"]:
-            name_ref = ResourceRef("agent_names", canonical_bytes([namespace, profile.data["name"]]).decode(), business_id, namespace)
+            name_ref = ResourceRef("agent_names", canonical_bytes([namespace, profile.data["name"]]).decode(), None, namespace)
             if self.resolve_name(ctx, name_ref, uow):
                 raise DomainError("duplicate_agent_name", "An active agent already uses this name in the selected scope")
             expected.append(ExpectedTarget(name_ref, exists=False))
         documents, effective = (), None
         if profile.data["status"] == "active":
             proposed = (profile, {"workspace": str(workspace)})
-            snapshot = self.resolver._snapshot(Principal(identity, "agent"), business_id, proposed=proposed)
+            snapshot = self.resolver._snapshot(Principal(identity, "agent"), None, proposed=proposed)
             documents, effective = snapshot["documents"].values(), self.resolver._compose(snapshot)
-        # Deactivation composes no orientation, so a historical business-home profile can still be closed. Business access is
-        # derived in each transaction: no business row is an input of a global profile change, and none is pinned.
+        # Deactivation composes no orientation. Project access is derived in each transaction: no project row is an
+        # input of a global profile change, and none is pinned.
         for document in documents:
-            expected.append(ExpectedTarget(ResourceRef("documents", document["id"], document["business_id"], document["namespace"]), revision=document["revision"], content_hash=document["content_hash"]))
+            expected.append(ExpectedTarget(ResourceRef("documents", document["id"], document["project_id"], document["namespace"]), revision=document["revision"], content_hash=document["content_hash"]))
         result = {"agent_id": identity, "profile_revision": profile.revision, "overrides": plain(profile.data["tool_policy"]["overrides"]), "effective_config_id": effective.effective_config_id if effective else None}
-        resource = ResourceRef("agent_profiles", identity, business_id, namespace)
+        resource = ResourceRef("agent_profiles", identity, None, namespace)
         profile_values = {"profile": profile.to_dict(), "workspace": str(workspace), "result": result}
         if default_selection:
             profile_values["default_plugin_grants"] = default_grants
         changes = [PreparedChange("record", resource, "create_profile" if creating else "replace_profile", profile_values)]
-        principal_ref = ResourceRef("principals", identity, business_id, namespace)
+        principal_ref = ResourceRef("principals", identity, None, namespace)
         principal_row = uow.repository("principals").get(identity)
         expected.append(ExpectedTarget(principal_ref, revision=principal_row["revision"] if principal_row else None, exists=principal_row is not None))
         principal_values = {"display_name": profile.data["display_name"], "active": profile.data["status"] == "active"}
@@ -465,30 +413,22 @@ class AgentOperations:
             principal_values.update({"id": identity, "kind": "agent", "created_at": profile.data["created_at"]})
         changes.append(PreparedChange("record", principal_ref, "insert_principal" if creating else "update_principal", principal_values))
         if profile.data["status"] != "active":
-            # Agent business access is derived, never granted by membership: no new
-            # rows are written, and retirement only closes rows left from earlier models.
-            for membership in uow.connection.execute(
-                    "SELECT * FROM business_memberships WHERE principal_id=? AND active=1 ORDER BY business_id", (identity,)):
-                membership_ref = ResourceRef("business_memberships", identity, membership["business_id"], membership["business_id"])
-                expected.append(ExpectedTarget(membership_ref, revision=membership["revision"]))
-                changes.append(PreparedChange("record", membership_ref, "update_membership", {"active": False}))
-        if profile.data["status"] != "active":
             for credential in uow.repository("credentials").list(filters={"principal_id": identity}, limit=200):
                 if credential["revoked_at"] is None:
-                    credential_ref = ResourceRef("credentials", credential["id"], business_id, namespace)
+                    credential_ref = ResourceRef("credentials", credential["id"], None, namespace)
                     expected.append(ExpectedTarget(credential_ref, revision=credential["revision"]))
                     changes.append(PreparedChange("record", credential_ref, "revoke_credential", {"revoked_at": utc_now()}))
         if creating:
-            plan_ref = ResourceRef("agent_bootstrap_files", canonical_bytes([identity, "PLAN.md"]).decode(), business_id, namespace)
+            plan_ref = ResourceRef("agent_bootstrap_files", canonical_bytes([identity, "PLAN.md"]).decode(), None, namespace)
             target = self.resolve_file_target(plan_ref).resolve()
             if target.exists() or workspace.exists():
                 raise DomainError("workspace_conflict", "A new agent requires an unused registered folder")
             plan_bytes = b"# Plan\n\n## Goal\nUnknown: first working goal has not been recorded.\n\n## Now\nNo tasks selected yet.\n"
             document_id = new_id()
-            expected += [ExpectedTarget(plan_ref, exists=False), ExpectedTarget(ResourceRef("documents", document_id, business_id, namespace), exists=False)]
+            expected += [ExpectedTarget(plan_ref, exists=False), ExpectedTarget(ResourceRef("documents", document_id, None, namespace), exists=False)]
             changes += [PreparedChange("file", plan_ref, "write", file_values(plan_bytes, before_hash=None)),
-                PreparedChange("record", ResourceRef("documents", document_id, business_id, namespace), "register_plan",
-                    {"id": document_id, "business_id": business_id, "namespace": namespace, "owning_agent_id": identity,
+                PreparedChange("record", ResourceRef("documents", document_id, None, namespace), "register_plan",
+                    {"id": document_id, "project_id": None, "namespace": namespace, "owning_agent_id": identity,
                      "kind": "plan", "path": f"agents/{identity}/PLAN.md", "content_hash": file_values(plan_bytes, before_hash=None)["after_hash"],
                      "metadata_json": {"authored": True}})]
         old_data = before.to_dict() if before else {}
@@ -526,12 +466,12 @@ class AgentOperations:
             resources.append(plan_resource)
             previews.append(TextPreview(plan_resource, "", plan_text,
                 "".join(difflib.unified_diff([], plan_text.splitlines(keepends=True), fromfile="/dev/null", tofile="PLAN.md"))))
-        return ChangeSet(operation, 1, ctx.principal_id, "business:" + business_id if business_id else "global", args,
-            {"kind": "global" if profile.scope.kind == "ecosystem" else "business", "business_ids": sorted(profile.scope.businesses), "agent_id": identity},
+        return ChangeSet(operation, 1, ctx.principal_id, "global", args,
+            {"kind": "global", "project_ids": [], "agent_id": identity},
             tuple(expected), tuple(changes), ChangePreview(f"{operation.replace('_', ' ').title()}: {profile.data['display_name']}", args.get("rationale", ""),
-                {"kind": "global" if profile.scope.kind == "ecosystem" else "business", "business_ids": sorted(profile.scope.businesses)}, tuple(resources), tuple(previews),
+                {"kind": "global", "project_ids": []}, tuple(resources), tuple(previews),
                 ("Current database profile changes only when applied. Project preparation reconciles generated files without launching a session.",)),
-            review_business_id=options.review_business_id or ctx.review_business_id or business_id, proposer_agent_id=ctx.agent_id)
+            review_project_id=options.review_project_id or ctx.review_project_id, proposer_agent_id=ctx.agent_id)
 
     def validate_targets(self, ctx, plan, uow):
         from qorqut.catalog.packages import content_hash, relative_path
@@ -548,9 +488,9 @@ class AgentOperations:
             resource = expectation.resource
             if resource.resource_type != "documents" or not expectation.exists:
                 continue
-            row = uow.repository("documents", business_id=resource.business_id).get(resource.resource_id, required=True)
-            business = uow.repository("businesses").get(resource.business_id, required=True) if resource.business_id else None
-            base = document_root(self.resolver.paths, business, row["path"])
+            row = uow.repository("documents", project_id=resource.project_id).get(resource.resource_id, required=True)
+            project = uow.repository("projects").get(resource.project_id, required=True) if resource.project_id else None
+            base = document_root(self.resolver.paths, project, row["path"])
             path = base / relative_path(row["path"])
             if row["availability"] != "ready" or path.is_symlink() or not base.resolve().is_relative_to(self.resolver.paths.operations) or not path.resolve().is_relative_to(base.resolve()):
                 raise DomainError("document_conflict", "Reviewed mandatory source is no longer available at its registered path")
@@ -566,11 +506,10 @@ class AgentOperations:
         from qorqut_operations.tasks import CLOSED_STATES
 
         closed = set(CLOSED_STATES)
-        businesses = profile.scope.businesses | with_effective_scope(profile, uow.connection).scope.businesses
-        for business_id in sorted(businesses):
-            open_tasks = [row["id"] for row in uow.connection.execute("SELECT t.id,t.status FROM tasks t WHERE t.business_id=? AND t.archived=0 AND EXISTS (SELECT 1 FROM relationships e WHERE e.business_id=t.business_id AND e.from_type='task' AND e.from_id=t.id AND e.role='assigned_to' AND e.to_type='agent' AND e.to_id=?)", (business_id, identity)) if row["status"] not in closed]
+        for project_id in sorted(active_project_ids(uow.connection)):
+            open_tasks = [row["id"] for row in uow.connection.execute("SELECT t.id,t.status FROM tasks t WHERE t.project_id=? AND t.archived=0 AND EXISTS (SELECT 1 FROM relationships e WHERE e.project_id=t.project_id AND e.from_type='task' AND e.from_id=t.id AND e.role='assigned_to' AND e.to_type='agent' AND e.to_id=?)", (project_id, identity)) if row["status"] not in closed]
             if open_tasks:
-                raise DomainError("agent_has_open_tasks", "Reassign or complete outstanding tasks before retiring this agent", details={"business_id": business_id, "task_ids": open_tasks})
+                raise DomainError("agent_has_open_tasks", "Reassign or complete outstanding tasks before retiring this agent", details={"project_id": project_id, "task_ids": open_tasks})
 
     def _recheck(self, ctx, plan, profile, uow):
         """The roster and manager rules against the profiles as they are now, when validating and when applying."""
@@ -584,8 +523,7 @@ class AgentOperations:
         change = plan.changes[0]
         profile = AgentProfile.from_dict(change.values["profile"], self.resolver.registry)
         identity = profile.agent_id
-        business_id = profile.scope.business_id
-        repository = uow.repository("agent_profiles", business_id=business_id)
+        repository = uow.repository("agent_profiles")
         expectations = {target.resource: target for target in plan.expected_targets}
         if change.action != "create_profile":
             self._require_target_authority(ctx, plan.operation_name, identity, uow)
@@ -600,8 +538,7 @@ class AgentOperations:
             elif effect.action == "update_principal":
                 uow.repository("principals").update(effect.resource.resource_id, values, expected_revision=revision)
         if change.action == "create_profile":
-            repository.insert({"agent_id": identity, "principal_id": identity, "home_business_id": business_id,
-                "namespace": business_id or "ecosystem", "name": profile.data["name"], "workspace": change.values["workspace"],
+            repository.insert({"agent_id": identity, "principal_id": identity, "name": profile.data["name"], "workspace": change.values["workspace"],
                 "status": profile.data["status"], "profile_json": profile.to_dict(), "revision": profile.revision, "created_at": profile.data["created_at"]})
         elif change.action == "replace_profile":
             if profile.data["status"] != "active":
@@ -611,15 +548,11 @@ class AgentOperations:
             raise DomainError("invalid_plan", "Unexpected profile application action")
         for document in plan.changes:
             if document.action == "register_plan":
-                row = uow.repository("documents", business_id=business_id).insert(plain(document.values))
+                row = uow.repository("documents", project_id=None).insert(plain(document.values))
                 content = next(effect.values["content_b64"] for effect in plan.changes
                                if effect.kind == "file" and effect.resource.resource_type == "agent_bootstrap_files")
                 seed_document(uow.connection, row, base64.b64decode(content),
                                       author="system:" + plan.operation_name, operation=plan.operation_name, plan=plan)
-            elif document.action == "insert_membership":
-                raise DomainError("invalid_plan", "Agent project access is derived; prepare this change again")
-            elif document.action == "update_membership":
-                uow.repository("business_memberships", business_id=document.resource.business_id).update(identity, plain(document.values), expected_revision=expectations[document.resource].revision)
             elif document.action == "revoke_credential":
                 uow.repository("credentials").update(document.resource.resource_id, plain(document.values), expected_revision=expectations[document.resource].revision)
         return plain(change.values["result"])

@@ -32,7 +32,7 @@ class Clock:
 @dataclass(frozen=True)
 class Context:
     request_id: str = ''
-    business_id: str = None
+    project_id: str = None
 
 
 class Registry:
@@ -47,7 +47,7 @@ class Registry:
             raise DomainError('operation_unavailable', 'Operation is not installed')
         self.clock.advance(self.delays[canonical].get('lookup', 0))
         return SimpleNamespace(name=canonical, transport_only=False, input_schema={'properties': {}},
-            scope_kinds={'business'}, version=1)
+            scope_kinds={'project'}, version=1)
 
 
 class Caller:

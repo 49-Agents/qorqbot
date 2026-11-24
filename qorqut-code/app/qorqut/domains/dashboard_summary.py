@@ -22,28 +22,27 @@ def register(registry, clock):
         if isinstance(now, str): now = datetime.fromisoformat(now.replace('Z', '+00:00'))
         # Reporting windows use the installation's calendar days (qorqut_operations.local_time).
         dates = [(local_time.today(lambda: now)-timedelta(days=i)).isoformat() for i in reversed(range(14))]
-        businesses = uow.connection.execute('SELECT b.id,b.slug FROM businesses b JOIN business_memberships m ON m.business_id=b.id '
-            'WHERE m.principal_id=? AND m.active=1 AND m.is_owner=1 AND b.archived_at IS NULL ORDER BY b.slug', (ctx.principal_id,)).fetchall()
+        projects = uow.connection.execute('SELECT id,slug FROM projects WHERE archived_at IS NULL ORDER BY slug').fetchall()
         items = []
-        for business in businesses:
-            bid = business['id']
-            config, _ = TaskOperations.configuration(replace(ctx, business_id=bid), uow)
+        for project in projects:
+            bid = project['id']
+            config, _ = TaskOperations.configuration(replace(ctx, project_id=bid), uow)
             open_states = [s['name'] for s in config['states'] if s['kind'] != 'closed']
             count = 0
             if open_states:
-                count = uow.connection.execute('SELECT COUNT(*) FROM tasks t WHERE t.business_id=? AND t.archived=0 AND '
+                count = uow.connection.execute('SELECT COUNT(*) FROM tasks t WHERE t.project_id=? AND t.archived=0 AND '
                     + ACTIVE_SQL + ' AND t.status IN ('+','.join('?' for _ in open_states)+') AND EXISTS '
-                    '(SELECT 1 FROM relationships r WHERE r.business_id=t.business_id AND r.from_type=\'task\' AND r.from_id=t.id '
+                    '(SELECT 1 FROM relationships r WHERE r.project_id=t.project_id AND r.from_type=\'task\' AND r.from_id=t.id '
                     'AND r.role=\'assigned_to\' AND r.to_id=?)', (bid, timestamp(lambda: now), *open_states, ctx.principal_id)).fetchone()[0]
             # Something to read is counted apart from the decisions waiting on the owner.
             signoffs = uow.connection.execute("SELECT COUNT(*),COALESCE(SUM(s.category='platform_action'),0),"
                 f"COALESCE(SUM({ACKNOWLEDGE_SQL}),0) FROM signoffs s "
-                "WHERE s.review_business_id=? AND s.state='pending' AND s.superseded_by_id IS NULL", (bid,)).fetchone()
-            # A shared action counts once in each linked business, on its recorded local occurrence day.
-            activity = dict(uow.connection.execute("SELECT a.occurred_date,COUNT(DISTINCT a.action_key) FROM action_logs a "
-                "JOIN action_businesses m ON m.action_key=a.action_key WHERE m.business_id=? AND a.occurred_date>=? "
+                "WHERE s.review_project_id=? AND s.state='pending' AND s.superseded_by_id IS NULL", (bid,)).fetchone()
+            # A shared action counts once in each linked project, on its recorded local occurrence day.
+            activity = dict(uow.connection.execute("SELECT a.occurred_date,COUNT(DISTINCT a.id) FROM action_logs a "
+                "JOIN action_projects m ON m.action_id=a.id WHERE m.project_id=? AND a.occurred_date>=? "
                 "AND a.occurred_date<=? AND a.occurred_at<=? GROUP BY a.occurred_date", (bid, dates[0], dates[-1], timestamp(lambda: now))).fetchall())
-            items.append({'business_id':bid,'slug':business['slug'],'tasks':count,'signoffs':signoffs[0]-signoffs[2],
+            items.append({'project_id':bid,'slug':project['slug'],'tasks':count,'signoffs':signoffs[0]-signoffs[2],
                 'to_read':signoffs[2],'requests':signoffs[1],'activity':[{'date':date,'count':activity.get(date,0)} for date in dates]})
         return {'items':items,'as_of':timestamp(lambda: now),'timezone':local_time.TIMEZONE}
     registry.register(OperationDescriptor('dashboard_summary_get', schema({}), scope_kinds=frozenset({'global'}),

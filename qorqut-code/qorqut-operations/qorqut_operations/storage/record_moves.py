@@ -19,13 +19,13 @@ SCHEMA = (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     move_id TEXT NOT NULL CHECK(length(move_id)=36),
     table_id TEXT NOT NULL,
-    source_business_id TEXT NOT NULL REFERENCES businesses(id),
-    destination_business_id TEXT NOT NULL REFERENCES businesses(id),
+    source_project_id TEXT NOT NULL REFERENCES projects(id),
+    destination_project_id TEXT NOT NULL REFERENCES projects(id),
     revision_before INTEGER NOT NULL CHECK(revision_before >= 1),
     actor_id TEXT NOT NULL REFERENCES principals(id),
     moved_at TEXT NOT NULL,
     UNIQUE(move_id,table_id),
-    CHECK(source_business_id IS NOT destination_business_id)
+    CHECK(source_project_id IS NOT destination_project_id)
 )""",
     """CREATE INDEX table_moves_table ON table_moves(table_id,seq)""",
     """CREATE TRIGGER table_moves_immutable_update BEFORE UPDATE ON table_moves
@@ -37,15 +37,15 @@ BEGIN SELECT RAISE(ABORT,'A recorded table move is retained'); END""",
     move_id TEXT NOT NULL CHECK(length(move_id)=36),
     document_id TEXT NOT NULL,
     kind TEXT NOT NULL,
-    source_business_id TEXT NOT NULL REFERENCES businesses(id),
-    destination_business_id TEXT NOT NULL REFERENCES businesses(id),
+    source_project_id TEXT NOT NULL REFERENCES projects(id),
+    destination_project_id TEXT NOT NULL REFERENCES projects(id),
     source_path TEXT NOT NULL,
     destination_path TEXT NOT NULL,
     revision_before INTEGER NOT NULL CHECK(revision_before >= 1),
     actor_id TEXT NOT NULL REFERENCES principals(id),
     moved_at TEXT NOT NULL,
     UNIQUE(move_id,document_id),
-    CHECK(source_business_id IS NOT destination_business_id)
+    CHECK(source_project_id IS NOT destination_project_id)
 )""",
     """CREATE INDEX document_moves_document ON document_moves(document_id,seq)""",
     """CREATE TRIGGER document_moves_immutable_update BEFORE UPDATE ON document_moves
@@ -61,23 +61,23 @@ def storage_contribution() -> StorageContribution:
     return StorageContribution(OWNER, TABLES, schema=SCHEMA)
 
 
-def moved_location(uow, kind, business_id, record_id):
-    """The project that now holds the Table or document a stale ``(business_id, record_id)`` reference named, or ``None``.
+def moved_location(uow, kind, project_id, record_id):
+    """The project that now holds the Table or document a stale ``(project_id, record_id)`` reference named, or ``None``.
 
     ``kind`` is ``table`` or ``document``. A record still in that scope is never redirected. Otherwise the recorded moves of
     that id are replayed from that scope; the last place must still hold the record (ids are UUIDs, so one id is one record)."""
     store, table, column = (("data_tables", TABLE_MOVES, "table_id") if kind == "table" else ("documents", DOCUMENT_MOVES, "document_id"))
     connection = uow.connection
-    if connection.execute(f"SELECT 1 FROM {store} WHERE business_id IS ? AND id=?", (business_id, record_id)).fetchone():
+    if connection.execute(f"SELECT 1 FROM {store} WHERE project_id IS ? AND id=?", (project_id, record_id)).fetchone():
         return None
-    location, seen = business_id, False
-    for move in connection.execute(f"SELECT source_business_id, destination_business_id FROM {table} WHERE {column}=? ORDER BY seq LIMIT 1001",
+    location, seen = project_id, False
+    for move in connection.execute(f"SELECT source_project_id, destination_project_id FROM {table} WHERE {column}=? ORDER BY seq LIMIT 1001",
                                    (record_id,)):
-        if move["source_business_id"] == location:
-            location, seen = move["destination_business_id"], True
-    if not seen or location == business_id:
+        if move["source_project_id"] == location:
+            location, seen = move["destination_project_id"], True
+    if not seen or location == project_id:
         return None
-    found = connection.execute(f"SELECT 1 FROM {store} WHERE business_id IS ? AND id=?", (location, record_id)).fetchone()
+    found = connection.execute(f"SELECT 1 FROM {store} WHERE project_id IS ? AND id=?", (location, record_id)).fetchone()
     return location if found else None
 
 

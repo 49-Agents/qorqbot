@@ -21,8 +21,8 @@ def learning_source(kind):
     table = SQL_SOURCES[kind]
 
     def resolve(ctx, source_id, uow):
-        space = namespace(ctx.business_id)
-        row = uow.repository(table, business_id=ctx.business_id).get(source_id)
+        space = namespace(ctx.project_id)
+        row = uow.repository(table, project_id=ctx.project_id).get(source_id)
         prefix = history.SQL_DOCUMENTS[table][0]
         document_id = f"{prefix}:{source_id}"
         if row is None:

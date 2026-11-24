@@ -13,7 +13,7 @@ EMAIL_PLUGIN = "email-management"
 EMAIL_MAJOR = 3
 # Plugin id -> (supported major version, default config).
 DEFAULT_PLUGINS = {EMAIL_PLUGIN: (EMAIL_MAJOR, {})}
-# Plugin id -> the roles that receive it by default at ecosystem scope. Every other agent needs an explicit grant.
+# Plugin id -> the roles that receive it by default. Every other agent needs an explicit grant.
 DEFAULT_PLUGIN_ROLES = {EMAIL_PLUGIN: (ORDUBASHY_ROLE,)}
 
 
@@ -70,8 +70,6 @@ def usable_pin(resolver, connection, plugin_id: str, scope_kind: str) -> dict | 
 
 def default_plugin_ids(role_id: str, scope: dict) -> tuple[str, ...]:
     """Plugins a new profile receives when its creator does not select plugins."""
-    if scope["kind"] != "ecosystem":
-        return ()
     return tuple(plugin_id for plugin_id, role_ids in DEFAULT_PLUGIN_ROLES.items() if role_id in role_ids)
 
 

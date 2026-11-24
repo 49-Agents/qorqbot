@@ -6,7 +6,7 @@ authorization; a read or a nudge never acknowledges anything.
 The generic algorithms live here: the inbox operations and their schemas, the current-context and subject checks, the visibility
 of a subscription and of a delivered event, the pending page and its cursor, the exact acknowledgement rows, the sticky Task and
 Action follows and the related-work subscription. Everything that depends on the host (managed workers, private owner channels,
-integrated sources, Focus cards, incidents, delegated assignments and the automatic owner-task follows) is a named call on a
+integrated sources, Focus cards, delegated assignments and the automatic owner-task follows) is a named call on a
 required host adapter, made at the point the flow always made it. There is no default adapter, and the selected extensions'
 source handlers are an explicit required argument: this module neither imports nor builds a registry of its own."""
 
@@ -16,7 +16,7 @@ import json
 from dataclasses import replace
 from typing import Protocol
 
-from qorqut_operations.actions import action_key, one_line
+from qorqut_operations.actions import one_line
 from qorqut_operations.actions.writeback import linked_action
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import UUID, PlanBuilder, schema, timestamp, utc_clock
@@ -34,7 +34,7 @@ ENTRY_LIMIT, ENTRY_TEXT = 5, 600
 # through a subscription row; every other source keeps its subscription.
 THREAD_SOURCES = {'tasks': 'task', 'actions': 'action', 'data_tables': 'table'}
 CONSUMER = {'type': 'string', 'format': 'uuid'}
-SCOPE = {'scope': {'enum': ['business', 'global']}}
+SCOPE = {'scope': {'enum': ['project', 'global']}}
 SOURCE_ID = {'type': 'string', 'minLength': 1, 'maxLength': 200}
 # The installation owner or Ordubashy may manage a global worker's subscriptions; omitted, the caller's own.
 WORKER = {'agent_id': UUID}
@@ -51,13 +51,13 @@ class InboxHost(Protocol):
     def managed_subject(self, ctx, target, uow):
         """The runtime context of the global worker ``target`` that ``ctx`` may manage; refuses a caller who may not."""
 
-    def business_member(self, ctx, business, uow) -> bool:
-        """Whether ``ctx`` currently has access to ``business`` (a membership, or an active global's derived access)."""
+    def reaches_project(self, ctx, project, uow) -> bool:
+        """Whether ``ctx`` currently has access to ``project`` (the installation owner or a system worker in an active project, or an active global's derived access)."""
 
-    def private_visible(self, ctx, source_type, identity, business, uow):
+    def private_visible(self, ctx, source_type, identity, project, uow):
         """Whether the private ``source_type`` item is visible, or None when the host has no such private source."""
 
-    def integration_visible(self, selected, source_type, identity, business, uow):
+    def integration_visible(self, selected, source_type, identity, project, uow):
         """Whether an item of an integrated source is visible (inside the caller's denial handling), or None when it is not one."""
 
     def event_visible(self, ctx, row, uow):
@@ -76,7 +76,7 @@ class InboxHost(Protocol):
         """``result`` (the listed subscriptions) with the host's automatic follows merged in."""
 
 
-HOST_METHODS = ('managed_subject', 'business_member', 'private_visible', 'integration_visible', 'event_visible',
+HOST_METHODS = ('managed_subject', 'reaches_project', 'private_visible', 'integration_visible', 'event_visible',
                 'decorate_before_extensions', 'decorate_after_extensions', 'active_event_claim', 'augment_subscriptions')
 
 
@@ -101,8 +101,8 @@ class InboxService:
         self.messages = message_factory(self)
 
     def register(self):
-        common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}), global_capability='read_global_context',
-            resolve_namespace=lambda ctx, args: 'global' if ctx.business_id is None else 'business:' + ctx.business_id)
+        common = dict(supports_signoff=False, scope_kinds=frozenset({'project', 'global'}), global_capability='read_global_context',
+            resolve_namespace=lambda ctx, args: 'global' if ctx.project_id is None else 'project:' + ctx.project_id)
         TARGET = {'source_type': {'enum': list(self.subscribable)}, 'source_id': SOURCE_ID}
         operations = {
             'inbox_list': ({'consumer_id': CONSUMER, 'after': {'type': 'integer', 'minimum': 0},
@@ -145,35 +145,35 @@ class InboxService:
             return self.context(ctx, uow)
         return self.context(self.host.managed_subject(ctx, target, uow), uow)
 
-    def business_member(self, ctx, business, uow):
-        """Current business access, decided by the host at every call."""
-        return self.host.business_member(ctx, business, uow)
+    def reaches_project(self, ctx, project, uow):
+        """Current project access, decided by the host at every call."""
+        return self.host.reaches_project(ctx, project, uow)
 
-    def visible(self, ctx, source_type, identity, business, uow):
+    def visible(self, ctx, source_type, identity, project, uow):
         """Use current domain authorization; unavailable objects disclose no summary."""
-        private = self.host.private_visible(ctx, source_type, identity, business, uow)
+        private = self.host.private_visible(ctx, source_type, identity, project, uow)
         if private is not None:
             return private
         handler = self.sources.get(source_type)
         if handler is not None:
-            return bool(handler.subscription_visible and handler.subscription_visible(self, ctx, identity, business, uow))
+            return bool(handler.subscription_visible and handler.subscription_visible(self, ctx, identity, project, uow))
         if source_type not in self.visible_types: return False
         try:
-            selected = ctx.select_business(business)
-            if business is not None and not self.host.business_member(ctx, business, uow):
+            selected = ctx.select_project(project)
+            if project is not None and not self.host.reaches_project(ctx, project, uow):
                 return False
-            if business is None and 'read_global_context' not in selected.global_capabilities:
+            if project is None and 'read_global_context' not in selected.global_capabilities:
                 return False
-            if business is None and source_type == 'tasks':
-                selected = task_context(replace(selected, business_id=None), {'scope': 'global'}, uow)
+            if project is None and source_type == 'tasks':
+                selected = task_context(replace(selected, project_id=None), {'scope': 'global'}, uow)
                 descriptor = self.app.registry.get('tasks_get')
                 self.app.authorize(selected, descriptor, (), uow, namespace='global')
-                return bool(uow.repository('tasks', business_id=None).get(identity))
+                return bool(uow.repository('tasks', project_id=None).get(identity))
             if source_type in {'principals', 'agent_profiles', 'context_entities'}:
                 self.items.resolve(selected,
                     {'type': self.item_types[source_type], 'id': identity}, uow, allow_busy=True)
                 return True
-            integrated = self.host.integration_visible(selected, source_type, identity, business, uow)
+            integrated = self.host.integration_visible(selected, source_type, identity, project, uow)
             if integrated is not None:
                 return integrated
             self.related.get(selected, uow, 'action_logs' if source_type == 'actions' else source_type, identity, allow_busy=True)
@@ -195,31 +195,31 @@ class InboxService:
             # Deliveries follow the current recipient; read-only collapsed history never notifies.
             return bool(message and message["current_recipient_id"] == ctx.principal_id
                         and not self.messages.collapsed(message) and self.messages.visible(ctx, message))
-        if self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow):
+        if self.visible(ctx, row['source_type'], row['source_id'], row['project_id'], uow):
             return True
         if row['source_type'] == 'tasks':
             # An event recorded before the Task moved keeps its original scope; it is delivered only if this agent may read the
             # Task where it is now (the destination's own rules), never because of the scope it was recorded under.
-            location = moved_location(uow, row['business_id'], row['source_id'])
+            location = moved_location(uow, row['project_id'], row['source_id'])
             if location is not None and self.visible(ctx, 'tasks', row['source_id'], location, uow):
                 return True
         if row['event_type'] != 'deleted' or row['source_type'] not in {'tasks', 'documents'}:
             return False
-        if row['business_id'] is not None and not self.host.business_member(ctx, row['business_id'], uow):
+        if row['project_id'] is not None and not self.host.reaches_project(ctx, row['project_id'], uow):
             return False
-        if row_for(uow, row['source_type'], row['business_id'], row['source_id']):
+        if row_for(uow, row['source_type'], row['project_id'], row['source_id']):
             return False  # Never use historical metadata to bypass current access.
         try:
-            selected = ctx.select_business(row['business_id'])
-            if selected.business_id is None and 'read_global_context' not in selected.global_capabilities:
+            selected = ctx.select_project(row['project_id'])
+            if selected.project_id is None and 'read_global_context' not in selected.global_capabilities:
                 return False
             operation = {'tasks': 'tasks_get', 'documents': 'context_get'}[row['source_type']]
             if row['source_type'] == 'documents':
                 kind = json.loads(row['visibility_json']).get('kind')
-                operation = {'business_note': 'notes_get', 'agent_note': 'notes_get', 'journal': 'notes_get', 'business_owned_note': 'notes_get',
+                operation = {'project_note': 'notes_get', 'agent_note': 'notes_get', 'journal': 'notes_get', 'project_owned_note': 'notes_get',
                     'plan': 'plans_get', 'content': 'content_get', 'asset': 'assets_get', 'data_upload': 'data_uploads_get'}.get(kind, 'context_get')
             descriptor = self.app.registry.get(operation)
-            if selected.business_id is not None:
+            if selected.project_id is not None:
                 descriptor = replace(descriptor, global_capability=None)
             return self.app.policy.resolve(selected, descriptor, (), uow).mode == 'allow'
         except DomainError as error:
@@ -258,9 +258,9 @@ class InboxService:
             return []
         found = []
         for message in uow.connection.execute(
-                "SELECT kind,body,author_id,recorder_id FROM thread_messages WHERE business_id IS ? AND item_type='task' "
+                "SELECT kind,body,author_id,recorder_id FROM thread_messages WHERE project_id IS ? AND item_type='task' "
                 "AND item_id=? AND event_id=? ORDER BY CASE kind WHEN 'system' THEN 0 ELSE 1 END,created_at,id LIMIT ?",
-                (row['business_id'], row['source_id'], row['id'], ENTRY_LIMIT)):
+                (row['project_id'], row['source_id'], row['id'], ENTRY_LIMIT)):
             entry = {'kind': 'note' if message['kind'] == 'comment' else 'system', 'text': message['body'][:ENTRY_TEXT]}
             if len(message['body']) > ENTRY_TEXT:
                 entry['truncated'] = True
@@ -273,9 +273,9 @@ class InboxService:
     def event_item(self, ctx, row, uow):
         """Return the same bounded, currently authorized view used by inbox_list."""
         item = {k: row[k] for k in row.keys() if k != 'visibility_json'}
-        business = uow.repository('businesses').get(row['business_id']) if row['business_id'] else None
+        project = uow.repository('projects').get(row['project_id']) if row['project_id'] else None
         actor = uow.repository('principals').get(row['actor_id']) if row['actor_id'] else None
-        item.update(business_slug=business['slug'] if business else None,
+        item.update(project_slug=project['slug'] if project else None,
                     actor_name=actor['display_name'] if actor else 'System')
         if row['source_type'] == 'agent_messages':
             message = uow.connection.execute('SELECT * FROM agent_messages WHERE id=?', (row['source_id'],)).fetchone()
@@ -295,34 +295,34 @@ class InboxService:
         result = []
         for row in uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE agent_id=? ORDER BY created_at,id', (ctx.principal_id,)):
             if row['source_type'] == 'actions' or (row['source_type'] == 'tasks' and not row['include_related']) \
-                    or not self.visible(ctx, row['source_type'], row['source_id'], row['business_id'], uow):
+                    or not self.visible(ctx, row['source_type'], row['source_id'], row['project_id'], uow):
                 continue
-            source = row_for(uow, row['source_type'], row['business_id'], row['source_id'])
-            business = uow.repository('businesses').get(row['business_id']) if row['business_id'] else None
-            result.append({**dict(row), 'business_slug': business['slug'] if business else None,
+            source = row_for(uow, row['source_type'], row['project_id'], row['source_id'])
+            project = uow.repository('projects').get(row['project_id']) if row['project_id'] else None
+            result.append({**dict(row), 'project_slug': project['slug'] if project else None,
                 **({'managed_by': 'related_work'} if row['source_type'] == 'tasks' else {}),
                 'summary': source_summary(source, row['source_type'])})
         for follow in uow.connection.execute(
                 'SELECT * FROM thread_follows WHERE principal_id=? AND following=1 ORDER BY created_at,item_type,item_id', (ctx.principal_id,)):
             table = next(source for source, kind in THREAD_SOURCES.items() if kind == follow['item_type'])
             if table in {'tasks', 'data_tables'}:
-                identity, source = follow['item_id'], row_for(uow, table, follow['business_id'], follow['item_id'])
+                identity, source = follow['item_id'], row_for(uow, table, follow['project_id'], follow['item_id'])
                 summary = source_summary(source, table)
             else:
-                identity = action_key(follow['business_id'], follow['item_id'])
-                source = row_for(uow, 'action_logs', follow['business_id'], follow['item_id'])
+                identity = follow['item_id']
+                source = row_for(uow, 'action_logs', follow['project_id'], follow['item_id'])
                 summary = one_line(source['action_text']) if source else ''
-            if source is None or not self.visible(ctx, table, identity, follow['business_id'], uow):
+            if source is None or not self.visible(ctx, table, identity, follow['project_id'], uow):
                 continue
             related_row = next((item for item in result if item['source_type'] == table and item['source_id'] == identity
-                                and item['business_id'] == follow['business_id']), None)
+                                and item['project_id'] == follow['project_id']), None)
             if related_row is not None:
                 # A related-work row is the same Task follow with its removable subscription id.
                 related_row.update(managed_by='thread_follow', follow_reason=follow['reason'])
                 continue
-            business = uow.repository('businesses').get(follow['business_id']) if follow['business_id'] else None
-            result.append({'id': None, 'agent_id': ctx.principal_id, 'business_id': follow['business_id'],
-                'business_slug': business['slug'] if business else None, 'source_type': table, 'source_id': identity,
+            project = uow.repository('projects').get(follow['project_id']) if follow['project_id'] else None
+            result.append({'id': None, 'agent_id': ctx.principal_id, 'project_id': follow['project_id'],
+                'project_slug': project['slug'] if project else None, 'source_type': table, 'source_id': identity,
                 'include_related': False, 'managed_by': 'thread_follow', 'follow_reason': follow['reason'], 'summary': summary})
         return self.host.augment_subscriptions(self, ctx, result, uow)
 
@@ -338,7 +338,7 @@ class InboxService:
             # conversation is refused by argument validation before this runs.
             if args.get('include_related') and args['source_type'] != 'tasks':
                 raise DomainError('validation_error', 'Only Task follows can include related work')
-            if not self.visible(ctx, args['source_type'], args['source_id'], ctx.business_id, uow):
+            if not self.visible(ctx, args['source_type'], args['source_id'], ctx.project_id, uow):
                 raise DomainError('not_found', 'Subscription target is unavailable')
         elif operation == 'inbox_acknowledge':
             for identity in args['event_ids']:
@@ -353,7 +353,7 @@ class InboxService:
             if ('subscription_id' in args) == ('source_type' in args) or ('source_type' in args) != ('source_id' in args):
                 raise DomainError('validation_error', 'Name a subscription_id, or a Task, Action or Table source_type with its source_id')
             if 'source_type' in args:
-                if not self.visible(ctx, args['source_type'], args['source_id'], ctx.business_id, uow):
+                if not self.visible(ctx, args['source_type'], args['source_id'], ctx.project_id, uow):
                     raise DomainError('not_found', 'Subscription target is unavailable')
             else:
                 row = uow.connection.execute('SELECT agent_id FROM inbox_subscriptions WHERE id=?', (args['subscription_id'],)).fetchone()
@@ -367,8 +367,8 @@ class InboxService:
         # to the caller even when a manager names a worker, and application revalidates every ID.
         ctx = self.app.current_context(ctx, uow)
         builder = PlanBuilder(ctx, operation, args, 'Manage inbox', clock=self.clock,
-            namespace='business:' + ctx.business_id if ctx.business_id else 'global',
-            affected_scope={'kind': 'business', 'business_id': ctx.business_id} if ctx.business_id else {'kind': 'global'})
+            namespace='project:' + ctx.project_id if ctx.project_id else 'global',
+            affected_scope={'kind': 'project', 'project_id': ctx.project_id} if ctx.project_id else {'kind': 'global'})
         return builder.build()
 
     def apply(self, ctx, plan, uow):
@@ -385,22 +385,22 @@ class InboxService:
             return {'unsubscribed': args['subscription_id']}
         if args['source_type'] in THREAD_SOURCES:
             return self.follow(ctx, args, uow)
-        row = uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE agent_id=? AND business_id IS ? AND source_type=? AND source_id=?',
-            (ctx.principal_id, ctx.business_id, args['source_type'], args['source_id'])).fetchone()
+        row = uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE agent_id=? AND project_id IS ? AND source_type=? AND source_id=?',
+            (ctx.principal_id, ctx.project_id, args['source_type'], args['source_id'])).fetchone()
         identity = row['id'] if row else new_id()
-        uow.connection.execute('INSERT INTO inbox_subscriptions(id,agent_id,business_id,source_type,source_id,include_related,created_at) VALUES(?,?,?,?,?,?,?) '
+        uow.connection.execute('INSERT INTO inbox_subscriptions(id,agent_id,project_id,source_type,source_id,include_related,created_at) VALUES(?,?,?,?,?,?,?) '
             'ON CONFLICT(id) DO UPDATE SET include_related=excluded.include_related',
-            (identity, ctx.principal_id, ctx.business_id, args['source_type'], args['source_id'], int(args.get('include_related', False)), timestamp(self.clock)))
+            (identity, ctx.principal_id, ctx.project_id, args['source_type'], args['source_id'], int(args.get('include_related', False)), timestamp(self.clock)))
         return {'subscription_id': identity}
 
     def thread_item(self, ctx, args, uow):
         """The Task, Action or Table discussion a follow names, as this agent's workspace sees it."""
         if args['source_type'] in {'tasks', 'data_tables'}:
-            return ThreadItem(ctx.business_id, THREAD_SOURCES[args['source_type']], args['source_id'])
+            return ThreadItem(ctx.project_id, THREAD_SOURCES[args['source_type']], args['source_id'])
         action = linked_action(ctx, uow, args['source_id'])
         if action is None:
             raise DomainError('not_found', 'Subscription target is unavailable')
-        return ThreadItem(action['business_id'], 'action', action['id'])
+        return ThreadItem(action['project_id'], 'action', action['id'])
 
     def follow(self, ctx, args, uow):
         """Following a Task, an Action or a Table is the discussion's own follow state: personal, explicit and sticky."""
@@ -418,14 +418,14 @@ class InboxService:
 
     def related_work(self, ctx, args, wanted, uow):
         """The Task follow's related-work subscription row (one per agent and Task), or None once it is turned off."""
-        row = uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE agent_id=? AND business_id IS ? AND source_type=? AND source_id=?',
-            (ctx.principal_id, ctx.business_id, 'tasks', args['source_id'])).fetchone()
+        row = uow.connection.execute('SELECT * FROM inbox_subscriptions WHERE agent_id=? AND project_id IS ? AND source_type=? AND source_id=?',
+            (ctx.principal_id, ctx.project_id, 'tasks', args['source_id'])).fetchone()
         if not wanted:
             if row:
                 uow.connection.execute('DELETE FROM inbox_subscriptions WHERE id=?', (row['id'],))
             return None
         identity = row['id'] if row else new_id()
-        uow.connection.execute('INSERT INTO inbox_subscriptions(id,agent_id,business_id,source_type,source_id,include_related,created_at) VALUES(?,?,?,?,?,1,?) '
+        uow.connection.execute('INSERT INTO inbox_subscriptions(id,agent_id,project_id,source_type,source_id,include_related,created_at) VALUES(?,?,?,?,?,1,?) '
             'ON CONFLICT(id) DO UPDATE SET include_related=1',
-            (identity, ctx.principal_id, ctx.business_id, 'tasks', args['source_id'], timestamp(self.clock)))
+            (identity, ctx.principal_id, ctx.project_id, 'tasks', args['source_id'], timestamp(self.clock)))
         return identity

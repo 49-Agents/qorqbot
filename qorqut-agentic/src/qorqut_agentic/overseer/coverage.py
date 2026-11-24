@@ -12,12 +12,12 @@ def _key(ref):
     for field in ('provider', 'kind', 'record_id', 'revision', 'content_hash'):
         v.string(ref[field], 'source_ref.' + field)
     ns = ref['namespace']
-    v.obj(ns, 'source_ref.namespace', ('kind', 'business_id'))
-    if ns['kind'] not in ('global', 'business') or (ns['kind'] == 'global' and ns['business_id'] is not None):
+    v.obj(ns, 'source_ref.namespace', ('kind', 'project_id'))
+    if ns['kind'] not in ('global', 'project') or (ns['kind'] == 'global' and ns['project_id'] is not None):
         v.invalid('source_ref.namespace')
-    if ns['kind'] == 'business':
-        v.uuid(ns['business_id'], 'source_ref.namespace.business_id')
-    namespace = canonical({'kind': ns['kind'], 'business_id': ns['business_id']})
+    if ns['kind'] == 'project':
+        v.uuid(ns['project_id'], 'source_ref.namespace.project_id')
+    namespace = canonical({'kind': ns['kind'], 'project_id': ns['project_id']})
     return (ref['provider'], ref['kind'], namespace, ref['record_id'], ref['revision'], ref['content_hash'])
 
 

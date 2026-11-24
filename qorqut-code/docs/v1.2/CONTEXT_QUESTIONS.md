@@ -63,7 +63,7 @@ mutation does.
 
 ## Tools
 
-Both are Global-scope MCP/worker tools (not on the dashboard route and not in the business-bound owner-session catalog). Each
+Both are Global-scope MCP/worker tools (not on the dashboard route and not in the project-bound owner-session catalog). Each
 registered operation is `supports_signoff=False` with the `read_global_context` capability, like `context_edit`.
 
 `context_questions`: `{action: "list" | "get", question_id?, related_kind?, related_id?, offset?, limit?}`. `get` takes only

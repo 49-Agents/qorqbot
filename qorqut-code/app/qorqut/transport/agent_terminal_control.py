@@ -153,18 +153,17 @@ class AgentTerminalBackend:
         return chosen.provider if chosen is not None and chosen.provider == 'claude' else None
 
     def selected(self, row):
-        """The registered tmux target of the agent: ``(broker, key, session, workspace, business)``."""
+        """The registered tmux target of the agent: ``(broker, key, session, workspace, project)``."""
         self.require_terminal_mode()
-        with self.runtime.database.read() as uow:
-            business = uow.repository('businesses').get(row['home_business_id']) if row['home_business_id'] else None
-        execution = self.terminals.execution(business)
+        project = None
+        execution = self.terminals.execution(project)
         if execution.target_identity is not None or execution.broker is not self.terminals.broker:
             raise DomainError('operation_unavailable', NATIVE_ONLY)
         broker = execution.broker
         if broker is None or not broker.tmux_available():
             raise DomainError('operation_unavailable', 'Host tmux is unavailable')
-        key, session, cwd = self.terminals.binding(business, row, broker)
-        return broker, key, session, cwd, business
+        key, session, cwd = self.terminals.binding(row, broker)
+        return broker, key, session, cwd, project
 
     def snapshot(self, row, *, client=None):
         """The registered terminal's observation. ``client`` (owner input) names the client to verify for any role."""
@@ -475,14 +474,14 @@ class AgentTerminalBackend:
         """The part Start, Restart and ``start_agent`` share, from an absent or ended terminal to a launched client: open the
         prepared shell, check it, record folder trust, then resume the selected conversation or launch afresh. Returns the
         message and whether a conversation was resumed."""
-        broker, _, session, workspace, business = self.selected(row)
+        broker, _, session, workspace, project = self.selected(row)
         dev = self._dev(row)
         # Authorization has already been persisted and consumed by the controller.
         # Reconstitute owner context solely for the existing trusted preparation path.
         with self.runtime.database.read() as uow:
             owner = uow.repository('installation').get('service')['owner_principal_id']
-            context = self.runtime.policy.context_for(owner, business_id=row['home_business_id'], review_business_id=None, uow=uow)
-        self.terminals.open(context, business, row['agent_id'])
+            context = self.runtime.policy.context_for(owner, project_id=None, review_project_id=None, uow=uow)
+        self.terminals.open(context, project, row['agent_id'])
         snap = self.opened_snapshot(row)
         if snap.get('command') not in SHELLS:
             raise DomainError('invalid_transition', 'Terminal is not an idle shell')

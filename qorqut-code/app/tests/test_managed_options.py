@@ -394,8 +394,8 @@ class ManagerLaunch(base.ManagerFixture):
         self.assertEqual((env["CLAUDE_CONFIG_DIR"], env["HOME"], env["TMPDIR"]), ("/Volumes/work/claude", "/Users/owner", "/from/settings"))
 
     def test_every_supported_role_opens_alike(self):
-        # Ordubashy, a global worker, the learning applier: the manager no longer asks the role. What differs is the prepared
-        # workspace: an ecosystem scope is prepared to bypass, any other scope to deny (and the allowed tools on the command line).
+        # Ordubashy, a global worker, the learning applier: the manager does not ask the role. What differs is what the prepared
+        # workspace says: bypass, or deny (and the allowed tools on the command line).
         for role, mode_text, expected in (("ordubashy", "bypassPermissions", "bypass"), ("global-worker", "dontAsk", "deny"),
                                           ("learning-applier", "dontAsk", "deny")):
             with self.subTest(role=role):
@@ -497,8 +497,6 @@ class Routes(base.Fixture):
         api.origins = SimpleNamespace(validate=lambda request, mutation=False: None)
         api.statuses, api.owner_routes = {}, {}
         api.route_counters = SimpleNamespace(record=lambda *args, **options_: None)
-        api._report_transport_success = lambda *args: None
-        api._report_transport_failure = lambda *args: None
         api.context = lambda actor, slug=None, owner=False: (SimpleNamespace(principal_kind="human", principal_id=self.principal), None)
 
         async def handler(request):

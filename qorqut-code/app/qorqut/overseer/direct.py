@@ -50,7 +50,7 @@ def authorize_source(runtime, context, ref):
         if (ref.get('provider') != 'operations' or ref.get('kind') != 'owner_instruction'
                 or ref.get('locator') != expected or ref.get('revision') != row['request_hash']
                 or ref.get('actor_id') != row['principal_id'] or ref.get('actor_kind') != 'human'
-                or ref.get('namespace') != {'kind': 'global', 'business_id': None}):
+                or ref.get('namespace') != {'kind': 'global', 'project_id': None}):
             raise DomainError('forbidden', 'The instruction reference does not match its canonical owner event')
 
 
@@ -59,7 +59,7 @@ def binding_for(saved):
         'run_id': 'direct-instruction:' + saved['id'],
         'targets': {'delta_id': _id(saved['id'] + ':delta'), 'delta_revision': 1,
                     'application_id': None, 'plan_revision': None},
-        'owner_scope': {'kind': 'global', 'business_id': None},
+        'owner_scope': {'kind': 'global', 'project_id': None},
         'request_key': 'direct-instruction:' + saved['id'], 'request_ref': None,
         'choice_actions': {'accept': 'accept', 'reject': 'reject', 'revise': 'revise', 'later': 'later'},
         'direct_submission_id': saved['id']}

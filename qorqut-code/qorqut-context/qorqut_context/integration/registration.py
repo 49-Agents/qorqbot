@@ -88,7 +88,7 @@ def shared_read_decision(name):
 FILING_HISTORY = HistoryContribution('host.context_filing', exports=(
     TableExport('context_source_versions', {
         'id': Text(),
-        'business_id': Text(nullable=True),
+        'project_id': Text(nullable=True),
         'source_kind': Text(),
         'source_id': Text(),
         'source_revision': Integer(),
@@ -102,13 +102,13 @@ FILING_HISTORY = HistoryContribution('host.context_filing', exports=(
     TableExport('context_source_bindings', {
         'source_kind': Text(),
         'source_key': Text(),
-        'business_id': Text(nullable=True),
+        'project_id': Text(nullable=True),
         'bound_by_input': Text(),
         'bound_at': Text(),
     }, ('source_kind', 'source_key')),
     TableExport('context_filings', {
         'id': Text(),
-        'business_id': Text(nullable=True),
+        'project_id': Text(nullable=True),
         'source_version_id': Text(),
         'request_id': Text(),
         'job_id': Text(),
@@ -122,7 +122,7 @@ FILING_HISTORY = HistoryContribution('host.context_filing', exports=(
     }, ('id',)),
     TableExport('context_completions', {
         'id': Text(),
-        'business_id': Text(nullable=True),
+        'project_id': Text(nullable=True),
         'filing_id': Text(),
         'job_id': Text(),
         'input_id': Text(),
@@ -139,7 +139,7 @@ FILING_HISTORY = HistoryContribution('host.context_filing', exports=(
     TableExport('context_inputs', {
         'sequence': Integer(),
         'id': Text(),
-        'business_id': Text(nullable=True),
+        'project_id': Text(nullable=True),
         'input_kind': Text(),
         'item_id': Text(nullable=True),
         'revision': Integer(nullable=True),

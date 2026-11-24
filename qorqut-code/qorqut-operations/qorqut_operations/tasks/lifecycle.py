@@ -98,12 +98,12 @@ def check(ctx, uow, arguments, before, current, *, blocked_by=()) -> list[dict]:
                               f"A {now} Task needs the time you come back to it: set snoozed_until or due in the same write"
                               + (", or name the Task it waits on in blocked_by" if now == "blocked" else ""))
         if parent_id and now not in CLOSED_STATES and (before or {}).get("parent_id") != parent_id:
-            parent = uow.repository("tasks", business_id=ctx.business_id).get(parent_id)
+            parent = uow.repository("tasks", project_id=ctx.project_id).get(parent_id)
             if parent and parent["status"] in CLOSED_STATES:
                 raise DomainError("validation_error", "The parent Task is closed. Reopen it, choose an open parent, or leave "
                                                       "this Task without a parent")
             if not arguments.get("owner_requested"):
-                siblings = sum(1 for task in rows(uow, "tasks", ctx.business_id)
+                siblings = sum(1 for task in rows(uow, "tasks", ctx.project_id)
                                if task["parent_id"] == parent_id and task["id"] != current["id"] and live(task) and work(task))
                 if siblings >= CHILD_LIMIT:
                     raise DomainError("validation_error",
@@ -113,7 +113,7 @@ def check(ctx, uow, arguments, before, current, *, blocked_by=()) -> list[dict]:
                                       details={"parent_id": parent_id, "open_children": siblings})
         if before is None and not arguments.get("allow_duplicate"):
             key = state_key(current["title"])
-            twin = next((task for task in rows(uow, "tasks", ctx.business_id)
+            twin = next((task for task in rows(uow, "tasks", ctx.project_id)
                          if task["id"] != current["id"] and task["parent_id"] == parent_id and live(task) and work(task)
                          and state_key(task["title"]) == key), None)
             if twin:
@@ -125,7 +125,7 @@ def check(ctx, uow, arguments, before, current, *, blocked_by=()) -> list[dict]:
     cascade = arguments.get("children") == "close"
     if not cascade and not agent:
         return []
-    tasks = rows(uow, "tasks", ctx.business_id)
+    tasks = rows(uow, "tasks", ctx.project_id)
     if cascade:
         found = beneath(tasks, current["id"])
         if len(found) > CASCADE_LIMIT:

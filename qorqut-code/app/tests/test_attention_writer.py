@@ -67,8 +67,8 @@ class AttentionWriterTests(unittest.TestCase):
 
     def board(self, agent, *, focused_since=AN_HOUR_AGO):
         connection = self.raw()
-        connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,namespace,name,workspace,profile_json,'
-            "created_at,updated_at) VALUES(?,?,'ecosystem',?,?,'{}',?,?)", (agent, agent, agent, '/' + agent, NOW, NOW))
+        connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,name,workspace,profile_json,'
+            "created_at,updated_at) VALUES(?,?,?,?,'{}',?,?)", (agent, agent, agent, '/' + agent, NOW, NOW))
         focus = json.dumps({'type': 'task', 'id': 'task'}) if focused_since else None
         connection.execute('INSERT INTO agent_attention(agent_id,focus_json,focus_generation,focus_started_at,updated_at) '
             'VALUES(?,?,1,?,?)', (agent, focus, focused_since, NOW))

@@ -1,12 +1,12 @@
 """The retained v1 delegation rows and vocabulary, supplied to the Operations delegated-authority check.
 
-The checks (binding, generation, live authentication, assignment operations, business and record boundaries, the
+The checks (binding, generation, live authentication, assignment operations, project and record boundaries, the
 explicit-selector rule for reads) are the engine's. This provider only answers from the host's stored assignment and
 binding rows, its worker control operations and its role support, and records a committed delegated action through
 the existing ``OperationalDelegation`` store, which stays the host's (native delegated execution and its fencing).
 
 The three reviewed review-scope exceptions are also v1 data: the only cases where a globally owned operation may
-stage effects on business rows.
+stage effects on project rows.
 
 The one delegated creation group is Context's trusted vocabulary for ``context_edit`` (``qorqut_context.integration.registration``): the queue input and its
 companion binding are two new records under one identity allocated while the edit prepares, so an assignment cannot
@@ -64,9 +64,6 @@ class HostDelegationProvider:
 HOST_REVIEW_EXCEPTIONS = (
     # Execution records of a global routine definition.
     ReviewScopeException(frozenset({"routines_run", "routines_stop"}), frozenset({"jobs", "routine_runs"})),
-    # Membership grants of a global agent profile.
-    ReviewScopeException(frozenset({"agents_create", "agents_update", "agents_deactivate"}),
-                         frozenset({"business_memberships"})),
     # One owner-selected document in the unified journal, by a human principal only.
     ReviewScopeException(frozenset({"notes_update", "notes_delete"}),
                          bound_resources={"documents": BoundResource("document_id"),

@@ -14,6 +14,7 @@ from time import monotonic
 from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.engine import ApprovalBinding
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationOptions, OperationResult,
                                          canonical_bytes, canonical_hash, new_id, plain, utc_now)
 from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
@@ -125,9 +126,9 @@ class SignoffService:
     def descriptors(self):
         """The Operations-owned Signoff descriptors, for a ``CatalogContribution``. An operation whose optional
         domain is absent is not installed (calling it is ``operation_unavailable``)."""
-        common = {"review_business_id": UUID_SCHEMA, "scope": {"enum": ["business", "global"]}}
-        scopes = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
-                      resolve_namespace=lambda ctx, args: "global" if args.get("scope") == "global" else "business:" + (ctx.business_id or ""))
+        common = {"review_project_id": UUID_SCHEMA, "scope": {"enum": ["project", "global"]}}
+        scopes = dict(scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
+                      resolve_namespace=lambda ctx, args: "global" if args.get("scope") == "global" else "project:" + (ctx.project_id or ""))
         return (
             OperationDescriptor("signoffs_get", {"type": "object",
                 "required": ["signoff_id"], "properties": {**common, "signoff_id": {"type": "string", "minLength": 1, "maxLength": 200},
@@ -152,8 +153,8 @@ class SignoffService:
 
     def _context(self, context, uow, *, owner=False):
         context = self.app.current_context(context, uow)
-        business = context.business_id
-        if business is None:
+        project = context.project_id
+        if project is None:
             if context.principal_kind == "human":
                 installation = uow.repository("installation").get("service")
                 if not installation or installation["owner_principal_id"] != context.principal_id:
@@ -163,12 +164,10 @@ class SignoffService:
             if owner and context.source not in ("dashboard", "worker"):
                 raise DomainError("forbidden", "Owner decisions are unavailable through agent MCP")
             return context
-        if business not in context.allowed_business_ids:
+        if project not in context.allowed_project_ids:
             raise DomainError("forbidden", "Select an authorized review project")
         if owner or context.principal_kind == "human":
-            member = uow.repository("business_memberships", business_id=business).get(context.principal_id)
-            if (context.principal_kind != "human" or not member or not member["active"]
-                    or (owner and not member["is_owner"])):
+            if context.principal_kind != "human" or not owner_may_act(uow.connection, context.principal_id, project):
                 raise DomainError("forbidden", "This decision requires the current project owner")
         if owner and context.source not in ("dashboard", "worker"):
             raise DomainError("forbidden", "Owner decisions are unavailable through agent MCP")
@@ -177,25 +176,25 @@ class SignoffService:
     def _visibility(self, context, uow):
         # All fragments are fixed SQL. Caller values are exclusively parameters.
         caps = sorted(context.global_capabilities)
-        businesses = sorted(context.allowed_business_ids)
+        projects = sorted(context.allowed_project_ids)
         cap_marks = ",".join("?" for _ in caps) or "NULL"
-        biz_marks = ",".join("?" for _ in businesses) or "NULL"
+        project_marks = ",".join("?" for _ in projects) or "NULL"
         cap = "json_extract(p.value, '$.binding.global_capability')"
         forbidden_cap = f"{cap} NOT IN ({cap_marks})" if caps else "1"
-        scope = ("((s.review_scope_kind = ? AND s.review_business_id IS NULL) OR "
-                 "(s.review_scope_kind = ? AND s.review_business_id IN (" + biz_marks + ")))" if context.business_id is None else
-                 "(s.review_scope_kind = ? AND s.review_business_id IS ?)")
-        scope_params = (["global", "business", *businesses] if context.business_id is None
-                        else ["business", context.business_id])
-        clause = (scope + " AND (json_extract(s.affected_scope_json, '$.kind') = 'business' OR "
+        scope = ("((s.review_scope_kind = ? AND s.review_project_id IS NULL) OR "
+                 "(s.review_scope_kind = ? AND s.review_project_id IN (" + project_marks + ")))" if context.project_id is None else
+                 "(s.review_scope_kind = ? AND s.review_project_id IS ?)")
+        scope_params = (["global", "project", *projects] if context.project_id is None
+                        else ["project", context.project_id])
+        clause = (scope + " AND (json_extract(s.affected_scope_json, '$.kind') = 'project' OR "
             "(json_extract(s.affected_scope_json, '$.kind') = 'global' AND "
             "EXISTS (SELECT 1 FROM json_each(s.policy_binding_json, '$.operations') p "
             f"WHERE {cap} IS NOT NULL) AND NOT EXISTS "
             f"(SELECT 1 FROM json_each(s.policy_binding_json, '$.operations') p WHERE {cap} IS NOT NULL AND {forbidden_cap}))) "
             "AND NOT EXISTS (SELECT 1 FROM json_each(s.expected_targets_json) t "
-            "WHERE json_extract(t.value, '$.resource.business_id') IS NOT NULL "
-            f"AND json_extract(t.value, '$.resource.business_id') NOT IN ({biz_marks}))")
-        params=[*scope_params, *caps, *businesses]
+            "WHERE json_extract(t.value, '$.resource.project_id') IS NOT NULL "
+            f"AND json_extract(t.value, '$.resource.project_id') NOT IN ({project_marks}))")
+        params=[*scope_params, *caps, *projects]
         email = self.ports.email
         if email is not ABSENT:
             extra,values=email.visibility(context,uow)
@@ -219,7 +218,7 @@ class SignoffService:
         names = {item["id"]: item["display_name"] for item in uow.connection.execute(
             "SELECT id, display_name FROM principals WHERE id IN (?, ?)",
             (row["proposer_principal_id"], row["initiated_by_principal_id"]))}
-        keys = ("id", "review_business_id", "proposal_revision", "payload_hash", "status_revision",
+        keys = ("id", "review_project_id", "proposal_revision", "payload_hash", "status_revision",
                 "state", "operation_name", "operation_version", "proposer_principal_id", "proposer_agent_id",
                 "initiated_by_principal_id", "created_at", "updated_at", "updated_sequence",
                 "supersedes_id", "superseded_by_id")
@@ -264,9 +263,9 @@ class SignoffService:
                 value["platform"] = {"available": False, "execution": {"historical": True}}
             else:
                 value["platform"] = self.ports.platform.view(row, uow)
-        value["review_scope"] = ({"kind": "business", "business_id": row["review_business_id"]}
-                                 if row["review_business_id"] else {"kind": "global"})
-        value["legacy_review_routing"] = (row["review_scope_kind"] == "business"
+        value["review_scope"] = ({"kind": "project", "project_id": row["review_project_id"]}
+                                 if row["review_project_id"] else {"kind": "global"})
+        value["legacy_review_routing"] = (row["review_scope_kind"] == "project"
                                             and row["affected_scope_json"].get("kind") == "global")
         value.update(title=row["preview_json"]["title"], affected_scope=row["affected_scope_json"],
                      decision=row["decision_json"], proposer_display_name=names.get(row["proposer_principal_id"], ""),
@@ -301,7 +300,7 @@ class SignoffService:
 
     def _get_operation(self, context, arguments, options, uow):
         if arguments.get("scope") == "global":
-            context = replace(context, business_id=None, review_business_id=None)
+            context = replace(context, project_id=None, review_project_id=None)
         context = self._context(context, uow)
         self._review_selector(context, arguments)
         return {"signoff": self._dto(self._row(context, arguments["signoff_id"], uow), uow,
@@ -309,7 +308,7 @@ class SignoffService:
 
     @staticmethod
     def _review_selector(context, arguments):
-        if arguments.get("review_business_id", context.business_id) != context.business_id:
+        if arguments.get("review_project_id", context.project_id) != context.project_id:
             raise DomainError("forbidden", "Review selector differs from the selected project")
 
     @staticmethod
@@ -331,7 +330,7 @@ class SignoffService:
 
     def _list_operation(self, context, arguments, options, uow):
         if arguments.get("scope") == "global":
-            context = replace(context, business_id=None, review_business_id=None)
+            context = replace(context, project_id=None, review_project_id=None)
         context = self._context(context, uow)
         self._review_selector(context, arguments)
         if "cursor" in arguments and "updated_after" in arguments:
@@ -363,7 +362,7 @@ class SignoffService:
             if name in filters:
                 clause += f" AND s.{name} = ?"
                 params.append(filters[name])
-        binding = canonical_hash({"principal": context.principal_id, "business": context.business_id, "filters": filters})
+        binding = canonical_hash({"principal": context.principal_id, "project": context.project_id, "filters": filters})
         limit = arguments.get("limit", 50)
         high_water = uow.connection.execute("SELECT value FROM change_sequences WHERE name = 'signoffs'").fetchone()[0]
         updated_cursor = self._cursor("updated", binding, high_water)
@@ -395,8 +394,8 @@ class SignoffService:
             last = rows[-1]
             next_cursor = self._cursor("browse", binding, [0 if last["state"] == "pending" else 1,
                                                          last["created_at"], last["id"]])
-        return {"review_scope": {"kind": "business", "business_id": context.business_id} if context.business_id else {"kind": "global"},
-                "review_business_id": context.business_id, "items": [self._dto(row, uow, detail=False) for row in rows],
+        return {"review_scope": {"kind": "project", "project_id": context.project_id} if context.project_id else {"kind": "global"},
+                "review_project_id": context.project_id, "items": [self._dto(row, uow, detail=False) for row in rows],
                 "counts": counts, "to_read": to_read, "next_cursor": next_cursor, "updated_cursor": updated_cursor, "has_more": has_more}
 
     def recent_outcomes(self, context, uow, *, since, limit, until=None):
@@ -431,13 +430,13 @@ class SignoffService:
         return self._dto(decode_row(row), uow, detail=False) if row else None
 
     def get(self, context, signoff_id, **arguments):
-        return self.app.invoke(context, "signoffs_get", {**arguments, "signoff_id": signoff_id, **({"scope": "global"} if context.business_id is None else {})})
+        return self.app.invoke(context, "signoffs_get", {**arguments, "signoff_id": signoff_id, **({"scope": "global"} if context.project_id is None else {})})
 
     def list(self, context, **arguments):
-        return self.app.invoke(context, "signoffs_list", {**({"scope": "global"} if context.business_id is None else {}), **arguments})
+        return self.app.invoke(context, "signoffs_list", {**({"scope": "global"} if context.project_id is None else {}), **arguments})
 
     def _update(self, row, changes, uow):
-        updated = uow.repository("signoffs", business_id=row["review_business_id"]).update(row["id"],
+        updated = uow.repository("signoffs", project_id=row["review_project_id"]).update(row["id"],
             {**changes, "updated_sequence": uow.next_sequence("signoffs")}, expected_revision=row["status_revision"])
         if row["category"] == "platform_action":
             self.ports.require("platform", PLATFORM_UNAVAILABLE).transition(row, updated, uow)
@@ -447,8 +446,8 @@ class SignoffService:
 
     def stage(self, context, descriptor, plan, options, uow):
         uow.require_write()
-        if (plan.principal_id != context.principal_id or (plan.review_business_id is None and plan.review_scope != {"kind": "global"})
-                or (plan.review_business_id is not None and plan.review_business_id not in context.allowed_business_ids)
+        if (plan.principal_id != context.principal_id or (plan.review_project_id is None and plan.review_scope != {"kind": "global"})
+                or (plan.review_project_id is not None and plan.review_project_id not in context.allowed_project_ids)
                 or plan.proposer_agent_id != context.agent_id or plan.initiated_by_principal_id != context.initiated_by_principal_id):
             raise DomainError("forbidden", "Prepared proposal identity or review scope is invalid")
         if not descriptor.supports_signoff:
@@ -458,7 +457,7 @@ class SignoffService:
         old = None
         revision = 1
         if options.supersedes_signoff_id:
-            old = uow.repository("signoffs", business_id=plan.review_business_id).get(options.supersedes_signoff_id, required=True)
+            old = uow.repository("signoffs", project_id=plan.review_project_id).get(options.supersedes_signoff_id, required=True)
             if old["proposer_principal_id"] != context.principal_id or old["operation_name"] != descriptor.name:
                 raise DomainError("forbidden", "Only the original proposer can replace this operation")
             replaceable = old["state"] in ("pending", "rejected", "conflicted") or (
@@ -476,9 +475,9 @@ class SignoffService:
         platform = {}
         if descriptor.signoff_category == "platform_action":
             platform = self.ports.require("platform", PLATFORM_UNAVAILABLE).staging_values(context, plan, old, uow)
-        row = uow.repository("signoffs", business_id=plan.review_business_id).insert({
+        row = uow.repository("signoffs", project_id=plan.review_project_id).insert({
             "id": platform.get("id") or self.id_factory(), "category": descriptor.signoff_category,
-            "execution_job_id": platform.get("execution_job_id"), "review_scope_kind": "global" if plan.review_business_id is None else "business",
+            "execution_job_id": platform.get("execution_job_id"), "review_scope_kind": "global" if plan.review_project_id is None else "project",
             "proposer_principal_id": context.principal_id,
             "proposer_agent_id": context.agent_id, "initiated_by_principal_id": context.initiated_by_principal_id,
             "operation_name": plan.operation_name, "operation_version": plan.operation_version,
@@ -487,7 +486,7 @@ class SignoffService:
             "policy_binding_json": plain(plan.policy_binding), "affected_scope_json": plain(plan.affected_scope),
             "state": "pending", "updated_sequence": uow.next_sequence("signoffs"),
             "supersedes_id": old["id"] if old else None, "created_at": self.clock(), "updated_at": self.clock()})
-        if descriptor.name == "business_archive":
+        if descriptor.name == "project_archive":
             self.inputs.attention(row["id"], {"notify": True, "urgent": True, "blocking": False,
                 "reason": "Project archival requires the owner’s decision", "deadline": None}, uow, actor_id=context.principal_id)
         if descriptor.signoff_category == "platform_action":
@@ -497,7 +496,7 @@ class SignoffService:
             if old["state"] == "pending":
                 change.update(state="conflicted", error_json={"code": "superseded", "message": "A replacement proposal is available", "retryable": False})
             self._update(old, change, uow)
-        summary = {key: row[key] for key in ("id", "state", "proposal_revision", "status_revision", "payload_hash", "review_business_id")}
+        summary = {key: row[key] for key in ("id", "state", "proposal_revision", "status_revision", "payload_hash", "review_project_id")}
         summary["review_scope"] = plain(plan.review_scope)
         summary["category"] = row["category"]
         return OperationResult(context.request_id, "signoff_required", signoff=summary)
@@ -506,8 +505,8 @@ class SignoffService:
         loader = getattr(self.app.policy, "context_for", None)
         if loader is None:
             raise DomainError("operation_unavailable", "Prepared execution requires a current principal resolver")
-        business = plan.target_namespace.removeprefix("business:") if plan.target_namespace.startswith("business:") else None
-        return loader(plan.principal_id, business_id=business, review_business_id=plan.review_business_id,
+        project = plan.target_namespace.removeprefix("project:") if plan.target_namespace.startswith("project:") else None
+        return loader(plan.principal_id, project_id=project, review_project_id=plan.review_project_id,
                       initiated_by_principal_id=plan.initiated_by_principal_id,
                       job_id=plan.policy_binding.get("job_id"), uow=uow)
 
@@ -568,7 +567,7 @@ class SignoffService:
                 self.app.ensure_writes_open(uow)
                 row = self._row(context, signoff_id, uow)
                 receipts = IdempotencyReceipts(uow)
-                namespace = "business:" + context.business_id if context.business_id else "global"
+                namespace = "project:" + context.project_id if context.project_id else "global"
                 replay = receipts.lookup(context.principal_id, namespace, "signoffs_amend", idempotency_key, input_hash)
                 if replay:
                     revised = self._row(context, replay.data["signoff"]["id"], uow)
@@ -588,7 +587,7 @@ class SignoffService:
                 decisions = self.app._decisions(proposer, descriptor, plan.expected_targets, plan.changes,
                                                uow, namespace=plan.target_namespace)
                 plan = replace(plan, policy_binding=self.app._binding(proposer, decisions),
-                    review_scope=self.app._review_scope(proposer, plan), review_business_id=original.review_business_id,
+                    review_scope=self.app._review_scope(proposer, plan), review_project_id=original.review_project_id,
                     encoding_version=2, proposer_agent_id=proposer.agent_id,
                     initiated_by_principal_id=proposer.initiated_by_principal_id,
                     preview={**plain(plan.preview), "owner_edit": {
@@ -640,7 +639,7 @@ class SignoffService:
                 if row["legacy_evidence_json"] is not None:
                     raise DomainError("historical_record", "Migrated history cannot be approved or retried")
                 receipts = IdempotencyReceipts(uow)
-                namespace = "business:" + context.business_id if context.business_id else "global"
+                namespace = "project:" + context.project_id if context.project_id else "global"
                 replay = receipts.lookup(context.principal_id, namespace, operation, idempotency_key, input_hash)
                 if replay:
                     if replay.status == "error":
@@ -712,7 +711,7 @@ class SignoffService:
                 row = self._row(context, signoff_id, uow)
                 values = validate_values(row, values)
                 input_hash = self.drafts.input_hash(signoff_id, values, proposal_revision, payload_hash, expected_status_revision)
-                namespace = 'business:' + context.business_id if context.business_id else 'global'
+                namespace = 'project:' + context.project_id if context.project_id else 'global'
                 receipts = IdempotencyReceipts(uow)
                 if receipts.lookup(context.principal_id, namespace, 'signoffs_draft_save', idempotency_key, input_hash):
                     return self._decision_result(context, row, uow, replayed=True)
@@ -772,7 +771,7 @@ class SignoffService:
                 input_hash = canonical_hash({'id': signoff_id, 'proposal_revision': proposal_revision,
                     'payload_hash': payload_hash, 'revision': expected_status_revision, **response_input})
                 receipts = IdempotencyReceipts(uow)
-                namespace = 'business:' + context.business_id if context.business_id else 'global'
+                namespace = 'project:' + context.project_id if context.project_id else 'global'
                 replay = receipts.lookup(context.principal_id, namespace, 'signoffs_respond', idempotency_key, input_hash)
                 if replay:
                     return self._decision_result(context, row, uow, replayed=True)
@@ -809,7 +808,7 @@ class SignoffService:
                 plan = None
         if plan is None:
             with self.database.transaction() as uow:
-                row = uow.repository("signoffs", business_id=row["review_business_id"]).get(signoff_id, required=True)
+                row = uow.repository("signoffs", project_id=row["review_project_id"]).get(signoff_id, required=True)
                 if row["state"] == "approved":
                     self._update(row, {"state": "failed", "error_json": {"code": "invalid_plan", "message": "Stored prepared content failed verification",
                         "retryable": False, "effect_status": "partial_or_uncertain"}}, uow)
@@ -876,7 +875,7 @@ class SignoffService:
             if has_files:
                 self.file_applier.apply(signoff_id)
             with self.database.transaction() as uow:
-                row = uow.repository("signoffs", business_id=plan.review_business_id).get(signoff_id, required=True)
+                row = uow.repository("signoffs", project_id=plan.review_project_id).get(signoff_id, required=True)
                 if row["state"] != "approved":
                     return None
                 result = self.app.apply_prepared(context, plan, uow,

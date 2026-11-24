@@ -1,6 +1,6 @@
 schema_version: 1
 id: learning-applier
-version: 1.25.0
+version: 1.26.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/learning-applier/BRIEF.md
@@ -37,7 +37,7 @@ default_tool_policy:
   signoffs_input_cancel: allow
   signoffs_attention_set: allow
   agent_config_get: allow
-  business_config_get: allow
+  project_config_get: allow
   context_list: allow
   context_search: allow
   context_get: allow

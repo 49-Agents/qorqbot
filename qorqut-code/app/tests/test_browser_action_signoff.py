@@ -75,16 +75,16 @@ class BrowserActionTests(unittest.TestCase):
             fixture.SignoffSourceTests.setUp(self)
         self.ordubashy = self.agent('ordubashy')
         self.coordinator_id = self.ordubashy.principal_id
-        self.policy.context_for = lambda principal_id, business_id=None, review_business_id=None, **_: replace(
-            self.ordubashy if principal_id == self.coordinator_id else self.ctx, business_id=business_id, review_business_id=review_business_id)
+        self.policy.context_for = lambda principal_id, project_id=None, review_project_id=None, **_: replace(
+            self.ordubashy if principal_id == self.coordinator_id else self.ctx, project_id=project_id, review_project_id=review_project_id)
 
     def agent(self, role):
         identity = new_id()
         profile = {'status': 'active', 'role': {'id': role}, 'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': role})
-            uow.repository('agent_profiles', business_id=None).insert({'agent_id': identity, 'principal_id': identity,
-                'namespace': 'ecosystem', 'name': role, 'workspace': role, 'profile_json': profile})
+            uow.repository('agent_profiles', project_id=None).insert({'agent_id': identity, 'principal_id': identity,
+                'name': role, 'workspace': role, 'profile_json': profile})
         return replace(self.ctx, principal=Principal(identity, 'agent'), source='mcp', profile_revision=1)
 
     def post(self, ctx=None, key='sign-in-mercury', form=None, **extra):
@@ -254,7 +254,7 @@ class BrowserActionTests(unittest.TestCase):
         signoff = self.posted(source=self.source)['signoff']
         self.assertIn("'browser_action'", ASKS)
         with self.db.read() as uow:
-            asks = TimelineOwner.asks({'type': 'task', 'id': 'work', 'business_id': None}, uow)
+            asks = TimelineOwner.asks({'type': 'task', 'id': 'work', 'project_id': None}, uow)
         self.assertEqual([(row['signoff_id'], row['text']) for row in asks], [(signoff['id'], 'Sign in to Mercury')])
 
     def test_the_host_port_reads_the_tab_as_chat_does_and_its_view_never_raises(self):
@@ -263,7 +263,7 @@ class BrowserActionTests(unittest.TestCase):
         listed = {'C' * 32: {'id': 'C' * 32, 'title': '  Mercury\n sign in ', 'url': 'https://mercury.example/login?next=/pay'}}
         asked = []
         def read(ctx, identity, uow):
-            asked.append((ctx.business_id, identity))
+            asked.append((ctx.project_id, identity))
             if identity != tab_id:
                 raise DomainError('not_found', 'Tab is not open')
             return {'agent': {'display_name': 'Ordubashy'}, 'title': 'Mercury', 'url': 'https://mercury.example/login'}
@@ -271,8 +271,8 @@ class BrowserActionTests(unittest.TestCase):
         port = HostTabs(SignoffDomains().bind(user_input=user_input))
         application = NS(current_context=lambda ctx, uow: ctx)
         with self.db.read() as uow:
-            project = replace(self.ordubashy, business_id=self.business, review_business_id=self.business)
-            self.assertEqual(port.check(application, project, tab_id, uow), {'title': 'Mercury', 'url': 'https://mercury.example/login'})
+            scoped = replace(self.ordubashy, project_id=self.project, review_project_id=self.project)
+            self.assertEqual(port.check(application, scoped, tab_id, uow), {'title': 'Mercury', 'url': 'https://mercury.example/login'})
             self.assertEqual(asked, [(None, tab_id)])            # a tab is Global, as in Chat
             with self.assertRaises(DomainError) as closed:
                 port.check(application, self.ordubashy, TAB, uow)

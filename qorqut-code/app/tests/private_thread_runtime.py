@@ -55,19 +55,19 @@ def build_runtime(tmp_path):
         uow.repository('installation').insert({'id': 'service', 'installation_id': new_id(),
             'owner_principal_id': owner, 'management_coordinator_id': coordinator})
         for identity, role in ((coordinator, 'ordubashy'), (worker, 'global-worker')):
-            uow.repository('agent_profiles', business_id=None).insert({'agent_id': identity, 'principal_id': identity,
-                'namespace': 'ecosystem', 'name': role, 'workspace': str(tmp_path / role), 'status': 'active',
+            uow.repository('agent_profiles', project_id=None).insert({'agent_id': identity, 'principal_id': identity,
+                'name': role, 'workspace': str(tmp_path / role), 'status': 'active',
                 'profile_json': {'name': role, 'status': 'active', 'role': {'id': role}, 'runtime': 'claude-code',
                     'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}})
     # Every report belongs to a Task. The Task engine is not part of this fixture, so ``tasks_get`` is its read of a Global
     # Task row; ``report_task(runtime)`` adds one.
     def read_task(ctx, args, options, uow):
-        row = uow.connection.execute('SELECT id,title FROM tasks WHERE business_id IS NULL AND id=?', (args['task_id'],)).fetchone()
+        row = uow.connection.execute('SELECT id,title FROM tasks WHERE project_id IS NULL AND id=?', (args['task_id'],)).fetchone()
         if row is None:
             raise DomainError('not_found', 'Task does not exist')
         return {'task': dict(row)}
-    registry.register(OperationDescriptor('tasks_get', schema({'scope': {'enum': ['business', 'global']}, 'task_id': {'type': 'string'}}, ('task_id',)),
-        scope_kinds=frozenset({'business', 'global'}), global_capability='read_global_context', effect_kind='read',
+    registry.register(OperationDescriptor('tasks_get', schema({'scope': {'enum': ['project', 'global']}, 'task_id': {'type': 'string'}}, ('task_id',)),
+        scope_kinds=frozenset({'project', 'global'}), global_capability='read_global_context', effect_kind='read',
         supports_signoff=False, resolve_namespace=lambda ctx, args: 'global', read=read_task))
     runtime.owner = InvocationContext(Principal(owner, 'human'), source='dashboard', global_capabilities={'read_global_context'})
     runtime.coordinator = InvocationContext(Principal(coordinator, 'agent'), source='mcp', profile_revision=1, global_capabilities={'read_global_context'})
@@ -85,10 +85,10 @@ def invoke(runtime, operation, args=None, *, ctx=None, key=None):
 def report_task(runtime, identity='report-work'):
     """A Global Task for a report to belong to, as the ``report_task`` argument names it."""
     with runtime.database.transaction() as uow:
-        uow.connection.execute("INSERT OR IGNORE INTO tasks(business_id,id,title,status,created_by,created_at,updated_at) "
+        uow.connection.execute("INSERT OR IGNORE INTO tasks(project_id,id,title,status,created_by,created_at,updated_at) "
             "VALUES(NULL,?,'Report work','done',?,'2026-11-01T09:00:00.000000Z','2026-11-01T09:00:00.000000Z')",
             (identity, runtime.owner.principal_id))
-    return {'id': identity, 'business_id': None}
+    return {'id': identity, 'project_id': None}
 
 
 def create(runtime, text='First private question', title='A private thread', **kwargs):
@@ -100,7 +100,7 @@ def create(runtime, text='First private question', title='A private thread', **k
 
 
 def source(signoff):
-    return {'type': 'signoff', 'id': signoff['id'], 'business_id': signoff['review_business_id']}
+    return {'type': 'signoff', 'id': signoff['id'], 'project_id': signoff['review_project_id']}
 
 
 def reply(runtime, signoff, text='Reply'):

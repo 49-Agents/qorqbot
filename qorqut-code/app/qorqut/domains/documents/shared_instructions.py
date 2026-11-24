@@ -32,8 +32,8 @@ class SharedInstructions:
         builder = self.sources.builder(OPERATION, ctx, args, namespace="global")
         row = self.store.get(ctx, args["document_id"], uow, kinds=INSTRUCTION_KINDS, write=True)
         self.sources.note_target(ctx, args, row)
-        if row["business_id"] is not None or row["owning_agent_id"] is not None:
+        if row["project_id"] is not None or row["owning_agent_id"] is not None:
             raise DomainError("forbidden", "Shared instructions must be a registered global document")
-        namespace = builder.namespace if row["business_id"] is None else None
+        namespace = builder.namespace if row["project_id"] is None else None
         self.sources.edit_document(builder, uow, row, args, options, namespace=namespace)
         return self.sources.finalize(builder, uow, OPERATION, args)

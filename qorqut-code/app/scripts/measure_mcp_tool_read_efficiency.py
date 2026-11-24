@@ -23,7 +23,7 @@ from types import SimpleNamespace
 TOKENIZER_VERSION = "0.14.0"
 ENCODING = "cl100k_base"
 WEIGHTS = {"ordinary_triage": .35, "task_work": .20, "inbox_processing": .15,
-           "business_entry": .15, "evidence_heavy_review": .15}
+           "project_entry": .15, "evidence_heavy_review": .15}
 
 
 @lru_cache(maxsize=1)
@@ -116,7 +116,7 @@ def collect(repo):
                             "after": focus + ["focus_item"] + activity + ["config"]},
         "task_work": {"before": ["task_work"], "after": ["task_work"]},
         "inbox_processing": {"before": ["inbox"], "after": ["inbox"]},
-        "business_entry": {"before": ["config", "context"], "after": ["config", "context"]},
+        "project_entry": {"before": ["config", "context"], "after": ["config", "context"]},
         "evidence_heavy_review": {"before": focus + ["evidence_thread", "task_work"],
                                   "after": focus + ["focus_item", "evidence_thread", "task_work"]},
         "configuration_change_recovery": {"before": ["refresh_config", "refresh_context"],
@@ -185,8 +185,8 @@ def compare(before, after, corpus):
         "corpus_sha256": hashlib.sha256(packed(corpus).encode()).hexdigest(),
         "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "tokenizer": {"package": "tiktoken", "version": TOKENIZER_VERSION, "encoding": ENCODING},
-        "limitations": ["Simulated complete READ sequences, not agent decisions or completed business outcomes.",
-            "Small synthetic business with real domain outputs; weights are assumptions, not traffic measurements.",
+        "limitations": ["Simulated complete READ sequences, not agent decisions or completed project outcomes.",
+            "Small synthetic project with real domain outputs; weights are assumptions, not traffic measurements.",
             "Extra detail reads, all pages, mandatory context and the explicit retry are counted; unknown live retries are not modeled.",
             "Configuration-change and error recovery are separate stress cases, excluded from the frozen five-scenario weighting.",
             "Configuration change is a real profile update, not a simulation of hook delivery acknowledgments or the refresh flag.",
@@ -206,7 +206,7 @@ def main():
     parser.add_argument("--compare", action="store_true")
     parser.add_argument("--before-repo")
     parser.add_argument("--after-repo")
-    parser.add_argument("--corpus", type=Path, help="Replay a saved corpus instead of generating a new temporary business")
+    parser.add_argument("--corpus", type=Path, help="Replay a saved corpus instead of generating a new temporary project")
     parser.add_argument("--save-corpus", type=Path, help="Save generated, synthetic responses for exact replay; refuses overwrite")
     parser.add_argument("--collect", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--measure", action="store_true", help=argparse.SUPPRESS)

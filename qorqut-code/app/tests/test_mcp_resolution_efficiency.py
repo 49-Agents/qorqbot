@@ -1,5 +1,8 @@
 """Focused behavior: ordinary invocations skip readiness diagnostics without changing public reads."""
 from collections import OrderedDict
+from contextlib import contextmanager
+from types import SimpleNamespace
+import sqlite3
 import threading
 import unittest
 
@@ -8,7 +11,7 @@ from qorqut_operations.contracts import DomainError, Principal
 from qorqut.agents.models import EffectiveAgentConfig
 from qorqut.agents.resolver import AgentConfigResolver
 
-BUSINESS = '6f1a1f6e-6a1b-4a1e-9a2e-2f4b1f0e0001'
+PROJECT = '6f1a1f6e-6a1b-4a1e-9a2e-2f4b1f0e0001'
 REVIEW = '6f1a1f6e-6a1b-4a1e-9a2e-2f4b1f0e0002'
 OUTSIDE = '6f1a1f6e-6a1b-4a1e-9a2e-2f4b1f0e0003'
 DIGEST = 'sha256:' + 'a' * 64
@@ -16,9 +19,8 @@ DIGEST = 'sha256:' + 'a' * 64
 
 def config_data(**overrides):
     data = {
-        'scope': {'kind': 'ecosystem', 'business_id': None,
-                  'allowed_business_ids': [BUSINESS, REVIEW], 'global_capabilities': []},
-        'business_id': BUSINESS,
+        'scope': {'kind': 'ecosystem', 'global_capabilities': []},
+        'project_id': PROJECT,
         'profile_revision': 3,
         'role': {'id': 'ordubashy', 'version': '1.0.0', 'digest': DIGEST, 'kind': 'role'},
         'plugins': [],
@@ -40,7 +42,7 @@ class PreparationTest(unittest.TestCase):
         resolver.preparation_status = lambda registration, data: (
             resolver.calls.append(registration) or {'ready': True, 'status': 'prepared'})
 
-        def snapshot(principal, business_id):
+        def snapshot(principal, project_id):
             return {'cache_key': DIGEST, 'registration': {'id': 'reg-1'},
                     'agentic_catalog_revision': DIGEST}
 
@@ -68,10 +70,10 @@ class PreparationTest(unittest.TestCase):
         self.assertEqual(second.data['preparation'], {})
         self.assertIsNone(second.data['delivery'])
         with self.assertRaises(TypeError):
-            second.data['scope']['business_id'] = OUTSIDE
+            second.data['scope']['kind'] = 'project'
         exported = second.to_dict()
-        exported['scope']['allowed_business_ids'].clear()
-        self.assertEqual(second.data['scope']['allowed_business_ids'], (BUSINESS, REVIEW))
+        exported['scope']['global_capabilities'].append('read_global_context')
+        self.assertEqual(second.data['scope']['global_capabilities'], ())
 
     def test_the_outer_resolution_passes_the_keyword_through(self):
         resolver = self.resolver()
@@ -83,15 +85,15 @@ class PreparationTest(unittest.TestCase):
         resolver.require_agentic_view = lambda: View()
         resolver._resolve_agent_config = lambda principal, **kwargs: kwargs
         self.assertEqual(resolver.resolve_agent_config(object(), include_preparation=False),
-                         {'business_id': None, 'session_registration': None, 'include_preparation': False})
+                         {'project_id': None, 'session_registration': None, 'include_preparation': False})
         self.assertEqual(resolver.resolve_agent_config(object()),
-                         {'business_id': None, 'session_registration': None, 'include_preparation': True})
+                         {'project_id': None, 'session_registration': None, 'include_preparation': True})
 
     def test_mandatory_context_and_revision_errors_propagate_in_both_modes(self):
         for code in ('context_scope_conflict', 'invalid_scope', 'profile_conflict', 'agentic_revision_conflict'):
             for include in (True, False):
                 resolver = self.resolver()
-                def snapshot(principal, business_id, code=code):
+                def snapshot(principal, project_id, code=code):
                     raise DomainError(code, 'Mandatory context or revision is invalid')
                 resolver._snapshot = snapshot
                 with self.assertRaises(DomainError) as caught:
@@ -103,18 +105,26 @@ class PreparationTest(unittest.TestCase):
         resolver = self.resolver()
         recorded = {}
 
-        def resolve(principal, *, business_id=None, session_registration=None, include_preparation=True):
+        def resolve(principal, *, project_id=None, session_registration=None, include_preparation=True):
             recorded['include_preparation'] = include_preparation
             return EffectiveAgentConfig(config_data())
 
         resolver.resolve_agent_config = resolve
-        principal = Principal(id=BUSINESS, kind='agent')
-        context = resolver.invocation_context(principal, business_id=BUSINESS, review_business_id=REVIEW)
+        connection = sqlite3.connect(':memory:')
+        connection.execute('CREATE TABLE projects (id TEXT, archived_at TEXT)')
+        connection.executemany('INSERT INTO projects VALUES (?, NULL)', [(PROJECT,), (REVIEW,)])
+
+        @contextmanager
+        def read():
+            yield SimpleNamespace(connection=connection)
+        resolver.database = SimpleNamespace(read=read)
+        principal = Principal(id=PROJECT, kind='agent')
+        context = resolver.invocation_context(principal, project_id=PROJECT, review_project_id=REVIEW)
         self.assertIs(recorded['include_preparation'], False)
-        self.assertEqual(context.business_id, BUSINESS)
-        self.assertEqual(context.allowed_business_ids, frozenset({BUSINESS, REVIEW}))
+        self.assertEqual(context.project_id, PROJECT)
+        self.assertEqual(context.allowed_project_ids, frozenset({PROJECT, REVIEW}))
         with self.assertRaises(DomainError) as caught:
-            resolver.invocation_context(principal, business_id=BUSINESS, review_business_id=OUTSIDE)
+            resolver.invocation_context(principal, project_id=PROJECT, review_project_id=OUTSIDE)
         self.assertEqual(caught.exception.code, 'forbidden')
 
 

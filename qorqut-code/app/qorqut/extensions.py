@@ -56,12 +56,12 @@ class SourceHandler:
     """The handlers of one exact inbox source / resource key (a table such as ``outreach_events``).
 
     Every callable is optional; a source without a handler stays unavailable and is never visible by default.
-    ``row(uow, business, identity)`` returns the canonical record (events, Focus). ``targets(uow, data, business, actor)``
+    ``row(uow, project, identity)`` returns the canonical record (events, Focus). ``targets(uow, data, project, actor)``
     turns one trigger capture of the source into ``(table, record, actor, event_type, recipients)`` tuples for the one
-    inbox finalizer. ``subscription_visible(service, ctx, identity, business, uow)`` and
+    inbox finalizer. ``subscription_visible(service, ctx, identity, project, uow)`` and
     ``event_visible(service, ctx, row, uow)`` are the current-authorization checks of a subscription and of a delivered
     event. ``pointer`` is ``(item field, callable(ctx, row, uow))`` and decorates a delivered event. ``reference(inbox,
-    ctx, item, business, uow)`` resolves a typed Focus reference of ``item_type`` to its card fields."""
+    ctx, item, project, uow)`` resolves a typed Focus reference of ``item_type`` to its card fields."""
 
     source: str
     item_type: str | None = None

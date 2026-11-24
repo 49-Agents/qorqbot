@@ -3,7 +3,7 @@
 ``tasks_list`` and ``tasks_get`` show the same view of a Task. Built one Task at a time it cost about ten queries per row
 (creator, blockers and their states, the Tasks it blocks, parent, children, follow state, labels, comment count,
 assignees, Workers); here each of those is one query for the page, so a page of fifty costs the same handful of reads as a
-page of one. The view also names what the ids point at (``assignees``, ``blockers``, ``business_name``) so a reader does
+page of one. The view also names what the ids point at (``assignees``, ``blockers``, ``project_name``) so a reader does
 not need a second lookup to say who or what they are."""
 
 from __future__ import annotations
@@ -34,15 +34,15 @@ class Lookup(People):
 
     def __init__(self, uow):
         super().__init__(uow)
-        self.businesses = {}
+        self.projects = {}
 
-    def business_name(self, business_id):
-        if business_id is None:
+    def project_name(self, project_id):
+        if project_id is None:
             return "Global"
-        if business_id not in self.businesses:
-            row = self.uow.repository("businesses").get(business_id)
-            self.businesses[business_id] = (row.get("name") or row.get("slug")) if row else None
-        return self.businesses[business_id]
+        if project_id not in self.projects:
+            row = self.uow.repository("projects").get(project_id)
+            self.projects[project_id] = (row.get("name") or row.get("slug")) if row else None
+        return self.projects[project_id]
 
     def person(self, identity):
         principal = self.principal(identity)
@@ -51,48 +51,48 @@ class Lookup(People):
         return {"id": identity, "kind": principal["kind"], "name": principal.get("display_name")}
 
 
-def grouped(connection, sql, business_id, ids, *, extra=()):
+def grouped(connection, sql, project_id, ids, *, extra=()):
     """``{key: [row, ...]}`` for one query run over ``ids`` in chunks; the query's first column is the key."""
     found = {}
     for part in chunks(ids):
-        for row in connection.execute(sql.format(ids=marks(part)), (business_id, *extra, *part)):
+        for row in connection.execute(sql.format(ids=marks(part)), (project_id, *extra, *part)):
             found.setdefault(row[0], []).append(row)
     return found
 
 
-def scope_reads(uow, business_id, tasks, principal_id):
+def scope_reads(uow, project_id, tasks, principal_id):
     """Everything the views of one scope's Tasks need, one query per kind of fact."""
     connection, ids = uow.connection, [task["id"] for task in tasks]
     blockers = grouped(connection,
-        "SELECT DISTINCT from_id, to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id IN ({ids}) "
-        "AND to_type='task' AND role='blocked_by' ORDER BY to_id", business_id, ids)
+        "SELECT DISTINCT from_id, to_id FROM relationships WHERE project_id IS ? AND from_type='task' AND from_id IN ({ids}) "
+        "AND to_type='task' AND role='blocked_by' ORDER BY to_id", project_id, ids)
     blockers = {key: [row[1] for row in rows] for key, rows in blockers.items()}
     referenced = [*(blocker for found in blockers.values() for blocker in found), *(task["parent_id"] for task in tasks if task.get("parent_id"))]
     related = {}
     for part in chunks(referenced):
-        for row in connection.execute(f"SELECT id,title,status FROM tasks WHERE business_id IS ? AND id IN ({marks(part)})",
-                                      (business_id, *part)):
+        for row in connection.execute(f"SELECT id,title,status FROM tasks WHERE project_id IS ? AND id IN ({marks(part)})",
+                                      (project_id, *part)):
             related[row["id"]] = {"id": row["id"], "title": row["title"], "status": row["status"]}
     blocks = grouped(connection,
-        "SELECT DISTINCT r.to_id, t.id FROM relationships r JOIN tasks t ON t.business_id IS r.business_id AND t.id=r.from_id "
-        "WHERE r.business_id IS ? AND r.from_type='task' AND r.to_type='task' AND r.to_id IN ({ids}) AND r.role='blocked_by' "
-        "AND t.status NOT IN ('done','cancelled') ORDER BY t.id", business_id, ids)
+        "SELECT DISTINCT r.to_id, t.id FROM relationships r JOIN tasks t ON t.project_id IS r.project_id AND t.id=r.from_id "
+        "WHERE r.project_id IS ? AND r.from_type='task' AND r.to_type='task' AND r.to_id IN ({ids}) AND r.role='blocked_by' "
+        "AND t.status NOT IN ('done','cancelled') ORDER BY t.id", project_id, ids)
     children = grouped(connection,
         "SELECT parent_id, id, title, status FROM (SELECT parent_id, id, title, status, "
         "ROW_NUMBER() OVER (PARTITION BY parent_id ORDER BY created_at, id) AS position FROM tasks "
-        "WHERE business_id IS ? AND parent_id IN ({ids})) WHERE position <= 51 ORDER BY parent_id, position", business_id, ids)
+        "WHERE project_id IS ? AND parent_id IN ({ids})) WHERE position <= 51 ORDER BY parent_id, position", project_id, ids)
     follows = grouped(connection,
-        "SELECT item_id, following, reason FROM thread_follows WHERE business_id IS ? AND item_type='task' AND principal_id=? "
-        "AND item_id IN ({ids})", business_id, ids, extra=(principal_id,))
+        "SELECT item_id, following, reason FROM thread_follows WHERE project_id IS ? AND item_type='task' AND principal_id=? "
+        "AND item_id IN ({ids})", project_id, ids, extra=(principal_id,))
     labels = grouped(connection,
-        "SELECT i.item_id, t.label FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.business_id IS ? AND i.item_type='task' "
-        "AND i.item_id IN ({ids}) ORDER BY t.label_key", business_id, ids)
+        "SELECT i.item_id, t.label FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.project_id IS ? AND i.item_type='task' "
+        "AND i.item_id IN ({ids}) ORDER BY t.label_key", project_id, ids)
     counts = grouped(connection,
-        "SELECT item_id, count(*) FROM thread_messages WHERE business_id IS ? AND item_type='task' AND kind='comment' "
-        "AND item_id IN ({ids}) GROUP BY item_id", business_id, ids)
+        "SELECT item_id, count(*) FROM thread_messages WHERE project_id IS ? AND item_type='task' AND kind='comment' "
+        "AND item_id IN ({ids}) GROUP BY item_id", project_id, ids)
     assigned = grouped(connection,
-        "SELECT from_id, to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND role='assigned_to' "
-        "AND from_id IN ({ids}) ORDER BY to_id", business_id, ids)
+        "SELECT from_id, to_id FROM relationships WHERE project_id IS ? AND from_type='task' AND role='assigned_to' "
+        "AND from_id IN ({ids}) ORDER BY to_id", project_id, ids)
     return {"blockers": blockers, "related": related,
             "blocks": {key: [row[1] for row in rows] for key, rows in blocks.items()},
             "children": {key: [{"id": row[1], "title": row[2], "status": row[3]} for row in rows] for key, rows in children.items()},
@@ -107,12 +107,12 @@ def task_views(ctx, tasks, uow, now, lookup=None):
     lookup = lookup or Lookup(uow)
     scopes = {}
     for task in tasks:
-        scopes.setdefault(task["business_id"], []).append(task)
-    reads = {business_id: scope_reads(uow, business_id, members, ctx.principal_id) for business_id, members in scopes.items()}
+        scopes.setdefault(task["project_id"], []).append(task)
+    reads = {project_id: scope_reads(uow, project_id, members, ctx.principal_id) for project_id, members in scopes.items()}
     views = []
     for task in tasks:
-        business_id, task_id, read = task["business_id"], task["id"], reads[task["business_id"]]
-        item = ThreadItem(business_id, "task", task_id)
+        project_id, task_id, read = task["project_id"], task["id"], reads[task["project_id"]]
+        item = ThreadItem(project_id, "task", task_id)
         creator = lookup.principal(task.get("created_by")) if task.get("created_by") else None
         blockers = read["blockers"].get(task_id, [])
         found = [read["related"].get(blocker) for blocker in blockers]
@@ -124,7 +124,7 @@ def task_views(ctx, tasks, uow, now, lookup=None):
         views.append({
             **{key: value for key, value in task.items() if key not in HIDDEN},
             **snooze_view(task, now),
-            "business_name": lookup.business_name(business_id),
+            "project_name": lookup.project_name(project_id),
             "created_by_name": creator.get("display_name", "") if creator else "",
             "created_by_kind": creator.get("kind", "") if creator else "",
             "tags": read["labels"].get(task_id, []), "fields": custom_fields(task), **attributes(task),
