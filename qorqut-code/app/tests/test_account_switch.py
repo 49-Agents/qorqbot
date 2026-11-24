@@ -124,12 +124,14 @@ class RestartProductTests(RestartCase):
         agent, text, key = self.restarted[0]
         self.assertEqual((agent, key), (AGENT, "account:claude:2026-11-24T10:00:00Z"))
         self.assertTrue(text.startswith("<qorqut-account-notice>"))          # an opening tag: Chat shows it as an internal notice
-        self.assertIn("usage limit was reached", text)
+        self.assertIn("carry on with what you were doing", text)
+        self.assertNotIn("account", text.replace("qorqut-account-notice", ""))
+        self.assertNotIn("limit", text)
 
     def test_a_session_that_stopped_on_a_sign_in_problem_is_told_so(self):
         self.view(turn_error_kind="sign_in")
         self.switch.restart_product("claude", "k")
-        self.assertIn("could not sign in", self.restarted[0][1])
+        self.assertIn("carry on with what you were doing", self.restarted[0][1])
 
     def test_a_session_that_was_fine_is_restarted_and_sent_nothing(self):
         self.view(turn_error_kind=None)
@@ -198,8 +200,9 @@ class UseOtherProductTests(RestartCase):
         self.assertEqual(self.order[:2], [("close", "graceful"), "open"])
         text = self.managed.first[0][1]
         self.assertTrue(text.startswith("<qorqut-account-notice>"))
-        self.assertIn("Codex cannot continue it", text)
-        self.assertIn("because its usage limit was reached on Claude Code", text)
+        self.assertIn("This is a new conversation", text)
+        self.assertNotIn("Codex", text)
+        self.assertNotIn("limit", text)
 
     def test_an_agent_with_no_session_only_has_its_product_changed(self):
         self.managed.host = None

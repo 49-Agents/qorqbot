@@ -30,13 +30,13 @@ from . import store
 LOG = logging.getLogger(__name__)
 
 WORKERS = 3                  # sessions restarted at the same time (the managed runtime allows a few starts at once)
-PROBLEM_WORDS = {"usage_limit": "its usage limit was reached", "sign_in": "it could not sign in"}
-CARRY_ON = ('<qorqut-account-notice>\nThe {name} account Qorqbot uses was changed and this session was restarted. Your last turn '
-            'had stopped because {why}. Please carry on with what you were doing. This notice needs no other reply.\n'
-            '</qorqut-account-notice>')
-MOVED = ('<qorqut-account-notice>\nThe owner moved this agent to {name}{why}. This is a new conversation: the earlier one stays '
-         'in the chat history, but {name} cannot continue it. Carry on with your work from your tasks and records. This notice '
-         'needs no other reply.\n</qorqut-account-notice>')
+PROBLEM_KINDS = ("usage_limit", "sign_in")
+# What the agent is told says nothing about accounts or products: the owner's choice of sign-in is not the agent's business. The
+# stopped agent only needs a turn to go on with; the moved one also needs to know its earlier conversation is not in front of it.
+CARRY_ON = ('<qorqut-account-notice>\nYour last turn was interrupted. Please carry on with what you were doing. This notice needs '
+            'no other reply.\n</qorqut-account-notice>')
+MOVED = ('<qorqut-account-notice>\nThis is a new conversation: the earlier one stays in the chat history but is not in front of you. '
+         'Carry on with your work from your tasks and records. This notice needs no other reply.\n</qorqut-account-notice>')
 
 
 class AccountSwitch:
@@ -88,11 +88,10 @@ class AccountSwitch:
         counts = {"restarted": 0, "continued": 0, "failed": 0}
         if not sessions:
             return counts
-        name = table.NAMES[provider]
 
         def one(item):
             profile, kind = item
-            text = CARRY_ON.format(name=name, why=PROBLEM_WORDS[kind]) if kind in PROBLEM_WORDS else None
+            text = CARRY_ON if kind in PROBLEM_KINDS else None
             try:
                 self.chat.opener.restart(profile, text, f"account:{provider}:{key}")
             except DomainError:
@@ -142,9 +141,7 @@ class AccountSwitch:
             change()
             return {**launch_options.view(chat, chat.runtime, principal_id, agent_id, ready=ready), "previous_client": current,
                     "restarted": False, "continued": False}
-        kind = (self.managed.snapshot(agent_id) or {}).get("turn_error_kind")
-        why = f", because {PROBLEM_WORDS[kind]} on {table.NAMES[current]}" if kind in PROBLEM_WORDS else ""
-        text = MOVED.format(name=table.NAMES[target], why=why)
+        text = MOVED
         chat.opener.restart(profile, text, f"account-move:{target}:{agent_id}", between=change)
         return {**launch_options.view(chat, chat.runtime, principal_id, agent_id, ready=ready), "previous_client": current,
                 "restarted": True, "continued": True}
