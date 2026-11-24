@@ -27,7 +27,7 @@ import threading
 import weakref
 
 from qorqut_context import Context
-from qorqut_context.git_store import config_version
+from qorqut_context.git_store import config_version, published_ref_signature
 from qorqut_context.schema import ContextError, attributes as normalize_attributes
 from qorqut_context.search import SQLiteIndex, project
 from qorqut_operations.contracts import DomainError, plain
@@ -80,6 +80,7 @@ class SharedContextReader:
         self._context = None
         self._common = None
         self._format_head = None
+        self._known = None
         self._graphs: OrderedDict[str, PublishedGraph] = OrderedDict()
         self._indexes: OrderedDict[str, SQLiteIndex] = OrderedDict()
         self._scratch = None
@@ -123,16 +124,23 @@ class SharedContextReader:
             raise _NotReady("not_initialized", "repository_empty", "The shared Context has not been initialized")
         if ".git" not in entries:
             raise _NotReady("unavailable", "not_a_context_repository", "The Context location is not a repository")
+        # Taken before Git is asked, so a change made while Git runs leaves a signature that no longer matches.
+        signature = published_ref_signature(repository)
+        known, self._known = self._known, None
         try:
             if self._context is None:
                 self._context = Context(repository, runtime)
             git = self._context.git
-            top = git.run("rev-parse", "--show-toplevel").decode().strip()
-            if os.path.realpath(top) != os.path.realpath(repository):
-                raise ContextError("not the repository root")
-            if not git.run("show-ref", check=False).strip():
-                raise _NotReady("not_initialized", "no_published_revision", "The shared Context has no published revision")
-            head = git.head()
+            if signature is not None and known is not None and known[0] == signature:
+                # Nothing Git reads for the three questions below has changed since they were last answered.
+                head = known[1]
+            else:
+                top = git.run("rev-parse", "--show-toplevel").decode().strip()
+                if os.path.realpath(top) != os.path.realpath(repository):
+                    raise ContextError("not the repository root")
+                if not git.run("show-ref", check=False).strip():
+                    raise _NotReady("not_initialized", "no_published_revision", "The shared Context has no published revision")
+                head = git.head()
             self._check_binding(git)
             self._check_format(git, head)
         except _NotReady:
@@ -141,6 +149,8 @@ class SharedContextReader:
             raise _NotReady("unavailable", "not_a_context_repository", "The Context location is not a usable repository") from None
         except OSError:
             raise _NotReady("unavailable", "git_unavailable", "Git could not be run for the Context repository") from None
+        if signature is not None:
+            self._known = (signature, head)
         return self._context, head
 
     @staticmethod
