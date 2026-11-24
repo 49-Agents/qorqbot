@@ -458,9 +458,13 @@ class Application:
             raise DomainError("approval_required", "No active approval binds this exact prepared change")
 
     def validate_prepared(self, context, plan, uow, *, approval=None, receipt_id=None, allow_unverified_files=False,
-                          require_approval=True):
-        """Revalidate stored authority and targets without executing a domain handler."""
-        self.ensure_writes_open(uow)
+                          require_approval=True, _writes_checked=False):
+        """Revalidate stored authority and targets without executing a domain handler.
+
+        ``_writes_checked`` is for this engine alone: its own write unit has already read the maintenance state and
+        written nothing since, so reading it again in the same unit could not answer differently."""
+        if not _writes_checked:
+            self.ensure_writes_open(uow)
         context = self.current_context(context, uow)
         descriptor = self.registry.get(plan.operation_name)
         if (plan.principal_id != context.principal_id or descriptor.version != plan.operation_version
@@ -484,13 +488,14 @@ class Application:
             descriptor.validate_targets(context, plan, uow)
         return context, descriptor
 
-    def apply_prepared(self, context, plan, uow, *, approval=None, receipt_id=None):
+    def apply_prepared(self, context, plan, uow, *, approval=None, receipt_id=None, _writes_checked=False):
         """Finalize only exact validated effects inside the caller's short transaction."""
         # This transaction already owns SQLite's write lock. The outer invocation
         # or file executor takes recovery admission before opening it; taking a
         # filesystem lock here would invert recovery's lock order.
         uow.require_write()
-        context, descriptor = self.validate_prepared(context, plan, uow, approval=approval, receipt_id=receipt_id)
+        context, descriptor = self.validate_prepared(context, plan, uow, approval=approval, receipt_id=receipt_id,
+                                                     _writes_checked=_writes_checked)
         result = self.result(context, descriptor.apply(context, plan, uow))
         if result.status in ("error", "signoff_required"):
             raise DomainError("invalid_result", "An apply handler must complete or enqueue its exact prepared effects")
@@ -602,7 +607,8 @@ class Application:
                 if result.status != "signoff_required":
                     raise DomainError("invalid_result", "Signoff staging must return a proposal reference")
             else:
-                result = self.apply_prepared(context, plan, uow)
+                # The maintenance state was read at this unit's start and nothing has been written since.
+                result = self.apply_prepared(context, plan, uow, _writes_checked=True)
             receipts.save(context.principal_id, namespace, descriptor.name, options.idempotency_key, input_hash, result)
             if context.delegation_assignment_id is not None:
                 if self.delegation is None:
