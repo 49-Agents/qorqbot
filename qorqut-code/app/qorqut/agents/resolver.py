@@ -441,17 +441,6 @@ class AgentConfigResolver:
                 if artifact is None:
                     raise DomainError("missing_artifact", f"Missing pinned {kind}: {ref['id']}@{ref['version']}")
                 artifacts.append(dict(artifact))
-            installed_reads = {item.name for item in self.registry.installed()
-                               if "mcp" in item.exposure and not item.owner_only}
-
-            def allowed(reads):
-                if not reads <= installed_reads:
-                    return False
-                from qorqut.composition.policy import resolve_operation_policy
-                role = self.catalog.get("role", profile.data["role"], connection=connection)
-                return all(resolve_operation_policy(
-                    name, role.manifest["default_tool_policy"], profile.data["tool_policy"]["overrides"],
-                    self.registry, role_id=role.id).mode == "allow" for name in reads)
 
         selected_docs, signatures = {}, []
         if "read_global_context" not in profile.scope.global_capabilities:
