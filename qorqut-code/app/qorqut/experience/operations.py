@@ -21,7 +21,7 @@ review reads it like any other observation. The filing agent decides only that t
 change belongs is the Learning Applier's to work out.
 
 A rule the owner gave (kind ``owner_complaint``) also gets a card for the owner, in the same transaction: an operation
-Signoff of ``experience_rule_check`` (the owner's decision, 24 November 2026), titled "Check your rule", whose one editable
+Signoff of ``experience_rule_check`` (the owner's decision, 24 November 2026), titled "Approve proposed learning", whose one editable
 field is the rule as filed. It checks the agent's wording; it approves no change to an instruction. Approving applies the
 operation: the rule is marked approved by the owner, with the owner's text if the owner edited it. Rejecting deletes the
 rule (``rule_check_updated``, through the Signoff status observer); the owner's note reaches the filing agent as every
@@ -73,7 +73,7 @@ CHECK_NOTE = ('Filed for the Learning Applier\'s review, and the owner now has a
 # The owner's check of a rule an agent filed from the owner's words: an operation Signoff the filing creates itself.
 OWNER_RULE = 'owner_complaint'
 RULE_CHECK = 'experience_rule_check'
-RULE_CHECK_TITLE = 'Check your rule'
+RULE_CHECK_TITLE = 'Approve proposed learning'
 RULE_RESOURCE = 'experience_rule'
 RULE_TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 2000, 'pattern': r'\S'}
 EXPLANATION_LIMIT = 8000

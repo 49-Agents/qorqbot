@@ -30,7 +30,7 @@ hold from now on, and does not work out which instruction, skill or tool should 
 point is filed at once, outside any run, and changes nothing by itself.
 
 A rule the owner gave (kind `owner_complaint`) also gets a card for the owner, created in the same transaction: an
-operation Signoff of `experience_rule_check` titled "Check your rule". It shows a notice line (which agent filed it, that
+operation Signoff of `experience_rule_check` titled "Approve proposed learning". It shows a notice line (which agent filed it, that
 it is already in the queue, that no instruction changes until the weekly review), the rule as filed as its one editable
 field, and whom it applies to, with the email Signoff's footer (note, Reject, Approve). It checks the agent's wording
 only. Approving marks the rule `approved` (`owner_check`), with the owner's text if the owner edited it. Rejecting, with

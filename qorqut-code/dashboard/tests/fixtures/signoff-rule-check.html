@@ -20,9 +20,9 @@ const calls=[]; let resolveWrite, resolveRead, holdRead=false;
 const post = (url,body) => { if(url==='/root/attention-queue')return Promise.resolve({data:{items:[]}}); calls.push({url,body}); if(url.endsWith('/amend'))return Promise.resolve({status:'ok',data:{signoff:amend(url.split('/').at(-2),body)}}); return new Promise(resolve=>{resolveWrite=()=>{const parts=url.split('/'), id=parts.at(-2), action=parts.at(-1); const signoff={...items[id], state:action==='approve'?'approved':action==='respond'?'answered':'rejected',status_revision:2,decision:{at:new Date().toISOString(),feedback:body.feedback,notes:body.notes,selected_choices:body.selected_choices}};items[id]=signoff; resolve({status:'ok',data:{signoff}});};}); };
 const RULE = 'Never send an email without a Signoff.\nAsk me first, every time.';
 const rule = (id, text, more = {}) => ({id, state: 'pending', category: 'internal_change', operation_name: 'experience_rule_check', review_project_id: null, status_revision: 1, proposal_revision: 1,
-  payload_hash: 'h' + id, actionable: true, title: 'Check your rule', editable_fields: ['text'], rejection_requires_message: false, proposer_agent_id: 'a1', proposer_display_name: 'Worker',
+  payload_hash: 'h' + id, actionable: true, title: 'Approve proposed learning', editable_fields: ['text'], rejection_requires_message: false, proposer_agent_id: 'a1', proposer_display_name: 'Worker',
   created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-  preview: {title: 'Check your rule', rationale: '', effects: ["After approval, the rule is marked approved by the owner in the Learning Applier's queue, with this wording. No instruction, skill or tool changes until the weekly review."],
+  preview: {title: 'Approve proposed learning', rationale: '', effects: ["After approval, the rule is marked approved by the owner in the Learning Applier's queue, with this wording. No instruction, skill or tool changes until the weekly review."],
     changes: [{kind: 'structured', resource: {resource_type: 'experience_rule', resource_id: 'o1', label: 'Rule'}, fields: [
       {path: 'applies_to', before: null, after: 'all agents <b>'}, {path: 'filed_by', before: null, after: 'Worker <i>'}, {path: 'text', before: null, after: text}]}],
     resources: [{resource_type: 'experience_rule', resource_id: 'o1', label: 'Rule'}]}, ...more});
