@@ -317,6 +317,39 @@ test('after five minutes hidden reminders are polled every 30 s again', async ()
 });
 
 // ---------------------------------------------------------------- Context tab
+// The watch part of context.js in a fake page. `event()` raises the change the watch subscribed to.
+function contextPage() {
+  const text = source('context.js');
+  const start = text.indexOf('let _ctxHeld = null;'), end = text.indexOf('// The footer speaks only about the Context queue');
+  assert.ok(start > 0 && end > start);
+  const tree = {isConnected: true};
+  const p = page({extra: {state: {tab: 'context', project: 'p1', ctx: {}}, isTopic: () => false, ctxDataFits: () => true, ctxPaint() {}, ctxQueueRefresh() {},
+    ctxSig: () => '', ctxShow() {}, ctxLoadData: async () => { p.requests.push('ctx'); return {}; }, _ctxTimer: null, _ctxUnwatch: null, _ctxLastSig: ''}});
+  p.context.$ = () => tree;
+  let changed = null;
+  p.context.onChange = (kinds, scope, fn) => { changed = fn; return () => { changed = null; }; };
+  vm.runInContext(text.slice(start, end), p.context);
+  return Object.assign(p, {event: async () => { changed(); await flush(); }});
+}
+test('a change event on the Context tab reads at once and leaves one 60 s chain, not two', async () => {
+  const p = contextPage();
+  p.context.ctxWatch();
+  await p.event();
+  assert.equal(count(p, 'ctx'), 1, 'the event reads at once');
+  await p.advance(180000);
+  assert.equal(count(p, 'ctx'), 4, 'one read per 60 s after it');
+});
+test('a Context watch restarted while its read is held reads once on the return and keeps one chain', async () => {
+  const p = contextPage();
+  p.context.ctxWatch();
+  await p.setHidden(true); await p.advance(60000);
+  assert.equal(count(p, 'ctx'), 0, 'the timer fired hidden: the read is held');
+  p.context.ctxWatch();
+  await p.setHidden(false); await flush();
+  assert.equal(count(p, 'ctx'), 1, 'one read on the return');
+  await p.advance(180000);
+  assert.equal(count(p, 'ctx'), 4, 'one read per 60 s after it');
+});
 test('after five minutes hidden the Context tab is read every 60 s again, and a return with another tab open reads nothing', async () => {
   const text = source('context.js');
   const start = text.indexOf('let _ctxHeld = null;'), end = text.indexOf('// The footer speaks only about the Context queue');

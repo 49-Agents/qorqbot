@@ -158,25 +158,30 @@ function ctxWatch() {
   if (typeof _ctxUnwatch === 'function') _ctxUnwatch();
   clearTimeout(_ctxTimer); _ctxTimer = null;
   const project = state.project, tree = $("#ctxtree");
+  // One pending timer at most: a read started by a change event or by the tab's return replaces the timed one instead of
+  // adding a second chain beside it.
+  const arm = ms => { clearTimeout(_ctxTimer); _ctxTimer = setTimeout(tick, ms); };
   const tick = async () => {
     if (state.tab !== "context" || state.project !== project || !tree.isConnected) return;
-    // A hidden tab does not re-read; the visibility handler below reads once when it is back.
+    // A hidden tab does not re-read; the visibility handler above reads once when it is back.
     if (document.hidden) { _ctxHeld = tick; return; }
     _ctxHeld = null;
     let d2;
     try { d2 = await ctxLoadData(project); } catch (_) {
-      if (state.tab === "context" && state.project === project && tree.isConnected) _ctxTimer = setTimeout(tick, 60000);
+      if (state.tab === "context" && state.project === project && tree.isConnected) arm(60000);
       return;
     }
     if (state.tab !== "context" || state.project !== project || !tree.isConnected) return;
-    if (!ctxDataFits(d2, state.ctx)) { _ctxTimer = setTimeout(tick, 100); return; }   // raced a navigation mid-fetch: retry once the shape matches
+    if (!ctxDataFits(d2, state.ctx)) { arm(100); return; }   // raced a navigation mid-fetch: retry once the shape matches
     ctxPaint(d2);
     if (isTopic(state.ctx)) { if (ctxSig(d2, state.ctx) !== _ctxLastSig) ctxShow(state.ctx); }   // summaries, notes, people landed
     ctxQueueRefresh();
-    _ctxTimer = setTimeout(tick, 60000);
+    arm(60000);
   };
+  // A read held for the tab's return belongs to the watch this one replaces: the return runs this watch's read instead.
+  if (_ctxHeld) _ctxHeld = tick;
   _ctxUnwatch = typeof onChange === 'function' ? onChange(['documents', 'jobs_routines', 'context_queue'], project, tick) : null;
-  _ctxTimer = setTimeout(tick, 60000);
+  arm(60000);
 }
 
 // The footer speaks only about the Context queue: counts from the process view's `context_queue`, or an explicit error.
