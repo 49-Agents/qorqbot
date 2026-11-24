@@ -71,14 +71,16 @@ def chrome_command(meta: dict, user_agent: str | None = None) -> list[str]:
     and a headless browser always has one tab in front (the newest, or the one the owner watches) that it treats as
     visible, so a forgotten tab keeps redrawing and holds a CPU core. Tabs behind it are throttled like any background
     tab; ``idle_tabs`` unloads what nobody uses.
-    The owner's sign-in window keeps 3D: it is short-lived and shows whatever the sign-in page needs.
+    Overlay scrollbars: the page's own scrollbar is part of the picture the owner watches in the live view, and the
+    default one is a wide bar with arrows; the overlay kind is a thin thumb that fades out while the page is not scrolling.
+    The owner's sign-in window keeps 3D and its normal scrollbars: it is short-lived and shows whatever the sign-in page needs.
 
     ``user_agent`` is ``normal_user_agent``'s answer for this Chrome. Without one the browser names itself
     ``HeadlessChrome``, as it does when left alone."""
     managed = meta["managed"]
     return [managed["chrome"], "--headless=new", *profile_flags(managed),
             "--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={managed['port']}",
-            "--disable-background-networking", "--disable-3d-apis",
+            "--disable-background-networking", "--disable-3d-apis", "--enable-features=OverlayScrollbar",
             *([f"--user-agent={user_agent}"] if user_agent else []), "about:blank"]
 
 
