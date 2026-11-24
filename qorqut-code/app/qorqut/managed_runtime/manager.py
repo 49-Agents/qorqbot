@@ -43,9 +43,10 @@ import threading
 import time
 import uuid
 
-from qorqut import agent_cli_launch
+from qorqut import account_state, agent_cli_launch
 from qorqut_operations.contracts import DomainError
 
+from . import account_errors
 from . import clients as table
 from . import mode as runtime_mode
 from . import models
@@ -188,7 +189,9 @@ def _pending(items):
 
 
 CLOSED_VIEW = {"open": False, "state": "closed", "phase": None, "activity": None, "turn_started_at": None, "can_stop": False,
-               "pending": [], "last_turn_status": None, "turn_error": None, "session_id": None, "closed_reason": None, "closed_text": None}
+               "pending": [], "last_turn_status": None, "turn_error": None, "turn_error_kind": None, "turn_error_resets_at": None,
+               "turn_error_resets_text": None, "turn_finished_at": None, "provider": None, "session_id": None, "closed_reason": None,
+               "closed_text": None}
 
 # Why a host that is gone stopped, in plain words. A host that ended because it was asked to, or sat idle, has no entry: nothing
 # went wrong. Any other reason still says that the session ended unexpectedly.
@@ -214,20 +217,34 @@ def _turn_error(status):
     return text or None
 
 
+def _turn_label(status, provider):
+    """``account_errors.label_of`` for the last turn the host reported: ``{"kind", "resets_at", "resets_text"}`` when it failed on a
+    usage limit or a sign-in problem, else None. The host's own label is used; a host that started before labels existed is read by
+    the client's known sentence."""
+    last = status.get("last_turn") if isinstance(status.get("last_turn"), dict) else {}
+    return account_errors.label_of(last, provider)
+
+
 def _view(record, status):
     status = status if isinstance(status, dict) else {}
     record = {**record, **{key: value for key, value in status.items() if key in ("state", "session_id")}}
     phase = status.get("phase") or ("starting" if record.get("state") == "starting" else "idle")
+    provider = record.get("client") if table.known(record.get("client")) else table.CLAUDE
+    label = _turn_label(status, provider) or {}
+    last = status.get("last_turn") if isinstance(status.get("last_turn"), dict) else {}
     return {"open": True, "state": record.get("state"), "phase": phase, "activity": status.get("activity"),
             "turn_started_at": status.get("turn_started_at"), "can_stop": phase in WORKING,
             "pending": _pending(status.get("pending")), "last_turn_status": status.get("last_turn_status"),
-            "turn_error": _turn_error(status), "session_id": record.get("session_id"), "closed_reason": None, "closed_text": None}
+            "turn_error": _turn_error(status), "turn_error_kind": label.get("kind"), "turn_error_resets_at": label.get("resets_at"),
+            "turn_error_resets_text": label.get("resets_text"),
+            "turn_finished_at": last.get("finished_at") if isinstance(last.get("finished_at"), str) else None, "provider": provider,
+            "session_id": record.get("session_id"), "closed_reason": None, "closed_text": None}
 
 
 def _shown(view):
     """What Chat shows: a change here is worth telling the browser about."""
     return (view["open"], view["phase"], tuple(item["request_id"] for item in view["pending"]), view["activity"],
-            view.get("closed_reason"), view.get("turn_error"))
+            view.get("closed_reason"), view.get("turn_error"), view.get("turn_error_kind"))
 
 
 def _events_of(reply):
@@ -468,9 +485,17 @@ class ManagedRuntime:
                 self._activity_at[agent_id] = now
             self._views[agent_id] = view
             self._viewed[agent_id] = now
+            self._feed_account_state(view)
             if old is None:
                 return view["open"]
             return _shown(old) != _shown(view)
+
+    @staticmethod
+    def _feed_account_state(view):
+        """Tell ``account_state`` how this agent's last turn ended, so one agent's usage limit marks the whole product."""
+        if view.get("provider") and view.get("last_turn_status") in ("completed", "error"):
+            account_state.observe_turn(view["provider"], view.get("turn_error_kind"), view.get("turn_error_resets_at"),
+                                       view.get("turn_error_resets_text"), view.get("turn_finished_at"), view.get("last_turn_status"))
 
     def drain_events(self, agent_id) -> list:
         """The host events read by ``refresh`` since the last drain, oldest first (each drained once)."""

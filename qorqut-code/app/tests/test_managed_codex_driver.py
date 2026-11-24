@@ -858,6 +858,75 @@ class InterruptTests(DriverCase):
         self.assertFalse(session.interrupt())
 
 
+class AccountLabelTests(DriverCase):
+    """A failed turn is labelled from ``codexErrorInfo`` (the names are Codex's own, from ``generate-json-schema`` of 0.167.0) and the
+    reset time from the newest ``account/rateLimits/updated`` window that is full, else from the end of Codex's sentence."""
+
+    def finish(self, session, recorder, error, status="failed", notices=()):
+        message_uuid, seen = str(uuid.uuid4()), len(recorder.of("turn_finished"))
+        with session._lock:
+            session._inflight[message_uuid] = "started"
+            session._msg_turn[message_uuid] = "turn-1"
+            for method, params in notices:
+                session._on_notification(method, params)
+            session._finish_turn("turn-1", {"id": "turn-1", "status": status, "error": error})
+        return recorder.wait("turn_finished", count=seen + 1)
+
+    LIMITS = {"rateLimits": {"limitId": "codex", "primary": {"usedPercent": 100, "windowDurationMins": 300, "resetsAt": 1795910400},
+                             "secondary": {"usedPercent": 40, "windowDurationMins": 10080, "resetsAt": 1796500000},
+                             "rateLimitReachedType": "rate_limit_reached"}}
+
+    def test_a_usage_limit_takes_its_reset_time_from_the_full_window(self):
+        session, recorder = self.make()
+        session.start()
+        finished = self.finish(session, recorder, {"message": "You've hit your usage limit. Try again later.", "codexErrorInfo": "usageLimitExceeded"},
+                               notices=[("account/rateLimits/updated", self.LIMITS)])
+        self.assertEqual((finished["error_kind"], finished["resets_at"]), ("usage_limit", "2026-11-29T00:00:00Z"))
+        session.close()
+
+    def test_the_sentence_gives_the_time_when_no_window_is_full(self):
+        session, recorder = self.make()
+        session.start()
+        text = "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at Nov 28th, 2026 7:00 PM."
+        finished = self.finish(session, recorder, {"message": text, "codexErrorInfo": "usageLimitExceeded"})
+        self.assertEqual((finished["error_kind"], finished["resets_text"]), ("usage_limit", "at Nov 28th, 2026 7:00 PM"))
+        self.assertTrue(finished["resets_at"].startswith("2026-11-2"))
+        session.close()
+
+    def test_a_refused_sign_in_is_a_sign_in_problem(self):
+        session, recorder = self.make()
+        session.start()
+        finished = self.finish(session, recorder, {"message": "unexpected status 401 Unauthorized", "codexErrorInfo": "unauthorized"})
+        self.assertEqual((finished["error_kind"], finished["reason"]), ("sign_in", "unauthorized"))
+        session.close()
+
+    def test_other_failures_are_not_labelled(self):
+        session, recorder = self.make()
+        session.start()
+        for info in ("serverOverloaded", "contextWindowExceeded", {"httpConnectionFailed": {"httpStatusCode": 502}}):
+            finished = self.finish(session, recorder, {"message": "stream failed", "codexErrorInfo": info})
+            self.assertIn("error_kind", finished)
+            self.assertIsNone(finished["error_kind"])
+        session.close()
+
+    def test_a_failed_turn_without_an_error_takes_the_last_error_codex_announced(self):
+        session, recorder = self.make()
+        session.start()
+        finished = self.finish(session, recorder, None, notices=[("error", {"threadId": session.session_id, "turnId": "turn-1", "willRetry": False,
+                               "error": {"message": "You've hit your usage limit.", "codexErrorInfo": "usageLimitExceeded"}})])
+        self.assertEqual(finished["error_kind"], "usage_limit")
+        again = self.finish(session, recorder, None)
+        self.assertIsNone(again["error_kind"])
+        session.close()
+
+    def test_a_turn_that_completed_has_no_label(self):
+        session, recorder = self.make()
+        session.start()
+        finished = self.finish(session, recorder, None, status="completed")
+        self.assertNotIn("error_kind", finished)
+        session.close()
+
+
 class PermissionTests(DriverCase):
     def run_approvals(self, **extra):
         session, recorder = self.make(**extra)
