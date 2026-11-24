@@ -69,13 +69,13 @@ class AuthenticatedPrincipal:
     credential_id: str | None = None
     registration_id: str | None = None
     browser_session_id: str | None = None
-    # Trusted owner-session business binding from credential metadata; clients
+    # Trusted owner-session project binding from credential metadata; clients
     # cannot supply it. Domain writes still receive only the owner principal.
-    business_id: str | None = None
+    project_id: str | None = None
     # Registered application integration identity; unrelated to owner/agent tokens.
     integration_id: str | None = None
     integration_slug: str | None = None
-    business_ids: frozenset[str] = frozenset()
+    project_ids: frozenset[str] = frozenset()
     delegation_binding_id: str | None = None
     delegation_assignment_id: str | None = None
     delegation_generation: int | None = None
@@ -89,7 +89,7 @@ class Authentication:
         self._key = signing_key
         self.clock = clock
         # The selected extension's lookup of a registered integration: ``adapter(uow, credential_row)`` returns
-        # ``(integration_id, slug, business_ids)``, or None when the integration is not registered or is disabled.
+        # ``(integration_id, slug, project_ids)``, or None when the integration is not registered or is disabled.
         self.integration_adapter = integration_adapter
 
     def _signing_key(self):
@@ -185,7 +185,7 @@ class Authentication:
     def owner_session(self, authorization):
         """Resolve an explicitly issued owner-session credential to the installation owner.
 
-        The selected business comes only from trusted credential metadata. A
+        The selected project comes only from trusted credential metadata. A
         registered agent credential never resolves here, and an owner-session
         credential never satisfies :meth:`agent`.
         """
@@ -212,7 +212,7 @@ class Authentication:
             owner, _, _ = self.installation_owner(connection=uow.connection)
             if row["principal_id"] != owner.id:
                 raise DomainError("unauthenticated", "Owner-session credential is invalid or revoked")
-            return AuthenticatedPrincipal(owner, row["id"], business_id=binding["business_id"])
+            return AuthenticatedPrincipal(owner, row["id"], project_id=binding["project_id"])
 
     def verify_bootstrap_token(self, token):
         return isinstance(token, str) and bool(self.bootstrap_token) and hmac.compare_digest(token, self.bootstrap_token)
@@ -258,9 +258,9 @@ class Authentication:
             identity = self.integration_adapter(uow, row)
             if identity is None:
                 raise DomainError("unauthenticated", "The integration is not registered or is disabled")
-            integration_id, slug, businesses = identity
+            integration_id, slug, projects = identity
         return AuthenticatedPrincipal(Principal(row["principal_id"], "integration", row["display_name"]),
-            row["id"], integration_id=integration_id, integration_slug=slug, business_ids=frozenset(businesses))
+            row["id"], integration_id=integration_id, integration_slug=slug, project_ids=frozenset(projects))
 
 
 def normalize_origin(value):

@@ -28,7 +28,6 @@ def ports(**extra):
     noop = lambda *a, **k: None
     return TaskPorts(**{**dict(
         assignees=NS(protect=noop, owner_directed=lambda *a: False, worker_excluded=lambda *a: False),
-        incidents=NS(link_task=noop),
         references=NS(types=('task',), host_types=(), resolve=noop, derived=noop),
         routing=NS(routes=lambda *a: ((), ()), snooze_routes=lambda *a: ())), **extra})
 
@@ -52,10 +51,10 @@ class TaskChangeRecordTests(unittest.TestCase):
             for identity, name in ((self.agent, 'Scout'), (self.reader, 'Compass')):
                 uow.repository('principals').insert(dict(id=identity, kind='agent', display_name=name,
                     active=1, created_at=stamp, updated_at=stamp))
-                uow.repository('agent_profiles', business_id=None).insert(dict(agent_id=identity, principal_id=identity,
-                    home_business_id=None, namespace='ecosystem', name=name.lower(), workspace='/tmp/' + name.lower(),
+                uow.repository('agent_profiles', project_id=None).insert(dict(agent_id=identity, principal_id=identity,
+                    name=name.lower(), workspace='/tmp/' + name.lower(),
                     status='active', profile_json={'status': 'active', 'role': {'id': GLOBAL_WORKER_ROLE}, 'scope': {
-                        'kind': 'ecosystem', 'business_id': None, 'global_capabilities': ['read_global_context']}},
+                        'kind': 'ecosystem', 'project_id': None, 'global_capabilities': ['read_global_context']}},
                     created_at=stamp, updated_at=stamp))
         self.ctx = InvocationContext(Principal(self.owner, 'human'), global_capabilities={'read_global_context'})
         self.worker = InvocationContext(Principal(self.agent, 'agent'), global_capabilities={'read_global_context'},

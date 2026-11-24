@@ -76,11 +76,11 @@ class OwnerTaskAttention(Protocol):
     """Task/snooze knowledge for the owner attention overview (v1 ``tasks.models.DEFAULT_CONFIG`` and
     ``tasks.snooze.ACTIVE_SQL`` inside ``SignoffNotifications.overview``).
 
-    ``open_assigned_count(uow, business_id, principal_id, now)`` -> the number of non-archived, non-closed,
-    not-snoozed tasks assigned to that person in that business (``None`` is the Global workspace). ``now`` is the
+    ``open_assigned_count(uow, project_id, principal_id, now)`` -> the number of non-archived, non-closed,
+    not-snoozed tasks assigned to that person in that project (``None`` is the Global workspace). ``now`` is the
     normalized UTC stamp the engine compares against."""
 
-    def open_assigned_count(self, uow, business_id: str | None, principal_id: str, now: str) -> int: ...
+    def open_assigned_count(self, uow, project_id: str | None, principal_id: str, now: str) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -161,15 +161,13 @@ class ManagementQueries(Protocol):
     """Management routing knowledge (v1 ``management.service`` and ``management.identity``).
 
     ``managed_input_sql`` is v1 ``MANAGED_INPUT_SQL`` over alias ``s``. ``coordinator(uow)`` is
-    ``ManagementService._coordinator`` (raises ``management_unavailable`` exactly as v1). ``auto_route_input(ctx,
-    row, uow)`` runs in the transaction that creates an input request. ``routing_for(uow, signoff_id)`` returns
-    the stored routing row of a Signoff (v1 queried ``management_routing`` directly) or ``None``."""
+    ``ManagementService._coordinator`` (raises ``management_unavailable`` exactly as v1). ``routing_for(uow,
+    signoff_id)`` returns the stored routing row of a Signoff (v1 queried ``management_routing`` directly) or
+    ``None``."""
 
     managed_input_sql: str
 
     def coordinator(self, uow) -> str: ...
-
-    def auto_route_input(self, context: InvocationContext, row: Mapping[str, Any], uow) -> None: ...
 
     def routing_for(self, uow, signoff_id: str) -> Mapping[str, Any] | None: ...
 
@@ -187,6 +185,21 @@ class SourceAuthority(Protocol):
     def check(self, application, context: InvocationContext, source: Mapping[str, Any], uow) -> None: ...
 
 
+class BrowserTabs(Protocol):
+    """The open tabs of the host's browser, for a browser-action request that names the tab the owner acts in.
+
+    Whether a tab is open is a fact only the host's browser knows, so the engine never decides it. ``check(application,
+    context, tab_id, uow)`` -> ``{"title", "url"}`` of the tab as the browser lists it now, read through the caller's own read
+    of the tab's agent; it raises an unavailable ``DomainError`` for a closed tab, a browser that does not answer or an agent
+    the caller may not read. ``view(tab_id, uow)`` -> ``{"id", "agent_id", "tab_id", "available", "label", "agent_label"}``
+    for the owner's detail read of a Signoff already admitted to them; it never raises, and a tab it cannot list is
+    ``available: False`` with null labels. ``label`` is short page text (the title, else the host), never the address."""
+
+    def check(self, application, context: InvocationContext, tab_id: str, uow) -> Mapping[str, Any]: ...
+
+    def view(self, tab_id: str, uow) -> Mapping[str, Any]: ...
+
+
 # -- the assembled set --------------------------------------------------------------------------------------------
 
 def _check(value, label: str, methods: Sequence[str] = (), attributes: Sequence[str] = ()) -> None:
@@ -201,7 +214,8 @@ class SignoffPorts:
     """All host ports of one Signoff service. ``execution``, ``peers``, ``tasks`` and ``references`` are required;
     ``platform``, ``email``, ``management`` and ``focus`` are optional domains that must be declared,
     either with an implementation or with ``ABSENT``. ``narrowing`` is an optional extension that defaults to ``ABSENT``
-    (visibility exactly as before)."""
+    (visibility exactly as before); so are ``sources`` (no source-linked requests) and ``tabs`` (no browser-action
+    requests)."""
 
     execution: ExecutionPresentation
     peers: PeerIdentities
@@ -213,6 +227,7 @@ class SignoffPorts:
     focus: FocusAttention | Absent
     narrowing: VisibilityNarrowing | Absent = ABSENT
     sources: SourceAuthority | Absent = ABSENT
+    tabs: BrowserTabs | Absent = ABSENT
 
     def __post_init__(self):
         for name, value in (("execution", self.execution), ("peers", self.peers), ("tasks", self.tasks),
@@ -231,10 +246,11 @@ class SignoffPorts:
                 ("platform", ("staging_values", "staged", "transition", "replaceable_after_cancel", "view",
                               "is_email_submission"), ()),
                 ("email", ("visibility", "email_context"), ()),
-                ("management", ("coordinator", "auto_route_input", "routing_for"), ("managed_input_sql",)),
+                ("management", ("coordinator", "routing_for"), ("managed_input_sql",)),
                 ("focus", ("release_signoff",), ()),
                 ("narrowing", ("narrow",), ()),
-                ("sources", ("check",), ())):
+                ("sources", ("check",), ()),
+                ("tabs", ("check", "view"), ())):
             value = getattr(self, name)
             if value is None:
                 raise AssemblyError(f"Optional Signoff domain {name} must be declared: pass a port or ABSENT")

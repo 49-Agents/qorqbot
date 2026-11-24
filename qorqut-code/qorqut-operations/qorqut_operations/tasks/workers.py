@@ -16,7 +16,7 @@ class People:
 
     def profile(self, identity):
         if identity not in self.profiles:
-            self.profiles[identity] = self.uow.repository("agent_profiles", business_id=None).get(identity)
+            self.profiles[identity] = self.uow.repository("agent_profiles", project_id=None).get(identity)
         return self.profiles[identity]
 
 

@@ -241,20 +241,6 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
     except (DomainError, OSError, ValueError):
         pass
 
-    def report(component, operation, code, *, retryable=False, terminal=False, recovered=False, client=None):
-        if registration is None:
-            return
-        try:
-            from .technical_reporting import record, active
-            if recovered and not active(registration, component, operation, hook.get('session_id')):
-                return
-            record(registration, hook.get('session_id'), component, operation, code,
-                   call_site=f'{component}.{operation}', retryable=retryable,
-                   terminal=terminal, recovered=recovered, client=None)
-        except Exception:
-            # Reporting must never alter hook behavior or recurse.
-            pass
-
     try:
         output, receipt, client = handle_hook(hook, registration_path, runtime=runtime, client_factory=client_factory)
         native = getattr(client,'native',None)
@@ -296,11 +282,8 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
                     handoff.queue(registration,prepared,"/api/agent/bootstrap/receipt",receipt)
                 else:
                     client.post("/api/agent/bootstrap/receipt", receipt)
-                    report('bootstrap', 'receipt', 'success', recovered=True, client=None)
             except (DomainError, OSError, ValueError):
-                report('bootstrap', 'receipt', 'bootstrap_unavailable', retryable=True, terminal=True, client=client)
                 diagnostics.write("Qorqut emitted context; its delivery receipt could not be recorded.\n")
-        report('bootstrap', 'prepare', 'success', recovered=True, client=None)
         snapshot_transcript(hook, registration_path, runtime=runtime, diagnostics=diagnostics)
         return 0
     except (DomainError, OSError, ValueError) as exc:
@@ -341,9 +324,6 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
                     details=exc.details if isinstance(exc,DomainError) else None)
         except (OSError, ValueError, DomainError):
             diagnostics.write('Preparation recovery state could not be recorded.\n')
-        if not pending:
-            report('bootstrap', 'prepare', code, retryable=isinstance(exc, DomainError) and exc.retryable,
-                   terminal=True)
         diagnostics.write(reason + "\n")
         if hook.get("hook_event_name") == "UserPromptSubmit" and denial:
             result = {"decision": "block", "reason": reason}

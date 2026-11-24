@@ -3,7 +3,7 @@
 Accepted input, attempt and control history is append-only. Only processing state and receipts change, a published or
 discarded input is final, and every state change must be one of the legal transitions. GENERAL source changes and
 accepted Action revisions share the single ``sequence`` order; each input is owned by exactly one namespace
-(``business_id`` NULL is Global). The donor layout is kept: the same states, the exact reserved Context event
+(``project_id`` NULL is Global). The donor layout is kept: the same states, the exact reserved Context event
 identity and the same immutable payload, with ownership added and the donor's references to its own item/agent
 tables pointed at this schema (``action_revisions`` and ``principals``).
 """
@@ -20,7 +20,7 @@ SCHEMA = (
     f"""CREATE TABLE context_inputs (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     id TEXT NOT NULL UNIQUE CHECK (length(id) = 36),
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     input_kind TEXT NOT NULL CHECK (input_kind IN ('general','action')),
     item_id TEXT,
     revision INTEGER,
@@ -39,23 +39,23 @@ SCHEMA = (
         OR (input_kind = 'general' AND item_id IS NULL AND revision IS NULL)),
     CHECK (state IN ('published','discarded') OR result_json IS NULL),
     CHECK (state != 'published' OR context_event_id IS NOT NULL),
-    FOREIGN KEY (item_id, revision) REFERENCES action_revisions(action_key, revision)
+    FOREIGN KEY (item_id, revision) REFERENCES action_revisions(action_id, revision)
 )""",
     """CREATE INDEX context_inputs_by_state ON context_inputs(state, sequence)""",
-    """CREATE INDEX context_inputs_by_scope ON context_inputs(business_id, sequence)""",
+    """CREATE INDEX context_inputs_by_scope ON context_inputs(project_id, sequence)""",
     """CREATE UNIQUE INDEX context_inputs_single_open_head ON context_inputs((1))
     WHERE state IN ('processing','blocked','discard_requested')""",
     """CREATE TRIGGER context_inputs_action_revision
 BEFORE INSERT ON context_inputs
 WHEN NEW.input_kind = 'action' AND NOT EXISTS (
     SELECT 1 FROM action_revisions r
-    WHERE r.action_key = NEW.item_id AND r.revision = NEW.revision AND r.business_id IS NEW.business_id
+    WHERE r.action_id = NEW.item_id AND r.revision = NEW.revision AND r.project_id IS NEW.project_id
       AND r.operation = NEW.operation AND r.recorded_by = NEW.submitted_by)
 BEGIN
     SELECT RAISE(ABORT, 'An Action input must snapshot its stored revision in the same namespace');
 END""",
     """CREATE TRIGGER context_inputs_immutable_input
-BEFORE UPDATE OF sequence, id, business_id, input_kind, item_id, revision, operation, payload_json, submitted_by, created_at
+BEFORE UPDATE OF sequence, id, project_id, input_kind, item_id, revision, operation, payload_json, submitted_by, created_at
 ON context_inputs
 BEGIN
     SELECT RAISE(ABORT, 'Context input is immutable');
@@ -84,7 +84,7 @@ END""",
     """CREATE TABLE context_input_controls (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     id TEXT NOT NULL UNIQUE CHECK (length(id) = 36),
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     input_id TEXT NOT NULL REFERENCES context_inputs(id),
     intent TEXT NOT NULL CHECK (intent IN ('retry','discard')),
     expected_state TEXT NOT NULL
@@ -100,12 +100,12 @@ END""",
     WHERE status = 'pending'""",
     """CREATE TRIGGER context_input_controls_scope
 BEFORE INSERT ON context_input_controls
-WHEN NEW.business_id IS NOT (SELECT business_id FROM context_inputs WHERE id = NEW.input_id)
+WHEN NEW.project_id IS NOT (SELECT project_id FROM context_inputs WHERE id = NEW.input_id)
 BEGIN
     SELECT RAISE(ABORT, 'A control request belongs to its input''s namespace');
 END""",
     """CREATE TRIGGER context_input_controls_immutable_request
-BEFORE UPDATE OF sequence, id, business_id, input_id, intent, expected_state, requested_by, requested_at
+BEFORE UPDATE OF sequence, id, project_id, input_id, intent, expected_state, requested_by, requested_at
 ON context_input_controls
 BEGIN
     SELECT RAISE(ABORT, 'Context control request is immutable');
@@ -157,8 +157,8 @@ END""",
 )
 
 TABLES = {
-    "context_inputs": TableSpec(("id",), "business_id", True, None),
-    "context_input_controls": TableSpec(("id",), "business_id", False, None),
+    "context_inputs": TableSpec(("id",), "project_id", True, None),
+    "context_input_controls": TableSpec(("id",), "project_id", False, None),
     "context_input_attempts": TableSpec(("input_id", "attempt"), mutable=False, revision_column=None),
 }
 IMMUTABLE_FIELDS = {

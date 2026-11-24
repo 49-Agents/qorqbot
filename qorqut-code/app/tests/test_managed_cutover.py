@@ -25,10 +25,10 @@ CONV_A = '11111111-1111-4111-8111-111111111111'
 CONV_B = '22222222-2222-4222-8222-222222222222'
 CONV_C = '33333333-3333-4333-8333-333333333333'
 OTHER_CONV = '44444444-4444-4444-8444-444444444444'
-AGENTS = (  # id, name, business slug (None = global), profile runtime, db conversation, db runtime
-    ('agent-a', 'ordubashy', None, 'claude-code', CONV_A, 'claude-code'),
-    ('agent-b', 'dev', 'acme', 'codex', CONV_B, 'codex'),
-    ('agent-c', 'qa', 'acme', 'codex', CONV_C, 'claude-code'),   # profile says codex, Claude Code really runs
+AGENTS = (  # id, name, profile runtime, db conversation, db runtime
+    ('agent-a', 'ordubashy', 'claude-code', CONV_A, 'claude-code'),
+    ('agent-b', 'dev', 'codex', CONV_B, 'codex'),
+    ('agent-c', 'qa', 'codex', CONV_C, 'claude-code'),   # profile says codex, Claude Code really runs
 )
 
 
@@ -166,7 +166,7 @@ class Installation(unittest.TestCase):
         (self.codex / 'thread-writer-locks').mkdir(parents=True)
         self.machine = FakeMachine()
         self.server = FakeServer(self.machine, 'qorqut')
-        self.env = {'PATH': os.environ.get('PATH', ''), 'BIZ_TMUX_SOCKET': 'qorqut'}
+        self.env = {'PATH': os.environ.get('PATH', ''), 'QORQUT_TMUX_SOCKET': 'qorqut'}
         self.build_database()
         self.workspace = {agent[0]: self.make_workspace(agent) for agent in AGENTS}
 
@@ -174,20 +174,18 @@ class Installation(unittest.TestCase):
     def build_database(self):
         with sqlite3.connect(self.paths.database) as db:
             db.executescript('''
-                CREATE TABLE businesses(id TEXT PRIMARY KEY, slug TEXT);
-                CREATE TABLE agent_profiles(agent_id TEXT PRIMARY KEY, name TEXT, home_business_id TEXT, status TEXT, profile_json TEXT);
+                CREATE TABLE agent_profiles(agent_id TEXT PRIMARY KEY, name TEXT, status TEXT, profile_json TEXT);
                 CREATE TABLE native_session_owners(agent_id TEXT PRIMARY KEY, consumer_id TEXT, binding_json TEXT, generation INTEGER,
-                                                   desired_state TEXT);
-                INSERT INTO businesses VALUES('biz-acme', 'acme');''')
-            for agent_id, name, slug, runtime, conversation, bound in AGENTS:
-                db.execute('INSERT INTO agent_profiles VALUES(?,?,?,?,?)',
-                           (agent_id, name, None if slug is None else 'biz-acme', 'active', json.dumps({'runtime': runtime})))
+                                                   desired_state TEXT);''')
+            for agent_id, name, runtime, conversation, bound in AGENTS:
+                db.execute('INSERT INTO agent_profiles VALUES(?,?,?,?)',
+                           (agent_id, name, 'active', json.dumps({'runtime': runtime})))
                 db.execute('INSERT INTO native_session_owners VALUES(?,?,?,?,?)',
                            (agent_id, conversation, json.dumps({'runtime': bound}), 1, 'running'))
 
     def make_workspace(self, agent):
         from qorqut.composition.locations import agent_workspace_of
-        path = agent_workspace_of(self.paths, agent[0], None if agent[2] is None else 'biz-acme', agent[2])
+        path = agent_workspace_of(self.paths, agent[0])
         (path / '.qorqut/zsh').mkdir(parents=True)
         for name in ('agent-shell.bash', 'zsh/.zshenv', 'zsh/.zshrc'):
             (path / '.qorqut' / name).write_text('# Generated Qorqut agent shell; keep personal shell setup.\n')
@@ -207,7 +205,7 @@ class Installation(unittest.TestCase):
         return found
 
     # -- live agents ---------------------------------------------------------------------------------------------------
-    SESSIONS = {'agent-a': 'global___agent-a', 'agent-b': 'acme__dev', 'agent-c': 'acme__qa'}
+    SESSIONS = {'agent-a': 'global___agent-a', 'agent-b': 'global___agent-b', 'agent-c': 'global___agent-c'}
 
     def live(self, agent_id, client, *, shell=500, argv=None, conversation=None, turn='idle', cwd=None, session=None):
         """A tmux session for the agent: shell pid, the client under it, and the files the client keeps."""
@@ -216,7 +214,7 @@ class Installation(unittest.TestCase):
         workspace = str(self.workspace[agent_id])
         self.machine.add(shell_pid, 1, ['bash', '--rcfile', '.qorqut/agent-shell.bash', '-i'], comm='bash', cwd=workspace)  # session leader
         pid = shell_pid + 1
-        conversation = conversation or dict((a[0], a[4]) for a in AGENTS)[agent_id]
+        conversation = conversation or dict((a[0], a[3]) for a in AGENTS)[agent_id]
         if client == 'claude':
             argv = argv or ['/opt/claude', '--settings', workspace + '/.qorqut/claude-launch-settings.json', '--model', 'claude-opus-5-5',
                             '--effort', 'medium', '--resume', conversation]
@@ -290,9 +288,9 @@ class CommandLines(unittest.TestCase):
 
     def test_the_socket_names_are_the_installations_own(self):
         self.assertEqual(cutover.own_sockets({}), ['qorqut', 'bazarlyk'])
-        self.assertEqual(cutover.own_sockets({'BIZ_TMUX_SOCKET': 'mine'}), ['mine'])
+        self.assertEqual(cutover.own_sockets({'QORQUT_TMUX_SOCKET': 'mine'}), ['mine'])
         with self.assertRaises(cutover.CutoverError):
-            cutover.own_sockets({'BIZ_TMUX_SOCKET': '../x'})
+            cutover.own_sockets({'QORQUT_TMUX_SOCKET': '../x'})
 
 
 class Inspect(Installation):
@@ -325,7 +323,7 @@ class Inspect(Installation):
     def test_a_missing_session_and_a_missing_client_are_told_apart(self):
         self.live('agent-a', 'claude')
         self.machine.add(520, 1, ['bash'], comm='bash')
-        self.server.add('acme__dev', 520)                      # a session with only a shell in it
+        self.server.add('global___agent-b', 520)                      # a session with only a shell in it
         state = self.survey()
         self.assertFalse(self.view(state, 'agent-c')['session_present'])
         self.assertEqual(self.view(state, 'agent-b')['client'], 'none')
@@ -459,7 +457,7 @@ class Apply(Installation):
 
     def test_a_session_with_only_a_shell_is_ended_and_nothing_recorded(self):
         self.machine.add(520, 1, ['bash'], comm='bash')
-        self.server.add('acme__dev', 520)
+        self.server.add('global___agent-b', 520)
         document = self.apply(only='agent-b')
         self.assertEqual(document['results'][0]['skipped'], ['no client in the session'])
         self.assertEqual(launch_options.read(self.paths, 'agent-b').public(), {'client': None, 'model': None, 'effort': None})
@@ -748,7 +746,7 @@ class ForeignServers(Installation):
         def factory(name):
             asked.append(name)
             return cutover.Tmux(name, '/some/folder', runner=server.runner, executable='tmux', env={})
-        cutover.survey(self.paths, {**self.env, 'BIZ_TMUX_SOCKET': 'mine'}, machine=self.machine, tmux_factory=factory)
+        cutover.survey(self.paths, {**self.env, 'QORQUT_TMUX_SOCKET': 'mine'}, machine=self.machine, tmux_factory=factory)
         self.assertEqual(asked, ['mine'])
         self.assertTrue(all(call[:3] == ['tmux', '-L', 'mine'] for call in server.calls))
 

@@ -1,22 +1,18 @@
-"""Synthetic hook I/O, deadlines, and supervisor-owned diagnostic delivery."""
-from concurrent.futures import Future, ThreadPoolExecutor
+"""Synthetic hook I/O and deadlines."""
+from concurrent.futures import ThreadPoolExecutor
 import fcntl
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 from pathlib import Path
-import socket
 import subprocess
 import sys
 import tempfile
-import threading
 from types import SimpleNamespace as NS
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
-from qorqut.bootstrap import activity_hook as hook, technical_reporting as reports
-from qorqut.bootstrap.supervisor import Supervisor
+from qorqut.bootstrap import activity_hook as hook
 
 
 class HookTests(unittest.TestCase):
@@ -53,13 +49,8 @@ class HookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), {})
 
-    def test_record_recovers_locally_without_replaying_reports(self):
-        self.assertTrue(reports.record(self.registration, self.session, 'activity_hook', 'record',
-                                       'activity_hook_unavailable'))
-        with patch.object(reports, 'replay_http') as replay:
-            self.assertEqual(hook.record(self.event, self.path, 'codex'), {})
-        replay.assert_not_called()
-        self.assertEqual(reports.pending(self.registration), 2)
+    def test_record_stores_the_tool_activity(self):
+        self.assertEqual(hook.record(self.event, self.path, 'codex'), {})
         activity = hook.read_activity(self.workspace / '.qorqut/activity' / (self.session + '.json'))
         self.assertEqual(activity['genuine_tool_activity']['tool_id'], 'call-1')
 
@@ -158,104 +149,6 @@ class HookTests(unittest.TestCase):
         self.assertTrue(requests[0]['allow_correction'])
         self.assertFalse(requests[1]['allow_correction'])
         self.assertEqual(hook.checkpoint_receipt(path.with_suffix('.checkpoint.json'))['claim_id'], receipt['claim_id'])
-
-
-class ReportReplayTests(unittest.TestCase):
-    def test_supervisor_retries_offline_and_stopped_sessions_without_another_hook(self):
-        received, unavailable = [], [True]
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *_):
-                pass
-            def do_POST(self):
-                body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-                received.append((self.path, body, self.headers['Authorization']))
-                self.send_response(503 if unavailable[0] and body['registration_id'] == 'first' else 200)
-                self.end_headers()
-                self.wfile.write(json.dumps({'status': 'accepted',
-                    'observation_id': body['observation']['observation_id']}).encode())
-        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        self.addCleanup(server.server_close)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        self.addCleanup(thread.join, 2)
-        self.addCleanup(server.shutdown)
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary).resolve()
-            registrations = []
-            for name in ('first', 'second'):
-                workspace = root / name
-                (workspace / '.qorqut').mkdir(parents=True)
-                registration = {'schema_version': 1, 'registration_id': name, 'agent_id': name,
-                    'workspace': str(workspace), 'credential_file': '.qorqut/credential',
-                    'service_url': f'http://127.0.0.1:{server.server_port}'}
-                registrations.append(registration)
-                path = workspace / '.qorqut/registration.json'
-                path.write_text(json.dumps(registration))
-                credential = workspace / '.qorqut/credential'
-                credential.write_text('synthetic-credential-' * 3)
-                credential.chmod(0o600)
-                self.assertTrue(reports.record(registration, 'stopped-session', 'activity_hook', 'record',
-                    'activity_hook_unavailable'))
-                for directory in ('agent-supervisor', 'agent-recovery-denied'):
-                    record = root / 'state' / directory / (name + '.json')
-                    record.parent.mkdir(parents=True, exist_ok=True)
-                    record.write_text(json.dumps({'registration_path': str(path), 'desired_state': 'stopped',
-                                                  'host': socket.gethostname()}))
-            bad = root / 'state/agent-supervisor/bad.json'
-            bad.write_text('not json')
-            (bad.parent / 'bad-object.json').write_text('[]')
-            supervisor = Supervisor({'root': str(root)}, alive=Mock(side_effect=AssertionError('must not require live owner')))
-            self.addCleanup(supervisor.pool.shutdown)
-            supervisor.replay_reports()
-            self.assertEqual([reports.pending(r) for r in registrations], [1, 0])
-            self.assertEqual(len(received), 2)  # Duplicate registration pointers do not replay twice.
-            unavailable[0] = False
-            supervisor.replay_reports()
-            self.assertEqual([reports.pending(r) for r in registrations], [0, 0])
-            self.assertEqual(len(received), 3)
-            self.assertTrue(all(route == '/api/agent/technical-observation' for route, _, _ in received))
-
-    def test_ticks_do_not_overlap_report_passes(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            supervisor = Supervisor({'root': temporary})
-            supervisor.pool.shutdown()
-            future = Future()
-            supervisor.pool = Mock(submit=Mock(return_value=future))
-            supervisor.reference_future = Future()
-            supervisor.context_check_at = float('inf')
-            supervisor.tick()
-            supervisor.report_check_at = 0
-            supervisor.tick()
-            self.assertEqual(supervisor.pool.submit.call_count, 1)
-            future.set_result(None)
-            supervisor.tick()
-            self.assertEqual(supervisor.pool.submit.call_count, 2)
-
-    def test_failed_first_bootstrap_remains_discoverable_until_reports_drain(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary).resolve()
-            workspace = root / 'workspace'
-            path = workspace / '.qorqut/registration.json'
-            path.parent.mkdir(parents=True)
-            registration = {'schema_version': 1, 'registration_id': 'reg', 'agent_id': 'agent',
-                'workspace': str(workspace), 'service_url': 'http://127.0.0.1:1',
-                'credential_file': '.qorqut/credential'}
-            path.write_text(json.dumps(registration))
-            record = root / 'state/agent-recovery/pending.json'
-            record.parent.mkdir(parents=True)
-            record.write_text(json.dumps({'registration_path': str(path), 'owner': 'exited',
-                'registration_id': 'reg', 'session_id': 'session', 'runtime': 'codex', 'request_id': 'request'}))
-            reports.record(registration, 'session', 'bootstrap', 'prepare', 'bootstrap_unavailable')
-            supervisor = Supervisor({'root': str(root)}, alive=lambda _: False)
-            self.addCleanup(supervisor.pool.shutdown)
-            supervisor.context_check_at = float('inf')
-            supervisor.reference_future = Future()
-            supervisor.report_future = Future()
-            supervisor.tick()
-            self.assertTrue(record.exists())
-            (workspace / '.qorqut/technical-reports/pending.jsonl').write_text('')
-            supervisor.tick()
-            self.assertFalse(record.exists())
 
 
 if __name__ == '__main__':

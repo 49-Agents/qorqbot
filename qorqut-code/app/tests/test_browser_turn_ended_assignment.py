@@ -36,13 +36,13 @@ class EndedAssignmentTurn(unittest.TestCase):
 
     def running(self, uow, now=START):
         """A claimed assignment: its first generation is running."""
-        assignment = self.store.create(uow, parent_principal_id=self.parent, business_id=None,
-            scope={'kind': 'global', 'allowed_business_ids': [], 'record_ids': {}, 'source_ids': {}, 'browser_key': self.key},
+        assignment = self.store.create(uow, parent_principal_id=self.parent, project_id=None,
+            scope={'kind': 'global', 'allowed_project_ids': [], 'record_ids': {}, 'source_ids': {}, 'browser_key': self.key},
             objective='Browser work', plan={'steps': ['open the page']}, allowed_operations=['browser_use'])
         return self.store.claim(uow, assignment['id'], actor_principal_id=self.parent, dispatcher_ready=True, now=now)
 
     def acquire(self, uow, assignment, now):
-        return self.turns.acquire(uow, browser_key=self.key, business_id=None, parent_principal_id=self.parent,
+        return self.turns.acquire(uow, browser_key=self.key, project_id=None, parent_principal_id=self.parent,
             requester_kind='assignment', requester_id=assignment['id'], assignment_id=assignment['id'],
             generation=assignment['execution_generation'], now=now)
 

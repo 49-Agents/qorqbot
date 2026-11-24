@@ -18,9 +18,9 @@ ROLE_MODEL_DEFAULTS = {
 }
 
 
-def role_model_default(scope_kind, role_id):
-    """The startup default of a supported global role in ecosystem scope; None for any other agent."""
-    if scope_kind != "ecosystem" or role_id not in SUPPORTED_GLOBAL_ROLES:
+def role_model_default(role_id):
+    """The startup default of a supported global role; None for any other role."""
+    if role_id not in SUPPORTED_GLOBAL_ROLES:
         return None
     # A permanent worker starts with the model and effort Ordubashy starts with (only those two settings).
     return ROLE_MODEL_DEFAULTS.get(ORDUBASHY_ROLE if role_id == GLOBAL_WORKER_ROLE else role_id)

@@ -4,7 +4,7 @@ The owner's Settings page has one owner-only dashboard route per part, and each 
 the configured Ordubashy the same reads and changes, so the owner can ask Ordubashy to change a setting instead of opening
 Settings: `settings_get` and `settings_set` (`app/qorqut/domains/settings_tools.py`).
 
-How Ordubashy uses them is his role skill `owner-settings` (`qorqut-role-owner-settings`, Ordubashy role 1.85.0). Like every
+How Ordubashy uses them is his role skill `owner-settings` (`qorqut-role-owner-settings`, Ordubashy role 1.86.0). Like every
 role skill it is a native skill in his folder: the client lists its name and one-line description at every start and loads
 the body only when he opens it. Nothing else about settings is in his start-up instructions; the tool descriptions list the
 settings and their values and point to the skill.

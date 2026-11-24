@@ -27,9 +27,9 @@ DESCRIPTION = (
 
 
 def namespace(ctx, _arguments):
-    """Any active caller: its business, else Global when granted, else its own agent workspace."""
-    if ctx.business_id:
-        return "business:" + ctx.business_id
+    """Any active caller: its project, else Global when granted, else its own agent workspace."""
+    if ctx.project_id:
+        return "project:" + ctx.project_id
     if "read_global_context" in ctx.global_capabilities:
         return "global"
     if ctx.agent_id:
@@ -50,7 +50,7 @@ class FileLinks:
             "label": {"type": "string", "minLength": 1, "maxLength": MAX_LABEL_CHARS},
             "version": {"type": "integer", "minimum": 1, "maximum": 999_999_999}}),
             effect_kind="read", supports_signoff=False, exposure=frozenset({"mcp", "dashboard"}),
-            scope_kinds=frozenset({"business", "global", "agent_workspace"}), global_capability="read_global_context",
+            scope_kinds=frozenset({"project", "global", "agent_workspace"}), global_capability="read_global_context",
             resolve_namespace=namespace, description=DESCRIPTION, read=self.read))
         return self
 
@@ -69,13 +69,13 @@ class FileLinks:
                             "checks the file when the link is opened and always shows its current contents."}
         identity = str(_UUID(args["document_id"]))
         row = self.documents.store.get(ctx, identity, uow)
-        if row["business_id"] != ctx.business_id:
+        if row["project_id"] != ctx.project_id:
             raise DomainError("not_found", "Document not found")
         version = args.get("version")
-        url = viewer_url(document_id=row["id"], business_id=ctx.business_id, version=version)
+        url = viewer_url(document_id=row["id"], project_id=ctx.project_id, version=version)
         label = args.get("label") or posixpath.basename(row["path"])
         return {"viewer_url": url, "markdown": markdown_link(label, url),
-                "target": {"type": "document", "document_id": row["id"], "business_id": ctx.business_id, "version": version},
+                "target": {"type": "document", "document_id": row["id"], "project_id": ctx.project_id, "version": version},
                 "checked": "document_readable",
                 "note": ("The document is registered and readable in your scope; the owner's viewer shows its current "
                          "file" + (f" and saved version {version}, which is checked when opened." if version else

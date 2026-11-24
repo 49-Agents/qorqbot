@@ -40,7 +40,7 @@ class ClaudeDispatchIntegration(unittest.TestCase):
         now = datetime.now(timezone.utc)
         stamp = now.isoformat().replace('+00:00', 'Z')
         store = OperationalDelegation(clock=lambda: stamp)
-        parent, business, registration, consumer, conversation = [new_id() for _ in range(5)]
+        parent, project, registration, consumer, conversation = [new_id() for _ in range(5)]
         workspace = root / 'parent'
         workspace.mkdir()
         # A real prepared parent has its managed runtime-instruction snapshot.
@@ -81,12 +81,11 @@ class ClaudeDispatchIntegration(unittest.TestCase):
             with database.transaction() as uow:
                 uow.repository('principals').insert({'id': parent, 'kind': 'agent', 'display_name': 'Coordinator',
                     'active': 1, 'created_at': stamp, 'updated_at': stamp})
-                uow.repository('businesses').insert({'id': business, 'slug': 'sample', 'workspace': str(root),
-                    'hq_path': str(root), 'name': 'Sample', 'created_at': stamp, 'updated_at': stamp})
-                uow.repository('agent_profiles', business_id=None).insert({'agent_id': parent, 'principal_id': parent,
-                    'namespace': 'ecosystem', 'name': 'Coordinator', 'workspace': str(workspace),
+                uow.repository('projects').insert({'id': project, 'slug': 'sample', 'workspace': str(root), 'name': 'Sample', 'created_at': stamp, 'updated_at': stamp})
+                uow.repository('agent_profiles', project_id=None).insert({'agent_id': parent, 'principal_id': parent,
+                    'name': 'Coordinator', 'workspace': str(workspace),
                     'profile_json': {'runtime': 'claude-code', 'role': {'id': 'ordubashy'},
-                        'scope': {'kind': 'ecosystem', 'allowed_business_ids': [business],
+                        'scope': {'kind': 'ecosystem',
                                   'global_capabilities': ['manage_delegated_assignments']}},
                     'status': 'active', 'created_at': stamp, 'updated_at': stamp})
                 uow.repository('machine_registrations').insert({'id': registration, 'principal_id': parent,
@@ -96,8 +95,8 @@ class ClaudeDispatchIntegration(unittest.TestCase):
                 uow.connection.execute('INSERT INTO native_session_owners '
                     '(agent_id,consumer_id,binding_json,generation) VALUES(?,?,?,1)',
                     (parent, consumer, json.dumps({'runtime': 'claude-code'})))
-                saved = store.create(uow, parent_principal_id=parent, business_id=business,
-                    scope={'kind': 'business', 'business_id': business, 'record_ids': {}, 'source_ids': {}},
+                saved = store.create(uow, parent_principal_id=parent, project_id=project,
+                    scope={'kind': 'project', 'project_id': project, 'record_ids': {}, 'source_ids': {}},
                     objective='Complete a synthetic assignment', plan={'steps': ['check', 'complete']},
                     allowed_operations=[], resource_bounds={'max_turns': 2, 'max_runtime_seconds': 30})
             app = SimpleNamespace(database=database, current_context=lambda ctx, _uow: ctx)

@@ -254,16 +254,16 @@ def _transcript_path(folder, session_id, env):
     When the computed file does not exist the other project folders are checked for the id (Claude Code shortens very long
     folder names with a hash this does not reproduce); failing that the computed path is returned."""
     config = env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
-    projects = Path(config) / "projects"
+    claude_projects = Path(config) / "projects"
     try:
         real = os.path.realpath(folder)
     except OSError:
         real = str(folder)
-    expected = projects / re.sub(r"[^A-Za-z0-9]", "-", real) / (session_id + ".jsonl")
+    expected = claude_projects / re.sub(r"[^A-Za-z0-9]", "-", real) / (session_id + ".jsonl")
     if expected.exists():
         return str(expected)
     try:
-        for candidate in projects.iterdir():
+        for candidate in claude_projects.iterdir():
             found = candidate / (session_id + ".jsonl")
             if found.exists():
                 return str(found)

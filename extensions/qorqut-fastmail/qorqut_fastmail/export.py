@@ -18,7 +18,7 @@ was verified, so a refusal or failure leaves nothing behind that could be mistak
 Values keep their SQLite type: integers and floats are JSON numbers, text is a JSON string, NULL is null and a BLOB is
 ``{"$blob": "<base64>"}``. Every record and identifier is copied verbatim; nothing is dropped, renamed, merged or rewritten. The
 archive is verified by reading it back and comparing the canonical row lines with the exported files. References between the
-mail tables are kept and checked (``PRAGMA foreign_key_check``); references to the core ``businesses``/``principals``/
+mail tables are kept and checked (``PRAGMA foreign_key_check``); references to the core ``projects``/``principals``/
 ``signoffs`` tables stay as plain identifiers because those tables are not part of the archive. Findings in the source itself
 (rows that already violated a reference) are reported in the manifest and in the exit status, never repaired.
 

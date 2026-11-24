@@ -154,8 +154,8 @@ def replies_to_owner(uow, item: ThreadItem) -> bool:
     A relayed owner statement does not count: the owner said it somewhere else and is answered there."""
     row = uow.connection.execute(
         "SELECT p.kind, m.author_id=m.recorder_id FROM thread_messages m LEFT JOIN principals p ON p.id=m.author_id "
-        "WHERE m.business_id IS ? AND m.item_type=? AND m.item_id=? AND m.kind='comment' "
-        "ORDER BY m.created_at DESC,m.id DESC LIMIT 1", (item.business_id, item.item_type, item.item_id)).fetchone()
+        "WHERE m.project_id IS ? AND m.item_type=? AND m.item_id=? AND m.kind='comment' "
+        "ORDER BY m.created_at DESC,m.id DESC LIMIT 1", (item.project_id, item.item_type, item.item_id)).fetchone()
     return bool(row and row[0] == "human" and row[1])
 
 
@@ -223,9 +223,9 @@ def system_entry(uow, item: ThreadItem, *, recorder_id, body, change, event_id=N
     ``at`` is the operation's own timestamp when its domain keeps one clock for everything it writes; omitted, now."""
     identity = new_id()
     uow.connection.execute(
-        "INSERT INTO thread_messages(business_id,id,item_type,item_id,kind,body,recorder_id,attribution_json,change_json,"
+        "INSERT INTO thread_messages(project_id,id,item_type,item_id,kind,body,recorder_id,attribution_json,change_json,"
         "event_id,created_at) VALUES(?,?,?,?, 'system',?,?, '{\"kind\":\"system\"}',?,?,?)",
-        (item.business_id, identity, item.item_type, item.item_id, body, recorder_id, json.dumps(change, sort_keys=True),
+        (item.project_id, identity, item.item_type, item.item_id, body, recorder_id, json.dumps(change, sort_keys=True),
          event_id, at or utc_now()))
     return identity
 
@@ -234,8 +234,8 @@ def attach_event(uow, item: ThreadItem, message_ids, event_id) -> None:
     """Bind the messages an operation wrote to the one event it emitted (set once; the row is otherwise immutable)."""
     for identity in message_ids:
         uow.connection.execute(
-            "UPDATE thread_messages SET event_id=? WHERE business_id IS ? AND id=? AND event_id IS NULL",
-            (event_id, item.business_id, identity))
+            "UPDATE thread_messages SET event_id=? WHERE project_id IS ? AND id=? AND event_id IS NULL",
+            (event_id, item.project_id, identity))
 
 
 def message_view(row, uow, resolve_refs: Callable | None = None) -> dict:
@@ -264,15 +264,15 @@ def read_messages(uow, item: ThreadItem, arguments: Mapping, operation: str, pri
     normalized = {"item_id": item.item_id, "principal_id": principal_id, "limit": min(arguments.get("limit", 20), 100),
                   "kinds": list(kinds), **({"audience": "owner"} if owner_only else {}),
                   **({"cursor": arguments["cursor"]} if arguments.get("cursor") else {})}
-    _, after = page_position(normalized, item.business_id, operation)
+    _, after = page_position(normalized, item.project_id, operation)
     bounds = " AND (created_at,id)<(?,?)" if after else ""
     marks = ",".join("?" for _ in kinds)
-    scope = f"business_id IS ? AND item_type=? AND item_id=? AND kind IN ({marks})"
-    selection = [item.business_id, item.item_type, item.item_id, *kinds]
+    scope = f"project_id IS ? AND item_type=? AND item_id=? AND kind IN ({marks})"
+    selection = [item.project_id, item.item_type, item.item_id, *kinds]
     rows = uow.connection.execute(
         f"SELECT * FROM thread_messages WHERE {scope}{' AND ' + FOR_OWNER_SQL if owner_only else ''}{bounds} "
         "ORDER BY created_at DESC,id DESC LIMIT ?", [*selection, *(after or ()), normalized["limit"] + 1]).fetchall()
-    selected, cursor = page([dict(row) for row in rows], normalized, item.business_id, operation)
+    selected, cursor = page([dict(row) for row in rows], normalized, item.project_id, operation)
     result = {"thread_id": item.thread_id, "messages": [message_view(row, uow, resolve_refs) for row in reversed(selected)],
               "next_cursor": cursor}
     if owner_only:
@@ -283,5 +283,5 @@ def read_messages(uow, item: ThreadItem, arguments: Mapping, operation: str, pri
 
 def message_count(uow, item: ThreadItem) -> int:
     return uow.connection.execute(
-        "SELECT count(*) FROM thread_messages WHERE business_id IS ? AND item_type=? AND item_id=? AND kind='comment'",
-        (item.business_id, item.item_type, item.item_id)).fetchone()[0]
+        "SELECT count(*) FROM thread_messages WHERE project_id IS ? AND item_type=? AND item_id=? AND kind='comment'",
+        (item.project_id, item.item_type, item.item_id)).fetchone()[0]

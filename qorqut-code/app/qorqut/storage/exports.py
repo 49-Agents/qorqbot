@@ -13,7 +13,7 @@ from qorqut.composition.schema import record_contributions
 from qorqut.composition.tables import TABLE_SPECS
 from qorqut_operations.storage.repositories import decode_row
 from qorqut_operations.storage.safe_io import atomic_write
-from qorqut.composition.locations import business_hq
+from qorqut.composition.locations import project_root
 
 # Every table exists in a target store: the version-gated skips of the migrated v1 databases are gone.
 # The engine's operational-record tables (Tasks, threads, tags, Actions, the Context queue) are specified by their owners.
@@ -23,17 +23,17 @@ EXPORT_VERSION = 1
 # ``crm_entries`` (a CRM Table's memberships and local cells) joins the table stores. ``crm_activity_events`` - recorded email
 # and message observations - is deliberately absent from every broad export: external bodies stay in the database and in the
 # separately protected history, never in these Git projections.
-BUSINESS_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "crm_entries", "table_versions", "business_configs", "agent_profiles", "tasks", "thread_messages", "item_tags",
+PROJECT_TABLES = ("relationships", "context_reviews", "context_review_states", "context_entities", "data_tables", "data_rows", "crm_entries", "table_versions", "project_configs", "agent_profiles", "tasks", "thread_messages", "item_tags",
     "documents", "action_logs", "action_revisions",
     "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
     "routines", "routine_runs",
     # Project records: the explicit cross-scope associations of one Project (never private conversation content).
     "project_item_links")
-GLOBAL_TABLES = ("dev_tickets", "dev_ticket_events", "tasks", "thread_messages", "item_tags", "relationships", "business_configs", "agent_profiles", "documents", "routines", "routine_runs",
+GLOBAL_TABLES = ("tasks", "thread_messages", "item_tags", "relationships", "project_configs", "agent_profiles", "documents", "routines", "routine_runs",
                  "learning_candidates", "learning_decisions", "learning_history", "learning_runs",
-                 # Global-stored actions and every action's business memberships (the action scope).
-                 "action_logs", "action_revisions", "action_businesses", "tags",
-                 # Global general tables share the business table stores under a NULL business.
+                 # Global-stored actions and every action's project memberships (the action scope).
+                 "action_logs", "action_revisions", "action_projects", "tags",
+                 # Global general tables share the project table stores under a NULL project.
                  "data_tables", "data_rows", "crm_entries", "table_versions")
 PROJECTION_NOTICE = "Generated from SQLite. Read-only history/recovery projection; edits are not imported."
 
@@ -45,19 +45,19 @@ def snapshot_connection(path):
     return connection
 
 
-def export_rows(connection, table, business_id=...):
-    if table not in (*BUSINESS_TABLES, *GLOBAL_TABLES, "businesses", "principals", "artifacts"):
+def export_rows(connection, table, project_id=...):
+    if table not in (*PROJECT_TABLES, *GLOBAL_TABLES, "projects", "principals", "artifacts"):
         raise ValueError("Table is not in the operational export catalog")
     spec = TABLES[table]
     where, parameters = "", ()
-    if business_id is not ...:
+    if project_id is not ...:
         if not spec.scope_column:
-            raise ValueError("Export table is not business-scoped")
-        where, parameters = f' WHERE "{spec.scope_column}" IS ?', (business_id,)
+            raise ValueError("Export table is not project-scoped")
+        where, parameters = f' WHERE "{spec.scope_column}" IS ?', (project_id,)
     if table == 'documents':
         where += (' AND ' if where else ' WHERE ') + "kind != 'working_memory'"
     order = ", ".join(f'"{key}"' for key in spec.keys)
-    selected = "business_id,id,table_id,table_revision,sequence,actor_id,operation,path,snapshot_hash,git_commit,created_at" if table == "table_versions" else "*"
+    selected = "project_id,id,table_id,table_revision,sequence,actor_id,operation,path,snapshot_hash,git_commit,created_at" if table == "table_versions" else "*"
     records = [decode_row(row) for row in connection.execute(f'SELECT {selected} FROM "{table}"{where} ORDER BY {order}', parameters)]
     if table == 'documents':
         for row in records:
@@ -86,20 +86,19 @@ def build_exports(snapshot, paths):
 
     connection = snapshot_connection(snapshot)
     try:
-        businesses = export_rows(connection, "businesses")
-        add("exports", "businesses", businesses, "global")
+        projects = export_rows(connection, "projects")
+        add("exports", "projects", projects, "global")
         public_principals = [{key: row[key] for key in ("id", "kind", "display_name", "active", "revision")}
                              for row in export_rows(connection, "principals")]
         add("exports", "principals", public_principals, "global")
         add("exports", "artifacts", export_rows(connection, "artifacts"), "global")
         for table in GLOBAL_TABLES:
             add("exports", table, export_rows(connection, table, None if TABLES[table].scope_column else ...), "global")
-        for business in businesses:
-            hq = business_hq(paths, business)
-            directory = hq.relative_to(root).as_posix() + "/exports"
-            add(directory, "businesses", [business], business["id"])
-            for table in BUSINESS_TABLES:
-                add(directory, table, export_rows(connection, table, business["id"]), business["id"])
+        for project in projects:
+            directory = project_root(paths, project).relative_to(root).as_posix() + "/exports"
+            add(directory, "projects", [project], project["id"])
+            for table in PROJECT_TABLES:
+                add(directory, table, export_rows(connection, table, project["id"]), project["id"])
     finally:
         connection.close()
     hashes = {name: hashlib.sha256(body).hexdigest() for name, body in sorted(files.items())}

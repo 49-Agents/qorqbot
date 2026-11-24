@@ -3,7 +3,7 @@
 Everything the owner wrote and decided in the period, in time order, with what was said back in the same places:
 
 * every agent's chat: the owner's messages and the agents' replies to the owner;
-* the private owner threads (on Tasks, Signoffs, Tables, Projects and Focus References, side chats included): both sides;
+* the private owner threads (on Tasks, Signoffs, Tables, Projects and Focus References): both sides;
 * the owner's own notes in Task and Table discussions, on Signoffs and on Focus cards;
 * the owner's Signoff decisions: what was approved, rejected or answered, with the owner's words.
 
@@ -87,7 +87,7 @@ class Report:
     def _decisions(self):
         """The Signoffs decided in the period that the coordinator may read, as rows of the timeline."""
         outcomes = self.runtime.signoffs.recent_outcomes(self.ctx, self.uow, since=self.window['since'],
-                                                         until=self.window['until'], limit=MAX_ROWS, side_chats=False)
+                                                         until=self.window['until'], limit=MAX_ROWS)
         if outcomes['count'] > len(outcomes['items']):
             self.capped.append('Signoff decisions')
         return [{'item': 'signoff:' + item['id'], 'at': item['updated_at'], 'channel': 'decision', 'reply': False, 'signoff': item}
@@ -102,9 +102,9 @@ class Report:
     @staticmethod
     def place(source):
         """Where a thread message or note was written, and how to open it."""
-        project = f' (project {source["business"]})' if source.get('business') else ''
+        project = f' (project {source["project"]})' if source.get('project') else ''
         title = f' "{source["title"]}"' if source.get('title') else ''
-        scope = f', project {source["business_id"]}' if source.get('business_id') else ''
+        scope = f', project {source["project_id"]}' if source.get('project_id') else ''
         return f'{source["type"].replace("_", " ")}{title}{project}', f'open: {source["type"]} {source["id"]}{scope}'
 
     def entry(self, row):
@@ -131,7 +131,7 @@ class Report:
             if text is None:
                 return None, 'unreadable'
             return head + '\n' + text[:OWNER_LIMIT], 'owner'
-        source = self.reading.source(row['source_type'], row['source_id'], row['business_id'])
+        source = self.reading.source(row['source_type'], row['source_id'], row['project_id'])
         if source is None:
             return None, 'unreadable'
         where, pointer = self.place(source)
@@ -155,7 +155,7 @@ class Report:
         if signoff.get('decision_state') == 'acknowledged':
             verdict = 'ACKNOWLEDGED (read)'
         by = 'OWNER' if decision.get('by') == self.owner else 'ORDUBASHY for the owner' if decision.get('by') else 'SYSTEM'
-        scope = f', project {signoff["review_business_id"]}' if signoff.get('review_business_id') else ''
+        scope = f', project {signoff["review_project_id"]}' if signoff.get('review_project_id') else ''
         lines = [f'[{clock}] {by} {verdict} the Signoff "{signoff.get("title") or ""}" proposed by '
                  f'{signoff.get("proposer_display_name") or "an agent"}   id signoff:{signoff["id"]}   '
                  f'open: signoff {signoff["id"]}{scope}']

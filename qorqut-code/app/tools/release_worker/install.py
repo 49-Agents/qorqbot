@@ -310,7 +310,7 @@ with tempfile.TemporaryDirectory(prefix="release-worker-run-") as cache:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, required=True, help="immutable assembled biz-core release artifact")
+    parser.add_argument("--source", type=Path, required=True, help="immutable assembled core release artifact")
     parser.add_argument("--version", required=True, help="human-readable immutable release identifier")
     parser.add_argument("--commit", required=True, help="full 40-character source commit recorded by the release")
     parser.add_argument("--provenance-repository", type=Path, required=True, help="trusted Git repository containing the source commit")

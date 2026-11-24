@@ -40,19 +40,19 @@ def _input(uow, input_id):
 
 
 def identity(uow, row) -> dict:
-    """The ``{kind, key, business_id, operation}`` of a stored queue input, derived from stored state only.
+    """The ``{kind, key, project_id, operation}`` of a stored queue input, derived from stored state only.
 
     A GENERAL input's key is its (re-validated) canonical path and its scope the input's namespace. An Action input's key
     and scope are those of the exact accepted revision it snapshots; it is refused if the two disagree."""
     if row["input_kind"] == "general":
         return {"kind": "general", "key": source_path(json.loads(row["payload_json"])["path"], controlled=True),
-                "business_id": row["business_id"], "operation": row["operation"]}
+                "project_id": row["project_id"], "operation": row["operation"]}
     revision = uow.connection.execute(
-        "SELECT action_key, business_id, operation FROM action_revisions WHERE action_key=? AND revision=?",
+        "SELECT action_id, project_id, operation FROM action_revisions WHERE action_id=? AND revision=?",
         (row["item_id"], row["revision"])).fetchone()
-    if revision is None or revision["business_id"] != row["business_id"] or revision["operation"] != row["operation"]:
+    if revision is None or revision["project_id"] != row["project_id"] or revision["operation"] != row["operation"]:
         raise DomainError("validation_error", "The Action input does not match its stored revision")
-    return {"kind": "action", "key": revision["action_key"], "business_id": revision["business_id"],
+    return {"kind": "action", "key": revision["action_id"], "project_id": revision["project_id"],
             "operation": revision["operation"]}
 
 
@@ -61,7 +61,7 @@ def binding(uow, kind: str, key: str):
     if kind not in SOURCE_KINDS:
         raise DomainError("validation_error", "Unknown Context source kind")
     row = uow.connection.execute("SELECT * FROM context_source_bindings WHERE source_kind=? AND source_key=?", (kind, key)).fetchone()
-    return None if row is None else {name: row[name] for name in ("source_kind", "source_key", "business_id", "bound_by_input", "bound_at")}
+    return None if row is None else {name: row[name] for name in ("source_kind", "source_key", "project_id", "bound_by_input", "bound_at")}
 
 
 def reserve_source(uow, *, driver_id: str, input_id: str, exists: bool) -> dict:
@@ -75,14 +75,14 @@ def reserve_source(uow, *, driver_id: str, input_id: str, exists: bool) -> dict:
       (``source_unbound``): an edit or removal of a source nobody owns, and an add over an existing source nobody owns.
       An edit or removal is never reinterpreted as an add.
 
-    Returns ``{kind, key, business_id, binding: "reserved" | "verified"}``."""
+    Returns ``{kind, key, project_id, binding: "reserved" | "verified"}``."""
     require_system(uow, driver_id)
     row = _input(uow, input_id)
     source = identity(uow, row)
     bound = binding(uow, source["kind"], source["key"])
-    result = {"kind": source["kind"], "key": source["key"], "business_id": source["business_id"]}
+    result = {"kind": source["kind"], "key": source["key"], "project_id": source["project_id"]}
     if bound is not None:
-        if bound["business_id"] != source["business_id"]:
+        if bound["project_id"] != source["project_id"]:
             raise DomainError(SCOPE_CONFLICT, "This Context source belongs to another scope and cannot be changed from this one")
         return {**result, "binding": "verified"}
     if source["operation"] != "add":
@@ -90,6 +90,6 @@ def reserve_source(uow, *, driver_id: str, input_id: str, exists: bool) -> dict:
     if exists:
         raise DomainError(UNBOUND, "A Context source already exists here with no recorded owner, so it cannot be added over")
     uow.connection.execute(
-        "INSERT INTO context_source_bindings(source_kind,source_key,business_id,bound_by_input,bound_at) VALUES (?,?,?,?,?)",
-        (source["kind"], source["key"], source["business_id"], input_id, utc_now()))
+        "INSERT INTO context_source_bindings(source_kind,source_key,project_id,bound_by_input,bound_at) VALUES (?,?,?,?,?)",
+        (source["kind"], source["key"], source["project_id"], input_id, utc_now()))
     return {**result, "binding": "reserved"}

@@ -35,7 +35,7 @@ OPERATIONS = (("tasks_list", {}), ("agents_activity_list", {}), ("focus_get", {"
 
 def components(source):
     return {"app": source / "qorqut-code/app", "operations_engine": source / "qorqut-code/qorqut-operations",
-            "context_engine": source / "qorqut-code/qorqut-context", "dashboard": source / "qorqut-code/biz-dashboard",
+            "context_engine": source / "qorqut-code/qorqut-context", "dashboard": source / "qorqut-code/dashboard",
             "roles": source / "qorqut-agentic/src/qorqut_agentic/resources/defaults"}
 
 

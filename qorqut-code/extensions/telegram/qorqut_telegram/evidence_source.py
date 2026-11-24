@@ -58,7 +58,7 @@ def association(runtime, uow, ctx, session, source, position, length):
 
 
 def references(source, association):
-    namespace = {'kind': 'global', 'business_id': None}
+    namespace = {'kind': 'global', 'project_id': None}
     common = {'agent_id': source['agent_id'], 'provider': source['provider'], 'conversation_id': source['conversation_id'],
               'position': association['position'], 'length': association['length'], 'input_id': association['native_input_id'],
               'observed_receipt_id': association['observed_receipt_id'], 'correlation_id': association['correlation_id']}
@@ -73,7 +73,7 @@ def references(source, association):
 
 kinds = ("telegram_owner_input", "telegram_message")
 
-def authorize(self, ctx, kind, identity, loc, business, uow):
+def authorize(self, ctx, kind, identity, loc, project, uow):
     from qorqut.overseer.access import _forbidden
     if kind == 'telegram_owner_input':
         if identity != loc.get('owner_input_id'): _forbidden()
@@ -89,8 +89,8 @@ def authorize(self, ctx, kind, identity, loc, business, uow):
         _forbidden()
     if kind == 'telegram_owner_input' and loc.get('agent_id') != rows[0]['agent_id']: _forbidden()
     self._agent(ctx, rows[0]['agent_id'], uow)
-    profile = uow.connection.execute('SELECT home_business_id FROM agent_profiles WHERE agent_id=?', (rows[0]['agent_id'],)).fetchone()
-    if profile is None or profile[0] != business: _forbidden()
+    profile = uow.connection.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (rows[0]['agent_id'],)).fetchone()
+    if profile is None or project is not None: _forbidden()
 
 def evidence(self, uow, *, agent, provider, conversation, row, entry, owner_id, archive, receipt, namespace, gaps):
     original_sources = []
@@ -166,15 +166,15 @@ def evidence(self, uow, *, agent, provider, conversation, row, entry, owner_id, 
         "receipt_ref": {"archive_id": observed.archive_id, "receipt_id": observed.receipt_id,
                         "offset": entry.offset, "length": entry.length}}
     if telegram[0] == "signoff_reply":
-        signoff = uow.connection.execute("SELECT proposer_agent_id,proposer_principal_id,review_business_id FROM signoffs WHERE id=?",
+        signoff = uow.connection.execute("SELECT proposer_agent_id,proposer_principal_id,review_project_id FROM signoffs WHERE id=?",
             (telegram[2],)).fetchone()
         if signoff is None:
             gaps.append({"code": "unresolved_provenance", "reason": "signoff_source_missing", "offset": entry.offset})
             return None
         if signoff[0] in self.journal.overseer_ids or signoff[1] in self.journal.overseer_ids:
             return None
-        source_namespace = ({"kind": "business", "business_id": signoff[2]} if signoff[2]
-                            else {"kind": "global", "business_id": None})
+        source_namespace = ({"kind": "project", "project_id": signoff[2]} if signoff[2]
+                            else {"kind": "global", "project_id": None})
         source_pre = self._locator(source_namespace, "signoff_note", telegram[1], signoff_id=telegram[2], note_id=telegram[1])
         try:
             self.access.authorize_source(source_pre)

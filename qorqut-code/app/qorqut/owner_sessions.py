@@ -1,10 +1,10 @@
 """Owner-session profile, credentials, and the explicit MCP operation catalog.
 
 Owner-directed code sessions are interactive CLI conversations acting with the
-installation owner's own identity inside one configured business
+installation owner's own identity inside one configured project
 (docs/plans/OWNER-DIRECTED-CODE-SESSIONS.md). This module owns the durable
-pieces: the optional ``owner_sessions`` business-configuration section, the
-per-machine owner credentials bound to that business through trusted
+pieces: the optional ``owner_sessions`` project-configuration section, the
+per-machine owner credentials bound to that project through trusted
 ``credentials.metadata_json``, and the fixed initial operation catalog.
 Newly registered operations never enter the catalog automatically.
 """
@@ -31,8 +31,8 @@ READ_OPERATIONS = frozenset({
     "tables_history", "crm_entries_list", "tables_thread_get", "crm_activity_list", "data_uploads_list", "data_uploads_get",
     "content_list", "content_get", "notes_list", "notes_get",
     "assets_list", "assets_get", "actions_list", "actions_get", "actions_config_get", "tags_list",
-    "business_progress_get",
-    "environment_list", "environment_get", "business_config_get",
+    "project_progress_get",
+    "environment_list", "environment_get", "project_config_get",
     "tasks_list", "tasks_get", "tasks_notes_list", "tasks_thread_get",
     "tasks_config_get", "assignees_list",
     "signoffs_list", "signoffs_get", "signoffs_notes_list",
@@ -54,7 +54,7 @@ WRITE_OPERATIONS = frozenset({
     "crm_entries_add", "crm_entries_update", "crm_entries_remove",
     "data_uploads_upload", "assets_upload", "assets_update", "assets_delete",
     "notes_create", "notes_update", "notes_delete", "notes_upload",
-    "actions_record", "business_config_update", "business_config_patch", "environment_set",
+    "actions_record", "project_config_update", "project_config_patch", "environment_set",
     "agents_message_send",
 })
 
@@ -73,7 +73,7 @@ def validate_section(section):
 
 
 def prepare_owner_sessions(config, previous, *, principal_kind):
-    """Business-configuration validator: the section is owner-managed."""
+    """Project-configuration validator: the section is owner-managed."""
     if CONFIG_KEY not in config:
         if CONFIG_KEY in previous:
             config[CONFIG_KEY] = deepcopy(previous[CONFIG_KEY])
@@ -84,7 +84,7 @@ def prepare_owner_sessions(config, previous, *, principal_kind):
 
 
 PROTECTED_CONFIGURATION_KEYS = frozenset({
-    CONFIG_KEY, "delegation", "identity", "id", "slug", "workspace", "hq_path",
+    CONFIG_KEY, "delegation", "identity", "id", "slug", "workspace",
     "owner_principal_id", "registered_paths", "permissions", "grants", "role",
     "plugins", "tool_policy", "agent_policy", "registered_agents",
 })
@@ -119,7 +119,7 @@ def enabled(config_json):
 
 
 def credential_binding(metadata_json):
-    """Return the trusted business binding, or None for non-owner-session rows."""
+    """Return the trusted project binding, or None for non-owner-session rows."""
     metadata = metadata_json if isinstance(metadata_json, dict) else None
     if metadata is None:
         try:
@@ -128,13 +128,13 @@ def credential_binding(metadata_json):
             return None
     if (not isinstance(metadata, dict) or metadata.get("purpose") != PURPOSE
             or metadata.get("version") != METADATA_VERSION
-            or not isinstance(metadata.get("business_id"), str)):
+            or not isinstance(metadata.get("project_id"), str)):
         return None
     return metadata
 
 
-def issue_credential(database, *, business_id, label, endpoint=None, roots=None):
-    """Issue one revocable per-machine owner-session credential for a business.
+def issue_credential(database, *, project_id, label, endpoint=None, roots=None):
+    """Issue one revocable per-machine owner-session credential for a project.
 
     Re-issuing for the same machine label revokes that label's previous
     credential; other machines' credentials stay valid. ``endpoint`` and
@@ -154,23 +154,20 @@ def issue_credential(database, *, business_id, label, endpoint=None, roots=None)
         owner = uow.repository("principals").get(owner_id) if owner_id else None
         if owner is None or owner["kind"] != "human" or not owner["active"]:
             raise DomainError("unauthenticated", "An active installation owner must be registered")
-        business = uow.repository("businesses").get(business_id, required=True)
-        if business["archived_at"]:
-            raise DomainError("business_archived", "Owner sessions cannot be issued for an archived project")
-        if not enabled(business["config_json"]):
+        project = uow.repository("projects").get(project_id, required=True)
+        if project["archived_at"]:
+            raise DomainError("project_archived", "Owner sessions cannot be issued for an archived project")
+        if not enabled(project["config_json"]):
             raise DomainError("forbidden", "Owner sessions are not enabled for this project")
-        member = uow.repository("business_memberships", business_id=business_id).get(owner_id)
-        if not member or not member["active"] or not member["is_owner"]:
-            raise DomainError("forbidden", "The installation owner must own this project")
         for row in uow.connection.execute(
                 "SELECT id, metadata_json, revision FROM credentials WHERE principal_id=? AND revoked_at IS NULL",
                 (owner_id,)).fetchall():
             binding = credential_binding(row["metadata_json"])
-            if binding and binding["business_id"] == business_id and binding.get("label") == label:
+            if binding and binding["project_id"] == project_id and binding.get("label") == label:
                 uow.repository("credentials").update(row["id"], {"revoked_at": utc_now()},
                                                      expected_revision=row["revision"])
         metadata = {"purpose": PURPOSE, "version": METADATA_VERSION,
-                    "business_id": business_id, "label": label}
+                    "project_id": project_id, "label": label}
         if endpoint is not None:
             metadata["endpoint"] = str(endpoint)
         if roots:

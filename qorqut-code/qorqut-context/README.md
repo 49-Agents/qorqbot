@@ -15,7 +15,7 @@ external-question workflow still requires its corresponding host adapters.
 
 The local core of Qorqut's shared context backend. One Git repository contains
 original foundation files, current graph objects, immutable events and shared
-vocabulary catalogs across businesses and global activity. This source-code
+vocabulary catalogs across projects and global activity. This source-code
 repository holds the engine; working data belongs outside it.
 
 Fresh initialization creates one blank canonical person node for the installation
@@ -113,7 +113,7 @@ including when encountered by an action turn. These are model/caller semantic
 responsibilities; structural validation is not a semantic verifier.
 
 `begin` also accepts optional trusted-caller `record_context={"scope": ..., "provenance":
-{...}}` (global or one business, plus JSON attribution) and `expected_revision=<full
+{...}}` (global or one project, plus JSON attribution) and `expected_revision=<full
 published commit>`. The context is recorded in the event beside, never inside, the
 unchanged source bytes; the expectation must be the published head when a new event
 is staged. See [CORE_CONTRACTS.md](CORE_CONTRACTS.md), "Controlled record context and
@@ -286,7 +286,7 @@ The loaded thread's registered feature state must report `shell_tool=false`.
 its observed value is recorded separately and is not a shell-capability gate.
 Global owner AGENTS preferences from the actual Codex configuration home remain
 trusted execution configuration; their paths/digests are recorded, and they
-cannot become business evidence or expand tool access. Project instructions
+cannot become project evidence or expand tool access. Project instructions
 are disabled. Standard-tier requests may be reported as null by Codex 0.160.0;
 the receipt metadata records requested and observed tiers separately.
 
@@ -325,7 +325,7 @@ retain their existing short-lived locks.
 The local action adapter is a controlled-caller boundary, not an authentication
 or authorization service. A future owning adapter authorizes the recorder and
 supplies canonical accepted text and immutable operational-revision `tags`: a
-list of `{id, name, business_id}` snapshots, where `business_id` may be null.
+list of `{id, name, project_id}` snapshots, where `project_id` may be null.
 Tags default to `[]`. No graph entity is required, and tags never create nodes.
 
 ```python
@@ -334,7 +334,7 @@ from qorqut_context import Pipeline
 receipt = Pipeline(context).submit_action(
     "add", "upstream:hiring:17", text="Northstar Studio hired Jesse on 2026-10-07.",
     revision_ref="accepted-revision-a",
-    tags=[{"id": "tag-northstar", "name": "Northstar", "business_id": "business-northstar"}],
+    tags=[{"id": "tag-northstar", "name": "Northstar", "project_id": "project-northstar"}],
     related_objects=[{"kind": "node", "id": person_id}], submitted_by="accepted-recorder",
 )
 snapshot = context.snapshot(receipt["published_commit"])
@@ -381,12 +381,12 @@ published Actions independently of object histories, in publication order.
 Current reads return the latest revision of each non-withdrawn Action; audit
 reads return all revisions including withdrawals. Filters combine and use each
 selected revision's immutable tag snapshot: `tag_id` matches the ID, while
-`global_only` requires no linked business tag (ordinary tags are allowed).
+`global_only` requires no linked project tag (ordinary tags are allowed).
 The collection page includes source IDs, full commits and recording times.
 The `actions_history` event tool reads the pinned published base, excluding drafts.
 
 ```sh
-python -m qorqut_context --repo /tmp/acme-context submit-action add hiring-17 --input-file /tmp/accepted-action.txt --tags '[{"id":"tag-northstar","name":"Northstar","business_id":"business-northstar"}]' --submitted-by accepted-recorder
+python -m qorqut_context --repo /tmp/acme-context submit-action add hiring-17 --input-file /tmp/accepted-action.txt --tags '[{"id":"tag-northstar","name":"Northstar","project_id":"project-northstar"}]' --submitted-by accepted-recorder
 python -m qorqut_context --repo /tmp/acme-context action hiring-17 --audit
 python -m qorqut_context --repo /tmp/acme-context actions-history --tag-id tag-northstar --audit
 python -m qorqut_context --repo /tmp/acme-context actions-history --global-only
@@ -420,7 +420,7 @@ delivering it. Every publication requires an explicit note disposition.
 ## Verification
 
 Focused tests use temporary repositories, injected model outputs and a synthetic
-app-server process. They do not call a model or touch live business data. Run
+app-server process. They do not call a model or touch live project data. Run
 the relevant named modules/cases, such as
 `python -m unittest tests.test_shared_actions`, rather than broad suites. Bounded real-model acceptance is separate; its private sources,
 graph, receipts and observations stay outside this repository. Passing structural

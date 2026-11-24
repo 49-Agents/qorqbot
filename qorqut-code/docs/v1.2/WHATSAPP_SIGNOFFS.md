@@ -11,7 +11,7 @@ operation, `whatsapp_send`, with exactly two arguments:
 
 | Argument | Rule |
 | --- | --- |
-| `chat_id` | The exact ID of a conversation already in the connector's index (`whatsapp_read`). No names, new numbers, broadcasts, newsletters or groups the index has not seen. |
+| `chat_id` | The exact ID of a chat in the connector's chat list (`whatsapp_read`, action `chats`), which holds chats WhatsApp itself listed or that have a saved message. No names, new numbers, broadcasts or newsletters. |
 | `text` | Non-empty, at most 16,384 **UTF-8 bytes**, plain text. |
 
 There is no caller-supplied request ID, attachment, quote, edit, delete, retry or recipient list. The operation never sends:
@@ -27,7 +27,7 @@ presentation.
 Nothing else can send:
 
 * The owner calling `whatsapp_send` directly is refused (`_access`): the operation exists only to propose.
-* Every other agent, role, delegated identity, business scope or unbound Ordubashy is refused by the operation and, one
+* Every other agent, role, delegated identity, project scope or unbound Ordubashy is refused by the operation and, one
   layer earlier, by policy.
 * The program behind it, `whatsapp.send`, cannot be scheduled: `routines_create` refuses it (new engine flag
   `Program.routine_allowed=False`), and a job row written without a matching applied owner Signoff is refused at dispatch.
@@ -36,7 +36,7 @@ Nothing else can send:
 
 ## Flow
 
-1. **Propose.** `whatsapp_send(chat_id, text)` by the bound agent. Policy always returns *Signoff* (below). The operation
+1. **Propose.** `whatsapp_send(chat_id, text)` by the bound agent, for the exact `chat_id` of a chat in the connector's chat list (`whatsapp_read`, action `chats`). Policy always returns *Signoff* (below). The operation
    rechecks the binding, the agent (active, Global, Ordubashy, not delegated), that the trusted program worker is
    registered, and the connector's account reference, then stages the plan: the preview above, an exact `jobs` change for
    `whatsapp.send`, and the frozen `account_ref`.
@@ -76,11 +76,11 @@ Nothing else can send:
   owner must set the Ordubashy profile override to `signoff` (or `allow`, which means the same) as a separate deliberate act.
   This follows the existing `owner_action_propose` grant model; installing a binding does not grant sending authority.
 * **Discovery:** the effective-configuration view that feeds `permissions_get` and MCP `tools/list` evaluates `whatsapp_send` in
-  both scopes, like the Global table operations (`GLOBAL_DISCOVERY_OPERATIONS`): `scope_modes` shows `business: deny` and
+  both scopes, like the Global table operations (`GLOBAL_DISCOVERY_OPERATIONS`): `scope_modes` shows `project: deny` and
   `global: signoff`, and the tool is listed as available `signoff` only for an ecosystem profile that holds
-  `read_global_context`, the `ordubashy` role and a grant. A denied, ungranted, other-role, business or capability-less profile
+  `read_global_context`, the `ordubashy` role and a grant. A denied, ungranted, other-role, project or capability-less profile
   sees it unavailable. Discovery grants nothing: the operation still requires the exact bound agent. Other tools keep their
-  single business-scope evaluation.
+  single project-scope evaluation.
 * **Capability floor:** the descriptor requires the existing `read_global_context` global capability (the floor every
   registered Global agent already holds, and what Global Signoff visibility needs); the real gates are the exact UUID, the
   active Global Ordubashy check and the forced Signoff. No new capability was added.
@@ -149,7 +149,7 @@ database mutation). Production adoption is a separately authorized release.
 2. **Register the trusted program worker (explicit maintenance step).** The `whatsapp.send` program runs as a system
    principal whose identity is derived, never configured: `uuid5(installation_id, "program:whatsapp.send")`. It is created
    by the installation's existing maintenance path, `BackgroundAuthority.register_workers`, like every other new program
-   (compare the notes in `docs/TABLES.md` and `docs/BUSINESS-BACKUPS.md`). Run it once with the installed release's Python
+   (compare the notes in `docs/TABLES.md` and `docs/PROJECT-BACKUPS.md`). Run it once with the installed release's Python
    against the instance database, in the maintenance state the release recipe prescribes:
 
    ```python
@@ -159,11 +159,10 @@ database mutation). Production adoption is a separately authorized release.
    programs = register_programs(ProgramRegistry())
    authority = BackgroundAuthority(database, programs)     # `database`: the instance's operational database
    with database.transaction() as uow:
-       authority.register_workers(uow, [])                 # whatsapp.send is Global-only: no membership is created
+       authority.register_workers(uow, [])                 # whatsapp.send is Global-only
    ```
 
-   It only inserts missing system principals; it never reactivates a revoked one, creates no business membership for this
-   program, no Routine and no job, and is safe to repeat. *Verify:* `SELECT kind, active FROM principals WHERE id = '<uuid5
+   It only inserts missing system principals; it never reactivates a revoked one, creates no Routine and no job, and is safe to repeat. *Verify:* `SELECT kind, active FROM principals WHERE id = '<uuid5
    above>'` returns `system, 1`. *Failure-closed:* until it is done, `whatsapp_send` refuses with the fixed setup error
    `Personal WhatsApp sending is not set up: the trusted program worker is not registered. The installer must run the
    documented worker registration step.` before any connector call, Signoff or job; a worker that is later deactivated stops

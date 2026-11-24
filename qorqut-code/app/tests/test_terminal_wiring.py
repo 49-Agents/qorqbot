@@ -20,7 +20,7 @@ from qorqut.storage.host_writers import CommandResult, HostTerminalWriters, Mana
 from qorqut.transport.agent_terminal_control import AgentTerminalBackend
 from qorqut.transport.terminals import TerminalService
 
-DASHBOARD = Path(__file__).resolve().parents[2] / "biz-dashboard"
+DASHBOARD = Path(__file__).resolve().parents[2] / "dashboard"
 AGENT = "11111111-1111-4111-8111-111111111111"
 
 
@@ -51,7 +51,7 @@ class Fixture(unittest.TestCase):
 
 class CompositionTest(Fixture):
     def compose(self, broker=None):
-        local = SimpleNamespace(environment=lambda business=None: {}, agent_environment=lambda business, profile: {})
+        local = SimpleNamespace(environment=lambda project=None: {}, agent_environment=lambda project, profile: {})
         runtime = SimpleNamespace(paths=self.paths, workspace=self.base, terminal_control=SimpleNamespace(backend=None))
         terminals = service_main.compose_terminals(runtime, paths=self.paths, endpoint="http://127.0.0.1:1/mcp", local=local,
             shell="/bin/bash", broker=broker, capture_transcripts=True, terminal_workspace=None, execution_provider=None)

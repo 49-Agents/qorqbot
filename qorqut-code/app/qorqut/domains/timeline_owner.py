@@ -20,9 +20,10 @@ VIEW_DESCRIPTION = (
     "history true, every entry oldest first with removed ones marked, the owner's quoted words, and the item's subtasks, "
     "approvals and reports as links. Changes nothing.")
 VIEW_SCHEMA = GET_SCHEMA
-# A pending question Signoff: an input request that asks or requests something, not a draft to review or a report to read.
+# A pending question Signoff: an input request that asks or requests something, or asks the owner to act in a browser tab;
+# not a draft to review or a report to read.
 ASKS = ("s.category='input_request' AND s.state='pending' AND s.superseded_by_id IS NULL "
-        "AND json_extract(s.preview_json,'$.input.kind') IN ('question','request')")
+        "AND json_extract(s.preview_json,'$.input.kind') IN ('question','request','browser_action')")
 QUESTION_ROW = ("SELECT s.id, json_extract(s.preview_json,'$.title') AS text, s.created_at, COALESCE(a.blocking,0) AS blocking "
                 "FROM signoffs s LEFT JOIN signoff_attention a ON a.signoff_id=s.id")
 
@@ -44,8 +45,8 @@ class TimelineOwner:
         """The pending question Signoffs asked about ``item``, blocking ones first, in the shape of a timeline question."""
         rows = uow.connection.execute(
             f"{QUESTION_ROW} WHERE {ASKS} AND EXISTS (SELECT 1 FROM signoff_source_links l WHERE l.signoff_id=s.id "
-            "AND l.source_type=? AND l.source_id=? AND l.source_business_id IS ?) ORDER BY blocking DESC, s.created_at, s.id LIMIT ?",
-            (item["type"], item["id"], item["business_id"], LINKS_LIMIT)).fetchall()
+            "AND l.source_type=? AND l.source_id=? AND l.source_project_id IS ?) ORDER BY blocking DESC, s.created_at, s.id LIMIT ?",
+            (item["type"], item["id"], item["project_id"], LINKS_LIMIT)).fetchall()
         return [{"id": row["id"], "signoff_id": row["id"], "text": row["text"] or "", "blocking": bool(row["blocking"]),
                  "raised_by": "coordinator", "created_at": row["created_at"]} for row in rows]
 

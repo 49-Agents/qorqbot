@@ -127,7 +127,7 @@ class RecordArchive:
             row = store.get(ctx, args["item"]["id"], uow, write=True)
             if row["kind"] in {"plan", "shared_instruction", "shared_instructions", "context_index"}:
                 raise DomainError("workflow_required", "Manage instructions and plans with their dedicated tools")
-            operation = "notes_update" if row["kind"] in {"agent_note", "business_note", "journal", "business_owned_note"} else "context_document_update"
+            operation = "notes_update" if row["kind"] in {"agent_note", "project_note", "journal", "project_owned_note"} else "context_document_update"
             if row["kind"] == "asset": operation = "assets_update"
             store.archive(builder, uow, row, expected_revision=options.expected_revision, archived=args["archived"], operation_name=operation)
         elif table in self.direct_record_tables:

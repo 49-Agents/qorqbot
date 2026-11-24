@@ -46,8 +46,8 @@ class App:
 
     def current_context(self, ctx, uow):
         self.refreshed.append(ctx)
-        current = replace(ctx, allowed_business_ids=self.current_allowed)
-        return current.select_business(current.business_id)
+        current = replace(ctx, allowed_project_ids=self.current_allowed)
+        return current.select_project(current.project_id)
 
     def authorize(self, ctx, descriptor, targets, uow, namespace):
         pass
@@ -61,9 +61,9 @@ class Resolver:
         self.allowed = frozenset(allowed)
         self.calls = []
 
-    def invocation_context(self, principal, *, business_id=None):
-        self.calls.append((principal, business_id))
-        return InvocationContext(principal, business_id=business_id, allowed_business_ids=self.allowed,
+    def invocation_context(self, principal, *, project_id=None):
+        self.calls.append((principal, project_id))
+        return InvocationContext(principal, project_id=project_id, allowed_project_ids=self.allowed,
                                  profile_revision=3, policy_revision=3, source='mcp')
 
 
@@ -71,9 +71,9 @@ def agent_context(app, resolver):
     return SimpleNamespace(app=app, resolver=resolver, authorize=lambda ctx, operation, uow: None)
 
 
-def agent_ctx(*, business_id=None, allowed=(A, B), principal_id=AGENT):
-    return InvocationContext(Principal(principal_id, 'agent'), business_id=business_id,
-        allowed_business_ids=frozenset(allowed), profile_revision=3, policy_revision=3, source='mcp',
+def agent_ctx(*, project_id=None, allowed=(A, B), principal_id=AGENT):
+    return InvocationContext(Principal(principal_id, 'agent'), project_id=project_id,
+        allowed_project_ids=frozenset(allowed), profile_revision=3, policy_revision=3, source='mcp',
         session_registration_id='44444444-4444-4444-8444-444444444444', inbox_session_id='55555555-5555-4555-8555-555555555555',
         inbox_generation=2, delegation_binding_id='66666666-6666-4666-8666-666666666666',
         delegation_assignment_id='77777777-7777-4777-8777-777777777777', delegation_generation=4)
@@ -96,19 +96,19 @@ class StartupInventoryContextTests(unittest.TestCase):
     def test_revoked_selected_project_is_not_restored(self):
         app, resolver = App({A}), Resolver({A, B})
         with self.assertRaises(DomainError) as raised:
-            StartupInventory(agent_context(app, resolver), agent_ctx(business_id=B), AGENT, object())
+            StartupInventory(agent_context(app, resolver), agent_ctx(project_id=B), AGENT, object())
         self.assertEqual(raised.exception.code, 'forbidden')
         self.assertEqual(resolver.calls, [])
 
     def test_selected_project_scope_is_unchanged(self):
         app = App({A, B})
-        inventory = StartupInventory(agent_context(app, Resolver(())), agent_ctx(business_id=A), AGENT, object())
+        inventory = StartupInventory(agent_context(app, Resolver(())), agent_ctx(project_id=A), AGENT, object())
         self.assertEqual(inventory.scopes, [A])
-        self.assertEqual(inventory.ctx.business_id, A)
+        self.assertEqual(inventory.ctx.project_id, A)
 
     def test_owner_inspection_still_resolves_the_target_agent(self):
         app, resolver = App({A, B}), Resolver({A, B})
-        owner = InvocationContext(Principal(OWNER, 'human'), business_id=A, allowed_business_ids=frozenset({A, B}),
+        owner = InvocationContext(Principal(OWNER, 'human'), project_id=A, allowed_project_ids=frozenset({A, B}),
                                   source='mcp')
         inventory = StartupInventory(agent_context(app, resolver), owner, AGENT, object())
         self.assertEqual(resolver.calls, [(Principal(AGENT, 'agent'), A)])
@@ -132,9 +132,9 @@ class StartupInventoryContextTests(unittest.TestCase):
         page = inventory.page(limit=5)
         # One refresh for construction, then one per queue and scope.
         self.assertEqual(len(app.refreshed), 1 + 2 * 3)
-        self.assertEqual([item.business_id for item in app.refreshed[1:]], [None, A, C, None, A, C])
+        self.assertEqual([item.project_id for item in app.refreshed[1:]], [None, A, C, None, A, C])
         self.assertTrue(all(item.principal_id == AGENT and item.delegation_generation == 4 for _, item in app.reads))
-        self.assertNotIn(B, [item.business_id for _, item in app.reads])
+        self.assertNotIn(B, [item.project_id for _, item in app.reads])
         self.assertEqual(set(page), {'agent_id', 'tasks', 'signoffs', 'inbox', 'unavailable', 'read_only',
                                      'complete', 'next_cursor', 'guidance'})
         self.assertEqual((page['agent_id'], page['complete'], page['next_cursor'], page['unavailable']),

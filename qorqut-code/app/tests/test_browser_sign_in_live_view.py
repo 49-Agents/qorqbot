@@ -103,6 +103,36 @@ class LiveViewSignInTest(unittest.TestCase):
         self.assertEqual(shared_port.call_args_list, [mock.call(self.runtime)] * 3)
         self.assertEqual(self.opened, [(PORTS[SHARED_ID], "https://slack.com")] * 3)
 
+    def test_a_tab_that_can_be_named_comes_back_as_a_reference_for_a_browser_action_signoff(self):
+        caller = "4f6c1a2e-8d35-4b97-a1c0-2e9d7f3b5a64"
+        agents = [{"agent_id": caller, "name": "Ordubashy", "role": "ordubashy"}]
+        page = [{"id": TAB, "title": "Slack sign in", "url": "https://slack.com/signin"}]
+        with mock.patch.object(setup, "targets", return_value=("owner", agents)), \
+                mock.patch.object(live, "tabs", return_value=page) as listed:
+            reply = sign_in.open_in_live_view(self.runtime, caller, "slack.com", "https://slack.com")
+        listed.assert_called_once_with(PORTS[SHARED_ID])
+        self.assertEqual(self.opened, [(PORTS[SHARED_ID], "https://slack.com")])
+        self.assertEqual({key: reply[key] for key in ("opened", "where", "agent", "reference", "title", "url")},
+                         {"opened": "slack.com", "where": "live_view", "agent": "Ordubashy",
+                          "reference": {"type": "tab", "id": f"{caller}:{TAB}"}, "title": "Slack sign in",
+                          "url": "https://slack.com/signin"})
+        flat = " ".join(reply["next"].split())
+        for words in ("signoffs_input_create", "browser_action", "selection_mode none", "tab set to this reference's id",
+                      "source naming the Task that waits", "answers Done", "check that the account is signed in", "password or code"):
+            self.assertIn(words, flat)
+        self.assertNotIn("Browser tab in the dashboard", flat)
+
+    def test_a_tab_that_cannot_be_named_keeps_the_reply_as_it_was(self):
+        caller = "4f6c1a2e-8d35-4b97-a1c0-2e9d7f3b5a64"
+        # The caller is not one of the browser's agents, so the tab is not one of its tabs; and a tab id Chrome never gives.
+        for agents, tab in (([], TAB), ([{"agent_id": caller, "name": "Ordubashy", "role": "ordubashy"}], "not-a-tab")):
+            with self.subTest(tab=tab), mock.patch.object(setup, "targets", return_value=("owner", agents)), \
+                    mock.patch.object(sign_in, "_open_tab", return_value=tab), \
+                    mock.patch.object(live, "tabs", side_effect=AssertionError("the tab was looked up")):
+                reply = sign_in.open_in_live_view(self.runtime, caller, "slack.com", "https://slack.com")
+            self.assertEqual(set(reply), {"opened", "where", "agent", "next"})
+            self.assertIn("Browser tab in the dashboard", reply["next"])
+
     def test_the_browser_is_neither_stopped_nor_paused(self):
         self.open()
         self.assertEqual(self.managed, [])                 # not stopped, restarted or ensured

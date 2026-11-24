@@ -1,10 +1,10 @@
 # Owner-directed code sessions
 
 Interactive Claude Code / Codex CLI conversations that the installation owner
-starts inside a business's code tree. They act with the owner's own human
-identity through a dedicated MCP route, read business context on demand, and
+starts inside a project's code tree. They act with the owner's own human
+identity through a dedicated MCP route, read project context on demand, and
 save owner-requested work through existing operations. They are not autonomous
-business workers: no agent profile, roster entry, inbox, watcher, autonomous
+project workers: no agent profile, roster entry, inbox, watcher, autonomous
 task discovery or work loop exists for them, and existing managed agents are
 unchanged. Starting or ending a session writes nothing and claims, announces or
 hands off nothing; several sessions can work in one project beside its other agents
@@ -20,25 +20,24 @@ that the running installation supports this route.
   `qorqut/transport/owner_mcp.py`).
 - An owner-session credential is an ordinary revocable `credentials` row on
   the installation owner's human principal. Trusted `metadata_json` carries
-  `purpose: owner_session`, a version, the bound business UUID, the machine
+  `purpose: owner_session`, a version, the bound project UUID, the machine
   label, and the prepared endpoint/roots as diagnostics. Clients cannot supply
-  an author, principal, role or business; a registered agent credential is
+  an author, principal, role or project; a registered agent credential is
   rejected on this route and an owner-session credential is rejected on
   `/mcp`. Credentials are identified by principal and purpose: retiring a
   registered agent revokes only that agent's rows, and owner-session
-  revocation only touches rows with this purpose and business.
+  revocation only touches rows with this purpose and project.
 - Every request — including calls inside an established MCP session — rechecks
-  credential validity and expiry, the business's `owner_sessions.enabled`
-  configuration, that the business exists and is not archived, and the owner's
-  active owning membership. Revocation, disablement, archival and membership
-  removal therefore fail cleanly mid-session.
+  credential validity and expiry, the project's `owner_sessions.enabled`
+  configuration, that the project exists and is not archived. Revocation, disablement and
+  archival therefore fail cleanly mid-session.
 - All domain effects receive the owner's human identity. Ordubashy and the
   dashboard see an ordinary owner author; request/session correlation stays
   transport-internal diagnostics.
 
 ## Enablement and configuration
 
-The optional business-configuration section is owner-managed and validated:
+The optional project-configuration section is owner-managed and validated:
 
 ```json
 {"owner_sessions": {"enabled": true}}
@@ -46,9 +45,9 @@ The optional business-configuration section is owner-managed and validated:
 
 (`revision` is an optional positive integer for future re-preparation
 bookkeeping.) Agents and workers cannot introduce or change the section.
-Enable it per business through ordinary business settings
-(`business_config_patch`) before issuing credentials. Deployments ship with no
-section, i.e. disabled, until the owner explicitly enrolls a business.
+Enable it per project through ordinary project settings
+(`project_config_patch`) before issuing credentials. Deployments ship with no
+section, i.e. disabled, until the owner explicitly enrolls a project.
 
 ## Operation catalog
 
@@ -58,10 +57,10 @@ binds direct calls, aliases and batch entries as well as `tools/list`.
 
 - Orientation: `owner_session_bootstrap`, which includes only compact
   coordinator metadata and operation pointers, never task/message/secret data.
-- Business reads and writes cover the explicit catalog in
+- Project reads and writes cover the explicit catalog in
   `qorqut/owner_sessions.py`: context/documents/relationships, stories,
-  tables/uploads/assets, metrics/ledger/activity, business settings,
-  business-only Settings metadata/value access, tasks, and direct messaging.
+  tables/uploads/assets, metrics/ledger/activity, project settings,
+  project-only Settings metadata/value access, tasks, and direct messaging.
   Tasks include `tasks_create`, `tasks_assign`, `assignees_list`,
   `tasks_config_get`, and `tasks_config_update`; messaging includes
   `agents_message_recipients`, `agents_message_send`, and
@@ -72,11 +71,11 @@ binds direct calls, aliases and batch entries as well as `tools/list`.
   registered-role MCP access introduced by the context-correction release.
 - `operations_batch` with the same per-entry checks.
 
-Business operations are bound to the configured business: explicit conflicting
-`business_id` / `review_business_id` selectors are rejected, and foreign
+Project operations are bound to the configured project: explicit conflicting
+`project_id` / `review_project_id` selectors are rejected, and foreign
 source objects fail the existing domain ownership checks. Domain arguments
 such as `scope: "global"` cannot switch tasks, Signoffs or conversations into
-Global. Nested references and prepared targets retain the single-business
+Global. Nested references and prepared targets retain the single-project
 binding; the existing shared-context reads remain available. Excluded entirely: agent administration,
 permission/grant administration, subscription/watchers, agent presence and
 work tracking, role workflow, managed bootstrap/checkpoint calls, background
@@ -92,7 +91,7 @@ the context library and stay discoverable through `context_list` /
 ## Bootstrap
 
 `owner_session_bootstrap` is one bounded, side-effect-free read returning:
-the bound business identity (`business`), the engineering authority,
+the bound project identity (`project`), the engineering authority,
 registered repositories and code root (`engineering`, no credential values),
 `briefs`, a metadata-only index of further context documents (`context_index`), a compact
 `coordination` object with the configured active Ordubashy
@@ -100,15 +99,15 @@ registered repositories and code root (`engineering`, no credential values),
 or `inactive_or_out_of_scope` when unavailable) and the message/task operation
 names (`operations`), short `guidance` naming the owner by registered display
 name (project direction belongs to the owner with Ordubashy; the project's notes
-via `notes_list`/`notes_get`; projects have no resident agents), and
+via `notes_list`/`notes_get`), and
 explicit `missing` diagnostics for any source that could not be read. It
 contains no task, Story, Signoff, inbox, message history or lifecycle data,
 starts nothing, and never claims completeness it cannot show. Sessions read
 anything deeper progressively through the catalog reads.
 
-`briefs` prefers the current context home: the same business-scoped
+`briefs` prefers the current context home: the same project-scoped
 `home_text` provider managed agents receive, read fresh on every call. It is
-then the only brief, `{"key": "context_home", "source": "context-base:<business
+then the only brief, `{"key": "context_home", "source": "context-base:<project
 id>", "characters", "truncated", "text"}`, with no document ID, path, revision
 or hash because it is a derived graph projection; stale authored pillar briefs
 are not listed beside it. Without a configured provider, or when it returns no
@@ -124,7 +123,7 @@ Qorqut write authorization is an instruction contract, not a permission mode:
 a sufficiently specific owner instruction ("create these tasks", "close this
 Story") authorizes that operation with no second confirmation. The session asks
 only for missing scope or a materially different action; tool access never
-authorizes unrelated writes, and the catalog, business binding and excluded
+authorizes unrelated writes, and the catalog, project binding and excluded
 operations are enforced by the route. An instruction in one conversation never
 authorizes another conversation's mutation; there is no shared "current task" or
 approved flag. Writes use current revisions and per-mutation idempotency keys —
@@ -133,7 +132,7 @@ rereading. Existing state transitions apply: tasks close with `tasks_complete`
 (or a closed status) and reopen with `tasks_update` to an open status; Stories
 use `stories_close`/`stories_reopen`, which refuse an already closed/open Story.
 Requested changes are ordinary visible records with their usual notifications,
-attributed to the owner. Concurrent sessions share the business profile but no
+attributed to the owner. Concurrent sessions share the project profile but no
 state; existing revision/hash checks arbitrate conflicting writes.
 
 Freeform commentary goes only to the owner/Ordubashy private conversation
@@ -151,16 +150,16 @@ dashboard messages read, never change Focus placement and never create work.
 
 ## One-time setup per machine
 
-1. Enable the business: patch its configuration with
+1. Enable the project: patch its configuration with
    `{"owner_sessions": {"enabled": true}}`.
 2. When the code tree and installation database are on the same machine, use
-   the deployed `biz-core` Python environment to run:
+   the deployed `core` Python environment to run:
 
    ```sh
    python -m qorqut.bootstrap.owner_prepare prepare \
-     --businesses-root <businesses root> \
-     --business <uuid-or-slug> \
-     --root /abs/path/to/business/code \
+     --projects-root <projects root> \
+     --project <uuid-or-slug> \
+     --root /abs/path/to/project/code \
      --nested some/checkout --nested another/repo \
      --endpoint <service URL> \
      --label <machine name>
@@ -171,7 +170,7 @@ dashboard messages read, never change Focus placement and never create work.
    nested Git roots, so each launch root must be prepared explicitly. A
    checkout outside the code tree requires the explicit `--outside-root`
    flag. The endpoint is the existing local/Tailscale service URL; no new
-   exposure is required. Server-side business identity is the business UUID;
+   exposure is required. Server-side project identity is the project UUID;
    a remote machine's paths need not mirror the server's.
 
 Each prepared root receives: `.qorqut-owner/` (0600 `credential`, 0700
@@ -189,29 +188,29 @@ added for ordinary local coding work.
 ## Setup on another Tailscale machine
 
 Credential issuance takes place on Qorqut; file installation takes place on the
-client. The client needs Python 3.12+ and the matching `biz-core` package and
+client. The client needs Python 3.12+ and the matching `core` package and
 dependencies (install the same built wheel in a local virtual environment).
 It does **not** need the installation database, server filesystem layout or a
-copy of business data. The installed MCP headers helper itself is POSIX shell
+copy of project data. The installed MCP headers helper itself is POSIX shell
 and does not depend on Python at runtime.
 
-1. Enable the business as above. On **Qorqut**, create a private directory
+1. Enable the project as above. On **Qorqut**, create a private directory
    outside source repositories and issue a bundle using the deployed Python:
 
    ```sh
    install -d -m 700 "$HOME/.local/share/qorqut/owner-sessions"
    python -m qorqut.bootstrap.owner_prepare issue \
-     --businesses-root /absolute/path/to/businesses-root \
-     --business <uuid-or-slug> \
+     --projects-root /absolute/path/to/projects-root \
+     --project <uuid-or-slug> \
      --endpoint http://qorqut.example:1071 --label laptop \
-     --output "$HOME/.local/share/qorqut/owner-sessions/business-laptop.json"
+     --output "$HOME/.local/share/qorqut/owner-sessions/project-laptop.json"
    ```
 
-   The 0600 bundle contains a secret credential, business/endpoint metadata and
+   The 0600 bundle contains a secret credential, project/endpoint metadata and
    the owner's registered display name for the generated text, with no
    server-local code paths. Older bundles without the name still install. The
    command prints its location, not the token. Reissuing the same
-   business/label revokes that label's previous token. Choose a new output
+   project/label revokes that label's previous token. Choose a new output
    filename or remove a no-longer-needed transfer bundle before reissuing;
    issuance refuses to overwrite an existing file.
 
@@ -220,11 +219,11 @@ and does not depend on Python at runtime.
 
    ```sh
    install -d -m 700 "$HOME/.local/share/qorqut/owner-sessions"
-   scp <qorqut-host>:.local/share/qorqut/owner-sessions/business-laptop.json \
-     "$HOME/.local/share/qorqut/owner-sessions/business-laptop.json"
-   chmod 600 "$HOME/.local/share/qorqut/owner-sessions/business-laptop.json"
+   scp <qorqut-host>:.local/share/qorqut/owner-sessions/project-laptop.json \
+     "$HOME/.local/share/qorqut/owner-sessions/project-laptop.json"
+   chmod 600 "$HOME/.local/share/qorqut/owner-sessions/project-laptop.json"
    python -m qorqut.bootstrap.owner_prepare install \
-     --bundle "$HOME/.local/share/qorqut/owner-sessions/business-laptop.json" \
+     --bundle "$HOME/.local/share/qorqut/owner-sessions/project-laptop.json" \
      --root /absolute/client/path/to/code --nested some/repository
    ```
 
@@ -253,7 +252,7 @@ and does not depend on Python at runtime.
   not bypass those provider controls or overwrite your chosen permission mode.
 - Generated instructions make `owner_session_bootstrap` the session's first
   action before project work. The owner does not need to remember a tool call.
-  A failed bootstrap is diagnosed before claiming to know the business.
+  A failed bootstrap is diagnosed before claiming to know the project.
 - Each MCP request re-authenticates; resumed CLI conversations keep working
   while their credentials remain valid. Clients may cache authorization headers
   and tool schemas: after credential rotation or a server-tool update, use the
@@ -267,16 +266,16 @@ and does not depend on Python at runtime.
 - Rotate one machine: re-run `prepare` with the same `--label` (the previous
   credential is revoked and files rewritten).
 - Disable one machine: `python -m qorqut.bootstrap.owner_prepare revoke
-  --businesses-root <root> --business <uuid-or-slug> --label <machine>`
+  --projects-root <root> --project <uuid-or-slug> --label <machine>`
   (`--label` defaults to the current hostname).
-- Disable the business: set `owner_sessions.enabled` to `false` — every
+- Disable the project: set `owner_sessions.enabled` to `false` — every
   session fails immediately with `forbidden`, without touching credentials.
 - Remove the client integration:
   `python -m qorqut.bootstrap.owner_prepare remove --root <top>
   [--nested ...]` deletes only owned files and entries and restores prior
   content. Removal does not revoke credentials; revoke separately.
 - Rollback of the whole feature is disable + revoke + remove. Owner-attributed
-  business records made through sessions are ordinary durable records and are
+  project records made through sessions are ordinary durable records and are
   not erased.
 
 ## Troubleshooting
@@ -284,7 +283,7 @@ and does not depend on Python at runtime.
 | Symptom | Meaning |
 | --- | --- |
 | HTTP 401 `unauthenticated` on connect | Missing/invalid/revoked/expired credential or a cached old header. Check the installed credential, reissue/install if needed, then reload the client's MCP connection. |
-| HTTP 403 `forbidden` on every call | `owner_sessions.enabled` is false, the business is archived, or the owner membership is inactive. |
+| HTTP 403 `forbidden` on every call | `owner_sessions.enabled` is false, the project is archived, or the credential's principal is not the installation owner. |
 | `forbidden: This operation is not in the owner-session catalog` | The operation exists but is deliberately outside this route; use the dashboard. |
 | `channel_required` | Freeform text aimed at a shared discussion; send it with `owner_conversation_send` instead. |
 | `revision_conflict` | Reread the object; retry with a fresh key if the owner's instruction still applies, otherwise ask. |
@@ -294,7 +293,7 @@ and does not depend on Python at runtime.
 
 - Prompt adherence (acting only on specific owner requests) is an instruction
   contract verified in owner-led acceptance, not a mechanical guarantee; the
-  catalog, business binding and credential checks are the enforced surface. None of
+  catalog, project binding and credential checks are the enforced surface. None of
   this is a filesystem sandbox against same-user shell access through another
   interface.
 - Issuance/revocation require the installation database on Qorqut. Remote
@@ -306,16 +305,16 @@ and does not depend on Python at runtime.
 - `stories_update` state-change reasons (`note`/`summary`) are refused on
   this route even though the dashboard allows them for the owner.
 - Enable/re-prepare/revoke are explicit owner administration; a
-  business-settings UI can follow later.
+  project-settings UI can follow later.
 
 ## Pilot
 
-Pilot one business with both providers before broader enrollment:
+Pilot one project with both providers before broader enrollment:
 
-1. Enable `owner_sessions` on the pilot business; run `prepare` on one
+1. Enable `owner_sessions` on the pilot project; run `prepare` on one
    machine with the code root and one nested repository root.
 2. Launch plain `claude` at the code root: confirm the bootstrap names the
-   right business, brief revisions/hashes match the library, and no task or
+   right project, brief revisions/hashes match the library, and no task or
    inbox data appears.
 3. Repeat from the nested root, and once with two concurrent conversations;
    confirm both work and stay independent.
@@ -350,7 +349,7 @@ python -m pytest tests/test_owner_session_mcp.py \
 ```
 
 The native CLI checks use temporary user homes and no real credentials, model
-calls, live business writes, or existing CLI processes. They read the actual
+calls, live project writes, or existing CLI processes. They read the actual
 Codex app-server's effective configuration and run each provider's MCP discovery
 from the top and nested Git roots. Codex model/approval/sandbox settings and a
 personal MCP entry must survive alongside the prepared owner MCP. These checks

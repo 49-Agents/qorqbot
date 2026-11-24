@@ -293,11 +293,15 @@ def open_in_live_view(runtime, principal_id, site, url):
     tab is made over DevTools on the browser itself, as the live view reaches it, and not with an ``agent-browser`` command:
     that would navigate the tab of some session, which is the page an agent is working in. A tab made here is bound to no
     session (a session is bound to its tab's id, ``idle_tabs``), so every agent's own tab stays as it is. The profile is the
-    browser's own, so no cookies have to be copied."""
-    from . import live, setup
+    browser's own, so no cookies have to be copied.
+
+    When the new tab can be named as one of the caller's tabs (the browser the caller uses is the one it opened in), the reply
+    carries its ``reference`` with the page's ``title`` and ``url``, and Ordubashy asks the owner with a browser-action
+    Signoff that opens that tab, instead of describing where to go."""
+    from . import live, setup, tab_reference
     port = live.shared_port(runtime)      # refuses unless the supervisor says the exact Chrome it started owns this port
     try:
-        _open_tab(port, url)
+        tab = _open_tab(port, url)
     except Exception:
         logger.exception("Could not open %s in the browser", site)
         raise DomainError("browser_not_ready", "Qorqbot couldn't open the sign-in page in the browser. Check it with "
@@ -307,6 +311,23 @@ def open_in_live_view(runtime, principal_id, site, url):
     except OSError:
         logger.warning("Could not record the sign-in to %s", site, exc_info=True)
     name = next((agent["name"] for agent in setup.targets(runtime)[1] if agent["agent_id"] == principal_id), "Ordubashy")
+    named = tab_reference.reference(principal_id, tab) if isinstance(tab, str) else None
+    if named is not None:
+        try:
+            same = live.port(runtime, principal_id) == port
+        except Exception:
+            same = False
+        if same:
+            page = tab_reference.describe(port, tab)
+            return {"opened": site, "where": "live_view", "agent": name, "reference": named,
+                    "title": page.get("title", ""), "url": page.get("url", url),
+                    "next": f"No window can open on this computer, so {site}'s sign-in page is open in a new tab of the Shared "
+                            "browser. Ask the owner to sign in there with a browser-action Signoff: signoffs_input_create with "
+                            "form kind browser_action, selection_mode none, tab set to this reference's id, an explanation of "
+                            "what to do in the page, and source naming the Task that waits. Every agent uses this browser, so "
+                            "all of them get the sign-in. When the owner answers Done, open the site in your browser and check "
+                            "that the account is signed in; if they could not, read their note, and ask for the password or code "
+                            "only if they cannot use the tab."}
     return {"opened": site, "where": "live_view", "agent": name,
             "next": f"No window can open on this computer, so {site}'s sign-in page is open in the Shared browser. Tell the owner "
                     f"to open {name}'s Browser tab in the dashboard (the {site} page, if another is shown) and sign in there "

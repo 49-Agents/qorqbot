@@ -15,7 +15,7 @@ Documents (``context_upload`` rows: raw uploads, note and journal snapshots, acc
   (blank names refused, names stripped, a Person's registered name resolved under the caller's source-read authority at
   admission and frozen);
 * the note/journal/learning attribution and reference fields: ``source_snapshot_hash``, ``learning_tag``, ``journal_source_id``,
-  ``journal_source_kind``, ``journal_source_business_id``, ``journal_source_hash``, ``journal_source_date``,
+  ``journal_source_kind``, ``journal_source_project_id``, ``journal_source_hash``, ``journal_source_date``,
   ``journal_uploader_id`` and ``references`` (the document's ``source_refs``).
 
 Excluded, so that bookkeeping never changes a source: ``status``, ``error``, ``attempts``, ``last_attempt``, ``processed``,
@@ -56,7 +56,7 @@ DOCUMENT_FIELDS = {
     "title": "title", "source": "source", "date": "date", "format": "format", "by": "uploaded_by", "origin": "origin",
     "occurred_on": "occurred_on", "source_snapshot_hash": "source_snapshot_hash", "learning_tag": "learning_tag",
     "journal_source_id": "journal_source_id", "journal_source_kind": "journal_source_kind",
-    "journal_source_business_id": "journal_source_business_id", "journal_source_hash": "journal_source_hash",
+    "journal_source_project_id": "journal_source_project_id", "journal_source_hash": "journal_source_hash",
     "journal_source_date": "journal_source_date", "journal_uploader_id": "journal_uploader_id"}
 DOCUMENT_METADATA = ("document_kind", "participants", "references", *DOCUMENT_FIELDS.values())
 INSTRUCTION_METADATA = ("title", "document_kind", "source", "instructed_by", "scope", "rationale", "people")
@@ -115,7 +115,7 @@ class ContextFiling:
 
     # -- frozen sources --------------------------------------------------------------------------------------------------
 
-    def participants(self, uow, metadata: dict, business_id, ctx=None):
+    def participants(self, uow, metadata: dict, project_id, ctx=None):
         """The normalized participants. With ``ctx`` (admission) a Person is read under that caller's source-read authority
         and its registered name is frozen; without it (recomputing the current digest) the same name is read without
         disclosing anything, so the digest never depends on who asks."""
@@ -126,7 +126,7 @@ class ContextFiling:
             name, identity = str(item.get("name") or "").strip(), item.get("person_id")
             if identity:
                 person = (self.store.get(ctx, identity, uow, kinds={"context_person"}) if ctx is not None
-                          else uow.repository("documents", business_id=business_id).get(identity))
+                          else uow.repository("documents", project_id=project_id).get(identity))
                 if person is not None:
                     name = str(person["metadata_json"].get("name") or name).strip()
             if not name:
@@ -134,21 +134,21 @@ class ContextFiling:
             normalized.append({"name": name, **({"person_id": identity} if identity else {})})
         return normalized
 
-    def document_source(self, uow, *, kind, body, metadata, source_refs, business_id, ctx=None) -> str:
+    def document_source(self, uow, *, kind, body, metadata, source_refs, project_id, ctx=None) -> str:
         return envelope.source_document(body, document_metadata(kind, metadata, source_refs,
-                                                                self.participants(uow, metadata, business_id, ctx)))
+                                                                self.participants(uow, metadata, project_id, ctx)))
 
     def current_digest(self, uow, row) -> str:
         """The digest of the document as it is now, from its stored body and allowlisted metadata (no status or receipt)."""
         body = split_document(self.store.read_bytes(row, uow))[1]
         return envelope.fingerprint(self.document_source(uow, kind=row["kind"], body=body, metadata=row["metadata_json"],
-                                                         source_refs=row["source_refs_json"], business_id=row["business_id"]))
+                                                         source_refs=row["source_refs_json"], project_id=row["project_id"]))
 
     def digest_of(self, uow, bound) -> str | None:
         """The current digest of a filing's source: the document as it is now, or the instruction's own frozen version."""
         if bound["source_kind"] == "instruction":
             return bound["source_digest"]
-        row = uow.repository("documents", business_id=bound["business_id"]).get(bound["source_id"])
+        row = uow.repository("documents", project_id=bound["project_id"]).get(bound["source_id"])
         return None if row is None or row.get("archived") else self.current_digest(uow, row)
 
     # -- admission -------------------------------------------------------------------------------------------------------
@@ -159,12 +159,12 @@ class ContextFiling:
         return context_filing.admit(builder, uow, kind=kind, source_id=job_id if kind == "instruction" else source_id,
                                     filing_id=filing_id, job_id=job_id, document=document, event_metadata=event,
                                     retracts=retracts, max_content_bytes=self.ports.source_bytes,
-                                    business_id=builder.ctx.business_id)
+                                    project_id=builder.ctx.project_id)
 
     def admit_document(self, builder, uow, *, identity, kind, body, metadata, source_refs=(), retracts=None):
         """The next source version of one document, its registered job and its queue input, in the caller's plan."""
         document = None if retracts is not None else self.document_source(
-            uow, kind=kind, body=body, metadata=metadata, source_refs=source_refs, business_id=builder.ctx.business_id, ctx=builder.ctx)
+            uow, kind=kind, body=body, metadata=metadata, source_refs=source_refs, project_id=builder.ctx.project_id, ctx=builder.ctx)
         return self._admit(builder, uow, kind="document", source_id=identity, program=FILE_PROGRAM, document=document,
                            event=event_metadata(metadata, identity), retracts=retracts)
 
@@ -178,7 +178,7 @@ class ContextFiling:
         """A focused instruction: its own source (the job's) frozen with the caller's attribution."""
         ctx = builder.ctx
         metadata = {"title": "Context instruction", "document_kind": "instruction", "source": "instruction",
-                    "instructed_by": plain(attribution), "scope": "business" if ctx.business_id else "global"}
+                    "instructed_by": plain(attribution), "scope": "project" if ctx.project_id else "global"}
         if args.get("rationale"):
             metadata["rationale"] = args["rationale"]
         if args.get("people"):
@@ -320,9 +320,9 @@ class ContextFiling:
         elif branch == "definition_changed":
             raise DomainError("forbidden", "The registered program definition changed; this job can no longer apply its completion")
         elif branch == "requeue":
-            self.programs.authority.require_worker(job["principal_id"], job["business_id"], uow)
+            self.programs.authority.require_worker(job["principal_id"], job["project_id"], uow)
             builder.record("jobs", job["id"], job, {"state": "queued", "error_json": None, "next_retry_at": None, "claimed_by": None,
-                                                    "lease_until": None}, business_id=job["business_id"], label="Requeue the filing job")
+                                                    "lease_until": None}, project_id=job["project_id"], label="Requeue the filing job")
             builder.effects.append("Requeues the same registered job; its frozen outputs and receipts are kept.")
 
     # -- completion ------------------------------------------------------------------------------------------------------
@@ -337,7 +337,7 @@ class ContextFiling:
             return
         application = {"outcome": stored["outcome"], "source_current": False, "document": None}
         if bound["source_kind"] == "document":
-            row = uow.repository("documents", business_id=bound["business_id"]).get(bound["source_id"])
+            row = uow.repository("documents", project_id=bound["project_id"]).get(bound["source_id"])
             if row is None or row.get("archived") or row["kind"] not in DOCUMENT_KINDS:
                 application["reason"] = "source_missing"
             else:

@@ -39,7 +39,7 @@ LATER = '2026-12-01T09:00:00.000000Z'
 
 def profile(role):
     return json.dumps({'status': 'active', 'role': {'id': role},
-                       'scope': {'kind': 'ecosystem', 'business_id': None, 'global_capabilities': ['read_global_context']}})
+                       'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}})
 
 
 class Fixture(unittest.TestCase):
@@ -55,8 +55,8 @@ class Fixture(unittest.TestCase):
                 uow.repository('principals').insert(dict(id=identity, kind=kind, display_name=name, active=1,
                                                          created_at=STAMP, updated_at=STAMP))
             for identity, role in ((self.lead, 'ordubashy'), (self.worker, 'global-worker')):
-                uow.connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,namespace,name,workspace,profile_json,'
-                                       "created_at,updated_at) VALUES(?,?,'ecosystem',?,?,?,?,?)",
+                uow.connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,name,workspace,profile_json,'
+                                       "created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                                        (identity, identity, role, '/' + identity, profile(role), STAMP, STAMP))
             uow.repository('installation').insert(dict(id='service', installation_id=str(uuid4()), owner_principal_id=self.owner,
                                                        management_coordinator_id=self.lead, created_at=STAMP, updated_at=STAMP))
@@ -69,7 +69,6 @@ class Fixture(unittest.TestCase):
                                                                                     fingerprint=noop))], candidates=NS(candidates=lambda *a: ()))
         self.tasks = TaskOperations(self.app, items, ports=TaskPorts(
             assignees=NS(protect=noop, owner_directed=lambda *a: False, worker_excluded=lambda *a: False),
-            incidents=NS(link_task=noop),
             references=NS(types=('task',), host_types=(), resolve=noop, derived=noop),
             routing=NS(routes=lambda *a: ((), ()), snooze_routes=lambda *a: ()), boards=HostBoards(self.app)))
         for descriptor in self.tasks.descriptors():
@@ -89,7 +88,7 @@ class Fixture(unittest.TestCase):
         programs.register(Program('tables.global-version', 1, schema({'version_id': UUID}, ('version_id',)), noop,
                                   scope_kinds=('global',)))
         programs.bind_authority(NS(worker_id=lambda kind, uow: self.lead, require_worker=noop))
-        tables = TableOperations(self.db, root, lambda business: root, clock=lambda: NOW, job_programs=programs)
+        tables = TableOperations(self.db, root, lambda project: root, clock=lambda: NOW, job_programs=programs)
         tables.register(self.registry)
         tables.bind_crm(CRMOperations(self.app, tables, self.tasks, items, clock=lambda: NOW).register(self.registry))
         self.app.signoffs = NS(sources=SignoffSources(NS(
@@ -133,7 +132,7 @@ class Fixture(unittest.TestCase):
     # -- reads ----------------------------------------------------------------------------------------------------
 
     def ref(self, task):
-        return {'type': 'task', 'id': task['id'], 'business_id': None}
+        return {'type': 'task', 'id': task['id'], 'project_id': None}
 
     def rows(self, sql, *params):
         with self.db.read() as uow:
@@ -268,7 +267,7 @@ class TargetListTests(Fixture):
         """A CRM row for an existing Task, written the way rows were before a row had to be a record."""
         with self.db.transaction() as uow:
             uow.connection.execute(
-                'INSERT INTO crm_entries(business_id,id,table_id,record_task_id,record_business_id,record_namespace,position,'
+                'INSERT INTO crm_entries(project_id,id,table_id,record_task_id,record_project_id,record_namespace,position,'
                 "cells_json,removed,created_by,updated_by,created_at,updated_at) VALUES(NULL,?,?,?,NULL,'global',"
                 "(SELECT count(*) FROM crm_entries),'{}',0,?,?,?,?)", (str(uuid4()), self.table['id'], task['id'], self.lead, self.lead,
                                                                        STAMP, STAMP))
@@ -301,13 +300,13 @@ class TargetListTests(Fixture):
         decision = None if state == 'pending' else json.dumps({'kind': 'answer', 'at': at, 'by': self.owner, 'selected_choices': ['yes']})
         with self.db.transaction() as uow:
             uow.connection.execute(
-                "INSERT INTO signoffs(id,review_business_id,review_scope_kind,proposer_principal_id,operation_name,operation_version,"
+                "INSERT INTO signoffs(id,review_project_id,review_scope_kind,proposer_principal_id,operation_name,operation_version,"
                 "proposal_revision,payload_hash,change_set,preview_json,expected_targets_json,policy_binding_json,affected_scope_json,"
                 "state,updated_sequence,decision_json,created_at,updated_at,category) VALUES(?,NULL,'global',?,'owner_input_request',"
                 "1,1,'hash',x'00','{\"title\":\"Approve\"}','[]','{}','{}',?,(SELECT coalesce(max(updated_sequence),0)+1 FROM signoffs),"
                 "?,?,?,'input_request')", (identity, self.lead, state, decision, at, STAMP))
             uow.connection.execute(
-                "INSERT INTO signoff_source_links(id,signoff_id,source_type,source_id,source_business_id,source_namespace,created_by,"
+                "INSERT INTO signoff_source_links(id,signoff_id,source_type,source_id,source_project_id,source_namespace,created_by,"
                 "created_at) VALUES(?,?,'task',?,NULL,'global',?,?)", (str(uuid4()), identity, record['id'], self.lead, at))
 
     def test_health_lists_what_disagrees_and_reconcile_fixes_it(self):

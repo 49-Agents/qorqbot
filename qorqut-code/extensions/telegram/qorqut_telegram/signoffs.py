@@ -118,7 +118,7 @@ class SignoffBridge:
         """The Qorqut owner the bridge is pinned to, after revalidating it. Never whichever owner exists now."""
         return self.bridge.check_binding(uow)["owner"]
 
-    def context(self, uow, business_id=None, *, owner=None):
+    def context(self, uow, project_id=None, *, owner=None):
         """The pinned owner's context for a review scope, rebuilt from current rights. Trusted paths only.
 
         ``owner`` is the owner a stored intent was accepted under: if it is no longer the pinned one, nothing is built.
@@ -126,7 +126,7 @@ class SignoffBridge:
         pinned = self.owner_id(uow)
         if owner is not None and owner != pinned:
             raise DomainError("binding_changed", "The Telegram owner binding changed after this was accepted")
-        return self.bridge.application.policy.context_for(pinned, business_id=business_id, review_business_id=business_id, uow=uow)
+        return self.bridge.application.policy.context_for(pinned, project_id=project_id, review_project_id=project_id, uow=uow)
 
     @staticmethod
     def signoff(uow, signoff_id):
@@ -140,9 +140,9 @@ class SignoffBridge:
 
     def url(self, dto):
         origin = self.bridge.config.dashboard_origin or ""
-        if dto.get("review_business_id") is None:
+        if dto.get("review_project_id") is None:
             return f"{origin}/#/global/signoffs"
-        return f"{origin}/#{dto.get('business_slug') or ''}"
+        return f"{origin}/#{dto.get('project_slug') or ''}"
 
     # ----- rendering ------------------------------------------------------------------------------------------
 
@@ -195,7 +195,7 @@ class SignoffBridge:
             grouped = is_questionnaire(dto.get('input'))
             reading = (dto.get('input') or {}).get('kind') == 'acknowledge'
             head = [f"{'Draft review' if draft_review else 'For your attention' if reading else KINDS.get(dto['category'], 'Approval')}: {dto['title']}",
-                    f"{dto.get('business_name') or 'Global'} · requested by {dto.get('proposer_display_name') or 'an agent'}"]
+                    f"{dto.get('project_name') or 'Global'} · requested by {dto.get('proposer_display_name') or 'an agent'}"]
             tail = []
             if attention.get("reason"):
                 tail.append("Why now: " + budget.clip(attention["reason"], 400))
@@ -347,10 +347,10 @@ class SignoffBridge:
             (signoff_id, delivery["id"], proposal_revision, payload_hash, status_revision, *SUPPRESSING)).fetchone()
 
     def _detail(self, uow, ctx, item):
-        scoped = replace(ctx, business_id=item["review_business_id"], review_business_id=item["review_business_id"])
+        scoped = replace(ctx, project_id=item["review_project_id"], review_project_id=item["review_project_id"])
         row = self.service._row(scoped, item["id"], uow)
         dto = self.service._dto(row, uow)
-        dto.update(business_name=item.get("business_name"), business_slug=item.get("business_slug"))
+        dto.update(project_name=item.get("project_name"), project_slug=item.get("project_slug"))
         return row, dto
 
     def _create_post(self, uow, ctx, delivery, item, state, now):
@@ -474,11 +474,11 @@ class SignoffBridge:
                                       "AND expected_status_revision=?", (row["id"], marker, row["status_revision"])).fetchone():
                 continue
             dto = self.service._dto(row, uow)
-            business = uow.repository("businesses").get(row["review_business_id"]) if row["review_business_id"] else None
-            dto.update(business_name=(business or {}).get("name") or "Global", business_slug=(business or {}).get("slug"))
+            project = uow.repository("projects").get(row["review_project_id"]) if row["review_project_id"] else None
+            dto.update(project_name=(project or {}).get("name") or "Global", project_slug=(project or {}).get("slug"))
             detail = (row["error_json"] or {}).get("message") or ((dto.get("platform") or {}).get("execution") or {}).get("error")
             detail = Budget().clip(detail if isinstance(detail, str) and detail else "The application did not complete.", 400)
-            text = (f"Status: {dto['title']}\n{dto['business_name']}\n\nThis was approved but did not complete "
+            text = (f"Status: {dto['title']}\n{dto['project_name']}\n\nThis was approved but did not complete "
                     f"({kind.replace('_', ' ')}): {detail}\nNothing was retried automatically.\nDetails are in the Signoffs view: {self.url(dto)}")
             identity = new_id()
             generation = (uow.connection.execute("SELECT max(generation) FROM telegram_signoff_posts WHERE signoff_id=?",
@@ -599,8 +599,8 @@ class SignoffBridge:
         There is no deep link to one proposal, so the link is only ever described as opening the Signoffs view.
         """
         current = (self.signoff(uow, row["superseded_by_id"]) if row["superseded_by_id"] else None) or row
-        business = uow.repository("businesses").get(current["review_business_id"]) if current["review_business_id"] else None
-        return self.url({"review_business_id": current["review_business_id"], "business_slug": (business or {}).get("slug")})
+        project = uow.repository("projects").get(current["review_project_id"]) if current["review_project_id"] else None
+        return self.url({"review_project_id": current["review_project_id"], "project_slug": (project or {}).get("slug")})
 
     def _stale_text(self, uow, row, outcome):
         """Why a response decided nothing, and the Signoffs view where what is current can be seen."""
@@ -643,7 +643,7 @@ class SignoffBridge:
         """Save a canonical note under the current owner context, or None when authority or state refuses it. Nothing partial stays."""
         uow.connection.execute("SAVEPOINT telegram_note")
         try:
-            note = self.service.notes.append(self.context(uow, row["review_business_id"]), row, text, uow)
+            note = self.service.notes.append(self.context(uow, row["review_project_id"]), row, text, uow)
         except DomainError:
             uow.connection.execute("ROLLBACK TO telegram_note")
             uow.connection.execute("RELEASE telegram_note")
@@ -684,7 +684,7 @@ class SignoffBridge:
         proposer = row["proposer_agent_id"]
         if self._still_current(uow, binding) and not uow.connection.execute(
                 "SELECT 1 FROM telegram_owner_inputs WHERE correlation_id=? AND agent_id=?", (note_id, proposer)).fetchone():
-            profile = uow.repository("agent_profiles", business_id=None).get(proposer) or dict(uow.connection.execute(
+            profile = uow.repository("agent_profiles", project_id=None).get(proposer) or dict(uow.connection.execute(
                 "SELECT * FROM agent_profiles WHERE agent_id=?", (proposer,)).fetchone())
             uow.repository("telegram_owner_inputs").insert({
                 "id": new_id(), "purpose": "signoff_reply", "correlation_id": note_id, "message_id": message["id"],
@@ -770,12 +770,12 @@ class SignoffBridge:
             try:
                 # The decision was accepted under one identity and generation and never runs under another. The owner
                 # context is rebuilt for that pinned owner from current rights; a changed owner generation, archived
-                # business or inactive identity is a reported failure for this one decision, never a stall of the cycle.
+                # project or inactive identity is a reported failure for this one decision, never a stall of the cycle.
                 frozen = intent.get("binding")
                 if frozen is None:
                     raise DomainError("binding_changed", "The decision has no frozen Telegram binding")
                 self.bridge.verify_frozen(uow, frozen)
-                ctx = self.context(uow, row["review_business_id"], owner=frozen["owner"]) if row else None
+                ctx = self.context(uow, row["review_project_id"], owner=frozen["owner"]) if row else None
             except DomainError as exc:
                 if exc.code in MISMATCH_CODES:
                     raise

@@ -74,7 +74,7 @@ def operation_route(name):
         from qorqut.transport.http import read_json, response, split_options
         ctx, _ = api.context(actor)
         args, options = split_options(await read_json(request))
-        if options.business_id is not None:
+        if options.project_id is not None:
             raise DomainError('forbidden', 'Telegram owner operations cannot select a project')
         return response(await anyio.to_thread.run_sync(lambda: api.runtime.application.invoke(ctx, name, args, options)))
     return handle

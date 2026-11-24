@@ -11,7 +11,7 @@ CAPABILITY = 'manage_agentic_layer'
 
 
 def at_global(app, ctx, uow):
-    return app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+    return app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
 
 
 def applier(app, ctx, uow):
@@ -51,4 +51,4 @@ def coordinator_context(app, uow):
     coordinator = configured_ordubashy(uow)
     if not coordinator:
         raise DomainError('operation_unavailable', 'No coordinator is configured, so the owner\'s conversations cannot be read')
-    return app.policy.context_for(coordinator, business_id=None, review_business_id=None, uow=uow)
+    return app.policy.context_for(coordinator, project_id=None, review_project_id=None, uow=uow)

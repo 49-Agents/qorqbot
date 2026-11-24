@@ -8,9 +8,8 @@ contract the dashboard's Chat message list, composer and agent navigation read. 
 retired global-chat runner shapes (`messages`, `turns`, `actions`, `runtime`, stop/restart endpoints; the empty Chat `actions`
 field no longer exists). Nothing here changes Focus, the agent-pane layout or its tabs.
 
-All routes are owner-only, under `/api/root/agents/<agent uuid>/chat`, for **any** active registered agent — global or business.
-`root` is only the transport; the resource is the exact agent UUID. A business agent additionally requires an unarchived business
-and the caller to be its current business owner. An agent bearer credential is refused (`forbidden`); an unregistered or retired
+All routes are owner-only, under `/api/root/agents/<agent uuid>/chat`, for **any** active registered agent.
+`root` is only the transport; the resource is the exact agent UUID. An agent bearer credential is refused (`forbidden`); an unregistered or retired
 agent is `not_found`. Responses are the usual `{status, data | error}` envelope with `Cache-Control: private, no-store`. A retired
 agent's captured conversations are read only through the separate archive reader at the end of this document.
 
@@ -261,8 +260,7 @@ caller stopped being authorized; `: heartbeat` every 15 s.
   provider's own end-of-turn evidence — never narration before a tool call, a tool-only record, an owner echo, a system notice or
   a sidechain.
 * `GET /api/root/reply-notifications` / attention items: `{ id: "gchat:<reply id>", kind: "global", chat: true, agent_id,
-  agent_name, text (≤180), created_at, unread: true, sequence, nav_only }`. `nav_only` is true for a business agent (it lights the
-  navigation dot only; no attention card). Private item threads (`dm:`) and Telegram items are unchanged. Acknowledging an
+  agent_name, text (≤180), created_at, unread: true, sequence }`. Private item threads (`dm:`) and Telegram items are unchanged. Acknowledging an
   attention card is a separate durable preference and never marks Chat read.
 
 ## Not in this DTO (unchanged contracts)

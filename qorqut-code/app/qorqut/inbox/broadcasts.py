@@ -9,14 +9,14 @@ from threading import Event, Thread
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.inbox import BroadcastDispatch, Broadcasts as OperationsBroadcasts
 from qorqut.agents.contact import owner_directed_target
-from qorqut.agents.global_scope import active_global, global_profile_data, reaches_business
+from qorqut.agents.global_scope import active_global, global_profile_data, reaches_project
 from qorqut.management.identity import require_protected_control
 
 
 class Broadcasts(OperationsBroadcasts):
     def __init__(self, inbox, *, clock=lambda: datetime.now(timezone.utc)):
         super().__init__(inbox, active_global=active_global, global_profile_data=global_profile_data,
-                         reaches_business=reaches_business, owner_directed_target=owner_directed_target, clock=clock)
+                         reaches_project=reaches_project, owner_directed_target=owner_directed_target, clock=clock)
 
 
 class BroadcastDispatcher:
@@ -33,10 +33,10 @@ class BroadcastDispatcher:
             require_authority=self.runtime.require_authority, require_protected_control=require_protected_control,
             input_existing=self._input_existing, stopping=self.stop_event.is_set, clock=lambda: self.clock())
 
-    def _input_existing(self, business_id, recipient, message, *, key):
+    def _input_existing(self, project_id, recipient, message, *, key):
         if not self.launch:
             return {'state': 'unavailable', 'detail': 'The session input port is unavailable'}
-        return self.launch.input_existing(business_id, recipient, message, key=key)
+        return self.launch.input_existing(project_id, recipient, message, key=key)
 
     def start(self):
         if self.thread and self.thread.is_alive():

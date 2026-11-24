@@ -38,10 +38,10 @@ Use `signoffs_input_create` for an owner response that is not an approval to
 execute a prepared action. Keep platform and internal-change approvals on their
 existing tools. An answer to a question does not bypass those approvals.
 
-When work or a record thread is waiting, pass `source: {type, id, business_id}` at creation.
-Use the actual source identity (`task`, `table`, `project`, or `reference`),
-with an explicit project UUID or `null` for Global. A Project source names its own UUID in both
-fields. Source and Signoff keep their own scopes. Omit source for a standalone question.
+When work or a record thread is waiting, pass `source: {type, id}` at creation.
+Use the actual source identity (`task`, `table`, `project`, or `reference`): a reference is the
+record's type and id, and its project is found from the id. A Project source names its own UUID as
+`id`. Source and Signoff keep their own scopes. Omit source for a standalone question.
 Link an existing pending approval with `signoffs_source_link` instead of creating another
 question. Call it again for each additional dependent source. Repeated links are idempotent.
 Only an explicit pending dependency produces Needs your input; contextual `concerns` links,
@@ -77,7 +77,7 @@ with that question filled in from the answer, or without it. The personal-record
 explains the record's tools.
 
 The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, `draft_review`, or
-Ordubashy's `acknowledge`, described under "Read and acknowledge"), and
+Ordubashy's `acknowledge` and `browser_action`, each described under its own heading), and
 `selection_mode` (`none`, `single`, or `multiple`). For choices provide at least
 two entries with unique stable `id`, a one/two-word `label`, and `explanation`.
 Use `selection_required` and `notes_required` only when that information is
@@ -219,6 +219,24 @@ exact events. Events that arrive while your session is closed wait. Qorqbot open
 itself unless you are turned off or run in a terminal; then they wait until you are started. Retain submitted answers with the signoff; lasting project
 instructions can enter Context through its existing authorized source input
 (`context_upload` or a focused `context_instruct`) when appropriate.
+
+## Browser action
+
+When the owner must do something in a browser page (sign in, solve a captcha, type a code, confirm a payment), Ordubashy
+files `form.kind: browser_action` with the tab: run `tab-reference` in the page and put its reference id in `tab`. A worker
+gives Ordubashy the reference, the page and what the owner must do. The tab must be open; the result's `tab` gives its
+`title` and `url`, so check it is the page you mean. Say in plain words what to do in the page.
+
+```
+signoffs_input_create(request_key="sign-in-mercury", form={"title": "Sign in to Mercury", "kind": "browser_action",
+    "explanation": "Sign in with your usual account and approve the code on your phone.", "selection_mode": "none",
+    "tab": "<agent uuid>:<tab id>"}, attention={"notify": true, "blocking": true, "reason": "The payout run waits on it"},
+    source={"type": "task", "id": "<task id>"})
+```
+
+Send no choices or required notes: the owner opens the tab from the attention queue and answers **Done** or **Could not
+do it**, with an optional note (`decision.selected_choices` is `["done"]` or `["not_done"]`). After Done, check the page
+yourself before going on; after Could not do it, read the note. The answer approves nothing.
 
 ## Work, questions, and discussion
 

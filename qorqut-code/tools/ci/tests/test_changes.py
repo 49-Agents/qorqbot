@@ -15,7 +15,7 @@ class ChangeSelection(unittest.TestCase):
         return {key for key, value in changes.select(paths).items() if value}
 
     def test_dashboard_and_application_edits_do_not_build_installers(self):
-        self.assertEqual(self.enabled("qorqut-code/biz-dashboard/app.css"), {"dashboard"})
+        self.assertEqual(self.enabled("qorqut-code/dashboard/app.css"), {"dashboard"})
         self.assertEqual(self.enabled("qorqut-code/app/qorqut/agents/attention.py"), {"backend"})
         self.assertEqual(self.enabled("qorqut-code/app/qorqut/service/web.py"), {"backend", "dashboard"})
 
@@ -53,7 +53,7 @@ class ChangeSelection(unittest.TestCase):
     def test_connector_changes_do_not_rebuild_unrelated_go_helper(self):
         self.assertEqual(changes.connector_selection(["qorqut-code/extensions/telegram/pyproject.toml"]), "telegram")
         self.assertEqual(changes.connector_selection(["extensions/qorqut-fastmail/provider.py"]), "fastmail")
-        self.assertEqual(changes.connector_selection(["qorqut-code/biz-dashboard/app.css"]), "none")
+        self.assertEqual(changes.connector_selection(["qorqut-code/dashboard/app.css"]), "none")
         self.assertEqual(changes.connector_selection(["qorqut-code/app/qorqut/extensions.py"]), "all")
         self.assertEqual(changes.connector_selection([], full=True), "all")
         self.assertEqual(changes.connector_selection(["qorqut-code/extensions/telegram/provider.py",

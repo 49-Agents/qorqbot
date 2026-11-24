@@ -12,6 +12,8 @@ TITLE, INTENT, WORKER_NAME, WORKERS, CANDIDATES = 120, 400, 30, 3, 5
 AVAILABLE, STALLED, STALLED_MINUTES = 12, 10, 10
 # A plan step's instruction and the note or feedback that came with it, as a reminder quotes them.
 STEP_TEXT, STEP_NOTE = 200, 300
+# After this many minutes on one todo_focus the coordinator's reminder asks him to move or clear it.
+HELD_MINUTES = 120
 
 
 def clip(value, limit):
@@ -27,7 +29,7 @@ def describe(ref, task, projection):
     """Scoped identity, title, actual status and Workers of one Task; ``user_needed`` is separate from the status."""
     shown = [{'id': worker['id'], 'name': clip(worker.get('name') or worker.get('display_name'), WORKER_NAME)}
              for worker in projection['workers'][:WORKERS]]
-    return {'id': ref['id'], 'business_id': ref['business_id'], 'title': clip(task['title'], TITLE),
+    return {'id': ref['id'], 'project_id': ref['project_id'], 'title': clip(task['title'], TITLE),
             'status': task['status'], 'workers': shown, 'workers_omitted': len(projection['worker_ids']) - len(shown),
             'user_needed': bool(projection['user_needed'])}
 
@@ -45,6 +47,10 @@ def render(kind, snapshot, *, instructions):
     step = snapshot.get('plan_step') if snapshot is not None and snapshot.get('work') else None
     if team is not None:
         lead = instructions.render('attention-oversight')
+        # A todo_focus left on one Task for hours is usually stale: he has moved on to other work without moving it.
+        held = snapshot.get('focus_held_minutes') if snapshot.get('focus') else None
+        if isinstance(held, int) and held >= HELD_MINUTES and snapshot.get('focused_for'):
+            lead += instructions.render('attention-focus-held', AGE=snapshot['focused_for'])
     else:
         lead = instructions.render(key)
         if key == 'attention-focus':

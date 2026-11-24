@@ -264,15 +264,17 @@ or the conversations are not found. It only touches the installation's own tmux
 socket. It refuses on an installation set to Terminals (legacy); there, the
 setting in Settings > Agents is the way back to managed sessions.
 
-### Packages and a start command carried over
+### Role and plugin packages of a release
 
 After the instruction update and `python -m qorqut.migration.upgrade apply`, and before the service starts, run
 `python -m qorqut.migration.package_adoption apply` with the service's own `--workspace`, `--instance-root`, `--component` and
-`--extensions-config` arguments (`inspect` first shows the plan). An installation made by an earlier release holds the old role and
-plugin packages in its catalog and pinned in its agent profiles; the instruction update replaces the authored text, which agents read
-by package id, but not those pins. Without this step Ordubashy has no agent-control tools (`agent_terminal_status`, `_start`,
-`_restart`, `_kill`, `_ping`, `_execute_command`) and the role version in an agent's identity is the old one. The step publishes what
-the installation lacks, moves each pin forward only, and gives Ordubashy the control plugin; running it again changes nothing.
+`--extensions-config` arguments (`inspect` first shows the plan). An existing installation holds role and plugin packages in its
+catalog and pins them in its agent profiles; the instruction update replaces the authored text, which agents read by package id,
+but not those pins. Without this step the pinned manifest decides which tools and skills an agent has and the role version in an
+agent's identity is the pinned one. The step publishes what the installation lacks, moves each pin forward only, and gives
+Ordubashy the agent-control plugin when his profile has none; running it a second time changes nothing.
+
+### A start command carried over
 
 A start command written for an earlier version may still pass `--terminal-workspace` (or set `QORQUT_TERMINAL_WORKSPACE`). It
 sets the root of the owner's Workspace shell, which exists in Terminals mode only; in managed mode it has no effect.

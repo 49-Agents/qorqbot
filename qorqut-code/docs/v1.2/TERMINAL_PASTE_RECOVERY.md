@@ -50,7 +50,7 @@ Once that exact pending paste is verified and recovery is authorized, submit
 the existing text once. Preserve the original uncertain receipt as history;
 do not edit SQLite to claim delivery. Confirm the marker appears in the same
 native transcript and that the agent actually reads/acknowledges the intended
-inbox events. Do not restart the native session, replay business actions or
+inbox events. Do not restart the native session, replay project actions or
 change task holds as part of terminal recovery.
 
 The October 17, 2026 Atlas repair used this procedure. The held text was the

@@ -281,9 +281,9 @@ def validate_plan(values):
 def validate_attributes(task):
     links = task["fields_json"].get("$task_links", [])
     if (not isinstance(links, list) or len(links) > 100
-            or any(not isinstance(item, dict) or set(item) != {"business_id", "task_id"}
+            or any(not isinstance(item, dict) or set(item) != {"project_id", "task_id"}
                    or not isinstance(item["task_id"], str) or not item["task_id"]
-                   or (item["business_id"] is not None and not isinstance(item["business_id"], str)) for item in links)):
+                   or (item["project_id"] is not None and not isinstance(item["project_id"], str)) for item in links)):
         raise DomainError("validation_error", "Invalid Task links")
     raw = task["fields_json"].get(KEY, {})
     if not isinstance(raw, dict) or set(raw) - set(DEFAULTS):

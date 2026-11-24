@@ -46,7 +46,7 @@ def main():
         subprocess.run(['docker', 'run', '--rm', '--platform', 'linux/amd64', '--network', 'bridge', '--user', f'{os.getuid()}:{os.getgid()}',
             '-e', 'GOCACHE=/build/cache', '-e', 'GOMODCACHE=/build/modules', '-e', 'CGO_ENABLED=1',
             '-v', f'{source / "native"}:/source:ro', '-v', f'{native}:/build', '-w', '/source', IMAGE,
-            'sh', '-c', 'go mod verify && go build -trimpath -buildvcs=false -o /build/whatsapp-personal . && go list -m -json all > /build/modules.json && cp /usr/local/go/LICENSE /build/GO-LICENSE'], check=True)
+            'sh', '-c', 'go mod verify && go test -race ./... && go build -trimpath -buildvcs=false -o /build/whatsapp-personal . && go list -m -json all > /build/modules.json && cp /usr/local/go/LICENSE /build/GO-LICENSE'], check=True)
         module_cache_prefix = '/build/modules'
     else:
         for command in (['go', 'mod', 'verify'],

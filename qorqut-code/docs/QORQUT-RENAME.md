@@ -10,7 +10,7 @@ names. Start the service with `python -m qorqut.service`.
 New agent preparation uses `.qorqut`, the `qorqut` MCP server,
 `mcp__qorqut__` tool permissions and `qorqut-*` skill names. New owner preparation
 uses `.qorqut-owner`. The default tmux socket is `qorqut`; an installation's
-explicit `BIZ_TMUX_SOCKET` still takes precedence. New history snapshots use
+explicit `QORQUT_TMUX_SOCKET` still takes precedence. New history snapshots use
 `qorqut-history`, continuing an existing `bazarlyk-history` without deleting or
 rewriting it. Use `QORQUT_MCP_URL` and `QORQUT_CAPTURE_TRANSCRIPTS`; their legacy
 environment names remain read-only fallbacks, with the new names taking precedence.

@@ -31,7 +31,7 @@ def item_subscriptions(uow, request):
 CONTRIBUTION = HistoryContribution('host.inbox', exports=(
     TableExport('inbox_events', {
         'id': Integer(),
-        'business_id': Text(nullable=True),
+        'project_id': Text(nullable=True),
         'source_type': Text(),
         'source_id': Text(),
         'source_revision': Integer(nullable=True),
@@ -50,7 +50,7 @@ CONTRIBUTION = HistoryContribution('host.inbox', exports=(
     TableExport('inbox_subscriptions', {
         'id': Text(),
         'agent_id': Text(),
-        'business_id': Text(nullable=True),
+        'project_id': Text(nullable=True),
         'source_type': Text(),
         'source_id': Text(),
         'include_related': Integer(),

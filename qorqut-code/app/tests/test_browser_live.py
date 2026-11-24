@@ -53,9 +53,9 @@ class ViewTest(unittest.TestCase):
         self.addCleanup(live._views.clear)
         self.addCleanup(live._slots.clear)
 
-    def open(self, incoming=(), marks=None):
+    def open(self, incoming=(), marks=None, width=None):
         self.socket = Socket(incoming)
-        view = live.View(AGENT, 20400, TAB, marks=marks, connect=lambda _port, _tab: self.socket, clock=lambda: self.now)
+        view = live.View(AGENT, 20400, TAB, marks=marks, width=width, connect=lambda _port, _tab: self.socket, clock=lambda: self.now)
         self.addCleanup(view.close)
         return view
 
@@ -64,7 +64,7 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(self.socket.methods(), ["Page.bringToFront", "Emulation.setFocusEmulationEnabled", "Page.startScreencast"])
         # Agents bring their own tabs to the front with every command; without this the watched tab stopped sending pictures.
         self.assertEqual(self.socket.sent[1]["params"], {"enabled": True})
-        self.assertEqual(self.socket.sent[2]["params"]["format"], "jpeg")
+        self.assertEqual(self.socket.sent[2]["params"], {"format": "jpeg", "quality": live.JPEG_QUALITY})
 
     def test_a_tab_that_cannot_be_reached_is_reported_and_leaves_no_view(self):
         def refuse(_port, _tab):
@@ -76,7 +76,7 @@ class ViewTest(unittest.TestCase):
 
     def test_each_picture_is_acknowledged_and_returned_with_the_page_size(self):
         view = self.open([{"id": 1, "result": {}}, frame(7, 1000, 600)])
-        self.assertEqual(view.next(1), {"data": "jpeg-7", "width": 1000, "height": 600})
+        self.assertEqual(view.next(1), {"data": "jpeg-7", "width": 1000, "height": 600, "n": 1})
         self.assertEqual(self.socket.sent[-1], {"id": 4, "method": "Page.screencastFrameAck", "params": {"sessionId": 7}})
 
     def test_pictures_faster_than_the_dashboard_rate_are_acknowledged_and_only_the_newest_is_kept(self):
@@ -103,6 +103,90 @@ class ViewTest(unittest.TestCase):
         view = self.open([frame(1), frame(2)])
         view.next(1)
         self.assertEqual(view.next(0.01)["data"], "jpeg-2")
+
+    def shown(self, view, number):
+        """The page changes and the stream asks for the next picture, one interval after the last."""
+        self.now += live.FRAME_INTERVAL
+        self.socket.incoming.append(frame(number))
+        return view.next(1)
+
+    def test_a_dashboard_that_never_confirms_a_picture_is_sent_every_one_as_before(self):
+        # A dashboard page loaded before confirmations existed: nothing may wait for a word it never sends.
+        view = self.open([frame(1)])
+        self.assertEqual(view.next(1)["n"], 1)
+        self.assertEqual([self.shown(view, number)["n"] for number in (2, 3, 4, 5)], [2, 3, 4, 5])
+
+    def test_once_the_dashboard_confirms_pictures_only_two_are_on_their_way_and_the_newest_waits_for_room(self):
+        view = self.open([frame(1)])
+        self.assertEqual(view.next(1)["n"], 1)
+        view.confirm(1)
+        self.assertEqual((self.shown(view, 2)["n"], self.shown(view, 3)["n"]), (2, 3))      # 2 and 3 are on their way
+        self.assertIsNone(self.shown(view, 4))
+        self.assertIsNone(self.shown(view, 5))
+        self.assertEqual(self.socket.methods().count("Page.screencastFrameAck"), 5)       # Chrome is still answered, so it goes on
+        view.confirm(2)
+        picture = view.next(1)
+        self.assertEqual((picture["data"], picture["n"]), ("jpeg-5", 4))                    # the newest; 4 was never sent
+        self.assertIsNone(view.next(1))
+
+    def test_a_confirmation_that_comes_while_the_stream_waits_lets_the_held_picture_go(self):
+        view = self.open([frame(1)])
+        view.next(1)
+        view.confirm(1)
+        self.shown(view, 2), self.shown(view, 3)
+        self.assertIsNone(self.shown(view, 4))
+        def confirmed():
+            view.confirm(3)
+            return {"id": 9, "result": {}}
+        self.socket.incoming.append(confirmed)
+        self.assertEqual(view.next(1)["data"], "jpeg-4")
+
+    def test_a_picture_that_is_never_confirmed_stops_holding_the_next_one_back(self):
+        view = self.open([frame(1)])
+        view.next(1)
+        view.confirm(1)
+        self.shown(view, 2), self.shown(view, 3)
+        self.assertIsNone(self.shown(view, 4))
+        self.now += live.CONFIRM_WAIT
+        self.assertEqual(view.next(1)["data"], "jpeg-4")
+
+    def test_a_picture_not_sent_yet_cannot_be_confirmed(self):
+        view = self.open([frame(1)])
+        view.next(1)
+        view.confirm(99)                                # counts for the one picture sent, not for 98 to come
+        self.shown(view, 2), self.shown(view, 3)
+        self.assertIsNone(self.shown(view, 4))
+
+    def test_the_picture_is_asked_for_no_wider_than_the_dashboard_draws_it(self):
+        self.open(width=820)
+        self.assertEqual(self.socket.sent[2], {"id": 3, "method": "Page.startScreencast",
+                                               "params": {"format": "jpeg", "quality": live.JPEG_QUALITY, "maxWidth": 820}})
+
+    def test_a_new_width_starts_the_pictures_again_at_that_width_and_the_same_width_changes_nothing(self):
+        view = self.open(width=820)
+        view.confirm(0, 1100)                           # Chrome refuses a second start while the first runs: stop, then start
+        self.assertEqual(self.socket.methods()[3:], ["Page.stopScreencast", "Page.startScreencast"])
+        self.assertEqual(self.socket.sent[-1]["params"]["maxWidth"], 1100)
+        view.confirm(0, 1100)
+        view.confirm(0)
+        self.assertEqual(len(self.socket.sent), 5)
+        self.socket.closed = True
+        with self.assertRaises(DomainError) as refused:
+            view.confirm(0, 900)
+        self.assertEqual(refused.exception.code, "browser_not_ready")
+
+    def test_a_wrong_picture_number_or_width_is_refused(self):
+        view = self.open()
+        for number, width in ((-1, None), ("1", None), (True, None), (1.5, None), (None, None), (1, live.MIN_WIDTH - 1),
+                              (1, live.MAX_WIDTH + 1), (1, "wide"), (1, True), (1, 820.5), (1, "-820"), (1, "٨٢٠")):
+            with self.subTest(number=number, width=width), self.assertRaises(DomainError) as refused:
+                view.confirm(number, width)
+            self.assertEqual(refused.exception.code, "validation_error")
+        self.assertEqual(len(self.socket.sent), 3)
+        self.assertEqual((live.picture_width("820"), live.picture_width(820), live.picture_width(None)), (820, 820, None))
+        with self.assertRaises(DomainError):
+            live.View(AGENT, 20400, TAB, width=5, connect=lambda _port, _tab: self.fail("connected"))
+        self.assertEqual(len(live._slots), 1)           # the refused view took no place
 
     def test_views_are_capped_per_agent_and_in_all_and_a_refusal_says_so_and_closes_nothing(self):
         views = [self.open() for _ in range(live.MAX_VIEWS_PER_AGENT)]
@@ -141,6 +225,50 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(self.socket.methods()[3:], ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent", "Input.insertText"])
         self.assertEqual(self.socket.sent[3]["params"], {"x": 10, "y": 20, "modifiers": 0, "type": "mousePressed", "button": "left",
                                                          "buttons": 1, "clickCount": 1})
+
+    def typed(self):
+        return [item["params"]["text"] for item in self.socket.sent if item["method"] == "Input.insertText"]
+
+    def test_numbered_batches_reach_the_page_in_their_order_whatever_order_they_arrive_in(self):
+        import threading, time
+        view = self.open()
+        late = [threading.Thread(target=view.send, args=([{"type": "text", "text": text}], order)) for order, text in ((3, "c"), (2, "b"))]
+        for thread in late:
+            thread.start()
+            time.sleep(0.05)                            # each is waiting for its turn before the next arrives
+        self.assertEqual(self.typed(), [])
+        view.send([{"type": "text", "text": "a"}], 1)
+        for thread in late:
+            thread.join(2)
+        self.assertEqual(self.typed(), ["a", "b", "c"])
+
+    def test_a_batch_whose_predecessor_never_comes_goes_on_and_a_late_one_is_still_applied(self):
+        view = self.open()
+        with mock.patch.object(live, "ORDER_WAIT", 0.05):
+            view.send([{"type": "text", "text": "c"}], 3)             # 1 and 2 were lost on the way
+            view.send([{"type": "text", "text": "d"}], 4)
+            view.send([{"type": "text", "text": "b"}], 2)             # late: applied, not dropped
+        self.assertEqual(self.typed(), ["c", "d", "b"])
+
+    def test_a_refused_batch_ends_its_turn_so_the_next_does_not_wait_for_it(self):
+        import threading
+        view = self.open()
+        with mock.patch.object(live, "ORDER_WAIT", 30):
+            with self.assertRaises(DomainError):
+                view.send([{"type": "mouse", "action": "teleport", "x": 1, "y": 1}], 1)
+            following = threading.Thread(target=view.send, args=([{"type": "text", "text": "b"}], 2), daemon=True)
+            following.start()
+            following.join(2)
+            self.assertFalse(following.is_alive())
+        self.assertEqual(self.typed(), ["b"])
+
+    def test_a_wrong_batch_number_is_refused_before_the_page_sees_anything(self):
+        view = self.open()
+        for order in (0, -1, "1", True, 1.5):
+            with self.subTest(order=order), self.assertRaises(DomainError) as refused:
+                view.send([{"type": "text", "text": "x"}], order)
+            self.assertEqual(refused.exception.code, "validation_error")
+        self.assertEqual(self.typed(), [])
 
     def test_one_invalid_event_stops_the_whole_batch_before_the_page_sees_any_of_it(self):
         view = self.open()
@@ -318,13 +446,16 @@ class BrowserTest(unittest.TestCase):
         with mock.patch.object(live, "port", return_value=20400), mock.patch.object(live, "tabs", return_value=[{"id": TAB, "url": url}]), \
                 mock.patch.object(sign_in, "_state", return_value=Path("/state")) as state, \
                 mock.patch.object(idle_tabs, "wake", load), mock.patch.object(live, "View") as view:
-            self.assertEqual(live.open_view(runtime, AGENT, TAB), (view.return_value, 20400))
+            self.assertEqual(live.open_view(runtime, AGENT, TAB, "900"), (view.return_value, 20400))
+            with self.assertRaises(DomainError) as refused:
+                live.open_view(runtime, AGENT, TAB, "wide")
+            self.assertEqual(refused.exception.code, "validation_error")
             for tab in ("B61A88157A879FBF6E4EFFB3355F8F17", None, "../x"):
                 with self.subTest(tab=tab), self.assertRaises(DomainError) as refused:
                     live.open_view(runtime, AGENT, tab)
                 self.assertEqual(refused.exception.code, "not_found")
         state.assert_called_once_with(runtime)                        # the one browser every agent uses
-        view.assert_called_once_with(AGENT, 20400, TAB, marks=Path("/state", idle_tabs.WATCHED))
+        view.assert_called_once_with(AGENT, 20400, TAB, marks=Path("/state", idle_tabs.WATCHED), width=900)
         return woken
 
     def test_a_view_opens_only_on_a_tab_the_browser_lists(self):
@@ -342,7 +473,7 @@ class BrowserTest(unittest.TestCase):
     def test_the_picture_stream_is_never_compressed(self):
         from qorqut.service.web import SelectiveGZip
         base = f"/api/root/agents/{AGENT}/browser-live"
-        for path in (base, base + "/stream", base + "/input"):
+        for path in (base, base + "/stream", base + "/input", base + "/received"):
             self.assertFalse(SelectiveGZip._compressible(path), path)
         self.assertTrue(SelectiveGZip._compressible(f"/api/root/agents/{AGENT}/viewbox"))
 
@@ -377,6 +508,7 @@ class RouteTest(unittest.TestCase):
         self.route = HTTPAPI.browser_live
         self.owner = SimpleNamespace(principal_kind="human", principal_id="owner")
         self.pictures, self.closed, self.tabs = [], [], [{"id": TAB, "title": "Inbox", "url": "https://mail.example/"}]
+        self.widths = []
         test = self
 
         class View:
@@ -392,7 +524,10 @@ class RouteTest(unittest.TestCase):
                 test.closed.append(True)
 
         self.view = View()
-        for name, value in (("open_view", lambda _runtime, _agent, _tab: (self.view, 20400)), ("tabs", lambda _port: list(self.tabs)),
+        def open_view(_runtime, _agent, _tab, width):
+            self.widths.append(width)
+            return self.view, 20400
+        for name, value in (("open_view", open_view), ("tabs", lambda _port: list(self.tabs)),
                             ("port", lambda _runtime, _agent: 20400)):
             patcher = mock.patch.object(live, name, value)
             patcher.start()
@@ -414,7 +549,7 @@ class RouteTest(unittest.TestCase):
         cases = [(Request(), SimpleNamespace(principal_kind="agent", principal_id="owner")),
                  (Request(), SimpleNamespace(principal_kind="human", principal_id="someone-else")),
                  (Request(headers={"authorization": "Bearer x"}), self.owner)]
-        for tail in ([], ["stream"], ["input"]):
+        for tail in ([], ["stream"], ["input"], ["received"]):
             for request, context in cases:
                 with self.subTest(tail=tail, context=context), self.assertRaises(DomainError) as refused:
                     self.call(request, tail, context)
@@ -430,6 +565,11 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(json.loads(chunks[0].split("data: ", 1)[1]), {"view": "view-1", "tab": TAB})
         self.assertEqual(json.loads(chunks[2].split("data: ", 1)[1]), {"data": "jpeg-1", "width": 1280, "height": 800})
         self.assertEqual(self.closed, [True])
+        self.assertEqual(self.widths, [None])
+
+    def test_the_stream_opens_its_view_at_the_width_the_dashboard_draws_the_picture(self):
+        self.call(Request(query={"tab": TAB, "width": "900"}, disconnect_after=1), ["stream"])
+        self.assertEqual(self.widths, ["900"])
 
     def test_a_tab_that_closes_ends_the_stream_and_closes_the_view(self):
         for ending in ("the tab leaves the list", live.Closed()):
@@ -462,10 +602,10 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(self.closed, [True])
 
     def test_a_request_from_another_site_is_refused_on_every_path_and_one_from_the_dashboard_is_not(self):
-        for tail in ([], ["stream"], ["input"]):
+        for tail in ([], ["stream"], ["input"], ["received"]):
             for site in ("cross-site", "same-site", "none"):
                 with self.subTest(tail=tail, site=site), self.assertRaises(DomainError) as refused:
-                    self.call(Request("POST" if tail == ["input"] else "GET", query={"tab": TAB}, headers={"sec-fetch-site": site}), tail)
+                    self.call(Request("POST" if tail in (["input"], ["received"]) else "GET", query={"tab": TAB}, headers={"sec-fetch-site": site}), tail)
                 self.assertEqual(refused.exception.code, "csrf_required")
         self.assertEqual(self.call(Request(headers={"sec-fetch-site": "same-origin"}), [])["data"]["agent_id"], AGENT)
 
@@ -514,16 +654,28 @@ class RouteTest(unittest.TestCase):
 
     def test_input_goes_to_the_named_view_of_this_agent(self):
         sent = []
-        with mock.patch.object(live, "view", side_effect=lambda agent, view_id: SimpleNamespace(send=lambda events: sent.append((agent, view_id, events)))):
+        with mock.patch.object(live, "view", side_effect=lambda agent, view_id: SimpleNamespace(send=lambda events, order: sent.append((agent, view_id, events, order)))):
             events = [{"type": "text", "text": "hello"}]
             self.assertEqual(self.call(Request("POST", body={"view": "view-1", "events": events}), ["input"])["status"], "ok")
-        self.assertEqual(sent, [(AGENT, "view-1", events)])
+            self.assertEqual(self.call(Request("POST", body={"view": "view-1", "events": events, "order": 7}), ["input"])["status"], "ok")
+        self.assertEqual(sent, [(AGENT, "view-1", events, None), (AGENT, "view-1", events, 7)])
+
+    def test_the_dashboards_word_that_a_picture_arrived_goes_to_the_named_view_of_this_agent(self):
+        confirmed = []
+        with mock.patch.object(live, "view", side_effect=lambda agent, view_id: SimpleNamespace(confirm=lambda number, width=None: confirmed.append((agent, view_id, number, width)))):
+            self.assertEqual(self.call(Request("POST", body={"view": "view-1", "picture": 4}), ["received"])["status"], "ok")
+            self.assertEqual(self.call(Request("POST", body={"view": "view-1", "picture": 5, "width": 900}), ["received"])["status"], "ok")
+        self.assertEqual(confirmed, [(AGENT, "view-1", 4, None), (AGENT, "view-1", 5, 900)])
 
     def test_unknown_fields_and_paths_are_refused(self):
         with self.assertRaises(DomainError) as refused:
             self.call(Request("POST", body={"view": "view-1", "events": [], "tab": TAB}), ["input"])
         self.assertEqual(refused.exception.code, "validation_error")
-        for request, tail in ((Request("POST"), ["stream"]), (Request(), ["input"]), (Request(), ["other"])):
+        for body in ({"view": "view-1"}, {"view": "view-1", "picture": 1, "tab": TAB}):
+            with self.subTest(body=body), self.assertRaises(DomainError) as refused:
+                self.call(Request("POST", body=body), ["received"])
+            self.assertEqual(refused.exception.code, "validation_error")
+        for request, tail in ((Request("POST"), ["stream"]), (Request(), ["input"]), (Request(), ["received"]), (Request(), ["other"])):
             with self.subTest(tail=tail), self.assertRaises(DomainError) as refused:
                 self.call(request, tail)
             self.assertEqual(refused.exception.code, "not_found")

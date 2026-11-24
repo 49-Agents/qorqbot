@@ -38,7 +38,7 @@ class FilingPrograms:
         job = control.job
         with control.service.database.read() as uow:
             bound = completion.filing(uow, args["filing_id"])
-            if bound is None or bound["job_id"] != job["id"] or bound["program_id"] != job["kind"] or bound["business_id"] != job["business_id"]:
+            if bound is None or bound["job_id"] != job["id"] or bound["program_id"] != job["kind"] or bound["project_id"] != job["project_id"]:
                 raise DomainError("forbidden", "This job is not the registered job of that Context filing")
             stored = completion.receipt_for_filing(uow, bound["id"])
         control.check()
@@ -60,7 +60,7 @@ class FilingPrograms:
         """The two final definitions: the filing and instruction completion programs, with only the receipt as output."""
         run = self.run
         programs.register(Program(FILE, 2, ARGUMENTS, run, {RECEIPT: "allow"}, (RECEIPT,), FILE_RESOURCES,
-                                  scope_kinds=("business", "global"), global_capabilities=("read_global_context",), background_queue="context"))
+                                  scope_kinds=("project", "global"), global_capabilities=("read_global_context",), background_queue="context"))
         programs.register(Program(INSTRUCT, 1, ARGUMENTS, run, {RECEIPT: "allow"}, (RECEIPT,), INSTRUCT_RESOURCES,
-                                  scope_kinds=("business", "global"), global_capabilities=("read_global_context",), background_queue="context"))
+                                  scope_kinds=("project", "global"), global_capabilities=("read_global_context",), background_queue="context"))
         return programs

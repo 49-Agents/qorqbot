@@ -5,7 +5,7 @@ import unittest
 
 from qorqut_operations.contracts import InvocationOptions, new_id
 
-from test_side_chat_rename import build_runtime, create, invoke, source
+from private_thread_runtime import build_runtime, create, invoke, source
 
 
 def approval(runtime, title='Approve the pricing page'):
@@ -48,10 +48,11 @@ class PrivateMessageRefsTests(unittest.TestCase):
             'source': source(chat), 'text': 'See this', 'refs': [{'type': 'signoff', 'id': new_id()}]},
             InvocationOptions(idempotency_key=new_id()))
         self.assertEqual((result.status, result.error['code']), ('error', 'not_found'))
-        self.assertEqual(len(messages(runtime, chat)), 1)
-        refused = runtime.application.invoke(runtime.owner, 'side_chats_create', {'scope': 'global', 'text': 'About this',
-            'refs': [{'type': 'signoff', 'id': new_id()}]}, InvocationOptions(idempotency_key=new_id()))
+        refused = runtime.application.invoke(runtime.owner, 'owner_conversation_send', {'scope': 'global',
+            'source': source(chat), 'text': 'About this', 'refs': [{'type': 'signoff', 'id': new_id()}]},
+            InvocationOptions(idempotency_key=new_id()))
         self.assertEqual((refused.status, refused.error['code']), ('error', 'not_found'))
+        self.assertEqual(len(messages(runtime, chat)), 1)
 
     def test_only_known_reference_types_are_accepted(self):
         runtime = self.runtime

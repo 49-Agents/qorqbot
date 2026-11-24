@@ -26,7 +26,7 @@ def compactions(path):
 def pick(seed):
     """Cases as (agent, session, boundary), spread over agents, deepest sessions used for the deep cases."""
     sessions = []
-    for path in transcripts.session_files(run.PROJECTS):
+    for path in transcripts.session_files(run.CLAUDE_PROJECTS):
         count = compactions(path)
         if count:
             sessions.append((path.parent.name.rsplit("-agents-", 1)[1], path.stem[:8], count))

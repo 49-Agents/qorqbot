@@ -122,7 +122,7 @@ class SettingsTools:
     def caller(self, ctx, uow) -> str:
         """The installation owner's principal id, after proving the caller is the configured coordinator in person, at Global.
         A delegated identity acts for its parent on one assignment and never touches the owner's settings."""
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         owner, coordinator = installation_owner(uow), configured_ordubashy(uow)
         if (ctx.delegation_assignment_id is not None or not owner or not coordinator or ctx.principal_kind != "agent"
                 or ctx.principal_id != coordinator):
@@ -177,7 +177,7 @@ class SettingsTools:
         from qorqut.agents.global_scope import active_global
         with self.runtime.database.read() as uow:
             rows = uow.connection.execute(
-                "SELECT agent_id,name FROM agent_profiles WHERE home_business_id IS NULL AND status='active' ORDER BY name").fetchall()
+                "SELECT agent_id,name FROM agent_profiles WHERE status='active' ORDER BY name").fetchall()
             return [(row["agent_id"], row["name"]) for row in rows if active_global(uow.connection, row["agent_id"]) is not None]
 
     def _agents(self, owner):

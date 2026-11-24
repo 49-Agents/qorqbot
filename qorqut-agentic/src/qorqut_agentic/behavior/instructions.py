@@ -22,7 +22,7 @@ ALWAYS_SKILLS = (
     "qorqut-role-chat-references",
     "qorqut-role-owner-input", "qorqut-role-action-recording",
     "qorqut-role-owner-reminders", "qorqut-role-calendar",
-    "qorqut-plugin-email-management", "qorqut-role-business-tables",
+    "qorqut-plugin-email-management", "qorqut-role-project-tables",
     "qorqut-role-browser-control",
     "qorqut-qorqbot-guide",
 )

@@ -10,7 +10,7 @@ For an account with no file here, ask the owner before using it.
 - The addresses and aliases that may be used as the sender, and what each is for.
 - The access method: a model connector, the managed browser, or the native tools of an optional
   provider package (see `../providers/README.md`), and what to do when it is unavailable.
-- Any Project or business the owner associates with an address or alias. This is the owner's
+- Any Project the owner associates with an address or alias. This is the owner's
   guidance only. It grants nothing and is never extended beyond what is written.
 - Sending notes, and whether handled mail is recorded as Tasks.
 

@@ -1,10 +1,12 @@
 """A read-and-acknowledge request: posted by the coordinator, acknowledged by the owner, never a decision or a blocker."""
 from dataclasses import replace
+from pathlib import Path
+import tempfile
 import unittest
 
 from qorqut_operations.contracts import Principal, new_id, plain
 
-import test_side_chat_rename as chats
+import private_thread_runtime as chats
 import test_signoff_sources as fixture
 from qorqut.attention_queue import queue
 
@@ -25,19 +27,19 @@ class AcknowledgeTests(unittest.TestCase):
                    'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': role})
-            uow.repository('agent_profiles', business_id=None).insert({'agent_id': identity, 'principal_id': identity,
-                'namespace': 'ecosystem', 'name': role, 'workspace': role, 'profile_json': profile})
+            uow.repository('agent_profiles', project_id=None).insert({'agent_id': identity, 'principal_id': identity,
+                'name': role, 'workspace': role, 'profile_json': profile})
         return replace(self.ctx, principal=Principal(identity, 'agent'), source='mcp', profile_revision=1)
 
     def coordinator(self):
         ctx = self.agent('ordubashy')
-        self.policy.context_for = lambda principal_id, business_id=None, review_business_id=None, **_: replace(
-            ctx if principal_id == ctx.principal_id else self.ctx, business_id=business_id, review_business_id=review_business_id)
+        self.policy.context_for = lambda principal_id, project_id=None, review_project_id=None, **_: replace(
+            ctx if principal_id == ctx.principal_id else self.ctx, project_id=project_id, review_project_id=review_project_id)
         return ctx
 
     def post(self, ctx, key='daily-report', form=None, **extra):
         return self.app.invoke(ctx, 'signoffs_input_create', {'scope': 'global', 'request_key': key,
-            'form': {**REPORT, **(form or {})}, **({'report_task': {'id': 'work', 'business_id': None}} if {**REPORT, **(form or {})}['kind'] == 'acknowledge' else {}), **extra}, {'idempotency_key': new_id()})
+            'form': {**REPORT, **(form or {})}, **({'report_task': {'id': 'work', 'project_id': None}} if {**REPORT, **(form or {})}['kind'] == 'acknowledge' else {}), **extra}, {'idempotency_key': new_id()})
 
     def posted(self, ctx, **arguments):
         result = self.post(ctx, **arguments)
@@ -55,7 +57,7 @@ class AcknowledgeTests(unittest.TestCase):
 
     def state(self, identity):
         with self.db.read() as uow:
-            return uow.repository('signoffs', business_id=None).get(identity)['state']
+            return uow.repository('signoffs', project_id=None).get(identity)['state']
 
     def test_only_the_coordinator_posts_one(self):
         signoff = self.posted(self.coordinator())
@@ -159,7 +161,7 @@ class AcknowledgeTests(unittest.TestCase):
         question = {'title': 'Choose a date', 'kind': 'question', 'explanation': 'Which date?', 'selection_mode': 'none'}
         self.assertEqual(self.post(ctx, key='date', form=question).status, 'ok')
         overview = self.signoffs.notifications.overview(self.ctx)
-        counts = {row['name']: row for row in overview['businesses']}['Global']
+        counts = {row['name']: row for row in overview['projects']}['Global']
         self.assertEqual((counts['signoffs'], counts['to_read'], counts['total'], counts['urgent']), (1, 1, 1 + counts['tasks'], 0))
         listing = self.invoke('signoffs_list', {'states': ['pending']})
         self.assertEqual((listing['counts']['pending'], listing['to_read']), (2, 1))
@@ -170,9 +172,9 @@ class AcknowledgeCommentTests(unittest.TestCase):
     """The comment box is the Signoff's private conversation, on the real private-message path."""
 
     def setUp(self):
-        directory = chats.tempfile.TemporaryDirectory()
+        directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.runtime = chats.build_runtime(chats.Path(directory.name))
+        self.runtime = chats.build_runtime(Path(directory.name))
         self.addCleanup(self.runtime.database.close)
 
     def test_commenting_and_acknowledging_are_independent(self):

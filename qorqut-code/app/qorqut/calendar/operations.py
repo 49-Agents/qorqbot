@@ -61,7 +61,7 @@ class CalendarOperations:
         self.lock = threading.Lock()
 
     def access(self, ctx, uow):
-        if ctx.business_id or ctx.home_business_id or CAPABILITY not in ctx.global_capabilities:
+        if ctx.project_id or CAPABILITY not in ctx.global_capabilities:
             raise DomainError("forbidden", "Calendar tools require the Global calendar grant")
         installation = uow.repository("installation").get("service") or {}
         if ctx.principal_kind == "human" and installation.get("owner_principal_id") == ctx.principal_id:
@@ -70,7 +70,7 @@ class CalendarOperations:
             profile, _ = self.runtime.resolver.profile(ctx.principal, connection=uow.connection)
             from qorqut.management import ManagementService
             coordinator = profile.data["role"]["id"] == "ordubashy" and ManagementService._coordinator(uow) == ctx.principal_id
-            if (profile.data["status"] == "active" and profile.scope.kind == "ecosystem"
+            if (profile.data["status"] == "active"
                     and (coordinator or is_worker(uow.connection, ctx.principal_id))):
                 return
         raise DomainError("forbidden", "Private calendars belong to the owner, configured Ordubashy and granted global workers")

@@ -256,7 +256,7 @@ class StartSites(Fixture):
 class ManagedSessions(Fixture):
     """A managed session opened after a download sees our copy first, with nothing relaunched."""
 
-    def launch(self, environment=lambda profile, business: {"A": "1"}):
+    def launch(self, environment=lambda profile, project: {"A": "1"}):
         from qorqut.transport.managed_launch import ManagedLaunch
         launch = ManagedLaunch.__new__(ManagedLaunch)
         launch.agent_environment = environment

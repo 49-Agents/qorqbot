@@ -31,8 +31,8 @@ optional time-critical flag and an optional linked item. Each due occurrence has
 - `reminders_create`: `text`, then either `at` (one-off; ISO date/time with timezone
   offset) or `recurrence: {schedule, timezone}` (five-field cron and an IANA timezone,
   e.g. `{"schedule": "0 9 * * 1-5", "timezone": "<owner's timezone>"}`). Optional
-  `recipient_id`, `time_critical` (default false) and `linked_item: {type, id,
-  business_id}`. A recurring reminder starts at its first future slot; omit `at`. Both
+  `recipient_id`, `time_critical` (default false) and `linked_item: {type, id}`
+  (the record's type and id; its project is found from the id). A recurring reminder starts at its first future slot; omit `at`. Both
   you and the recipient must be able to read the linked item.
 - `reminders_get`: `reminder_id`. Returns the current `revision`, `occurrence_id`, `due_at`
   and `next_at`.

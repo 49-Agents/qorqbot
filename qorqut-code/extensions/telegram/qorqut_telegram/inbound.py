@@ -325,7 +325,7 @@ class Inbound:
             self._notice(uow, chat, update_id, "attachments",
                          "Attachments are not supported: only the text was passed on. Files, images and voice are never downloaded. "
                          "Please send the details as text, or use the dashboard upload flow for files.")
-        profile = uow.repository("agent_profiles", business_id=None).get(agent_id)
+        profile = uow.repository("agent_profiles", project_id=None).get(agent_id)
         if refusal is None:
             try:
                 bridge.check_agent_chat(uow, chat)

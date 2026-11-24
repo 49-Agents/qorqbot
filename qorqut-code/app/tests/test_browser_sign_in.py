@@ -308,6 +308,9 @@ class CommandTest(unittest.TestCase):
         # Agents' headless browsers draw no 3D; the owner's sign-in window still can.
         self.assertIn("--disable-3d-apis", headless)
         self.assertNotIn("--disable-3d-apis", window)
+        # The live view shows the page's own scrollbar, so the agents' browsers use the thin overlay kind.
+        self.assertIn("--enable-features=OverlayScrollbar", headless)
+        self.assertNotIn("--enable-features=OverlayScrollbar", window)
         self.assertEqual(headless[-1], "about:blank")
         self.assertEqual(window[-1], "https://slack.com")
         for flag in supervisor.profile_flags(META["managed"]):

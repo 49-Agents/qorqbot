@@ -21,11 +21,11 @@ class StartupInventory:
             # in this transaction instead of resolving the same agent's configuration again.
             actor_ctx = ctx
         else:
-            actor_ctx = agent_context.resolver.invocation_context(Principal(identity, 'agent'), business_id=ctx.business_id)
+            actor_ctx = agent_context.resolver.invocation_context(Principal(identity, 'agent'), project_id=ctx.project_id)
         self.ctx = self.app.current_context(actor_ctx, uow)
-        self.scopes = [ctx.business_id]
-        if ctx.business_id is None:
-            self.scopes += sorted(self.ctx.allowed_business_ids)
+        self.scopes = [ctx.project_id]
+        if ctx.project_id is None:
+            self.scopes += sorted(self.ctx.allowed_project_ids)
         self.legacy_binding = canonical_hash({'agent': identity, 'scopes': self.scopes})
 
     def read(self, ctx, name, args):
@@ -67,11 +67,11 @@ class StartupInventory:
         for kind in ('tasks', 'signoffs'):
             index, cursor = positions[kind]
             while index < len(self.scopes) and len(result[kind]) < limit:
-                business = self.scopes[index]
+                project = self.scopes[index]
                 try:
-                    ctx = self.app.current_context(self.ctx.select_business(business), self.uow)
+                    ctx = self.app.current_context(self.ctx.select_project(project), self.uow)
                     args = {'limit': limit - len(result[kind])}
-                    if business is None:
+                    if project is None:
                         args['scope'] = 'global'
                     if cursor is not None:
                         args['cursor'] = cursor
@@ -81,14 +81,14 @@ class StartupInventory:
                         args['proposer_principal_id'] = self.identity
                     data = self.read(ctx, kind + '_list', args)
                     rows = data['tasks' if kind == 'tasks' else 'items']
-                    # Global Signoff reads can include accessible business reviews;
-                    # only consume Global rows here; business pages follow separately.
-                    rows = [row for row in rows if kind != 'signoffs' or row.get('review_business_id') == business]
-                    fields = ('id', 'title', 'status', 'revision', 'due', 'snoozed_until', 'snoozed', 'business_name') if kind == 'tasks' else (
+                    # Global Signoff reads can include accessible project reviews;
+                    # only consume Global rows here; project pages follow separately.
+                    rows = [row for row in rows if kind != 'signoffs' or row.get('review_project_id') == project]
+                    fields = ('id', 'title', 'status', 'revision', 'due', 'snoozed_until', 'snoozed', 'project_name') if kind == 'tasks' else (
                         'id', 'title', 'state', 'decision_state', 'execution_state', 'status_revision',
                         'proposal_revision', 'updated_sequence', 'updated_at', 'actionable', 'superseded_by_id')
                     for row in rows:
-                        item = {**compact(row, fields), 'business_id': business}
+                        item = {**compact(row, fields), 'project_id': project}
                         if kind == 'signoffs':
                             item['attention'] = compact(row.get('attention', {}), ('urgent', 'blocking', 'notify'))
                         else:
@@ -98,9 +98,9 @@ class StartupInventory:
                     if cursor is not None:
                         continue
                 except DomainError as error:
-                    if error.code not in {'forbidden', 'policy_denied', 'not_found', 'scope_required', 'operation_unavailable', 'business_archived'}:
+                    if error.code not in {'forbidden', 'policy_denied', 'not_found', 'scope_required', 'operation_unavailable', 'project_archived'}:
                         raise
-                    result['unavailable'].append({'queue': kind, 'business_id': business, 'reason': error.code})
+                    result['unavailable'].append({'queue': kind, 'project_id': project, 'reason': error.code})
                 index, cursor = index + 1, None
             positions[kind] = [index, cursor]
         if positions['inbox'] is not None:
@@ -110,7 +110,7 @@ class StartupInventory:
                 inbox = self.app.inbox
                 data = inbox.pending(inbox.context(self.ctx, self.uow), self.uow,
                                      after=positions['inbox'], limit=limit)
-                result['inbox'] = [compact(row, ('id', 'business_id', 'source_type', 'source_id',
+                result['inbox'] = [compact(row, ('id', 'project_id', 'source_type', 'source_id',
                     'source_revision', 'event_type', 'summary', 'actor_id', 'actor_name', 'created_at')) for row in data['items']]
                 positions['inbox'] = data['next_cursor']
             except DomainError as error:

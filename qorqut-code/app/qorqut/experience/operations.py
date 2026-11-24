@@ -550,7 +550,7 @@ class Experience:
 
     def request_of(self, uow, proposal):
         """The proposal's latest approval request as a decoded Signoff row, or ``None``."""
-        return uow.repository('signoffs', business_id=None).get(proposal['signoff_id']) if proposal['signoff_id'] else None
+        return uow.repository('signoffs', project_id=None).get(proposal['signoff_id']) if proposal['signoff_id'] else None
 
     def addresses(self, uow, links, budget):
         """What a proposal addresses, as lines for the owner; cut to ``budget`` characters with the number left out."""
@@ -600,7 +600,7 @@ class Experience:
         if any(decision.mode == 'signoff' for decision in decisions.values()):
             raise DomainError('operation_unavailable', 'The Learning Applier is not allowed to ask the owner for input, so the '
                                                        'proposal has no approval request and was not filed')
-        plan = replace(plan, policy_binding=self.app._binding(ctx, decisions), review_business_id=None,
+        plan = replace(plan, policy_binding=self.app._binding(ctx, decisions), review_project_id=None,
                        review_scope=self.app._review_scope(ctx, plan), encoding_version=2, proposer_agent_id=ctx.agent_id,
                        initiated_by_principal_id=ctx.initiated_by_principal_id)
         return self.app.apply_prepared(ctx, plan, uow).data['signoff']['id']
@@ -717,7 +717,7 @@ class Experience:
             f"WHERE p.state='{WAITING}' AND s.state='answered' {where}", params).fetchall()
         changed = []
         for row in rows:
-            decision = (uow.repository('signoffs', business_id=None).get(row['signoff_id']) or {}).get('decision_json') or {}
+            decision = (uow.repository('signoffs', project_id=None).get(row['signoff_id']) or {}).get('decision_json') or {}
             state = {('approve',): APPROVED, ('reject',): REJECTED}.get(tuple(decision.get('selected_choices') or ()))
             if state is None:
                 continue                              # answered in words: the proposal waits for a revision
@@ -758,7 +758,7 @@ class Experience:
         for signoff in uow.connection.execute(
                 "SELECT id FROM signoffs WHERE proposer_principal_id=? AND request_key LIKE ? ORDER BY created_at, id",
                 (proposal['created_by'], f'{REQUEST_PREFIX}{proposal["id"]}:%')).fetchall():
-            row = uow.repository('signoffs', business_id=None).get(signoff['id'])
+            row = uow.repository('signoffs', project_id=None).get(signoff['id'])
             decision = row['decision_json'] or {}
             names = "(SELECT display_name FROM principals WHERE id={})"
             notes = [dict(note) for note in uow.connection.execute(

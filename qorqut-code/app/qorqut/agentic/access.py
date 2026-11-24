@@ -15,7 +15,7 @@ from qorqut_agentic.cli import OPERATIONS
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 
-from qorqut.agents.global_scope import active_role_holder
+from qorqut.agents.global_scope import active_role_holder, reaches_project
 from qorqut.agents.roles import LEARNING_APPLIER_ROLE
 from qorqut.management.identity import configured_ordubashy
 from qorqut.transport.auth import AuthenticatedPrincipal, current_agent_credential
@@ -63,7 +63,7 @@ class AgenticAccess:
             }},
             description=instruction_text('access-read-current-native-toolkit-access-and-routing-performs'),
             effect_kind="read", supports_signoff=False, exposure=frozenset({"mcp"}),
-            scope_kinds=frozenset({"global", "business", "agent_workspace"}),
+            scope_kinds=frozenset({"global", "project", "agent_workspace"}),
             global_capability="read_global_context", read=self.read,
         ))
 
@@ -85,7 +85,7 @@ class AgenticAccess:
             raise DomainError("registration_conflict", "Native registration does not match the current profile")
         current_agent_credential(uow.connection, AuthenticatedPrincipal(
             ctx.principal, registration["credential_id"], registration["id"]), now=time.time())
-        if context.get("project_id") is not None and context["project_id"] not in profile.scope.businesses:
+        if context.get("project_id") is not None and not reaches_project(uow.connection, profile.agent_id, context["project_id"]):
             raise DomainError("forbidden", "Project is outside current native access")
         can_manage = CAPABILITY in profile.scope.global_capabilities and profile.agent_id in {
             configured_ordubashy(uow),

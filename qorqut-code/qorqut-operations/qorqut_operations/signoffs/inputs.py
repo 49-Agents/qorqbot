@@ -3,6 +3,13 @@
 One kind asks for nothing: ``acknowledge`` puts a report or document in front of the owner and records that they read
 it. Only the coordinator creates one, it never blocks a Task, it notifies once, and its response carries no text or
 choice; the owner's comments go in the Signoff's private conversation.
+
+Another asks the owner to do something in a page: ``browser_action`` names one open tab of an agent's browser (``tab``, the
+reference the browser command ``tab-reference`` prints), so the request lands on the owner's attention queue with the tab
+to open instead of a description of where to click. Only the coordinator files one, and the tab must be open when it does
+(the ``tabs`` port; the engine cannot see a browser). The answer is fixed and is an ordinary single choice, ``done`` or
+``not_done`` with an optional note, so it needs no answer path of its own and a Task linked by ``source`` waits on it
+exactly as on a question.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -13,6 +20,7 @@ from qorqut_operations.application.plans import PlanBuilder, schema
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.conversations import SUMMARY
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.storage.repositories import decode_row
 from .lookup import LOCATED
 from .ports import ABSENT
@@ -25,6 +33,16 @@ MANAGEMENT_UNAVAILABLE = "The management domain is not installed"
 ACKNOWLEDGE = "acknowledge"
 # Over alias ``s``: a pending or decided read-and-acknowledge request. Only input requests carry ``$.input``.
 ACKNOWLEDGE_SQL = "(s.category='input_request' AND json_extract(s.preview_json,'$.input.kind')='acknowledge')"
+BROWSER_ACTION = "browser_action"
+# A tab reference id: the agent's UUID, a colon and Chrome's 32-hex id of the tab. The host's ``native_chat.references.TAB``
+# is the same pattern; it is spelled here because this package never imports the host.
+TAB_REFERENCE = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9A-F]{32}$"
+# The owner's whole answer to a browser action. The agent sends none of it; the server fills it in.
+BROWSER_ACTION_ANSWERS = {"selection_mode": "single", "selection_required": True, "notes_required": False,
+    "response_policy": "owner_only", "choices": [
+        {"id": "done", "label": "Done", "explanation": "The owner did what the page needed."},
+        {"id": "not_done", "label": "Could not do it", "explanation": "The owner could not do it; the note may say why."}]}
+TABS_UNAVAILABLE = "Browser actions need the agents' browser, which this installation does not have"
 
 ATTENTION = schema({"notify": {"type": "boolean"}, "urgent": {"type": "boolean"},
     "blocking": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 2000},
@@ -33,7 +51,8 @@ DRAFT_FIELD = schema({"id": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-
     "label": {**TEXT, "maxLength": 100}, "value": {"type": "string", "maxLength": 16000},
     "multiline": {"type": "boolean"}, "required": {"type": "boolean"}}, ("id", "label", "value"))
 LEGACY_FORM = schema({"title": {**TEXT, "maxLength": 200}, "explanation": TEXT,
-    "kind": {"enum": ["question", "request", "draft_review", ACKNOWLEDGE]}, "selection_mode": {"enum": ["none", "single", "multiple"]},
+    "kind": {"enum": ["question", "request", "draft_review", ACKNOWLEDGE, BROWSER_ACTION]},
+    "selection_mode": {"enum": ["none", "single", "multiple"]}, "tab": {"type": "string", "pattern": TAB_REFERENCE},
     "response_policy": {"enum": ["management_allowed", "owner_only"]},
     "choices": {"type": "array", "items": CHOICE, "maxItems": 26},
     "selection_required": {"type": "boolean"}, "notes_required": {"type": "boolean"},
@@ -41,12 +60,17 @@ LEGACY_FORM = schema({"title": {**TEXT, "maxLength": 200}, "explanation": TEXT,
     "previous_review_id": {"type": "string", "format": "uuid"}},
     ("title", "explanation", "kind", "selection_mode"))
 FORM = {"oneOf": [LEGACY_FORM, questions.FORM]}
-SCOPE = {"scope": {"enum": ["business", "global"]}}
+SCOPE = {"scope": {"enum": ["project", "global"]}}
 
 
 def acknowledges(form):
     """Whether an input form (``preview_json.input`` or a DTO's ``input``) is a read-and-acknowledge request."""
     return isinstance(form, dict) and form.get('kind') == ACKNOWLEDGE
+
+
+def browser_action(form):
+    """Whether an input form asks the owner to act in a browser tab."""
+    return isinstance(form, dict) and form.get('kind') == BROWSER_ACTION
 
 
 def normalize_attention(values, *, acknowledge=False):
@@ -73,6 +97,16 @@ def validate_form(form):
         if mode != 'none' or form['notes_required']:
             raise DomainError('validation_error', 'A read-and-acknowledge request takes no choices and no written answer')
         form['response_policy'] = 'owner_only'
+    if browser_action(form):
+        if not form.get('tab'):
+            raise DomainError('validation_error', 'A browser action names its tab: put the reference tab-reference printed in tab')
+        if mode != 'none' or form['notes_required']:
+            raise DomainError('validation_error', 'A browser action takes no choices and no required note: send selection_mode none; '
+                                                  'the owner answers Done or Could not do it')
+        # The answer set is the server's: the stored form is always the same for the same request, so a repeat stays idempotent.
+        form.update(BROWSER_ACTION_ANSWERS, choices=[dict(choice) for choice in BROWSER_ACTION_ANSWERS['choices']])
+    elif 'tab' in form:
+        raise DomainError('validation_error', 'tab belongs only to a browser_action request')
     if form['kind'] == 'draft_review':
         if not form.get('draft_fields'):
             raise DomainError('validation_error', 'Draft review requires editable fields')
@@ -117,9 +151,9 @@ class InputRequests:
         self.service = signoffs
 
     def descriptors(self):
-        common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
+        common = dict(supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
             global_capability='read_global_context',
-            resolve_namespace=lambda c,a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''))
+            resolve_namespace=lambda c,a: 'global' if a.get('scope') == 'global' else 'project:' + (c.project_id or ''))
         descriptors = []
         for name, properties, required, description in (
             ('signoffs_input_create', {'request_key': {"type": "string", "minLength": 1, "maxLength": 200},
@@ -133,6 +167,9 @@ class InputRequests:
             # An operation that names one Signoff finds its review scope from the id when the caller selects none.
             located = (dict(locate_scope=self.service.lookup, description=description + ' ' + LOCATED)
                        if 'signoff_id' in properties else dict(description=description))
+            # A source and a report's Task name their records by type and id; their projects are found from the ids.
+            if name == 'signoffs_input_create':
+                located['complete_references'] = References(Ref(('source',)), Ref(('report_task',), kind='task'))
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), **common, **located,
                 prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply))
         # Delegated management answers need the management domain; without it the operation is not installed.
@@ -150,11 +187,11 @@ class InputRequests:
 
     def prepare(self, name, ctx, args, options, uow):
         if args.get('scope') == 'global':
-            ctx = replace(ctx, business_id=None, review_business_id=None)
+            ctx = replace(ctx, project_id=None, review_project_id=None)
         ctx = self.service._context(ctx, uow)
-        scope = {'kind': 'business', 'business_id': ctx.business_id} if ctx.business_id else {'kind': 'global'}
+        scope = {'kind': 'project', 'project_id': ctx.project_id} if ctx.project_id else {'kind': 'global'}
         builder = PlanBuilder(ctx, name, args, 'Request owner input',
-            namespace='business:' + ctx.business_id if ctx.business_id else 'global', affected_scope=scope)
+            namespace='project:' + ctx.project_id if ctx.project_id else 'global', affected_scope=scope)
         if name == 'signoffs_input_create':
             form = validate_form({'response_policy': 'owner_only', **args['form']} if 'source' in args else args['form'])
             acknowledge = acknowledges(form)
@@ -167,6 +204,11 @@ class InputRequests:
                     self.service.reports.check(ctx, args['report_task'], uow)
             elif 'report_task' in args:
                 raise DomainError('validation_error', 'report_task belongs only to a read-and-acknowledge report')
+            if browser_action(form):
+                if not self.is_ordubashy(ctx, uow):
+                    raise DomainError('forbidden', 'Only Ordubashy asks the owner to act in a browser tab; give Ordubashy the tab '
+                                                   'reference, the page and what the owner must do there')
+                self.tab(ctx, form['tab'], uow)
             if 'source' in args:
                 self.service.sources.check_source(ctx, args['source'], uow)
                 if form['response_policy'] != 'owner_only':
@@ -174,12 +216,12 @@ class InputRequests:
             if form.get('previous_review_id'):
                 previous = self.service._row(ctx, form['previous_review_id'], uow)
                 if (previous['proposer_principal_id'] != ctx.principal_id or previous['state'] != 'answered'
-                        or previous['review_business_id'] != ctx.business_id
+                        or previous['review_project_id'] != ctx.project_id
                         or previous['preview_json'].get('input', {}).get('kind') != 'draft_review'):
                     raise DomainError('validation_error', 'Previous review must be an answered draft review by the same proposer in this scope')
             attention = normalize_attention(args.get('attention', {}), acknowledge=acknowledge)
-            row = decode_row(uow.connection.execute("SELECT * FROM signoffs WHERE proposer_principal_id=? AND review_business_id IS ? AND request_key=? AND state='pending' AND superseded_by_id IS NULL",
-                (ctx.principal_id, ctx.business_id, args['request_key'])).fetchone())
+            row = decode_row(uow.connection.execute("SELECT * FROM signoffs WHERE proposer_principal_id=? AND review_project_id IS ? AND request_key=? AND state='pending' AND superseded_by_id IS NULL",
+                (ctx.principal_id, ctx.project_id, args['request_key'])).fetchone())
             replaced = None
             if row and row['preview_json'].get('input') != form:
                 # A new report under the same key takes the place of the one the owner has not acknowledged yet.
@@ -189,7 +231,7 @@ class InputRequests:
             if row and acknowledge:
                 link = self.service.reports.find(row['id'], uow)
                 given = args.get('report_task')
-                if link and (not given or (link['task_id'], link['task_business_id']) != (given['id'], given['business_id'])):
+                if link and (not given or (link['task_id'], link['task_project_id']) != (given['id'], given['project_id'])):
                     raise DomainError('request_conflict', 'This report already belongs to another Task; use a new request_key for a report on a different Task')
             identity = row['id'] if row else new_id()
             builder.record('signoffs', identity, row, {'form': form, 'request_key': args['request_key'],
@@ -208,17 +250,20 @@ class InputRequests:
             builder.record('signoffs', row['id'], row, values, action='attention_set' if values else 'input_cancel')
         return builder.build()
 
+    def tab(self, ctx, tab_id, uow):
+        """The tab a browser action names, as the browser lists it now: ``{"id", "title", "url"}``. A closed tab is refused
+        when the request is filed, so the owner is never sent to a page that is already gone."""
+        found = self.service.ports.require('tabs', TABS_UNAVAILABLE).check(self.service.app, ctx, tab_id, uow)
+        return {'id': tab_id, 'title': found.get('title') or '', 'url': found.get('url') or ''}
+
     def is_ordubashy(self, ctx, uow):
         """Whether the caller is the active ecosystem coordinator (Ordubashy)."""
         if ctx.principal_kind != 'agent':
             return False
-        profile = uow.repository('agent_profiles', business_id=None).get(ctx.principal_id)
-        return bool(profile and profile['status'] == 'active' and profile['profile_json']['role']['id'] == 'ordubashy'
-                    and profile['profile_json']['scope']['kind'] == 'ecosystem')
+        profile = uow.repository('agent_profiles', project_id=None).get(ctx.principal_id)
+        return bool(profile and profile['status'] == 'active' and profile['profile_json']['role']['id'] == 'ordubashy')
 
     def authorize_update(self, ctx, row, name, uow):
-        if row['category'] == 'side_chat':
-            raise DomainError('invalid_transition', 'Side chats use private messages and owner-only close')
         if ctx.principal_kind == 'human':
             self.service._context(ctx, uow, owner=True)
         elif row['proposer_principal_id'] != ctx.principal_id:
@@ -257,13 +302,16 @@ class InputRequests:
     def apply(self, ctx, plan, uow):
         change = plan.changes[0]
         identity, values = change.resource.resource_id, plain(change.values)
-        repo = uow.repository('signoffs', business_id=change.resource.business_id)
+        repo = uow.repository('signoffs', project_id=change.resource.project_id)
         row = repo.get(identity)
         if change.action in {'attention_set', 'input_cancel'}:
-            scoped = replace(ctx, business_id=change.resource.business_id, review_business_id=change.resource.business_id)
+            scoped = replace(ctx, project_id=change.resource.project_id, review_project_id=change.resource.project_id)
             row = self.service._row(scoped, identity, uow)
             self.authorize_update(scoped, row, plan.operation_name, uow)
         existed = row is not None
+        # The tab is checked again where the request is written: it may have closed since it was prepared.
+        tab = (self.tab(ctx, values['form']['tab'], uow)
+               if change.action == 'input_create' and browser_action(values['form']) else None)
         if change.action == 'input_create' and not row:
             form = values['form']
             replaces = values.get('replaces_id')
@@ -274,7 +322,7 @@ class InputRequests:
                         and old['proposer_principal_id'] == ctx.principal_id and acknowledges(old['preview_json'].get('input'))):
                     self.service._update(old, {'state': 'cancelled'}, uow)
             row = repo.insert({'id': identity, 'category': 'input_request', 'request_key': values['request_key'],
-                'review_scope_kind': 'business' if change.resource.business_id else 'global',
+                'review_scope_kind': 'project' if change.resource.project_id else 'global',
                 'proposer_principal_id': ctx.principal_id, 'proposer_agent_id': ctx.agent_id,
                 'initiated_by_principal_id': ctx.initiated_by_principal_id,
                 'operation_name': plan.operation_name, 'operation_version': 1, 'proposal_revision': 1,
@@ -285,11 +333,9 @@ class InputRequests:
                 'affected_scope_json': plain(plan.affected_scope), 'state': 'pending',
                 'updated_sequence': uow.next_sequence('signoffs'), 'created_at': self.service.clock()})
             if acknowledges(form) and values.get('report_task'):
-                scoped = replace(ctx, business_id=change.resource.business_id, review_business_id=change.resource.business_id)
+                scoped = replace(ctx, project_id=change.resource.project_id, review_project_id=change.resource.project_id)
                 self.service.reports.check(scoped, values['report_task'], uow)
                 self.service.reports.link(ctx, identity, values['report_task'], uow)
-            if self.service.ports.management is not ABSENT:
-                self.service.ports.management.auto_route_input(ctx, row, uow)
         elif change.action == 'input_cancel':
             row = self.service._update(row, {'state': 'cancelled'}, uow)
         if 'attention' in values:
@@ -298,6 +344,9 @@ class InputRequests:
             if existed and changed:
                 row = self.service._update(row, {}, uow)
         result = {'signoff': self.service._dto(row, uow)}
+        if tab:
+            # The page as it is now, so the agent can check it is the one it told the owner about; the owner sees only its label.
+            result['tab'] = tab
         if 'source' in plan.arguments:
             source = plain(plan.arguments['source'])
             self.service.sources.check_source(ctx, source, uow)
@@ -312,8 +361,8 @@ class InputRequests:
         if ctx.principal_kind != 'agent' or ctx.principal_id != self._coordinator(uow):
             raise DomainError('forbidden', 'Only the configured management coordinator can answer delegated input')
         return PlanBuilder(ctx, 'signoffs_input_answer_delegated', args, 'Answer management input',
-            namespace=self.service.ports.references.task_namespace(ctx,args), affected_scope={'kind': 'business', 'business_id': ctx.business_id}
-            if ctx.business_id else {'kind':'global'}).build()
+            namespace=self.service.ports.references.task_namespace(ctx,args), affected_scope={'kind': 'project', 'project_id': ctx.project_id}
+            if ctx.project_id else {'kind':'global'}).build()
 
     def apply_delegated(self, ctx, plan, uow):
         args = plain(plan.arguments)
@@ -330,7 +379,7 @@ class InputRequests:
                 or not route['management_allowed'] or row['preview_json']['input'].get('response_policy','owner_only') != 'management_allowed'
                 or row['preview_json']['input'].get('kind') != 'question'):
             raise DomainError('forbidden', 'This input request is not delegated to management')
-        if ctx.business_id is not None and row['review_business_id'] != ctx.business_id:
+        if ctx.project_id is not None and row['review_project_id'] != ctx.project_id:
             raise DomainError('forbidden', 'Input request is outside the coordinator scope')
         notes, selected = validate_response(row['preview_json']['input'], args.get('notes', ''), args.get('selected_choices') or [])
         # The application dispatcher owns idempotency, including exact MCP

@@ -40,12 +40,12 @@ def item_revision(row: Mapping[str, Any]):
 def authorize_item_read(application, ctx, operation: str, uow) -> None:
     """Refuse unless the caller may currently use the named *read* operation (v1 ``ContextItems.authorize``).
 
-    Global callers are judged by the descriptor as declared, business callers of a global-capable
-    operation by its business policy; the resolved mode must be ``allow``. The domain's own read handler is still
+    Global callers are judged by the descriptor as declared, project callers of a global-capable
+    operation by its project policy; the resolved mode must be ``allow``. The domain's own read handler is still
     called by the lookup where v1 called it."""
     descriptor = application.registry.get(operation)
-    if ctx.business_id is not None and descriptor.global_capability and "business" in descriptor.scope_kinds:
-        descriptor = descriptor.business_policy
+    if ctx.project_id is not None and descriptor.global_capability and "project" in descriptor.scope_kinds:
+        descriptor = descriptor.project_policy
     if application.policy.resolve(ctx, descriptor, (), uow).mode != "allow":
         raise DomainError("forbidden", "The item's read operation is not permitted")
 
@@ -71,7 +71,7 @@ class ItemLookup(Protocol):
     # Optional Project Inventory metadata port. This method is deliberately not required by ``_LOOKUP_METHODS``: old
     # lookups keep working for trees, relationships and ordinary item resolution. A Project inventory caller requires
     # it only for a selected kind and fails with the concrete kind when the port is absent.
-    def project_inventory_window(self, ctx, uow, *, kind, project_id, source_business_id, include_links,
+    def project_inventory_window(self, ctx, uow, *, kind, project_id, source_project_id, include_links,
                                  after, limit): ...
 
 

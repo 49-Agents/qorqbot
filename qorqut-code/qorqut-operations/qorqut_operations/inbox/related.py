@@ -15,36 +15,36 @@ from __future__ import annotations
 EXCLUDED_ROLES = ("assigned_to", "blocked_by")
 
 
-def related(uow, business_id, group_id: str, item_type: str, identity: str) -> bool:
+def related(uow, project_id, group_id: str, item_type: str, identity: str) -> bool:
     """Whether ``identity`` is directly related work of the group Task ``group_id`` (child, or linked either way)."""
     if group_id == identity and item_type == "task":
         return False
     if item_type == "task" and uow.connection.execute(
-            "SELECT 1 FROM tasks WHERE business_id IS ? AND id=? AND parent_id=?", (business_id, identity, group_id)).fetchone():
+            "SELECT 1 FROM tasks WHERE project_id IS ? AND id=? AND parent_id=?", (project_id, identity, group_id)).fetchone():
         return True
     return uow.connection.execute(
-        "SELECT 1 FROM relationships WHERE business_id IS ? AND role NOT IN (" + ",".join("?" for _ in EXCLUDED_ROLES) + ") AND "
+        "SELECT 1 FROM relationships WHERE project_id IS ? AND role NOT IN (" + ",".join("?" for _ in EXCLUDED_ROLES) + ") AND "
         "((from_type='task' AND from_id=? AND to_type=? AND to_id=?) OR (to_type='task' AND to_id=? AND from_type=? AND from_id=?)) LIMIT 1",
-        (business_id, *EXCLUDED_ROLES, group_id, item_type, identity, group_id, item_type, identity)).fetchone() is not None
+        (project_id, *EXCLUDED_ROLES, group_id, item_type, identity, group_id, item_type, identity)).fetchone() is not None
 
 
-def following(uow, business_id, agent_id: str, group_id: str) -> bool:
+def following(uow, project_id, agent_id: str, group_id: str) -> bool:
     return uow.connection.execute(
-        "SELECT 1 FROM thread_follows WHERE business_id IS ? AND item_type='task' AND item_id=? AND principal_id=? AND following=1",
-        (business_id, group_id, agent_id)).fetchone() is not None
+        "SELECT 1 FROM thread_follows WHERE project_id IS ? AND item_type='task' AND item_id=? AND principal_id=? AND following=1",
+        (project_id, group_id, agent_id)).fetchone() is not None
 
 
 def routed(uow, subscription, item_type: str, identity: str) -> bool:
     """Whether the related-work ``subscription`` of a group Task covers the event about ``identity``."""
-    business_id, group_id = subscription["business_id"], subscription["source_id"]
-    return (bool(subscription["include_related"]) and following(uow, business_id, subscription["agent_id"], group_id)
-            and related(uow, business_id, group_id, item_type, identity))
+    project_id, group_id = subscription["project_id"], subscription["source_id"]
+    return (bool(subscription["include_related"]) and following(uow, project_id, subscription["agent_id"], group_id)
+            and related(uow, project_id, group_id, item_type, identity))
 
 
-def subscribers(uow, business_id, item_type: str, identity: str) -> set[str]:
+def subscribers(uow, project_id, item_type: str, identity: str) -> set[str]:
     """The agents whose related-work subscription to a group Task covers ``identity``."""
     return {row["agent_id"] for row in uow.connection.execute(
-        "SELECT * FROM inbox_subscriptions WHERE business_id IS ? AND source_type='tasks' AND include_related=1", (business_id,))
+        "SELECT * FROM inbox_subscriptions WHERE project_id IS ? AND source_type='tasks' AND include_related=1", (project_id,))
         if routed(uow, row, item_type, identity)}
 
 

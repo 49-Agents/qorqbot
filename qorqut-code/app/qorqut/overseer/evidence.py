@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Mapping, Protocol
 
 from qorqut_operations.contracts import DomainError
-from qorqut_business_docs_versioning import HistoryStore, NotFound
+from qorqut_docs_versioning import HistoryStore, NotFound
 
 MAX_THREAD_PAGES = 1
 MAX_THREAD_PAGE_NOTES = 20
@@ -70,9 +70,9 @@ def _episode_source_key(ref):
         return None
     if not isinstance(identity, str) or not identity:
         return None
-    if not ((namespace.get("kind") == "global" and namespace.get("business_id") is None) or
-            (namespace.get("kind") == "business" and isinstance(namespace.get("business_id"), str)
-             and namespace.get("business_id"))):
+    if not ((namespace.get("kind") == "global" and namespace.get("project_id") is None) or
+            (namespace.get("kind") == "project" and isinstance(namespace.get("project_id"), str)
+             and namespace.get("project_id"))):
         return None
     if (base_kind == "transcript"
             and ref.get("episode_id") not in {
@@ -91,12 +91,12 @@ def _episode_relation(relation, source_ref):
     identity = relation.get("record_id") or relation.get("id") or relation.get("resource_id")
     if kind is None or not isinstance(identity, str) or not identity:
         return None
-    if "business_id" in relation:
-        business_id = relation["business_id"]
-        if business_id is None:
-            namespace = {"kind": "global", "business_id": None}
-        elif isinstance(business_id, str) and business_id:
-            namespace = {"kind": "business", "business_id": business_id}
+    if "project_id" in relation:
+        project_id = relation["project_id"]
+        if project_id is None:
+            namespace = {"kind": "global", "project_id": None}
+        elif isinstance(project_id, str) and project_id:
+            namespace = {"kind": "project", "project_id": project_id}
         else:
             return None
     else:
@@ -104,9 +104,9 @@ def _episode_relation(relation, source_ref):
         if not isinstance(namespace, Mapping):
             return None
         namespace = dict(namespace)
-    if not ((namespace.get("kind") == "global" and namespace.get("business_id") is None) or
-            (namespace.get("kind") == "business" and isinstance(namespace.get("business_id"), str)
-             and namespace.get("business_id"))):
+    if not ((namespace.get("kind") == "global" and namespace.get("project_id") is None) or
+            (namespace.get("kind") == "project" and isinstance(namespace.get("project_id"), str)
+             and namespace.get("project_id"))):
         return None
     label = raw_kind if isinstance(raw_kind, str) and raw_kind else kind
     return (_key(namespace), kind, identity), label
@@ -148,15 +148,15 @@ def resolve_selection(access, selection):
         raise DomainError("unsupported_filter", "Experience sources do not provide a complete work-type or workflow mapping")
     if selection["mode"] == "explicit":
         namespaces = selection.get("namespaces")
-        if not isinstance(namespaces, list) or len(namespaces) > 100 or not all(isinstance(ns, Mapping) and set(ns) == {"kind", "business_id"} for ns in namespaces):
+        if not isinstance(namespaces, list) or len(namespaces) > 100 or not all(isinstance(ns, Mapping) and set(ns) == {"kind", "project_id"} for ns in namespaces):
             raise DomainError("validation_error", "Explicit evidence selection requires namespaces")
     result = access.resolve_selection(dict(selection))
     if not isinstance(result, Mapping) or not isinstance(result.get("namespaces"), list):
         raise DomainError("forbidden", "Experience admission did not resolve namespaces")
     for namespace in result["namespaces"]:
         if not isinstance(namespace, Mapping) or not (
-            namespace.get("kind") == "global" and namespace.get("business_id") is None or
-            namespace.get("kind") == "business" and isinstance(namespace.get("business_id"), str) and namespace.get("business_id")):
+            namespace.get("kind") == "global" and namespace.get("project_id") is None or
+            namespace.get("kind") == "project" and isinstance(namespace.get("project_id"), str) and namespace.get("project_id")):
             raise DomainError("forbidden", "Experience admission returned an invalid namespace")
     if selection["mode"] == "explicit":
         requested = {tuple(sorted(ns.items())) for ns in selection["namespaces"]}
@@ -205,20 +205,20 @@ class AdmittedReaders:
         locator = ref.get("locator", {})
         document_id, version = locator.get("document_id"), locator.get("version")
         namespace = ref.get("namespace", {})
-        business_id = namespace.get("business_id")
-        if (namespace.get("kind") == "global" and business_id is not None or
-            namespace.get("kind") == "business" and not business_id or
-            namespace.get("kind") not in {"global", "business"} or
+        project_id = namespace.get("project_id")
+        if (namespace.get("kind") == "global" and project_id is not None or
+            namespace.get("kind") == "project" and not project_id or
+            namespace.get("kind") not in {"global", "project"} or
             not isinstance(version, int) or version < 1 or not isinstance(document_id, str)):
             raise DomainError("validation_error", "Invalid document history reference")
         # Ensure the registered document really belongs to the selected namespace.
         # Working-memory history retains its separate private source visibility.
-        row = uow.connection.execute("SELECT kind FROM documents WHERE id=? AND business_id IS ?", (document_id, business_id)).fetchone()
+        row = uow.connection.execute("SELECT kind FROM documents WHERE id=? AND project_id IS ?", (document_id, project_id)).fetchone()
         if row is None:
             raise DomainError("evidence_unavailable", "Registered document is unavailable")
         if row["kind"] == "working_memory":
             raise DomainError("evidence_unavailable", "Working-memory history requires its private reader")
-        space = "business:" + business_id if business_id else "global"
+        space = "project:" + project_id if project_id else "global"
         try:
             versioned = HistoryStore(uow.connection).get_document(space, document_id, version=version)
         except NotFound as exc:
@@ -257,9 +257,9 @@ class OperationsReaders:
             raise DomainError("forbidden", "Required source plugin is not enabled")
         namespace = self.app.namespace(ctx, descriptor, arguments)
         if namespace == "global":
-            ctx = replace(ctx, business_id=None, review_business_id=None)
-        elif namespace.startswith("business:") and ctx.business_id is None:
-            options = replace(options, business_id=namespace.removeprefix("business:"))
+            ctx = replace(ctx, project_id=None, review_project_id=None)
+        elif namespace.startswith("project:") and ctx.project_id is None:
+            options = replace(options, project_id=namespace.removeprefix("project:"))
             ctx = self.app._options_context(ctx, options)
         self.app.authorize(ctx, descriptor, (), uow, namespace=namespace,
                            arguments=arguments if ctx.delegation_assignment_id is not None else None)
@@ -1213,8 +1213,8 @@ def _key(value):
 
 
 def _scope(namespace):
-    return {"description": "Global" if namespace["kind"] == "global" else "Project " + namespace["business_id"],
-            "project_ids": [] if namespace["kind"] == "global" else [namespace["business_id"]],
+    return {"description": "Global" if namespace["kind"] == "global" else "Project " + namespace["project_id"],
+            "project_ids": [] if namespace["kind"] == "global" else [namespace["project_id"]],
             "work_types": [], "workflow_refs": [], "conditions": [], "exceptions": []}
 
 
@@ -1241,11 +1241,11 @@ class HostScanner:
         tasks, agents = set(selection.get("task_ids", [])), set(selection.get("agent_ids", []))
         old = after or ["", "", ""]
         for namespace in sorted(selection["namespaces"], key=_key):
-            nskey, business_id = _key(namespace), namespace["business_id"]
-            statements = [("action", "action_key", "action_logs", "business_id"),
-                          ("document", "id", "documents", "business_id"),
-                          ("signoff", "id", "signoffs", "review_business_id"),
-                          ("task", "id", "tasks", "business_id")]
+            nskey, project_id = _key(namespace), namespace["project_id"]
+            statements = [("action", "id", "action_logs", "project_id"),
+                          ("document", "id", "documents", "project_id"),
+                          ("signoff", "id", "signoffs", "review_project_id"),
+                          ("task", "id", "tasks", "project_id")]
             for kind, column, table, column_scope in statements:
                 if (tasks and kind == "document") or (nskey, kind) < (old[0], old[1]):
                     continue
@@ -1263,7 +1263,7 @@ class HostScanner:
                 if agents:
                     marks = ",".join("?" for _ in agents)
                     if kind == "task":
-                        clause += " AND (created_by IN (" + marks + ") OR EXISTS (SELECT 1 FROM thread_messages m "                                   "WHERE m.business_id IS tasks.business_id AND m.item_type='task' AND m.item_id=tasks.id "                                   "AND (m.author_id IN (" + marks + ") OR m.recorder_id IN (" + marks + "))))"
+                        clause += " AND (created_by IN (" + marks + ") OR EXISTS (SELECT 1 FROM thread_messages m "                                   "WHERE m.project_id IS tasks.project_id AND m.item_type='task' AND m.item_id=tasks.id "                                   "AND (m.author_id IN (" + marks + ") OR m.recorder_id IN (" + marks + "))))"
                         parameters.extend(sorted(agents) * 3)
                     elif kind == "signoff":
                         clause += " AND (proposer_agent_id IN (" + marks + ") OR proposer_principal_id IN (" + marks + "))"
@@ -1277,20 +1277,19 @@ class HostScanner:
                 inserted, fresh = self._inserted_after(table)
                 sql = (f"SELECT {column} FROM {table} WHERE {column_scope} IS ? AND {column}>?{clause}{inserted} "
                        f"ORDER BY {column} LIMIT ?")
-                for row in uow.connection.execute(sql, (business_id, bound, *parameters, *fresh, limit + 1)):
+                for row in uow.connection.execute(sql, (project_id, bound, *parameters, *fresh, limit + 1)):
                     rows.append(([nskey, kind, row[0]], namespace, kind, row[0]))
-            if not tasks and (nskey, "transcript") >= (old[0], old[1]):
+            if not tasks and project_id is None and (nskey, "transcript") >= (old[0], old[1]):
                 bound = old[2] if (nskey, "transcript") == (old[0], old[1]) else ["", "", ""]
                 if not isinstance(bound, list) or len(bound) != 3:
                     raise DomainError("validation_error", "Invalid transcript enumeration cursor")
                 agent_filter = " AND c.agent_id IN (" + ",".join("?" for _ in agents) + ")" if agents else ""
                 inserted, fresh = self._inserted_after("native_captures", "c")
                 captures = uow.connection.execute("SELECT c.agent_id,c.provider,c.conversation_id FROM native_captures c "
-                    "JOIN agent_profiles p ON p.agent_id=c.agent_id WHERE p.home_business_id IS ? "
-                    "AND c.receipt_id IS NOT NULL AND c.captured_length>0 "
+                    "JOIN agent_profiles p ON p.agent_id=c.agent_id WHERE c.receipt_id IS NOT NULL  AND c.captured_length>0 "
                     "AND (c.agent_id,c.provider,c.conversation_id)>(?,?,?)" + agent_filter + inserted +
                     " ORDER BY c.agent_id,c.provider,c.conversation_id LIMIT ?",
-                    (business_id, *bound, *sorted(agents), *fresh, limit + 1))
+                    (*bound, *sorted(agents), *fresh, limit + 1))
                 for row in captures:
                     identity = [row[0], row[1], row[2]]
                     rows.append(([nskey, "transcript", identity], namespace, "transcript", identity))
@@ -1307,19 +1306,19 @@ class HostScanner:
             return False
         namespace = ref.get("namespace") or {}
         task_id = ref.get("record_id")
-        if namespace.get("kind") not in {"global", "business"} or not task_id:
+        if namespace.get("kind") not in {"global", "project"} or not task_id:
             raise DomainError("evidence_unavailable", "Task ancestry is unavailable")
         self.access.authorize_source(ref)
         with self.runtime.database.read() as uow:
-            row = uow.connection.execute("SELECT created_by FROM tasks WHERE business_id IS ? AND id=?",
-                                         (namespace.get("business_id"), task_id)).fetchone()
+            row = uow.connection.execute("SELECT created_by FROM tasks WHERE project_id IS ? AND id=?",
+                                         (namespace.get("project_id"), task_id)).fetchone()
         if row is None:
             raise DomainError("evidence_unavailable", "Task ancestry is unavailable")
         return row[0] in self.journal.overseer_ids
 
     def _ops(self, namespace):
         from dataclasses import replace
-        ctx = replace(self.context, business_id=namespace["business_id"], review_business_id=namespace["business_id"])
+        ctx = replace(self.context, project_id=namespace["project_id"], review_project_id=namespace["project_id"])
         return OperationsReaders(self.runtime.application, ctx, self.access)
 
     def _locator(self, namespace, kind, identity, **locator):
@@ -1383,20 +1382,20 @@ class HostScanner:
                 self.access.authorize_source(self._locator(namespace, "signoff_note", row[0], signoff_id=identity, note_id=row[0]))
         else:
             if kind == "action":
-                action = uow.connection.execute("SELECT id,business_id FROM action_logs WHERE action_key=?", (identity,)).fetchone()
+                action = uow.connection.execute("SELECT id,project_id FROM action_logs WHERE id=?", (identity,)).fetchone()
                 if action is None:
                     raise DomainError("evidence_unavailable", "Action is unavailable")
-                item_id, business_id = action[0], action[1]
+                item_id, project_id = action[0], action[1]
             else:
-                item_id, business_id = identity, namespace["business_id"]
+                item_id, project_id = identity, namespace["project_id"]
             operation = "tasks_thread_get" if kind == "task" else "actions_thread_get"
             normalized = {"item_id": item_id, "principal_id": self.context.principal_id, "limit": limit,
                           "kinds": ["comment", "system"], **({"cursor": cursor} if cursor else {})}
-            _, after = page_position(normalized, business_id, operation)
+            _, after = page_position(normalized, project_id, operation)
             bounds = " AND (created_at,id)<(?,?)" if after else ""
-            ids = uow.connection.execute("SELECT id FROM thread_messages WHERE business_id IS ? AND item_type=? "
+            ids = uow.connection.execute("SELECT id FROM thread_messages WHERE project_id IS ? AND item_type=? "
                 "AND item_id=?" + bounds + " ORDER BY created_at DESC,id DESC LIMIT ?",
-                (business_id, kind, item_id, *(after or ()), limit + 1))
+                (project_id, kind, item_id, *(after or ()), limit + 1))
             for row in ids:
                 field = "task_id" if kind == "task" else "action_id"
                 self.access.authorize_source(self._locator(namespace, kind + "_message", row[0], **{field: identity, "message_id": row[0]}))
@@ -1470,15 +1469,14 @@ class HostScanner:
         attribution = note.get("attribution") or {}
         source = attribution.get("source")
         if isinstance(source, dict) and source.get("provider") and source.get("session_id"):
-            rows = uow.connection.execute("SELECT c.agent_id,p.home_business_id FROM native_captures c "
+            rows = uow.connection.execute("SELECT c.agent_id FROM native_captures c "
                 "JOIN agent_profiles p ON p.agent_id=c.agent_id WHERE c.provider=? AND c.conversation_id=?",
                 (source["provider"], source["session_id"])).fetchall()
             if any(row[0] in self.journal.overseer_ids for row in rows):
                 return "excluded", []
             if len(rows) != 1:
                 return "unknown", []
-            source_ns = ({"kind": "business", "business_id": rows[0][1]} if rows[0][1]
-                         else {"kind": "global", "business_id": None})
+            source_ns = {"kind": "global", "project_id": None}
             pre = self._locator(source_ns, "transcript", _key([rows[0][0], source["provider"], source["session_id"]]),
                                 agent_id=rows[0][0], provider=source["provider"], conversation_id=source["session_id"])
             try:
@@ -1492,14 +1490,14 @@ class HostScanner:
             if ref.get("type") == "agent":
                 if ref.get("id") in self.journal.overseer_ids:
                     return "excluded", []
-                pre = self._locator({"kind": "global", "business_id": None}, "agent", ref.get("id"), agent_id=ref.get("id"))
+                pre = self._locator({"kind": "global", "project_id": None}, "agent", ref.get("id"), agent_id=ref.get("id"))
                 try:
                     self.access.authorize_source(pre)
                 except DomainError:
                     return "unknown", []
                 originals.append(pre)
             if ref.get("type") == "task":
-                row = uow.connection.execute("SELECT created_by FROM tasks WHERE business_id IS ? AND id=?", (namespace["business_id"], ref.get("id"))).fetchone()
+                row = uow.connection.execute("SELECT created_by FROM tasks WHERE project_id IS ? AND id=?", (namespace["project_id"], ref.get("id"))).fetchone()
                 if row is None:
                     return "unknown", []
                 if row[0] in self.journal.overseer_ids:
@@ -1511,8 +1509,8 @@ class HostScanner:
                     return "unknown", []
                 originals.append(pre)
             if ref.get("type") == "action":
-                row = uow.connection.execute("SELECT recorded_by,performed_by,action_key FROM action_logs WHERE business_id IS ? AND (id=? OR action_key=?)",
-                    (namespace["business_id"], ref.get("id"), ref.get("id"))).fetchone()
+                row = uow.connection.execute("SELECT recorded_by,performed_by,id FROM action_logs WHERE project_id IS ? AND id=?",
+                    (namespace["project_id"], ref.get("id"))).fetchone()
                 if row is None:
                     return "unknown", []
                 if row[0] in self.journal.overseer_ids or row[1] in self.journal.overseer_ids:
@@ -1524,13 +1522,13 @@ class HostScanner:
                     return "unknown", []
                 originals.append(pre)
             if ref.get("type") == "signoff":
-                row = uow.connection.execute("SELECT proposer_agent_id,proposer_principal_id,review_business_id FROM signoffs WHERE id=?", (ref.get("id"),)).fetchone()
+                row = uow.connection.execute("SELECT proposer_agent_id,proposer_principal_id,review_project_id FROM signoffs WHERE id=?", (ref.get("id"),)).fetchone()
                 if row is None:
                     return "unknown", []
                 if row[0] in self.journal.overseer_ids or row[1] in self.journal.overseer_ids:
                     return "excluded", []
-                source_ns = ({"kind": "business", "business_id": row[2]} if row[2]
-                             else {"kind": "global", "business_id": None})
+                source_ns = ({"kind": "project", "project_id": row[2]} if row[2]
+                             else {"kind": "global", "project_id": None})
                 if self._review_signoff(ref['id'], uow):
                     return 'excluded', []
                 pre = self._locator(source_ns, "signoff", ref["id"], signoff_id=ref["id"])
@@ -1656,7 +1654,7 @@ class HostScanner:
                 resource = target.get("resource", {})
                 if resource.get("resource_type") in types and resource.get("resource_id"):
                     relations.append({"kind": types[resource["resource_type"]], "record_id": resource["resource_id"],
-                                      "business_id": resource.get("business_id")})
+                                      "project_id": resource.get("project_id")})
             previous = None
             if item.get("supersedes_id"):
                 previous_pre = self._locator(namespace, "signoff", item["supersedes_id"], signoff_id=item["supersedes_id"])
@@ -1737,19 +1735,19 @@ class HostScanner:
         except DomainError:
             forbidden = True
         else:
-            parent = uow.connection.execute("SELECT created_by FROM tasks WHERE business_id IS ? AND id=?",
-                                            (namespace["business_id"], task_id)).fetchone()
+            parent = uow.connection.execute("SELECT created_by FROM tasks WHERE project_id IS ? AND id=?",
+                                            (namespace["project_id"], task_id)).fetchone()
             if parent is not None:
                 return pre, parent, None
-        location = moved_location(uow, namespace["business_id"], task_id)
+        location = moved_location(uow, namespace["project_id"], task_id)
         if location is not None:
-            moved = {"kind": "business", "business_id": location}
+            moved = {"kind": "project", "project_id": location}
             moved_pre = self._locator(moved, "task", task_id, task_id=task_id)
             try:
                 self.access.authorize_source(moved_pre)
             except DomainError:
                 return None, None, "related_source_forbidden"
-            parent = uow.connection.execute("SELECT created_by FROM tasks WHERE business_id IS ? AND id=?",
+            parent = uow.connection.execute("SELECT created_by FROM tasks WHERE project_id IS ? AND id=?",
                                             (location, task_id)).fetchone()
             if parent is not None:
                 return moved_pre, parent, None
@@ -1799,7 +1797,7 @@ class HostScanner:
                 # only the immutable revision's routing metadata to detect a hidden
                 # parent; never expose that metadata when the reader redacted it.
                 route = uow.connection.execute("SELECT json_extract(snapshot_json,'$.refs.task') FROM action_revisions "
-                                               "WHERE action_key=? AND revision=?", (identity, number)).fetchone()
+                                               "WHERE action_id=? AND revision=?", (identity, number)).fetchone()
                 if route is None:
                     link_gaps.append({"code": "action_revision_unavailable"})
                     blocked = ("action_revision_unavailable", "The Action revision is unavailable", {"revision": number})
@@ -1821,7 +1819,7 @@ class HostScanner:
                     excluded_parent = parent[0] in self.journal.overseer_ids
                     relation = {"kind": "task", "record_id": task_id}
                     if linked_task["namespace"] != namespace:
-                        relation["business_id"] = linked_task["namespace"]["business_id"]
+                        relation["project_id"] = linked_task["namespace"]["project_id"]
                 actor = value.get("recorded_by") or {}
                 if excluded_parent:
                     from .provenance import content_hash
@@ -1907,14 +1905,14 @@ class HostScanner:
             self.access.authorize_source(pre)
         except DomainError:
             return "unknown", []
-        row = uow.connection.execute("SELECT kind,owning_agent_id,source_refs_json FROM documents WHERE id=? AND business_id IS ?",
-                                     (identity, namespace["business_id"])).fetchone()
+        row = uow.connection.execute("SELECT kind,owning_agent_id,source_refs_json FROM documents WHERE id=? AND project_id IS ?",
+                                     (identity, namespace["project_id"])).fetchone()
         if row is None or row["kind"] == "working_memory":
             return "unknown", []
         if row["owning_agent_id"] in self.journal.overseer_ids:
             return "excluded", []
-        space = "business:" + namespace["business_id"] if namespace["business_id"] else "global"
-        first = uow.connection.execute("SELECT author_id FROM qbdv_document_versions WHERE namespace=? AND document_id=? ORDER BY version LIMIT 1",
+        space = "project:" + namespace["project_id"] if namespace["project_id"] else "global"
+        first = uow.connection.execute("SELECT author_id FROM qdv_document_versions WHERE namespace=? AND document_id=? ORDER BY version LIMIT 1",
                                        (space, identity)).fetchone()
         if first and first[0] in self.journal.overseer_ids:
             return "excluded", []
@@ -1924,8 +1922,8 @@ class HostScanner:
             if not isinstance(source, dict):
                 return "unknown", []
             kind, source_id = source.get("resource_type"), source.get("resource_id")
-            business = source.get("business_id")
-            source_ns = {"kind": "business", "business_id": business} if business else {"kind": "global", "business_id": None}
+            project = source.get("project_id")
+            source_ns = {"kind": "project", "project_id": project} if project else {"kind": "global", "project_id": None}
             if kind == "documents":
                 status, related = self._document_origin(source_ns, source_id, uow, seen)
             elif kind in types:
@@ -1944,15 +1942,15 @@ class HostScanner:
         if self._settled(selection_key, position_key):
             return [], []
         import json
-        row = uow.connection.execute("SELECT kind,owning_agent_id,source_refs_json FROM documents WHERE id=? AND business_id IS ?", (identity, namespace["business_id"])).fetchone()
+        row = uow.connection.execute("SELECT kind,owning_agent_id,source_refs_json FROM documents WHERE id=? AND project_id IS ?", (identity, namespace["project_id"])).fetchone()
         if row is None:
             raise DomainError("evidence_unavailable", "Registered document is unavailable")
         if row["kind"] == "working_memory":
             return [], [{"code": "private_working_memory_not_eligible"}]
         if row["owning_agent_id"] in self.journal.overseer_ids:
             return [], []
-        space = "business:" + namespace["business_id"] if namespace["business_id"] else "global"
-        first = uow.connection.execute("SELECT author_id FROM qbdv_document_versions WHERE namespace=? AND document_id=? ORDER BY version LIMIT 1", (space, identity)).fetchone()
+        space = "project:" + namespace["project_id"] if namespace["project_id"] else "global"
+        first = uow.connection.execute("SELECT author_id FROM qdv_document_versions WHERE namespace=? AND document_id=? ORDER BY version LIMIT 1", (space, identity)).fetchone()
         if first and first[0] in self.journal.overseer_ids:
             return [], []
         status, linked_sources = self._document_origin(namespace, identity, uow, set())
@@ -1967,10 +1965,10 @@ class HostScanner:
             raise DomainError("evidence_unavailable", "Document history continuation is invalid")
         # The newest version at admission is the pass's boundary; later versions belong to a later pass.
         if bound is None:
-            newest = uow.connection.execute("SELECT MAX(version) FROM qbdv_document_versions WHERE namespace=? AND document_id=?",
+            newest = uow.connection.execute("SELECT MAX(version) FROM qdv_document_versions WHERE namespace=? AND document_id=?",
                                             (space, identity)).fetchone()[0]
             bound = {"version": newest or 0}
-        versions = uow.connection.execute("SELECT version FROM qbdv_document_versions WHERE namespace=? AND document_id=? "
+        versions = uow.connection.execute("SELECT version FROM qdv_document_versions WHERE namespace=? AND document_id=? "
             "AND version>? AND version<=? ORDER BY version LIMIT ?",
             (space, identity, last, bound["version"], MAX_HISTORY_REVISIONS + 1)).fetchall()
         more = len(versions) > MAX_HISTORY_REVISIONS
@@ -2142,7 +2140,7 @@ class HostScanner:
                             # Presentations can carry reference identities, but a referenced Overseer
                             # source is not eligible and unknown reference types are withheld.
                             safe = True
-                            for kind, ref_id, business_id in entry.references:
+                            for kind, ref_id, project_id in entry.references:
                                 if kind == "delta" or (kind == "agent" and ref_id in self.journal.overseer_ids):
                                     safe = False
                                     break
@@ -2150,8 +2148,8 @@ class HostScanner:
                                     safe = False
                                     gaps.append({"code": "unresolved_provenance", "reason": "presentation_reference", "offset": entry.offset})
                                     break
-                                target_namespace = ({"kind": "business", "business_id": business_id} if business_id
-                                                    else {"kind": "global", "business_id": None} if kind == "agent" else namespace)
+                                target_namespace = ({"kind": "project", "project_id": project_id} if project_id
+                                                    else {"kind": "global", "project_id": None} if kind == "agent" else namespace)
                                 linked_pre = self._locator(target_namespace, kind, ref_id, **{kind + "_id": ref_id})
                                 try:
                                     self.access.authorize_source(linked_pre)

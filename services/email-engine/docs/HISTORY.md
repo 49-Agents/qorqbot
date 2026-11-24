@@ -1,7 +1,7 @@
 # Private Email Archive
 
 This is an encrypted archive of observed email communications for independent
-research and data science. It does not require a Qorqut business, outreach campaign,
+research and data science. It does not require a Qorqut project, outreach campaign,
 or training pipeline. Collection is opt-in through `EMAIL_HISTORY_FILE`; see
 [configuration](CONFIGURATION.md#optional-features) for encryption keys,
 the dedicated service principal, backups and initial state selection. The service
@@ -11,9 +11,9 @@ has no archive read, search, export or decryption API.
 
 Use `capture_scope: "account"` for every changed message visible in the configured
 Fastmail JMAP account. This includes incoming, sent, draft, spam, trash and personal
-mail in any folder, regardless of business registration. `scoped` is the backward
-compatible default and restricts message collection to registered business and
-explicit private folders. Archive coverage never changes business API grants.
+mail in any folder, regardless of project registration. `scoped` is the backward
+compatible default and restricts message collection to registered project and
+explicit private folders. Archive coverage never changes project API grants.
 
 Each collection starts from the durable Email state originally selected in
 `start_cursor`. It uses `Email/changes`, with no initial `Email/query` or historical
@@ -48,7 +48,7 @@ digests for restart/replay; they are not a second plaintext message store.
   full observed keywords and mailbox memberships; received/sent timestamps; size;
   all headers; parsed address and threading fields; body structure and body-part
   blob IDs, headers and attachment metadata. The provider-returned metadata is
-  preserved without business normalization. `mime_base64` contains the original
+  preserved without project normalization. `mime_base64` contains the original
   downloaded MIME bytes, including encoded attachments and inline parts;
   `mime_sha256` and `mime_size` allow independent byte verification. Parsed body
   values can contain provider truncation/encoding flags; raw MIME is retained in
@@ -123,16 +123,16 @@ and 50 MiB aggregate MIME per page; a 15-second budget stops further sync/body
 calls after preserving a completed slow call. Full catalog pagination precedes
 those calls. Native protocol and process timeouts remain separate bounds.
 
-Private capture commits before any business routing. Exact RFC Message-ID,
-In-Reply-To and References must resolve to one confirmed business send and an
-unchanged registered mailbox binding before original MIME can enter that business's
+Private capture commits before any project routing. Exact RFC Message-ID,
+In-Reply-To and References must resolve to one confirmed project send and an
+unchanged registered mailbox binding before original MIME can enter that project's
 Fastmail folder. Pending originals delay exposure. Ambiguous/unowned messages stay
 private; `provider.routing_issue` records the bounded reason. A durable routing
 queue can retry already observed native IDs after capture has advanced. The
 service holds only the public encryption key, so retries retrieve original MIME
 from Outlook rather than decrypting the archive. Missing retry sources remain
 explicit issues. Imports reconcile existing exact copies and uncertain attempts;
-they never authorize a new send or move another business's mail.
+they never authorize a new send or move another project's mail.
 
 A received Outlook copy of a confirmed Fastmail send may contain provider-added
 content. Only an exact confirmed send-ledger Message-ID can correlate that copy
@@ -143,11 +143,11 @@ MIME remains private; `provider.message_correlation` and the mapping's
 `content_variant` flag record both content digests and the approved request.
 Other incoming copies still require the existing strict MIME comparison.
 
-`provider.business_copy` records native-to-Fastmail identity mappings. Operational
+`provider.project_copy` records native-to-Fastmail identity mappings. Operational
 send receipts use the registered Fastmail copy's message/conversation IDs and keep
 native Outlook evidence separately. `provider.capture_configuration`,
 `provider.mailbox_catalog`, `provider.native_gap`, and `provider.collection_gap`
-retain source setup, catalogs and failures without exposing them through business
+retain source setup, catalogs and failures without exposing them through project
 mail tools. Fastmail and Outlook collection run independently; one source's
 failure cannot reset the other's progress.
 
@@ -198,5 +198,5 @@ Outlook's web protocol is private and may change. Native change feeds can coales
 versions, bodies may vanish before capture, and offset-based sent/draft lookup
 does not provide snapshot isolation during equal-count folder mutations. A
 `synced` capture state describes a completed observed folder cycle; it does not
-prove all business imports finished, that no gaps ever occurred, or recipient
+prove all project imports finished, that no gaps ever occurred, or recipient
 delivery. Exports must retain these distinctions and both providers' provenance.

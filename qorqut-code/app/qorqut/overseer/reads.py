@@ -74,8 +74,8 @@ class OverseerReads:
         if not request:
             return None
         scope = binding['owner_scope']
-        business = scope['business_id']
-        ctx = replace(self.context, business_id=business, review_business_id=business)
+        project = scope['project_id']
+        ctx = replace(self.context, project_id=project, review_project_id=project)
         result = self.runtime.signoffs.get(ctx, request['signoff_id'])
         if result.status != 'ok':
             return None
@@ -245,11 +245,11 @@ class OverseerReads:
         with self.runtime.database.read() as uow:
             suffix = ' WHERE (created_at,id)>(?,?)' if after else ''
             rows = uow.connection.execute('''SELECT * FROM (
-                SELECT n.id,n.created_at,n.signoff_id,n.created_by,x.binding_id,x.review_business_id,
+                SELECT n.id,n.created_at,n.signoff_id,n.created_by,x.binding_id,x.review_project_id,
                     x.delta_id,x.delta_revision,x.application_id,x.plan_revision,x.batch_id,NULL AS material_key
                 FROM overseer_signoffs x JOIN signoff_notes n ON n.signoff_id=x.signoff_id WHERE x.''' + column + '''=?
                 UNION ALL
-                SELECT n.id,n.created_at,n.signoff_id,n.created_by,x.binding_id,x.review_business_id,
+                SELECT n.id,n.created_at,n.signoff_id,n.created_by,x.binding_id,x.review_project_id,
                     x.delta_id,x.delta_revision,x.application_id,x.plan_revision,x.batch_id,NULL AS material_key
                 FROM overseer_signoffs x JOIN overseer_retention_events e
                     ON e.kind='signoff' AND json_extract(e.source_json,'$.binding_id')=x.binding_id
@@ -312,9 +312,9 @@ class OverseerReads:
                     except (DomainError, OSError, ValueError) as error:
                         gaps.append({'code': getattr(error, 'code', 'evidence_unavailable')})
                     continue
-                business = row['review_business_id']
-                context = replace(self.context, business_id=business, review_business_id=business)
-                namespace = 'business:' + business if business else 'global'
+                project = row['review_project_id']
+                context = replace(self.context, project_id=project, review_project_id=project)
+                namespace = 'project:' + project if project else 'global'
                 try:
                     self.runtime.application.authorize(context, self.runtime.registry.get('signoffs_notes_list'), (), uow, namespace=namespace)
                     _, signoff = self.runtime.signoffs.notes.context(context, {'signoff_id': row['signoff_id']}, uow)

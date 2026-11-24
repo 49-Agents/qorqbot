@@ -13,7 +13,7 @@ from qorqut.dashboard_preferences import display, testing_mode
 from qorqut.domains.settings_tools import SETTINGS, SHAPES, SettingsTools, check_value
 from qorqut.service.changes import GLOBAL_ONLY_KINDS, _coarse_kinds_for_operation
 
-from test_side_chat_rename import build_runtime, invoke
+from private_thread_runtime import build_runtime, invoke
 
 
 class Keyed:

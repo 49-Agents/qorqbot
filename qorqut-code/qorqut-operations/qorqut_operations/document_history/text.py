@@ -1,6 +1,6 @@
-"""Generic text versions and business events over the shared history library.
+"""Generic text versions and project events over the shared history library.
 
-Namespaces are ``business:<uuid>`` or ``global``. They scope storage, not authority: history readers must apply the
+Namespaces are ``project:<uuid>`` or ``global``. They scope storage, not authority: history readers must apply the
 owning resource's access rules first."""
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 import json
 
-from qorqut_business_docs_versioning import HistoryStore, NotFound
+from qorqut_docs_versioning import HistoryStore, NotFound
 
 from .schema import HISTORY_TABLES, validate_schema
 
@@ -23,8 +23,8 @@ __all__ = ["BASELINE_AUTHOR", "EXTERNAL_AUTHOR", "HISTORY_TABLES", "UNTRACKED_KI
            "namespace", "save_text", "store", "validate_schema"]
 
 
-def namespace(business_id):
-    return "business:" + business_id if business_id else "global"
+def namespace(project_id):
+    return "project:" + project_id if project_id else "global"
 
 
 def store(connection):
@@ -74,13 +74,13 @@ def save_text(connection, space, document_id, text, author, reason, *, before=No
                                  expected_version=current.version if current else 0, reason=reason)
 
 
-def append_event(connection, business_id, event_id, kind, actor_id, summary, *, subject_type, subject_id,
+def append_event(connection, project_id, event_id, kind, actor_id, summary, *, subject_type, subject_id,
                  occurred_at, data=None):
-    """Business-scoped facts only; Global actions and unknown times are not invented."""
+    """Project-scoped facts only; Global actions and unknown times are not invented."""
     occurred = aware(occurred_at)
-    if not business_id or occurred is None or not actor_id:
+    if not project_id or occurred is None or not actor_id:
         return None
-    return HistoryStore(connection).append_event(business_id, event_id, kind, actor_id, summary,
+    return HistoryStore(connection).append_event(project_id, event_id, kind, actor_id, summary,
         subject_type=subject_type, subject_id=subject_id, occurred_at=occurred,
         data={key: value for key, value in (data or {}).items() if value is not None})
 
@@ -117,7 +117,7 @@ class SqlDocuments:
     def capture(self, connection, table, before, after, *, author, operation):
         """Record a SQL document's text projection in the source change's transaction."""
         row = after or before
-        space, document_id = namespace(row.get("business_id")), self.document_id(table, row)
+        space, document_id = namespace(row.get("project_id")), self.document_id(table, row)
         old = self.projection(table, before) if before else None
         if after is None:
             if old is not None and latest(connection, space, document_id) is None:

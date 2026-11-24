@@ -1,4 +1,4 @@
-"""Owner comments can join business Task discussions.
+"""Owner comments can join project Task discussions.
 
 Other shared discussion writes still require the private owner channel.
 Formal decisions retain their separate authorization and decision paths.
@@ -21,7 +21,7 @@ def installation_owner_id(uow):
 def is_installation_owner(ctx, uow):
     """True only for the human principal registered as the installation owner.
 
-    Agents, system/worker principals, and humans who are merely business owners
+    Agents, system/worker principals, and humans who are merely project owners
     or teammates keep their existing team writes.
     """
     if ctx.principal_kind != "human":
@@ -45,7 +45,7 @@ def channel_required(operation=None):
 
 def reject_owner_team_write(ctx, uow, operation):
     """Refuse `operation`'s shared-channel write when the actor is the owner."""
-    if ctx.business_id and operation in {'tasks_comment', 'focus_reply'}:
-        return  # Business Task discussion (parent Tasks included) is also open to the owner.
+    if ctx.project_id and operation in {'tasks_comment', 'focus_reply'}:
+        return  # Project Task discussion (parent Tasks included) is also open to the owner.
     if is_installation_owner(ctx, uow):
         raise channel_required(operation)
