@@ -76,8 +76,11 @@ class Client:
 
     async def close(self):
         if self.pending is not None:
-            self.pending.cancel()
-            await asyncio.gather(self.pending, return_exceptions=True)
+            # Cancelled until it ends: a cancel that lands as the stream's own wait deadline fires can be taken for that
+            # deadline and absorbed, and one cancel would then wait for ever.
+            while not self.pending.done():
+                self.pending.cancel()
+                await asyncio.wait({self.pending}, timeout=0.2)
             self.pending = None
         await self.body.aclose()
 
@@ -243,8 +246,13 @@ class CommittingChat(CountingChat):
         return result
 
 
-def commit(feed):
-    """What ``Database._unit`` reports after a writable unit that changed a row."""
+def commit(feed, agent=AGENT):
+    """What ``Database._unit`` reports after a writable unit that changed a row; ``agent`` is whose revision the unit advanced
+    (``store.bump`` notes it on the committing thread), None for a unit that touched no agent's Chat."""
+    from qorqut.native_chat import store
+    store.take_bumped()
+    if agent is not None:
+        store._BUMPED.agents.add(agent)
     feed.publish_commit(captured=[], operation="native_chat.working", project_id=None, wrote=True)
 
 
@@ -286,6 +294,42 @@ class WakeTest(unittest.TestCase):
                 await client.close()
         asyncio.run(run())
         self.assertEqual(len(chat.reads), 2)  # the opening check and the first read; polling would have read about twelve more
+
+    def test_a_commit_that_advanced_no_agent_or_another_agent_reads_nothing(self):
+        chat = CountingChat(revision=2)
+
+        async def run():
+            client = await self.open(chat, 2)
+            try:
+                await self.idle(client, 0.1)
+                before = len(chat.reads)
+                for _ in range(5):
+                    await anyio.to_thread.run_sync(commit, self.feed, None)
+                    await anyio.to_thread.run_sync(commit, self.feed, "another-agent")
+                await self.idle(client, 0.3)
+                return before
+            finally:
+                await client.close()
+        before = asyncio.run(run())
+        self.assertEqual(len(chat.reads), before)
+
+    def test_a_bump_is_noted_for_the_thread_that_made_it_until_taken(self):
+        import sqlite3
+        from qorqut.native_chat import store
+        store.take_bumped()
+        connection = mock.Mock(spec=sqlite3.Connection)
+        connection.execute.return_value.fetchone.return_value = (7,)
+        with mock.patch.object(store, "ensure_counters"):
+            store.bump(connection, "one")
+            store.bump(connection, "two")
+            store.bump(connection, "one")
+        elsewhere = []
+        thread = threading.Thread(target=lambda: elsewhere.append(store.take_bumped()))
+        thread.start()
+        thread.join()
+        self.assertEqual(elsewhere, [set()])
+        self.assertEqual(store.take_bumped(), {"one", "two"})
+        self.assertEqual(store.take_bumped(), set())
 
     def test_a_commit_from_another_thread_is_read_and_delivered(self):
         chat = CountingChat(revision=2)

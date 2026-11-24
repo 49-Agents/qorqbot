@@ -195,7 +195,7 @@ async def route(runtime, request, principal_id, parts, request_id):
 async def _events(chat, request, principal_id, agent_id, *, changes=None):
     """SSE replay-then-tail by durable cursor (``Last-Event-ID`` or ``?cursor=``); each read re-authorizes the owner.
 
-    With the change feed (``changes``) a stream reads only after a commit or a write by another process woke it, at most once per
+    With the change feed (``changes``) a stream reads only after a commit that advanced its agent or a write by another process woke it, at most once per
     ``POLL_SECONDS``, and once every ``FALLBACK_SECONDS`` regardless. Everything the read reports moves with the agent's revision,
     which only a database write changes. Without the feed it reads every ``POLL_SECONDS``."""
     from .stream_wake import wakes_for
@@ -214,7 +214,7 @@ async def _events(chat, request, principal_id, agent_id, *, changes=None):
         limiter = anyio.CapacityLimiter(1)
         # Opened inside the generator, so the finally below always closes it: a stream that ends, fails or is cancelled on a
         # disconnect leaves nothing in the fan-out.
-        wake = wakes.open() if wakes is not None else None
+        wake = wakes.open(agent_id) if wakes is not None else None
         try:
             found, latest = await run(partial(chat.events, principal_id, agent_id, position, limit=1), limiter=limiter)
             if position > latest:

@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import hashlib
 import json
+import threading
 
 from qorqut_operations.contracts import DomainError, new_id, utc_now
 
@@ -94,9 +95,26 @@ def counters(conn, agent_id: str) -> dict:
                                   "work_sequence": 0, "user_sequence": 0, "revision": 0}
 
 
+# The agents whose counter this thread advanced since its last commit notice. A unit runs and commits on one thread, so the
+# notice that follows the commit (``stream_wake``) finds here whose Chat streams have something to read. A unit that rolled
+# back leaves its agents for the thread's next commit: one read that finds nothing.
+_BUMPED = threading.local()
+
+
+def take_bumped() -> set:
+    """The agents this thread advanced since it last asked, and forget them."""
+    agents = getattr(_BUMPED, "agents", None)
+    _BUMPED.agents = set()
+    return agents or set()
+
+
 def bump(conn, agent_id: str) -> int:
     """Advance the agent's visible-change counter (the Chat stream position); every change a viewer can see calls this."""
     ensure_counters(conn, agent_id)
+    agents = getattr(_BUMPED, "agents", None)
+    if agents is None:
+        agents = _BUMPED.agents = set()
+    agents.add(agent_id)
     return conn.execute("UPDATE native_agent_counters SET revision=revision+1,updated_at=? WHERE agent_id=? RETURNING revision",
                         (utc_now(), agent_id)).fetchone()[0]
 
