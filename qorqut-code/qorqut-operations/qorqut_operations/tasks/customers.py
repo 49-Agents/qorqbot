@@ -1,6 +1,6 @@
 """The scoped Customer-state vocabulary: suggestions that grow with use and never depend on current usage.
 
-Each owning scope (one business, or Global) has at most one ``business_configs`` row, domain ``task_customer_states``,
+Each owning scope (one project, or Global) has at most one ``project_configs`` row, domain ``task_customer_states``,
 ``{"v": 1, "states": [...]}``: the display spellings in the order they were first introduced. A Customer write that
 introduces a label appends it in the same prepared plan as the Task row, pinned to the row's revision (or absence), so a
 failed, denied or stale write adds nothing and two writers can never lose each other's label: the later one gets the
@@ -26,9 +26,9 @@ def stored(config) -> list[str]:
     return list(states)
 
 
-def read(uow, business_id):
+def read(uow, project_id):
     """``(labels, row)`` for the owning scope; no row is an empty vocabulary."""
-    row = uow.repository("business_configs", business_id=business_id).get(DOMAIN)
+    row = uow.repository("project_configs", project_id=project_id).get(DOMAIN)
     return (stored(plain(row["config_json"])) if row else []), row
 
 
@@ -42,23 +42,23 @@ def append(builder, row, states, label):
     if any(state_key(item) == state_key(label) for item in states):
         return False
     config = {"v": 1, "states": [*states, label]}
-    builder.record("business_configs", DOMAIN, row, {"config_json": config} if row else {"domain": DOMAIN, "config_json": config})
+    builder.record("project_configs", DOMAIN, row, {"config_json": config} if row else {"domain": DOMAIN, "config_json": config})
     return True
 
 
-def check(plan, uow, business_id, before, after):
-    """Prepared-plan validation: a Task write may change ``business_configs`` only by the one exact append of its new label.
+def check(plan, uow, project_id, before, after):
+    """Prepared-plan validation: a Task write may change ``project_configs`` only by the one exact append of its new label.
 
-    Any ``business_configs`` effect counts, whatever resource id or domain it claims. When the write introduces no new
+    Any ``project_configs`` effect counts, whatever resource id or domain it claims. When the write introduces no new
     label there must be none; when it does there must be exactly one: this scope's vocabulary row, inserted (domain and
     config) while absent or updated (config only) while present, pinned to the row's existence and revision."""
-    changes = [change for change in plan.changes if change.resource.resource_type == "business_configs"]
+    changes = [change for change in plan.changes if change.resource.resource_type == "project_configs"]
     label = introduced(before, after)
     if label is None:
         if changes:
             raise DomainError("invalid_plan", "This Task write does not change the Customer states")
         return
-    states, row = read(uow, business_id)
+    states, row = read(uow, project_id)
     present = any(state_key(item) == state_key(label) for item in states)
     if present and label not in states:
         raise DomainError("validation_error", "A Customer state uses the first spelling of its label")
@@ -66,7 +66,7 @@ def check(plan, uow, business_id, before, after):
         if changes:
             raise DomainError("invalid_plan", "This Task write does not change the Customer states")
         return
-    resource = ResourceRef("business_configs", DOMAIN, business_id)
+    resource = ResourceRef("project_configs", DOMAIN, project_id)
     config = {"v": 1, "states": [*states, label]}
     target = next((item for item in plan.expected_targets if item.resource == resource), None)
     if (len(changes) != 1 or changes[0].kind != "record" or changes[0].resource != resource or changes[0].operation_name is not None

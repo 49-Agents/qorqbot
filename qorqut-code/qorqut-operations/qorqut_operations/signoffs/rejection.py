@@ -17,27 +17,26 @@ class Rejection:
 
     def descriptors(self):
         return (OperationDescriptor('signoffs_reject', schema({
-            'scope': {'enum': ['business', 'global']},
+            'scope': {'enum': ['project', 'global']},
             'signoff_id': {'type': 'string', 'format': 'uuid'},
             'proposal_revision': {'type': 'integer', 'minimum': 1},
             'payload_hash': {'type': 'string', 'minLength': 1, 'maxLength': 200},
             'expected_status_revision': {'type': 'integer', 'minimum': 1},
             'feedback': {'type': 'string', 'maxLength': 8000}, 'summary': SUMMARY,
         }, ('signoff_id', 'proposal_revision', 'payload_hash', 'expected_status_revision')),
-            supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
+            supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
             global_capability='read_global_context',
-            resolve_namespace=lambda c,a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''),
+            resolve_namespace=lambda c,a: 'global' if a.get('scope') == 'global' else 'project:' + (c.project_id or ''),
             description=instruction_text('rejection-ordubashy-only-reject-a-pending-action-signoff-with') + ' ' + LOCATED,
             locate_scope=self.service.lookup, prepare=self.prepare, apply=self.apply),)
 
     def context(self, ctx, args, uow):
         if args.get('scope') == 'global':
-            ctx = replace(ctx, business_id=None, review_business_id=None)
+            ctx = replace(ctx, project_id=None, review_project_id=None)
         ctx = self.service._context(ctx, uow)
         row = decode_row(uow.connection.execute('SELECT * FROM agent_profiles WHERE agent_id=?', (ctx.principal_id,)).fetchone())
         if (ctx.principal_kind != 'agent' or not row or row['status'] != 'active'
-                or row['profile_json']['role']['id'] != 'ordubashy'
-                or row['profile_json']['scope']['kind'] != 'ecosystem'):
+                or row['profile_json']['role']['id'] != 'ordubashy'):
             raise DomainError('forbidden', 'Delegated review requires active Ordubashy authority')
         return ctx
 
@@ -47,8 +46,6 @@ class Rejection:
             raise DomainError('historical_record', 'Historical signoffs cannot receive new decisions')
         if row['category'] == 'input_request':
             raise DomainError('invalid_transition', 'Input requests require an owner answer')
-        if row['category'] == 'side_chat':
-            raise DomainError('forbidden', 'Only the owner can close a side chat')
         if (row['state'] != 'pending' or row['decision_json'] or row['superseded_by_id']
                 or row['status_revision'] != args['expected_status_revision']
                 or not self.service._binding_matches(row, args['proposal_revision'], args['payload_hash'])):
@@ -59,8 +56,8 @@ class Rejection:
         ctx = self.context(ctx, args, uow)
         row = self.target(ctx, args, uow)
         builder = PlanBuilder(ctx, 'signoffs_reject', args, 'Reject signoff',
-            namespace='business:' + ctx.business_id if ctx.business_id else 'global',
-            affected_scope={'kind': 'business', 'business_id': ctx.business_id} if ctx.business_id else {'kind': 'global'})
+            namespace='project:' + ctx.project_id if ctx.project_id else 'global',
+            affected_scope={'kind': 'project', 'project_id': ctx.project_id} if ctx.project_id else {'kind': 'global'})
         builder.record('signoffs', row['id'], row, {}, action='reject')
         return builder.build()
 

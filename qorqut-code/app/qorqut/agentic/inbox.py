@@ -111,7 +111,7 @@ class AgenticInboxBridge:
                 else:
                     if not uow.connection.execute("SELECT 1 FROM principals WHERE id=?", (actor_id,)).fetchone():
                         actor_id = None
-                    event_id = emit_event(uow, business_id=None, source_type=SOURCE,
+                    event_id = emit_event(uow, project_id=None, source_type=SOURCE,
                         source_id=change["change_id"], source_revision=sequence, actor_id=actor_id,
                         event_type=EVENT_TYPE,
                         summary=f"Agentic change {change['change_id']}: {len(change['files'])} changed file(s).",
@@ -134,7 +134,7 @@ class AgenticInboxBridge:
     def visible_reference(self, ctx, row, uow):
         """A bounded reference only for the addressed current recipient and bound store."""
         if (ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None
-                or row["business_id"] is not None or row["event_type"] != EVENT_TYPE):
+                or row["project_id"] is not None or row["event_type"] != EVENT_TYPE):
             return None
         try:
             metadata = json.loads(row["visibility_json"])

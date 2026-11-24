@@ -1,4 +1,5 @@
-"""Timelines of Tasks, Projects and Global: filing, what holds now, questions, who may read and file, and a Task move."""
+"""Timelines of Tasks and Projects: filing, what holds now, questions, who may read and file, and a Task move. Global has no
+timeline: a call that names it is answered with advice, and rows filed on it before stay in the store unread."""
 from dataclasses import replace
 from types import SimpleNamespace as NS
 import unittest
@@ -11,7 +12,7 @@ from qorqut_operations.tasks.relocation import Relocation
 from qorqut_operations.timeline import state as timeline_state
 
 from qorqut.domains.tasks.relocation import HostRelocation
-from qorqut.domains.timeline import Timeline
+from qorqut.domains.timeline import NO_GLOBAL, NO_GLOBAL_READ, Timeline
 
 from test_single_source import Fixture
 
@@ -24,28 +25,28 @@ class TimelineTests(Fixture):
     def setUp(self):
         super().setUp()
         self.tool = Timeline(NS(application=self.app, registry=self.registry)).register()
-        self.business = str(uuid4())
-        self.current = frozenset({self.business})
+        self.project_id = str(uuid4())
+        self.current = frozenset({self.project_id})
         with self.db.transaction() as uow:
-            uow.repository('businesses').insert({'id': self.business, 'name': 'Example project', 'slug': 'example',
-                                                 'workspace': 'example', 'hq_path': 'hq'})
+            uow.repository('projects').insert({'id': self.project_id, 'name': 'Example project', 'slug': 'example',
+                                                 'workspace': 'example'})
         self.work = self.task(self.lead, 'Pay creators')
-        self.item = {'type': 'task', 'id': self.work['id'], 'business_id': None}
-        self.project = {'type': 'project', 'id': self.business, 'business_id': self.business}
-        self.global_item = {'type': 'global', 'id': 'global', 'business_id': None}
+        self.item = {'type': 'task', 'id': self.work['id'], 'project_id': None}
+        self.project = {'type': 'project', 'id': self.project_id, 'project_id': self.project_id}
+        self.global_item = {'type': 'global', 'id': 'global', 'project_id': None}
         patcher = patch('qorqut.domains.timeline.timestamp', lambda: DAY)
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def ctx(self, who):
         # The coordinator reaches every current project; the worker only the ones in ``reach``.
-        return replace(super().ctx(who), allowed_business_ids=self.current if who == self.lead else self.reach)
+        return replace(super().ctx(who), allowed_project_ids=self.current if who == self.lead else self.reach)
 
     def inside(self, title):
         """A Task created in the project, as the item that names its timeline."""
-        made = self.app.invoke(replace(self.ctx(self.lead), business_id=self.business), 'tasks_create', {'title': title},
+        made = self.app.invoke(replace(self.ctx(self.lead), project_id=self.project_id), 'tasks_create', {'title': title},
                                {'idempotency_key': str(uuid4())})
-        return {'type': 'task', 'id': self.ok(made)['task']['id'], 'business_id': self.business}
+        return {'type': 'task', 'id': self.ok(made)['task']['id'], 'project_id': self.project_id}
 
     def ok(self, result):
         return plain(super().ok(result))
@@ -107,7 +108,7 @@ class TimelineTests(Fixture):
                       [{'action': 'remove', 'entry_id': gone}, {'action': 'remove', 'entry_id': gone}]):
             self.assertEqual(self.code(self.file(self.lead, self.item, again)), 'validation_error')
         other = self.task(self.lead, 'Other work')
-        foreign = self.add('fact', 'Elsewhere.', {'type': 'task', 'id': other['id'], 'business_id': None})
+        foreign = self.add('fact', 'Elsewhere.', {'type': 'task', 'id': other['id'], 'project_id': None})
         self.assertEqual(self.code(self.file(self.lead, self.item, [{'action': 'remove', 'entry_id': foreign}])), 'validation_error')
 
     def test_a_later_goal_and_a_later_progress_note_hold(self):
@@ -180,14 +181,15 @@ class TimelineTests(Fixture):
         self.assertEqual(self.read(self.item)['revision'], 3)
         self.add('fact', 'Four.')
         # Another item draws on the same sequence, and its own revision is the highest of its own rows.
-        self.add('fact', 'Elsewhere.', self.global_item)
-        self.assertEqual((self.read(self.item)['revision'], self.read(self.global_item)['revision']), (4, 5))
+        elsewhere = {'type': 'task', 'id': self.task(self.lead, 'Elsewhere')['id'], 'project_id': None}
+        self.add('fact', 'Elsewhere.', elsewhere)
+        self.assertEqual((self.read(self.item)['revision'], self.read(elsewhere)['revision']), (4, 5))
         self.assertEqual(self.read(self.project)['revision'], 0)
 
     def test_entries_are_never_edited_or_deleted_and_only_the_project_follows_a_move(self):
         self.add('fact', 'Fixed.')
         with self.db.transaction() as uow:
-            uow.connection.execute('UPDATE timeline_entries SET business_id=?', (self.business,))
+            uow.connection.execute('UPDATE timeline_entries SET project_id=?', (self.project_id,))
         for sql in ("UPDATE timeline_entries SET text='Changed'", "UPDATE timeline_entries SET kind='goal'",
                     'UPDATE timeline_entries SET sequence=99', 'DELETE FROM timeline_entries'):
             with self.assertRaises(DomainError):
@@ -205,7 +207,7 @@ class TimelineTests(Fixture):
         quote = {'quote': 'q', 'ref': 'm'}
         self.assertEqual(self.code(self.file(self.lead, self.item, [add], sources=[{**quote, 'quote': 'q' * 1001}])), 'validation_error')
         self.assertEqual(self.code(self.file(self.lead, self.item, [add], sources=[quote] * 11)), 'validation_error')
-        for item in ({**self.item, 'type': 'story'}, {**self.global_item, 'id': 'other'}, {**self.project, 'business_id': None},
+        for item in ({**self.item, 'type': 'story'}, {**self.global_item, 'id': 'other'}, {**self.project, 'project_id': None},
                      {**self.item, 'id': 'missing'}):
             self.assertIn(self.code(self.file(self.lead, item, [add])), ('validation_error', 'not_found'))
         self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
@@ -296,19 +298,19 @@ class TimelineTests(Fixture):
         self.add('fact', 'Inside the project.', inside)
         self.assertEqual(self.read(inside)['state']['facts'][0]['text'], 'Inside the project.')
         self.assertEqual(self.code(self.get(self.worker, inside)), 'not_found')
-        self.reach = frozenset({self.business})
+        self.reach = frozenset({self.project_id})
         self.assertEqual(self.read(inside, self.worker)['state']['facts'][0]['text'], 'Inside the project.')
 
     def test_approval_and_report_titles_are_for_the_coordinator_and_the_owner(self):
         approval = str(uuid4())
         with self.db.transaction() as uow:
             uow.connection.execute(
-                "INSERT INTO signoffs(id,review_business_id,review_scope_kind,proposer_principal_id,operation_name,operation_version,"
+                "INSERT INTO signoffs(id,review_project_id,review_scope_kind,proposer_principal_id,operation_name,operation_version,"
                 "proposal_revision,payload_hash,change_set,preview_json,expected_targets_json,policy_binding_json,affected_scope_json,"
                 "state,updated_sequence,created_at,updated_at,category) VALUES(?,NULL,'global',?,'owner_input_request',1,1,'hash',x'00',"
                 "'{\"title\":\"Send the offer to Northwind\"}','[]','{}','{}','pending',1,?,?,'input_request')", (approval, self.lead, DAY, DAY))
             uow.connection.execute(
-                "INSERT INTO signoff_source_links(id,signoff_id,source_type,source_id,source_business_id,source_namespace,created_by,"
+                "INSERT INTO signoff_source_links(id,signoff_id,source_type,source_id,source_project_id,source_namespace,created_by,"
                 "created_at) VALUES(?,?,'task',?,NULL,'global',?,?)", (str(uuid4()), approval, self.work['id'], self.lead, DAY))
         full = {'type': 'signoff', 'id': approval, 'title': 'Send the offer to Northwind', 'state': 'pending'}
         self.assertEqual(self.read(self.item, history=True)['links']['approvals'], [full])
@@ -321,7 +323,7 @@ class TimelineTests(Fixture):
     def test_nothing_is_filed_on_an_archived_project(self):
         inside = self.inside('Inside')
         with self.db.transaction() as uow:
-            uow.connection.execute('UPDATE businesses SET archived_at=? WHERE id=?', (DAY, self.business))
+            uow.connection.execute('UPDATE projects SET archived_at=? WHERE id=?', (DAY, self.project_id))
         # An archived project is no longer in anyone's reach, so the call is refused before anything is checked...
         self.current = frozenset()
         change = [{'action': 'add', 'kind': 'fact', 'text': 'Late.'}]
@@ -330,19 +332,94 @@ class TimelineTests(Fixture):
             # ...and a filing prepared while the project was current is not applied after it was archived.
             with self.assertRaises(DomainError) as refused, self.db.transaction() as uow:
                 self.tool.file(self.lead, {'item': item, 'changes': change}, uow)
-            self.assertEqual(refused.exception.code, 'business_archived')
+            self.assertEqual(refused.exception.code, 'project_archived')
         self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
 
-    def test_a_project_timeline_needs_a_participant_and_global_is_open(self):
+    def test_a_project_timeline_needs_a_participant(self):
         self.add('decision', 'Ship in spring.', self.project)
-        self.add('decision', 'Everyone sees this.', self.global_item)
         self.assertEqual(self.code(self.get(self.worker, self.project)), 'not_found')
-        self.reach = frozenset({self.business})
+        self.reach = frozenset({self.project_id})
         self.assertEqual(self.read(self.project, self.worker)['state']['decisions'][0]['text'], 'Ship in spring.')
         self.assertTrue(self.read(self.project, self.worker)['text'].startswith('Project "Example project"'))
-        self.reach = frozenset()
-        self.assertEqual(self.read(self.global_item, self.worker)['state']['decisions'][0]['text'], 'Everyone sees this.')
-        self.assertTrue(self.read(self.global_item, self.worker)['text'].startswith('Global — what holds now'))
+
+    # -- Global has no timeline --------------------------------------------------------------------------------------
+
+    def old_global_row(self, text='Filed before Global lost its timeline.'):
+        """A row filed on Global before it lost its timeline, written as the store layer still accepts it."""
+        return self.asked(self.global_item, [{'action': 'add', 'kind': 'decision', 'text': text}])['filed']['entries'][0]
+
+    def refused(self, result, message):
+        self.assertEqual(self.code(result), 'validation_error', result.to_dict())
+        self.assertEqual(result.error['message'], message)
+
+    def test_reading_global_is_answered_with_advice_for_every_caller(self):
+        self.old_global_row()
+        for who in (self.lead, self.worker, self.owner):
+            self.refused(self.get(who, self.global_item), NO_GLOBAL_READ)
+            self.refused(self.get(who, self.global_item, history=True), NO_GLOBAL_READ)
+
+    def test_filing_on_global_is_refused_with_advice_after_the_filer_check(self):
+        change = [{'action': 'add', 'kind': 'decision', 'text': 'Reply in plain words.'}]
+        self.refused(self.file(self.lead, self.global_item, change), NO_GLOBAL)
+        self.assertIn('experience_observation_file', NO_GLOBAL)
+        # Who is not the coordinator is told so first, whatever item the call names.
+        self.assertEqual(self.code(self.file(self.worker, self.global_item, change)), 'forbidden')
+        self.assertEqual(self.code(self.file(self.owner, self.global_item, change)), 'forbidden')
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
+
+    def test_a_filing_held_for_review_on_global_ends_refused_when_it_is_approved(self):
+        change = [{'action': 'add', 'kind': 'decision', 'text': 'Reply in plain words.'}]
+        with self.assertRaises(DomainError) as refused, self.db.transaction() as uow:
+            self.tool.file(self.lead, {'item': self.global_item, 'changes': change}, uow)
+        self.assertEqual((refused.exception.code, refused.exception.message), ('validation_error', NO_GLOBAL))
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries'), [(0,)])
+
+    def test_global_is_no_item_that_exists(self):
+        with self.db.read() as uow:
+            self.assertIsNone(self.tool.exists(self.global_item, uow))
+            self.assertEqual(self.tool.exists(self.item, uow), 'Pay creators')
+
+    def test_a_row_filed_on_global_earlier_stays_in_the_store_and_is_never_read(self):
+        entry = self.old_global_row()
+        self.assertEqual(self.state(self.global_item)['decisions'][0]['id'], entry)
+        self.refused(self.get(self.lead, self.global_item), NO_GLOBAL_READ)
+        # A Task's own read carries nothing of it.
+        self.add('fact', 'Task fact.')
+        self.assertNotIn('Filed before', str(self.read(self.item, history=True)))
+        self.assertNotIn('Filed before', self.read(self.item)['text'])
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries WHERE item_type=?', 'global'), [(1,)])
+
+    # -- an item named by its type and id -------------------------------------------------------------------------
+
+    @staticmethod
+    def bare(item):
+        return {key: value for key, value in item.items() if key != 'project_id'}
+
+    def test_an_item_without_its_project_is_the_item_with_it(self):
+        inside = self.inside('Inside')
+        for item in (self.item, inside, self.project):
+            self.add('fact', 'Held for ' + item['type'], item)
+            stated = self.read(item)
+            self.assertEqual(self.read(self.bare(item)), stated)
+            self.assertEqual(self.read(self.bare(item), history=True)['entries'], self.read(item, history=True)['entries'])
+        self.refused(self.get(self.lead, self.bare(self.global_item)), NO_GLOBAL_READ)
+        self.filed(self.bare(inside), [{'action': 'add', 'kind': 'decision', 'text': 'Filed without the project.'}])
+        self.assertEqual([row['text'] for row in self.read(inside)['state']['decisions']], ['Filed without the project.'])
+        self.assertEqual(self.rows('SELECT project_id FROM timeline_entries WHERE item_id=?', inside['id']),
+                         [(self.project_id,), (self.project_id,)])
+
+    def test_an_item_in_a_project_out_of_reach_answers_as_an_unknown_id_does(self):
+        inside = self.inside('Inside')
+        self.add('fact', 'Inside the project.', inside)
+        unknown = {'type': 'task', 'id': 'missing'}
+        for item in (inside, self.project):
+            answer = self.get(self.worker, self.bare(item))
+            self.assertEqual(self.code(answer), 'not_found')
+            self.assertEqual(answer.error, self.get(self.worker, unknown).error)
+        self.reach = frozenset({self.project_id})
+        self.assertEqual(self.read(self.bare(inside), self.worker)['state']['facts'][0]['text'], 'Inside the project.')
+            # A stated project that does not hold the Task is refused.
+        self.assertEqual(self.code(self.get(self.lead, {**inside, 'project_id': None})), 'not_found')
 
     # -- a Task move -----------------------------------------------------------------------------------------------
 
@@ -350,17 +427,17 @@ class TimelineTests(Fixture):
         entry = self.add('fact', 'Moves with the Task.')
         self.asked(self.item, [{'action': 'ask', 'text': 'Where next?', 'blocking': False}])
         stay = self.task(self.lead, 'Stays')
-        self.add('fact', 'Stays behind.', {'type': 'task', 'id': stay['id'], 'business_id': None})
-        self.add('fact', 'Global stays.', self.global_item)
-        relocation = Relocation(None, self.business, (self.work['id'],), (self.work['id'],))
+        self.add('fact', 'Stays behind.', {'type': 'task', 'id': stay['id'], 'project_id': None})
+        self.old_global_row('Global stays.')
+        relocation = Relocation(None, self.project_id, (self.work['id'],), (self.work['id'],))
         adapter = HostRelocation(self.app)
         with self.db.transaction() as uow:
             self.assertEqual(adapter.inspect(uow, relocation).counts['timeline_rows'], 2)
             adapter.apply(uow, relocation, DAY)
-        self.assertEqual(self.rows('SELECT id,business_id FROM timeline_entries WHERE item_id=?', self.work['id']), [(entry, self.business)])
-        self.assertEqual(self.rows('SELECT business_id FROM timeline_questions'), [(self.business,)])
-        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries WHERE business_id IS NULL'), [(2,)])
-        moved = {**self.item, 'business_id': self.business}
+        self.assertEqual(self.rows('SELECT id,project_id FROM timeline_entries WHERE item_id=?', self.work['id']), [(entry, self.project_id)])
+        self.assertEqual(self.rows('SELECT project_id FROM timeline_questions'), [(self.project_id,)])
+        self.assertEqual(self.rows('SELECT COUNT(*) FROM timeline_entries WHERE project_id IS NULL'), [(2,)])
+        moved = {**self.item, 'project_id': self.project_id}
         self.assertEqual(self.state(moved)['facts'][0]['text'], 'Moves with the Task.')
         self.assertEqual(self.state(self.item)['revision'], 0)
 

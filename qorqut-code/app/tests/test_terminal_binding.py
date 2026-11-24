@@ -31,7 +31,10 @@ class AttestTests(unittest.TestCase):
                    mock.patch.object(native_binding, "write_json_private"),
                    mock.patch("qorqut.bootstrap.terminal_chat.native_process", return_value={"pid": 4343, "started": "777"}),
                    mock.patch.object(native_binding, "local_instance", return_value={}),
-                   mock.patch.object(Path, "read_bytes", lambda path: b"\0".join(self.args) + b"\0"))
+                   mock.patch.object(Path, "read_bytes", lambda path: b"\0".join(self.args) + b"\0"),
+                   # on a Mac the client's arguments and start time are read through the process table, not from /proc
+                   mock.patch("qorqut.process_info.cmdline", side_effect=lambda pid: [arg.decode() for arg in self.args]),
+                   mock.patch("qorqut.process_info.start_token", return_value="777"))
         self.written = patches[1].start()
         for patcher in patches[:1] + patches[2:]:
             patcher.start()
@@ -84,13 +87,12 @@ class VerifyTests(unittest.TestCase):
         self.paths = SimpleNamespace(runtime=Path(directory.name))
         self.panes = (0, "4300\n")
         self.tmux = mock.Mock(side_effect=lambda *args: self.panes)
-        terminals = SimpleNamespace(execution=lambda business: SimpleNamespace(broker=SimpleNamespace(tmux=self.tmux)),
-                                    binding=lambda business, row, broker: ("key", "agent-session", "/w"))
+        terminals = SimpleNamespace(execution=lambda project: SimpleNamespace(broker=SimpleNamespace(tmux=self.tmux)),
+                                    binding=lambda row, broker: ("key", "agent-session", "/w"))
         database = SimpleNamespace(read=mock.MagicMock())
         database.read.return_value.__enter__.return_value.repository.return_value.get.return_value = None
         self.runtime = SimpleNamespace(paths=self.paths, terminals=terminals, database=database)
-        self.profile = {"agent_id": AGENT, "workspace": "/w", "home_business_id": None,
-                        "profile_json": json.dumps({"runtime": "claude-code"})}
+        self.profile = {"agent_id": AGENT, "workspace": "/w", "profile_json": json.dumps({"runtime": "claude-code"})}
         self.ran = []
         self.observation = {"agent_id": AGENT, "session_id": CONVERSATION, "pid": 4343, "started": "777", "owner": "4343:777"}
 

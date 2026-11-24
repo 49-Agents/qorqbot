@@ -74,7 +74,7 @@ class Entries:
 
     @staticmethod
     def find(ctx, table_id, entry_id, uow):
-        entry = uow.repository("crm_entries", business_id=ctx.business_id).get(entry_id)
+        entry = uow.repository("crm_entries", project_id=ctx.project_id).get(entry_id)
         if entry is None or entry["table_id"] != table_id:
             raise DomainError("not_found", "Entry does not belong to this table")
         return entry
@@ -82,13 +82,13 @@ class Entries:
     @staticmethod
     def lookup(ctx, table_id, reference, uow):
         found = uow.connection.execute(
-            "SELECT * FROM crm_entries WHERE business_id IS ? AND table_id=? AND record_namespace=? AND record_task_id=?",
-            (ctx.business_id, table_id, namespace_of(reference["business_id"]), reference["id"])).fetchone()
+            "SELECT * FROM crm_entries WHERE project_id IS ? AND table_id=? AND record_namespace=? AND record_task_id=?",
+            (ctx.project_id, table_id, namespace_of(reference["project_id"]), reference["id"])).fetchone()
         return decode_row(found)
 
     @staticmethod
     def reference(entry):
-        return record_ref(entry["record_business_id"], entry["record_task_id"])
+        return record_ref(entry["record_project_id"], entry["record_task_id"])
 
     def builder(self, ctx, operation, args, title):
         return PlanBuilder(ctx, operation, args, title, clock=self.crm.clock, namespace=table_namespace(ctx, args))
@@ -103,15 +103,15 @@ class Entries:
     def view(self, ctx, table, entry, uow, cache: ScopeCache, now=None):
         reference = self.reference(entry)
         access = self.crm.access
-        row = access.row(entry["record_business_id"], entry["record_task_id"], uow) if access.readable(
-            ctx, entry["record_business_id"], entry["record_task_id"], uow, cache) else None
+        row = access.row(entry["record_project_id"], entry["record_task_id"], uow) if access.readable(
+            ctx, entry["record_project_id"], entry["record_task_id"], uow, cache) else None
         if row is None:
             return self.placeholder(entry)
         record = access.view(ctx, row, uow, cache, now)
         cells, errors = access.render(entry, table["columns_json"], record,
-                                      access.definitions(ctx, entry["record_business_id"], entry["record_task_id"], uow, cache))
+                                      access.definitions(ctx, entry["record_project_id"], entry["record_task_id"], uow, cache))
         local = {column["id"] for column in table["columns_json"] if column.get("record_field") is None}
-        return {"id": entry["id"], "table_id": entry["table_id"], "business_id": entry["business_id"],
+        return {"id": entry["id"], "table_id": entry["table_id"], "project_id": entry["project_id"],
                 "revision": entry["revision"], "position": entry["position"], "stage_id": entry["stage_id"], "cells": cells,
                 "local_cells": {key: value for key, value in entry["cells_json"].items() if key in local},
                 "removed": bool(entry["removed"]), "created_at": entry["created_at"], "updated_at": entry["updated_at"],
@@ -145,15 +145,15 @@ class Entries:
         removed = "" if args.get("include_removed") else " AND e.removed=0"
         found = [decode_row(row) for row in uow.connection.execute(
             "SELECT e.*, t.id AS _task, t.archived AS _archived FROM crm_entries e "
-            "LEFT JOIN tasks t ON t.business_id IS e.record_business_id AND t.id=e.record_task_id "
-            "WHERE e.business_id IS ? AND e.table_id=?" + removed + " LIMIT ?", (ctx.business_id, table["id"], MAX_ROWS + 1))]
+            "LEFT JOIN tasks t ON t.project_id IS e.record_project_id AND t.id=e.record_task_id "
+            "WHERE e.project_id IS ? AND e.table_id=?" + removed + " LIMIT ?", (ctx.project_id, table["id"], MAX_ROWS + 1))]
         if len(found) > MAX_ROWS:
             raise DomainError("result_too_large", "Narrow the query period or filters")
         filtered = bool(query or equals or args.get("stage_id"))
         selected = []
         for entry in found:
             available = entry["_available"] = (entry["_task"] is not None
-                                               and self.crm.access.readable(ctx, entry["record_business_id"], entry["record_task_id"],
+                                               and self.crm.access.readable(ctx, entry["record_project_id"], entry["record_task_id"],
                                                                             uow, cache))
             if not available:
                 if not filtered:  # an unavailable target can never match a filter without disclosing its values
@@ -178,7 +178,7 @@ class Entries:
                     return (0 if descending else 1), False, "", entry["position"], entry["id"]
                 value = entry["cells_json"].get(order_by)
                 return (1 if descending else 0), value is not None, value if value is not None else "", entry["position"], entry["id"]
-        chosen, cursor = page(selected, {**args, "table_revision": table["revision"]}, ctx.business_id, operation, key=key,
+        chosen, cursor = page(selected, {**args, "table_revision": table["revision"]}, ctx.project_id, operation, key=key,
                               reverse=args.get("descending", False))
         now = timestamp(self.crm.clock)
         items = [self.view(ctx, table, entry, uow, cache, now) for entry in chosen]
@@ -200,17 +200,17 @@ class Entries:
         for item in shown:
             reference = item["record_ref"]
             pending = len(item["record"].get("input_requests") or ())
-            last = latest.get((reference["type"], reference["id"], reference["business_id"]))
+            last = latest.get((reference["type"], reference["id"], reference["project_id"]))
             item["decisions"] = {"state": "waiting_on_owner" if pending else "decided" if last else "none",
                                  "pending": pending, "last": last}
 
     def matches(self, ctx, entry, table, uow, cache, query):
         """Whether the query is in the entry's title, its local values or the Task fields its columns show."""
         access = self.crm.access
-        row = access.row(entry["record_business_id"], entry["record_task_id"], uow)
+        row = access.row(entry["record_project_id"], entry["record_task_id"], uow)
         record = access.source(row, uow, cache)
         cells, _ = access.render(entry, table["columns_json"], record,
-                                 access.definitions(ctx, entry["record_business_id"], entry["record_task_id"], uow, cache))
+                                 access.definitions(ctx, entry["record_project_id"], entry["record_task_id"], uow, cache))
         return query in (record["title"] + " " + json.dumps(list(cells.values()), ensure_ascii=False)).casefold()
 
     # -- writes ----------------------------------------------------------------------------------------------------
@@ -219,7 +219,7 @@ class Entries:
         ctx = table_context(ctx, args, uow)
         builder = self.builder(ctx, operation, args, operation.replace("_", " ").title())
         table = self.writable(ctx, args["table_id"], options, uow)
-        resource = ref("data_tables", table["id"], ctx.business_id)
+        resource = ref("data_tables", table["id"], ctx.project_id)
         builder.expect(resource, table)
         mark = len(builder.changes)
         if operation == "crm_entries_add":
@@ -241,12 +241,12 @@ class Entries:
             raise DomainError("validation_error", "Name exactly one of record (an existing Task) or create (a new Task)")
         cells = self.cells_for_write(table, args.get("cells", {}))
         config = table["crm_config_json"]
-        count = uow.connection.execute("SELECT count(*) FROM crm_entries WHERE business_id IS ? AND table_id=?",
-                                       (ctx.business_id, table["id"])).fetchone()[0]
+        count = uow.connection.execute("SELECT count(*) FROM crm_entries WHERE project_id IS ? AND table_id=?",
+                                       (ctx.project_id, table["id"])).fetchone()[0]
         if "create" in args:
             stage = crm_model.stage_checked(config, args.get("stage_id"))
             task_id = self.compose_task(ctx, builder, args, options, uow)
-            reference = record_ref(ctx.business_id, task_id)
+            reference = record_ref(ctx.project_id, task_id)
             entry = None
         else:
             reference = args["record"]
@@ -259,7 +259,7 @@ class Entries:
                                   "rows as one separate Task")
             if entry is not None and not entry["removed"]:
                 self.agree(entry, cells, args)
-                builder.expect(ref("crm_entries", entry["id"], ctx.business_id), entry)
+                builder.expect(ref("crm_entries", entry["id"], ctx.project_id), entry)
                 return  # already a member with nothing conflicting: unchanged, no revision, no version, no event
             stage = (crm_model.stage_checked(config, args["stage_id"], current=entry["stage_id"] if entry else None)
                      if "stage_id" in args else (entry["stage_id"] if entry else None))
@@ -271,12 +271,12 @@ class Entries:
             return
         if count >= MAX_ROWS:
             raise DomainError("validation_error", f"A CRM supports up to {MAX_ROWS} entries")
-        position = uow.connection.execute("SELECT COALESCE(MAX(position),-1)+1 FROM crm_entries WHERE business_id IS ? AND table_id=?",
-                                          (ctx.business_id, table["id"])).fetchone()[0]
+        position = uow.connection.execute("SELECT COALESCE(MAX(position),-1)+1 FROM crm_entries WHERE project_id IS ? AND table_id=?",
+                                          (ctx.project_id, table["id"])).fetchone()[0]
         identity = new_id()
         builder.record("crm_entries", identity, None, {
-            "id": identity, "table_id": table["id"], "record_task_id": reference["id"], "record_business_id": reference["business_id"],
-            "record_namespace": namespace_of(reference["business_id"]), "position": position, "stage_id": stage, "cells_json": cells,
+            "id": identity, "table_id": table["id"], "record_task_id": reference["id"], "record_project_id": reference["project_id"],
+            "record_namespace": namespace_of(reference["project_id"]), "position": position, "stage_id": stage, "cells_json": cells,
             "removed": 0, "created_by": ctx.principal_id, "updated_by": ctx.principal_id, "created_at": builder.at,
             "updated_at": builder.at}, label=identity)
 
@@ -290,14 +290,14 @@ class Entries:
 
     def task_arguments(self, ctx, args):
         """The ``tasks_create`` arguments of a new entry: a Customer (person) unless another Task type is chosen."""
-        # A row is a record of its Table, so a second row with the same name is the Table's business, not a duplicate Task.
+        # A row is a record of its Table, so a second row with the same name is the Table's concern, not a duplicate Task.
         create = {"task_type": "customer", "allow_duplicate": True, **args["create"]}
         if ctx.principal_kind == "agent" and create["task_type"] == "task":
             # A work Task per row fills every work view with records and leaves each row's state in two places.
             raise DomainError("validation_error",
                               "A CRM row is a record, not a piece of work: leave task_type out (the row is stored as a Customer "
                               "record) and keep the work on the rows as one separate Task")
-        return {**create, **({"scope": "global"} if ctx.business_id is None else {})}
+        return {**create, **({"scope": "global"} if ctx.project_id is None else {})}
 
     def compose_task(self, ctx, builder, args, options, uow):
         """Prepare the new Task with the Task service's own validation and adopt its effects into the Table's plan."""
@@ -347,7 +347,7 @@ class Entries:
         stage = (crm_model.stage_checked(table["crm_config_json"], changes["stage_id"], current=entry["stage_id"])
                  if "stage_id" in changes else entry["stage_id"])
         if cells == entry["cells_json"] and stage == entry["stage_id"]:
-            builder.expect(ref("crm_entries", entry["id"], ctx.business_id), entry)
+            builder.expect(ref("crm_entries", entry["id"], ctx.project_id), entry)
             return
         builder.record("crm_entries", entry["id"], entry, {"cells_json": cells, "stage_id": stage,
                        "updated_by": ctx.principal_id, "updated_at": builder.at}, label=entry["id"])
@@ -355,7 +355,7 @@ class Entries:
     def prepare_remove(self, ctx, builder, table, args, uow):
         entry = self.find(ctx, table["id"], args["entry_id"], uow)
         if entry["removed"]:
-            builder.expect(ref("crm_entries", entry["id"], ctx.business_id), entry)
+            builder.expect(ref("crm_entries", entry["id"], ctx.project_id), entry)
             return
         builder.record("crm_entries", entry["id"], entry, {"removed": 1, "updated_by": ctx.principal_id,
                        "updated_at": builder.at}, label=entry["id"])
@@ -386,7 +386,7 @@ class Entries:
             self.crm.tasks.validate_prepared(ctx, task_plan, uow)
             created = next((c.resource.resource_id for c in task_changes if c.resource.resource_type == "tasks" and c.action == "insert"), None)
             if created is None or entry is None or entry.action != "insert" or (
-                    entry.values["record_task_id"], entry.values["record_business_id"]) != (created, ctx.business_id):
+                    entry.values["record_task_id"], entry.values["record_project_id"]) != (created, ctx.project_id):
                 raise DomainError("invalid_plan", "The new entry must point at the Task this change creates")
             return
         if task_changes:
@@ -395,8 +395,8 @@ class Entries:
             reference = args["record"]
             self.crm.access.require(ctx, reference, uow)
             if entry is not None and (entry.values.get("record_task_id", reference["id"]),
-                                      entry.values.get("record_business_id", reference["business_id"])) != (
-                                          reference["id"], reference["business_id"]):
+                                      entry.values.get("record_project_id", reference["project_id"])) != (
+                                          reference["id"], reference["project_id"]):
                 raise DomainError("invalid_plan", "The entry must point at the Task the request names")
             return
         if "updates" in args:
@@ -449,7 +449,7 @@ class Entries:
             return self.apply_updates(ctx, plan, uow)
         table_changes, task_changes = self.split(plan)
         entry_change = next((c for c in table_changes if c.resource.resource_type == "crm_entries"), None)
-        before = uow.repository("crm_entries", business_id=ctx.business_id).get(entry_change.resource.resource_id) if (
+        before = uow.repository("crm_entries", project_id=ctx.project_id).get(entry_change.resource.resource_id) if (
             entry_change and entry_change.action == "update") else None
         created = bool(task_changes)
         if created:
@@ -460,7 +460,7 @@ class Entries:
         applied = apply_records(ctx, replace(table_plan, changes=tuple(c for c in table_changes if c.action != "capture_table_version")), uow)
         captured = self.crm.tables.capture_all(ctx, table_plan, applied, uow)
         if entry_change is not None:
-            after = uow.repository("crm_entries", business_id=ctx.business_id).get(entry_change.resource.resource_id)
+            after = uow.repository("crm_entries", project_id=ctx.project_id).get(entry_change.resource.resource_id)
             self.crm.threads.record_membership(ctx, uow, before, after)
         table = captured[0][0] if captured else self.crm.tables.table(ctx, args["table_id"], uow)
         # Like every Table write, a changing batch also names the job that publishes its revision.
@@ -469,14 +469,14 @@ class Entries:
             return {**result, "entry_id": args["entry_id"], "removed": True}
         entry_id = entry_change.resource.resource_id if entry_change else (
             args["entry_id"] if "entry_id" in args else self.lookup(ctx, table["id"], args["record"], uow)["id"])
-        entry = uow.repository("crm_entries", business_id=ctx.business_id).get(entry_id)
+        entry = uow.repository("crm_entries", project_id=ctx.project_id).get(entry_id)
         view = self.view(ctx, table, entry, uow, ScopeCache())
         return {**result, "entry": view, **({"created_record": created} if operation == "crm_entries_add" else {})}
 
     def apply_updates(self, ctx, plan, uow):
         """Several entries of one Table in this transaction: one revision, one snapshot and job, one development per changed entry."""
         table_changes, _ = self.split(plan)
-        entries = uow.repository("crm_entries", business_id=ctx.business_id)
+        entries = uow.repository("crm_entries", project_id=ctx.project_id)
         changed = [change.resource.resource_id for change in table_changes
                    if change.resource.resource_type == "crm_entries" and change.action == "update"]
         before = {identity: entries.get(identity) for identity in changed}

@@ -23,6 +23,8 @@ from qorqut_operations.application.plans import schema
 from qorqut_operations.contracts import DomainError
 from qorqut.errors import domain_error_from_agentic
 from qorqut_operations.items import UNAVAILABLE, authorize_item_read
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import reference_kind
 
 from qorqut.management.identity import configured_ordubashy
 
@@ -38,7 +40,7 @@ SCHEMA = schema({
     "references": {"type": "array", "maxItems": refs.MAX_REFERENCES, "items": schema({
         "type": {"enum": list(refs.TYPES)},
         "id": {"type": "string", "minLength": 1, "maxLength": 200},
-        "business_id": {"type": ["string", "null"], "format": "uuid"}}, ("type", "id"))},
+        "project_id": {"type": ["string", "null"], "format": "uuid"}}, ("type", "id"))},
 }, ("message",))
 
 
@@ -47,8 +49,11 @@ class UserInput:
         self.runtime, self.app = runtime, runtime.application
 
     def register(self):
+        # A reference names its record by type and id; a record in a project the caller reaches is completed with that
+        # project, and any other (a Global record, a browser, a delta, a tab) keeps no project_id and reads as Global.
+        found = References(Ref(("references", "*"), absent="keep"), kinds={**KINDS, "signoff": reference_kind(self.app.signoffs)})
         self.runtime.registry.register(OperationDescriptor(
-            NAME, SCHEMA, supports_signoff=False, scope_kinds=frozenset({"global"}), global_capability="read_global_context",
+            NAME, SCHEMA, complete_references=found, supports_signoff=False, scope_kinds=frozenset({"global"}), global_capability="read_global_context",
             resolve_namespace=lambda ctx, args: "global", exposure=frozenset({"mcp"}), effect_kind="read",
             description=DESCRIPTION, read=self.read))
         self.runtime.user_input = self
@@ -58,7 +63,7 @@ class UserInput:
 
     def caller(self, ctx, uow):
         """The configured Ordubashy or currently registered and capable Overseer."""
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         if ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None:
             raise DomainError("forbidden", "request_user_input is limited to the configured Ordubashy agent")
         if configured_ordubashy(uow) != ctx.principal_id:
@@ -76,15 +81,21 @@ class UserInput:
         except refs.InputError as error:
             raise DomainError("validation_error", str(error)) from None
         listed = {}      # each agent's open tabs, listed once however many of its tabs are named
+        named = []       # what the agent is told about each tab it showed, in order
         for position, reference in enumerate(shown["references"], 1):
             try:
-                self.resolve(ctx, reference, uow, tabs=listed)
+                found = self.resolve(ctx, reference, uow, tabs=listed)
+                if reference["type"] == refs.TYPE_TAB:
+                    named.append({"id": reference["id"], "title": found["title"], "url": found["url"]})
             except DomainError as error:
                 if error.code not in UNAVAILABLE:
                     raise
                 raise DomainError("not_found", f"Reference {position} ({reference['type']}) is not available; read it first and "
-                                  "use its exact id and business_id") from None
-        return {"user_input": shown}
+                                  "use its exact id") from None
+        # A reference is only an id: the page's title and address, as the tab has them now, let the agent check that the tab it
+        # named is the page it told the owner about. They are the agent's alone: Chat keeps ``user_input`` and nothing else
+        # (``projection._user_input``). A tab that is no longer open is already refused above, by its place in the list.
+        return {"user_input": shown, "tabs": named} if named else {"user_input": shown}
 
     # ----- resolution ----------------------------------------------------------------------------------------------------
 
@@ -92,11 +103,11 @@ class UserInput:
         """The current record a reference names, through the caller's existing read authorization, or an ``UNAVAILABLE`` error.
         Returns the display facts: ``label`` and, for a Task, ``state``; for a browser also its viewer when ``viewer`` asks for
         a ready one. ``tabs`` is the caller's memo of the tabs already listed, by agent (see ``tab``)."""
-        kind, identity, business = reference["type"], reference["id"], reference["business_id"]
+        kind, identity, project = reference["type"], reference["id"], reference["project_id"]
         if kind == refs.TYPE_TAB:
             return self.tab(ctx, identity, uow, tabs)
         if kind == refs.TYPE_BROWSER:
-            return self.runtime.browser_access.targets.resolve(uow, ctx.principal_id, identity, business, viewer=viewer)
+            return self.runtime.browser_access.targets.resolve(uow, ctx.principal_id, identity, project, viewer=viewer)
         if kind == refs.TYPE_DELTA:
             from qorqut_agentic.errors import AgenticError
             from qorqut.overseer.access import EvidenceAccess, OwnerEvidenceAccess
@@ -107,18 +118,18 @@ class UserInput:
                     proposal = self.runtime.agentic_layer.overseer.proposals.get(proposal_id)
                     for source in proposal['sources']:
                         gate.authorize_source(source['ref'])
-                return {'label': delta['revision']['summary'], 'business_slug': None}
+                return {'label': delta['revision']['summary'], 'project_slug': None}
             except AgenticError as error:
                 raise domain_error_from_agentic(error) from error
-        card = self.runtime.focus.resolve(ctx, {"type": kind, "id": identity, "business_id": business}, uow)
-        found = {"label": card["label"], "business_slug": card["business_slug"]}
+        card = self.runtime.focus.resolve(ctx, {"type": kind, "id": identity, "project_id": project}, uow)
+        found = {"label": card["label"], "project_slug": card["project_slug"]}
         if kind == refs.TYPE_TASK:
             found["state"] = card["state"]
         return found
 
     def agent(self, ctx, identity, uow):
         """A registered agent whose browser tab Chat shows, through the existing ``agents_get`` read authorization: the caller must be allowed
-        that read, and a Global agent needs the Global capabilities while a business-home agent is outside Global. An unknown id,
+        that read, and an agent needs the Global capabilities. An unknown id,
         a human principal or a profile the caller may not read is an ``UNAVAILABLE`` error."""
         authorize_item_read(self.app, ctx, "agents_get", uow)
         self.runtime.agents._access(ctx, uow.connection.execute("SELECT * FROM agent_profiles WHERE agent_id=?", (identity,)).fetchone())
@@ -168,32 +179,32 @@ class UserInput:
         return label[:MAX_TAB_LABEL] or "Tab"
 
     def owner_references(self, principal_id, found, uow):
-        """The owner's view of the references a page of Chat names, by ``(type, id, business_id)``: current records resolved with
+        """The owner's view of the references a page of Chat names, by ``(type, id, project_id)``: current records resolved with
         the installation owner's own reach, a viewer URL only from the trusted configuration, and an unavailable placeholder
         (identity only, no target detail) for anything missing, deleted or not readable by the owner."""
-        ctx = self.app.policy.context_for(principal_id, business_id=None, review_business_id=None, uow=uow)
+        ctx = self.app.policy.context_for(principal_id, project_id=None, review_project_id=None, uow=uow)
         views, listed = {}, {}       # listed: each agent's open tabs, asked of its browser once for the whole page
         for key in dict.fromkeys(found):
-            kind, identity, business = key
+            kind, identity, project = key
             if kind in refs.RETIRED_TYPES:
                 continue
             try:
-                facts = self.resolve(ctx, {"type": kind, "id": identity, "business_id": business}, uow, viewer=True, tabs=listed)
+                facts = self.resolve(ctx, {"type": kind, "id": identity, "project_id": project}, uow, viewer=True, tabs=listed)
             except DomainError as error:
                 if error.code not in UNAVAILABLE and error.code != "invalid_configuration":
                     raise
                 continue
             if kind == refs.TYPE_TAB:
                 agent_id, tab_id = refs.tab_parts(identity)
-                views[key] = {"type": kind, "id": identity, "business_id": None, "label": self.tab_label(facts["title"], facts["url"]),
+                views[key] = {"type": kind, "id": identity, "project_id": None, "label": self.tab_label(facts["title"], facts["url"]),
                               "available": True, "agent_id": agent_id, "tab_id": tab_id, "agent_label": facts["agent"]["display_name"]}
                 continue
-            view = {"type": kind, "id": identity, "business_id": business, "label": facts["label"], "available": True}
+            view = {"type": kind, "id": identity, "project_id": project, "label": facts["label"], "available": True}
             if kind == refs.TYPE_BROWSER:
                 view["viewer_url"] = facts["viewer_url"]
                 view.update({size: facts[size] for size in ("width", "height") if size in facts})
             else:
-                view["business_slug"] = facts["business_slug"]
+                view["project_slug"] = facts["project_slug"]
                 if kind == refs.TYPE_TASK:
                     view["state"] = facts["state"]
             views[key] = view

@@ -26,7 +26,7 @@ from .materials import FILTERS as MATERIAL_FILTERS, classification, matches
 from .relationships import projection
 
 KINDS = {"context_topic", "context_note", "context_person", "context_upload", "context_dump", "context_map", "context", "pillar", "content", "shared_instruction"}
-FILTERS = {**MATERIAL_FILTERS, "scope": {"enum": ["business", "shared", "all"]}, "kind": TEXT,
+FILTERS = {**MATERIAL_FILTERS, "scope": {"enum": ["project", "shared", "all"]}, "kind": TEXT,
            "topic_id": UUID, "person_id": UUID,
            "include_archived": {"type": "boolean"}}
 CURSOR = {"type": "string", "maxLength": 2000}
@@ -105,7 +105,7 @@ class SourceLibrary:
     def eligible(row):
         if row["kind"] not in KINDS or row["owning_agent_id"] is not None:
             return False
-        if row["business_id"] is None:
+        if row["project_id"] is None:
             return row["namespace"] == "global" and row["path"].startswith(("context/", "files/instructions/"))
         return True
 
@@ -120,19 +120,19 @@ class SourceLibrary:
         The same capability, eligibility (registered kind, unowned, Global namespace under ``context/`` or ``files/instructions/``),
         ready and unarchived rules apply; no body is returned. Anything else is not found, so nothing about it is disclosed."""
         self.require_shared(ctx)
-        row = uow.repository("documents", business_id=None).get(identity)
+        row = uow.repository("documents", project_id=None).get(identity)
         if row is None or row.get("archived") or not self.eligible(row):
             raise DomainError("not_found", "Document is not in the selected context library")
         return row, self.observe(row, uow)[1]
 
     def namespaces(self, ctx, args):
         """The namespaces a library read may select from for ``args``, after its scope and capability checks."""
-        scope = args.get("scope", "business" if ctx.business_id else "shared")
-        if scope in {"business", "all"} and not ctx.business_id:
+        scope = args.get("scope", "project" if ctx.project_id else "shared")
+        if scope in {"project", "all"} and not ctx.project_id:
             raise DomainError("scope_required", "Select a project for its context library")
         if scope in {"shared", "all"}:
             self.require_shared(ctx)
-        return ([ctx.business_id] if scope in {"business", "all"} else []) + ([None] if scope in {"shared", "all"} else [])
+        return ([ctx.project_id] if scope in {"project", "all"} else []) + ([None] if scope in {"shared", "all"} else [])
 
     def excerpt(self, ctx, args, uow):
         """The opening of one library document, for a trusted caller that reads inside a write transaction.
@@ -143,8 +143,8 @@ class SourceLibrary:
         found by one lookup per selected namespace instead of loading the library, and nothing is parsed, so there is no
         heading outline, line range or cursor. The host's presentation of filing fields is not applied."""
         row = None
-        for business in self.namespaces(ctx, args):
-            found = uow.repository("documents", business_id=business).get(args["document_id"])
+        for project in self.namespaces(ctx, args):
+            found = uow.repository("documents", project_id=project).get(args["document_id"])
             if found is not None and self.eligible(found):
                 row = {**found, "metadata_json": projection(found, uow)}
                 break
@@ -162,7 +162,7 @@ class SourceLibrary:
     def select(self, ctx, args, uow):
         namespaces = self.namespaces(ctx, args)
         marks = ",".join("?" for _ in KINDS)
-        found = [row for business in namespaces for row in rows(uow, "documents", business,
+        found = [row for project in namespaces for row in rows(uow, "documents", project,
             where="kind IN (" + marks + ") AND owning_agent_id IS NULL", parameters=sorted(KINDS)) if self.eligible(row)]
         found = [{**row, "metadata_json": projection(row, uow)} for row in found if args.get("include_archived") or not row.get("archived")]
         return sorted(found, key=lambda row: row["id"])
@@ -178,7 +178,7 @@ class SourceLibrary:
     @staticmethod
     def summary(row):
         meta = row["metadata_json"]
-        return {**classification(row), "id": row["id"], "business_id": row["business_id"], "scope": "business" if row["business_id"] else "shared",
+        return {**classification(row), "id": row["id"], "project_id": row["project_id"], "scope": "project" if row["project_id"] else "shared",
             "kind": row["kind"], "title": str(meta.get("title", meta.get("name", row["path"])))[:240],
             "summary": str(meta.get("summary", ""))[:400], "revision": row["revision"],
             "content_hash": row["content_hash"], "availability": row["availability"],
@@ -189,11 +189,11 @@ class SourceLibrary:
 
     @staticmethod
     def binding(row):
-        return canonical_hash([row["business_id"], row["namespace"], row["path"], row["kind"], row["revision"],
+        return canonical_hash([row["project_id"], row["namespace"], row["path"], row["kind"], row["revision"],
                                row["content_hash"], row["availability"], row["metadata_json"]])
 
     def path(self, row, uow):
-        return self.store._file_target(self.store.file_ref(row["id"], row["path"], row["business_id"]), uow).resolve()
+        return self.store._file_target(self.store.file_ref(row["id"], row["path"], row["project_id"]), uow).resolve()
 
     def observe(self, row, uow):
         if row["availability"] != "ready":
@@ -247,7 +247,7 @@ class SourceLibrary:
         selected = self.select(ctx, {**args, **({"include_archived": True} if operation == "context_get" else {})}, uow)
         binding = canonical_hash({"sources": [(row["id"], self.binding(row)) for row in selected],
             "query": {key: value for key, value in args.items() if key not in {"cursor", "refresh_cursor", "limit", "max_chars"}},
-            "business_id": ctx.business_id, "allowed": sorted(ctx.allowed_business_ids), "global": sorted(ctx.global_capabilities)})
+            "project_id": ctx.project_id, "allowed": sorted(ctx.allowed_project_ids), "global": sorted(ctx.global_capabilities)})
         if operation == "context_get":
             row = next((row for row in selected if row["id"] == args["document_id"]), None)
             if row is None:
@@ -277,9 +277,9 @@ class SourceLibrary:
         """What a body cursor is bound to: the document's identity, the query and the caller's scope. The body bytes it pages
         are bound separately (``get``). The document's row revision and stored metadata are deliberately not part of it: a filing
         completion rewrites both, and that bookkeeping must not strand a reader in the middle of an unchanged body."""
-        return canonical_hash({"document": [row["id"], row["business_id"], row["kind"]],
+        return canonical_hash({"document": [row["id"], row["project_id"], row["kind"]],
             "query": {key: value for key, value in args.items() if key not in {"cursor", "refresh_cursor", "limit", "max_chars"}},
-            "business_id": ctx.business_id, "allowed": sorted(ctx.allowed_business_ids), "global": sorted(ctx.global_capabilities)})
+            "project_id": ctx.project_id, "allowed": sorted(ctx.allowed_project_ids), "global": sorted(ctx.global_capabilities)})
 
     def refresh_managed(self, identities, uow):
         """Opportunistic cache refresh after verified managed effects; reads repair misses."""

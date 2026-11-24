@@ -1,16 +1,23 @@
-"""The timelines of Tasks, Projects and Global as agent tools.
+"""The timelines of Tasks and Projects as agent tools.
 
 ``timeline_get`` reads what holds now on one item (or its whole history); ``timeline_file`` is how the configured coordinator
-changes it. An item is ``{type, id, business_id}`` as ``thread_pins_set`` names a record: a Task (``task``, its id, its Project
-or null), a Project (``project``, its id as both id and business_id) or Global (``global``, id ``global``, business_id null).
+changes it. An item is named by its type and id: a Task (``task`` and its id) or a Project (``project`` and its id). Its
+project is found from the id: ``project_id`` is the Task's Project (null for a Global Task) or the Project's own id, and
+may be stated.
+
+Global has no timeline (the owner's decision, 22 November 2026): what holds for all work is an instruction, which an agent
+files for the Learning Applier's review (``experience_observation_file``). A call that names Global (``global``, id ``global``) is still accepted by the
+schemas so that it is answered with that advice (``NO_GLOBAL``) instead of a bare schema refusal; nothing is read or filed.
+Entries filed on Global before the decision stay in the store and are not read.
 
 Who may read: a Task's timeline follows the ordinary ``tasks_get`` read of that Task; a Project's needs the caller to be a
-participant of that Project; Global's is open to every agent. Who may file: the configured coordinator in person, never a
-delegated identity, never the dashboard.
+participant of that Project. Who may file: the configured coordinator in person, never a delegated identity, never the
+dashboard.
 
-Filing is split so that a later review step can sit between the two halves: ``check`` is the caller's gate, the item's
-existence and ``filing.check`` of the changes (it is what ``prepare`` runs and what lists the rows a removal or answer depends
-on, to be pinned with ``pin``); ``file`` appends the changes. ``apply`` calls ``file`` with the plan's own arguments and proposer.
+A filing is applied at once. It is split so that a review step can sit between the two halves when a permission override
+holds filings for the owner: ``check`` is the caller's gate, the item's existence and ``filing.check`` of the changes (it is
+what ``prepare`` runs and what lists the rows a removal or answer depends on, to be pinned with ``pin``); ``file`` appends the
+changes. ``apply`` calls ``file`` with the plan's own arguments and proposer.
 """
 from __future__ import annotations
 
@@ -20,26 +27,28 @@ from dataclasses import replace
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, ref, schema, timestamp
 from qorqut_operations.contracts import DomainError, FieldChange, PreviewResource, StructuredPreview, plain
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.tasks.scope import task_namespace
 from qorqut_operations.timeline import filing, state as timeline_state
 from qorqut_operations.timeline.schema import ENTRIES, ITEM_TYPES, KINDS, QUESTIONS
 
-from qorqut.domains.projects.access import business_participant
+from qorqut.domains.projects.access import project_participant
 from qorqut.management.identity import configured_ordubashy, installation_owner
 
 GET_DESCRIPTION = (
-    "Reads the timeline of a Task, a Project or Global: what holds now, or its whole history. item names it: type (task, project "
-    "or global), id (the Task id, the Project id, or \"global\") and business_id (the Project a Task is in, the Project's own id "
-    "for a project, null for Global or a Global Task). By default it returns the state with the ids of its entries and questions "
+    "Reads the timeline of a Task or a Project: what holds now, or its whole history. item names it: type (task or project) "
+    "and id (the Task id or the Project id); the item's project is found from its id. Global has no timeline. By default it "
+    "returns the state with the ids of its entries and questions "
     "(the ids timeline_file removes, answers and drops by): the latest goal, every decision and fact added and not removed, the "
     "latest progress note and the open questions for the owner, plus the same as text and the item's revision. With history true it "
     "pages every entry oldest first (limit, cursor), removed ones marked, with the owner's quoted words and their links, and the "
     "first page lists the questions already answered or dropped and the item's subtasks, approvals and reports as one-line links "
     "(approval and report titles are shown to the coordinator and the owner only). You may read a Task's timeline when you may "
-    "read the Task, a Project's when you take part in the Project, and Global's always. Changes nothing.")
+    "read the Task and a Project's when you take part in the Project. Changes nothing.")
 FILE_DESCRIPTION = (
-    "Coordinator write. Changes the timeline of a Task, a Project or Global, which every agent that opens the item is then told. "
-    "item names it as in timeline_get. changes is 1 to 10 of: {action: add, kind: goal|decision|fact|progress, text, refs?} "
+    "Coordinator write. Changes the timeline of a Task or a Project, which every agent that opens the item is then told. "
+    "item names it as in timeline_get. Global has no timeline: a rule about how agents work is an instruction, filed with "
+    "experience_observation_file for the Learning Applier's review. changes is 1 to 10 of: {action: add, kind: goal|decision|fact|progress, text, refs?} "
     "(text 1 to 400 characters, one or two sentences; a goal and a progress note replace the previous one, a decision and a fact "
     "hold until removed; an add that repeats what already stands is skipped and listed under filed.skipped); {action: remove, "
     "entry_id, reason?} (takes out an entry that no longer holds, and removing the current goal or progress note leaves none; read the ids with "
@@ -49,29 +58,38 @@ FILE_DESCRIPTION = (
     "sources is up to ten {quote, ref}: the owner's own words behind the change (at most 1000 "
     "characters each) and a link to the message. The entries are never edited or deleted, so file at the most general level that "
     "fits and keep what you file true. The result is the item's new state; when it passes about 3,000 characters it asks you to "
-    "remove what no longer holds. During the trial every filing is first held for the owner's review: the call returns "
-    "signoff_required, which means the filing was submitted for the owner's review and is filed by itself when the owner "
-    "approves it, with no further call from you. Do not file it again; timeline_get lists the filings still waiting.")
+    "remove what no longer holds. The filing is applied at once, without the owner's review.")
 ANSWER_DESCRIPTION = (
     "Coordinator write. Files the owner's answer to one of your question Signoffs on a timeline, at once and without review, "
     "since the words are the owner's: signoff_id is the answered question (signoffs_input_create, now answered), kind is "
     "decision or fact, text is the answer as it should hold (1 to 400 characters, one or two sentences). item names where it "
-    "holds as in timeline_get; without it, the Task or Project the question was asked about, else Global or the Signoff's "
-    "Project. The owner's own answer is quoted on the entry and linked to the Signoff. Each answer is filed once. File only "
+    "holds as in timeline_get; without it, the Task or Project the question was asked about, else the Signoff's Project. A "
+    "question asked about no Task or Project needs item, since Global has no timeline. The owner's own answer is quoted on "
+    "the entry and linked to the Signoff. Each answer is filed once. File only "
     "an answer that settles a decision or fact; when the owner says the question is not needed or was settled already, file "
     "nothing. If unclear, please ask the user.")
+# Global has no timeline. A call that names it is told where its content belongs, so the caller is not left to guess.
+NO_GLOBAL = ("Global has no timeline. Why should this hold at Global? A rule about how agents work is an instruction: "
+             "consider filing it with experience_observation_file, which puts it before the Learning Applier's review. What "
+             "holds for one Project or Task is filed on that Project or Task.")
+NO_GLOBAL_READ = ("Global has no timeline. What holds for all work is in the standing instructions; read the timeline of a "
+                  "Project or a Task.")
+NO_GLOBAL_ANSWER = ("This question was asked about no Task or Project, and Global has no timeline. Name the Task or Project "
+                    "the answer holds on with item. If the answer is a rule about how agents work, consider filing it "
+                    "with experience_observation_file; otherwise file nothing: the answered Signoff is the record.")
 REVIEW_NOTICE = ("Submitted for the owner's review. It is filed by itself when the owner approves it; do not file it again. "
                  "timeline_get lists the filings still waiting.")
 
-ITEM = {"type": "object", "additionalProperties": False, "required": ["type", "id", "business_id"], "properties": {
+# ``global`` stays in the accepted types only so that a call naming it reaches ``grounded`` and its advice.
+ITEM = {"type": "object", "additionalProperties": False, "required": ["type", "id"], "properties": {
     "type": {"enum": list(ITEM_TYPES)},
     "id": {"type": "string", "minLength": 1, "maxLength": 300},
-    "business_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200}}}
+    "project_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200}}}
 TEXT = {"type": "string", "minLength": 1, "maxLength": filing.MAX_TEXT}
 IDENTITY = {"type": "string", "minLength": 1, "maxLength": 100}
 REFS = {"type": "array", "maxItems": 10, "items": schema({
     "type": {"type": "string", "pattern": "^[a-z][a-z_]{0,39}$"}, "id": {"type": "string", "minLength": 1, "maxLength": 300},
-    "business_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200}}, ("type", "id"))}
+    "project_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 200}}, ("type", "id"))}
 CHANGE = {"oneOf": [
     schema({"action": {"const": "add"}, "kind": {"enum": list(KINDS)}, "text": TEXT, "refs": REFS}, ("action", "kind", "text")),
     schema({"action": {"const": "remove"}, "entry_id": IDENTITY, "reason": {"type": "string", "maxLength": filing.MAX_TEXT}},
@@ -82,7 +100,7 @@ CHANGE = {"oneOf": [
 SOURCES = {"type": "array", "maxItems": filing.MAX_SOURCES, "items": schema({
     "quote": {"type": "string", "minLength": 1, "maxLength": filing.MAX_QUOTE},
     "ref": {"type": "string", "minLength": 1, "maxLength": 500}}, ("quote", "ref"))}
-SCOPE = {"scope": {"enum": ["business", "global"]}}
+SCOPE = {"scope": {"enum": ["project", "global"]}}
 GET_SCHEMA = schema({**SCOPE, "item": ITEM, "history": {"type": "boolean"}, "limit": {"type": "integer", "minimum": 1, "maximum": 200},
                      "cursor": {"type": "string", "pattern": "^[0-9]{1,18}$"}}, ("item",))
 FILE_SCHEMA = schema({"scope": {"const": "global"}, "item": ITEM,
@@ -101,16 +119,19 @@ class Timeline:
         self.runtime, self.app = runtime, runtime.application
 
     def register(self):
-        common = dict(global_capability="read_global_context", exposure=frozenset({"mcp"}))
+        # The item names its record by type and id; its project is found from the id (Global's is null).
+        common = dict(global_capability="read_global_context", exposure=frozenset({"mcp"}),
+                      complete_references=References(Ref(("item",))))
         self.runtime.registry.register(OperationDescriptor(
             "timeline_get", GET_SCHEMA, description=GET_DESCRIPTION, effect_kind="read", read=self.get, supports_signoff=False,
-            scope_kinds=frozenset({"business", "global"}), resolve_namespace=task_namespace, **common))
-        # During the trial a filing is held for the owner's approval and applied by the service as its proposer; an agent override
-        # (``permissions_set``) for the coordinator replaces this standing mode, which is how the trial ends.
+            scope_kinds=frozenset({"project", "global"}), resolve_namespace=task_namespace, **common))
+        # A filing is applied at once (the owner's decision, 23 November 2026: what holds on a Task or a Project needs no
+        # Signoff of theirs). It can still be held: an agent override (``permissions_set``) that says ``signoff`` for the
+        # coordinator sends each filing to the owner's review, and the service applies an approved one as its proposer.
         self.runtime.registry.register(OperationDescriptor(
             "timeline_file", FILE_SCHEMA, description=FILE_DESCRIPTION, effect_kind="records", prepare=self.prepare,
             apply=self.apply, scope_kinds=frozenset({"global"}), resolve_namespace=lambda ctx, args: "global",
-            supports_signoff=True, default_mode="signoff", project_result=self.project, **common))
+            supports_signoff=True, default_mode="allow", project_result=self.project, **common))
         # The owner's answer to a question Signoff is the owner's own words, so filing it needs no second review.
         self.runtime.registry.register(OperationDescriptor(
             "timeline_file_answer", ANSWER_SCHEMA, description=ANSWER_DESCRIPTION, effect_kind="records", prepare=self.prepare_answer,
@@ -124,41 +145,45 @@ class Timeline:
     # -- the item and who may read it ------------------------------------------------------------------------------
 
     @staticmethod
+    def grounded(item, message=NO_GLOBAL):
+        """Refuse Global, which has no timeline, with ``message``: where what was meant for it belongs."""
+        if item["type"] == "global":
+            raise DomainError("validation_error", message)
+
+    @staticmethod
     def exists(item, uow):
-        """The item's title when it exists, without any caller's authority (``''`` for Global, which has none); else None."""
-        kind, identity, business = item["type"], item["id"], item["business_id"]
+        """The item's title when it exists, without any caller's authority; else None. Global is no item."""
+        kind, identity, project = item["type"], item["id"], item["project_id"]
         if kind == "global":
-            return "" if identity == "global" and business is None else None
+            return None
         if kind == "project":
-            row = uow.connection.execute("SELECT name FROM businesses WHERE id=?", (identity,)).fetchone() if business == identity else None
+            row = uow.connection.execute("SELECT name FROM projects WHERE id=?", (identity,)).fetchone() if project == identity else None
             return row["name"] if row else None
-        row = uow.connection.execute("SELECT title FROM tasks WHERE business_id IS ? AND id=?", (business, identity)).fetchone()
+        row = uow.connection.execute("SELECT title FROM tasks WHERE project_id IS ? AND id=?", (project, identity)).fetchone()
         return row["title"] if row else None
 
     def readable(self, ctx, item, uow):
-        """The item's title (None for Global) once the caller's own read of it succeeds; ``not_found`` otherwise."""
+        """The item's title once the caller's own read of it succeeds; ``not_found`` otherwise."""
         current = self.app.current_context(ctx, uow)
         title = self.exists(item, uow)
         if title is None:
             raise DomainError("not_found", NOT_READABLE)
-        kind, business = item["type"], item["business_id"]
-        if kind == "global":
-            return None
+        kind, project = item["type"], item["project_id"]
         if kind == "project":
-            if not business_participant(current, business, uow):
+            if not project_participant(current, project, uow):
                 raise DomainError("not_found", NOT_READABLE)
             return title
         # The ordinary authorized Task read, as a report's Task is checked: whoever may not read the Task has no timeline for it.
-        scoped = replace(current, business_id=business, review_business_id=business)
+        scoped = replace(current, project_id=project, review_project_id=project)
         descriptor = self.app.registry.get("tasks_get")
         # The item may sit outside the call's own scope, which is all the engine checked: the caller must reach the Task's
         # Project, or hold the Global read for a Global Task.
-        if not (business in current.allowed_business_ids or business == current.business_id if business
+        if not (project in current.allowed_project_ids or project == current.project_id if project
                 else descriptor.global_capability_selected(current.global_capabilities) is not None):
             raise DomainError("not_found", NOT_READABLE)
         try:
-            self.app.authorize(scoped, descriptor, (), uow, namespace="business:" + business if business else "global")
-            task = descriptor.read(scoped, {"task_id": item["id"], "scope": "business" if business else "global", "notes_limit": 0},
+            self.app.authorize(scoped, descriptor, (), uow, namespace="project:" + project if project else "global")
+            task = descriptor.read(scoped, {"task_id": item["id"], "scope": "project" if project else "global", "notes_limit": 0},
                                    None, uow)["task"]
         except DomainError as error:
             if error.code in CLOSED:
@@ -168,19 +193,19 @@ class Timeline:
 
     @staticmethod
     def further_reading(item, uow):
-        """``{subtasks, approvals, reports}`` counts for a Task; empty for a Project or Global."""
+        """``{subtasks, approvals, reports}`` counts for a Task; empty for a Project."""
         if item["type"] != "task":
             return {}
-        connection, business, identity = uow.connection, item["business_id"], item["id"]
-        count = lambda sql: connection.execute(sql, (business, identity)).fetchone()[0]
-        return {"subtasks": count("SELECT COUNT(*) FROM tasks WHERE business_id IS ? AND parent_id=?"),
-                "approvals": count("SELECT COUNT(*) FROM signoff_source_links WHERE source_business_id IS ? AND source_type='task' AND source_id=?"),
-                "reports": count("SELECT COUNT(*) FROM signoff_report_tasks WHERE task_business_id IS ? AND task_id=?")}
+        connection, project, identity = uow.connection, item["project_id"], item["id"]
+        count = lambda sql: connection.execute(sql, (project, identity)).fetchone()[0]
+        return {"subtasks": count("SELECT COUNT(*) FROM tasks WHERE project_id IS ? AND parent_id=?"),
+                "approvals": count("SELECT COUNT(*) FROM signoff_source_links WHERE source_project_id IS ? AND source_type='task' AND source_id=?"),
+                "reports": count("SELECT COUNT(*) FROM signoff_report_tasks WHERE task_project_id IS ? AND task_id=?")}
 
     def trusted(self, ctx, uow):
         """Whether the caller is the installation owner or the configured coordinator in person: the two who may read every
         approval, and so the only ones shown approval and report titles or the filings waiting for review."""
-        current = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        current = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         if current.principal_kind == "human":
             return current.principal_id == installation_owner(uow)
         return current.delegation_assignment_id is None and current.principal_id == configured_ordubashy(uow)
@@ -192,19 +217,19 @@ class Timeline:
         of approvals and reports out; a subtask's title is what the Task read already lists."""
         if item["type"] != "task":
             return {}
-        connection, business, identity = uow.connection, item["business_id"], item["id"]
-        title = "COALESCE(s.display_title, json_extract(s.preview_json,'$.title'))"
+        connection, project, identity = uow.connection, item["project_id"], item["id"]
+        title = "json_extract(s.preview_json,'$.title')"
         approvals = connection.execute(
             f"SELECT s.id, {title} AS title, s.state FROM signoff_source_links l JOIN signoffs s ON s.id=l.signoff_id "
-            "WHERE l.source_business_id IS ? AND l.source_type='task' AND l.source_id=? ORDER BY s.created_at LIMIT ?",
-            (business, identity, LINKS_LIMIT)).fetchall()
+            "WHERE l.source_project_id IS ? AND l.source_type='task' AND l.source_id=? ORDER BY s.created_at LIMIT ?",
+            (project, identity, LINKS_LIMIT)).fetchall()
         reports = connection.execute(
             f"SELECT s.id, {title} AS title, s.state FROM signoff_report_tasks r JOIN signoffs s ON s.id=r.signoff_id "
-            "WHERE r.task_business_id IS ? AND r.task_id=? ORDER BY s.created_at LIMIT ?", (business, identity, LINKS_LIMIT)).fetchall()
+            "WHERE r.task_project_id IS ? AND r.task_id=? ORDER BY s.created_at LIMIT ?", (project, identity, LINKS_LIMIT)).fetchall()
         subtasks = connection.execute(
-            "SELECT id, title, status FROM tasks WHERE business_id IS ? AND parent_id=? ORDER BY created_at, id LIMIT ?",
-            (business, identity, LINKS_LIMIT)).fetchall()
-        return {"subtasks": [{"type": "task", "id": row["id"], "business_id": business, "title": row["title"], "status": row["status"]}
+            "SELECT id, title, status FROM tasks WHERE project_id IS ? AND parent_id=? ORDER BY created_at, id LIMIT ?",
+            (project, identity, LINKS_LIMIT)).fetchall()
+        return {"subtasks": [{"type": "task", "id": row["id"], "project_id": project, "title": row["title"], "status": row["status"]}
                              for row in subtasks],
                 **{name: [{"type": "signoff", "id": row["id"], **({"title": row["title"]} if titles else {}), "state": row["state"]}
                           for row in rows] for name, rows in (("approvals", approvals), ("reports", reports))}}
@@ -213,6 +238,7 @@ class Timeline:
 
     def get(self, ctx, args, options, uow):
         item = args["item"]
+        self.grounded(item, NO_GLOBAL_READ)
         title = self.readable(ctx, item, uow)
         held = timeline_state.state(uow.connection, item)
         result = {"item": held["item"], "revision": held["revision"]}
@@ -243,7 +269,7 @@ class Timeline:
 
     def filer(self, ctx, uow):
         """The coordinator in person: never a delegated identity, never another agent or the owner's dashboard."""
-        current = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        current = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         if current.delegation_assignment_id is not None or current.principal_kind != "agent":
             raise DomainError("forbidden", "Only the configured coordinator in person files on a timeline")
         self.permit(current.principal_id, uow)
@@ -252,14 +278,15 @@ class Timeline:
     @staticmethod
     def current(item, uow):
         """Refuse an item in an archived Project: nothing new is filed on work that is no longer current."""
-        business = item["business_id"]
-        if business and uow.connection.execute("SELECT 1 FROM businesses WHERE id=? AND archived_at IS NOT NULL", (business,)).fetchone():
-            raise DomainError("business_archived", "This project is archived; nothing is filed on its timelines")
+        project = item["project_id"]
+        if project and uow.connection.execute("SELECT 1 FROM projects WHERE id=? AND archived_at IS NOT NULL", (project,)).fetchone():
+            raise DomainError("project_archived", "This project is archived; nothing is filed on its timelines")
 
     def check(self, ctx, args, uow):
         """The gate of a filing and the rows its changes depend on: ``(title, pins)`` where ``pins`` lists, as
         ``{'entries': [...], 'questions': [...]}``, the stored rows a removal, answer or drop closes."""
         self.filer(ctx, uow)
+        self.grounded(args["item"])
         title = self.readable(ctx, args["item"], uow)
         self.current(args["item"], uow)
         return title, filing.check(uow.connection, args["item"], args["changes"])
@@ -270,14 +297,14 @@ class Timeline:
         ends as a conflict instead of applying. An add pins nothing."""
         for table, rows in ((ENTRIES, pins["entries"]), (QUESTIONS, pins["questions"])):
             for row in rows:
-                builder.expect(ref(table, row["id"], item["business_id"], tables=builder.tables), row)
+                builder.expect(ref(table, row["id"], item["project_id"], tables=builder.tables), row)
 
     @staticmethod
     def entry_snapshot(ctx, resource, uow):
         """The entry a prepared removal named while it still stands; ``None`` once removed (or moved to another item)."""
         row = uow.connection.execute(
-            f"SELECT * FROM {ENTRIES} WHERE id=? AND business_id IS ? AND action='add' AND NOT EXISTS "
-            f"(SELECT 1 FROM {ENTRIES} r WHERE r.removes_id={ENTRIES}.id)", (resource.resource_id, resource.business_id)).fetchone()
+            f"SELECT * FROM {ENTRIES} WHERE id=? AND project_id IS ? AND action='add' AND NOT EXISTS "
+            f"(SELECT 1 FROM {ENTRIES} r WHERE r.removes_id={ENTRIES}.id)", (resource.resource_id, resource.project_id)).fetchone()
         return dict(row) if row else None
 
     @staticmethod
@@ -304,14 +331,14 @@ class Timeline:
     def prepare(self, ctx, args, options, uow):
         title, pins = self.check(ctx, args, uow)
         item = args["item"]
-        builder = PlanBuilder(ctx, "timeline_file", args, f"File on the timeline of {item['type']} \"{title}\"" if title else "File on the Global timeline")
+        builder = PlanBuilder(ctx, "timeline_file", args, f"File on the timeline of {item['type']} \"{title}\"")
         self.pin(builder, item, pins)
         lines = plain(self.lines(args["changes"], pins))
         # The same changes already waiting on this item would only make the owner decide them twice.
         if any(row["changes"] == lines for row in self.waiting(ctx, item, uow)):
             raise DomainError("validation_error", "These changes already wait for the owner's review; do not file them again")
         # What the owner reads: the item, one line per change and the quoted words, ahead of the generic field list.
-        fields = {"item_type": item["type"], "item_id": item["id"], "item_business_id": item["business_id"], "item_title": title or "",
+        fields = {"item_type": item["type"], "item_id": item["id"], "item_project_id": item["project_id"], "item_title": title or "",
                   "changes": lines, "sources": args.get("sources", [])}
         resource = PreviewResource("timeline_filing", "filing", "Timeline filing")
         builder.previews.append(StructuredPreview(resource, tuple(FieldChange(path, None, value) for path, value in fields.items())))
@@ -341,7 +368,7 @@ class Timeline:
             fields = {}
             for change in json.loads(row["preview_json"]).get("changes", []):
                 fields.update({field["path"]: field["after"] for field in change.get("fields", [])})
-            if (fields.get("item_type"), fields.get("item_id"), fields.get("item_business_id")) == (item["type"], item["id"], item["business_id"]):
+            if (fields.get("item_type"), fields.get("item_id"), fields.get("item_project_id")) == (item["type"], item["id"], item["project_id"]):
                 found.append({"id": row["id"], "state": row["state"], "filed_at": row["created_at"], "changes": fields.get("changes", [])})
         return found
 
@@ -367,6 +394,8 @@ class Timeline:
         self.permit(principal_id, uow)
         args = plain(args)
         item = args["item"]
+        # A filing on Global that was held for review before Global lost its timeline ends here when it is approved.
+        self.grounded(item)
         title = self.exists(item, uow)
         if title is None:
             raise DomainError("not_found", "The item no longer exists")
@@ -374,8 +403,8 @@ class Timeline:
         made = filing.write(uow.connection, item, args["changes"], args.get("sources", []), created_by=principal_id, at=timestamp())
         held = timeline_state.state(uow.connection, item)
         result = {"item": held["item"], "revision": held["revision"], "filed": made, "state": held,
-                  "text": timeline_state.render(held, title or None, self.further_reading(item, uow))}
-        size = timeline_state.standing_size(held, title or None)
+                  "text": timeline_state.render(held, title, self.further_reading(item, uow))}
+        size = timeline_state.standing_size(held, title)
         if size > timeline_state.WARNING_CHARACTERS:
             result["warning"] = (f"This item's standing state is now {size} characters; about {timeline_state.WARNING_CHARACTERS} "
                                  "is the most worth carrying. Remove the entries that no longer hold.")
@@ -411,13 +440,14 @@ class Timeline:
 
     @staticmethod
     def asked_about(row, uow):
-        """The item a question Signoff was asked about: its Task or Project source, else its Project, else Global."""
+        """The item a question Signoff was asked about: its Task or Project source, else its Project, else None (a question
+        asked at Global about no Task or Project, which has no timeline to hold its answer)."""
         for link in uow.connection.execute(
-                "SELECT source_type, source_id, source_business_id FROM signoff_source_links WHERE signoff_id=? "
+                "SELECT source_type, source_id, source_project_id FROM signoff_source_links WHERE signoff_id=? "
                 "AND source_type IN ('task','project') ORDER BY source_type DESC, created_at, id", (row["id"],)).fetchall():
-            return {"type": link["source_type"], "id": link["source_id"], "business_id": link["source_business_id"]}
-        business = row["review_business_id"]
-        return {"type": "project", "id": business, "business_id": business} if business else {"type": "global", "id": "global", "business_id": None}
+            return {"type": link["source_type"], "id": link["source_id"], "project_id": link["source_project_id"]}
+        project = row["review_project_id"]
+        return {"type": "project", "id": project, "project_id": project} if project else None
 
     def answered(self, ctx, args, uow):
         """``(row, item, title, quote)`` for a filing of the owner's answer: the caller is the coordinator in person, the Signoff
@@ -435,6 +465,9 @@ class Timeline:
         if uow.connection.execute(f"SELECT 1 FROM {ENTRIES} WHERE sources_json LIKE ? LIMIT 1", (f'%"{reference}"%',)).fetchone():
             raise DomainError("validation_error", "This answer is already on a timeline")
         item = args.get("item") or self.asked_about(row, uow)
+        if item is None:
+            raise DomainError("validation_error", NO_GLOBAL_ANSWER)
+        self.grounded(item)
         title = self.readable(ctx, item, uow)
         self.current(item, uow)
         return row, item, title, self.owner_words(row, uow)
@@ -442,7 +475,7 @@ class Timeline:
     def prepare_answer(self, ctx, args, options, uow):
         row, item, title, _ = self.answered(ctx, args, uow)
         builder = PlanBuilder(ctx, "timeline_file_answer", args,
-                              f"File the owner's answer on the timeline of {item['type']} \"{title}\"" if title else "File the owner's answer on the Global timeline")
+                              f"File the owner's answer on the timeline of {item['type']} \"{title}\"")
         return builder.build()
 
     def apply_answer(self, ctx, plan, uow):

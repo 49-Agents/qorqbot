@@ -9,9 +9,9 @@ from qorqut_operations.global_agents import is_global_agent
 
 
 def task_namespace(ctx, args):
-    if args.get("scope") == "global" or (not ctx.business_id and args.get("scope") != "business"):
+    if args.get("scope") == "global" or (not ctx.project_id and args.get("scope") != "project"):
         return "global"
-    return "business:" + (ctx.business_id or "")
+    return "project:" + (ctx.project_id or "")
 
 
 def global_tasks_allowed(ctx, uow) -> bool:
@@ -25,9 +25,9 @@ def global_tasks_allowed(ctx, uow) -> bool:
 
 
 def task_context(ctx, args, uow):
-    """The context a Task operation runs in: unchanged for a business, restricted for Global (owner or granted global agent)."""
+    """The context a Task operation runs in: unchanged for a project, restricted for Global (owner or granted global agent)."""
     if task_namespace(ctx, args) != "global":
         return ctx
     if not global_tasks_allowed(ctx, uow):
         raise DomainError("forbidden", "Global tasks require the owner or an authorized global agent")
-    return replace(ctx, business_id=None, review_business_id=None)
+    return replace(ctx, project_id=None, review_project_id=None)

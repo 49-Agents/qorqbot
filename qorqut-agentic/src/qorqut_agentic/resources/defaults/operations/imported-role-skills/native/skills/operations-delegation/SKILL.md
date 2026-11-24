@@ -60,7 +60,7 @@ may be empty for a self-contained assignment. Worker get/checkpoint/event tools
 and `browser_turn` are supplied automatically (the complete inbox lifecycle
 requires Ordubashy 1.36.3 or later). To authorize browser work, list
 `browser_use` and bind the exact `browser_key` in scope; do not list the automatic
-control tools. Omitted `business_id` means Global.
+control tools. Omitted `project_id` means Global.
 
 ## Browser delegation
 
@@ -113,7 +113,7 @@ in the handoff, if any; never look up or hunt for a session UUID to fill it. Use
 short `handle` for commands and other follow-up calls; it never expires. Do not use the shell launcher or attempt to read its
 credential. Missing MCP access or an unavailable configured target is a blocker.
 
-For native helpers, project context is NOT a browser selector: omit `business_id`
+For native helpers, project context is NOT a browser selector: omit `project_id`
 and `browser_key` from every `browser_turn` call, even when the task concerns one
 project. The server selects the parent agent's configured Chrome. Pass this
 rule explicitly in the handoff alongside browser-control. For example:

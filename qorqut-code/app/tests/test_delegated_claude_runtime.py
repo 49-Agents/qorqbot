@@ -89,10 +89,12 @@ class CommandTests(unittest.TestCase):
                                   executable="/bin/true").environment("/tmp/worker")
         self.assertEqual(claude["HOME"], os.environ.get("HOME", str(Path.home())))
         self.assertNotIn("CODEX_HOME", claude)
+        self.assertEqual(claude["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
         codex = DelegatedRuntime({}, str(uuid.uuid4()), alive=lambda: True, runtime="codex", client=object(),
                                  executable="/bin/true").environment("/tmp/worker")
         self.assertEqual(codex["HOME"], "/tmp/worker")
         self.assertIn("CODEX_HOME", codex)
+        self.assertNotIn("CLAUDE_CODE_DISABLE_AUTO_MEMORY", codex)
 
 
 class EventTests(unittest.TestCase):

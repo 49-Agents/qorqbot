@@ -160,7 +160,7 @@ DEFINITIONS = {
         "handoff_disposition": {"enum": ["prepared", "empty", None]},
         "action": {"oneOf": [{"type": "null"}, object_schema({
             "action_ref": _STRING, "revision_ref": _NULLABLE,
-            "tags": {"type": "array", "items": object_schema({"id": _STRING, "name": _STRING, "business_id": _NULLABLE})}})]}}),
+            "tags": {"type": "array", "items": object_schema({"id": _STRING, "name": _STRING, "project_id": _NULLABLE})}})]}}),
     "unavailable": object_schema({
         "status": {"enum": ["not_initialized", "unavailable"]}, "revision": {"type": "null"},
         "reason": object_schema({"code": _STRING, "message": _STRING})}),

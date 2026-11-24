@@ -123,7 +123,7 @@ event_id. Text includes the accepted action's actor/date/qualifications when
 known; do not invent an operational database schema here. A pointer has kind,
 five-character id, and optional explanatory text. Reject malformed/unknown-kind
 pointers; known syntax but absent IDs are reported as unresolved suggestions,
-not authority to invent an object. No pointer selects a repository or business.
+not authority to invent an object. No pointer selects a repository or project.
 
 The adapter serializes a deterministic UTF-8 .txt evidence document containing
 action_ref, optional revision_ref, text, pointers, and immutable revision tags.
@@ -152,8 +152,8 @@ expected previous action-ingestion commit provides an optimistic revision check
 for edit/remove; exact replay is resolved before that stale-base check.
 
 The v2.2 shared-context contract supplies optional immutable operational-revision
-tags, a list of {id, name, business_id} snapshots; business_id may be null and
-omitted tags mean []. There is no mandatory graph subject, business fallback or
+tags, a list of {id, name, project_id} snapshots; project_id may be null and
+omitted tags mean []. There is no mandatory graph subject, project fallback or
 tag-to-node creation. Tags belong in canonical source evidence and submission
 seals, so a tag-only correction is a distinct, exactly retriable revision.
 
@@ -190,7 +190,7 @@ associations are not lost when support changes or the current object disappears.
 
 Expose revision-pinned action lookup, per-object action timelines, and published
 actions_history independently of graph subjects. Tag/global filters use immutable
-revision snapshots; global means no linked business tag. Current history lists
+revision snapshots; global means no linked project tag. Current history lists
 latest non-withdrawn Actions; audit includes every revision and withdrawal.
 A current action lookup shows the latest accepted action revision and its current associations;
 an audit view includes additions, corrections and withdrawals with publication

@@ -8,7 +8,7 @@ EXECUTION_STATES = ("not_applicable", "not_started", "applied", "conflicted", "f
 
 
 def execution_state(row, uow=None):
-    if row["category"] in {"input_request", "side_chat"}:
+    if row["category"] == "input_request":
         return "not_applicable"
     if uow is not None:
         return uow.connection.execute("SELECT " + execution_sql("s") + " FROM signoffs s WHERE s.id=?", (row["id"],)).fetchone()[0]
@@ -27,12 +27,12 @@ def execution_sql(alias):
     # Fixed internal alias, never caller SQL. Mirrors execution_state for pagination.
     if alias != "s":
         raise ValueError("Unsupported SQL alias")
-    return """(CASE WHEN s.category IN ('input_request','side_chat') THEN 'not_applicable' WHEN s.category = 'internal_change' THEN
+    return """(CASE WHEN s.category = 'input_request' THEN 'not_applicable' WHEN s.category = 'internal_change' THEN
         CASE WHEN s.state IN ('applied','conflicted','failed') THEN s.state ELSE 'not_started' END
         WHEN json_extract(s.execution_json, '$.state') IS NOT NULL THEN
             CASE WHEN json_extract(s.execution_json, '$.state') = 'dispatched' AND EXISTS (
                 SELECT 1 FROM jobs j WHERE j.id=json_extract(s.execution_json, '$.reconcile_job_id')
-                    AND j.business_id=s.review_business_id AND j.state IN ('failed','cancelled'))
+                    AND j.project_id=s.review_project_id AND j.state IN ('failed','cancelled'))
             THEN 'reconciliation_required' ELSE json_extract(s.execution_json, '$.state') END
         WHEN s.superseded_by_id IS NOT NULL OR s.state = 'rejected' THEN 'canceled'
         WHEN s.state = 'pending' THEN 'awaiting_approval'
@@ -41,5 +41,5 @@ def execution_sql(alias):
             WHEN json_extract(j.result_json, '$.dispatch_intent') IS NOT NULL THEN 'reconciliation_required'
             WHEN j.state = 'failed' THEN 'failed'
             WHEN j.state = 'cancelled' THEN 'canceled' ELSE 'queued' END
-            FROM jobs j WHERE j.id=s.execution_job_id AND j.business_id=s.review_business_id), 'queued')
+            FROM jobs j WHERE j.id=s.execution_job_id AND j.project_id=s.review_project_id), 'queued')
         ELSE s.state END)"""

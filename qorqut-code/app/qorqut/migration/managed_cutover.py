@@ -33,7 +33,7 @@ unfinished tool call as interrupted). Typing ``/exit`` gives the same result but
 proved from outside, so nothing is ever typed into a pane. SIGKILL gives the same conversation but leaves the client's tool
 children running and a stale session file, so it is used only after SIGTERM failed and only with ``--force``.
 
-Only the installation's own tmux server is ever addressed (socket name from ``BIZ_TMUX_SOCKET``, default ``qorqut``, plus the
+Only the installation's own tmux server is ever addressed (socket name from ``QORQUT_TMUX_SOCKET``, default ``qorqut``, plus the
 pre-rename ``bazarlyk`` socket when the variable is unset; folder from ``TMUX_TMPDIR`` or, for a folder installation, ``<root>/.run``),
 through ``tmux -L``, and only exact sessions named for a registered agent are ended.
 """
@@ -176,10 +176,10 @@ def _try(function, *args, default=None):
 # ----------------------------------------------------------------------------------------------------------------------
 def own_sockets(env):
     """The socket names that belong to this installation: the configured one, and the pre-rename one when nothing was configured."""
-    configured = (env.get('BIZ_TMUX_SOCKET') or '').strip()
+    configured = (env.get('QORQUT_TMUX_SOCKET') or '').strip()
     if configured:
         if not SOCKET_NAME.fullmatch(configured):
-            raise CutoverError('invalid_configuration', 'BIZ_TMUX_SOCKET is not a plain socket name')
+            raise CutoverError('invalid_configuration', 'QORQUT_TMUX_SOCKET is not a plain socket name')
         return [configured]
     return [DEFAULT_SOCKET, LEGACY_SOCKET]
 
@@ -274,8 +274,7 @@ def read_agents(paths):
         connection.row_factory = sqlite3.Row
         connection.execute('PRAGMA query_only=ON')
         rows = connection.execute(
-            'SELECT p.agent_id, p.name, p.home_business_id, p.status, p.profile_json, b.slug AS slug '
-            'FROM agent_profiles p LEFT JOIN businesses b ON b.id=p.home_business_id ORDER BY p.name, p.agent_id').fetchall()
+            'SELECT agent_id, name, status, profile_json FROM agent_profiles ORDER BY name, agent_id').fetchall()
         try:
             owners = {row['agent_id']: row for row in connection.execute(
                 'SELECT agent_id, consumer_id, binding_json, generation, desired_state FROM native_session_owners')}
@@ -295,13 +294,11 @@ def read_agents(paths):
             except (TypeError, ValueError):
                 binding = {}
         runtime = profile.get('runtime') if isinstance(profile, dict) else None
-        is_global = row['home_business_id'] is None
-        slug = 'global' if is_global else (row['slug'] or '')
         agents.append({
-            'agent_id': row['agent_id'], 'name': row['name'], 'status': row['status'], 'scope': slug,
+            'agent_id': row['agent_id'], 'name': row['name'], 'status': row['status'], 'scope': 'global',
             'profile_runtime': runtime if isinstance(runtime, str) else None,
-            'session': tmux_name(session_name('global', '_' + row['agent_id']) if is_global else session_name(slug, row['name'])),
-            'workspace': str(agent_workspace_of(paths, row['agent_id'], row['home_business_id'], row['slug'])),
+            'session': tmux_name(session_name('global', '_' + row['agent_id'])),
+            'workspace': str(agent_workspace_of(paths, row['agent_id'])),
             'db_conversation': owner['consumer_id'] if owner is not None else None,
             'db_client': {'claude-code': 'claude', 'codex': 'codex'}.get(binding.get('runtime') if isinstance(binding, dict) else None),
             'desired_state': owner['desired_state'] if owner is not None else None})

@@ -182,6 +182,29 @@ class FailedCommandTest(unittest.TestCase):
         with mock.patch.object(browser.subprocess, "run", return_value=outcome, side_effect=effect):
             return browser.run(self.workspace, args, target=self.target, capture=True, pinned=pinned)
 
+    def sent(self, args, *, new, pinned=True):
+        """The ``agent-browser`` arguments after the address for one command, for a session that has or has not had a tab."""
+        with mock.patch.object(idle_tabs, "is_new", return_value=new), \
+                mock.patch.object(browser.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")) as run:
+            browser.run(self.workspace, args, target=self.target, capture=True, pinned=pinned)
+        command = run.call_args.args[0]
+        return command[command.index(self.target[0]) + 1:]
+
+    def test_a_new_pinned_sessions_first_tab_new_loads_in_its_own_tab_and_leaves_no_blank_one(self):
+        # agent-browser gives a session without a tab a blank one at its first command; ``tab new`` then opened a second.
+        self.assertEqual(self.sent(["tab-new", "https://shop.example/"], new=True), ["open", "https://shop.example/"])
+        self.assertEqual(self.sent(["tab-new", "https://shop.example/"], new=False), ["tab", "new", "https://shop.example/"])
+        self.assertEqual(self.sent(["tab-new", "https://shop.example/"], new=True, pinned=False), ["tab", "new", "https://shop.example/"])
+        self.assertEqual(self.sent(["tab-new"], new=True), ["tab", "new"])
+
+    def test_a_session_is_new_until_some_session_directory_holds_its_target_file(self):
+        first, second = self.workspace / "one", self.workspace / "two"
+        first.mkdir(), second.mkdir()
+        self.assertTrue(idle_tabs.is_new("qorqut-abc", [first, second]))
+        (second / "qorqut-abc.target").write_text("{}")
+        self.assertFalse(idle_tabs.is_new("qorqut-abc", [first, second]))
+        self.assertTrue(idle_tabs.is_new("qorqut-other", [first, second]))
+
     def test_a_gone_tab_is_reported_with_the_command_the_agent_has(self):
         code, _output, errors = self.run_command(["click", "e3"], mock.Mock(returncode=1, stdout="", stderr=GONE))
         self.assertEqual(code, 1)

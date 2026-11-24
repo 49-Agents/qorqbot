@@ -229,7 +229,7 @@ def analyze(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("paths", nargs="+", type=Path, help="Explicit files or business-owned sessions directories")
+    parser.add_argument("paths", nargs="+", type=Path, help="Explicit files or project-owned sessions directories")
     parser.add_argument("--latest-per-directory", type=int, default=6)
     args = parser.parse_args()
     if not 1 <= args.latest_per_directory <= 20:

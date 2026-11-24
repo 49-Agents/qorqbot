@@ -1,7 +1,7 @@
 """Small workspace-type registry and presentation-only agent workspace tools.
 
-Presentation state is kept per selected business and agent; it is not where the agent lives. An agent presents only as an
-active supported global that reaches the selected active business now, with no agent membership read.
+Presentation state is kept per selected project and agent; it is not where the agent lives. An agent presents only as an
+active supported global that reaches the selected active project now, with no agent membership read.
 
 Core knows Focus and the generic presentation fields (item, status, attention). A workspace type an installed extension adds
 declares its own presentation fields and callbacks: ``fields`` are merged into the operation schemas, ``normalize`` shapes the
@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from qorqut.agents import roles
-from qorqut.agents.global_scope import active_global, reaches_business
+from qorqut.agents.global_scope import active_global, reaches_project
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import IDENTITY, PlanBuilder, UUID, apply_records, require_revision, schema, utc_clock
@@ -26,7 +26,7 @@ TEXT = {"type": "string", "maxLength": 2000}
 ITEM = schema({"type": IDENTITY, "id": IDENTITY, "label": {"type": "string", "maxLength": 500}}, ("type", "id"))
 # The presentation fields every workspace type shares; a type's own fields come from its declaration.
 SELECTION = {"item": {"anyOf": [ITEM, {"type": "null"}]}}
-GENERIC_ARGUMENTS = frozenset({"workspace", "business_id", "status", "attention", "reason", "urgent", "blocker", *SELECTION})
+GENERIC_ARGUMENTS = frozenset({"workspace", "project_id", "status", "attention", "reason", "urgent", "blocker", *SELECTION})
 
 
 @dataclass(frozen=True)
@@ -59,10 +59,10 @@ class WorkspaceType:
 
 
 # The registry only records that the host knows how to render the Focus tab and which role it belongs to. Agents
-# have no operations on it: its content (threads and the owner's notes) belongs to the owner.
+# have no operations on it: its content (the attention queue and the owner's notes) belongs to the owner.
 WORKSPACE_TYPES = (
     WorkspaceType("focus", "Focus", frozenset({roles.ORDUBASHY_ROLE, roles.GLOBAL_WORKER_ROLE}), "focus_board", (),
-        "Owner area: side chats, pinned threads and the owner's personal notes."),
+        "Owner area: the owner's attention queue and personal notes."),
 )
 
 # Roles that may see the workspace tools at all; the type still gates each call. An installed extension's type must stay
@@ -106,22 +106,22 @@ class WorkspaceService:
         self.workspaces = WorkspaceRegistry((*WORKSPACE_TYPES, *types))
 
     def register(self, registry):
-        common = dict(supports_signoff=False, scope_kinds=frozenset({"business"}),
-            resolve_namespace=lambda ctx, args: "business:" + ctx.business_id if ctx.business_id else "global")
-        # An explicit args business_id (a global agent's own selection, or the
-        # owner naming another agent's business) routes just as ctx.business_id does.
-        business_common = dict(supports_signoff=False, scope_kinds=frozenset({"business"}),
-            resolve_namespace=lambda ctx, args: "business:" + (ctx.business_id or args.get("business_id"))
-                if (ctx.business_id or args.get("business_id")) else "global")
+        common = dict(supports_signoff=False, scope_kinds=frozenset({"project"}),
+            resolve_namespace=lambda ctx, args: "project:" + ctx.project_id if ctx.project_id else "global")
+        # An explicit args project_id (a global agent's own selection, or the
+        # owner naming another agent's project) routes just as ctx.project_id does.
+        project_common = dict(supports_signoff=False, scope_kinds=frozenset({"project"}),
+            resolve_namespace=lambda ctx, args: "project:" + (ctx.project_id or args.get("project_id"))
+                if (ctx.project_id or args.get("project_id")) else "global")
         registry.register(OperationDescriptor("workspace_types",
             schema({"role_id": {"type": "string", "maxLength": 64}}), effect_kind="read",
-            **{**common, "scope_kinds": frozenset({"business", "global"}),
+            **{**common, "scope_kinds": frozenset({"project", "global"}),
                "global_capability": "read_global_context"},
             description=instruction_text('init-read-the-installed-workspace-types-with-each-type'),
             read=lambda ctx, args, options, uow: self.read_types(ctx, args, uow)))
         registry.register(OperationDescriptor("workspace_get",
-            schema({"workspace": KEY, "business_id": {"anyOf": [UUID, {"type": "null"}]},
-                    "agent_id": {"anyOf": [UUID, {"type": "null"}]}}, ("workspace",)), effect_kind="read", **business_common,
+            schema({"workspace": KEY, "project_id": {"anyOf": [UUID, {"type": "null"}]},
+                    "agent_id": {"anyOf": [UUID, {"type": "null"}]}}, ("workspace",)), effect_kind="read", **project_common,
             description=instruction_text('init-read-stored-workspace-presentation-state-agents-read-their'),
             read=lambda ctx, args, options, uow: self.read(ctx, args, uow)))
         selection = {**SELECTION, **self.workspaces.fields}
@@ -137,23 +137,23 @@ class WorkspaceService:
         }
         for name, (fields, required, description) in operations.items():
             registry.register(OperationDescriptor(name, schema({"workspace": KEY,
-                "business_id": {"anyOf": [UUID, {"type": "null"}]}, **fields}, ("workspace", *required)),
-                **business_common, description=description,
+                "project_id": {"anyOf": [UUID, {"type": "null"}]}, **fields}, ("workspace", *required)),
+                **project_common, description=description,
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply))
 
-    def access(self, ctx, uow, *, workspace_key=None, business_id=None, tool=None):
-        """Resolve one authorized agent, its role and one active business."""
+    def access(self, ctx, uow, *, workspace_key=None, project_id=None, tool=None):
+        """Resolve one authorized agent, its role and one active project."""
         if ctx.principal_kind != "agent":
             raise DomainError("forbidden", "Workspace presentation requires an agent")
         stored = active_global(uow.connection, ctx.agent_id)
         if stored is None:
             raise DomainError("forbidden", "Workspace presentation requires an active global agent")
         role = stored["role"]["id"]
-        selected = business_id or ctx.business_id
+        selected = project_id or ctx.project_id
         if selected is None:
             raise DomainError("validation_error", "Select one project workspace")
-        if selected not in ctx.allowed_business_ids or not reaches_business(uow.connection, ctx.agent_id, selected):
+        if selected not in ctx.allowed_project_ids or not reaches_project(uow.connection, ctx.agent_id, selected):
             raise DomainError("not_found", "Workspace project is unavailable")
         if workspace_key is not None:
             item = self.workspaces.get(workspace_key)
@@ -164,10 +164,10 @@ class WorkspaceService:
                 raise DomainError("forbidden", "This workspace type is not available to your role")
         return role, selected
 
-    def row(self, agent_id, business_id, workspace_key, uow):
+    def row(self, agent_id, project_id, workspace_key, uow):
         stored = uow.connection.execute(
-            "SELECT * FROM workspace_presentations WHERE business_id=? AND agent_id=? AND workspace_key=?",
-            (business_id, agent_id, workspace_key)).fetchone()
+            "SELECT * FROM workspace_presentations WHERE project_id=? AND agent_id=? AND workspace_key=?",
+            (project_id, agent_id, workspace_key)).fetchone()
         if stored is None:
             return None
         return {**dict(stored), "presentation_json": json.loads(stored["presentation_json"] or "{}")}
@@ -179,7 +179,7 @@ class WorkspaceService:
 
     def view(self, row) -> dict:
         presentation = self.presentation(row["workspace_key"], row["presentation_json"])
-        return {"id": row["id"], "business_id": row["business_id"], "agent_id": row["agent_id"],
+        return {"id": row["id"], "project_id": row["project_id"], "agent_id": row["agent_id"],
                 "workspace": row["workspace_key"], "revision": row["revision"], **presentation,
                 "created_at": row["created_at"], "updated_at": row["updated_at"]}
 
@@ -192,33 +192,32 @@ class WorkspaceService:
         key = args["workspace"]
         self.workspaces.get(key)
         if ctx.principal_kind == "agent":
-            role, selected = self.access(ctx, uow, workspace_key=key, business_id=args.get("business_id"))
+            role, selected = self.access(ctx, uow, workspace_key=key, project_id=args.get("project_id"))
             row = self.row(ctx.agent_id, selected, key, uow)
             return {"workspace": self.view(row) if row else None, "agent_id": ctx.agent_id,
-                    "business_id": selected, "role_id": role}
+                    "project_id": selected, "role_id": role}
         installation = uow.repository("installation").get("service")
         if ctx.principal_kind != "human" or not installation or installation["owner_principal_id"] != ctx.principal_id:
             raise DomainError("forbidden", "Reading another agent's workspace requires the installation owner")
-        agent_id, business_id = args.get("agent_id"), args.get("business_id")
-        if not agent_id or not business_id:
+        agent_id, project_id = args.get("agent_id"), args.get("project_id")
+        if not agent_id or not project_id:
             raise DomainError("validation_error", "Select the agent and project to read")
-        member = uow.repository("business_memberships", business_id=business_id).get(ctx.principal_id)
-        if not member or not member["active"] or business_id not in ctx.allowed_business_ids:
+        if project_id not in ctx.allowed_project_ids:
             raise DomainError("not_found", "Workspace project is unavailable")
-        row = self.row(agent_id, business_id, key, uow)
-        return {"workspace": self.view(row) if row else None, "agent_id": agent_id, "business_id": business_id}
+        row = self.row(agent_id, project_id, key, uow)
+        return {"workspace": self.view(row) if row else None, "agent_id": agent_id, "project_id": project_id}
 
     def prepare(self, op, ctx, args, options, uow):
         key = args["workspace"]
-        _, selected = self.access(ctx, uow, workspace_key=key, tool=op, business_id=args.get("business_id"))
+        _, selected = self.access(ctx, uow, workspace_key=key, tool=op, project_id=args.get("project_id"))
         row = self.row(ctx.agent_id, selected, key, uow)
         if row and options.expected_revision is not None:
             require_revision(row, options.expected_revision)
         elif not row and options.expected_revision not in (None, 0):
             raise DomainError("revision_conflict", "This workspace has no stored presentation yet")
-        namespace = "business:" + selected
+        namespace = "project:" + selected
         builder = PlanBuilder(ctx, op, args, "Present " + key.replace("_", " "), clock=self.clock,
-            namespace=namespace, affected_scope={"kind": "business", "business_id": selected})
+            namespace=namespace, affected_scope={"kind": "project", "project_id": selected})
         item = self.workspaces.get(key)
         unsupported = sorted(set(args) - GENERIC_ARGUMENTS - set(item.fields))
         if unsupported:
@@ -245,11 +244,11 @@ class WorkspaceService:
         if row is None:
             values["id"] = identity
         builder.record("workspace_presentations", identity, row, values,
-            business_id=selected, namespace=namespace, label=key)
+            project_id=selected, namespace=namespace, label=key)
         return builder.build()
 
     def apply(self, ctx, plan, uow):
         self.access(ctx, uow, workspace_key=plan.arguments["workspace"],
-            tool=plan.operation_name, business_id=plan.arguments.get("business_id"))
+            tool=plan.operation_name, project_id=plan.arguments.get("project_id"))
         applied = apply_records(ctx, plan, uow)
         return {"workspace": self.view(applied[-1])}

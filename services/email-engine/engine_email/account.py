@@ -1,4 +1,4 @@
-"""Explicit owner account mail controls, separate from business mail routing."""
+"""Explicit owner account mail controls, separate from project mail routing."""
 
 import json
 from email.message import EmailMessage

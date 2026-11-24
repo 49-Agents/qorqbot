@@ -1,0 +1,23 @@
+# Third-party pins for the engine's Python environment (qorqut-engine-email 0.2.0).
+# Source: the identical email-engine-venv inventory recorded by the 12 newest installed release preparation
+# receipts, runtime/releases/{overseer-episode-pages-20261029 (prepared_at 2026-10-29T19:05:03+00:00) ...
+# attention-remove-20261030 (2026-10-30T20:22:48+00:00)}/prepared/PREPARATION-RECEIPT.json
+# (environments.email-engine-venv.packages). Each pin satisfies engine pyproject.toml's ranges.
+# pip itself is the venv's bundled pip and is not pinned here.
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.10.23
+cffi==2.1.1
+click==8.5.0
+cryptography==50.0.2
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+pycparser==3.12
+pydantic==2.14.2
+pydantic_core==2.50.2
+starlette==1.10.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+uvicorn==0.54.0

@@ -8,7 +8,7 @@ Two trusted sources are joined here and nothing else:
   only place a managed desktop's loopback CDP port is named. The viewer URL is never a CDP source.
 
 Every browser is Global and is named by its surface ``id``; projects have no browsers, so a reference that names a project
-(``business_id``) resolves to nothing. Naming a browser grants nothing; control is the existing ``browser_turn`` path, with
+(``project_id``) resolves to nothing. Naming a browser grants nothing; control is the existing ``browser_turn`` path, with
 its own authorization."""
 
 from __future__ import annotations
@@ -24,6 +24,9 @@ from qorqut.service import browser_surfaces
 DESKTOP_DIRECTORY = Path("/etc/qorqut-browser-desktops")
 # The managed Global desktops and the operator config each is run from (``desktop_session.py``); order is the catalog order.
 DESKTOP_TARGETS = {"ordubashy-browser": "ordubashy", "outlook-browser": "outlook"}
+# What an agent is told it can select: the Shared browser is the agents' browser, and the Outlook desktop is the email engine's, so
+# it stays out of the list. It stays in ``DESKTOP_TARGETS``: the engine, the owner's views and a handle that names it still use it.
+AGENT_LISTED = ("ordubashy-browser",)
 DESKTOP_KEY = "desktop:"
 SESSION_MODULE = "qorqut_desktop_session"
 
@@ -48,29 +51,30 @@ class BrowserTargets:
 
     # ----- resolution ------------------------------------------------------------------------------------------------
 
-    def resolve(self, uow, principal_id, surface_id, business_id, *, viewer=False):
+    def resolve(self, uow, principal_id, surface_id, project_id, *, viewer=False):
         """The configured Global browser ``surface_id`` as ``principal_id`` reaches it, or ``not_found``. A project
-        (``business_id``) has no browser. With ``viewer`` the viewer URL is part of the answer."""
-        if business_id is not None:
+        (``project_id``) has no browser. With ``viewer`` the viewer URL is part of the answer."""
+        if project_id is not None:
             raise unavailable()
         registry = self.registry()
         surface = registry and registry["surfaces"].get(surface_id)
         if not surface or surface["kind"] != "browser":
             raise unavailable()
-        found = {"id": surface_id, "label": surface["label"], "business_id": None, "viewer_url": surface["viewer_url"]}
+        found = {"id": surface_id, "label": surface["label"], "project_id": None, "viewer_url": surface["viewer_url"]}
         if "width" in surface:
             found.update(width=surface["width"], height=surface["height"])
         return found
 
     def catalog(self, uow, principal_id):
-        """Every browser the agent can name, as ``{id, label}``: the managed Global desktops the registry configures. Empty
+        """Every browser the agent can name, as ``{id, label}``: the managed Global desktops the registry configures, except the
+        email engine's (``AGENT_LISTED``). Empty
         when no registry is configured."""
         if sys.platform != 'linux':
             return []
         registry = self.registry()
         entries = []
         if registry is not None:
-            for surface_id in DESKTOP_TARGETS:
+            for surface_id in AGENT_LISTED:
                 surface = registry["surfaces"].get(surface_id)
                 if surface and surface["kind"] == "browser":
                     entries.append({"id": surface_id, "label": surface["label"]})

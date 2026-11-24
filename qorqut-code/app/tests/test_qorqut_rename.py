@@ -111,7 +111,7 @@ class RenameCompatibilityTests(unittest.TestCase):
             previous = git('rev-parse', 'HEAD')
             generation = Path(directory) / 'generation'
             (generation / 'authored').mkdir(parents=True)
-            (generation / 'authored/manifest.json').write_text(json.dumps({'businesses': []}))
+            (generation / 'authored/manifest.json').write_text(json.dumps({'projects': []}))
             with tarfile.open(generation / 'authored/sources.tar', 'w') as archive:
                 archive.add(root / 'README.md', arcname='README.md')
             git('checkout', 'main')

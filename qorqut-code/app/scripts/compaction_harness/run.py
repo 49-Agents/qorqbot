@@ -21,7 +21,7 @@ if __package__ in {None, ""}:
 
 from scripts.compaction_harness import evaluate, handoff, model, transcripts  # noqa: E402
 
-PROJECTS = Path("/home/alp/qorqbot-public/previews/pr11/full-native/claude/projects")
+CLAUDE_PROJECTS = Path("/home/alp/qorqbot-public/previews/pr11/full-native/claude/projects")
 AGENTS = Path("/home/alp/qorqut-v1.2/operations/agents")
 
 
@@ -35,7 +35,7 @@ def stored(path, make):
 
 
 def run(agent, session, boundary, out, extra=(), moves=False):
-    found = sorted((PROJECTS / f"-home-alp-qorqut-v1-2-operations-agents-{agent}").glob(f"{session}*.jsonl"))
+    found = sorted((CLAUDE_PROJECTS / f"-home-alp-qorqut-v1-2-operations-agents-{agent}").glob(f"{session}*.jsonl"))
     if len(found) != 1:
         raise SystemExit(f"{len(found)} session files match {agent}/{session}")
     segments = transcripts.segments(found[0])

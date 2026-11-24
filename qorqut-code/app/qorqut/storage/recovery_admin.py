@@ -96,7 +96,7 @@ class RecoveryAdminConfig:
         root = _absolute(paths.operations)
         source = _absolute(config_path)
         if not _outside(source, root):
-            raise DomainError("invalid_configuration", "Recovery administration configuration must be outside business mounts")
+            raise DomainError("invalid_configuration", "Recovery administration configuration must be outside project mounts")
         raw = safe_io.read_bytes(source, limit=_CONFIG_LIMIT, private=True)
         try:
             value = json.loads(raw.decode("utf-8"))
@@ -141,7 +141,7 @@ class RecoveryAdminConfig:
     def validate(self) -> None:
         paths = (self.socket_path, self.repository, self.password_file, self.authority_staging)
         if not all(_outside(path, self.operations_root) for path in (*paths, self.restic_executable)):
-            raise DomainError("invalid_configuration", "Recovery administration paths must be outside business mounts")
+            raise DomainError("invalid_configuration", "Recovery administration paths must be outside project mounts")
         for index, path in enumerate(paths):
             if any(not _outside(path, other) or not _outside(other, path) for other in paths[index + 1:]):
                 raise DomainError("invalid_configuration", "Recovery administration paths must not overlap")

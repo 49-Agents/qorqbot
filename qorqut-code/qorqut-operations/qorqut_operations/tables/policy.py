@@ -1,8 +1,8 @@
 """The Global-table permission rule, contributed to the policy evaluator as data.
 
-Global tables are a separate namespace from every business. The same operations (the table ones, plus archive and the
+Global tables are a separate namespace from every project. The same operations (the table ones, plus archive and the
 CRM membership and Table discussion ones) serve both;
-``GLOBAL_TABLE_ROLES`` alone may use the Global one, whatever their business defaults. ``global_tables`` is a
+``GLOBAL_TABLE_ROLES`` alone may use the Global one, whatever their project defaults. ``global_tables`` is a
 ``before_override`` rule: the host places it in that phase, at its existing position among the combined rules, and
 supplies the configured role and identity facts the evaluator passes in. It alters nothing but the decision it returns."""
 
@@ -22,7 +22,7 @@ GLOBAL_TABLE_OPERATIONS = frozenset({"tables_list", "tables_get", "tables_rows_l
 def global_tables(name, defaults, overrides, registry, *, role_id, scope, resolve):
     if name in GLOBAL_TABLE_OPERATIONS and scope == "global":
         # The named roles hold direct Global defaults. Any other eligible Global agent (the runtime checks that it is
-        # an active ecosystem agent holding read_global_context) needs an explicit override; role business
+        # an active ecosystem agent holding read_global_context) needs an explicit override; role project
         # defaults never carry over, and a missing grant denies.
         default_role = role_id in GLOBAL_TABLE_ROLES
         if name == "tables_archive":

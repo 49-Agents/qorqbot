@@ -23,7 +23,10 @@ import time
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page_position, schema, timestamp, utc_clock
-from qorqut_operations.business_lifecycle import is_archived_business
+from qorqut_operations.project_lifecycle import is_archived_project
+from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import reference_kind
 from qorqut_operations.contracts import DomainError, canonical_bytes, new_id, plain
 from qorqut.agents.global_scope import active_global
 from qorqut.management.identity import configured_ordubashy, is_active_installation_owner
@@ -55,7 +58,7 @@ RECURRENCE = {"anyOf": [schema({"schedule": {"type": "string", "minLength": 9, "
                                 "timezone": {"type": "string", "minLength": 1, "maxLength": 100,
                                              "description": instruction_text('service-iana-timezone-name-for-example-america-new-york')}},
                                ("schedule", "timezone")), {"type": "null"}]}
-LINK = {"anyOf": [schema({"type": ID, "id": ID, "business_id": {"anyOf": [UUID, {"type": "null"}]}}, ("type", "id", "business_id")),
+LINK = {"anyOf": [schema({"type": ID, "id": ID, "project_id": {"anyOf": [UUID, {"type": "null"}]}}, ("type", "id")),
                   {"type": "null"}]}
 
 
@@ -93,7 +96,7 @@ class ReminderService:
     # ----- registration ------------------------------------------------------------------------------------------
 
     def register(self):
-        common = dict(supports_signoff=False, scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
+        common = dict(supports_signoff=False, scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
                       exposure=frozenset({"mcp", "dashboard", "worker"}), resolve_namespace=lambda ctx, args: self.namespace(ctx))
         write_fields = {
             CREATE: ({"text": TEXT, "recipient_id": ID, "at": AT, "recurrence": RECURRENCE, "time_critical": {"type": "boolean"},
@@ -109,12 +112,22 @@ class ReminderService:
             CANCEL: ({"reminder_id": UUID, "revision": REVISION}, ("reminder_id", "revision"),
                      instruction_text('service-stop-the-whole-reminder-or-series-and-discard')),
         }
+        # A reminder named by its id runs in its own project (its receipt and policy scope are the record's) when the caller
+        # selected none. A caller that selected a project keeps being served: a reminder is loaded by its id alone.
+        lookup = RecordLookup(Family("reminders", "reminder_id", "reminders_get", "Reminder", scope_argument=None,
+                                     refuses_elsewhere=False))
+        located = dict(locate_scope=lookup)
+        # A linked item names its record by type and id; its project is found from the id.
+        links = References(Ref(("linked_item",)), kinds={**KINDS, "signoff": reference_kind(self.app.signoffs)})
         for name, (fields, required, description) in write_fields.items():
-            self.app.registry.register(OperationDescriptor(name, schema(fields, required), **common, description=description,
+            self.app.registry.register(OperationDescriptor(name, schema(fields, required), **common,
+                **({**located, "description": description + LOCATED} if "reminder_id" in fields else {"description": description}),
+                **({"complete_references": links} if "linked_item" in fields else {}),
                 replay_validator=lambda ctx, args, replay, uow, op=name: self.replay(op, ctx, args, replay, uow),
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, uow), apply=self.apply))
-        self.app.registry.register(OperationDescriptor(GET, schema({"reminder_id": UUID}, ("reminder_id",)), **common, effect_kind="read",
-            description=instruction_text('service-read-one-reminder-you-may-see-its-state'), read=self.get))
+        self.app.registry.register(OperationDescriptor(GET, schema({"reminder_id": UUID}, ("reminder_id",)), **common, **located,
+            effect_kind="read", description=instruction_text('service-read-one-reminder-you-may-see-its-state') + LOCATED,
+            read=self.get))
         self.app.registry.register(OperationDescriptor(LIST, schema({
             "recipient_id": ID, "all_recipients": {"type": "boolean"}, "all_scopes": {"type": "boolean"},
             "states": {"type": "array", "items": {"enum": list(STATES)}, "maxItems": 4, "uniqueItems": True},
@@ -133,7 +146,7 @@ class ReminderService:
 
     @staticmethod
     def namespace(ctx):
-        return "business:" + ctx.business_id if ctx.business_id else "global"
+        return "project:" + ctx.project_id if ctx.project_id else "global"
 
     def caller(self, ctx, uow):
         ctx = self.app.current_context(ctx, uow)
@@ -173,17 +186,17 @@ class ReminderService:
         if not access.manager and recipient_id != access.ctx.principal_id:
             raise DomainError("forbidden", "Only the owner and Ordubashy may set reminders for another recipient")
 
-    def recipient_ok(self, uow, recipient_id, business_id, memo=None):
+    def recipient_ok(self, uow, recipient_id, project_id, memo=None):
         """The recipient is the active owner, or an active agent that can act in the reminder's scope."""
-        key = (recipient_id, business_id)
+        key = (recipient_id, project_id)
         if memo is not None and key in memo:
             return memo[key]
-        found = self._recipient_ok(uow, recipient_id, business_id)
+        found = self._recipient_ok(uow, recipient_id, project_id)
         if memo is not None:
             memo[key] = found
         return found
 
-    def _recipient_ok(self, uow, recipient_id, business_id):
+    def _recipient_ok(self, uow, recipient_id, project_id):
         principal = uow.connection.execute("SELECT kind,active FROM principals WHERE id=?", (recipient_id,)).fetchone()
         if principal is None or not principal["active"]:
             return False
@@ -191,20 +204,20 @@ class ReminderService:
             return is_active_installation_owner(uow, recipient_id, "human")
         if principal["kind"] != "agent":
             return False
-        if business_id is None:
+        if project_id is None:
             return active_global(uow.connection, recipient_id) is not None
         try:
-            ctx = self.app.policy.context_for(recipient_id, business_id=business_id, review_business_id=None, uow=uow)
+            ctx = self.app.policy.context_for(recipient_id, project_id=project_id, review_project_id=None, uow=uow)
         except DomainError:
             return False
-        return business_id in ctx.allowed_business_ids
+        return project_id in ctx.allowed_project_ids
 
-    def permitted(self, uow, principal_id, business_id, operation):
+    def permitted(self, uow, principal_id, project_id, operation):
         """Whether ``principal_id`` may *currently* run ``operation`` in the scope: an explicit deny stays effective."""
         try:
-            ctx = self.app.policy.context_for(principal_id, business_id=business_id, review_business_id=None, uow=uow)
+            ctx = self.app.policy.context_for(principal_id, project_id=project_id, review_project_id=None, uow=uow)
             decision = self.app.authorize(ctx, self.app.registry.get(operation), (), uow,
-                                          namespace="business:" + business_id if business_id else "global")
+                                          namespace="project:" + project_id if project_id else "global")
         except DomainError:
             return False
         return decision.mode == "allow"
@@ -222,7 +235,7 @@ class ReminderService:
             return False
         if authority != row["recipient_id"] and authority != configured_ordubashy(uow):
             return False
-        return self.permitted(uow, authority, row["business_id"], CREATE)
+        return self.permitted(uow, authority, row["project_id"], CREATE)
 
     def link_ok(self, uow, row):
         """The saved linked item, when there is one, is readable *now* by the authorizing principal and the recipient."""
@@ -237,7 +250,7 @@ class ReminderService:
 
     def deliverable(self, uow, row):
         """The one shared delivery-eligibility rule; delivery and connector admission only consult it through the occurrence."""
-        return (self.recipient_ok(uow, row["recipient_id"], row["business_id"]) and self.authority_ok(uow, row)
+        return (self.recipient_ok(uow, row["recipient_id"], row["project_id"]) and self.authority_ok(uow, row)
                 and self.link_ok(uow, row))
 
     def reachable(self, access, row, uow, memo=None):
@@ -246,9 +259,9 @@ class ReminderService:
         if access.kind == "owner":
             return True
         if access.manager:
-            return not is_archived_business(uow.connection, row["business_id"])
+            return not is_archived_project(uow.connection, row["project_id"])
         return (row["recipient_id"] == access.ctx.principal_id
-                and self.recipient_ok(uow, row["recipient_id"], row["business_id"], memo))
+                and self.recipient_ok(uow, row["recipient_id"], row["project_id"], memo))
 
     # ----- linked items and views ------------------------------------------------------------------------------------
 
@@ -258,7 +271,7 @@ class ReminderService:
         if focus is None:
             return None
         try:
-            return focus.resolve(ctx, {"type": link["type"], "id": link["id"], "business_id": link["business_id"]}, uow)
+            return focus.resolve(ctx, {"type": link["type"], "id": link["id"], "project_id": link["project_id"]}, uow)
         except (DomainError, KeyError, TypeError, ValueError, LookupError):
             return None
 
@@ -274,7 +287,7 @@ class ReminderService:
     def principal_context(self, uow, principal_id):
         """The principal's current invocation context from stored authority, or None when it cannot act."""
         try:
-            return self.app.policy.context_for(principal_id, business_id=None, review_business_id=None, uow=uow)
+            return self.app.policy.context_for(principal_id, project_id=None, review_project_id=None, uow=uow)
         except DomainError:
             return None
 
@@ -289,7 +302,7 @@ class ReminderService:
         """The caller's view; the linked reference and label appear only while this caller can read the item right now."""
         link, available = stored_link(row), True
         if link is not None:
-            key = (ctx.principal_id, link["type"], link["id"], link["business_id"])
+            key = (ctx.principal_id, link["type"], link["id"], link["project_id"])
             if key not in memo["links"]:
                 memo["links"][key] = self.read_link(ctx, link, uow)
             card = memo["links"][key]
@@ -345,8 +358,8 @@ class ReminderService:
             where.append("recipient_id=?")
             values.append(recipient)
         if not args.get("all_scopes"):
-            where.append("business_id IS ?")
-            values.append(ctx.business_id)
+            where.append("project_id IS ?")
+            values.append(ctx.project_id)
         binding, after = page_position(args, self.namespace(ctx) + "/" + ctx.principal_id, LIST)
         memo = self.memo()
         items, cursor = self.scan(uow, " AND ".join(where), values, DUE_SORT, False, binding, after, args.get("limit", DEFAULT_PAGE),
@@ -427,7 +440,7 @@ class ReminderService:
         ctx = access.ctx
         recipient = args.get("recipient_id") or ctx.principal_id
         self.require_recipient(access, recipient)
-        if not self.recipient_ok(uow, recipient, ctx.business_id):
+        if not self.recipient_ok(uow, recipient, ctx.project_id):
             raise DomainError("validation_error", "That recipient cannot receive reminders in this scope")
         text = self.clean_text(args["text"])
         schedule, name, upcoming = self.first_boundary(args, now)
@@ -435,7 +448,7 @@ class ReminderService:
         if link is not None:
             self.check_link(access, recipient, link, uow)
         stamp = timing.stamp(now)
-        return {"id": new_id(), "revision": 1, "business_id": ctx.business_id, "creator_id": ctx.principal_id,
+        return {"id": new_id(), "revision": 1, "project_id": ctx.project_id, "creator_id": ctx.principal_id,
                 "authority_principal_id": ctx.principal_id, "recipient_id": recipient, "text": text,
                 "linked_item_json": json.dumps(link, sort_keys=True) if link is not None else None,
                 "time_critical": int(bool(args.get("time_critical"))), "schedule": schedule, "timezone": name, "state": "scheduled",
@@ -477,7 +490,7 @@ class ReminderService:
         moved = recipient != row["recipient_id"]
         if moved:
             self.require_recipient(access, recipient)
-            if not self.recipient_ok(uow, recipient, row["business_id"]):
+            if not self.recipient_ok(uow, recipient, row["project_id"]):
                 raise DomainError("validation_error", "That recipient cannot receive reminders in this scope")
             changes["recipient_id"] = recipient
         link = args["linked_item"] if "linked_item" in args else stored_link(row)
@@ -539,7 +552,7 @@ class ReminderService:
             raise DomainError("invalid_transition", "This reminder is already finished")
         return {"state": "cancelled", "current_occurrence_id": None, "snoozed_until": None, "defer_until": None, "close": "cancelled"}
 
-    def release_task(self, uow, business_id, task_id):
+    def release_task(self, uow, project_id, task_id):
         """Cancel the live reminders agents set for agents about a Task that has just closed; returns how many.
 
         Such a reminder exists to come back to the work, and the work is over. A reminder addressed to a person is left
@@ -548,7 +561,7 @@ class ReminderService:
             "SELECT r.* FROM reminders r JOIN principals c ON c.id=r.creator_id JOIN principals t ON t.id=r.recipient_id "
             f"WHERE r.state IN ({','.join('?' for _ in ACTIVE)}) AND c.kind='agent' AND t.kind='agent' "
             "AND json_extract(r.linked_item_json,'$.type')='task' AND json_extract(r.linked_item_json,'$.id')=? "
-            "AND json_extract(r.linked_item_json,'$.business_id') IS ? ORDER BY r.id", (*ACTIVE, task_id, business_id)).fetchall()
+            "AND json_extract(r.linked_item_json,'$.project_id') IS ? ORDER BY r.id", (*ACTIVE, task_id, project_id)).fetchall()
         stamp = timing.stamp(self.clock())
         for row in rows:
             row = dict(row)
@@ -581,7 +594,7 @@ class ReminderService:
 
     def payload(self, row, occurrence):
         return {"reminder_id": row["id"], "occurrence_id": occurrence["id"], "revision": row["revision"],
-                "recipient_id": row["recipient_id"], "creator_id": row["creator_id"], "business_id": row["business_id"],
+                "recipient_id": row["recipient_id"], "creator_id": row["creator_id"], "project_id": row["project_id"],
                 "text": row["text"], "due_at": occurrence["due_at"], "linked_item": stored_link(row),
                 "time_critical": bool(row["time_critical"]), "recurring": row["schedule"] is not None}
 
@@ -610,10 +623,10 @@ class ReminderService:
             ctx = self.app.current_context(ctx, uow)
             if ctx.delegation_assignment_id is not None:
                 return None
-            business = None if ctx.principal_kind == "human" else payload["business_id"]
-            selected = self.app.current_context(replace(ctx, business_id=business, review_business_id=business), uow)
+            project = None if ctx.principal_kind == "human" else payload["project_id"]
+            selected = self.app.current_context(replace(ctx, project_id=project, review_project_id=project), uow)
             decision = self.app.authorize(selected, self.app.registry.get(GET), (), uow,
-                                          namespace="business:" + business if business else "global")
+                                          namespace="project:" + project if project else "global")
         except DomainError:
             return None
         if decision.mode != "allow":
@@ -674,8 +687,8 @@ class ReminderService:
             self.close_occurrence(uow, row["current_occurrence_id"], "superseded", stamp)
         occurrence_id = new_id()
         uow.connection.execute(
-            "INSERT INTO reminder_occurrences(id,reminder_id,business_id,recipient_id,generation,due_at,created_at) VALUES(?,?,?,?,?,?,?)",
-            (occurrence_id, row["id"], row["business_id"], row["recipient_id"], row["generation"], timing.stamp(due), stamp))
+            "INSERT INTO reminder_occurrences(id,reminder_id,project_id,recipient_id,generation,due_at,created_at) VALUES(?,?,?,?,?,?,?)",
+            (occurrence_id, row["id"], row["project_id"], row["recipient_id"], row["generation"], timing.stamp(due), stamp))
         self.save(uow, row, {"state": "due", "current_occurrence_id": occurrence_id, "due_at": timing.stamp(due), "next_at": upcoming,
                              "snoozed_until": None, "defer_until": None}, stamp)
 

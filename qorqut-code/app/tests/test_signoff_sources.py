@@ -4,12 +4,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace as NS
 import json
-import sqlite3
 import unittest
 
 from qorqut_operations.application.engine import Application
 from qorqut_operations.application.registry import OperationRegistry
-from qorqut_operations.contracts import DomainError, InvocationContext, Principal, PolicyDecision, new_id, plain
+from qorqut_operations.contracts import InvocationContext, Principal, PolicyDecision, new_id, plain
 from qorqut_operations.items import ItemContribution, ItemResolver
 from qorqut_operations.signoffs import ABSENT, SignoffPorts
 from qorqut_operations.signoffs.service import SignoffService
@@ -19,7 +18,6 @@ from qorqut_operations.tasks import TaskOperations, TaskPorts
 from qorqut.composition.assembly import host_assembly
 from qorqut.inbox.private_conversations import PrivateConversations
 from qorqut.inbox.thread_views import related
-from qorqut.migration import signoff_sources as migration
 from qorqut.service.changes import ChangeFeed
 from qorqut.signoffs.ports import HostExecution, HostPeers, HostTasks, HostReferences, HostInputSources
 
@@ -45,28 +43,26 @@ class SignoffSourceTests(unittest.TestCase):
         self.feed = ChangeFeed()
         self.db = Database(self.root / 'state.sqlite', assembly=host_assembly(self.feed)).initialize_target()
         self.addCleanup(self.db.close)
-        self.owner, self.business = new_id(), new_id()
+        self.owner, self.project = new_id(), new_id()
         self.ctx = InvocationContext(Principal(self.owner, 'human'), source='dashboard',
-            global_capabilities=frozenset({'read_global_context'}), allowed_business_ids=frozenset({self.business}))
+            global_capabilities=frozenset({'read_global_context'}), allowed_project_ids=frozenset({self.project}))
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': self.owner, 'kind': 'human', 'display_name': 'Synthetic owner'})
             uow.repository('installation').insert({'id': 'service', 'installation_id': new_id(), 'owner_principal_id': self.owner})
-            uow.repository('businesses').insert({'id': self.business, 'name': 'Example project', 'slug': 'example', 'workspace': 'example', 'hq_path': 'hq'})
-            uow.repository('business_memberships', business_id=self.business).insert({'principal_id': self.owner, 'is_owner': True})
-            for business in (None, self.business):
-                uow.repository('tasks', business_id=business).insert({'id': 'work', 'title': 'Example work', 'status': 'working', 'created_by': self.owner})
+            uow.repository('projects').insert({'id': self.project, 'name': 'Example project', 'slug': 'example', 'workspace': 'example'})
+            for project, identity in ((None, 'work'), (self.project, 'project-work')):
+                uow.repository('tasks', project_id=project).insert({'id': identity, 'title': 'Example work', 'status': 'working', 'created_by': self.owner})
         ports = SignoffPorts(execution=HostExecution(), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                             platform=ABSENT, email=ABSENT, management=ABSENT, focus=ABSENT, sources=HostInputSources())
         self.signoffs = SignoffService(self.db, ports, locks=LockPaths.under(self.root / 'locks'))
         self.registry, self.policy = OperationRegistry(), Policy()
-        self.policy.context_for = lambda principal_id, business_id=None, review_business_id=None, **_: replace(
-            self.ctx, business_id=business_id, review_business_id=review_business_id)
+        self.policy.context_for = lambda principal_id, project_id=None, review_project_id=None, **_: replace(
+            self.ctx, project_id=project_id, review_project_id=review_project_id)
         self.app = Application(self.db, self.registry, policy=self.policy, signoffs=self.signoffs)
         self.signoffs.bind(self.app)
         lookup = NS(resource=noop, resolve=noop, relationship_item=noop, fingerprint=noop)
         items = ItemResolver(self.app, [ItemContribution('test', ('task',), lookup)], candidates=NS(candidates=lambda *_: []))
         task_ports = TaskPorts(assignees=NS(protect=noop, owner_directed=lambda *_: False, worker_excluded=lambda *_: False),
-            incidents=NS(link_task=noop),
             references=NS(types=(), host_types=(), resolve=noop, derived=noop),
             routing=NS(routes=lambda *_: ((), ()), snooze_routes=lambda *_: ()))
         self.tasks = TaskOperations(self.app, items, task_ports)
@@ -83,12 +79,12 @@ class SignoffSourceTests(unittest.TestCase):
             return {**source, 'label': row['preview_json']['title'], 'state': row['state']}
         self.app.attention = NS(legacy=NS(resolve=resolve_source))
         self.registry.freeze()
-        self.source = {'type': 'task', 'id': 'work', 'business_id': None}
+        self.source = {'type': 'task', 'id': 'work', 'project_id': None}
         self.form = {'title': 'Choose a date', 'explanation': 'Which date works?', 'kind': 'question', 'selection_mode': 'none', 'notes_required': True}
 
-    def invoke(self, name, args, *, business=None, **options):
-        ctx = replace(self.ctx, business_id=business, review_business_id=business)
-        result = self.app.invoke(ctx, name, {**({'scope': 'global'} if business is None else {}), **args},
+    def invoke(self, name, args, *, project=None, **options):
+        ctx = replace(self.ctx, project_id=project, review_project_id=project)
+        result = self.app.invoke(ctx, name, {**({'scope': 'global'} if project is None else {}), **args},
                                  {'idempotency_key': new_id(), **options})
         self.assertEqual(result.status, 'ok', result.error)
         return plain(result.data)
@@ -99,8 +95,8 @@ class SignoffSourceTests(unittest.TestCase):
             args['source'] = self.source if source is True else source
         return self.invoke('signoffs_input_create', args)
 
-    def task(self, business=None):
-        return self.invoke('tasks_get', {'task_id': 'work'}, business=business)['task']
+    def task(self, project=None):
+        return self.invoke('tasks_get', {'task_id': 'work' if project is None else 'project-work'}, project=project)['task']
 
     def answer(self, signoff):
         result = self.signoffs.respond(self.ctx, signoff['id'], proposal_revision=signoff['proposal_revision'],
@@ -152,22 +148,22 @@ class SignoffSourceTests(unittest.TestCase):
             self.assertEqual(uow.connection.execute('SELECT count(*) FROM signoff_source_links').fetchone()[0], 0)
 
     def test_cross_scope_identity_visibility_and_cache_invalidation(self):
-        project_source = {**self.source, 'business_id': self.business}
-        initial = self.feed.route_versions({'tasks'}, self.business)
+        project_source = {**self.source, 'id': 'project-work', 'project_id': self.project}
+        initial = self.feed.route_versions({'tasks'}, self.project)
         created = self.create(source=project_source)
-        self.assertNotEqual(self.feed.route_versions({'tasks'}, self.business), initial)
+        self.assertNotEqual(self.feed.route_versions({'tasks'}, self.project), initial)
         self.assertFalse(self.task()['input_needed'])
-        self.assertTrue(self.task(self.business)['input_needed'])
+        self.assertTrue(self.task(self.project)['input_needed'])
         self.policy.modes['signoffs_get'] = 'deny'
-        request = self.task(self.business)['input_requests'][0]
+        request = self.task(self.project)['input_requests'][0]
         self.assertTrue(request['unavailable'])
         self.assertNotIn('title', request)
         self.assertNotIn('id', request)
         self.policy.modes.clear()
-        before = self.feed.route_versions({'tasks'}, self.business)
+        before = self.feed.route_versions({'tasks'}, self.project)
         self.answer(created['signoff'])
-        self.assertNotEqual(self.feed.route_versions({'tasks'}, self.business), before)
-        self.assertFalse(self.task(self.business)['input_needed'])
+        self.assertNotEqual(self.feed.route_versions({'tasks'}, self.project), before)
+        self.assertFalse(self.task(self.project)['input_needed'])
 
     def test_unlink_cas_and_scope(self):
         created = self.create()
@@ -185,7 +181,7 @@ class SignoffSourceTests(unittest.TestCase):
 
     def test_legacy_status_is_diagnostic_and_new_manual_status_is_refused(self):
         with self.db.transaction() as uow:
-            uow.repository('tasks', business_id=None).update('work', {'status': 'needs_input'}, expected_revision=1)
+            uow.repository('tasks', project_id=None).update('work', {'status': 'needs_input'}, expected_revision=1)
         task = self.task()
         self.assertEqual(task['status'], 'open')
         self.assertTrue(task['input_request_missing'])
@@ -193,7 +189,7 @@ class SignoffSourceTests(unittest.TestCase):
                                  {'expected_revision': task['revision'], 'idempotency_key': new_id()})
         self.assertEqual(result.error['code'], 'validation_error')
         with self.db.read() as uow:
-            self.assertEqual(uow.repository('tasks', business_id=None).get('work')['status'], 'needs_input')
+            self.assertEqual(uow.repository('tasks', project_id=None).get('work')['status'], 'needs_input')
 
     def test_status_filter_and_work_status_are_independent(self):
         self.create()
@@ -237,11 +233,11 @@ class SignoffSourceTests(unittest.TestCase):
         self.assertEqual(result.error['code'], 'validation_error')
 
     def test_project_review_can_wait_on_global_source(self):
-        result = self.invoke('signoffs_input_create', {'request_key': 'project', 'form': self.form, 'source': self.source}, business=self.business)
+        result = self.invoke('signoffs_input_create', {'request_key': 'project', 'form': self.form, 'source': self.source}, project=self.project)
         self.assertTrue(self.task()['input_needed'])
-        self.assertFalse(self.task(self.business)['input_needed'])
-        self.assertEqual(self.task()['input_requests'][0]['business_id'], self.business)
-        self.invoke('signoffs_input_cancel', {'signoff_id': result['signoff']['id']}, business=self.business)
+        self.assertFalse(self.task(self.project)['input_needed'])
+        self.assertEqual(self.task()['input_requests'][0]['project_id'], self.project)
+        self.invoke('signoffs_input_cancel', {'signoff_id': result['signoff']['id']}, project=self.project)
         self.assertFalse(self.task()['input_needed'])
 
     def test_source_link_requires_signoff_read_authority(self):
@@ -263,34 +259,34 @@ class SignoffSourceTests(unittest.TestCase):
 
     def test_board_mode_leaves_out_tasks_in_an_archived_project(self):
         # A project archived while its Tasks were still on a worker's board made every timed pass raise
-        # ``business_archived``, which discarded every agent's reminders. Those Tasks are retained, not current work.
+        # ``project_archived``, which discarded every agent's reminders. Those Tasks are retained, not current work.
         from qorqut.agents.attention import Attention
-        from qorqut_operations.business_lifecycle import require_active_business
+        from qorqut_operations.project_lifecycle import require_active_project
         worker = new_id()
         profile = {'status': 'active', 'role': {'id': 'global-worker'},
                    'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': worker, 'kind': 'agent', 'display_name': 'Example worker'})
-            uow.repository('agent_profiles', business_id=None).insert({'agent_id': worker, 'principal_id': worker,
-                'namespace': 'ecosystem', 'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
-            task = uow.repository('tasks', business_id=self.business).get('work')
-            uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,'
-                'created_at) VALUES(?,?,?,?,?,?)', (new_id(), worker, self.business, 'work', task['created_at'], task['created_at']))
+            uow.repository('agent_profiles', project_id=None).insert({'agent_id': worker, 'principal_id': worker,
+                'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
+            task = uow.repository('tasks', project_id=self.project).get('project-work')
+            uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_project_id,task_id,task_created_at,'
+                'created_at) VALUES(?,?,?,?,?,?)', (new_id(), worker, self.project, 'project-work', task['created_at'], task['created_at']))
             # A worker is reminded only of a Task that names it.
-            uow.connection.execute('UPDATE tasks SET worker_ids_json=? WHERE business_id=? AND id=?', (json.dumps([worker]), self.business, 'work'))
+            uow.connection.execute('UPDATE tasks SET worker_ids_json=? WHERE project_id=? AND id=?', (json.dumps([worker]), self.project, 'project-work'))
         ctx = replace(self.ctx, principal=Principal(worker, 'agent'), source='mcp', profile_revision=1)
-        self.policy.context_for = lambda principal_id, business_id=None, review_business_id=None, **_: replace(
-            ctx if principal_id == worker else self.ctx, business_id=business_id, review_business_id=review_business_id)
+        self.policy.context_for = lambda principal_id, project_id=None, review_project_id=None, **_: replace(
+            ctx if principal_id == worker else self.ctx, project_id=project_id, review_project_id=review_project_id)
 
         def refresh(context, uow):
-            require_active_business(uow.connection, context.business_id)
+            require_active_project(uow.connection, context.project_id)
             return context
         self.app.context_resolver = refresh
         board = Attention(NS(application=self.app, focus=NS(inbox=NS())))
         with self.db.read() as uow:
             self.assertEqual(board.board_mode(uow, worker), 'normal')
         with self.db.transaction() as uow:
-            uow.connection.execute('UPDATE businesses SET archived_at=? WHERE id=?', (task['created_at'], self.business))
+            uow.connection.execute('UPDATE projects SET archived_at=? WHERE id=?', (task['created_at'], self.project))
         with self.db.read() as uow:
             self.assertEqual(board.board_mode(uow, worker), 'empty')
 
@@ -301,16 +297,16 @@ class SignoffSourceTests(unittest.TestCase):
                    'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': worker, 'kind': 'agent', 'display_name': 'Example worker'})
-            uow.repository('agent_profiles', business_id=None).insert({'agent_id': worker, 'principal_id': worker,
-                'namespace': 'ecosystem', 'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
-            task = uow.repository('tasks', business_id=None).get('work')
+            uow.repository('agent_profiles', project_id=None).insert({'agent_id': worker, 'principal_id': worker,
+                'name': 'example-worker', 'workspace': 'example-worker', 'profile_json': profile})
+            task = uow.repository('tasks', project_id=None).get('work')
             uow.connection.execute('INSERT INTO attention_memberships(id,agent_id,task_id,task_created_at,created_at) VALUES(?,?,?,?,?)',
                                    (new_id(), worker, 'work', task['created_at'], task['created_at']))
             # A worker is reminded only of a Task that names it.
-            uow.connection.execute('UPDATE tasks SET worker_ids_json=? WHERE business_id IS NULL AND id=?', (json.dumps([worker]), 'work'))
+            uow.connection.execute('UPDATE tasks SET worker_ids_json=? WHERE project_id IS NULL AND id=?', (json.dumps([worker]), 'work'))
         ctx = replace(self.ctx, principal=Principal(worker, 'agent'), source='mcp', profile_revision=1)
-        self.policy.context_for = lambda principal_id, business_id=None, review_business_id=None, **_: replace(
-            ctx if principal_id == worker else self.ctx, business_id=business_id, review_business_id=review_business_id)
+        self.policy.context_for = lambda principal_id, project_id=None, review_project_id=None, **_: replace(
+            ctx if principal_id == worker else self.ctx, project_id=project_id, review_project_id=review_project_id)
         board = Attention(NS(application=self.app, focus=NS(inbox=NS())))
         result = self.app.invoke(ctx, 'signoffs_input_create', {'scope': 'global', 'request_key': 'worker',
             'form': self.form, 'source': self.source}, {'idempotency_key': new_id()})
@@ -329,8 +325,8 @@ class SignoffSourceTests(unittest.TestCase):
         with self.db.transaction() as uow:
             for identity, role in ((worker, 'global-worker'), (peer, 'global-worker'), (coordinator, 'ordubashy')):
                 uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': role})
-                uow.repository('agent_profiles', business_id=None).insert({'agent_id': identity, 'principal_id': identity,
-                    'namespace': 'ecosystem', 'name': identity, 'workspace': identity, 'profile_json': {'status': 'active',
+                uow.repository('agent_profiles', project_id=None).insert({'agent_id': identity, 'principal_id': identity,
+                    'name': identity, 'workspace': identity, 'profile_json': {'status': 'active',
                         'role': {'id': role}, 'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}})
             uow.connection.execute("UPDATE installation SET management_coordinator_id=? WHERE id='service'", (coordinator,))
 
@@ -359,17 +355,17 @@ class SignoffSourceTests(unittest.TestCase):
         from qorqut.domains.tasks.relocation import HostRelocation
         from qorqut_operations.tasks.relocation import Relocation
         created = self.create()
-        relocation = Relocation(None, self.business, ('work',), ('work',))
+        relocation = Relocation(None, self.project, ('work',), ('work',))
         adapter = HostRelocation(self.app)
         with self.db.transaction() as uow:
             # Exercise the real host adapter; the full Task move separately owns its Task/relationship writes.
             before = adapter.inspect(uow, relocation)
             self.assertEqual(before.counts['input_links'], 1)
             adapter.apply(uow, relocation, self.signoffs.clock())
-            moved = self.signoffs.sources.find(created['signoff']['id'], {**self.source, 'business_id': self.business}, uow)
+            moved = self.signoffs.sources.find(created['signoff']['id'], {**self.source, 'project_id': self.project}, uow)
             self.assertEqual(moved['revision'], 2)
             self.assertIsNone(self.signoffs.sources.find(created['signoff']['id'], self.source, uow))
-            row = uow.repository('signoffs', business_id=None).get(created['signoff']['id'])
+            row = uow.repository('signoffs', project_id=None).get(created['signoff']['id'])
             self.assertEqual(row['payload_hash'], created['signoff']['payload_hash'])
 
     def test_unlink_arguments_survive_http_option_parsing(self):
@@ -380,20 +376,74 @@ class SignoffSourceTests(unittest.TestCase):
         result = self.app.invoke(self.ctx, 'signoffs_source_unlink', args, options)
         self.assertEqual(result.status, 'ok', result.error)
 
+    # -- a source names its record by type and id ----------------------------------------------------------------------
 
-class MigrationTests(unittest.TestCase):
-    def test_exact_additive_migration_and_repeat(self):
-        with TemporaryDirectory() as directory:
-            predecessor, target = migration.compositions()
-            db = Database(Path(directory) / 'old.sqlite', assembly=predecessor).initialize_target()
-            db.close()
-            with sqlite3.connect(db.path, isolation_level=None) as connection:
-                self.assertEqual(migration.inspect(connection)['store'], 'predecessor')
-                self.assertEqual(migration.apply(connection)['schema'], 'added')
-                self.assertEqual(migration.apply(connection)['schema'], 'already_current')
-                connection.execute('CREATE TABLE unexpected(id TEXT)')
-                with self.assertRaises(DomainError):
-                    migration.apply(connection)
+    def links(self):
+        with self.db.read() as uow:
+            return [tuple(row) for row in uow.connection.execute(
+                'SELECT source_type,source_id,source_project_id,source_namespace FROM signoff_source_links ORDER BY source_id')]
+
+    def create_result(self, key, source, ctx=None, **extra):
+        return self.app.invoke(ctx or self.ctx, 'signoffs_input_create', {'scope': 'global', 'request_key': key,
+            'form': self.form, 'source': source, **extra}, {'idempotency_key': new_id()})
+
+    def test_a_source_without_a_project_is_stored_with_the_project_that_holds_the_record(self):
+        for key, identity, project in (('global', 'work', None), ('project', 'project-work', self.project)):
+            stated = {'type': 'task', 'id': identity, 'project_id': project}
+            bare = {'type': 'task', 'id': identity}
+            created = self.create(key, source=bare)
+            self.assertEqual(self.create(key, source=stated)['link'], created['link'])
+        self.assertEqual(self.links(), [('task', 'project-work', self.project, 'project:' + self.project),
+                                        ('task', 'work', None, 'global')])
+        self.assertTrue(self.task()['input_needed'])
+        self.assertTrue(self.task(self.project)['input_needed'])
+
+    def test_the_source_project_does_not_move_the_review_scope_of_the_signoff(self):
+        created = self.create(source={'type': 'task', 'id': 'project-work'})
+        self.assertIsNone(created['signoff']['review_project_id'])
+        scoped = self.invoke('signoffs_input_create', {'request_key': 'in-project', 'form': self.form,
+                                                       'source': {'type': 'task', 'id': 'work'}}, project=self.project)
+        self.assertEqual(scoped['signoff']['review_project_id'], self.project)
+        self.assertEqual(self.links(), [('task', 'project-work', self.project, 'project:' + self.project),
+                                        ('task', 'work', None, 'global')])
+
+    def test_a_stated_project_or_global_is_checked_as_given(self):
+        for source in ({'type': 'task', 'id': 'work', 'project_id': self.project},
+                       {'type': 'task', 'id': 'project-work', 'project_id': None}):
+            self.assertEqual(self.create_result('wrong', source).status, 'error', source)
+        self.assertEqual(self.links(), [])
+
+    def test_a_record_outside_the_reach_is_answered_like_an_unknown_id(self):
+        outside = replace(self.ctx, allowed_project_ids=frozenset())
+        unknown = self.create_result('unknown', {'type': 'task', 'id': 'nothing'}, outside)
+        hidden = self.create_result('hidden', {'type': 'task', 'id': 'project-work'}, outside)
+        self.assertEqual(unknown.status, 'error')
+        self.assertEqual(hidden.error, unknown.error)
+        self.assertEqual(self.links(), [])
+
+    def test_linking_and_unlinking_take_a_source_without_a_project(self):
+        bare = {'type': 'task', 'id': 'project-work'}
+        row = self.create(source=False, response_policy='owner_only')['signoff']
+        linked = self.invoke('signoffs_source_link', {'source': bare, 'signoff_id': row['id']})
+        self.assertEqual(self.links(), [('task', 'project-work', self.project, 'project:' + self.project)])
+        again = self.invoke('signoffs_source_link', {'source': {**bare, 'project_id': self.project}, 'signoff_id': row['id']})
+        self.assertEqual(again, linked)
+        self.invoke('signoffs_source_unlink', {'source': bare, 'signoff_id': row['id'], 'link_id': linked['link']['id'],
+                                               'expected_link_revision': linked['link']['revision']})
+        self.assertEqual(self.links(), [])
+
+    def test_each_kind_of_source_is_completed_its_own_way(self):
+        completion = self.registry.get('signoffs_input_create').complete_references
+        sources = [{'type': 'project', 'id': self.project}, {'type': 'project', 'id': new_id()},
+                   {'type': 'reference', 'id': 'conversation:1'}, {'type': 'task', 'id': 'project-work'}]
+        with self.db.read() as uow:
+            done = plain(completion(self.app, self.ctx, {'source': sources[0]}, uow))['source']
+            others = [plain(completion(self.app, self.ctx, {'source': source}, uow))['source'] for source in sources[1:]]
+        self.assertEqual(done, {**sources[0], 'project_id': self.project})
+        self.assertEqual([source['project_id'] for source in others], [None, None, self.project])
+        for operation in ('signoffs_input_create', 'signoffs_source_link', 'signoffs_source_unlink'):
+            self.assertIsNotNone(self.registry.get(operation).complete_references, operation)
+            self.assertNotIn('project_id', self.registry.get(operation).input_schema['properties']['source']['required'])
 
 
 if __name__ == '__main__':

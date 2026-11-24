@@ -5,7 +5,7 @@ time window or the owner's last N messages:
 
 * ``chat``: every agent's native conversation. The index (``native_owner_turns``) holds where each turn starts in the
   transcript archive; the text is read from the archive for this answer and is stored nowhere else.
-* ``thread``: the private owner–Ordubashy channel of a Task, Signoff, Table, Project or Focus Reference, side chats included.
+* ``thread``: the private owner–Ordubashy channel of a Task, Signoff, Table, Project or Focus Reference.
 * ``note``: what the owner wrote personally in a Task or Table discussion, on a Signoff or on a Focus card.
 
 Each item is the exact text with its time and place and, where the records can tell, what followed it: the reply that
@@ -67,7 +67,7 @@ SEARCH_DESCRIPTION = (
     "Only the owner and Ordubashy may call it. The conversation between the owner and Ordubashy, read in one of two ways. "
     "WITH query it searches: it returns the messages of the period that hold every word of query, newest first. Searched: "
     "the owner's messages in every agent's chat, in the private owner threads (on Tasks, Signoffs, Tables, Projects and Focus "
-    "References, side chats included) and in the owner's own notes; and Ordubashy's chat replies and thread messages. Not "
+    "References) and in the owner's own notes; and Ordubashy's chat replies and thread messages. Not "
     "searched: what other agents replied, tool calls and what tools returned, messages between agents, WhatsApp, mail, and "
     "the text of Tasks and Signoffs themselves. query is the few words that must appear, in any "
     "order: a name, a number, a subject. Not a sentence. Case is ignored. A word matches any word that starts with it: "
@@ -119,16 +119,16 @@ GET_SCHEMA = schema({"scope": {"const": "global"}, "id": {"type": "string", "min
 # The owner wrote these personally: a relay recorded by an agent is the agent's account of what the owner said elsewhere.
 NOTE_ROWS = """
 SELECT 'task-note:' || m.id AS item, m.created_at AS at, m.body AS body, m.item_type AS source_type, m.item_id AS source_id,
-       m.business_id AS business_id
+       m.project_id AS project_id
   FROM thread_messages m WHERE m.kind='comment' AND m.author_id=:owner AND m.recorder_id=:owner AND m.item_type IN ('task','table')
 UNION ALL
-SELECT 'signoff-note:' || n.id, n.created_at, n.body, 'signoff', n.signoff_id, s.review_business_id
+SELECT 'signoff-note:' || n.id, n.created_at, n.body, 'signoff', n.signoff_id, s.review_project_id
   FROM signoff_notes n JOIN signoffs s ON s.id=n.signoff_id WHERE n.created_by=:owner
 UNION ALL
 SELECT 'focus-note:' || n.id, n.created_at, n.body, 'focus_card', n.card_id, NULL FROM focus_notes n WHERE n.created_by=:owner
 """
 THREAD_ROWS = ("SELECT 'thread:' || m.id AS item, m.created_at AS at, m.body AS body, m.sequence AS sequence, c.id AS conversation_id, "
-               "c.source_type AS source_type, c.source_id AS source_id, c.business_id AS business_id, m.author_role AS author_role "
+               "c.source_type AS source_type, c.source_id AS source_id, c.project_id AS project_id, m.author_role AS author_role "
                "FROM owner_conversation_messages m JOIN owner_conversations c ON c.id=m.conversation_id "
                "WHERE c.peer_agent_id IS NULL")
 ROWS = {
@@ -226,7 +226,7 @@ class OwnerInputs:
     def caller(self, ctx, uow):
         """The installation owner or the configured coordinator in person, at Global. A delegated identity acts for its parent
         on one assignment and never reads the owner's words across the installation."""
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         owner, coordinator = installation_owner(uow), configured_ordubashy(uow)
         personal = ctx.delegation_assignment_id is None
         if not personal or not owner or not ((ctx.principal_kind == "human" and ctx.principal_id == owner)
@@ -438,7 +438,7 @@ class _Reading:
             if text is None:
                 return None
             return {**base, "via": row["via"], "agent": agent, **_text(text, text_limit), "redacted": False, "_row": row}
-        source = self.source(row["source_type"], row["source_id"], row["business_id"])
+        source = self.source(row["source_type"], row["source_id"], row["project_id"])
         if source is None:
             return None
         return {**base, "source": source, **_text(row["body"], text_limit), "redacted": False, "_row": row}
@@ -448,7 +448,7 @@ class _Reading:
         item = self.item(row, FULL_TEXT_LIMIT) or {}
         source = item.get("source")
         return {"id": row["item"], "at": row["at"], "channel": row["channel"],
-                "place": source and {key: source[key] for key in ("type", "id", "business_id", "title")},
+                "place": source and {key: source[key] for key in ("type", "id", "project_id", "title")},
                 "text": item.get("text"), "redacted": bool(item.get("redacted"))}
 
     def agent(self, agent_id):
@@ -458,15 +458,15 @@ class _Reading:
                                      **({"role": found["role"]["id"]} if found.get("role") else {})}
         return self.agents[agent_id]
 
-    def source(self, kind, identity, business_id):
+    def source(self, kind, identity, project_id):
         """Where a thread message or note was written, through the caller's own read of that record; ``None`` when that read
         is refused or the record is gone."""
-        key = (kind, identity, business_id)
+        key = (kind, identity, project_id)
         if key not in self.sources:
-            self.sources[key] = self._source(kind, identity, business_id)
+            self.sources[key] = self._source(kind, identity, project_id)
         return self.sources[key]
 
-    def _source(self, kind, identity, business_id):
+    def _source(self, kind, identity, project_id):
         threads = self.service.runtime.private_conversations
         try:
             if kind == "focus_card":
@@ -475,13 +475,13 @@ class _Reading:
                 if card is None:
                     return None
                 title = card["display_name"] or (json.loads(card["reference_json"] or "{}").get("title")) or "Focus card"
-                return {"type": "focus_card", "id": identity, "business_id": None, "title": title}
-            source = {"type": kind, "id": identity, "business_id": business_id}
+                return {"type": "focus_card", "id": identity, "project_id": None, "title": title}
+            source = {"type": kind, "id": identity, "project_id": project_id}
             from qorqut.inbox.thread_views import project
             _, source = threads.resolve(self.ctx, {"source": source}, self.uow)
             shown = project(threads, self.ctx, source, self.uow)
-            return {"type": kind, "id": identity, "business_id": business_id, "title": shown.get("label"),
-                    **({"business": shown["business_slug"]} if shown.get("business_slug") else {})}
+            return {"type": kind, "id": identity, "project_id": project_id, "title": shown.get("label"),
+                    **({"project": shown["project_slug"]} if shown.get("project_slug") else {})}
         except DomainError as error:
             if error.code not in UNAVAILABLE:
                 raise
@@ -556,7 +556,7 @@ class _Reading:
             if turn is not None and turn["redacted"]:
                 return None
             return {**base, "by": "ordubashy", "agent": self.agent(row["agent_id"]), **found}
-        source = self.source(row["source_type"], row["source_id"], row["business_id"])
+        source = self.source(row["source_type"], row["source_id"], row["project_id"])
         if source is None:
             return None
         return {**base, "by": side(row), "source": source, **found}
@@ -637,9 +637,9 @@ class _Reading:
         kind, identity = row["item"].split(":", 1)[0], row["source_id"]
         if kind == "task-note":
             reply = self.connection.execute(
-                "SELECT created_at,summary,body FROM thread_messages WHERE business_id IS ? AND item_type=? AND item_id=? "
+                "SELECT created_at,summary,body FROM thread_messages WHERE project_id IS ? AND item_type=? AND item_id=? "
                 "AND kind='comment' AND created_at>? AND author_id IS NOT ? ORDER BY created_at LIMIT 1",
-                (row["business_id"], row["source_type"], identity, row["at"], self.owner)).fetchone()
+                (row["project_id"], row["source_type"], identity, row["at"], self.owner)).fetchone()
         else:
             table, column = ("signoff_notes", "signoff_id") if kind == "signoff-note" else ("focus_notes", "card_id")
             reply = self.connection.execute(
@@ -655,7 +655,7 @@ class _Reading:
         actors = sorted({actor for _, actor, _, _ in spans})
         marks = ",".join("?" * len(actors))
         lines = self.connection.execute(
-            "SELECT business_id,item_type,item_id,body,recorder_id,created_at FROM thread_messages WHERE kind='system' "
+            "SELECT project_id,item_type,item_id,body,recorder_id,created_at FROM thread_messages WHERE kind='system' "
             f"AND item_type IN ('task','table') AND recorder_id IN ({marks}) AND created_at>=? AND created_at<? "
             "ORDER BY created_at LIMIT ?",
             (*actors, min(span[2] for span in spans), max(span[3] for span in spans), RECORD_SCAN)).fetchall()
@@ -665,7 +665,7 @@ class _Reading:
             for line in lines:
                 if line["recorder_id"] != actor or not begins <= line["created_at"] < ends:
                     continue
-                source = self.source(line["item_type"], line["item_id"], line["business_id"])
+                source = self.source(line["item_type"], line["item_id"], line["project_id"])
                 if source is not None:
                     written.append({"at": line["created_at"], "record": source, "change": cut(line["body"], 200)})
             found.append((item, written))

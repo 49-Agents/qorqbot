@@ -1,10 +1,10 @@
 # Recording a direct instruction
 
-Both Ordubashy and Overseer submit new direct owner Chat instructions through
-`agentic_change_propose` as described in `agentic-management/manage`. Present the
-returned Signoff; neither acknowledgment nor the original instruction approves
-the specific implementation. Acceptance queues separate owner-led application.
-Do not start extraction just to submit a direct instruction. During extraction, Overseer
+Every agent files a new direct owner instruction about how agents work with
+`experience_observation_file` as described in `agentic-management/manage`, at once
+and with no Signoff. Neither the filing nor the original instruction approves
+a specific implementation. Do not start extraction just to record a direct
+instruction. During extraction, Overseer
 extracts the original instruction as evidence, not as a command to execute. Inspect
 current relevant instructions, catalog selection/trigger placement and implementation
 receipts before proposing work. Correctly implemented behavior needs no duplicate;

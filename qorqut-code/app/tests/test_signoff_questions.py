@@ -98,7 +98,7 @@ class QuestionValidationTests(unittest.TestCase):
     def test_legacy_gateway_rejects_grouped_answers(self):
         with self.assertRaises(DomainError): validate_response(validate_form(form()), 'yes', ['yes'])
         from qorqut.overseer.inputs import create_input_request
-        binding = {'id': 'test', 'request_key': 'test', 'owner_scope': {'kind': 'global', 'business_id': None}}
+        binding = {'id': 'test', 'request_key': 'test', 'owner_scope': {'kind': 'global', 'project_id': None}}
         with self.assertRaisesRegex(DomainError, 'single question'):
             create_input_request(None, None, binding, form(), 'test')
 
@@ -219,29 +219,29 @@ class QuestionSubmissionTests(unittest.TestCase):
             uow.repository('principals').insert({'id': stranger, 'kind': 'human', 'display_name': 'Another human'})
         contexts = [replace(self.ctx, principal=Principal(stranger, 'human')),
                     replace(self.ctx, principal=Principal(self.owner, 'agent')),
-                    replace(self.ctx, business_id=self.business, review_business_id=self.business)]
+                    replace(self.ctx, project_id=self.project, review_project_id=self.project)]
         for context in contexts:
             with self.subTest(context=context): self.assertEqual(self.respond(s, context=context).status, 'error')
         self.assertEqual(self.saved(s)['state'], 'pending')
-        project = self.invoke('signoffs_input_create', {'request_key': 'project', 'form': self.form}, business=self.business)['signoff']
-        outside = replace(self.ctx, business_id=new_id(), review_business_id=None)
+        project = self.invoke('signoffs_input_create', {'request_key': 'project', 'form': self.form}, project=self.project)['signoff']
+        outside = replace(self.ctx, project_id=new_id(), review_project_id=None)
         self.assertEqual(self.respond(project, context=outside).status, 'error')
-        self.assertEqual(self.respond(project, context=replace(self.ctx, business_id=self.business, review_business_id=self.business)).status, 'ok')
+        self.assertEqual(self.respond(project, context=replace(self.ctx, project_id=self.project, review_project_id=self.project)).status, 'ok')
         # The installation owner's Global queue deliberately includes authorized project Signoffs.
-        another = self.invoke('signoffs_input_create', {'request_key': 'project-2', 'form': self.form}, business=self.business)['signoff']
+        another = self.invoke('signoffs_input_create', {'request_key': 'project-2', 'form': self.form}, project=self.project)['signoff']
         self.assertEqual(self.respond(another).status, 'ok')
 
     def test_worker_receives_one_response_event_and_no_intermediate_notes(self):
         worker = new_id()
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id': worker, 'kind': 'agent', 'display_name': 'Example worker'})
-            uow.repository('agent_profiles', business_id=None).insert({'agent_id': worker, 'principal_id': worker,
-                'namespace': 'ecosystem', 'name': 'example-worker', 'workspace': 'example-worker',
+            uow.repository('agent_profiles', project_id=None).insert({'agent_id': worker, 'principal_id': worker,
+                'name': 'example-worker', 'workspace': 'example-worker',
                 'profile_json': {'status': 'active', 'role': {'id': 'global-worker'},
                                  'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}})
         ctx = replace(self.ctx, principal=Principal(worker, 'agent'), source='mcp', profile_revision=1)
-        self.policy.context_for = lambda principal_id, business_id=None, review_business_id=None, **_: replace(
-            ctx if principal_id == worker else self.ctx, business_id=business_id, review_business_id=review_business_id)
+        self.policy.context_for = lambda principal_id, project_id=None, review_project_id=None, **_: replace(
+            ctx if principal_id == worker else self.ctx, project_id=project_id, review_project_id=review_project_id)
         result = self.app.invoke(ctx, 'signoffs_input_create', {'scope': 'global', 'request_key': 'worker', 'form': self.form}, {'idempotency_key': new_id()})
         self.assertEqual(result.status, 'ok', result.error)
         s = plain(result.data)['signoff']

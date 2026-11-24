@@ -28,7 +28,7 @@ their prepared `.qorqut/activity-hook.py` refreshed through preparation after
 deploying a hook fix; a service restart alone does not replace those local copies.
 
 `agent_work_update` replaces only the calling agent's selected session list, up to
-ten simultaneous work items. Each has a brief summary, explicit business UUID
+ten simultaneous work items. Each has a brief summary, explicit project UUID
 (null for Global), optional task ID and optional `blocked_reason`. Native session ID
 is supplied by bootstrap. Read the `work_revision` from `agents_activity_list` before
 updating; heartbeat writes do not change that revision. Cleared/finished work should
@@ -36,8 +36,8 @@ be removed from the list. A blocked task does not make an entire agent blocked.
 
 `agents_activity_list` returns currently authorized agents, their Claude/Codex
 sessions, work items, source task state and blockers, last-seen/work timestamps,
-and a continuation cursor. It defaults to the selected business; Global aggregates
-only authorized businesses and Global agents. Source permissions are rechecked,
+and a continuation cursor. It defaults to the selected project; Global aggregates
+only authorized projects and Global agents. Source permissions are rechecked,
 including for authored descriptions about a task. Filters include `agent_id` and
 `role_id`; pages default to 100, maximum 200. Up to 20 recent sessions per agent are
 returned; old offline sessions are pruned after seven days, retaining the latest.
@@ -47,6 +47,10 @@ operation. Dashboard Global → Agent fleet and agent panes refresh every minute
 while visible and offer manual Refresh. The UI labels stale work after one hour,
 separately from the much shorter presence timeout. Latest work on an idle, ended
 or unobserved session is labeled as last work, not active execution.
+
+The navigation's working dots do not use that list. They read `GET /api/me/agents/presence`:
+each current agent's `state` only, exactly as the activity list reports it and under the same
+permission, without sessions, declared work, Tasks, checkpoints or inbox notices.
 
 ## Task progress and dependencies
 
@@ -77,8 +81,7 @@ Shared role instructions require current-work updates at meaningful checkpoints.
 Where a client's completion checkpoint protocol is off, the local hook can remind
 an agent after actions at most once per 15 minutes; recent work updates suppress
 the reminder. With protocol 1 the Stop checkpoint replaces it with at most one
-reminder per substantive turn ([management coordination](AGENT-MANAGEMENT-COORDINATION.md)). The business agent receives a bounded business
-team summary; Ordubashy receives authorized business agents. Managers finish continuation
+reminder per substantive turn ([management coordination](AGENT-MANAGEMENT-COORDINATION.md)). Ordubashy receives a bounded team summary of the other active agents. Managers finish continuation
 pages through `agents_activity_list` when there are more than 20 agents. Unblocking
 others is prioritized within owner instructions and existing authority.
 Team summaries travel in the existing `work_briefing.rendered` field so currently

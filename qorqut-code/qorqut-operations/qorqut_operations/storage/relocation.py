@@ -1,6 +1,6 @@
 """The one authorized way to change the owning scope of stored Task rows.
 
-Scope-immutability triggers on Task storage refuse every change of ``business_id``. A relocation is allowed only through
+Scope-immutability triggers on Task storage refuse every change of ``project_id``. A relocation is allowed only through
 ``relocation_permits(old_scope, new_scope, task_id)``, a SQLite function every connection carries. It answers ``0`` on any
 connection that has not been explicitly armed - a raw open, a direct SQL statement, an ordinary operation - and ``1`` only
 while the unit of work running a prepared, authorized move has armed it for exactly that source scope, destination scope

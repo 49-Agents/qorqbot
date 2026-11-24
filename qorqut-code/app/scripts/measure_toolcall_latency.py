@@ -96,9 +96,9 @@ def fixture(directory):
 
 
 def config_resolver():
-    data = {"scope": {"kind": "ecosystem", "business_id": None, "allowed_business_ids": [],
+    data = {"scope": {"kind": "ecosystem",
                        "global_capabilities": ["read_global_context"]},
-            "business_id": None, "profile_revision": 1, "role": {"id": "worker", "version": "1",
+            "project_id": None, "profile_revision": 1, "role": {"id": "worker", "version": "1",
             "digest": "sha256:" + "a" * 64, "kind": "role"}, "plugins": [],
             "effective_config_id": "synthetic", "preparation": {}, "delivery": None,
             "context_refresh_required": False, "mandatory_context": {"rendered": "instruction\n" * 5000},

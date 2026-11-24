@@ -60,12 +60,12 @@ def require_revision(row, expected, *, argument="expected_revision"):
                           current_revision=row["revision"])
 
 
-def rows(uow, table, business_id, *, where="", parameters=(), maximum=20000):
+def rows(uow, table, project_id, *, where="", parameters=(), maximum=20000):
     spec = uow.database.assembly.tables[table]
     if not spec.scope_column:
         raise ValueError("Domain collection reads must be project scoped")
-    clause = f'"{spec.scope_column}" = ?' if business_id is not None else f'"{spec.scope_column}" IS NULL'
-    values = [business_id] if business_id is not None else []
+    clause = f'"{spec.scope_column}" = ?' if project_id is not None else f'"{spec.scope_column}" IS NULL'
+    values = [project_id] if project_id is not None else []
     if where:
         clause += " AND (" + where + ")"
         values += list(parameters)
@@ -75,8 +75,8 @@ def rows(uow, table, business_id, *, where="", parameters=(), maximum=20000):
     return [decode_row(row) for row in found]
 
 
-def page_position(arguments, business_id, operation):
-    binding = canonical_hash({"business_id": business_id, "operation": operation,
+def page_position(arguments, project_id, operation):
+    binding = canonical_hash({"project_id": project_id, "operation": operation,
                               "filters": {k: v for k, v in arguments.items() if k not in ("cursor", "limit")}})
     cursor = arguments.get("cursor")
     after = None
@@ -91,8 +91,8 @@ def page_position(arguments, business_id, operation):
     return binding, after
 
 
-def page(items, arguments, business_id, operation, *, key=lambda row: (row.get("created_at", ""), row["id"]), reverse=True):
-    binding, after = page_position(arguments, business_id, operation)
+def page(items, arguments, project_id, operation, *, key=lambda row: (row.get("created_at", ""), row["id"]), reverse=True):
+    binding, after = page_position(arguments, project_id, operation)
     items = sorted(items, key=key, reverse=reverse)
     if after is not None:
         try:
@@ -111,12 +111,12 @@ def page_cursor(binding, after):
     return base64.urlsafe_b64encode(canonical_bytes({"binding": binding, "after": after})).decode("ascii")
 
 
-def newest_page(uow, table, business_id, arguments, operation, *, where="", parameters=()):
+def newest_page(uow, table, project_id, arguments, operation, *, where="", parameters=()):
     """One page of ``table`` newest first by ``(created_at, id)``, read and limited in SQL.
 
     The same order and cursors as ``page`` with its default key, for a list whose filters are all SQL: only the page's
     rows (and one more, to know whether another page follows) are read."""
-    binding, after = page_position(arguments, business_id, operation)
+    binding, after = page_position(arguments, project_id, operation)
     clauses, values = ([where], list(parameters)) if where else ([], [])
     if after is not None:
         if len(after) != 2 or not all(isinstance(value, str) for value in after):
@@ -126,8 +126,8 @@ def newest_page(uow, table, business_id, arguments, operation, *, where="", para
     spec = uow.database.assembly.tables[table]
     if not spec.scope_column:
         raise ValueError("Domain collection reads must be project scoped")
-    clause = f'"{spec.scope_column}" = ?' if business_id is not None else f'"{spec.scope_column}" IS NULL'
-    scope = [business_id] if business_id is not None else []
+    clause = f'"{spec.scope_column}" = ?' if project_id is not None else f'"{spec.scope_column}" IS NULL'
+    scope = [project_id] if project_id is not None else []
     limit = arguments.get("limit", 50)
     condition = clause + "".join(" AND (" + part + ")" for part in clauses)
     found = [decode_row(row) for row in uow.connection.execute(
@@ -136,11 +136,11 @@ def newest_page(uow, table, business_id, arguments, operation, *, where="", para
     return selected, (page_cursor(binding, [selected[-1]["created_at"], selected[-1]["id"]]) if len(found) > limit else None)
 
 
-def ref(table, key, business_id, namespace=None, *, tables=None):
+def ref(table, key, project_id, namespace=None, *, tables=None):
     spec = active_tables(tables)[table]
     keys = tuple(value for value in spec.keys if value != spec.scope_column)
     identity = str(key) if len(keys) == 1 and not isinstance(key, dict) else canonical_bytes(key).decode()
-    return ResourceRef(table, identity, business_id, namespace)
+    return ResourceRef(table, identity, project_id, namespace)
 
 
 def record_key(resource, *, tables=None):
@@ -157,10 +157,10 @@ class PlanBuilder:
         self.version = version
         # Without an explicit catalog a builder uses the running unit's, so it must be made inside prepare.
         self.tables = active_tables(tables)
-        # A Global context (no selected business) defaults to the Global namespace.
-        self.namespace = namespace or ("business:" + ctx.business_id if ctx.business_id else "global")
-        self.affected_scope = affected_scope or ({"kind": "business", "business_id": ctx.business_id}
-                                                 if ctx.business_id else {"kind": "global"})
+        # A Global context (no selected project) defaults to the Global namespace.
+        self.namespace = namespace or ("project:" + ctx.project_id if ctx.project_id else "global")
+        self.affected_scope = affected_scope or ({"kind": "project", "project_id": ctx.project_id}
+                                                 if ctx.project_id else {"kind": "global"})
         self.at = timestamp(clock)
         self.targets, self.changes, self.previews, self.resources, self.effects = {}, [], [], [], []
 
@@ -176,9 +176,9 @@ class PlanBuilder:
         self.targets[resource] = expected
         return resource
 
-    def record(self, table, key, before, values, *, action=None, operation_name=None, business_id=UNSET, label=None, namespace=None):
-        business_id = self.ctx.business_id if business_id is UNSET else business_id
-        resource = self.expect(ref(table, key, business_id, namespace, tables=self.tables), before)
+    def record(self, table, key, before, values, *, action=None, operation_name=None, project_id=UNSET, label=None, namespace=None):
+        project_id = self.ctx.project_id if project_id is UNSET else project_id
+        resource = self.expect(ref(table, key, project_id, namespace, tables=self.tables), before)
         action = action or ("update" if before else "insert")
         values = plain(values)
         if action == "insert" and "created_at" in values:
@@ -204,7 +204,7 @@ class PlanBuilder:
         return ChangeSet(self.operation, self.version, self.ctx.principal_id, self.namespace, self.arguments, scope,
             tuple(self.targets.values()), tuple(self.changes), ChangePreview(self.title, self.arguments.get("rationale", ""), scope,
                 tuple(resources.values()), tuple(self.previews), tuple(self.effects)),
-            review_business_id=self.ctx.review_business_id, proposer_agent_id=self.ctx.agent_id)
+            review_project_id=self.ctx.review_project_id, proposer_agent_id=self.ctx.agent_id)
 
 
 def apply_records(ctx, plan, uow):
@@ -222,7 +222,7 @@ def apply_records(ctx, plan, uow):
         if change.kind not in {"record", "job"}:
             raise DomainError("invalid_plan", "Unknown prepared effect kind")
         table = change.resource.resource_type
-        repository = uow.repository(table, business_id=change.resource.business_id)
+        repository = uow.repository(table, project_id=change.resource.project_id)
         key = record_key(change.resource)
         values = plain(change.values)
         if change.action == "append_context_review" and table == "context_reviews":

@@ -59,7 +59,7 @@ class Database:
         # What the opener reads to tell whether the product offers an agent (``SessionOpener.offered``).
         self.connection.execute("CREATE TABLE IF NOT EXISTS agent_profiles(agent_id TEXT PRIMARY KEY, profile_json TEXT NOT NULL)")
         self.connection.execute("CREATE TABLE IF NOT EXISTS installation(id TEXT PRIMARY KEY, owner_principal_id TEXT NOT NULL)")
-        self.connection.execute("CREATE TABLE IF NOT EXISTS inbox_events(id INTEGER PRIMARY KEY, business_id TEXT, source_type TEXT, "
+        self.connection.execute("CREATE TABLE IF NOT EXISTS inbox_events(id INTEGER PRIMARY KEY, project_id TEXT, source_type TEXT, "
                                 "source_id TEXT, actor_id TEXT, event_type TEXT, summary TEXT, created_at TEXT)")
         self.connection.execute("CREATE TABLE IF NOT EXISTS inbox_deliveries(agent_id TEXT, event_id INTEGER, acknowledged_at TEXT)")
         self.connection.execute("CREATE TABLE native_session_owners(agent_id TEXT PRIMARY KEY, consumer_id TEXT NOT NULL, "

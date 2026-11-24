@@ -10,7 +10,7 @@ Responsibility is computed once: all of the Task's actual assignees, or its crea
 recorded workers, who are the ones to pick the work up again. Each responsible principal is classified from the
 principal registry. Agents receive the event through the inbox (the event writer
 keeps only the eligible ones). Human responsibility is not an inbox row: it always goes through the typed host
-``Routing.snooze_routes(uow, business_id, task, human_ids)``, creator fallback included, and the host answers with the
+``Routing.snooze_routes(uow, project_id, task, human_ids)``, creator fallback included, and the host answers with the
 agents to tell on their behalf. The creator is never told while somebody else is assigned. A wake nobody is eligible
 for is still recorded, so it is never retried."""
 
@@ -28,7 +28,7 @@ def responsible(uow, task) -> list[str]:
     """The principals a snooze wake is for: every actual assignee, otherwise the creator, and every recorded worker."""
     workers = task.get("worker_ids_json") or []
     workers = json.loads(workers) if isinstance(workers, str) else list(workers)
-    return (assigned(uow, task["business_id"], task["id"]) or [task["created_by"]]) + workers
+    return (assigned(uow, task["project_id"], task["id"]) or [task["created_by"]]) + workers
 
 
 def recipients(uow, routing, task) -> list[str]:
@@ -39,7 +39,7 @@ def recipients(uow, routing, task) -> list[str]:
     required = {identity for identity in identities if kinds.get(identity) == "agent"}
     humans = [identity for identity in identities if kinds.get(identity) == "human"]
     if humans:
-        required |= set(routing.snooze_routes(uow, task["business_id"], task, humans))
+        required |= set(routing.snooze_routes(uow, task["project_id"], task, humans))
     return sorted(required)
 
 
@@ -53,18 +53,18 @@ def reconcile_snoozes(uow, routing, *, now: str | None = None, limit: int = 500)
     now = now or timestamp(utc_clock)
     due = uow.connection.execute(
         "SELECT * FROM tasks t WHERE t.snoozed_until IS NOT NULL AND t.snoozed_until<=? AND t.status NOT IN ('done','cancelled') "
-        "AND NOT EXISTS (SELECT 1 FROM task_snooze_wakes w WHERE w.business_id IS t.business_id AND w.task_id=t.id "
-        "AND w.snooze_generation=t.snooze_generation) ORDER BY t.snoozed_until, t.business_id, t.id LIMIT ?", (now, limit)).fetchall()
+        "AND NOT EXISTS (SELECT 1 FROM task_snooze_wakes w WHERE w.project_id IS t.project_id AND w.task_id=t.id "
+        "AND w.snooze_generation=t.snooze_generation) ORDER BY t.snoozed_until, t.project_id, t.id LIMIT ?", (now, limit)).fetchall()
     woken = []
     for row in due:
         task = dict(row)
-        event_id = emit_event(uow, business_id=task["business_id"], source_type=SOURCE_TYPE, source_id=task["id"],
+        event_id = emit_event(uow, project_id=task["project_id"], source_type=SOURCE_TYPE, source_id=task["id"],
                               source_revision=task["revision"], actor_id=None, event_type="snooze_expired",
                               summary=task["title"], required=recipients(uow, routing, task))
         uow.connection.execute(
-            "INSERT INTO task_snooze_wakes(business_id,task_id,snooze_generation,snoozed_until,event_id,created_at) VALUES(?,?,?,?,?,?)",
-            (task["business_id"], task["id"], task["snooze_generation"], task["snoozed_until"], event_id, utc_now()))
-        woken.append({"business_id": task["business_id"], "task_id": task["id"], "snoozed_until": task["snoozed_until"],
+            "INSERT INTO task_snooze_wakes(project_id,task_id,snooze_generation,snoozed_until,event_id,created_at) VALUES(?,?,?,?,?,?)",
+            (task["project_id"], task["id"], task["snooze_generation"], task["snoozed_until"], event_id, utc_now()))
+        woken.append({"project_id": task["project_id"], "task_id": task["id"], "snoozed_until": task["snoozed_until"],
                       "snooze_generation": task["snooze_generation"], "event_id": event_id})
     return woken
 

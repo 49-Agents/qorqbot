@@ -2,8 +2,9 @@
 
 ``timeline_view`` is ``timeline_get`` for the owner's dashboard (state, or the history with the quoted words and links). It is
 read-only and owner-only. An open question for the owner is a question Signoff: the view lists the pending ones asked about the
-item (its Task or Project source; for Global, the Global ones asked about no Task or Project) beside any question an older
-filing left open on the timeline itself. The owner answers them in the sign-off queue. ``timeline_file`` is never offered here."""
+item (its Task or Project source) beside any question an older filing left open on the timeline itself. The owner answers them
+in the sign-off queue. ``timeline_file`` is never offered here. Global has no timeline, so the view refuses it as it refuses an
+item that does not exist."""
 from __future__ import annotations
 
 import json
@@ -14,7 +15,7 @@ from qorqut_operations.timeline import state as timeline_state
 from qorqut.domains.timeline import GET_SCHEMA, LINKS_LIMIT
 
 VIEW_DESCRIPTION = (
-    "Owner dashboard read of the timeline of a Task, a Project or Global: item names it as in timeline_get. Returns the title, "
+    "Owner dashboard read of the timeline of a Task or a Project: item names it as in timeline_get. Returns the title, "
     "the state (goal, decisions, facts, progress, open questions: the pending question Signoffs asked about the item) and, with "
     "history true, every entry oldest first with removed ones marked, the owner's quoted words, and the item's subtasks, "
     "approvals and reports as links. Changes nothing.")
@@ -41,16 +42,10 @@ class TimelineOwner:
     @staticmethod
     def asks(item, uow):
         """The pending question Signoffs asked about ``item``, blocking ones first, in the shape of a timeline question."""
-        if item["type"] == "global":
-            rows = uow.connection.execute(
-                f"{QUESTION_ROW} WHERE {ASKS} AND s.review_scope_kind='global' AND NOT EXISTS (SELECT 1 FROM signoff_source_links l "
-                "WHERE l.signoff_id=s.id AND l.source_type IN ('task','project')) ORDER BY blocking DESC, s.created_at, s.id LIMIT ?",
-                (LINKS_LIMIT,)).fetchall()
-        else:
-            rows = uow.connection.execute(
-                f"{QUESTION_ROW} WHERE {ASKS} AND EXISTS (SELECT 1 FROM signoff_source_links l WHERE l.signoff_id=s.id "
-                "AND l.source_type=? AND l.source_id=? AND l.source_business_id IS ?) ORDER BY blocking DESC, s.created_at, s.id LIMIT ?",
-                (item["type"], item["id"], item["business_id"], LINKS_LIMIT)).fetchall()
+        rows = uow.connection.execute(
+            f"{QUESTION_ROW} WHERE {ASKS} AND EXISTS (SELECT 1 FROM signoff_source_links l WHERE l.signoff_id=s.id "
+            "AND l.source_type=? AND l.source_id=? AND l.source_project_id IS ?) ORDER BY blocking DESC, s.created_at, s.id LIMIT ?",
+            (item["type"], item["id"], item["project_id"], LINKS_LIMIT)).fetchall()
         return [{"id": row["id"], "signoff_id": row["id"], "text": row["text"] or "", "blocking": bool(row["blocking"]),
                  "raised_by": "coordinator", "created_at": row["created_at"]} for row in rows]
 

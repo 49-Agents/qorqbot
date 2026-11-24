@@ -1,4 +1,4 @@
-"""Move project notes to another project: the preview and the one atomic relocation of ``business_owned_note`` documents.
+"""Move project notes to another project: the preview and the one atomic relocation of ``project_owned_note`` documents.
 
 The relocation is ``qorqut_operations.documents.relocation``; the authority gate is the Table move's (owner or configured
 Ordubashy, reach of both projects, and an ``allow`` decision of ``notes_get`` and ``notes_update`` in the source and
@@ -20,7 +20,7 @@ MOVE = "notes_move_to_project"
 OPERATIONS = (PREVIEW, MOVE)
 VISIBILITY = ("Ordinary access to these notes follows the destination project's rules once they are moved. Their earlier "
               "versions come with them; links whose other end stays behind are kept in this project as history.")
-SELECTION = {"source_business_id": {**UUID, "description": instruction_text("moves-the-project-the-notes-are-in-now")},
+SELECTION = {"source_project_id": {**UUID, "description": instruction_text("moves-the-project-the-notes-are-in-now")},
              "destination_project_id": {**UUID, "description": instruction_text("moves-the-active-destination-project-never-inferred")},
              "document_ids": {"type": "array", "items": UUID, "minItems": 1, "maxItems": MAXIMUM_DOCUMENTS, "uniqueItems": True,
                               "description": instruction_text("moves-project-notes-to-move-with-their-history")}}
@@ -45,10 +45,10 @@ class NoteMoves(TableMoves):
     @staticmethod
     def expect(builder, inspection, source, uow):
         for identity in inspection.ids:
-            builder.expect(ref("documents", identity, source), uow.repository("documents", business_id=source).get(identity))
+            builder.expect(ref("documents", identity, source), uow.repository("documents", project_id=source).get(identity))
 
     def relocate(self, selected, uow, args, move_id, at):
-        return self.relocation.relocate(selected, uow, args["source_business_id"], args["destination_project_id"], args[self.KEY],
+        return self.relocation.relocate(selected, uow, args["source_project_id"], args["destination_project_id"], args[self.KEY],
                                         args["preview_token"], move_id=move_id, at=at)
 
 

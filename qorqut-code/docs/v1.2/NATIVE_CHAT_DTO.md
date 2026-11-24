@@ -8,9 +8,8 @@ contract the dashboard's Chat message list, composer and agent navigation read. 
 retired global-chat runner shapes (`messages`, `turns`, `actions`, `runtime`, stop/restart endpoints; the empty Chat `actions`
 field no longer exists). Nothing here changes Focus, the agent-pane layout or its tabs.
 
-All routes are owner-only, under `/api/root/agents/<agent uuid>/chat`, for **any** active registered agent — global or business.
-`root` is only the transport; the resource is the exact agent UUID. A business agent additionally requires an unarchived business
-and the caller to be its current business owner. An agent bearer credential is refused (`forbidden`); an unregistered or retired
+All routes are owner-only, under `/api/root/agents/<agent uuid>/chat`, for **any** active registered agent.
+`root` is only the transport; the resource is the exact agent UUID. An agent bearer credential is refused (`forbidden`); an unregistered or retired
 agent is `not_found`. Responses are the usual `{status, data | error}` envelope with `Cache-Control: private, no-store`. A retired
 agent's captured conversations are read only through the separate archive reader at the end of this document.
 
@@ -87,7 +86,9 @@ never falls back to another conversation.
 was opened. It is `null` for a conversation no compaction opened, and when the earlier conversation was not captured for this
 agent under the same provider. A client shows the earlier conversation above this one by reading it as a selected archive:
 its newest page with `GET chat?conversation=&provider=` and older pages with `chat/history`. The earlier conversation has a
-`continues` of its own when a compaction opened it too.
+`continues` of its own when a compaction opened it too. The link is recorded a moment after the fresh conversation becomes
+the current one, so the first state of a fresh conversation can still say `null`; the Chat page keeps what it showed until
+the link arrives (`docs/COMPACTION.md`, "In Chat").
 
 Pages come from a small in-process window cache shared by all agents. Receipt ids repeat across agents and lineages, so a cached
 page is reused only for the same agent, archive, receipt id and record hash, the same provider and conversation, and the same
@@ -259,8 +260,7 @@ caller stopped being authorized; `: heartbeat` every 15 s.
   provider's own end-of-turn evidence — never narration before a tool call, a tool-only record, an owner echo, a system notice or
   a sidechain.
 * `GET /api/root/reply-notifications` / attention items: `{ id: "gchat:<reply id>", kind: "global", chat: true, agent_id,
-  agent_name, text (≤180), created_at, unread: true, sequence, nav_only }`. `nav_only` is true for a business agent (it lights the
-  navigation dot only; no attention card). Private item threads (`dm:`) and Telegram items are unchanged. Acknowledging an
+  agent_name, text (≤180), created_at, unread: true, sequence }`. Private item threads (`dm:`) and Telegram items are unchanged. Acknowledging an
   attention card is a separate durable preference and never marks Chat read.
 
 ## Not in this DTO (unchanged contracts)

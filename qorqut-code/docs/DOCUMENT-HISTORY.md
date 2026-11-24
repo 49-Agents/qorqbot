@@ -1,14 +1,14 @@
-# Document history and business activity
+# Document history and project activity
 
-Core keeps content history of authored text and a short list of business activity facts
-in the `qorqut-business-docs-versioning`
-library (`qbdv_document_versions`, `qbdv_business_events`), in the operational SQLite
+Core keeps content history of authored text and a short list of project activity facts
+in the `qorqut-docs-versioning`
+library (`qdv_document_versions`, `qdv_project_events`), in the operational SQLite
 database. Files and domain tables remain the authority for current content and state; the
 library is the history authority. Its version numbers are an independent sequence and
 never replace `documents.revision` or a domain CAS revision.
 
 The adapter is `qorqut/storage/history.py`; nothing else
-writes the `qbdv_*` tables. The Context Base keeps its own history in its own database;
+writes the `qdv_*` tables. The Context Base keeps its own history in its own database;
 see `qorqut-context/docs/HISTORY.md`.
 
 The owner's [file viewer](FILE-VIEWER.md) is a second reader of the same chains: it calls
@@ -20,13 +20,13 @@ has no registered document shows only the current file.
 
 | Family | Writers | Capture point | Reader |
 |---|---|---|---|
-| Registered UTF-8 files: context briefs and founding, legacy pillars, shared instructions, plans, agent/business notes, Global/owner journals, idea drafts, legacy context topics/notes/people/content, editable context uploads and filed dumps, accepted context maps | Prepared operations through `DocumentStore` | `ApplyReceipts.finish` → `history.capture_receipt`, in the finalising transaction after file verification | `document_history_get` (`source_kind=document`) |
-| Same, created outside `DocumentStore` | `register_context_sources`, the initial agent plan, agent plan registration, idea-to-business founding documents, platform-reference migration (record-only lifecycle) | `history.seed_document` / `history.document_changed` in the writer's transaction; bytes are hash-checked against the registered row | same |
+| Registered UTF-8 files: context briefs and founding, legacy pillars, shared instructions, plans, agent/project notes, Global/owner journals, idea drafts, legacy context topics/notes/people/content, editable context uploads and filed dumps, accepted context maps | Prepared operations through `DocumentStore` | `ApplyReceipts.finish` → `history.capture_receipt`, in the finalising transaction after file verification | `document_history_get` (`source_kind=document`) |
+| Same, created outside `DocumentStore` | `register_context_sources`, the initial agent plan, agent plan registration, idea-to-project founding documents, platform-reference migration (record-only lifecycle) | `history.seed_document` / `history.document_changed` in the writer's transaction; bytes are hash-checked against the registered row | same |
 | Working memory (removed as a feature) | none; `working_memory_get` and `working_memory_update` have no handler | migration 100 history and `working_memory_provenance` rows stay, unread | none |
 | Stories (title, purpose, situation, state_reason, next_step), story drafts (title, body, statuses_json), learning candidates (candidate_json, agent_note), learning decisions (feedback, changes_json) | Prepared operations and background learning output (`learnings_record_batch`), all through `apply_records` | `history.record_applied` in the same transaction as the insert/update/delete | `document_history_get` (`story`, `story_draft`, `learning_candidate`, `learning_decision`) |
 | Context Base objects and home briefs | Context Base mutators (host filing, direct edits, seed, wrap, merge, retract) | `qorqut-context` adapter in the context database | `document_history_get` (`context_object`, `context_brief`) |
 
-History IDs: registered files use namespace `business:<uuid>` or `global` and the
+History IDs: registered files use namespace `project:<uuid>` or `global` and the
 `documents.id` (stable across moves); SQL documents use `story:<id>`, `story-draft:<id>`,
 `learning-candidate:<id>`, `learning-decision:<candidate_id>`. A SQL document is stored as
 deterministic JSON of those fields only, so revision/timestamp/counter changes create no
@@ -60,7 +60,7 @@ migration 100 imported every existing `working_memory_versions` row through
 its provenance to `working_memory_provenance`. It then checks every registered working
 memory against its chain (`history.verify_working_memory`). The check requires:
 
-- the document is still `working_memory` in the same business scope as its chain;
+- the document is still `working_memory` in the same project scope as its chain;
 - versions run 1..n with content, author and hash matching provenance, and imported rows
   keep their original time and every provenance field exactly;
 - the latest version is the registered revision and content hash.
@@ -81,42 +81,42 @@ document revision. A receipt frozen before the upgrade that still inserts a lega
 finalised from that row. Working memory has since been removed as a feature: its rows stay in the
 store, unread, and the generic reader still refuses them.
 
-### Business activity
+### Project activity
 
-Business-scoped facts only; a Global action records none, and an unknown time or actor is
+Project-scoped facts only; a Global action records none, and an unknown time or actor is
 never invented. Event IDs derive from the source row or document revision.
 
 | Kind | Source |
 |---|---|
-| `task.completed`, `task.reopened` | A committed task crossing into or out of the business's configured closed states (tasks operations and setup reconciliation) |
+| `task.completed`, `task.reopened` | A committed task crossing into or out of the project's configured closed states (tasks operations and setup reconciliation) |
 | `action.recorded` | New `action_logs` rows |
-| `document.created/updated/moved/archived/unarchived/deleted` | Registered business documents |
+| `document.created/updated/moved/archived/unarchived/deleted` | Registered project documents |
 | `story_draft.deleted` etc. | Deleted SQL documents |
 | `story.event_recorded`, `learning.changed` | New `story_events`, `learning_history` rows |
 
 Events carry IDs, kinds, revisions and history version numbers, not document text.
 `task_completions` semantics and existing readers are unchanged. Context Base activity is
 in the context database (`context.*` kinds) with its own sequence; the two are never merged
-or replicated. It includes businesses an object has just left, and each (re)creation of a
+or replicated. It includes projects an object has just left, and each (re)creation of a
 context ref (see `qorqut-context/docs/HISTORY.md`).
 
 ## Reads
 
-Both operations are installation-owner only (a business owner who is not the installation
+Both operations are installation-owner only (a project owner who is not the installation
 owner is refused), dashboard-exposed and read-only.
 
 - `document_history_get` — `source_kind`, `source_id` and exactly one of: `version`;
   `from_version` + `to_version` (unified diff); or a metadata page (`before_version`,
-  `limit` 1..200, default 50) without contents. Business or Global scope. The source is
+  `limit` 1..200, default 50) without contents. Project or Global scope. The source is
   first resolved through its owning domain (`DocumentStore.get`, the scoped repository, or
   the Context Base's canonical scope). `current_revision` is the domain's; `history_version`
-  is the library's. In a business scope a merged or removed context ref is not resolved
+  is the library's. In a project scope a merged or removed context ref is not resolved
   into another object; its retained history is readable from Global.
-- `business_history_list` — the selected business, `source` `core` (default) or `context`,
+- `project_history_list` — the selected project, `source` `core` (default) or `context`,
   `before_sequence`, `limit`.
 
 HTTP: `/api/root/operations/document_history_get`,
-`/api/biz/<slug>/operations/{document_history_get,business_history_list}`.
+`/api/project/<slug>/operations/{document_history_get,project_history_list}`.
 
 ## Exclusions
 
@@ -126,7 +126,7 @@ HTTP: `/api/root/operations/document_history_get`,
 | Binary assets and data uploads (`asset`, `data_upload`), non-UTF-8 files | Not text documents |
 | Generated agent configuration, caches, public exports | Projections of other authority |
 | Source-code and docs repositories | Git |
-| Business Tables (`table_versions`), finance, email, approval and execution receipts | Their own specialised history, Git writers and audit |
+| Project Tables (`table_versions`), finance, email, approval and execution receipts | Their own specialised history, Git writers and audit |
 | `qorqut-learning` | Historical experimental backend, retired with the v1.3 learning-engine schema/extra; not installed or versioned as a live writer |
 
 Exclusion is by exact kind (`UNTRACKED_KINDS` in the adapter), never by a pattern in the
@@ -141,15 +141,15 @@ working memory, which is imported in full.
 
 ### Private data
 
-`qbdv_*` and `working_memory_provenance` are not in the public export lists and are never
+`qdv_*` and `working_memory_provenance` are not in the public export lists and are never
 written to Git. Full SQLite backups include them; snapshot validation counts them.
 
 ## Existing databases: baseline
 
 ```bash
-python -m qorqut.maintenance.history_baseline --root <businesses-root> \
+python -m qorqut.maintenance.history_baseline --root <projects-root> \
     [--database <state.sqlite3>] [--context-dir <root>/.contextbase]          # preview
-python -m qorqut.maintenance.history_baseline --root <businesses-root> ... --apply
+python -m qorqut.maintenance.history_baseline --root <projects-root> ... --apply
 ```
 
 Preview reads only and reports counts and IDs (no bodies). Apply saves one
@@ -170,7 +170,7 @@ Nothing here runs automatically beyond the schema migration. The order for a rel
 
 1. Build the release as usual. With the `--no-deps` recipe, install the pinned
    dependencies explicitly first:
-   `pip install "qorqut-business-docs-versioning @ <pinned source from pyproject.toml>"`
+   `pip install "qorqut-docs-versioning @ <pinned source from pyproject.toml>"`
    and, when the Context Base is enabled, the pinned `qorqut-contextbase[evolution]`
    (see `pyproject.toml`). Then install the release and run `pip check`. All three need
    Python >= 3.12.

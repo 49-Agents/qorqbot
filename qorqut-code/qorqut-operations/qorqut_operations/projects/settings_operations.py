@@ -1,8 +1,8 @@
-"""Project settings: ``business_config_get``, ``business_config_update`` and ``business_config_patch`` over the project's
-configuration row (``businesses.config_json``).
+"""Project settings: ``project_config_get``, ``project_config_update`` and ``project_config_patch`` over the project's
+configuration row (``projects.config_json``).
 
 The generic part is the engine's: reading the row with its revision, the replacement and the recursive patch
-(``merge_settings``), the revision check, the project name, stage, timezone, alias and registered-identity validation, the
+(``merge_settings``), the revision check, the project name, alias and registered-identity validation, the
 registration of the three operations and the plan that records the change. A project's configuration also holds host state
 (owner and workspace paths, engineering and owner-session sections) with host authority rules; those
 come in through the required ``SettingsHost``, each method called at one fixed point of the flow below. Nothing is discovered
@@ -14,7 +14,6 @@ from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 from collections.abc import Mapping
 from typing import Any, Protocol
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, utc_clock
@@ -23,16 +22,16 @@ from qorqut_operations.documents.operations import DocumentSources
 from qorqut_operations.projects.settings import merge_settings
 
 MUTATIONS = {
-    "business_config_update": ({"config": {"type": "object"}}, ("config",)),
-    "business_config_patch": ({"changes": {"type": "object", "minProperties": 1}}, ("changes",)),
+    "project_config_update": ({"config": {"type": "object"}}, ("config",)),
+    "project_config_patch": ({"changes": {"type": "object", "minProperties": 1}}, ("changes",)),
 }
 DESCRIPTIONS = {
-    "business_config_patch": instruction_text('settings-operations-patch-editable-settings-in-the-selected-project'),
-    "business_config_update": instruction_text('settings-operations-replace-editable-settings-in-the-selected-project'),
+    "project_config_patch": instruction_text('settings-operations-patch-editable-settings-in-the-selected-project'),
+    "project_config_update": instruction_text('settings-operations-replace-editable-settings-in-the-selected-project'),
 }
-OPERATIONS = ("business_config_get", *MUTATIONS)
+OPERATIONS = ("project_config_get", *MUTATIONS)
 # The registered identity and paths a settings change may not edit.
-PROTECTED_KEYS = ("id", "slug", "workspace", "hq_path", "owner_principal_id")
+PROTECTED_KEYS = ("id", "slug", "workspace", "owner_principal_id")
 
 
 class SettingsHost(Protocol):
@@ -53,7 +52,7 @@ class SettingsHost(Protocol):
     def validate_targets(self, ctx: InvocationContext, plan: ChangeSet, uow) -> None: ...
 
 
-class BusinessConfigOperations:
+class ProjectConfigOperations:
     """``host`` is the required ``SettingsHost``."""
 
     def __init__(self, *, host, clock=utc_clock):
@@ -62,37 +61,35 @@ class BusinessConfigOperations:
         self.host, self.clock = host, clock
 
     def register(self, registry):
-        registry.register(OperationDescriptor("business_config_get", schema({}), effect_kind="read", supports_signoff=False,
-            scope_kinds={"business"}, exposure=frozenset({"mcp", "dashboard", "worker"}),
+        registry.register(OperationDescriptor("project_config_get", schema({}), effect_kind="read", supports_signoff=False,
+            scope_kinds={"project"}, exposure=frozenset({"mcp", "dashboard", "worker"}),
             read=lambda ctx, args, options, uow: self.read(ctx, args, uow)))
         for name, (properties, required) in MUTATIONS.items():
             registry.register(DocumentSources.mutation_descriptor(name, properties, required,
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_targets, description=DESCRIPTIONS[name],
-                scope_kinds={"business"}, resolve_namespace=None, global_capability=None,
+                scope_kinds={"project"}, resolve_namespace=None, global_capability=None,
                 exposure={"mcp", "dashboard", "worker"}))
         return self
 
     def read(self, ctx, args, uow):
-        row = uow.repository("businesses").get(ctx.business_id, required=True)
+        row = uow.repository("projects").get(ctx.project_id, required=True)
         return {"config": row["config_json"], "revision": row["revision"]}
 
     def prepare(self, operation, ctx, args, options, uow):
         builder = PlanBuilder(ctx, operation, args, operation.replace("_", " ").title(), clock=self.clock,
-                              namespace="business:" + ctx.business_id, affected_scope={"kind": "business", "business_id": ctx.business_id})
-        before = uow.repository("businesses").get(ctx.business_id, required=True)
+                              namespace="project:" + ctx.project_id, affected_scope={"kind": "project", "project_id": ctx.project_id})
+        before = uow.repository("projects").get(ctx.project_id, required=True)
         require_revision(before, options.expected_revision)
-        if operation == "business_config_patch":
+        if operation == "project_config_patch":
             self.host.require_patch_authority(ctx, uow)
             value = merge_settings(before["config_json"], plain(args["changes"]))
         else:
             value = plain(args["config"])
         self.host.prepare(ctx, value, before["config_json"], args, operation, uow)
-        name, stage, zone = value.get("name", before["name"]), value.get("stage", before["stage"]), value.get("timezone", before["timezone"])
-        if not isinstance(name, str) or not name.strip() or not isinstance(stage, str) or not stage or not isinstance(zone, str):
-            raise DomainError("validation_error", "Project name, stage, and timezone must be nonempty text")
-        try: ZoneInfo(zone)
-        except (ZoneInfoNotFoundError, ValueError) as exc: raise DomainError("validation_error", "Unknown project timezone") from exc
+        name = value.get("name", before["name"])
+        if not isinstance(name, str) or not name.strip():
+            raise DomainError("validation_error", "Project name must be nonempty text")
         aliases = value.get("aliases", [])
         if (not isinstance(aliases, list) or len(aliases) > 20
                 or any(not isinstance(item, str) or not item.strip() or len(item) > 60 for item in aliases)):
@@ -101,7 +98,7 @@ class BusinessConfigOperations:
             old = before["config_json"]
             if any(value.get(key) != old.get(key) for key in PROTECTED_KEYS):
                 raise DomainError("validation_error", "Registered identity, owner, and paths are not editable project settings")
-        builder.record("businesses", ctx.business_id, before, {"config_json": value, "name": name, "stage": stage, "timezone": zone})
+        builder.record("projects", ctx.project_id, before, {"config_json": value, "name": name})
         return builder.build()
 
     def validate_targets(self, ctx, plan, uow):

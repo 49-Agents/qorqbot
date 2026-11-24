@@ -1,4 +1,4 @@
-"""The owner's view of timelines: one item for a thread or the Global block. Its open questions are question Signoffs (see test_timeline_review)."""
+"""The owner's view of timelines: one Task or Project (Global has no timeline). Its open questions are question Signoffs (see test_timeline_review)."""
 from dataclasses import replace
 from types import SimpleNamespace as NS
 import unittest
@@ -25,24 +25,23 @@ class OwnerViewTests(Fixture):
         return plain(Fixture.ok(self, result))
 
     def ctx(self, who):
-        return replace(Fixture.ctx(self, who), allowed_business_ids=frozenset({self.business, self.other}) if who == self.lead else self.reach)
+        return replace(Fixture.ctx(self, who), allowed_project_ids=frozenset({self.project_id, self.other}) if who == self.lead else self.reach)
 
     def setUp(self):
         Fixture.setUp(self)
         self.tool = Timeline(NS(application=self.app, registry=self.registry)).register()
-        self.business = str(uuid4())
+        self.project_id = str(uuid4())
         with self.db.transaction() as uow:
-            uow.repository('businesses').insert({'id': self.business, 'name': 'Example project', 'slug': 'example',
-                                                 'workspace': 'example', 'hq_path': 'hq'})
+            uow.repository('projects').insert({'id': self.project_id, 'name': 'Example project', 'slug': 'example',
+                                                 'workspace': 'example'})
         self.other = str(uuid4())
         with self.db.transaction() as uow:
-            uow.repository('businesses').insert({'id': self.other, 'name': 'Closed project', 'slug': 'closed',
-                                                 'workspace': 'closed', 'hq_path': 'hq2'})
-            uow.repository('business_memberships', business_id=self.business).insert({'principal_id': self.owner, 'is_owner': True})
+            uow.repository('projects').insert({'id': self.other, 'name': 'Closed project', 'slug': 'closed',
+                                                 'workspace': 'closed'})
         self.work = self.task(self.lead, 'Pay creators')
-        self.item = {'type': 'task', 'id': self.work['id'], 'business_id': None}
-        self.project = {'type': 'project', 'id': self.business, 'business_id': self.business}
-        self.global_item = {'type': 'global', 'id': 'global', 'business_id': None}
+        self.item = {'type': 'task', 'id': self.work['id'], 'project_id': None}
+        self.project = {'type': 'project', 'id': self.project_id, 'project_id': self.project_id}
+        self.global_item = {'type': 'global', 'id': 'global', 'project_id': None}
         patcher = patch('qorqut.domains.timeline.timestamp', lambda: test_timeline.DAY)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -50,7 +49,7 @@ class OwnerViewTests(Fixture):
         self.owner_view = TimelineOwner(self.runtime).register()
 
     def dash(self, who):
-        return replace(self.ctx(who), source='dashboard', allowed_business_ids=frozenset({self.business}))
+        return replace(self.ctx(who), source='dashboard', allowed_project_ids=frozenset({self.project_id}))
 
     def view(self, who, item, **more):
         return self.app.invoke(self.dash(who), 'timeline_view', {'scope': 'global', 'item': item, **more}, {})
@@ -61,7 +60,6 @@ class OwnerViewTests(Fixture):
         self.filed(self.item, [{'action': 'remove', 'entry_id': gone, 'reason': 'Replaced.'}],
                    sources=[{'quote': 'Do it the new way.', 'ref': 'thread:3'}])
         self.add('fact', 'Project fact.', self.project)
-        self.add('progress', 'Started.', self.global_item)
         shown = self.ok(self.view(self.owner, self.item))
         self.assertEqual((shown['title'], shown['state']['goal']['text'], shown['state']['decisions']), ('Pay creators', 'Pay everyone.', []))
         self.assertNotIn('entries', shown)
@@ -71,7 +69,13 @@ class OwnerViewTests(Fixture):
         self.assertEqual(history['entries'][2]['sources'], [{'quote': 'Do it the new way.', 'ref': 'thread:3'}])
         self.assertEqual(history['links'], {'subtasks': [], 'approvals': [], 'reports': []})
         self.assertEqual(self.ok(self.view(self.owner, self.project))['state']['facts'][0]['text'], 'Project fact.')
-        self.assertEqual(self.ok(self.view(self.owner, self.global_item))['state']['progress']['text'], 'Started.')
+
+    def test_the_owner_view_of_global_is_not_found_even_with_old_rows(self):
+        test_timeline.TimelineTests.asked(self, self.global_item, [{'action': 'add', 'kind': 'progress', 'text': 'Started.'}])
+        self.assertEqual(self.code(self.view(self.owner, self.global_item)), 'not_found')
+        self.assertEqual(self.code(self.view(self.owner, self.global_item, history=True)), 'not_found')
+        with self.db.read() as uow:
+            self.assertEqual(timeline_part(NS(app=self.app), self.dash(self.owner), self.global_item, uow), {})
 
     def test_the_thread_view_attaches_the_timeline_to_tasks_and_projects_only_when_readable(self):
         self.add('fact', 'Kept.')

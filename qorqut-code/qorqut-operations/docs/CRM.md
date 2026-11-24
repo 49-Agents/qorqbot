@@ -29,7 +29,7 @@ it is unarchived (comments are still allowed).
 
 ## Memberships (`crm_entries`)
 
-A membership is `(scope, table, record)`: `record_task_id` with the exact scope of the Task (`record_business_id`, `NULL` =
+A membership is `(scope, table, record)`: `record_task_id` with the exact scope of the Task (`record_project_id`, `NULL` =
 Global, and `record_namespace`), a position, an optional stage, local `cells_json`, a soft `removed` flag and a revision.
 The Task keeps its own source scope; the membership belongs to the Table's scope. A Task may belong to many CRMs, at most
 once actively in each. Removing is soft (the Task, its thread and its history are untouched) and adding the Task again
@@ -68,7 +68,7 @@ edited on the Task with `tasks_update`; a Task edit never changes the Table's re
 
 An entry shows `cells` (local values plus the current projected Task fields, with `cell_errors` for a stored value that no
 longer fits its column), `local_cells`, the list-sized public Task `record` and `record_ref`
-(`{type: "task", id, business_id}`). Authority is recomputed on every read, in the **Task's own scope** and with the Task's
+(`{type: "task", id, project_id}`). Authority is recomputed on every read, in the **Task's own scope** and with the Task's
 own policy (`tasks_get`): linking or membership grants nothing. A Task the caller cannot read appears only as
 `{id, revision, position, unavailable: true, removed}`: no identity, scope, stage, value or label. Queries, `equals` and
 `stage_id` never match such an entry, and sorting is by local columns only (`order_by` on a projected column is refused), with
@@ -84,7 +84,7 @@ that the plan changes only what the request names (a tampered target is `invalid
 Actions have: `tables_thread_get`, `tables_comment` (typed `note_refs`, `summary`, `relay`, attribution) and `tables_follow`.
 The creator and commenters follow by default, an explicit unfollow is sticky, and following a Table follows none of its
 members' Tasks. The owner/team channel rule is the existing one: the installation owner's team comments are refused with
-`channel_required` (`tables_comment` is **not** in the business Task exemption). An archived Table can still be discussed.
+`channel_required` (`tables_comment` is **not** in the project Task exemption). An archived Table can still be discussed.
 Reads and comments use the Table's own scope and permission. A staged comment's typed references are resolved again, strictly,
 when it is approved or applied (a source that became unreadable stops the comment; reading old comments still shows such a
 reference as unavailable).

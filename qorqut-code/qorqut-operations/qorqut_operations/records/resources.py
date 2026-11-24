@@ -26,14 +26,14 @@ from qorqut_operations.items import authorize_item_read
 from qorqut_operations.tasks.types import attributes as task_attributes
 from qorqut_operations.tasks.workers import project_workers
 
-DOCUMENT_TYPES = {"notes": {"business_note", "agent_note", "journal", "business_owned_note"},
+DOCUMENT_TYPES = {"notes": {"project_note", "agent_note", "journal", "project_owned_note"},
                   "uploads": {"context_upload", "context_dump", "asset", "data_upload"}}
 # The read operation that authorizes each generic resource table (documents are chosen by their stored kind below); the
 # host adds the read operations of its own tables to the map it passes in.
 READ_OPERATIONS = {"tasks": "tasks_get", "action_logs": "actions_get", "agent_profiles": "agents_get",
                    "documents": "context_get", "signoffs": "signoffs_get", "data_tables": "tables_get"}
-DOCUMENT_READS = {"business_note": "notes_get", "agent_note": "notes_get", "journal": "notes_get",
-                  "business_owned_note": "notes_get", "plan": "plans_get", "content": "content_get",
+DOCUMENT_READS = {"project_note": "notes_get", "agent_note": "notes_get", "journal": "notes_get",
+                  "project_owned_note": "notes_get", "plan": "plans_get", "content": "content_get",
                   "asset": "assets_get", "data_upload": "data_uploads_get"}
 
 
@@ -80,8 +80,8 @@ class RelatedResources:
                     raise
                 # Reading canonical links needs only the last committed metadata;
                 # it never opens files still owned by an application receipt.
-                row = uow.repository("documents", business_id=ctx.business_id).get(identity, required=True)
-            if row["business_id"] != ctx.business_id:
+                row = uow.repository("documents", project_id=ctx.project_id).get(identity, required=True)
+            if row["project_id"] != ctx.project_id:
                 raise DomainError("not_found", "Choose a document in this project")
             if requested_kind in DOCUMENT_TYPES and row["kind"] not in DOCUMENT_TYPES[requested_kind]:
                 raise DomainError("not_found", "Document is not a " + requested_kind + " resource")
@@ -89,22 +89,22 @@ class RelatedResources:
             pass  # one of the host's own tables or an agent profile: read, authorized and pinned by the host
         elif kind == "signoffs":
             descriptor = self.application.registry.get("signoffs_get")
-            # The signoff domain enforces review-business, global-capability and target visibility.
+            # The signoff domain enforces review-project, global-capability and target visibility.
             view = descriptor.read(ctx, {"signoff_id": identity}, InvocationOptions(), uow)["signoff"]
-            row = uow.repository(kind, business_id=ctx.business_id).get(identity, required=True)
+            row = uow.repository(kind, project_id=ctx.project_id).get(identity, required=True)
         elif kind == "action_logs":
-            # Canonical action_id or legacy bare ID, authorized by membership.
+            # By action_id, authorized by membership.
             row = linked_action(ctx, uow, identity)
             if row is None:
                 raise DomainError("not_found", "Resource does not exist")
         else:
-            row = uow.repository(kind, business_id=ctx.business_id).get(identity, required=True)
+            row = uow.repository(kind, project_id=ctx.project_id).get(identity, required=True)
         if builder and kind != "agent_profiles":
             if kind == "action_logs":
                 # The action's true storage identity; a Global-stored action is a read-only Global reference.
-                builder.expect(ref(kind, row["id"], row["business_id"], None if row["business_id"] else "global"), row)
+                builder.expect(ref(kind, row["id"], row["project_id"], None if row["project_id"] else "global"), row)
             else:
-                builder.expect(ref(kind, identity, ctx.business_id), row)
+                builder.expect(ref(kind, identity, ctx.project_id), row)
         metadata = row.get("metadata_json", {})
         operation = self.read_operations[kind]
         if kind == "documents":

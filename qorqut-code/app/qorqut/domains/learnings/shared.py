@@ -64,47 +64,47 @@ def compact_history_event(event):
     return value
 
 
-def _history_query(uow, business_id, candidate_id, *, columns="*", limit=None, where=""):
-    statement = ("SELECT " + columns + " FROM learning_history WHERE business_id IS ? AND candidate_id = ? "
+def _history_query(uow, project_id, candidate_id, *, columns="*", limit=None, where=""):
+    statement = ("SELECT " + columns + " FROM learning_history WHERE project_id IS ? AND candidate_id = ? "
                  + (" AND (" + where + ") " if where else " ") + "ORDER BY created_at DESC, rowid DESC")
-    parameters = [business_id, candidate_id]
+    parameters = [project_id, candidate_id]
     if limit is not None:
         statement += " LIMIT ?"
         parameters.append(limit)
     return uow.connection.execute(statement, parameters).fetchall()
 
 
-def work_reasoning_of(uow, business_id, candidate_id, limit=RECENT_WORK_REASONING):
+def work_reasoning_of(uow, project_id, candidate_id, limit=RECENT_WORK_REASONING):
     """The owner's reasoning recorded with each historical work action on one item, newest first."""
-    found = _history_query(uow, business_id, candidate_id,
+    found = _history_query(uow, project_id, candidate_id,
                            columns="id, created_at, json_extract(after_json, '$.work_reasoning') AS reasoning",
                            where="json_extract(after_json, '$.work_reasoning') IS NOT NULL", limit=limit + 1)
     return [{**json.loads(raw["reasoning"]), "history_id": raw["id"], "at": raw["created_at"]}
             for raw in found[:limit]], len(found) <= limit
 
 
-def feedback_source(uow, business_id, candidate_id, note):
+def feedback_source(uow, project_id, candidate_id, note):
     """How the decision's current feedback was given, as the newest history record that carries a source says."""
     raw = uow.connection.execute(
         "SELECT json_extract(after_json, '$.decision.reasoning_source') AS source, "
         "json_extract(after_json, '$.decision.note') AS note FROM learning_history "
-        "WHERE business_id IS ? AND candidate_id = ? AND json_extract(after_json, '$.decision.reasoning_source') IS NOT NULL "
-        "ORDER BY created_at DESC, rowid DESC LIMIT 1", (business_id, candidate_id)).fetchone()
+        "WHERE project_id IS ? AND candidate_id = ? AND json_extract(after_json, '$.decision.reasoning_source') IS NOT NULL "
+        "ORDER BY created_at DESC, rowid DESC LIMIT 1", (project_id, candidate_id)).fetchone()
     return raw["source"] if raw and raw["note"] == note else None
 
 
-def agent_rationale_of(uow, business_id, candidate_id):
+def agent_rationale_of(uow, project_id, candidate_id):
     """The recording agent's own rationale, stored separately from the owner's reasoning in the item's history."""
     raw = uow.connection.execute(
         "SELECT id, created_at, json_extract(after_json, '$.decision.agent_rationale') AS rationale FROM learning_history "
-        "WHERE business_id IS ? AND candidate_id = ? AND json_extract(after_json, '$.decision.agent_rationale') IS NOT NULL "
-        "ORDER BY created_at DESC, rowid DESC LIMIT 1", (business_id, candidate_id)).fetchone()
+        "WHERE project_id IS ? AND candidate_id = ? AND json_extract(after_json, '$.decision.agent_rationale') IS NOT NULL "
+        "ORDER BY created_at DESC, rowid DESC LIMIT 1", (project_id, candidate_id)).fetchone()
     if not raw:
         return None
     return {"text": raw["rationale"], "source": "agent_rationale", "history_id": raw["id"], "at": raw["created_at"]}
 
 
-def reasoning_projection(uow, business_id, item):
+def reasoning_projection(uow, project_id, item):
     """The owner's reasoning, the agent's own rationale and any historical work reasoning, each attributed separately.
 
     Feedback older than any recorded source stays visible but is never relabelled as owner reasoning.
@@ -112,15 +112,15 @@ def reasoning_projection(uow, business_id, item):
     shown = {}
     decision = item.get("decision") or {}
     if decision.get("note"):
-        source = feedback_source(uow, business_id, item["id"], decision["note"])
+        source = feedback_source(uow, project_id, item["id"], decision["note"])
         shown["reasoning"] = {"text": decision["note"], "source": source or "legacy_feedback_unattributed",
                               "actor_id": decision.get("actor"), "at": decision.get("created")}
-    rationale = agent_rationale_of(uow, business_id, item["id"])
+    rationale = agent_rationale_of(uow, project_id, item["id"])
     if rationale:
         shown["agent_rationale"] = rationale
     if item.get("state") in {"implemented", "rejected-in-work"} and item.get("agent_note"):
         shown["outcome_reasoning"] = {"text": item["agent_note"], "source": "agent_work_explanation", "state": item["state"]}
-    work, complete = work_reasoning_of(uow, business_id, item["id"])
+    work, complete = work_reasoning_of(uow, project_id, item["id"])
     if work:
         shown["work_reasoning"] = work
         if not complete:
@@ -136,12 +136,12 @@ def agenda(ctx, args, options, uow):
     its counts are factual Context candidates only; historical deltas appear only when the caller explicitly selects that
     bucket.
     """
-    businesses = [ctx.business_id] if ctx.business_id else sorted(ctx.allowed_business_ids)
-    include_global = not ctx.business_id and 'read_global_context' in ctx.global_capabilities
+    projects = [ctx.project_id] if ctx.project_id else sorted(ctx.allowed_project_ids)
+    include_global = not ctx.project_id and 'read_global_context' in ctx.global_capabilities
     states = args.get("states", ["open"])
-    business_marks = ",".join("?" for _ in businesses) or "NULL"
+    project_marks = ",".join("?" for _ in projects) or "NULL"
     state_marks = ",".join("?" for _ in states)
-    clauses, parameters = ["state IN (" + state_marks + ")"], [*businesses, *states]
+    clauses, parameters = ["state IN (" + state_marks + ")"], [*projects, *states]
     clauses.extend(["filed=0", "reconciled=0"])
     if "bucket" not in args:
         clauses.append("bucket='context'")
@@ -149,7 +149,7 @@ def agenda(ctx, args, options, uow):
         if key in args:
             clauses.append(key + "=?")
             parameters.append(args[key])
-    projected = ["c.id", "c.business_id", "c.revision", "COALESCE(c.work_state,d.state,'open') AS state",
+    projected = ["c.id", "c.project_id", "c.revision", "COALESCE(c.work_state,d.state,'open') AS state",
                  "substr(c.agent_note,1,300) AS agent_note",
                  "CASE WHEN c.filing_json='{}' THEN 0 ELSE 1 END AS filed",
                  "CASE WHEN json_extract(c.candidate_json,'$.reconciled_into') IS NULL THEN 0 ELSE 1 END AS reconciled"]
@@ -158,15 +158,15 @@ def agenda(ctx, args, options, uow):
         projected.append(("substr(" + value + ",1,600)" if key == "text" else value) + " AS " + key)
     values = [dict(row) for row in uow.connection.execute(
         "SELECT * FROM (SELECT " + ",".join(projected) + " FROM learning_candidates c LEFT JOIN learning_decisions d "
-        "ON d.business_id IS c.business_id AND d.candidate_id=c.id WHERE (c.business_id IN (" + business_marks + ")" +
-        (" OR c.business_id IS NULL" if include_global else "") + ")) WHERE " + " AND ".join(clauses) +
+        "ON d.project_id IS c.project_id AND d.candidate_id=c.id WHERE (c.project_id IN (" + project_marks + ")" +
+        (" OR c.project_id IS NULL" if include_global else "") + ")) WHERE " + " AND ".join(clauses) +
         " LIMIT ?", [*parameters, AGENDA_MAX_CANDIDATES + 1])]
     if len(values) > AGENDA_MAX_CANDIDATES:
-        raise DomainError("result_too_large", "Narrow the learning agenda by business, state, tag or scope")
+        raise DomainError("result_too_large", "Narrow the learning agenda by project, state, tag or scope")
     # Bind pagination to the complete authorized scope, including revocations.
     paging = {**args, "_factual": "context-only-v2", "limit": min(args.get("limit", 20), 50)}
-    selected, cursor = page(values, paging, [businesses, include_global], "learnings_review_list",
-                            key=lambda x: (x["business_id"] or "", x["id"]), reverse=False)
+    selected, cursor = page(values, paging, [projects, include_global], "learnings_review_list",
+                            key=lambda x: (x["project_id"] or "", x["id"]), reverse=False)
     size, count = 0, 0
     for item in selected:
         length = len(canonical_bytes(item))
@@ -174,7 +174,7 @@ def agenda(ctx, args, options, uow):
             break
         size, count = size + length, count + 1
     if count < len(selected):
-        selected, cursor = page(values, {**paging, "limit": count}, [businesses, include_global], "learnings_review_list",
-                                key=lambda x: (x["business_id"] or "", x["id"]), reverse=False)
+        selected, cursor = page(values, {**paging, "limit": count}, [projects, include_global], "learnings_review_list",
+                                key=lambda x: (x["project_id"] or "", x["id"]), reverse=False)
     return {"items": selected, "counts": {state: sum(x["state"] == state for x in values) for state in states},
             "next_cursor": cursor}

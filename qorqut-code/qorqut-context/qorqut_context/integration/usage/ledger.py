@@ -5,7 +5,7 @@ scheduler, a provider, a subprocess or reads the Context filesystem, and no publ
 must be an active registered ``system`` principal (the Context worker). The later host collector serializes its imports and
 owns bounded traversal and reconciliation; this module only applies a validated batch atomically and truthfully.
 
-Ownership (``business_id``, NULL for Global) is read from the stored queue input and never accepted from a caller. A receipt's
+Ownership (``project_id``, NULL for Global) is read from the stored queue input and never accepted from a caller. A receipt's
 Context event must be one a queue attempt of that input reserved; the library attempt sequence it carries is its own and is
 never related to the queue attempt number.
 """
@@ -23,7 +23,7 @@ from qorqut_context.integration.usage.schema import SYNC_STATUSES, TOKEN_FIELDS
 INSERTED, UPDATED, UNCHANGED, STALE = "inserted", "updated", "unchanged", "stale"
 SCAN_CODE_LIMIT = 64
 _LOOKUP_CHUNK = 200
-_COLUMNS = ("call_id", "business_id", "input_id", "context_event_id", "attempt_id", "library_attempt_sequence", "stage", "state",
+_COLUMNS = ("call_id", "project_id", "input_id", "context_event_id", "attempt_id", "library_attempt_sequence", "stage", "state",
             "started_at", "finished_at", "configured_model", "configured_effort", "configured_service_tier", "observed_provider",
             "observed_model", "native_thread_id", "native_turn_id", *TOKEN_FIELDS, "cost_usd", "usage_source", "usage_scope",
             "usage_updates", "ignored_updates", "bootstrap_call_id", "error_type", "error_message", "recorded_at", "updated_at")
@@ -54,13 +54,13 @@ class IngestResult:
 class ScanRecord:
     input_id: str
     context_event_id: str
-    business_id: str | None
+    project_id: str | None
     status: str
     error: dict | None
     checked_at: str
 
     def as_dict(self) -> dict:
-        return {"input_id": self.input_id, "context_event_id": self.context_event_id, "business_id": self.business_id,
+        return {"input_id": self.input_id, "context_event_id": self.context_event_id, "project_id": self.project_id,
                 "status": self.status, "error": self.error, "checked_at": self.checked_at}
 
 
@@ -72,7 +72,7 @@ def _system(uow, driver_id) -> None:
 
 
 def _input(uow, input_id) -> Mapping[str, Any]:
-    row = uow.connection.execute("SELECT id, business_id FROM context_inputs WHERE id=?", (input_id,)).fetchone() \
+    row = uow.connection.execute("SELECT id, project_id FROM context_inputs WHERE id=?", (input_id,)).fetchone() \
         if isinstance(input_id, str) else None
     if row is None:
         raise DomainError("not_found", "Context input does not exist")
@@ -208,7 +208,7 @@ def ingest(uow, *, driver_id: str, input_id: str, receipts: Sequence[Mapping[str
     now = utc_now()
     for receipt, outcome in plan:
         if outcome == INSERTED:
-            _insert(uow, receipt, owner["business_id"], input_id, now)
+            _insert(uow, receipt, owner["project_id"], input_id, now)
         elif outcome == UPDATED:
             _update(uow, receipt, now)
     counts = {name: sum(1 for _, outcome in plan if outcome == name) for name in (INSERTED, UPDATED, UNCHANGED, STALE)}
@@ -224,8 +224,8 @@ def _values(receipt: CallReceipt) -> dict:
             "error_type": receipt.error_type, "error_message": receipt.error_message}
 
 
-def _insert(uow, receipt: CallReceipt, business_id, input_id: str, now: str) -> None:
-    values = {"call_id": receipt.call_id, "business_id": business_id, "input_id": input_id, "context_event_id": receipt.event_id,
+def _insert(uow, receipt: CallReceipt, project_id, input_id: str, now: str) -> None:
+    values = {"call_id": receipt.call_id, "project_id": project_id, "input_id": input_id, "context_event_id": receipt.event_id,
               "attempt_id": receipt.attempt_id, "library_attempt_sequence": receipt.attempt_sequence, "stage": receipt.stage,
               "started_at": receipt.started_at, "configured_model": receipt.configured_model,
               "configured_effort": receipt.configured_effort, "configured_service_tier": receipt.configured_service_tier,
@@ -268,9 +268,9 @@ def record_scan(uow, *, driver_id: str, input_id: str, context_event_id: str, st
         raise DomainError("validation_error", "A ready scan carries no error and an unavailable scan names one")
     now = utc_now()
     uow.connection.execute(
-        "INSERT INTO context_usage_sync(input_id, context_event_id, business_id, status, error_code, error_message, checked_at) "
+        "INSERT INTO context_usage_sync(input_id, context_event_id, project_id, status, error_code, error_message, checked_at) "
         "VALUES (?,?,?,?,?,?,?) ON CONFLICT(input_id, context_event_id) DO UPDATE SET status=excluded.status, "
         "error_code=excluded.error_code, error_message=excluded.error_message, checked_at=excluded.checked_at",
-        (input_id, context_event_id, owner["business_id"], status, code, message, now))
-    return ScanRecord(input_id, context_event_id, owner["business_id"], status,
+        (input_id, context_event_id, owner["project_id"], status, code, message, now))
+    return ScanRecord(input_id, context_event_id, owner["project_id"], status,
                       None if code is None else {"code": code, "message": message}, now)

@@ -45,7 +45,7 @@ from qorqut_operations.contracts import DomainError, InvocationContext, Principa
 from . import store
 from .config import AGENT_CHATS
 from .media_schema import OPERATION_NAME
-from .media_sources import EXPECTED_SHA256_SCHEMA, SOURCE_SCHEMA, FileSources
+from .media_sources import EXPECTED_SHA256_SCHEMA, SOURCE_SCHEMA, FileSources, complete_document_source
 from .media_validation import CAPTION_MAX_CHARS, validate_caption, validate_sha256, validate_snapshot
 from .outbox import AuthorityMoved, enqueue_file
 
@@ -118,6 +118,7 @@ class TelegramFiles:
     def register(self, common):
         self.runtime.registry.register(OperationDescriptor(
             OPERATION_NAME, ARGUMENTS, **common, exposure=frozenset({"mcp"}), description=DESCRIPTION,
+            complete_references=complete_document_source,
             prepare=self.prepare, external=self.external, apply=self.apply, replay_validator=self.replay_validator))
         self.bridge.admit_hooks[store.AGENT_FILE_SOURCE] = self.admit
         self.bridge.media_loaders[store.AGENT_FILE_SOURCE] = self.load

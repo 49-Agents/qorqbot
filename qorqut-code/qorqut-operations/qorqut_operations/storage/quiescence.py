@@ -1,7 +1,7 @@
 """Generic writer barrier for full-installation recovery.
 
 The caller must supply concrete writer controllers.  SQLite claims are only a last check: they do not identify
-arbitrary processes which can still write a business checkout or persistent home.
+arbitrary processes which can still write a project checkout or persistent home.
 
 This module owns the barrier's ordering and its refusal rules. The order is: refuse new mutations (waiting for
 nothing), drain every writer controller so already admitted work finishes its receipts with the resources it owns,

@@ -39,7 +39,7 @@ The launcher reads `.qorqut/browser.json` in that exact agent workspace. For Ord
 {
   "schema_version": 1,
   "cdp_endpoint": "http://127.0.0.1:9225",
-  "runtime_dir": "/absolute/path/to/deployed/biz-core/tools/browser"
+  "runtime_dir": "/absolute/path/to/deployed/core/tools/browser"
 }
 ```
 
@@ -136,6 +136,7 @@ that cannot run is refused before it starts, on every path that calls it.
 | `wait <ms>`, `wait <selector>`, `wait --text <t>`, `wait --url <pattern>`, `wait --load <state>`, `wait --fn <expression>` | Passed through. A time is at most 30,000 ms, so the wait ends inside the 45-second limit of a command. A wait for a selector or text that never comes ends by itself after 25 seconds. |
 | `get url`, `get title`, `get text <sel>`, `get value <sel>`, `get attr <sel> <name>`, `get count <sel>` | Passed through |
 | `frame <ref or selector>`, `frame main` | Passed through: enter a frame, or go back to the page |
+| `upload <ref or selector> <file>...` | Passed through, each file by the path the browser can open it at; see Uploads below |
 | `dialog accept [text]`, `dialog dismiss` | `dialog-accept`, `dialog-dismiss` |
 | `eval <function>` | The function is called, as before |
 | `eval <expression or statements>` | Run as written; the value of the last statement is printed |
@@ -161,6 +162,19 @@ the launcher sends every `--option=value` as `--option value`.
 Two refusals protect against a silent wrong result. `type` takes one text argument: the tool's own `type <selector>
 <text>` would type "e5 text" into whatever has focus. `find <locator> <value>` needs an action, because the tool would
 click.
+
+Uploads. The tool gives Chrome the path of each file, not its content, and Chrome opens the file itself. Chrome accepts
+a path it cannot open: the page then gets a file of that name with 0 bytes whose reading fails (`NotFoundError`), and
+the tool still prints "Done". A managed Chrome runs outside the application service's mount namespace (see
+[BROWSER-MANAGEMENT.md](BROWSER-MANAGEMENT.md)), so where the service sees its instance through a private bind mount
+(`BindPaths=`), every path below that mount was such a path. `upload_arguments` in `qorqut/bootstrap/browser.py`
+therefore sends each file by the path it has on the underlying filesystem (`outside_private_mounts`, the translation
+the browser's own folders use), after following links in the folder's path; the file's name, which the page sees, is
+kept. A file that does not exist is refused before anything reaches the page, and `upload` without a file is refused
+by `validate_arguments`. A relative path is read from the tool's working folder. A file that has no path where Chrome
+runs, such as one under a temporary folder private to the service, still arrives empty. Checked on 2026-11-22 with the
+command run inside a mount namespace and a throwaway Chrome outside it: before, the page got the file's name with
+0 bytes; now it reads the whole file.
 
 Frames. Fields inside a frame are in `snapshot` with refs of their own, and `fill` and `click` reach them directly.
 `frame <css>` enters only a frame of the same site; for a frame of another site the tool answers "Frame not found".
@@ -285,14 +299,14 @@ command ran in: the caller's, or a worker's when Ordubashy has selected that wor
 open (or a bound tab that has closed) it exits 1 with `{"reason": "..."}` telling the agent to open the page first; in a managed
 desktop, which is no agent's browser, it exits 1 and says to use a `browser` reference.
 
-`request_user_input` takes the reference as `{"type": "tab", "id": "<agent uuid>:<tab id>"}` with `business_id` absent or
-null (`qorqut/native_chat/references.py`). Naming a tab grants no control and no authorization:
+`request_user_input` takes the reference as `{"type": "tab", "id": "<agent uuid>:<tab id>"}` with no `project_id`
+(`qorqut/native_chat/references.py`). Naming a tab grants no control and no authorization:
 
 - **When the tool is called** the agent must be one the caller may read (as for an `agent` reference) and the tab must be
   listed by that agent's browser now; anything else (unknown agent, browser stopped or not answering, tab closed) is the
   tool's usual "reference is not available".
 - **When Chat is read** the same check is made again for each page of Chat, with the browser's tabs listed once per agent
-  however many of its tabs the page names. The owner's card is `{type, id, business_id: null, label, available, agent_id,
+  however many of its tabs the page names. The owner's card is `{type, id, project_id: null, label, available, agent_id,
   tab_id, agent_label}`; `label` is the page's title (at most 200 characters, else the address's host, else "Tab"). A tab that
   is gone shows the "Unavailable tab" placeholder. The title is the page's own text and is only ever shown as text.
 - **Viewing** is the owner's alone and goes through the existing live-view route (`browser/live.py`); a reference neither
@@ -302,8 +316,8 @@ Checked by `tests/test_browser_tab_reference.py`, `tests/test_chat_references.py
 
 ## Projects have no browsers
 
-A Project has no browser, proxy, profile or isolated desktop: `business_config_*` accepts no `browser` section
-(a section an older installation stored is kept inert and nothing reads it), and `browser_turn` takes no `business_id`.
+A Project has no browser, proxy, profile or isolated desktop: `project_config_*` accepts no `browser` section
+(a section an older installation stored is kept inert and nothing reads it), and `browser_turn` takes no `project_id`.
 Every browser is Global. An agent uses its own configured browser (see above and [browser management](BROWSER-MANAGEMENT.md)),
 and the configured Ordubashy may name one of the managed Global desktops by id ([browser desktops](BROWSER-DESKTOPS.md)).
 Naming a browser grants nothing: control is the ordinary `browser_turn` permission plus the selected browser-control skill,

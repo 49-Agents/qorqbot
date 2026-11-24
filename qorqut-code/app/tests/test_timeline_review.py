@@ -1,5 +1,5 @@
-"""The trial review of timeline filings: held for the owner, applied by itself on approval, stale ones conflict, and the
-coordinator's own permission override ends the trial."""
+"""The review of timeline filings that a permission setting holds for the owner: applied by itself on approval, stale ones
+conflict. Without such a setting a filing is applied at once."""
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -17,7 +17,7 @@ from qorqut_operations.signoffs.service import SignoffService
 from qorqut_operations.storage.locks import LockPaths
 
 from qorqut.composition.policy import resolve_operation_policy
-from qorqut.domains.timeline import REVIEW_NOTICE, Timeline
+from qorqut.domains.timeline import NO_GLOBAL, NO_GLOBAL_ANSWER, REVIEW_NOTICE, Timeline
 from qorqut.domains.timeline_owner import TimelineOwner
 from qorqut.inbox.private_conversations import PrivateConversations
 from qorqut.signoffs.ports import HostExecution, HostInputSources, HostPeers, HostReferences, HostTasks
@@ -32,8 +32,9 @@ class TimelineReviewTests(Fixture):
         super().setUp()
         folder = TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        # The review service over the same store; a decision is the declared standing mode unless a test overrides it.
-        self.modes = {}
+        # The review service over the same store. A permission setting holds every filing for the owner here; the declared
+        # standing mode, allow, is what ``test_a_filing_is_applied_at_once_unless_a_permission_setting_holds_it`` shows.
+        self.modes = {'timeline_file': 'signoff'}
         self.app.policy.resolve = self.decide
         ports = SignoffPorts(execution=HostExecution(), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                              platform=ABSENT, email=ABSENT, management=ABSENT, focus=ABSENT, sources=HostInputSources())
@@ -47,7 +48,7 @@ class TimelineReviewTests(Fixture):
         self.tool = Timeline(NS(application=self.app, registry=self.registry)).register()
         self.owner_view = TimelineOwner(NS(application=self.app, registry=self.registry, timeline=self.tool)).register()
         self.work = self.task(self.lead, 'Pay creators')
-        self.item = {'type': 'task', 'id': self.work['id'], 'business_id': None}
+        self.item = {'type': 'task', 'id': self.work['id'], 'project_id': None}
         patcher = patch('qorqut.domains.timeline.timestamp', lambda: DAY)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -111,7 +112,8 @@ class TimelineReviewTests(Fixture):
                            sources=[{'quote': 'Pay one provider only.', 'ref': 'thread:1'}])
         self.assertEqual((result.status, result.to_dict()['warnings']), ('signoff_required', [REVIEW_NOTICE]))
         self.assertIn("Submitted for the owner's review", REVIEW_NOTICE)
-        self.assertIn('Do not file it again', self.registry.get('timeline_file').description)
+        self.assertIn('do not file it again', REVIEW_NOTICE)
+        self.assertIn("applied at once, without the owner's review", self.registry.get('timeline_file').description)
         self.assertEqual((self.count(), self.count('timeline_questions')), (0, 0))
         self.assertEqual(self.state_of(plain(result.signoff)), 'pending')
 
@@ -169,18 +171,19 @@ class TimelineReviewTests(Fixture):
         self.assertEqual([self.state_of(first), self.state_of(second)], ['applied', 'applied'])
         self.assertEqual(self.count(), 3)
 
-    # -- ending the trial ------------------------------------------------------------------------------------------
+    # -- no review unless a permission setting asks for one ---------------------------------------------------------
 
-    def test_a_permission_override_for_the_coordinator_files_directly(self):
+    def test_a_filing_is_applied_at_once_unless_a_permission_setting_holds_it(self):
         registry = self.registry
+        self.assertEqual(registry.get('timeline_file').default_mode, 'allow')
         declared = resolve_operation_policy('timeline_file', {}, {}, registry, role_id='ordubashy', scope='global')
-        self.assertEqual(declared.mode, 'signoff')
-        override = resolve_operation_policy('timeline_file', {}, {'timeline_file': 'allow'}, registry, role_id='ordubashy', scope='global')
-        self.assertEqual(override.mode, 'allow')
-        self.modes['timeline_file'] = 'allow'
+        self.assertEqual(declared.mode, 'allow')
+        override = resolve_operation_policy('timeline_file', {}, {'timeline_file': 'signoff'}, registry, role_id='ordubashy', scope='global')
+        self.assertEqual(override.mode, 'signoff')
+        del self.modes['timeline_file']
         result = self.file([{'action': 'add', 'kind': 'fact', 'text': 'Direct.'}])
-        self.assertEqual(result.status, 'ok', result.to_dict())
-        self.assertEqual(self.count(), 1)
+        self.assertEqual((result.status, result.to_dict()['warnings']), ('ok', []), result.to_dict())
+        self.assertEqual((self.count(), self.count('signoffs')), (1, 0))
 
     # -- what timeline_get shows -----------------------------------------------------------------------------------
 
@@ -228,7 +231,7 @@ class TimelineReviewTests(Fixture):
     def test_a_pending_filing_on_another_item_is_not_listed(self):
         other = self.task(self.lead, 'Other work')
         self.app.invoke(self.ctx(self.lead), 'timeline_file', {'scope': 'global', 'changes': [{'action': 'add', 'kind': 'fact', 'text': 'x'}],
-                        'item': {'type': 'task', 'id': other['id'], 'business_id': None}}, {'idempotency_key': str(uuid4())})
+                        'item': {'type': 'task', 'id': other['id'], 'project_id': None}}, {'idempotency_key': str(uuid4())})
         self.assertNotIn('waiting_for_review', plain(self.get(self.lead).data))
 
     def test_the_card_carries_the_texts_a_removal_and_an_answer_name(self):
@@ -285,14 +288,18 @@ class TimelineReviewTests(Fixture):
         later = self.ask('Which currency?')
         first = self.ask('Which bank?', blocking=True)
         other = self.task(self.lead, 'Other work')
-        self.ask('Elsewhere?', source={'type': 'task', 'id': other['id'], 'business_id': None})
+        self.ask('Elsewhere?', source={'type': 'task', 'id': other['id'], 'project_id': None})
         unlinked = self.ask('Global rule?', source=False)
         questions = self.view()['state']['questions']
         self.assertEqual([(row['text'], row['blocking'], row.get('signoff_id')) for row in questions],
                          [('Which bank?', True, first['id']), ('Which currency?', False, later['id']),
                           ('Asked on the timeline before?', False, None)])
-        self.assertEqual([row['text'] for row in self.view({'type': 'global', 'id': 'global', 'business_id': None})['state']['questions']],
-                         ['Global rule?'])
+        # A question asked about no Task or Project belongs to no timeline: Global has none, and no view lists it.
+        for item in (self.item, {'type': 'task', 'id': other['id'], 'project_id': None}):
+            self.assertNotIn('Global rule?', [row['text'] for row in self.view(item)['state']['questions']])
+        gone = self.app.invoke(replace(self.ctx(self.owner), source='dashboard'), 'timeline_view',
+                               {'scope': 'global', 'item': {'type': 'global', 'id': 'global', 'project_id': None}}, {})
+        self.assertEqual((gone.status, gone.error['code']), ('error', 'not_found'), gone.to_dict())
         # Answered, it leaves the list; the timeline itself holds no question for it.
         self.respond(first, selected_choices=['usd'])
         self.assertEqual([row['text'] for row in self.view()['state']['questions']], ['Which currency?', 'Asked on the timeline before?'])
@@ -319,6 +326,28 @@ class TimelineReviewTests(Fixture):
         self.assertEqual((again.status, again.error['code']), ('error', 'validation_error'), again.to_dict())
         self.assertEqual(self.count(), 1)
         self.assertEqual(self.registry.get('timeline_file_answer').default_mode, 'allow')
+
+    def test_an_answer_to_a_question_asked_about_no_task_or_project_needs_an_item_since_global_has_no_timeline(self):
+        asked = self.ask('Global rule?', source=False)
+        self.respond(asked, selected_choices=['usd'])
+        result = self.file_answer(asked, 'Pay in dollars.')
+        self.assertEqual((result.status, result.error['code'], result.error['message']),
+                         ('error', 'validation_error', NO_GLOBAL_ANSWER), result.to_dict())
+        result = self.file_answer(asked, 'Pay in dollars.', item={'type': 'global', 'id': 'global', 'project_id': None})
+        self.assertEqual((result.status, result.error['code'], result.error['message']),
+                         ('error', 'validation_error', NO_GLOBAL), result.to_dict())
+        self.assertEqual(self.count(), 0)
+        # Naming a Task with item still files it, and the answer is then used up.
+        filed = self.file_answer(asked, 'Pay in dollars.', item=self.item)
+        self.assertEqual(filed.status, 'ok', filed.to_dict())
+        self.assertEqual(self.rows('SELECT kind,item_type,item_id FROM timeline_entries'), [('decision', 'task', self.item['id'])])
+
+    def test_a_filing_on_global_is_refused_for_the_coordinator_and_held_nothing(self):
+        item = {'type': 'global', 'id': 'global', 'project_id': None}
+        result = self.app.invoke(self.ctx(self.lead), 'timeline_file', {'scope': 'global', 'item': item,
+                                 'changes': [{'action': 'add', 'kind': 'fact', 'text': 'x'}]}, {'idempotency_key': str(uuid4())})
+        self.assertEqual((result.status, result.error['code'], result.error['message']), ('error', 'validation_error', NO_GLOBAL))
+        self.assertEqual((self.count(), self.count('signoffs')), (0, 0))
 
     def test_only_an_answered_owner_question_of_the_caller_is_filed(self):
         pending = self.ask('Which currency?')

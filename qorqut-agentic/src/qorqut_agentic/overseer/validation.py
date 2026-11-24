@@ -71,12 +71,12 @@ def source(ref):
         invalid('source.ref.provenance.overseer_origin')
     scope(ref['scope'])
     string(ref['availability'], 'source.ref.availability')
-    obj(ref['namespace'], 'source.ref.namespace', ('kind', 'business_id'))
+    obj(ref['namespace'], 'source.ref.namespace', ('kind', 'project_id'))
     namespace = ref['namespace']
-    if namespace['kind'] not in ('global', 'business') or (namespace['kind'] == 'global' and namespace['business_id'] is not None):
+    if namespace['kind'] not in ('global', 'project') or (namespace['kind'] == 'global' and namespace['project_id'] is not None):
         invalid('source.ref.namespace')
-    if namespace['kind'] == 'business':
-        uuid(namespace['business_id'], 'source.ref.namespace.business_id')
+    if namespace['kind'] == 'project':
+        uuid(namespace['project_id'], 'source.ref.namespace.project_id')
 
 
 def proposal(record):

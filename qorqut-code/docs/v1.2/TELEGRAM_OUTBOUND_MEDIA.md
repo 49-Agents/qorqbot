@@ -12,7 +12,7 @@ the Global capability `read_global_context`. Arguments, plus the framework `idem
 
 | Argument | Meaning |
 | --- | --- |
-| `source` | `{"type":"workspace","path":"exports/…"}` (a regular file below `exports/` or `downloads/` of the caller's own workspace) or `{"type":"document","document_id":…,"business_id":…|null}` (a stored document the caller may read: asset, data upload, agent or business note, content or context note) |
+| `source` | `{"type":"workspace","path":"exports/…"}` (a regular file below `exports/` or `downloads/` of the caller's own workspace) or `{"type":"document","document_id":…}` (a stored document the caller may read, its project found from the id: asset, data upload, agent or project note, content or context note) |
 | `expected_sha256` | required, 64 lowercase hex characters, the digest of the exact bytes meant to be sent |
 | `send_as` | `document` (1 to 50,000,000 bytes, bytes preserved) or `photo` (a static JPEG or PNG, 1 to 10,000,000 bytes, width plus height at most 10000, long side at most 20 times the short side, one frame; never converted, resized or sent as a document instead) |
 | `purpose` | `reply` or `update` (`blocking_input` is for `telegram_send` only) |
@@ -27,7 +27,7 @@ The result is the same delivery receipt as `telegram_send` plus `attachment: {fi
 Only the exact configured, active Global Ordubashy bound to the owner's Telegram topic. The role grant (Ordubashy 1.63.1) is
 necessary but never sufficient: the operation rechecks the configured chat binding, the agent's active status, the caller's
 grant and its source read access in `prepare`, in `apply`, in the replay validator and just before every upload. Another global
-agent, a business or historical agent, the owner context and a delegated context are refused before anything is copied or
+agent, the owner context and a delegated context are refused before anything is copied or
 queued. Disabled or not yet configured Telegram refuses with `operation_unavailable` and creates neither a row nor a directory.
 
 ## One call
@@ -68,7 +68,7 @@ A binding is only ever compared, never inferred or adopted: nothing in this path
 | Situation | Outcome |
 | --- | --- |
 | generation or fingerprint changed (rebound owner or destination, changed pin or config), seen at admission | `failed` / `binding_changed`; nothing uploaded. Never a `cancelled` row and never an attachment-integrity error, also when the visible destination is restored later: a generation that moved away and back is a different generation |
-| grant revoked, agent inactive, source archived, workspace remapped, business archived | `cancelled` (`grant_revoked` / `source_revoked`); nothing uploaded |
+| grant revoked, agent inactive, source archived, workspace remapped, project archived | `cancelled` (`grant_revoked` / `source_revoked`); nothing uploaded |
 | authority found lost only after the claim (in the pre-upload re-verification or the loader's final read) | no upload starts: the claim is released back to `queued` and the next ordinary admission decides it, so a binding change ends `failed` / `binding_changed` and a revoked grant or source ends `cancelled` |
 | bridge disabled, owner no longer active, installation or owner pin changed, found at the loader's final read | the claim is released back to `queued` and the bridge's own refusal (`operation_unavailable`, `binding_invalid`, `installation_binding_mismatch`, `owner_binding_mismatch`, `binding_changed`) is re-raised, so the control pass fails closed exactly as for any other delivery; the row stays queued with that code and no request exists; once the bridge verifies again, the same unchanged generation and fingerprint make the very same frozen send exactly once, and anything else is decided by the admission above |
 | source recheck temporarily busy | deferred and retried with backoff, never cancelled on a transient failure |

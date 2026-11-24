@@ -77,7 +77,7 @@ class ValidationErrorTests(Harness):
         # The schema the agent calls: the operation's own arguments and the transport's options of a read.
         self.assertEqual(accepted, {'accepted': sorted(mcp.tool_schema(self.registry, 'tasks_list')['properties']),
                                     'required': []})
-        for name in ('search', 'statuses', 'limit', 'business_id', 'response_detail', 'if_read_token'):
+        for name in ('search', 'statuses', 'limit', 'project_id', 'response_detail', 'if_read_token'):
             self.assertIn(name, accepted['accepted'])
         self.assertNotIn('expected_revision', accepted['accepted'])
         self.assertNotIn('keyword', accepted['accepted'])
@@ -258,7 +258,7 @@ class RevisionTests(Harness):
         created = self.write('tasks_config_update', {'config': config})
         self.assertEqual(created['status'], 'ok', created)
         with self.db.read() as uow:
-            stored = uow.repository('business_configs', business_id=None).get('tasks')['revision']
+            stored = uow.repository('project_configs', project_id=None).get('tasks')['revision']
         error = self.write('tasks_config_update', {'config': config})['error']
         self.assertEqual((error['code'], error['current_revision']), ('revision_conflict', stored))
         self.assertEqual(error['message'], f"expected_revision is required: pass the record's current revision ({stored})")
@@ -283,7 +283,7 @@ class RevisionTests(Harness):
                 self.assertGreater(result['data']['task']['revision'], revision)
                 revision = result['data']['task']['revision']
         with self.db.read() as uow:
-            stored = uow.repository('tasks', business_id=None).get(task['id'])
+            stored = uow.repository('tasks', project_id=None).get(task['id'])
         self.assertEqual((stored['status'], stored['due'], stored['revision']), ('done', '2026-12-01', revision))
 
     def test_a_supplied_revision_is_still_checked(self):

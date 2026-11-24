@@ -24,13 +24,13 @@ verifies a host, a Guacamole server or any login.
   A missing file is an honest unconfigured state; an invalid file is rejected
   whole, with no fallback to another browser or host. Schema 2 requires
   `schema_version`, `surfaces` and `agents` (Global agents' own bindings); a
-  `businesses` section an older file carries is accepted but ignored; an older
+  `projects` section an older file carries is accepted but ignored; an older
   schema is rejected.
 - The named `desktop-servers` endpoint and its environment variable are removed; a browser
   is never inferred from a former desktop-server default.
 
 Projects have no browser: `browser-surfaces.json` is schema 2 and records only Global surfaces and the agents' own
-browsers. A `businesses` section an older file carries is ignored, and `GET /api/biz/{slug}/browser-surfaces` is gone.
+browsers. A `projects` section an older file carries is ignored, and `GET /api/project/{slug}/browser-surfaces` is gone.
 
 A Global agent with no viewer in this file is not left without a picture: the dashboard's Browser tab shows its managed
 browser live instead ([the owner's live view](BROWSER-MANAGEMENT.md#the-owners-live-view)).

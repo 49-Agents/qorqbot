@@ -1,6 +1,6 @@
 """Trusted one-time registration helpers for the shared instruction documents and the initial seed application.
 
-Project creation is not here: the one creator is the Global ``business_create`` operation (``domains/business_creation``).
+Project creation is not here: the one creator is the Global ``project_create`` operation (``domains/project_creation``).
 This module does not scaffold a project, write a workspace or provision any repository. The three initial shared
 instructions are package resources of the Agentic layer; a registered
 document is the authoritative editable record afterwards, and a changed packaged seed never overwrites it.
@@ -42,7 +42,7 @@ def register_context_sources(database, paths):
         document_path = f"{INSTRUCTIONS}/{relative}"
         path = paths.operations / document_path
         with database.transaction() as uow:
-            repository = uow.repository("documents", business_id=None)
+            repository = uow.repository("documents", project_id=None)
             existing = repository.list(filters={"namespace": "global", "path": document_path}, limit=1)
             if existing and not path.exists():
                 raise DomainError("document_conflict", "Registered context file is missing and requires explicit reconciliation before seeding")

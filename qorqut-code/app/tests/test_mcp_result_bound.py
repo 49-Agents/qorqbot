@@ -26,7 +26,7 @@ class ResultBoundTests(unittest.TestCase):
     def test_a_long_list_loses_its_tail_and_says_how_much(self):
         value = {"status": "ok", "data": {"items": rows(100, 2000), "next_cursor": "after-100"}}
 
-        bounded, notice = bound(value, narrowing=("limit", "cursor", "business_id"))
+        bounded, notice = bound(value, narrowing=("limit", "cursor", "project_id"))
 
         self.assertLessEqual(self.sent(bounded), RESULT_CHARACTER_BUDGET)
         kept = bounded["data"]["items"]

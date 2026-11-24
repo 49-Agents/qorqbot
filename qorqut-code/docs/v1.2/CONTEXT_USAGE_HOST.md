@@ -85,7 +85,7 @@ until the loop reports `stopped`; the collector closes nothing. Reads never call
 
 ## `context_filing_costs` (the one owner-only read)
 
-Registered by `ContextUsageOperations` (`qorqut.domains.register_business_domains`); the old descriptor, its read branch and
+Registered by `ContextUsageOperations` (`qorqut.domains.register_project_domains`); the old descriptor, its read branch and
 `ContextBaseService.filing_costs` (and the Luna/Jev/per-upload columns) are removed. Name, Global namespace, effect `read`,
 `supports_signoff=False`, exposure `{dashboard, worker}` and the root allowlist entry are unchanged. It is `owner_only`: the
 retained Application refuses agents and every other principal ("requires the owning human"; a Global graph-read grant adds
@@ -157,5 +157,5 @@ QORQUT_TEST_WORKSPACE_ROOT=/path/to/workspace python -m pytest tests/test_host_c
     tests/test_host_context_usage_endpoint.py tests/test_host_costs_overview.py -q -p no:cacheprovider
 ```
 
-They need installed Operations and Context packages that carry the usage ledger and receipts, and the workspace's `qorqut-agentic/src/qorqut_agentic/resources/defaults` (the business template component was retired in v1.3). A missing
+They need installed Operations and Context packages that carry the usage ledger and receipts, and the workspace's `qorqut-agentic/src/qorqut_agentic/resources/defaults` (the project template component was retired in v1.3). A missing
 source is an actionable **failure** (`require_synthetic_sources()`), never a skip; this is local to these cases.

@@ -81,8 +81,8 @@ class ContextReviews:
 
     def status(self, ctx, item, edge, uow):
         source = self.other(item, edge)
-        state = uow.repository("context_review_states", business_id=ctx.business_id).get(self.state_key(item, edge))
-        latest = uow.repository("context_reviews", business_id=ctx.business_id).get(state["review_id"], required=True) if state else None
+        state = uow.repository("context_review_states", project_id=ctx.project_id).get(self.state_key(item, edge))
+        latest = uow.repository("context_reviews", project_id=ctx.project_id).get(state["review_id"], required=True) if state else None
         value = {"id": edge["id"], "relationship_id": edge["id"], "relationship_revision": edge["revision"],
                  "review_revision": state["revision"] if state else 0, "item": item, "source": source,
                  "source_token": None, "available": False, "pending": True, "latest_review": None,
@@ -103,14 +103,14 @@ class ContextReviews:
     def read(self, operation, ctx, args, uow):
         item = self.items.resolve(ctx, args["item"], uow, allow_busy=operation == "context_reviews_history")
         if operation == "context_reviews_history":
-            history = rows(uow, "context_reviews", ctx.business_id, where="item_type=? AND item_id=? AND relationship_id=?",
+            history = rows(uow, "context_reviews", ctx.project_id, where="item_type=? AND item_id=? AND relationship_id=?",
                            parameters=(item["type"], item["id"], args["relationship_id"]))
             for review in history:
                 self.items.resolve(ctx, {"type": review["source_type"], "id": review["source_id"]}, uow, allow_busy=True)
-            selected, cursor = page(history, args, ctx.business_id, operation)
+            selected, cursor = page(history, args, ctx.project_id, operation)
             return {"reviews": [self.attribution(uow, review) for review in selected], "next_cursor": cursor}
-        edges = {edge["id"]: edge for edge in [*related_rows(uow, ctx.business_id, source=args["item"]),
-                                               *related_rows(uow, ctx.business_id, target=args["item"])]}
+        edges = {edge["id"]: edge for edge in [*related_rows(uow, ctx.project_id, source=args["item"]),
+                                               *related_rows(uow, ctx.project_id, target=args["item"])]}
         found = []
         for edge in edges.values():
             status = self.status(ctx, args["item"], edge, uow)
@@ -118,7 +118,7 @@ class ContextReviews:
                 continue
             if status["pending"] or args.get("include_reviewed"):
                 found.append(status)
-        selected, cursor = page(found, args, ctx.business_id, operation)
+        selected, cursor = page(found, args, ctx.project_id, operation)
         return {"items": selected, "next_cursor": cursor, "item_revision": item["revision"]}
 
     def nested_plan(self, ctx, args, options, uow):
@@ -157,7 +157,7 @@ class ContextReviews:
         if len({decision["relationship_id"] for decision in decisions}) != len(decisions):
             raise DomainError("validation_error", "Review each relationship once per batch")
         for decision in decisions:
-            edge = uow.repository("relationships", business_id=ctx.business_id).get(decision["relationship_id"], required=True)
+            edge = uow.repository("relationships", project_id=ctx.project_id).get(decision["relationship_id"], required=True)
             require_revision(edge, decision["relationship_revision"], argument="relationship_revision")
             source = self.other(args["item"], edge)
             token = self.items.fingerprint(ctx, source, uow, builder)
@@ -170,14 +170,14 @@ class ContextReviews:
                 raise DomainError("conflict", "This context is already pending" if reopen else "This context was already reviewed; reopen it explicitly")
             if not decision["explanation"].strip():
                 raise DomainError("validation_error", "Explain the review decision")
-            builder.expect(ref("relationships", edge["id"], ctx.business_id), edge)
+            builder.expect(ref("relationships", edge["id"], ctx.project_id), edge)
             identity = new_id()
             builder.record("context_reviews", identity, None, {"id": identity, "relationship_id": edge["id"],
                 "item_type": args["item"]["type"], "item_id": args["item"]["id"], "source_type": source["type"], "source_id": source["id"],
                 "source_token": token, "relationship_revision": edge["revision"], "result": decision["result"], "explanation": decision["explanation"],
                 "actor_id": ctx.principal_id, "prepared_at": builder.at}, action="append_context_review")
             key = self.state_key(args["item"], edge)
-            state = uow.repository("context_review_states", business_id=ctx.business_id).get(key)
+            state = uow.repository("context_review_states", project_id=ctx.project_id).get(key)
             builder.record("context_review_states", key, state,
                            {"review_id": identity} if state else {**key, "review_id": identity, "created_at": builder.at, "updated_at": builder.at})
         return builder.build()

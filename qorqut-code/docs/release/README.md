@@ -133,7 +133,7 @@ policy stay in the common worker.
 
 The canonical plugin recipe is `python -m qorqut.release_worker.plugin_adoption`
 with `--plan`, `--component`, `--artifact`, `--runtime` and `--receipt`. Its
-frozen `adoption_recipe` includes `businesses_root` and `profiles`, keyed by
+frozen `adoption_recipe` includes `projects_root` and `profiles`, keyed by
 the exact selected agent IDs with each current `revision` and `service_url`.
 It checks the live runtime and publication artifact, publishes via `plugins_publish`,
 updates pins via `agents_update`, backs up projections and prepares those agents.

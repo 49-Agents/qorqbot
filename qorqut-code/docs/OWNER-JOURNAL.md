@@ -1,7 +1,7 @@
 # Owner journal
 
 The owner journal is edited in Global Notes in the dashboard. Existing Global
-and business entries retain their document IDs, backing files, assigned dates,
+and project entries retain their document IDs, backing files, assigned dates,
 body, checklist state and revision history. The interface combines them; it
 does not move or rewrite their source files. New entries are Global and named
 **Daily**.

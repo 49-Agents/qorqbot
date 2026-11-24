@@ -6,7 +6,8 @@ receipt, claims, writer admission and recovery. It adds no executor, store or ma
 1. ``intent``: the receipt-bound staging name is recorded before any filesystem effect.
 2. The empty tree is built in the private ``staging_root`` (outside the authored tree, on the destination's filesystem),
    fsynced, and its exact inode identity and metadata are recorded in the receipt progress (``staged``). The database
-   commit is the durable record (``synchronous = FULL``).
+   commit is the record; it is not forced to disk (``synchronous = NORMAL``), so after a power cut it can be older than
+   the filesystem.
 3. The staging directory is published to the final path with an atomic no-replace rename (Linux ``renameat2`` or Darwin ``renameatx_np``): a preexisting path,
    including an identical empty tree, can never be replaced or adopted. Both parent descriptors are held, so no path
    is re-resolved between the checks and the rename.

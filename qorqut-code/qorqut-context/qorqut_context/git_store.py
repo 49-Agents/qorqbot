@@ -717,7 +717,7 @@ class Snapshot:
             tags = action["tags"]
             if tag_id is not None and not any(tag["id"] == tag_id for tag in tags):
                 continue
-            if global_only and any(tag["business_id"] is not None for tag in tags):
+            if global_only and any(tag["project_id"] is not None for tag in tags):
                 continue
             events.append(event)
         result = collection_page(events, offset, limit)

@@ -43,11 +43,11 @@ kind, table, alias, redirect or compatibility route.
 
 | Consumer | Contract |
 | --- | --- |
-| Notes, context upload, filing notes, assets, tables, data uploads | optional `task_ids` (array of existing Task ids of the same business, max 200); each becomes a `concerns` relationship from the new item to the Task in the same plan (`domains/items/associations.py::link_new_resource`) |
+| Notes, context upload, filing notes, assets, tables, data uploads | optional `task_ids` (array of existing Task ids of the same project, max 200); each becomes a `concerns` relationship from the new item to the Task in the same plan (`domains/items/associations.py::link_new_resource`) |
 | Email conversations, reply routing, platform submission | resolve Tasks |
 | Focus / attention | source types are `task`, `signoff`, `email`; close or reopen a group with `tasks_update` / `tasks_complete` |
 | Inbox | `inbox_subscribe {source_type:"tasks", include_related:true}` is the Task-group subscription (below) |
-| Business briefing | key `work_groups` (parent Tasks of the open work with `open_children`) |
+| Project briefing | key `work_groups` (parent Tasks of the open work with `open_children`) |
 | Learning sources / background | Task notes are `thread_messages` of `item_type='task'` |
 | Change feed | a Task change (including its thread entries and tags) is the `tasks` kind |
 

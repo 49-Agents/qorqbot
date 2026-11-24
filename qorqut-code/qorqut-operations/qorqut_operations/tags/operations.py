@@ -1,6 +1,6 @@
 """``tags_list`` and ``tags_create``: the shared label catalog for Tasks and Actions.
 
-Both operate on the installation-wide catalog, so they accept the caller's own namespace (a selected business, or
+Both operate on the installation-wide catalog, so they accept the caller's own namespace (a selected project, or
 Global for a global agent) and authorize through the normal v1 policy for that namespace. The catalog reveals label
 names only. It carries no usage counts and no item references, so a tag query can never disclose how many items an
 unauthorized caller may not read, or what they contain; filtering items by tag happens after each caller's own
@@ -17,12 +17,12 @@ from qorqut_operations.contracts import DomainError, new_id
 from qorqut_operations.tags.catalog import LABEL_SCHEMA, catalog_row, display_label, label_key
 
 TAG_ENTRIES = (CatalogEntry("tags_list", False, "read"), CatalogEntry("tags_create", True, "records"))
-SCOPE_KINDS = frozenset({"business", "global"})
+SCOPE_KINDS = frozenset({"project", "global"})
 
 
 def tag_namespace(ctx, arguments):
-    """The caller's own namespace: its selected business, otherwise Global (which needs a global capability)."""
-    return "business:" + ctx.business_id if ctx.business_id else "global"
+    """The caller's own namespace: its selected project, otherwise Global (which needs a global capability)."""
+    return "project:" + ctx.project_id if ctx.project_id else "global"
 
 
 def tag_view(row) -> dict:
@@ -66,7 +66,7 @@ class TagOperations:
         tag_id = new_id()
         builder.record("tags", tag_id, None, {"id": tag_id, "label_key": label_key(label), "label": label,
                                               "created_by": ctx.principal_id, "created_at": builder.at},
-                       business_id=None, label=label)
+                       project_id=None, label=label)
         builder.effects.append("Adds the label to the shared catalog. A label grants no access and owns nothing.")
         return builder.build()
 

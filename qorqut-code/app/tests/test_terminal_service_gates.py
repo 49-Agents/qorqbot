@@ -57,7 +57,7 @@ class ServiceGateTest(Fixture):
         return raised.exception
 
     def entry_points(self, service):
-        context = SimpleNamespace(business_id=None)
+        context = SimpleNamespace(project_id=None)
         request = SimpleNamespace(method="GET", headers={}, query_params={})
         return {
             "open": lambda: service.open(context, None, "ordubashy"),
@@ -84,15 +84,9 @@ class ServiceGateTest(Fixture):
                     self.assertTrue(error.retryable)
                     self.assertEqual(error.message, "Agents are being switched. Try again in a minute.")
 
-    def test_a_managed_installation_has_nothing_to_reset_and_receives_no_broadcast(self):
+    def test_a_managed_installation_receives_no_broadcast(self):
         service = self.service()
-        self.assertIsNone(service.reset_business_for_archive({"slug": "x"}, [{"agent_id": "a"}]))
         self.assertEqual(service.input_existing(None, "ordubashy", "hello", key="k")["state"], "unavailable")
-
-    def test_the_reset_is_silent_without_tmux_too(self):
-        self.terminals()
-        broker = SimpleNamespace(tmux_available=lambda: False)
-        self.assertIsNone(self.service(broker).reset_business_for_archive({"slug": "x"}, [{"agent_id": "a"}]))
 
     def test_constructing_the_service_starts_no_process_and_writes_no_file(self):
         before = sorted(self.base.rglob("*"))
@@ -118,7 +112,7 @@ class StartAgentTest(Fixture):
     def backend(self, snapshots, *, profile=None, resume=None, ready=None):
         self.workspace = self.base / "agents" / "ordubashy"
         self.workspace.mkdir(parents=True)
-        profile = profile or {"agent_id": "ordubashy", "home_business_id": None, "status": "active",
+        profile = profile or {"agent_id": "ordubashy", "status": "active",
                               "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": "ordubashy"}})}
         self.broker, self.opened, self.resumed = Broker(), [], []
 
@@ -138,7 +132,7 @@ class StartAgentTest(Fixture):
             database=SimpleNamespace(read=read), paths=self.paths, policy=SimpleNamespace(context_for=lambda *a, **k: "context"),
             native_chat=SimpleNamespace(arbiter=SimpleNamespace(locks=lambda agent: nullcontext()),
                                         attachment=SimpleNamespace(resume_selected=resume_selected)))
-        terminals = SimpleNamespace(runtime=runtime, open=lambda context, business, agent: self.opened.append(agent))
+        terminals = SimpleNamespace(runtime=runtime, open=lambda context, project, agent: self.opened.append(agent))
         backend = AgentTerminalBackend(terminals, timeout=1, sleep=lambda seconds: None, ready=ready or (lambda client: True))
         backend.selected = lambda row: (self.broker, "key", "session", self.workspace, None)
         seen = list(snapshots)
@@ -187,7 +181,7 @@ class StartAgentTest(Fixture):
         self.assertEqual(raised.exception.code, "invalid_transition")
         self.assertEqual((self.opened, self.broker.typed), ([], []))
 
-    CODEX_PROFILE = {"agent_id": "ordubashy", "home_business_id": None, "status": "active",
+    CODEX_PROFILE = {"agent_id": "ordubashy", "status": "active",
                      "profile_json": json.dumps({"runtime": "codex", "role": {"id": "ordubashy"}})}
 
     def test_a_profile_that_says_codex_starts_claude_when_settings_say_claude_code(self):

@@ -44,10 +44,10 @@ def write_notice(connection, *, kind, source_id, sender_id, manager_id, worker_i
         return identity
     worker = connection.execute('SELECT display_name FROM principals WHERE id=?', (worker_id,)).fetchone()
     event_id = connection.execute(
-        'INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)',
+        'INSERT INTO inbox_events(project_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)',
         (None, 'agent_messages', identity, sender_id, 'direct_message', NOTICE_SUMMARY, accepted_at)).lastrowid
     connection.execute(
-        'INSERT INTO agent_messages(id,event_id,business_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,summary,'
+        'INSERT INTO agent_messages(id,event_id,project_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,summary,'
         'current_sender_id,current_recipient_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
         (identity, event_id, None, sender_id, manager_id, None, identity,
          notice_body(kind, source_id, worker_id, worker['display_name'] if worker else worker_id, accepted_at, body),

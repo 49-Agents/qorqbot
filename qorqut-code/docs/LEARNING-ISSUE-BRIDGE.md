@@ -18,8 +18,8 @@ role, restarts the service or runs a model. See [Rollout](#rollout-and-what-is-n
 
 | Owner | Responsibility |
 |---|---|
-| Engine, `qorqut-learning` at `d9c39c9` | Source generations, typed evidence, observations, clustering, opaque stable issue identity (`iss_…`), lineage through splits and merges, and versioned review packages. No Qorqut imports, business constants, paths or credential discovery. An optional caller-supplied decision view lets it skip packaging issues the host has muted; without one it behaves standalone. |
-| Host, biz-core | Which saved sessions are sources (enrollment), when the engine runs, mapping an issue to a review candidate, every owner decision with its reasoning, and resurfacing policy. Host records are the only authoritative decision store. |
+| Engine, `qorqut-learning` at `d9c39c9` | Source generations, typed evidence, observations, clustering, opaque stable issue identity (`iss_…`), lineage through splits and merges, and versioned review packages. No Qorqut imports, project constants, paths or credential discovery. An optional caller-supplied decision view lets it skip packaging issues the host has muted; without one it behaves standalone. |
+| Host, core | Which saved sessions are sources (enrollment), when the engine runs, mapping an issue to a review candidate, every owner decision with its reasoning, and resurfacing policy. Host records are the only authoritative decision store. |
 
 The engine's package is `qorqut.learning.review-package` version 1, kind `engine_cluster`; its compact issue record is
 `qorqut.learning.issue` version 1. Both name the stable `issue_id`, `issue_revision`, source scope, cluster
@@ -379,7 +379,7 @@ freshness needs no further column. The migration runner records each applied
 migration's checksum and refuses a changed one, so a scratch database that already applied an earlier draft of 103 has
 to be recreated; no live database has been migrated to any version of 103.
 
-- The first five tables are in the SQLite backups and the business and root exports (older snapshots export them
+- The first five tables are in the SQLite backups and the project and root exports (older snapshots export them
   empty). Enrollments and the engine cursor are operational state carried in database backups only, like
   `learning_scan_state`.
 - There is no automatic downgrade or live-database restoration. Recovery uses the reviewed maintenance workflow and a

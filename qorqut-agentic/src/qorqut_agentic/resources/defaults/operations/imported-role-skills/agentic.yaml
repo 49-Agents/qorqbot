@@ -12,7 +12,7 @@ entries:
     with actions_record, in at most 20 words, with the correct scope and installation
     timezone.
   path: native/skills/action-recording/SKILL.md
-- id: asset-580b179fb8f7f2085bdb
+- id: asset-2223b612d21e4d40539d
   kind: skill
   description: Authorized project technical operations, configuration and release
     verification. Software, site/UI design, landing-page, script, test, CI and IaC
@@ -22,14 +22,14 @@ entries:
     verification. Software, site/UI design, landing-page, script, test, CI and IaC
     development is the owner's by default; an agent builds only on the owner's direct
     instruction.
-  path: native/skills/business-operations/SKILL.md
-- id: asset-4ce12da680f2bb107eda
+  path: native/skills/project-operations/SKILL.md
+- id: asset-3008532c3190c91f6813
   kind: skill
   description: Create and maintain project-shared tables, and transform original CSV
     or spreadsheet uploads into structured records.
   when_to_use: Create and maintain project-shared tables, and transform original CSV
     or spreadsheet uploads into structured records.
-  path: native/skills/business-tables/SKILL.md
+  path: native/skills/project-tables/SKILL.md
 - id: asset-cf11f76cb7384beadca4
   kind: skill
   description: Use the owner's native Qorqut Calendar - list calendars, read, create,
@@ -127,15 +127,15 @@ entries:
 - id: asset-99bf41d25a6be7f04e67
   kind: skill
   description: Create a Project, the container for Tasks, assets, documents, tables,
-    code and routines, with business_create when the owner asks you for or agrees
+    code and routines, with project_create when the owner asks you for or agrees
     to a new one. Only the configured Ordubashy creates projects. It takes a name,
-    an optional Description and a folder slug and makes only the record and empty
-    hq/ and code/ folders, with no agents, setup, services or documents.
+    an optional Description and a folder slug and makes only the record and a
+    project folder with an empty code folder, with no agents, setup, services or documents.
   when_to_use: Create a Project, the container for Tasks, assets, documents, tables,
-    code and routines, with business_create when the owner asks you for or agrees
+    code and routines, with project_create when the owner asks you for or agrees
     to a new one. Only the configured Ordubashy creates projects. It takes a name,
-    an optional Description and a folder slug and makes only the record and empty
-    hq/ and code/ folders, with no agents, setup, services or documents.
+    an optional Description and a folder slug and makes only the record and a
+    project folder with an empty code folder, with no agents, setup, services or documents.
   path: native/skills/project-creation/SKILL.md
 - id: asset-d604a5d406a4deaa0e2c
   kind: skill
@@ -152,3 +152,44 @@ entries:
     message in their name, and when the owner or a source gives a new fact about
     them.
   path: native/skills/personal-record/SKILL.md
+- id: asset-26ea27ee78bbedc66be6
+  kind: skill
+  description: Read or change the owner's Qorqbot settings yourself with settings_get and
+    settings_set whenever the owner asks to see or change one, such as extension keys
+    (OpenRouter voice input, treg), an agent's client, model or effort, Claude
+    Code and Codex, managed sessions or terminals, folder trust, Testing mode,
+    the agent browser, theme, text size, desktop alerts or the Qorqbot
+    account. Do it yourself instead of sending the owner to Settings.
+  when_to_use: Read or change the owner's Qorqbot settings yourself with settings_get and
+    settings_set whenever the owner asks to see or change one, such as extension keys
+    (OpenRouter voice input, treg), an agent's client, model or effort, Claude
+    Code and Codex, managed sessions or terminals, folder trust, Testing mode,
+    the agent browser, theme, text size, desktop alerts or the Qorqbot
+    account. Do it yourself instead of sending the owner to Settings.
+  path: native/skills/owner-settings/SKILL.md
+- id: asset-3e9a10c8c53c6a7ca327
+  kind: skill
+  description: Run the daily experience extraction. Read the report of everything
+    the owner wrote and decided in the period, the failed tool calls and the
+    repeated tool-call patterns, and file observations (issues, complaints,
+    problems, never changes) under clusters. Use when a qorqut-workflow message
+    starts an experience extraction run.
+  when_to_use: Run the daily experience extraction. Read the report of everything
+    the owner wrote and decided in the period, the failed tool calls and the
+    repeated tool-call patterns, and file observations (issues, complaints,
+    problems, never changes) under clusters. Use when a qorqut-workflow message
+    starts an experience extraction run.
+  path: native/skills/experience-extraction/SKILL.md
+- id: asset-489d4705d6256f9b7721
+  kind: skill
+  description: Run the weekly review and application. Read the filed observations
+    and their clusters, decide which are ready for a solution, and file agentic
+    layer delta proposals that the owner approves or rejects; revise one when the
+    owner asks. Use when a qorqut-workflow message starts a review and application
+    run, and when the owner answers or discusses a delta proposal.
+  when_to_use: Run the weekly review and application. Read the filed observations
+    and their clusters, decide which are ready for a solution, and file agentic
+    layer delta proposals that the owner approves or rejects; revise one when the
+    owner asks. Use when a qorqut-workflow message starts a review and application
+    run, and when the owner answers or discusses a delta proposal.
+  path: native/skills/delta-proposals/SKILL.md

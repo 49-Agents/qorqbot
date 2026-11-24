@@ -301,6 +301,45 @@ def storage_error(exc: sqlite3.Error) -> DomainError:
     return DomainError("storage_error", "Operational storage failed")
 
 
+# ``DomainError`` codes that always stand for the store failing, not for the operation refusing. ``storage_error`` is
+# SQLite's generic failure; ``busy`` is also raised without a cause when a nested unit gives up waiting for the writer.
+_STORAGE_CODES = frozenset({"busy", "storage_error", "storage_configuration"})
+
+
+def is_application_refusal(exc: BaseException) -> bool:
+    """True for a ``DomainError`` that is the operation refusing (forbidden, archived, stale, not found, ...).
+
+    False for anything that stands for a storage failure: a code in ``_STORAGE_CODES``, or any ``sqlite3.Error`` in its
+    cause or context chain. ``storage_error`` turns every SQLite failure into a ``DomainError`` chained ``from`` it,
+    including ``validation_error`` and ``revision_conflict`` for constraint violations, so the code alone cannot tell
+    these apart from an application's own ``validation_error``; the chain can."""
+    if not isinstance(exc, DomainError) or exc.code in _STORAGE_CODES:
+        return False
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        if isinstance(exc, sqlite3.Error):
+            return False
+        seen.add(id(exc))
+        exc = exc.__cause__ or exc.__context__
+    return True
+
+
+def _idle(connection) -> bool:
+    """True when no statement of ``connection`` is still active, so the next unit can start on it.
+
+    Since Python 3.11 ``rollback()`` no longer resets cursors, so a cursor that was only partly read and is still
+    referenced (a refusal raised inside ``for row in connection.execute(...)``, whose frames the traceback keeps alive)
+    leaves its statement open although ``in_transaction`` is already false. On such a connection the next ``BEGIN``
+    keeps reading the old snapshot, ``BEGIN IMMEDIATE`` fails as locked, and ``create_function`` is refused. The last is
+    the probe: SQLite will not redefine a function while any statement of the connection is active, and every
+    ``UnitOfWork`` rebinds this one anyway, so restoring its default (as ``install_sql_functions`` sets it) is harmless."""
+    try:
+        connection.create_function("inbox_actor", 0, lambda: None)
+    except sqlite3.Error:
+        return False
+    return True
+
+
 def active_tables(tables=None):
     """The table catalog for a catalog-dependent helper: an explicit mapping, else the running unit's."""
     if tables is not None:
@@ -312,9 +351,9 @@ def active_tables(tables=None):
 
 
 class UnitOfWork:
-    def __init__(self, database, connection, *, writable: bool, business_id=UNSET):
+    def __init__(self, database, connection, *, writable: bool, project_id=UNSET):
         self.database, self.connection = database, connection
-        self.writable, self.business_id = writable, business_id
+        self.writable, self.project_id = writable, project_id
         self.actor_id = None
         self.completed_file_documents = set()
         # Document lifecycle events waiting for this unit's verified file finalisation.
@@ -335,8 +374,8 @@ class UnitOfWork:
         if not self.writable:
             raise DomainError("read_only", "Preparation and reads cannot change operational data")
 
-    def repository(self, table: str, *, business_id=UNSET) -> Repository:
-        return Repository(self, table, business_id)
+    def repository(self, table: str, *, project_id=UNSET) -> Repository:
+        return Repository(self, table, project_id)
 
     @contextmanager
     def relocating(self, source, destination, task_ids):
@@ -394,7 +433,11 @@ class Database:
         connection.row_factory = sqlite3.Row
         install_sql_functions(connection)
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA synchronous = FULL")
+        # NORMAL, not FULL, on purpose: in WAL mode a commit then no longer waits for the disk (and no longer holds the one
+        # writer lock through that wait). After a power cut or an operating-system crash the file stays consistent but the
+        # last few commits may be gone; a crash of this process alone loses nothing. Code that must survive a power cut in
+        # order (a file effect, an outside send) must not rely on a commit having reached the disk.
+        connection.execute("PRAGMA synchronous = NORMAL")
         connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout * 1000)}")
         # Pool-lifetime cache/mmap sizing, set once at connection creation
         # rather than per acquire: these are page-cache tuning, not per-unit
@@ -582,7 +625,7 @@ class Database:
         return self
 
     @contextmanager
-    def _unit(self, *, writable, business_id=UNSET, operation=None, attempt=None):
+    def _unit(self, *, writable, project_id=UNSET, operation=None, attempt=None):
         """One unit of work. ``attempt`` (see ``write_if_needed``) makes a write unit optimistic: it opens without
         the writer and takes it with its first write, or is abandoned when that write cannot have it at once."""
         if not self._columns:
@@ -634,7 +677,7 @@ class Database:
             # Everything an optimistic unit runs, the commit hooks below included, goes through the handle that
             # notices a refused write; an ordinary unit uses the connection itself.
             handle = _OptimisticConnection(connection, attempt) if optimistic else connection
-            uow = UnitOfWork(self, handle, writable=writable, business_id=business_id)
+            uow = UnitOfWork(self, handle, writable=writable, project_id=project_id)
             yield uow
             publisher, captured = self.assembly.change_publisher, None
             if writable:
@@ -653,7 +696,7 @@ class Database:
                 name, _, _, _ = OBSERVATION.get()
                 try:
                     publisher.publish_commit(captured=captured, operation=operation or name,
-                        business_id=None if business_id is UNSET else business_id,
+                        project_id=None if project_id is UNSET else project_id,
                         wrote=connection.total_changes != changes_before)
                 except Exception:
                     LOGGER.exception("change_publish_failed operation=%s", operation or name)
@@ -667,9 +710,15 @@ class Database:
             outcome = 'writer_required' if abandoned else 'rolled_back'
             healthy = False
             connection.rollback()
-            # An abandoned attempt only read, and its one refused statement changed nothing: once rolled back the
-            # connection is as sound as after a commit. No other failure vouches for the state it leaves behind.
-            healthy = abandoned
+            # Once rolled back, the connection is as sound as after a commit when the body ended in a refusal the
+            # operation chose to make (``is_application_refusal``) or in an abandoned optimistic attempt, which only
+            # read: a unit sets nothing on its connection that outlives its transaction (``query_only`` and the
+            # busy timeout are set again by every unit, the SQL functions are rebound by each ``UnitOfWork``, the
+            # unit memo and the deferred foreign-key check end with the transaction), and ``_release`` still
+            # refuses a connection left in a transaction and ``_idle`` one that still has a statement open (a cursor
+            # the body left half read survives the rollback). No other failure vouches for the state it leaves behind:
+            # a storage failure, an unexpected exception, or a cancellation may have stopped anywhere.
+            healthy = (abandoned or is_application_refusal(exc)) and _idle(connection)
             raise
         finally:
             ACTIVE_ASSEMBLY.reset(catalog_token)
@@ -731,13 +780,13 @@ class Database:
         finally:
             OBSERVATION.reset(token)
 
-    def read(self, *, business_id=UNSET):
-        return self._unit(writable=False, business_id=business_id)
+    def read(self, *, project_id=UNSET):
+        return self._unit(writable=False, project_id=project_id)
 
-    def transaction(self, *, business_id=UNSET, operation=None):
-        return self._unit(writable=True, business_id=business_id, operation=operation)
+    def transaction(self, *, project_id=UNSET, operation=None):
+        return self._unit(writable=True, project_id=project_id, operation=operation)
 
-    def write_if_needed(self, body, *, business_id=UNSET, operation=None):
+    def write_if_needed(self, body, *, project_id=UNSET, operation=None):
         """Run ``body(uow)`` as one write unit and return its result, holding the writer only if it writes.
 
         For work that runs often and usually finds nothing to change: a periodic reconcile, a claim that is rarely
@@ -758,7 +807,7 @@ class Database:
         whatever write admission it holds around this call."""
         attempt = _Attempt()
         try:
-            with self._unit(writable=True, business_id=business_id, operation=operation, attempt=attempt) as uow:
+            with self._unit(writable=True, project_id=project_id, operation=operation, attempt=attempt) as uow:
                 return body(uow)
         except _WriterRequired:
             pass
@@ -766,7 +815,7 @@ class Database:
             # An error raised after a refused write describes the abandoned attempt, not the work.
             if not attempt.refused:
                 raise
-        with self._unit(writable=True, business_id=business_id, operation=operation) as uow:
+        with self._unit(writable=True, project_id=project_id, operation=operation) as uow:
             return body(uow)
 
     def validate_snapshot(self, path):

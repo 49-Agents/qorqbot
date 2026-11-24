@@ -38,7 +38,7 @@ class WhatsAppSendProgram:
     def _dispatch(self, control, args):
         if self.operations is None:
             return self._pending(control, "Managed personal WhatsApp sending is not installed")
-        if not isinstance(args, dict) or set(args) != FIELDS or args["scope"] != "global" or control.job["business_id"] is not None:
+        if not isinstance(args, dict) or set(args) != FIELDS or args["scope"] != "global" or control.job["project_id"] is not None:
             raise DomainError("invalid_plan", "WhatsApp send job is malformed")
         chat_id, text, account_ref = args["chat_id"], args["text"], args["account_ref"]
         validate_payload(chat_id, text)
@@ -117,7 +117,7 @@ class WhatsAppSendProgram:
         if marker != {"operation": OPERATION, "agent_id": job.get("initiated_by_principal_id")}:
             raise denied
         app = control.service.app
-        context = app.policy.context_for(job["initiated_by_principal_id"], business_id=None, review_business_id=None, uow=uow)
+        context = app.policy.context_for(job["initiated_by_principal_id"], project_id=None, review_project_id=None, uow=uow)
         app.authorize(context, app.registry.get(OPERATION), (), uow, namespace="global")
         settings = self.operations._access(context, uow)
         if settings["account_ref"] != args["account_ref"]:

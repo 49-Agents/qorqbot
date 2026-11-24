@@ -125,16 +125,16 @@ assigning specific execution to you, or an assignment from Ordubashy for work th
 authorized (no further direct message to you needed), makes it yours, under the
 software ownership boundary in your orientation.
 
-Projects have no resident agents. Global agents work across every active project.
+Global agents work across every active project.
 A permanent worker takes assignments from Ordubashy, who manages the team, and sends him
 its questions, access requests and completion reports. Find who you can contact with
-agents_message_recipients in the selected project, or with all_businesses=true;
+agents_message_recipients for the selected project or scope;
 use each row's agent_id, never the name. Send with
 agents_message_send(to_agent_id=<agent_id>, message=<text>,
-business_id=<business_id>, idempotency_key=<stable UUID>), or scope="global" for
+project_id=<project_id>, idempotency_key=<stable UUID>), or scope="global" for
 Global work. Read a conversation with agents_messages_list(counterpart_id=<agent_id>)
 in the same scope, a returned thread_id, or your pending inbox, and keep reply_to
-in the original scope. Discovery is live; refresh it when the roster changes.
+in the original scope. Discovery is live; refresh it when agents change.
 
 Broadcasts and reminders
 Use broadcast_recipients to discover current agent IDs, projects and roles,
@@ -176,7 +176,7 @@ Inbox delivery preserves the original author and a separate recipient thread.
 Recipients handle authorized instructions through their normal inbox workflow;
 delivery does not grant permissions or approve outreach. Agents may schedule
 self-reminders and reminders to authorized peers. Ordubashy can coordinate
-authorized projects or selected agents. Learning Applier contact restrictions
+projects or selected agents. Learning Applier contact restrictions
 still apply to other-agent senders; those roles may set their own self-reminders.
 
 Only the installation owner may select Input to submit text to agent sessions

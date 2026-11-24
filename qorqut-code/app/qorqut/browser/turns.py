@@ -219,7 +219,7 @@ class BrowserTurnQueue:
                 "SELECT count(*) FROM browser_turns WHERE browser_key=? AND state='queued' "
                 "AND (created_at<? OR (created_at=? AND id<=?))",
                 (row["browser_key"], row["created_at"], row["created_at"], row["id"])).fetchone()[0]
-        return {"id": row["id"], "browser_key": row["browser_key"], "business_id": row["business_id"],
+        return {"id": row["id"], "browser_key": row["browser_key"], "project_id": row["project_id"],
                 "assignment_id": row["assignment_id"], "execution_generation": row["execution_generation"],
                 "requester_kind": row["requester_kind"], "state": row["state"],
                 "lease_id": row["lease_id"], "lease_until": row["lease_until"],
@@ -229,7 +229,7 @@ class BrowserTurnQueue:
                 "reason": row["reason"], "position": position, "revision": row["revision"],
                 "updated_at": row["updated_at"]}
 
-    def acquire(self, uow, *, browser_key, business_id, parent_principal_id,
+    def acquire(self, uow, *, browser_key, project_id, parent_principal_id,
                 requester_kind="assignment", requester_id=None, assignment_id=None,
                 generation=None, now=None):
         uow.require_write()
@@ -253,7 +253,7 @@ class BrowserTurnQueue:
             (browser_key, requester_kind, requester_id, assignment_id, generation)).fetchone()
         if existing is None:
             row = uow.repository("browser_turns").insert({
-                "id": new_id(), "browser_key": browser_key, "business_id": business_id,
+                "id": new_id(), "browser_key": browser_key, "project_id": project_id,
                 "assignment_id": assignment_id, "parent_principal_id": parent_principal_id,
                 "execution_generation": generation, "requester_kind": requester_kind,
                 "requester_id": requester_id, "state": "queued", "checkpoint_json": {},

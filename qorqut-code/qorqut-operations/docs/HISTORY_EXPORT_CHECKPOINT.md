@@ -68,7 +68,7 @@ The engine never imports a path object. The host supplies:
 | `locations()` | Returns `(operations_root, history_repository)`: absolute paths, the repository directly inside a runtime directory below the root. Raises `DomainError("history_unavailable")` for a location the host refuses. It is called again on every use, so the host's own path validation (symlinks, traversal) runs each time; nothing is cached. |
 | `resolve_areas(areas)` | Receives the validated, label-sorted area selection and returns one `ResolvedArea` per selected area, in order: `ResolvedArea.located(area, parts)` (path components relative to the operations root; normalized exclusions are applied) or `ResolvedArea.refused(area)` for an area whose existing path the host refused (reported as an excluded symlink and never read). The engine then refuses any overlap between resolved folders. |
 | `safe_segment(value)` | The host's existing rule for one registered ID or slug (truthy when it is one safe path segment). The engine defines no naming rule of its own. |
-| `catalog`, `areas(uow)`, `clock()` | The trusted `ExportCatalog`, the provider of typed areas (`GlobalFiles`, `GlobalAgentFiles`, `BusinessAgentFiles`, `BusinessHeadquarters`, each with optional `excluded` generated subtrees) called inside the export's read unit, and the attempt clock. |
+| `catalog`, `areas(uow)`, `clock()` | The trusted `ExportCatalog`, the provider of typed areas (`GlobalFiles`, `GlobalAgentFiles`, `ProjectFolder`, each with optional `excluded` generated subtrees) called inside the export's read unit, and the attempt clock. |
 
 Descriptor and no-follow checks stay inside the engine: the operations root, runtime directory and repository are opened with
 `O_NOFOLLOW` descriptors and re-checked before every Git command, so a runtime location replaced while in use is refused. A
@@ -98,6 +98,6 @@ no-host/no-lazy-import guards to this package too.
 ## Left to the host and owning domains
 
 Per-domain table/column/structured-field definitions and classifications for every composed table (Tasks, Actions, tags,
-relationships, revisions, item threads, principals/businesses/profiles, inbox, Signoffs, routines/jobs, other retained records),
+relationships, revisions, item threads, principals/projects/profiles, inbox, Signoffs, routines/jobs, other retained records),
 each reviewed for secrets and private payloads; the private-DM history inclusion answer; engine-table classifications;
 host-side wiring that constructs the catalog beside the composed assembly.

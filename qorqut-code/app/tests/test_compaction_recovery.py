@@ -87,7 +87,7 @@ class CompactionRecoveryTests(unittest.TestCase):
         self.supervisor = Supervisor({'root': str(self.root)}, alive=lambda _owner: True)
         self.addCleanup(self.supervisor.pool.shutdown)
         self.supervisor.context_check_at = float('inf')
-        self.supervisor.reference_future = self.supervisor.report_future = Future()
+        self.supervisor.reference_future = Future()
 
     def hook(self, event, **fields):
         stream = io.StringIO()

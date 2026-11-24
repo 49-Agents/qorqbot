@@ -60,7 +60,7 @@ class TableHostRelocation:
         counts["input_links"] = len(links)
         for link in links:
             if connection.execute("SELECT 1 FROM signoff_source_links WHERE signoff_id=? AND source_type='table' AND source_id=? "
-                                  "AND source_business_id IS ?", (link["signoff_id"], link["source_id"], move.destination)).fetchone():
+                                  "AND source_project_id IS ?", (link["signoff_id"], link["source_id"], move.destination)).fetchone():
                 blockers.append(blocker("input_link_exists", "The destination already has this input dependency"))
         blockers.extend(self.active_work(connection, tables, move, material))
         return AdapterReport(counts, blockers, material)
@@ -69,7 +69,7 @@ class TableHostRelocation:
     def conversations(connection, tables, move):
         if "owner_conversations" not in tables:
             return []
-        return connection.execute("SELECT * FROM owner_conversations WHERE source_type='table' AND business_id IS ? AND source_id IN "
+        return connection.execute("SELECT * FROM owner_conversations WHERE source_type='table' AND project_id IS ? AND source_id IN "
                                   + marks(move.ids) + " AND peer_agent_id IS NULL ORDER BY id", (move.source, *move.ids)).fetchall()
 
     @staticmethod
@@ -87,7 +87,7 @@ class TableHostRelocation:
     def input_links(connection, tables, move):
         if "signoff_source_links" not in tables:
             return []
-        return connection.execute("SELECT * FROM signoff_source_links WHERE source_type='table' AND source_business_id IS ? AND source_id IN "
+        return connection.execute("SELECT * FROM signoff_source_links WHERE source_type='table' AND source_project_id IS ? AND source_id IN "
                                   + marks(move.ids) + " ORDER BY id", (move.source, *move.ids)).fetchall()
 
     @staticmethod
@@ -115,7 +115,7 @@ class TableHostRelocation:
         connection, tables = uow.connection, existing_tables(uow)
         counts = {"private_messages": 0, "focus_cards": 0, "input_links": 0}
         for row in self.conversations(connection, tables, move):
-            if connection.execute("UPDATE owner_conversations SET business_id=?, source_key=?, revision=revision+1, updated_at=? "
+            if connection.execute("UPDATE owner_conversations SET project_id=?, source_key=?, revision=revision+1, updated_at=? "
                                   "WHERE id=? AND revision=?", (move.destination, source_key("table", move.destination, row["source_id"]),
                                                                 at, row["id"], row["revision"])).rowcount != 1:
                 changed()
@@ -128,8 +128,8 @@ class TableHostRelocation:
             uow.next_sequence("focus_board")
             counts["focus_cards"] += 1
         for link in self.input_links(connection, tables, move):
-            connection.execute("UPDATE signoff_source_links SET source_business_id=?, source_namespace=?, revision=revision+1 WHERE id=?",
-                               (move.destination, "business:" + move.destination, link["id"]))
+            connection.execute("UPDATE signoff_source_links SET source_project_id=?, source_namespace=?, revision=revision+1 WHERE id=?",
+                               (move.destination, "project:" + move.destination, link["id"]))
             counts["input_links"] += 1
         return counts
 

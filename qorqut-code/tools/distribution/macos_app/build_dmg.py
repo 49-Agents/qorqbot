@@ -31,7 +31,7 @@ import tempfile
 HERE = Path(__file__).resolve().parent
 ELECTRON = HERE / 'electron'
 ENTITLEMENTS = HERE / 'entitlements.plist'
-MARK = HERE.parents[2] / 'biz-dashboard/css/brand/qorqbot-mark.svg'
+MARK = HERE.parents[2] / 'dashboard/css/brand/qorqbot-mark.svg'
 BACKGROUND = HERE / 'dmg-background.svg'
 # The disk image window, in points; the background is rendered at this size and at twice it.
 WINDOW = (660, 420)

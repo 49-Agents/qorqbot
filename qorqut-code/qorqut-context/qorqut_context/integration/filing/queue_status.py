@@ -14,9 +14,9 @@ TABLES = ("context_inputs", "context_filings", "context_completions")
 STATES = ("queued", "processing", "blocked", "discard_requested")
 
 
-def context_queue_summary(connection, business_id) -> dict:
+def context_queue_summary(connection, project_id) -> dict:
     """``{queued, processing, blocked, discard_requested, publication_pending_completion, completion_conflict, queue_blocked,
-    blocked_input_id}`` for the business namespace, or for the Global namespace when ``business_id`` is None.
+    blocked_input_id}`` for the project namespace, or for the Global namespace when ``project_id`` is None.
 
     The first four counts are the exact unfinished input states of this namespace. ``publication_pending_completion`` counts this
     namespace's published filings whose receipt is pending (or not yet recorded), and ``completion_conflict`` those whose
@@ -30,17 +30,17 @@ def context_queue_summary(connection, business_id) -> dict:
         raise DomainError("operation_unavailable", "The Context queue is not composed on this installation: missing "
                           + ", ".join(missing))
     counts = {state: 0 for state in STATES}
-    for row in connection.execute("SELECT state, COUNT(*) AS n FROM context_inputs WHERE business_id IS ? AND state IN (%s) GROUP BY state"
-                                  % ",".join("?" for _ in STATES), (business_id, *STATES)):
+    for row in connection.execute("SELECT state, COUNT(*) AS n FROM context_inputs WHERE project_id IS ? AND state IN (%s) GROUP BY state"
+                                  % ",".join("?" for _ in STATES), (project_id, *STATES)):
         counts[row["state"]] = row["n"]
     completions = {"pending": 0, "conflict": 0}
     for row in connection.execute(
             "SELECT COALESCE(c.state, 'pending') AS state, COUNT(*) AS n FROM context_filings f "
             "JOIN context_inputs i ON i.id = f.input_id LEFT JOIN context_completions c ON c.filing_id = f.id "
-            "WHERE i.business_id IS ? AND i.state = 'published' AND COALESCE(c.state, 'pending') IN ('pending', 'conflict') "
-            "GROUP BY COALESCE(c.state, 'pending')", (business_id,)):
+            "WHERE i.project_id IS ? AND i.state = 'published' AND COALESCE(c.state, 'pending') IN ('pending', 'conflict') "
+            "GROUP BY COALESCE(c.state, 'pending')", (project_id,)):
         completions[row["state"]] = row["n"]
-    blocked = connection.execute("SELECT id, business_id FROM context_inputs WHERE state='blocked'").fetchone()
+    blocked = connection.execute("SELECT id, project_id FROM context_inputs WHERE state='blocked'").fetchone()
     return {**counts, "publication_pending_completion": completions["pending"], "completion_conflict": completions["conflict"],
             "queue_blocked": blocked is not None,
-            "blocked_input_id": blocked["id"] if blocked is not None and blocked["business_id"] == business_id else None}
+            "blocked_input_id": blocked["id"] if blocked is not None and blocked["project_id"] == project_id else None}

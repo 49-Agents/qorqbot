@@ -13,7 +13,7 @@ arguments:
     acquisition: default
   - name: audience
     schema: {type: string, minLength: 1}
-    default: small business owners
+    default: small company owners
     prompt: Is this the intended audience?
     acquisition: confirm_default
   - name: launch_date

@@ -4,7 +4,7 @@ The authority metadata is the retained v1 one for the existing names: ``context_
 ``context_expand`` and ``context_find`` are agent-facing reads of every registered agent (the host policy resolver's
 core default, unchanged), and ``context_changes`` stays an owner view. ``personal_get`` is the owner's own record as plain
 facts, under the same authority as the other agent reads: every registered agent reads the whole record. Scope resolution is also v1's: a caller reads
-under its selected business, or under Global with the ``read_global_context`` capability. Because the one published
+under its selected project, or under Global with the ``read_global_context`` capability. Because the one published
 graph is shared, the scope only selects *who may ask*; the content returned never depends on it. Handlers use the
 reader alone: they take nothing from the caller's arguments to decide identity or scope, and they never reach
 operational records."""
@@ -55,7 +55,7 @@ ENTRIES = (
 
 
 def _namespace(context, _arguments):
-    return "business:" + context.business_id if context.business_id else "global"
+    return "project:" + context.project_id if context.project_id else "global"
 
 
 class SharedContextOperations:
@@ -80,13 +80,13 @@ class SharedContextOperations:
                 entry.name,
                 {"type": "object", "properties": properties, "required": list(required), "additionalProperties": False},
                 OUTPUTS[entry.name], effect_kind="read", supports_signoff=False, exposure=entry.exposure,
-                owner_only=entry.owner_only, description=DESCRIPTIONS[entry.name], scope_kinds=frozenset({"business", "global"}),
+                owner_only=entry.owner_only, description=DESCRIPTIONS[entry.name], scope_kinds=frozenset({"project", "global"}),
                 global_capability="read_global_context", resolve_namespace=_namespace,
                 read=lambda ctx, args, options, uow, handler=handler: handler(ctx, args)))
         return tuple(descriptors)
 
     # The caller's identity is whatever the Application authenticated into ``ctx``; no argument names a principal,
-    # agent, business or revision-independent scope.
+    # agent, project or revision-independent scope.
 
     def _home(self, ctx, args):
         return self.reader.home(limit=args.get("limit"), cursor=args.get("cursor"))
@@ -114,5 +114,5 @@ class SharedContextOperations:
 
 
 def shared_context_contribution(reader: SharedContextReader) -> CatalogContribution:
-    """The contribution trusted assembly installs for ``reader`` in place of the retired per-business Context reads."""
+    """The contribution trusted assembly installs for ``reader`` in place of the retired per-project Context reads."""
     return SharedContextOperations(reader).contribution()

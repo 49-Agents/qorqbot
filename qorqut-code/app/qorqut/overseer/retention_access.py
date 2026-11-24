@@ -75,7 +75,7 @@ class RetentionEventAccess:
             if (receipt.agent_id, receipt.provider, receipt.conversation_id, receipt.archive_id) != (
                     holder, session['provider'], session['conversation_id'], source.get('archive_id')):
                 raise DomainError('forbidden', 'The capture receipt names another lineage')
-            business = None
+            project = None
         elif event['kind'] in ('signoff', 'workflow_signoff'):
             if event['kind'] == 'signoff':
                 binding = uow.connection.execute('SELECT * FROM overseer_signoffs WHERE binding_id=?',
@@ -87,15 +87,15 @@ class RetentionEventAccess:
                     raise DomainError('forbidden', 'The workflow Signoff is outside this conversation')
                 binding = {'binding_id': request['id'], 'signoff_id': request['signoff_id'],
                            'proposal_revision': request['proposal_revision'], 'payload_hash': request['payload_hash'],
-                           'review_business_id': None, 'run_id': None, 'delta_id': None, 'delta_revision': None,
+                           'review_project_id': None, 'run_id': None, 'delta_id': None, 'delta_revision': None,
                            'application_id': None, 'plan_revision': None, 'batch_id': None}
             if binding is None:
                 raise DomainError('forbidden', 'The Signoff is not linked to this event')
-            signoff = uow.connection.execute('SELECT proposal_revision,payload_hash,review_business_id FROM signoffs WHERE id=?',
+            signoff = uow.connection.execute('SELECT proposal_revision,payload_hash,review_project_id FROM signoffs WHERE id=?',
                                              (binding['signoff_id'],)).fetchone()
             if (signoff is None or signoff['proposal_revision'] != binding['proposal_revision']
                     or signoff['payload_hash'] != binding['payload_hash']
-                    or signoff['review_business_id'] != binding['review_business_id']):
+                    or signoff['review_project_id'] != binding['review_project_id']):
                 raise DomainError('forbidden', 'The linked Signoff version changed')
             # Child observations are generated only after the predecessor's authorized
             # archive/association commit. Check the exact durable parent and both links.
@@ -106,10 +106,10 @@ class RetentionEventAccess:
                 prior = json.loads(parent['source_json']) if parent is not None and parent['kind'] == event['kind'] else {}
                 saved = json.loads(parent['cursor_json']) if parent is not None and parent['cursor_json'] else {}
                 previous = prior.get('signoff_id')
-                edge = uow.connection.execute('SELECT superseded_by_id FROM signoffs WHERE id=? AND review_business_id IS ?',
-                                              (previous, binding['review_business_id'])).fetchone()
-                child = uow.connection.execute('SELECT supersedes_id FROM signoffs WHERE id=? AND review_business_id IS ?',
-                                               (target, binding['review_business_id'])).fetchone()
+                edge = uow.connection.execute('SELECT superseded_by_id FROM signoffs WHERE id=? AND review_project_id IS ?',
+                                              (previous, binding['review_project_id'])).fetchone()
+                child = uow.connection.execute('SELECT supersedes_id FROM signoffs WHERE id=? AND review_project_id IS ?',
+                                               (target, binding['review_project_id'])).fetchone()
                 association_key = 'binding_id' if event['kind'] == 'signoff' else 'request_id'
                 if (prior.get(association_key) != binding['binding_id'] or saved.get('superseded_by_id') != target
                         or edge is None or edge['superseded_by_id'] != target or child is None or child['supersedes_id'] != previous):
@@ -130,7 +130,7 @@ class RetentionEventAccess:
                 admission = Views(self.runtime.agentic_layer).get_admitted_run(binding['run_id'])
                 if not owns_run(uow, admission, holder):
                     raise DomainError('forbidden', 'The Signoff run belongs to another Overseer or owner')
-            business = binding['review_business_id']
+            project = binding['review_project_id']
         elif event['kind'] == 'task':
             association = uow.connection.execute('SELECT * FROM overseer_development_tasks WHERE request_key=?',
                                                  (source.get('request_key'),)).fetchone()
@@ -152,15 +152,15 @@ class RetentionEventAccess:
             admission = Views(self.runtime.agentic_layer).get_admitted_run(app['run_id'])
             if not owns_run(uow, admission, holder, kind='application'):
                 raise DomainError('forbidden', 'The Task application belongs to another Overseer or owner')
-            business = task_ref['namespace']['business_id']
+            project = task_ref['namespace']['project_id']
             binding = {'run_id': app['run_id'], 'task_ref': task_ref, 'application_id': app['id'],
                        'plan_revision': association['plan_revision'], 'delta_id': app['delta_id'],
                        'delta_revision': plan['delta_revision'], 'batch_id': None}
         else:
             raise DomainError('forbidden', 'Unsupported retention event')
-        ctx = self.runtime.policy.context_for(holder, business_id=business, review_business_id=None, uow=uow, source='worker')
+        ctx = self.runtime.policy.context_for(holder, project_id=project, review_project_id=None, uow=uow, source='worker')
         ctx = replace(ctx, session_registration_id=registration['id'])
-        if ('manage_agentic_layer' not in ctx.global_capabilities or business and business not in ctx.allowed_business_ids):
+        if ('manage_agentic_layer' not in ctx.global_capabilities or project and project not in ctx.allowed_project_ids):
             raise DomainError('forbidden', 'Current Overseer retention authority is unavailable')
         return event, source, binding, ctx, session
 
@@ -178,7 +178,7 @@ class RetentionEventAccess:
                     (ctx.principal_id, run_ref.get('conversation_id'))).fetchone() is not None)
             if (run_ref.get('provider') != 'qorqut_overseer' or run_ref.get('agent_id') != ctx.principal_id
                     or (not historical and run_ref.get('conversation_id') != session['conversation_id'])
-                    or run_ref.get('namespace') != {'kind': 'global', 'business_id': None}
+                    or run_ref.get('namespace') != {'kind': 'global', 'project_id': None}
                     or run_ref.get('run_id') != (binding['run_id'] if binding is not None else None)):
                 raise DomainError('forbidden', 'The retained run does not match the canonical event')
 
@@ -217,9 +217,9 @@ class RetentionEventAccess:
                 TaskEvidenceAccess(self.runtime, ctx).authorize_source(ref)
                 if kind == 'task_message':
                     from qorqut_operations.discussion.threads import message_view
-                    row = uow.connection.execute('''SELECT * FROM thread_messages WHERE business_id IS ?
+                    row = uow.connection.execute('''SELECT * FROM thread_messages WHERE project_id IS ?
                         AND item_type='task' AND item_id=? AND id=?''',
-                        (target['namespace']['business_id'], target['id'], ref['record_id'])).fetchone()
+                        (target['namespace']['project_id'], target['id'], ref['record_id'])).fetchone()
                     if row is None:
                         raise DomainError('evidence_unavailable', 'The linked Task message is unavailable')
                     view = message_view(dict(row), uow, self.runtime.domains.tasks.message_refs(ctx, uow))
@@ -245,8 +245,8 @@ class RetentionEventAccess:
                 return
             if event['kind'] not in ('signoff', 'workflow_signoff'):
                 raise DomainError('forbidden', 'This event does not admit an external source')
-            business = binding['review_business_id']
-            namespace = {'kind': 'business', 'business_id': business} if business else {'kind': 'global', 'business_id': None}
+            project = binding['review_project_id']
+            namespace = {'kind': 'project', 'project_id': project} if project else {'kind': 'global', 'project_id': None}
             loc, kind = ref['locator'], ref.get('kind')
             if (ref.get('provider') != 'operations' or ref.get('namespace') != namespace
                     or loc.get('signoff_id') != source['signoff_id'] or kind not in ('signoff', 'signoff_note')):
@@ -259,10 +259,10 @@ class RetentionEventAccess:
                     raise DomainError('forbidden', 'The note is not linked to this Signoff')
             name = 'signoffs_notes_list' if kind == 'signoff_note' else 'signoffs_get'
             desc = self.runtime.registry.get(name)
-            namespace_name = 'business:' + business if business else 'global'
+            namespace_name = 'project:' + project if project else 'global'
             self.runtime.application.authorize(ctx, desc, (), uow, namespace=namespace_name)
             from qorqut_operations.contracts import InvocationOptions
-            args = {'signoff_id': source['signoff_id'], **({'scope': 'global'} if business is None else {})}
+            args = {'signoff_id': source['signoff_id'], **({'scope': 'global'} if project is None else {})}
             if kind == 'signoff_note': args['limit'] = 1
             args = self.runtime.registry.bind_arguments(name, args)
             desc.read(ctx, args, InvocationOptions(), uow)

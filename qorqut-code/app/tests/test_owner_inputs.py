@@ -16,7 +16,7 @@ from qorqut.inbox.private_conversations import PrivateConversations
 from qorqut.native_chat import projection, store
 from qorqut.native_chat.contracts import InputRequest, STATE_SUBMITTED, STATE_SUBMITTING
 
-from test_side_chat_rename import build_runtime, create, invoke, reply, source
+from private_thread_runtime import build_runtime, create, invoke, reply, source
 
 NOW = datetime(2026, 11, 12, 18, tzinfo=timezone.utc)
 COVERED = "2026-11-10T00:00:00.000000Z"      # when chat indexing began in these tests
@@ -60,7 +60,7 @@ class OwnerInputsTests(unittest.TestCase):
         runtime.native_chat = SimpleNamespace(indexer=SimpleNamespace(archive=lambda profile: self.archives[profile["agent_id"]]))
         # The label of a thread's source is the Focus board's projection; the read authorization before it is the real one.
         runtime.application.attention = SimpleNamespace(legacy=SimpleNamespace(
-            resolve=lambda ctx, found, uow: {**found, "label": "A side chat", "business_slug": None}))
+            resolve=lambda ctx, found, uow: {**found, "label": "A private thread", "project_slug": None}))
         OwnerInputs(runtime, clock=lambda: NOW).register()
         # These tests place stored private messages at chosen times.
         self.write("DROP TRIGGER owner_conversation_messages_no_update", ())
@@ -135,7 +135,7 @@ class OwnerInputsTests(unittest.TestCase):
 
     def task(self):
         identity = new_id()
-        self.write("INSERT INTO tasks(business_id,id,title,status,created_by,created_at,updated_at) VALUES(NULL,?,?,?,?,?,?)",
+        self.write("INSERT INTO tasks(project_id,id,title,status,created_by,created_at,updated_at) VALUES(NULL,?,?,?,?,?,?)",
                    (identity, "Linden contract", "open", self.lead, COVERED, COVERED))
         return identity
 
@@ -229,7 +229,7 @@ class OwnerInputsTests(unittest.TestCase):
                 ("m1", self.owner, self.owner, "Use the blue logo.", at(9)),
                 ("m2", self.owner, self.lead, "The owner said: use the blue logo.", at(9, 10)),
                 ("m3", self.worker, self.worker, "Switched to the blue logo.", at(9, 20))):
-            self.write("INSERT INTO thread_messages(business_id,id,item_type,item_id,kind,body,author_id,recorder_id,created_at) "
+            self.write("INSERT INTO thread_messages(project_id,id,item_type,item_id,kind,body,author_id,recorder_id,created_at) "
                        "VALUES(NULL,?,?,?,?,?,?,?,?)", (identity, "task", task, "comment", body, author, recorder, when))
         self.write("INSERT INTO signoff_notes(id,signoff_id,body,created_by,created_at) VALUES(?,?,?,?,?)",
                    ("n1", signoff["id"], "Approved, but cap it at 500.", self.owner, at(10)))
@@ -249,7 +249,7 @@ class OwnerInputsTests(unittest.TestCase):
         for identity, recorder, body, when in (("s1", self.worker, "Status: open -> done", at(9, 30)),
                                                ("s2", self.lead, "Workers changed", at(9, 40)),
                                                ("s3", self.worker, "Created", at(11, 30))):
-            self.write("INSERT INTO thread_messages(business_id,id,item_type,item_id,kind,body,recorder_id,change_json,created_at) "
+            self.write("INSERT INTO thread_messages(project_id,id,item_type,item_id,kind,body,recorder_id,change_json,created_at) "
                        "VALUES(NULL,?,?,?,?,?,?,?,?)", (identity, "task", task, "system", body, recorder, "{}", when))
         with patch.object(PrivateConversations, "source_check", return_value=None):
             items = self.read()["items"]
@@ -299,7 +299,7 @@ class OwnerInputsTests(unittest.TestCase):
             (early, "chat", "Send the contract.", False), (mine, "chat", "Chase the invoice.", False),
             (hidden, "chat", None, True), (unread, "chat", None, False)])
         self.assertEqual((found[4]["channel"], found[4]["text"], found[4]["place"]),
-                         ("thread", "Did the supplier confirm?", {"type": "signoff", "id": chat["id"], "business_id": None, "title": "A side chat"}))
+                         ("thread", "Did the supplier confirm?", {"type": "signoff", "id": chat["id"], "project_id": None, "title": "A private thread"}))
         self.assertEqual(len(found), 5)
 
     def test_only_the_owner_and_the_coordinator_in_person_may_read(self):

@@ -20,7 +20,7 @@ from qorqut.native_chat import references
 AGENT, WORKER = "4f6c1a2e-8d35-4b97-a1c0-2e9d7f3b5a64", "8fdca155-2f3b-4735-800f-41624c6d26cc"
 TAB, OTHER = "A1B2C3D4E5F60718293A4B5C6D7E8F90", "0F9E8D7C6B5A49382716051423324150"
 ENDPOINT = "http://127.0.0.1:20450"
-SHOW = "Pass this reference to request_user_input, or give it to Ordubashy, to show the owner this tab in Chat."
+SHOW = tab_reference.SHOW
 
 
 def listed(*ids):
@@ -59,14 +59,29 @@ class CommandTest(CommandTestCase):
     def test_the_caller_gets_the_reference_of_the_tab_its_session_is_bound_to(self):
         self.bind(TAB)
         code, reply = self.run_command([*listed(OTHER, TAB), {"id": "FRAME", "type": "iframe"}])
-        self.assertEqual((code, reply), (0, {"reference": {"type": "tab", "id": f"{AGENT}:{TAB}"}, "next": SHOW}))
-        self.listing.assert_called_once_with(20450, "/json/list")
+        self.assertEqual((code, reply), (0, {"reference": {"type": "tab", "id": f"{AGENT}:{TAB}"}, "title": "Page",
+                                             "url": "https://shop.example/", "next": SHOW}))
+        self.listing.assert_called_with(20450, "/json/list")
+
+    def test_the_reply_says_which_page_the_reference_is_and_the_reference_stays_identity_only(self):
+        self.bind(TAB)
+        code, reply = self.run_command([{"id": OTHER, "type": "page", "title": "PayPal", "url": "https://paypal.example/"},
+                                        {"id": TAB, "type": "page", "title": "Mercury sign in", "url": "https://mercury.example/login"}])
+        self.assertEqual((reply["title"], reply["url"]), ("Mercury sign in", "https://mercury.example/login"))
+        self.assertEqual(set(reply["reference"]), {"type", "id"})
+
+    def test_a_browser_that_answers_once_and_then_fails_still_gives_the_reference_without_a_label(self):
+        self.bind(TAB)
+        with mock.patch.object(sign_in, "_get_json", side_effect=[listed(TAB), OSError("gone")]):
+            code, out, _ = tab_reference.runner()(self.workspace, ["tab-reference"], target=self.target, instance=f"configured:{AGENT}")
+        reply = json.loads(out)
+        self.assertEqual((code, reply["reference"], "title" in reply, "url" in reply), (0, {"type": "tab", "id": f"{AGENT}:{TAB}"}, False, False))
 
     def test_the_reference_is_exactly_what_request_user_input_takes(self):
         self.bind(TAB)
         reference = self.run_command(listed(TAB))[1]["reference"]
         self.assertEqual(references.normalize("Please look.", [reference])["references"],
-                         [{"type": "tab", "id": f"{AGENT}:{TAB}", "business_id": None}])
+                         [{"type": "tab", "id": f"{AGENT}:{TAB}", "project_id": None}])
 
     def test_each_session_gets_its_own_tab(self):
         self.bind(OTHER, instance=f"configured:{WORKER}")
@@ -186,7 +201,8 @@ class AccessTest(unittest.TestCase):
             result = self.access._native_command(self.actor, {"command": ["tab-reference"], "action_id": "a-1"},
                                                  f"configured:{AGENT}", "b0123456789ab")
         self.assertEqual((result["exit_code"], json.loads(result["stdout"]), result["action"]),
-                         (0, {"reference": {"type": "tab", "id": f"{AGENT}:{TAB}"}, "next": SHOW}, {"action_id": "a-1", "state": "succeeded"}))
+                         (0, {"reference": {"type": "tab", "id": f"{AGENT}:{TAB}"}, "title": "Page", "url": "https://shop.example/", "next": SHOW},
+                          {"action_id": "a-1", "state": "succeeded"}))
         use.assert_called_once_with(f"configured:{AGENT}")
         agent_browser.assert_not_called()
 

@@ -83,9 +83,8 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   - Slash commands: type `/` at the start of the Chat box to list the commands Chat accepts, for example `/compact`.
     Commands that need a menu or panel are not offered in Chat.
 - **Ordubashy's right-hand pane** has tabs:
-  - **Focus**: what needs the owner in one place. The top row holds side chats and the threads the owner pinned;
-    Signoffs waiting on the owner, due reminders and calendar alerts show as chips below it; the rest is the owner's
-    personal notes, which agents cannot read or write. It does not show calendar events.
+  - **Focus**: what needs the owner in one place. Signoffs waiting on the owner, due reminders and calendar alerts
+    show as chips at its top; the rest is the owner's personal notes, which agents cannot read or write. It does not show calendar events.
   - **Todo**: the work on Ordubashy's board, the owner's and the agents'. The person icon shows only the owner's tasks.
   - **Calendar**: day, 3-day and week views, **Add event**, **My calendars**. It shows events only once Google Calendar
     is connected (see Calendar below).
@@ -99,15 +98,15 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 ## Decisions, reminders, tasks
 
 - **Signoffs** are requests for the owner's approval. Nothing they cover happens until the owner decides. They appear
-  as chips at the top of **Focus** (and **Todo**). Click one, then **Approve** or **Reject**; typing a
-  message turns these into **Send and approve** / **Send and reject**. A question Signoff has an answer box and
-  **Submit**.
+  as chips at the top of **Focus** (and **Todo**). Click one, then **Approve** or **Reject**; a message typed
+  first is sent with the decision, and **Reject** becomes the highlighted button that Ctrl+Enter presses. A question
+  Signoff has an answer box and **Submit**.
 - **Reminders**: ask an agent to remind you, once or repeating. Due reminders show as bell chips at the top of Focus.
 - **Tasks** live in projects. Click the status circle to change a task's state, or the row to open it.
 
 ## Projects
 
-- A project keeps the work, records and context for one client or business apart. There is no "new project" button:
+- A project keeps the work, records and context for one client or company apart. There is no "new project" button:
   the owner asks Ordubashy in Chat ("Create a project for …" with a name and its purpose), and he prepares it and asks
   for a Signoff before anything is created.
 - Opening a link or record that belongs to a project switches the workspace to that project.

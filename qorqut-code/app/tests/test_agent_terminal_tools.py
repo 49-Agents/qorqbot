@@ -273,15 +273,18 @@ class OutcomeTests(unittest.TestCase):
         self.assertEqual(execution_outcome(RuntimeError())[0], "uncertain")
 
 
-class MessagesToRetiredDevsTests(Case):
-    def test_a_direct_message_target_is_refused_for_every_caller(self):
-        control = TerminalControl.__new__(TerminalControl)
-        with self.assertRaises(DomainError) as refused:
-            control.message_target(SimpleNamespace(principal_kind="agent"), AGENT, None)
-        self.assertEqual(refused.exception.code, "forbidden")
-        with self.assertRaises(DomainError) as refused:
-            control.queue_message(SimpleNamespace(principal_kind="agent"), {"recipient_id": AGENT}, None)
-        self.assertEqual(refused.exception.code, "forbidden")
+class SelectorTests(unittest.TestCase):
+    def check(self, value):
+        from jsonschema import Draft202012Validator
+        return list(Draft202012Validator(terminal_control.selection_schema({}, [])).iter_errors(value))
+
+    def test_an_agent_selector_is_accepted(self):
+        self.assertEqual(self.check({"target_agent_id": AGENT}), [])
+        self.assertEqual(self.check({"target_agent_ids": [AGENT]}), [])
+
+    def test_a_project_selector_is_refused(self):
+        self.assertTrue(self.check({"project_ids": [AGENT]}))
+        self.assertTrue(self.check({"target_agent_id": AGENT, "project_ids": [AGENT]}))
 
 
 if __name__ == "__main__":

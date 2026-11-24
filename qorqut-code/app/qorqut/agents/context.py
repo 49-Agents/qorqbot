@@ -72,7 +72,7 @@ def markdown_section(text: str, title: str = "Agent Brief") -> str:
     return result
 
 
-def business_aliases(row) -> list[str]:
+def project_aliases(row) -> list[str]:
     """Explicit settings aliases, then slug, domain, website and email domain; never the display name."""
     config = row.get("config_json") or {}
     if isinstance(config, str):
@@ -92,20 +92,20 @@ def business_aliases(row) -> list[str]:
     return result
 
 
-def business_directory(businesses, *, agentic_view=None) -> str:
-    """One entry per active project: name, ID, stage and one-liner."""
+def project_directory(projects, *, agentic_view=None) -> str:
+    """One entry per active project: name, ID and one-liner."""
     lines = []
     def name(row):
         return row.get("display_name") or row.get("name") or row["id"]
-    for item in sorted(businesses, key=lambda row: name(row).lower()):
+    for item in sorted(projects, key=lambda row: name(row).lower()):
         config = item.get("config_json") or {}
         if isinstance(config, str):
             config = json.loads(config)
         one_liner = " ".join(str(config.get("one_liner") or "").split())
         if len(one_liner) > 300:
             one_liner = one_liner[:299].rsplit(" ", 1)[0] + "…"
-        aliases = business_aliases(item)
-        line = (f"- {name(item)} ({item['id']}); stage: {item.get('stage') or 'unknown'}."
+        aliases = project_aliases(item)
+        line = (f"- {name(item)} ({item['id']})."
                 + (f" Also called: {', '.join(aliases)}." if aliases else "") + (f" {one_liner}" if one_liner else ""))
         lines.append(line)
     if not lines:
@@ -116,9 +116,9 @@ def business_directory(businesses, *, agentic_view=None) -> str:
 
 
 def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mapping[str, ContextSource], *,
-                    effective_config_id: str, workspace: str, business: Mapping | None,
-                    allowed_businesses: tuple[Mapping, ...] = (), owner_name: str = "Owner",
-                    available_operations: frozenset[str] = frozenset(), context_home: str | None = None, agentic_view=None, extension_guidance=(),
+                    effective_config_id: str, workspace: str, project: Mapping | None,
+                    allowed_projects: tuple[Mapping, ...] = (), owner_name: str = "Owner",
+                    available_operations: frozenset[str] = frozenset(), context_home: str | None = None, agentic_view=None, extension_guidance=(), code_workspace: str | None = None,
 ) -> dict:
     entries, rendered = [], []
 
@@ -146,11 +146,11 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
             raise DomainError("missing_context", f"Missing registered mandatory context: {key}")
         return sources[key]
 
-    # Only a supported global is rendered; a business-home or retired-role identity is history, never shown as a global.
-    if profile.scope.kind != "ecosystem" or profile.scope.business_id is not None or role.id not in SUPPORTED_GLOBAL_ROLES:
-        raise DomainError("invalid_profile", "Mandatory context renders only a supported global agent with ecosystem scope")
+    # Only a supported global is rendered.
+    if role.id not in SUPPORTED_GLOBAL_ROLES:
+        raise DomainError("invalid_profile", "Mandatory context renders only a supported global agent")
     identity = (render(agentic_view, "host", "app/qorqut/agentic/assets/identity.md", DISPLAY_NAME=str(profile.data['display_name']), NAME=str(profile.data['name']), AGENT_ID=str(profile.agent_id), ROLE_ID=str(role.id), ROLE_VERSION=str(role.version), OWNER_NAME=str(owner_name), ASSIGNMENT=str(profile.data['assignment_brief']), PROFILE_REVISION=str(profile.revision), CONFIGURATION=str(effective_config_id)))
-    identity += render(agentic_view, "host", "app/qorqut/agentic/assets/scope.md", PROJECT_COUNT=str(len(allowed_businesses)))
+    identity += render(agentic_view, "host", "app/qorqut/agentic/assets/scope.md", PROJECT_COUNT=str(len(allowed_projects)))
     identity += "\nGlobal capabilities: " + (", ".join(profile.scope.global_capabilities) or "none") + "."
     derived("Identity And Assignment", identity, "profile:" + profile.agent_id, "Mandatory current identity and assignment")
     if role.id == 'ordubashy':
@@ -175,29 +175,29 @@ def compose_context(profile: AgentProfile, role: ArtifactPackage, sources: Mappi
     add("Agentic Toolkit", ContextSource("core:agentic-toolkit", toolkit, 1, content_hash(toolkit.encode()),
         "qorqut-core:agentic-toolkit", "core"), "Current native authoring, catalog and progress guidance")
     add("Ecosystem Orientation", required("ecosystem"), "Approved ecosystem facts")
-    derived("Projects", business_directory(allowed_businesses, agentic_view=agentic_view),
-            "businesses:" + profile.agent_id, "Active authorized projects with a short orientation")
-    if business is not None:
+    derived("Projects", project_directory(allowed_projects, agentic_view=agentic_view),
+            "projects:" + profile.agent_id, "Active authorized projects with a short orientation")
+    if project is not None:
         # The shared published graph (Context Home below) is the current Context orientation. The authored
         # ICP and Brand documents stay ordinary scoped sources read through their document APIs; they are neither an
         # always-injected brief nor a fallback for an unreadable graph.
-        aliases = business_aliases(business)
-        derived("Selected Project", render(agentic_view, "host", "app/qorqut/agentic/assets/selected-project.md", PROJECT_NAME=str(business['display_name']), PROJECT_ID=str(business['id']), STAGE=str(business['stage']), PROJECT_REVISION=str(business['revision']))
+        aliases = project_aliases(project)
+        derived("Selected Project", render(agentic_view, "host", "app/qorqut/agentic/assets/selected-project.md", PROJECT_NAME=str(project['display_name']), PROJECT_ID=str(project['id']), PROJECT_REVISION=str(project['revision']))
                 + (f" Also called: {', '.join(aliases)}." if aliases else "") + render(agentic_view, "host", "app/qorqut/agentic/assets/selected-scope.md"),
-                "business:" + business["id"], "Explicit permitted project orientation")
+                "project:" + project["id"], "Explicit permitted project orientation")
     if context_home:
         derived("Context Home", context_home, "context:published",
                 render(agentic_view, "host", "app/qorqut/agentic/assets/context-provenance.md"))
-    if business is not None:
-        config = business.get("config_json", {})
+    if project is not None:
+        config = project.get("config_json", {})
         if isinstance(config, str):
             config = json.loads(config)
         authority = config.get("engineering", {})
         derived("Engineering workspace and authority",
-            render(agentic_view, "host", "app/qorqut/agentic/assets/code-root.md", WORKSPACE=str(business['workspace']))
+            (render(agentic_view, "host", "app/qorqut/agentic/assets/code-root.md", WORKSPACE=code_workspace) if code_workspace else "")
             + "Authority (owner/Ordubashy-managed; absent targets are unconfigured): " + canonical_bytes(authority).decode()
             + "\nRegistered repositories: " + canonical_bytes(config.get("code", [])).decode(),
-            "engineering:" + business["id"], "Current repository and deployment ownership; no credential values")
+            "engineering:" + project["id"], "Current repository and deployment ownership; no credential values")
     plugins = ", ".join(f"{item['id']}@{item['version']}" for item in profile.data["plugins"]) or "none"
     parameters = "\n".join(f"{item['id']} parameters: {canonical_bytes(item['config']).decode()}" for item in profile.data["plugins"])
     # Explicit resource reads retain the host inventory contracts; Agentic selects and orders them.

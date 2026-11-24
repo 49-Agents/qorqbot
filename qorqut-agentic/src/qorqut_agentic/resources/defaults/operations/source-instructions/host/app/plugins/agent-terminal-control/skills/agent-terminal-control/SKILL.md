@@ -7,8 +7,7 @@ Use agent_terminal_status with the registered target_agent_id first. Tools accep
 agent IDs, never shell commands, paths, or key sequences.
 
 Targets are active global workers, named by target_agent_id or target_agent_ids,
-at most 100 per batch. Projects have no resident agents: a business_ids selector
-adds no targets, and a project-home agent identity is historical and is refused.
+at most 100 per batch.
 You cannot target yourself; do not restart yourself. An approved batch is frozen:
 do not expand it yourself. Inspect batch_id through agent_terminal_status for each
 agent's execution result.

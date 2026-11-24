@@ -16,25 +16,11 @@ pinned commit). This package is the host's side of that contract:
 This package does not own HTTP, authentication, domain preparation, session transport, or external job dispatch. It
 uses the shared application engine and storage receipts; domain handlers never implement a second file writer.
 
-Side chats use category `side_chat` and retain `source.type=signoff`, so their private conversations, inbox deliveries
-and nudges follow the existing path. `side_chats_create` atomically creates the shell and first private message; a title
-is optional. Clicking a side chat's name in Focus opens its inline editor; Enter or leaving the field saves, and Escape
-cancels. Only the installation owner may use `side_chats_rename` or `side_chats_close`. Renaming updates the nullable
-`display_title` without changing the immutable proposal, messages, read cursors or last-message order.
-Internally, `pending` means open and `cancelled`
-means closed; closing retains the conversation. Side chats are excluded from approval lists, counts and decisions.
-The `+` beside the machine controls opens a minimal form with the optional title above the first message.
+The owner attention queue's white unread dots use private conversation cursors for replies, existing proposal-version view
+markers for Signoffs, and occurrence/revision markers for reminders. Reading changes no decision or reminder state. Hidden or
+prefetched Signoff details do not count as read.
 
-The owner attention queue returns open side chats in last-message order. Its white unread dots use private conversation
-cursors for replies, existing proposal-version view markers for Signoffs, and occurrence/revision markers for reminders.
-Reading changes no decision or reminder state. Hidden or prefetched Signoff details do not count as read.
-
-Existing installations need the offline ordered upgrade before running this schema, while the service is stopped:
-`python -m qorqut.migration.upgrade inspect|apply --instance-root ROOT` with the installation's component selection and
-`--extensions-config`. Its `signoff_side_chat` step widens the stored category rule in place, keeps every row, index and
-trigger. The following `side_chat_titles` step adds editable names while retaining the original titles. Both bring a
-store that is also behind on earlier steps up in the same transaction. Reverting past `side_chat_titles` refuses to
-discard saved display names without `--discard-rows`; conversations and original names remain. It never runs at startup.
+A Signoff is one of three categories: `internal_change`, `platform_action` or `input_request`.
 
 ## Assembly
 
@@ -60,12 +46,12 @@ once by `Runtime.freeze_registry` before traffic.
 The target resolver returns storage `RegisteredFileTarget` instances from registered
 resource IDs. It must not accept a caller path. Use the profile module's target validators for
 pinned packages and mandatory authored source dependencies. Global capabilities
-apply to the engine-resolved global namespace, not every business invocation of
+apply to the engine-resolved global namespace, not every project invocation of
 a mixed-scope descriptor.
 
 `registered_worker_profiles` is a trusted mapping, or callable
-`(principal_id, uow) -> WorkerProfile`. Missing grants deny. Its business IDs are
-intersected with active database memberships. Increment its positive revision
+`(principal_id, uow) -> WorkerProfile`. Missing grants deny. Its project IDs are
+intersected with the active projects. Increment its positive revision
 whenever the program/grant definition changes. A system label or `source` field
 is not a grant. Effective profile configuration and runtime decisions both use
 `resolve_operation_policy`; do not introduce another role-default table.
@@ -73,7 +59,7 @@ is not a grant. Effective profile configuration and runtime decisions both use
 The job verifier receives `(context, descriptor, targets, uow)` and returns
 `None` for discretionary work or a stable mapping containing `job_id` and a
 SHA-256 `definition_digest` for a verified declared consequence. It must verify
-the persisted job, worker, business, frozen inputs and permitted outputs; the
+the persisted job, worker, project, frozen inputs and permitted outputs; the
 job ID alone is insufficient. The result's job ID must match trusted
 `InvocationContext.job_id`. Only internal system-worker contexts may carry that
 field, and transports must reject it as caller input. The engine persists it
@@ -106,26 +92,26 @@ signoffs.retry(context, signoff_id, **binding)
 `expected_status_revision`, and `idempotency_key`. Owner-only HTTP routes call
 `review` or `retry` directly; these commands own their transactions and must
 not be wrapped in another UoW or routed through an agent permission gate. They
-require a current human principal and active owner membership in the selected
-business. Approve and reject keep nonblank feedback verbatim,
+require a current human principal and installation owner's reach of the selected
+project. Approve and reject keep nonblank feedback verbatim,
 up to 8000 characters; whitespace-only feedback becomes null.
 
-The context's selected business is the review route. A mismatching proposal ID
-is `not_found` even for callers authorized in another business. Global rows,
+The context's selected project is the review route. A mismatching proposal ID
+is `not_found` even for callers authorized in another project. Global rows,
 counts and detail require their global capabilities and affected-resource scope.
 List/detail DTOs include hydrated `proposer_display_name` and optional
 `initiated_by_display_name` and `job_id`; a worker's `proposer_agent_id` is null.
 
 List supports `states`, `proposer_principal_id`, `initiated_by_principal_id`,
 `limit`, and mutually exclusive `cursor` or `updated_after`. Use `updated_after=0`
-for initial catch-up. `updated_cursor` is bound to the caller, selected business
+for initial catch-up. `updated_cursor` is bound to the caller, selected project
 and filters; it is not authorization. `has_more` indicates additional matching
 rows. Counts cover all visible states independently of the selected filters.
 
 Return canonical envelopes with `Cache-Control: no-store`. `accepted` means a
 durable approval awaiting application, not success. Use the specification's HTTP
 status mapping, including `409` for stale decisions and `503` for bounded busy
-errors. Never add business logs, journal entries, notifications, tasks or session
+errors. Never add project logs, journal entries, notifications, tasks or session
 wakes for signoff transitions.
 
 ## Lifecycle and Recovery
@@ -166,4 +152,4 @@ global visibility, revoked authority, worker attribution/job replay, DB rollback
 mixed-file crash recovery, raw-file conflicts and allowed-file restart recovery.
 Service tests cover real HTTP/MCP integration; background tests cover job-consequence verification.
 
-General input requests, saved responses and in-app notification scheduling are described in [Owner input and notifications](../../../docs/SIGNOFF-INPUT-NOTIFICATIONS.md). That document also covers read-and-acknowledge requests, which the host counts as `to_read` (dashboard summary, attention queue and business briefing) and never as a decision waiting on the owner.
+General input requests, saved responses and in-app notification scheduling are described in [Owner input and notifications](../../../docs/SIGNOFF-INPUT-NOTIFICATIONS.md). That document also covers read-and-acknowledge requests, which the host counts as `to_read` (dashboard summary, attention queue and project briefing) and never as a decision waiting on the owner.
