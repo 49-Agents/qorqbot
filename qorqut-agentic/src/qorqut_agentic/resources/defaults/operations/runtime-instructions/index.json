@@ -141,6 +141,17 @@
       "previous_source": "agents/attention_prompt.py"
     },
     {
+      "id": "attention-focus-held",
+      "path": "messages/attention-focus-held.md",
+      "parameters": [
+        "AGE"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
       "id": "attention-step-returned",
       "path": "messages/attention-step-returned.md",
       "parameters": [],

@@ -110,6 +110,13 @@
       "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
     },
     {
+      "id": "attention-focus-held",
+      "kind": "instruction",
+      "path": "messages/attention-focus-held.md",
+      "description": "Attention focus held",
+      "when_to_use": "attention prompt; conditional; selected by the registered runtime policy."
+    },
+    {
       "id": "attention-step-returned",
       "kind": "instruction",
       "path": "messages/attention-step-returned.md",

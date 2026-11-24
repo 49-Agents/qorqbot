@@ -32,13 +32,19 @@ def _focus(value):
     return json.loads(value) if isinstance(value, str) else value
 
 
-def _age(started_at, now):
-    """Whole elapsed time since the focus began; unavailable (None) when it cannot be derived."""
+def _minutes(started_at, now):
+    """Whole minutes since the focus began; unavailable (None) when they cannot be derived."""
     try:
         minutes = int((_time(now) - _time(started_at)).total_seconds()) // 60
     except (AttributeError, TypeError, ValueError):
         return None
-    if minutes < 0:
+    return minutes if minutes >= 0 else None
+
+
+def _age(started_at, now):
+    """Whole elapsed time since the focus began; unavailable (None) when it cannot be derived."""
+    minutes = _minutes(started_at, now)
+    if minutes is None:
         return None
     days, minutes = divmod(minutes, 1440)
     hours, minutes = divmod(minutes, 60)
@@ -175,6 +181,7 @@ class AttentionRuntime:
         work_ref = state.get('work_task_json')
         snapshot = {'focus': {key: focus.get(key) for key in ('type', 'id', 'project_id')} if focus else None,
                     'focused_for': _age(state.get('focus_started_at'), self._now()) if focus else None,
+                    'focus_held_minutes': _minutes(state.get('focus_started_at'), self._now()) if focus else None,
                     'work': None, 'intent': None, 'next_step': None, 'plan_step': None, 'candidates': None, 'more': False,
                     'team': None}
         try:
