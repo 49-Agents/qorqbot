@@ -164,6 +164,7 @@
 .filing-actions button:disabled, .filings-bar button:disabled, .filing-actions .filing-note:disabled { opacity: .55; cursor: default; }
 .sg-timeline-changes { margin: 8px 0; padding-left: 18px; overflow-wrap: anywhere; }
 .sg-timeline-quote { margin: 4px 0; padding: 2px 10px; border-left: 2px solid var(--line-2); color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sg-rule-notice { margin: 0 0 8px; color: var(--fg-2); }
 .sg-none { color: var(--fg-3); font-style: italic; }
 .sg-unavailable { padding-left: 10px; border-left: 2px solid var(--line-2); }
 .sg-unavailable p { margin: 0; color: var(--fg-2); }

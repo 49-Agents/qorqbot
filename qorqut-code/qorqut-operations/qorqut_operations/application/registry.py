@@ -89,6 +89,8 @@ class OperationDescriptor:
     # Optional owner amendment: rebuild a pending plan, never apply or approve it.
     editable_fields: tuple[str, ...] = ()
     revise: Callable | None = None
+    # The owner may reject this operation's Signoff without a note (normally a rejection needs one).
+    rejection_note_optional: bool = False
     # Provider calls run after authorization, outside any transaction, before apply's short write transaction.
     external: Callable | None = None
     # Identity rows this operation re-derives in full inside validate_targets, so

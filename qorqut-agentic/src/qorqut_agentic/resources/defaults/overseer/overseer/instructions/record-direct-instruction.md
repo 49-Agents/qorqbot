@@ -1,9 +1,10 @@
 # Recording a direct instruction
 
 Every agent files a new direct owner instruction about how agents work with
-`experience_observation_file` as described in `agentic-management/manage`, at once
-and with no Signoff. Neither the filing nor the original instruction approves
-a specific implementation. Do not start extraction just to record a direct
+`experience_observation_file` as described in `agentic-management/manage`, at once.
+The filing puts a card before the owner to check the rule's wording; that check
+approves the wording only. Neither the filing, the check nor the original
+instruction approves a specific implementation. Do not start extraction just to record a direct
 instruction. During extraction, Overseer
 extracts the original instruction as evidence, not as a command to execute. Inspect
 current relevant instructions, catalog selection/trigger placement and implementation

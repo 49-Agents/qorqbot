@@ -27,7 +27,18 @@ The run cannot be finished before the report of conversations was read to its en
 Any agent adds to the same queue with `experience_observation_file`: a rule or correction the owner gave on how work is
 done, a lesson from a mistake of its own, a tool that failed or misled it. The agent says what happened and what should
 hold from now on, and does not work out which instruction, skill or tool should change: that is the review's work. The
-point is filed at once, with no Signoff and outside any run, and changes nothing by itself.
+point is filed at once, outside any run, and changes nothing by itself.
+
+A rule the owner gave (kind `owner_complaint`) also gets a card for the owner, created in the same transaction: an
+operation Signoff of `experience_rule_check` titled "Check your rule". It shows a notice line (which agent filed it, that
+it is already in the queue, that no instruction changes until the weekly review), the rule as filed as its one editable
+field, and whom it applies to, with the email Signoff's footer (note, Reject, Approve). It checks the agent's wording
+only. Approving marks the rule `approved` (`owner_check`), with the owner's text if the owner edited it. Rejecting, with
+or without a note, deletes the rule, and the note goes to the filing agent like every decision on its own Signoff; a rule
+a delta proposal already names is marked `rejected` instead. With no answer it stays `unchecked`. Every other kind gets
+no card. The filing result tells the agent the owner was asked, so the agent does not ask again in chat. The operation
+is the host's own: it is always held for the owner, offered to no agent and refused over agent MCP, and only the filing
+stages it. A rejection or an edit the Signoff observer missed is followed by `settle_checks` on the inbox reconcile pass.
 
 What agents file is kept under one standing cluster, "Filed by agents" (`AGENTS_CLUSTER`), which the first filing makes.
 It is unsorted and states no one problem, so a delta proposal links the observations in it and is refused when it names
@@ -91,7 +102,8 @@ then what the system says), and UTC when none does. The Runs tab shows the zone 
 
 ## Who can call what
 
-The host policy (`composition/policy.py`, `_experience`) gives `experience_observation_file` to every agent, the tools of
+The host policy (`composition/policy.py`, `_experience`) gives `experience_observation_file` to every agent, always holds
+`experience_rule_check` for the owner, and gives the tools of
 a run to the Learning Applier alone, and the reads (`experience_run_get`, `experience_run_request`,
 `experience_clusters_list`, `experience_cluster_get`, `agentic_delta_proposals_list`, `agentic_delta_proposal_get`) to the
 Learning Applier and Ordubashy. The owner reads the
@@ -101,4 +113,6 @@ shows its approval request and its thread in place, so the owner decides and tal
 ## Tables
 
 `experience_runs`, `experience_clusters`, `experience_observations`, `agentic_delta_proposals`,
-`agentic_delta_proposal_links` (`experience/schema.py`; added to an existing store by `migration/experience.py`).
+`agentic_delta_proposal_links` (`experience/schema.py`; added to an existing store by `migration/experience.py`). The owner's
+check of a rule (`owner_check`, `check_signoff_id`, `checked_at` on `experience_observations`) is added to an existing
+store by the `rule_checks` step of the ordered upgrade (`migration/upgrade.py`, `migration/rule_checks.py`).

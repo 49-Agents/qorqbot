@@ -199,8 +199,9 @@ class AttentionBoard:
                     clause+=' AND project_id IS ?';params.append(binding['project_id'])
                 value['note_count']=uow.connection.execute(f'SELECT count(*) FROM {table} WHERE {column}=?'+clause,params).fetchone()[0]
             if binding['type']=='signoff':
-                from qorqut_operations.signoffs.notes import eligible
-                value['rejection_requires_message']=not eligible(uow,binding['id'])
+                from qorqut_operations.signoffs.notes import note_required
+                signoff=uow.connection.execute('SELECT id,operation_name FROM signoffs WHERE id=?',(binding['id'],)).fetchone()
+                value['rejection_requires_message']=note_required(self.app,uow,signoff) if signoff else True
             from .private_conversations import EMPTY_STATE,private_index,private_state,source_key
             # Presentation only: the private channel keeps its own store, and
             # reading these counters writes nothing and restores no card. A list

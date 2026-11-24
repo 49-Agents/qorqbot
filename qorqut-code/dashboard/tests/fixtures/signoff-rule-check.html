@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../app.css">
+<link rel="stylesheet" href="../../css/agent-focus.css">
+<link rel="stylesheet" href="../../css/signoffs.css">
+<link rel="stylesheet" href="../../css/attention-review.css">
+<link rel="stylesheet" href="../../css/chat-view.css">
+<link rel="stylesheet" href="../../css/theme-light.css">
+<style>body{margin:0;padding:16px;width:560px;background:var(--bg)}.ref{margin-bottom:14px}</style>
+<div class="agpad"><div class="tbody"><div class="agfocus agfocus-surface-open" style="height:500px;width:560px;display:flex;flex-direction:column"><section class="agfocus-surface"><div class="agfocus-surface-bar"><button class="agfocus-close" aria-label="Close">× Close</button><span class="agfocus-surface-title">Signoffs</span></div><div class="agfocus-surface-body"><div class="agfocus-expansion-content"></div></div></section></div></div></div>
+<pre id="out" hidden></pre>
+<script src="../../js/safe-links.js"></script>
+<script>
+// Stubs for the dashboard globals the real Signoff renderer expects; signoffs.js is the real file.
+const state = {agents: [], project: 'demo', projects: [{id: 'b1', slug: 'demo', name: 'Demo'}], session: null};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sjDateTime = d => String(d), aicon = () => '', newRequestId = () => 'req';
+const coreData = r => r.data;
+const calls=[]; let resolveWrite, resolveRead, holdRead=false;
+const post = (url,body) => { if(url==='/root/attention-queue')return Promise.resolve({data:{items:[]}}); calls.push({url,body}); if(url.endsWith('/amend'))return Promise.resolve({status:'ok',data:{signoff:amend(url.split('/').at(-2),body)}}); return new Promise(resolve=>{resolveWrite=()=>{const parts=url.split('/'), id=parts.at(-2), action=parts.at(-1); const signoff={...items[id], state:action==='approve'?'approved':action==='respond'?'answered':'rejected',status_revision:2,decision:{at:new Date().toISOString(),feedback:body.feedback,notes:body.notes,selected_choices:body.selected_choices}};items[id]=signoff; resolve({status:'ok',data:{signoff}});};}); };
+const RULE = 'Never send an email without a Signoff.\nAsk me first, every time.';
+const rule = (id, text, more = {}) => ({id, state: 'pending', category: 'internal_change', operation_name: 'experience_rule_check', review_project_id: null, status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Check your rule', editable_fields: ['text'], rejection_requires_message: false, proposer_agent_id: 'a1', proposer_display_name: 'Worker',
+  created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  preview: {title: 'Check your rule', rationale: '', effects: ["After approval, the rule is marked approved by the owner in the Learning Applier's queue, with this wording. No instruction, skill or tool changes until the weekly review."],
+    changes: [{kind: 'structured', resource: {resource_type: 'experience_rule', resource_id: 'o1', label: 'Rule'}, fields: [
+      {path: 'applies_to', before: null, after: 'all agents <b>'}, {path: 'filed_by', before: null, after: 'Worker <i>'}, {path: 'text', before: null, after: text}]}],
+    resources: [{resource_type: 'experience_rule', resource_id: 'o1', label: 'Rule'}]}, ...more});
+const items = {rule: rule('rule', RULE), other: rule('other', 'Always reply in English.'), broken: rule('broken', '')};
+const amend = (id, body) => { const next = rule(id + '-edited', body.changes.text, {supersedes_id: id, preview: {...rule('x', body.changes.text).preview, owner_edit: {by: 'o1', at: 'now', previous_id: id}}});
+  items[id] = {...items[id], state: 'conflicted', superseded_by_id: next.id}; items[next.id] = next; return next; };
+const api = async url => { if(url==='/session')return {status:'ok',data:{principal_kind:'human',is_owner:true,principal_id:'o1'}}; if(url==='/root/attention-queue')return {data:{items:[]}}; if(url.startsWith('/root/signoffs?'))return {data:{items:Object.values(items).filter(s=>s.state==='pending' && !s.superseded_by_id)}}; if(holdRead)await new Promise(resolve=>resolveRead=resolve); const found=items[decodeURIComponent(url.split('/').pop())]; return {status:'ok',data:{signoff:found}}; };
+const globalAgentProfile = () => null, globalAgentProfiles = [1], identityAvatar = () => '', RW_CHAT_ICON = '', SVG_X = '', SVG_CHECK = '', T_VIEW_ICON = {signoffs: ''};
+const taskProjectLabel = () => 'Demo', projectPortraitHtml = () => '';
+</script>
+<script src="../../js/relative-time.js"></script>
+<script src="../../js/chat-view.js"></script>
+<script src="../../js/signoffs.js"></script>
+<script>
+const embeddedAgentPane=true;
+let leave, dispose;
+let currentSession;
+window.focusExpansion={async open({title,mount}){
+  if(leave && !await leave())return null;
+  if(currentSession)await currentSession.close();
+  const host=document.querySelector('.agfocus-expansion-content');host.replaceChildren();
+  const shell=host.closest('.agfocus-surface');shell.setAttribute('aria-label',title);shell.querySelector('.agfocus-surface-title').textContent=title;
+  const listeners=[];
+  const session={host,isCurrent:()=>currentSession===session,setTitle(value){shell.querySelector('.agfocus-surface-title').textContent=value},setBeforeLeave(fn){leave=fn},onDispose(fn){listeners.push(fn)},async close(){if(!this.isCurrent() || leave && !await leave())return false;dispose?.();dispose=null;leave=null;currentSession=null;listeners.forEach(fn=>fn());host.replaceChildren();return true}};
+  currentSession=session;dispose=mount(host,session);return session;
+}};
+document.querySelector('.agfocus-close').onclick=()=>currentSession?.close();
+const workRelatedChips=()=>{}, toast=()=>{}, accessLost=()=>false, remAttempts=new Map(), remVerifiedOwner=async()=> 'o1';
+</script><script src="../../js/signoff-attention.js"></script><script>
+window.openItem=id=>{return sgFocusOpen('Signoffs',{workspace:()=> 'demo',global:true,execution:true,item:()=>({id,projectId:null})});};
+</script><script>
+window.testHarness={calls,holdRead(){holdRead=true},releaseRead(){holdRead=false;resolveRead?.()},releaseWrite(){resolveWrite?.()},openGeneric(){dispose?.();dispose=null;leave=null;const shell=document.querySelector('.agfocus-surface');shell.setAttribute('aria-label','Reminder');shell.querySelector('.agfocus-surface-title').textContent='Reminder';document.querySelector('.agfocus-expansion-content').replaceChildren(document.createTextNode('Reminder'));}};
+</script>

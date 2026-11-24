@@ -27,7 +27,7 @@ from .inputs import ACKNOWLEDGE_SQL, InputRequests, acknowledges, browser_action
 from .lookup import LOCATED, SignoffLookup
 from . import questions
 from .drafts import SCHEMA as DRAFT_SCHEMA, DraftReviews, is_draft, validate_values
-from .notes import SignoffNotes, eligible
+from .notes import SignoffNotes, eligible, note_required
 from .notifications import SignoffNotifications
 from .ports import ABSENT, SignoffPorts, checked_narrowing
 from .rejection import Rejection
@@ -223,7 +223,7 @@ class SignoffService:
                 "initiated_by_principal_id", "created_at", "updated_at", "updated_sequence",
                 "supersedes_id", "superseded_by_id")
         value = {key: row[key] for key in keys}
-        value["rejection_requires_message"] = not eligible(uow, row["id"])
+        value["rejection_requires_message"] = note_required(self.app, uow, row)
         value["note_count"] = uow.connection.execute("SELECT count(*) FROM signoff_notes WHERE signoff_id=?", (row["id"],)).fetchone()[0]
         value["email_context"] = (self.ports.email.email_context(row,uow)
                                   if row["category"]=="input_request" and self.ports.email is not ABSENT else None)
