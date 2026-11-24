@@ -1,6 +1,6 @@
 schema_version: 1
 id: global-worker
-version: 1.15.0
+version: 1.16.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/global-worker/BRIEF.md

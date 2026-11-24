@@ -73,7 +73,6 @@ def chrome_command(meta: dict, user_agent: str | None = None) -> list[str]:
     tab; ``idle_tabs`` unloads what nobody uses.
     Overlay scrollbars: the page's own scrollbar is part of the picture the owner watches in the live view, and the
     default one is a wide bar with arrows; the overlay kind is a thin thumb that fades out while the page is not scrolling.
-    The owner's sign-in window keeps 3D and its normal scrollbars: it is short-lived and shows whatever the sign-in page needs.
 
     ``user_agent`` is ``normal_user_agent``'s answer for this Chrome. Without one the browser names itself
     ``HeadlessChrome``, as it does when left alone."""
@@ -89,7 +88,7 @@ def normal_user_agent(chrome: str, environment: dict) -> str | None:
 
     A headless Chrome writes ``HeadlessChrome`` where a visible one writes ``Chrome``, and websites refuse a browser for
     that word alone. Chrome's user agent is otherwise only the computer's platform and Chrome's major version, so the
-    browser is told to send exactly what the owner's sign-in window on the same profile sends. The version is asked from
+    browser is told to send exactly what a visible Chrome on the same profile sends. The version is asked from
     the program that is about to start (``--version`` prints it and opens no profile), so it is right after every Chrome
     update. Chrome answers less about its version to a page that asks for the details while this is set; see
     ``docs/BROWSER-MANAGEMENT.md``."""
@@ -116,17 +115,10 @@ def normal_user_agent(chrome: str, environment: dict) -> str | None:
 
 
 def profile_flags(managed: dict) -> list[str]:
-    """The headless browser and the owner's sign-in window must read the same saved cookies, so they share these exactly."""
+    """The flags that decide which profile and cookie store the headless browser reads."""
     keychain = ["--use-mock-keychain"] if sys.platform == "darwin" else []
     return ["--no-first-run", "--no-default-browser-check", "--password-store=basic", *keychain,
             f"--user-data-dir={managed['profile']}", "--disable-sync", "--disable-extensions"]
-
-
-def visible_chrome_command(meta: dict, url: str, debug_port: int) -> list[str]:
-    """A normal window on the agent's profile, with a loopback debugging port used only to notice the window closing."""
-    managed = meta["managed"]
-    return [managed["chrome"], *profile_flags(managed), "--remote-debugging-address=127.0.0.1",
-            f"--remote-debugging-port={debug_port}", url]
 
 
 def socket_fits(temporary: Path) -> bool:
