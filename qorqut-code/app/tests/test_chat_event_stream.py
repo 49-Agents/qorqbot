@@ -202,5 +202,35 @@ class StreamBehaviourTest(unittest.TestCase):
         self.assertEqual(len(chat.reads), ended)
 
 
+def commit(feed):
+    """What ``Database._unit`` reports after a writable unit that changed a row."""
+    feed.publish_commit(captured=[], operation="native_chat.working", project_id=None, wrote=True)
+
+
+class WildcardListenerTest(unittest.TestCase):
+    """``ChangeFeed.add_wildcard_listener``: called on a write by another process only, and never raising into the ticker."""
+
+    def test_a_wildcard_calls_wildcard_listeners_and_a_commit_does_not(self):
+        from qorqut.service.changes import ChangeFeed
+        feed, seen = ChangeFeed(), []
+        feed.add_wildcard_listener(lambda: seen.append("wildcard"))
+        feed.add_commit_listener(lambda: seen.append("commit"))
+        commit(feed)
+        feed.publish_wildcard()
+        self.assertEqual(seen, ["commit", "wildcard"])
+
+    def test_a_failing_wildcard_listener_is_counted_and_the_others_still_run(self):
+        from qorqut.service.changes import ChangeFeed
+        feed, seen = ChangeFeed(), []
+
+        def broken():
+            raise RuntimeError("listener failed")
+        feed.add_wildcard_listener(broken)
+        feed.add_wildcard_listener(lambda: seen.append("ran"))
+        with self.assertLogs("qorqut.service.changes", "ERROR"):
+            feed.publish_wildcard()
+        self.assertEqual((seen, feed.publish_failures), (["ran"], 1))
+
+
 if __name__ == "__main__":
     unittest.main()
