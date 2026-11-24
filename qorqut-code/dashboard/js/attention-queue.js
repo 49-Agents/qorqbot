@@ -144,6 +144,8 @@ const attentionQueue=(()=>{
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
     read:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
     request:'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z',
+    // A rule an agent filed from the owner's words, for the owner to check: a graduation cap.
+    rule:'M12 4.5 2.5 9 12 13.5 21.5 9 12 4.5ZM6.5 11.2v4.1c0 1.5 2.5 2.9 5.5 2.9s5.5-1.4 5.5-2.9v-4.1M21.5 9v5.4M20.7 14.4h1.6l.4 2.1h-2.4z',
   };
   // Something to read and acknowledge: a queue row says so itself, a listed Signoff by its form.
   const toRead=s=>!!s.to_read || s.input?.kind==='acknowledge';
@@ -159,7 +161,7 @@ const attentionQueue=(()=>{
   const signoffIcon=s=>{
     if(s.operation_name==='timeline_file' && timelineIcon())return `<span class="attention-signoff" data-signoff-kind="filing" aria-hidden="true">${timelineIcon()}</span>`;
     if(!toRead(s) && askKind(s)==='browser_action' && browserIcon())return `<span class="attention-signoff" data-signoff-kind="browser" aria-hidden="true">${browserIcon()}</span>`;
-    const kind=toRead(s) ? 'read' : asks(s) ? askKind(s) : (window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
+    const kind=toRead(s) ? 'read' : asks(s) ? askKind(s) : s.operation_name==='experience_rule_check' ? 'rule' : (window.signoffMessageRenderer?.(s.operation_name)?.email || /^(account_email_|email_)(send|reply|forward)$/.test(s.operation_name || ''))
       || ['email.send','email.batch'].includes(s.platform?.submission?.tool) ? 'email'
       : (messageOperations.has(s.operation_name) || window.signoffMessageRenderer?.(s.operation_name)?.message) ? 'message' : 'approval';
     // A question is the font's own bold "?"; every other kind is a drawn icon.

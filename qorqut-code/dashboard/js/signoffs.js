@@ -363,6 +363,31 @@ function sgTimelineFiling(preview) {
     + `</section>` };
 }
 registerSignoffRenderer('timeline_file', { preview: sgTimelineFiling, values: () => null, fieldError: () => 'This field cannot be edited.' });
+// A rule an agent filed from the owner's words, for the owner to check its wording: the rule as filed (the one editable field)
+// and whom it applies to. It is already in the Learning Applier's queue; approving changes no instruction.
+function sgRuleCheck(preview) {
+  const f = sgFrozenFields(preview, 'experience_rule');
+  if (!f || !sgNonblank(f.get('text')) || !sgNonblank(f.get('applies_to'))) return sgUnavailable('rule');
+  const by = sgNonblank(f.get('filed_by')) ? f.get('filed_by') : 'An agent';
+  return { ok: true, hiddenResources: ['experience_rule'], html: `<section class="sg-content sg-rule-check" aria-label="Rule to check">`
+    + `<p class="sg-rule-notice">${esc(by)} filed this rule from your words. It is already in the Learning Applier’s queue; no instruction changes until the weekly review.</p>`
+    + `<span class="sg-content-label">Rule as filed</span>`
+    + sgTextBlock(f.get('text'), 'Rule as filed').replace('class="sg-text"', 'class="sg-text" data-sg-edit-field="text"')
+    + sgField('Applies to', esc(f.get('applies_to'))) + `</section>` };
+}
+registerSignoffRenderer('experience_rule_check', {
+  preview: sgRuleCheck,
+  fieldLabels: { text: 'Rule as filed' },
+  values(s) {
+    const text = sgFrozenFields(s.preview, 'experience_rule')?.get('text');
+    return typeof text === 'string' ? { text } : null;
+  },
+  fieldError(key, value) {
+    if (key !== 'text' || typeof value !== 'string') return 'This field cannot be edited.';
+    if (!value.trim() || value.trim().length > 2000) return 'Enter a rule of 1 to 2,000 characters.';
+    return '';
+  }
+});
 
 // Returns {ok, html} for operations with an exact-content renderer, or null for generic changes.
 function sgProposal(s, effects) {
@@ -651,7 +676,7 @@ function sgCreateView(options) {
       if(block.tagName!=='TEXTAREA') {
         field=document.createElement('textarea');field.className='sg-text sg-message-editor';
         field.dataset.sgEditField=key;field.rows=1;
-        field.value=values[key];field.setAttribute('aria-label',key==='text'?'WhatsApp message text':key==='subject'?'Email subject':'Email body');field.spellcheck=true;
+        field.value=values[key];field.setAttribute('aria-label',SG_MESSAGE_RENDERERS.get(s.operation_name)?.fieldLabels?.[key] || (key==='text'?'WhatsApp message text':key==='subject'?'Email subject':'Email body'));field.spellcheck=true;
         field.onfocus=()=>{
           const current=sg.items.get(s.id);
           if(!current || messageEdits.has(s.id) || !canEditMessage(current))return;
