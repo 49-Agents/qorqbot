@@ -47,9 +47,13 @@ tool is part of `runtime/` and is replaced with it; a folder first installed
 from an older release keeps the copy it downloaded in `tools/` until then.
 Qorqbot's own Chrome is in `instance/operations/.runtime/chrome/`, so updates
 keep it. Qorqbot's own
-configuration, profiles, logs and caches stay here. Existing vendor clients keep
-using their user-owned account configuration. Explicit `CODEX_HOME` and
-`CLAUDE_CONFIG_DIR` settings are respected.
+configuration, profiles, logs and caches stay here. So do the folders Claude Code
+and Codex keep their sign-in and settings in (`instance/home/claude` and
+`instance/home/codex`): Qorqbot has its own sign-in for each, apart from the one
+you use yourself, and your own instructions, skills and memory for those
+programs do not reach your agents. A folder initialized by an earlier version
+keeps using your own folders (`~/.claude`, `~/.codex`). Explicit `CODEX_HOME`
+and `CLAUDE_CONFIG_DIR` settings are respected.
 
 Keep the initialized folder at the same location: generated workspace bindings
 contain absolute paths. Use a short path (roughly 50 bytes or fewer) for Linux

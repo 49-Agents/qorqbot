@@ -123,7 +123,9 @@ async def route(runtime, request, principal_id, parts, request_id):
             from .commands import catalog
             client = request.query_params.get("client") or ""
             workspace = agent_workspace(runtime.paths, agent_id)
-            return ok(await run(partial(catalog, client, home=_probe_environment().get("HOME"), workspace=workspace,
+            environment = _probe_environment()
+            return ok(await run(partial(catalog, client, home=environment.get("HOME"),
+                                        claude_home=environment.get("CLAUDE_CONFIG_DIR"), workspace=workspace,
                                         managed=not mode.is_terminal(runtime.paths))))
         if tail == ["events"]:
             return await _events(chat, request, principal_id, agent_id)

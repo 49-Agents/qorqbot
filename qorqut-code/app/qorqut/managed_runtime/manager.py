@@ -745,6 +745,7 @@ class ManagedRuntime:
         found = self._require_client(client, env, self._label(profile))
         extra = agent_cli_launch.for_executable(item["provider"], found)
         args = list(extra["args"])
+        args += table.always_arguments(client)
         args += table.settings_arguments(client, workspace)
         chosen = launch_options.read(self.paths, agent_id)
         # A stored model of the other client's family (left by an earlier client change, or written by the cutover tool) would make
