@@ -375,7 +375,9 @@ class RegisteredAgentCaller:
 
     @staticmethod
     def exposes(descriptor):
-        return not descriptor.owner_only and "mcp" in descriptor.exposure
+        from qorqut.composition.policy import HOST_STAGED_OPERATIONS
+        return (not descriptor.owner_only and "mcp" in descriptor.exposure
+                and descriptor.name not in HOST_STAGED_OPERATIONS)
 
     def invocation_context(self, actor, *, canonical_name, options, native_binding=None):
         context = self.runtime.agent_context(actor.principal, diagnostic=canonical_name in DIAGNOSTIC_OPERATIONS,

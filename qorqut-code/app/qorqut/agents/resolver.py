@@ -45,7 +45,7 @@ EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
 
 
 def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=()) -> list[dict]:
-    from qorqut.composition.policy import GLOBAL_DISCOVERY_OPERATIONS, resolve_operation_policy
+    from qorqut.composition.policy import GLOBAL_DISCOVERY_OPERATIONS, HOST_STAGED_OPERATIONS, resolve_operation_policy
     overrides = profile.data["tool_policy"]["overrides"]
     defaults = role.manifest["default_tool_policy"]
     granted = {item["id"] for item in profile.data["plugins"]}
@@ -54,6 +54,9 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
     visible = {p.id: visible_plugin_tools(p) for p in packages if p.kind == "plugin"}
     tools = []
     for metadata in registry.entries():
+        if metadata.name in HOST_STAGED_OPERATIONS:
+            # The host stages these as an agent's proposal itself; no agent calls them.
+            continue
         decision = resolve_operation_policy(metadata.name, defaults, overrides, registry, role_id=profile.data["role"]["id"])
         modes = None
         if (metadata.name in (GLOBAL_DISCOVERY_OPERATIONS | getattr(registry, "extension_global_discovery", frozenset()))

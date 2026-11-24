@@ -5,8 +5,12 @@ and application. A run is made when its schedule comes due (``runs.py``), is sta
 other run is running, and ends when the agent finishes it or it is given up as abandoned.
 
 ``experience_observations`` holds what an extraction filed: one issue, complaint or problem each, in the agent's words,
-with pointers to where it was seen. An observation states what went wrong and never a change to make. It is never
-edited. Every observation is filed under one row of ``experience_clusters``, chosen when it is filed: an existing
+with pointers to where it was seen. An observation states what went wrong and never a change to make. A rule an agent
+filed from the owner's words (kind ``owner_complaint``, filed with ``experience_observation_file``) carries the owner's
+check of its wording: ``owner_check`` is ``unchecked`` while the card ``check_signoff_id`` waits, ``approved`` once the
+owner approved it (an edited text then replaces the agent's), or ``rejected`` for a rule the owner rejected after a delta
+proposal already named it; any other rejected rule is deleted. Every other observation has no check and is never edited.
+Every observation is filed under one row of ``experience_clusters``, chosen when it is filed: an existing
 cluster that states the same problem, or a new one. A cluster's rank is the number of observations filed under it.
 
 ``agentic_delta_proposals`` holds the solution proposals of the review: what to change in the agentic layer and why.
@@ -31,6 +35,9 @@ INDEXES = ('experience_runs_state', 'experience_clusters_label', 'experience_obs
 RUN_KINDS = ('extraction', 'review')
 RUN_STATES = ('queued', 'running', 'done', 'abandoned')
 OBSERVATION_KINDS = ('owner_complaint', 'agent_failure', 'tool_problem', 'tool_pattern', 'other')
+# The owner's check of a rule an agent filed from the owner's words (``experience_rule_check``).
+UNCHECKED, CHECK_APPROVED, CHECK_REJECTED = 'unchecked', 'approved', 'rejected'
+OWNER_CHECKS = (UNCHECKED, CHECK_APPROVED, CHECK_REJECTED)
 WAITING, APPROVED, REJECTED = 'waiting_for_approval', 'approved', 'rejected'
 PROPOSAL_STATES = (WAITING, APPROVED, REJECTED)
 
@@ -72,7 +79,10 @@ SCHEMA = (
  evidence_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(evidence_json)),
  occurred_at TEXT,
  created_by TEXT NOT NULL REFERENCES principals(id),
- created_at TEXT NOT NULL
+ created_at TEXT NOT NULL,
+ owner_check TEXT CHECK(owner_check IS NULL OR owner_check IN ('unchecked','approved','rejected')),
+ check_signoff_id TEXT,
+ checked_at TEXT
 )''',
     'CREATE INDEX experience_observations_cluster ON experience_observations(cluster_id, created_at)',
     'CREATE INDEX experience_observations_run ON experience_observations(run_id)',
@@ -109,5 +119,5 @@ SCHEMA = (
 def storage_contribution() -> StorageContribution:
     plain = TableSpec(('id',), mutable=True, revision_column=None)
     return StorageContribution(OWNER, {
-        RUNS: plain, CLUSTERS: plain, OBSERVATIONS: TableSpec(('id',), mutable=False, revision_column=None), PROPOSALS: plain,
+        RUNS: plain, CLUSTERS: plain, OBSERVATIONS: plain, PROPOSALS: plain,
         LINKS: TableSpec(('proposal_id', 'target_type', 'target_id'), mutable=True, revision_column=None)}, schema=SCHEMA)
