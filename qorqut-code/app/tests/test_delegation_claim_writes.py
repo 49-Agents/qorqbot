@@ -21,7 +21,7 @@ from qorqut.service.changes import ChangeFeed
 
 from background_fixture import WriteUnits, rows
 
-CLAIM = ('transaction', 'delegation.dispatch.claim')
+CLAIM = ('write_if_needed', 'delegation.dispatch.claim')
 
 
 class DelegationClaimWrites(unittest.TestCase):
@@ -89,9 +89,8 @@ class DelegationClaimWrites(unittest.TestCase):
 
     def test_a_claim_with_no_assignment_takes_nothing(self):
         self.assertEqual(self.claim(), {'assignment': None, 'reason': None})
-        opened, statements = self.units.take()
-        self.assertEqual(opened, [CLAIM])
-        self.assertEqual(statements, [['BEGIN', 'IMMEDIATE']])
+        # Its unit opens without the writer and, with nothing to change, never takes it.
+        self.assertEqual(self.units.take(), ([CLAIM], []))
 
     def test_a_claim_with_only_a_running_lease_takes_nothing(self):
         identity = self.assignment()
@@ -99,9 +98,30 @@ class DelegationClaimWrites(unittest.TestCase):
         self.units.take()
         self.assertEqual(self.claim(), {'assignment': None, 'reason': None})
         self.assertEqual(self.state(identity), 'running')
-        opened, statements = self.units.take()
-        self.assertEqual(opened, [CLAIM])
-        self.assertEqual(statements, [['BEGIN', 'IMMEDIATE']])
+        self.assertEqual(self.units.take(), ([CLAIM], []))
+
+    def test_a_claim_refused_the_writer_runs_again_and_claims_once(self):
+        identity = self.assignment()
+        session_owner, calls = self.operations.inbox.session_owner, []
+
+        def session_owner_then_commit(ctx, consumer, uow):
+            # Another writer commits while the claim is still reading, so its first write cannot have the writer.
+            calls.append(True)
+            owner = session_owner(ctx, consumer, uow)
+            if len(calls) == 1:
+                with self.database.transaction() as other:
+                    other.connection.execute("UPDATE projects SET name='Renamed' WHERE id=?", (self.project,))
+            return owner
+        self.operations.inbox.session_owner = session_owner_then_commit
+        self.units.take()
+        claim = self.claim()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(claim['assignment']['id'], identity)
+        self.assertEqual(self.state(identity), 'running')
+        events = rows(self.database, 'SELECT event_type FROM operational_assignment_events WHERE assignment_id=?', identity)
+        self.assertEqual([event['event_type'] for event in events].count('claimed'), 1)
+        # The claim's one entry and the other writer's unit; the repeat runs inside the claim's own entry.
+        self.assertEqual(self.units.take()[0], [CLAIM, ('transaction', None)])
 
     def test_a_claim_from_another_session_is_refused_with_nothing_to_take(self):
         with self.assertRaises(DomainError) as raised:
