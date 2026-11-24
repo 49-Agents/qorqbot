@@ -94,14 +94,17 @@ const agentClients = (() => {
   const stillSignedIn = s => !s.switching ? '' : s.previous ? `Still signed in as ${s.previous} until you finish.` : 'Your current sign-in stays until you finish.';
   // Only what changes the shape: the code being submitted is updated in place, so the field keeps its text and focus.
   const signInShape = s => JSON.stringify([s.provider, s.pageUrl, s.userCode, s.acceptsCode]);
-  function signInHtml(s) {
-    const link = s.pageUrl ? `<a class="btn quiet ac-open" href="${esc(s.pageUrl)}" target="_blank" rel="noopener noreferrer" data-ac-open
+  // `actions` is the caller's own buttons for this step (Cancel): they sit at the bottom right, before Connect, the way a Signoff
+  // puts its quiet button before the filled one.
+  function signInHtml(s, actions = '') {
+    const link = s.pageUrl ? `<a class="ac-open" href="${esc(s.pageUrl)}" target="_blank" rel="noopener noreferrer" data-ac-open
       aria-label="Open the ${esc(s.name)} sign-in page in a new tab">Open sign-in page</a>` : '';
     const device = s.userCode ? `<span class="ac-usercode"><span class="ac-usercode-label">Code to type on the page</span><code data-ac-user-code>${esc(s.userCode)}</code></span>
-      <button type="button" class="quiet" data-ac-copy aria-label="Copy the ${esc(s.name)} sign-in code">Copy</button>` : '';
-    const field = s.acceptsCode ? `<input type="text" data-ac-code maxlength="512" placeholder="Paste the code from the page" aria-label="Code from the ${esc(s.name)} sign-in page" autocomplete="off" spellcheck="false">
-      <button type="button" data-ac-finish aria-label="Finish signing in to ${esc(s.name)}">Finish</button>` : '';
-    return `${device}${link}${field}<p class="ac-checking" data-ac-checking role="status" hidden>Checking the code…</p>`;
+      <button type="button" class="ac-copy" data-ac-copy aria-label="Copy the ${esc(s.name)} sign-in code">Copy</button>` : '';
+    const field = s.acceptsCode ? `<input type="text" data-ac-code maxlength="512" placeholder="Paste the code from the page" aria-label="Code from the ${esc(s.name)} sign-in page" autocomplete="off" spellcheck="false">` : '';
+    const connect = s.acceptsCode ? `<button type="button" class="ac-connect" data-ac-finish aria-label="Connect ${esc(s.name)} with this code">Connect</button>` : '';
+    return `${device}${field}<p class="ac-checking" data-ac-checking role="status" hidden>Checking the code…</p>
+      <div class="ac-signin-actions">${link}<span class="ac-signin-gap"></span>${actions}${connect}</div>`;
   }
   // The typed text, and whether the field has focus, survive a repaint of whatever holds the field.
   const captureCode = root => {
@@ -118,11 +121,12 @@ const agentClients = (() => {
     }
   }
   // Brings the host up to date. The markup is rebuilt only when its shape changes; a code that is being checked only disables the field.
-  function paintSignIn(host, s) {
-    if (host.dataset.shape !== signInShape(s)) {
+  function paintSignIn(host, s, actions = '') {
+    const shape = signInShape(s) + actions;
+    if (host.dataset.shape !== shape) {
       const kept = captureCode(host);
-      host.dataset.provider = s.provider; host.dataset.shape = signInShape(s);
-      host.innerHTML = signInHtml(s);
+      host.dataset.provider = s.provider; host.dataset.shape = shape;
+      host.innerHTML = signInHtml(s, actions);
       restoreCode(host, kept);
     }
     const checking = s.codeSubmitted || s.busy, input = host.querySelector('[data-ac-code]'), finish = host.querySelector('[data-ac-finish]');
@@ -315,8 +319,10 @@ const agentClients = (() => {
         <p class="ac-percent" data-ac-percent>${row.indeterminate ? '' : row.progress + '%'}</p>` : '';
     return `<div class="ac-main"><div class="ac-head">${logoHtml(row.provider)}<span class="ac-name">${esc(row.name)}</span><span class="ac-pill" data-tone="${esc(row.tone)}">${esc(row.pill)}</span></div>
       <p class="ac-detail">${esc(row.detail)}</p>${row.notes.map(note => `<p class="ac-note">${esc(note)}</p>`).join('')}${row.signin ? `<div class="ac-code" data-ac-signin data-provider="${esc(row.provider)}"></div>` : ''}${bar}${row.error ? `<p class="ac-error" role="alert">${esc(row.error)}</p>` : ''}</div>
-      <div class="ac-actions">${row.actions.map(action => buttonHtml(row, action)).join('')}</div>`;
+      <div class="ac-actions">${row.signin ? '' : rowActionsHtml(row)}</div>`;
   }
+  // While a sign-in waits, the row's own buttons (Cancel) belong to the sign-in step, at its bottom right.
+  const rowActionsHtml = row => row.actions.map(action => buttonHtml(row, action)).join('');
 
   // Draws the two rows into `container` and drives them. `options.view` is a read the caller already has,
   // `options.onChange(view)` is called after every paint, `options.search` makes the rows findable by Settings search.
@@ -351,7 +357,7 @@ const agentClients = (() => {
           el.dataset.state = row.key; el.dataset.tone = row.tone;
           el.innerHTML = rowHtml(row);
           const slot = el.querySelector('[data-ac-signin]');
-          if (slot) { paintSignIn(slot, row.signin); restoreCode(el, kept); }
+          if (slot) { paintSignIn(slot, row.signin, rowActionsHtml(row)); restoreCode(el, kept); }
           const target = refocus.has(row.provider) && el.querySelector('[data-ac-action]:not([disabled])');
           if (target) { target.focus({preventScroll: true}); refocus.delete(row.provider); }
           // The change is spoken once; the first paint is not an announcement.
@@ -359,7 +365,7 @@ const agentClients = (() => {
           seen.set(row.provider, sig);
         } else if (row.signin) {
           // The same row again: only the code being checked can have changed.
-          paintSignIn(el.querySelector('[data-ac-signin]'), row.signin);
+          paintSignIn(el.querySelector('[data-ac-signin]'), row.signin, rowActionsHtml(row));
         } else if (row.progress !== null) {
           const bar = el.querySelector('.ac-progress');
           if (bar) { bar.setAttribute('aria-valuenow', row.progress); bar.firstElementChild.style.width = row.progress + '%'; }

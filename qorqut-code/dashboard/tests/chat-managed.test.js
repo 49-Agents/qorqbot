@@ -908,7 +908,7 @@ test('Switch sends switch for the product, the notice becomes the sign-in part, 
   await flush();
   assert.equal(t.box().querySelector('[data-ac-code]').value, 'my-code');
   assert.equal(doc.activeElement, t.box().querySelector('[data-ac-code]'));
-  // Finish and Enter both send it; the field then waits.
+  // Connect and Enter both send it; the field then waits.
   t.server.view = {claude: connecting({page_url: 'https://claude.ai/oauth/y', code_submitted: true}), codex: productRow()};
   click(t.box().querySelector('[data-ac-finish]'));
   await flush();

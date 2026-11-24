@@ -214,14 +214,17 @@ const agentRuntime = (() => {
         const kept = clients.captureCode(accountBox), had = accountBox.contains(doc.activeElement) && doc.activeElement.closest?.('button');
         acct.shape = shape;
         accountBox.dataset.state = info.key;
+        // While a sign-in waits, the notice's buttons (Cancel) belong to the sign-in step, at its bottom right.
+        const buttons = info.actions.map(a => `<button type="button" class="${a.kind === 'quiet' ? 'quiet' : ''}" data-account-action="${escapeHtml(a.id)}" data-provider="${escapeHtml(provider)}"${a.disabled ? ' disabled aria-busy="true"' : ''} aria-label="${escapeHtml(a.busy ? a.label : a.aria)}">${escapeHtml(a.label)}</button>`).join('');
+        acct.buttons = buttons;
         accountBox.innerHTML = `<span class="mchat-notice-text">${escapeHtml(info.text)}${info.small ? `<small>${escapeHtml(info.small)}</small>` : ''}${info.error ? `<small class="mchat-notice-error" role="alert">${escapeHtml(info.error)}</small>` : ''}</span>
-          <div class="mchat-notice-actions">${info.actions.map(a => `<button type="button" class="${a.kind === 'quiet' ? 'quiet' : ''}" data-account-action="${escapeHtml(a.id)}" data-provider="${escapeHtml(provider)}"${a.disabled ? ' disabled aria-busy="true"' : ''} aria-label="${escapeHtml(a.busy ? a.label : a.aria)}">${escapeHtml(a.label)}</button>`).join('')}</div>
+          <div class="mchat-notice-actions">${info.signin ? '' : buttons}</div>
           ${info.signin ? `<div class="ac-code" data-ac-signin data-provider="${escapeHtml(provider)}"></div>` : ''}`;
         const slot = accountBox.querySelector('[data-ac-signin]');
-        if (slot) { clients.paintSignIn(slot, info.signin); clients.restoreCode(accountBox, kept); }
+        if (slot) { clients.paintSignIn(slot, info.signin, buttons); clients.restoreCode(accountBox, kept); }
         // A pressed button that was replaced hands focus on to the next one that can still be pressed.
         if (had && !accountBox.contains(doc.activeElement)) accountBox.querySelector('button:not([disabled])')?.focus?.({preventScroll: true});
-      } else if (info.signin) clients.paintSignIn(accountBox.querySelector('[data-ac-signin]'), info.signin);
+      } else if (info.signin) clients.paintSignIn(accountBox.querySelector('[data-ac-signin]'), info.signin, acct.buttons || '');
       accountBox.hidden = false; el.hidden = false;
     }
     function acctSync(problem) {

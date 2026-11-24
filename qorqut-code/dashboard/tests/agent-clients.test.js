@@ -903,7 +903,7 @@ test('the sign-in link opens in a new tab without giving the page this window, a
   ui.panel.stop(); none.panel.stop();
 });
 
-test('Claude: the typed code survives the 2-second re-reads, keeps focus, and Finish sends it; then the field waits', async () => {
+test('Claude: the typed code survives the 2-second re-reads, keeps focus, and Connect sends it; then the field waits', async () => {
   const ui = liveRows(view(switching()));
   const input = () => ui.el('claude').querySelector('[data-ac-code]');
   const typed = input();
@@ -917,7 +917,7 @@ test('Claude: the typed code survives the 2-second re-reads, keeps focus, and Fi
   assert.equal(input().value, 'abc-123', 'text kept even when the part is rebuilt');
   assert.equal(doc.activeElement, input(), 'focus kept');
   assert.equal(ui.el('claude').querySelector('a[data-ac-open]').getAttribute('href'), 'https://claude.ai/other');
-  // Enter sends it; the field and Finish wait while the server checks.
+  // Enter sends it; the field and Connect wait while the server checks.
   ui.server.view = view(switching({page_url: 'https://claude.ai/other', code_submitted: true}));
   press(input(), 'Enter');
   assert.deepEqual(ui.server.acts, [{provider: 'claude', action: 'submit_code', code: 'abc-123'}]);
@@ -929,7 +929,7 @@ test('Claude: the typed code survives the 2-second re-reads, keeps focus, and Fi
   ui.panel.stop();
 });
 
-test('Finish with an empty field sends nothing and puts the cursor in the field; spaces around the code are dropped', async () => {
+test('Connect with an empty field sends nothing and puts the cursor in the field; spaces around the code are dropped', async () => {
   const ui = liveRows(view(switching()));
   const input = ui.el('claude').querySelector('[data-ac-code]');
   click(ui.el('claude').querySelector('[data-ac-finish]'));
@@ -1043,7 +1043,7 @@ test('the notice for an account problem: a limit, a lost sign-in, signing in, a 
 
 test('the styles cover the new parts: marks, the code area, the device code, the notice, narrow and light', () => {
   const css = read('css/agent-clients.css'), chat = read('css/managed-chat.css');
-  for (const rule of ['.ac-logo[data-provider="claude"]', '.ac-code input:focus-visible', '.ac-usercode code', '.ac-code .ac-open:focus-visible']) assert.ok(css.includes(rule), rule);
+  for (const rule of ['.ac-logo[data-provider="claude"]', '.ac-code input:focus-visible', '.ac-usercode code', '.ac-signin-actions .ac-open:focus-visible', '.ac-signin-actions .ac-connect', '.ac-signin-actions button.quiet']) assert.ok(css.includes(rule), rule);
   for (const rule of ['.mchat-notice-actions', '.mchat-notice .ac-code', '.mchat-notice-actions button:focus-visible']) assert.ok(chat.includes(rule), rule);
   assert.match(css, /\.ac-logo \{[^}]*color: var\(--fg\)/);
   assert.ok(!/#[0-9a-f]{3,6}/i.test(css.slice(css.indexOf('.ac-usercode'), css.indexOf('.ac-checking'))), 'the device code uses the app’s colours, so the light theme reads');
