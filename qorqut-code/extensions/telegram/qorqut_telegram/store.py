@@ -453,5 +453,7 @@ def status_counts(uow, now):
         "cleanup_failures": [dict(row) for row in c.execute(
             "SELECT j.message_id, j.error_code, j.reason, m.chat_name, m.chat_id, m.message_thread_id, m.telegram_message_id "
             "FROM telegram_cleanup_jobs j "
-            "JOIN telegram_messages m ON m.id=j.message_id WHERE j.state='failed' ORDER BY j.created_at LIMIT 20")],
+            # A cleanup stopped on an uncertain send has nothing to delete by hand yet; that send is listed with the uncertain ones.
+            "JOIN telegram_messages m ON m.id=j.message_id WHERE j.state='failed' AND j.error_code IS NOT ? "
+            "ORDER BY j.created_at LIMIT 20", (CLEANUP_SEND_UNCERTAIN,))],
     }

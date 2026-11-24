@@ -219,6 +219,15 @@ class WaitingForTheSendTests(CleanupCase):
         self.assertFalse(self.cleanup.one())
         self.assert_stopped_on_uncertain_send(message)
 
+    def test_a_job_stopped_on_an_uncertain_send_is_not_listed_for_manual_deletion(self):
+        message = self.message("uncertain")
+        self.enqueue(message)
+        self.cleanup.one()
+        with self.bridge.read() as uow:
+            counts = store.status_counts(uow, self.bridge.now())
+        self.assertEqual(counts["cleanup_failures"], [])
+        self.assertEqual(counts["cleanup"].get("failed"), 1)
+
     def test_a_job_stuck_in_the_old_endless_requeue_ends_on_its_next_pass(self):
         # The shape the old 30-second re-queue left behind: queued, no attempts, no Telegram message ID, send uncertain.
         message = self.message("uncertain")
