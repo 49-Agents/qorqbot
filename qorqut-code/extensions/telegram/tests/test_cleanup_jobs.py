@@ -202,15 +202,79 @@ class DeletionTests(CleanupCase):
 
 
 class WaitingForTheSendTests(CleanupCase):
-    def test_today_a_job_on_an_uncertain_send_is_put_back_every_30_seconds_for_ever(self):
+    def assert_stopped_on_uncertain_send(self, message):
+        job = self.job(message)
+        self.assertEqual((job["state"], job["error_code"], job["attempts"]), ("failed", store.CLEANUP_SEND_UNCERTAIN, 0))
+        self.assertIsNone(job["completed_at"])
+        self.bridge.api.delete_message.assert_not_called()
+
+    def test_a_job_on_an_uncertain_send_stops_with_nothing_to_delete(self):
         message = self.message("uncertain")
         self.enqueue(message)
-        for _ in range(5):
+        self.assertFalse(self.cleanup.one())
+        self.assert_stopped_on_uncertain_send(message)
+        # It is final: later passes do not pick it up again.
+        self.bridge.advance(3600)
+        self.assertFalse(self.cleanup.one())
+        self.assert_stopped_on_uncertain_send(message)
+
+    def test_a_job_stuck_in_the_old_endless_requeue_ends_on_its_next_pass(self):
+        # The shape the old 30-second re-queue left behind: queued, no attempts, no Telegram message ID, send uncertain.
+        message = self.message("uncertain")
+        job = self.enqueue(message)
+        self.uow.repository("telegram_cleanup_jobs").update(job["id"], {"next_attempt_at": store.plus(self.bridge.now(), 30)},
+                                                            expected_revision=job["revision"])
+        self.bridge.advance(3 * 24 * 3600)
+        job = self.job(message)
+        self.assertEqual((job["state"], job["attempts"], store.message(self.uow, message["id"])["telegram_message_id"],
+                          self.outbox_of(message)["state"]), ("queued", 0, None, "uncertain"))
+        self.assertFalse(self.cleanup.one())
+        self.assert_stopped_on_uncertain_send(message)
+
+    def test_a_job_on_a_queued_send_backs_off_without_spending_attempts_and_deletes_once_sent(self):
+        message = self.message("queued")
+        self.enqueue(message)
+        delays = []
+        for _ in range(11):
             self.assertFalse(self.cleanup.one())
             job = self.job(message)
             self.assertEqual((job["state"], job["attempts"]), ("queued", 0))
-            self.assertEqual(job["next_attempt_at"], store.plus(self.bridge.now(), 30))
-            self.bridge.advance(30)
+            delays.append((store.parse(job["next_attempt_at"]) - self.bridge.time).total_seconds())
+            self.assertFalse(self.cleanup.one(), "not due before its backoff")
+            self.wait_due(message)
+        # The bridge's backoff, doubling from its base to its cap.
+        self.assertEqual(delays, [5.0, 10.0, 20.0, 40.0, 80.0, 160.0, 320.0, 640.0, 900.0, 900.0, 900.0])
+        outbox = store.set_outbox(self.uow, self.outbox_of(message), state="dispatching", attempts=1,
+                                  dispatch_started_at=self.bridge.now())
+        self.assertFalse(self.cleanup.one())
+        self.assertEqual(self.job(message)["attempts"], 0)
+        self.wait_due(message)
+        store.set_outbox(self.uow, outbox, state="sent", provider_message_id=55, sent_at=self.bridge.now())
+        store.update_message(self.uow, store.message(self.uow, message["id"]), telegram_message_id=55)
+        self.assertTrue(self.cleanup.one())
+        self.bridge.api.delete_message.assert_called_once_with(CHAT.chat_id, 55)
+        job = self.job(message)
+        self.assertEqual((job["state"], job["attempts"]), ("deleted", 1))
+
+    def test_a_job_on_a_send_that_never_goes_out_ends_at_48_hours(self):
+        for state in ("queued", "dispatching"):
+            with self.subTest(state=state):
+                start = self.bridge.time
+                message = self.message(state)
+                self.enqueue(message)
+                passes = 0
+                while self.job(message)["state"] == "queued":
+                    self.assertLess(passes, 400, "the wait must end")
+                    self.cleanup.one()
+                    passes += 1
+                    if self.job(message)["state"] == "queued":
+                        self.wait_due(message)
+                job = self.job(message)
+                self.assertEqual((job["state"], job["error_code"], job["attempts"]), ("failed", "too_old_48h", 0))
+                self.assertGreaterEqual(self.bridge.time - start, timedelta(hours=48))
+                self.assertLess(self.bridge.time - start, timedelta(hours=48, seconds=901))
+                # About one look every 15 minutes once at the cap, instead of one every 30 seconds.
+                self.assertLess(passes, 210)
         self.bridge.api.delete_message.assert_not_called()
 
 

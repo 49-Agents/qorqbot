@@ -388,6 +388,11 @@ def enqueue_cleanup(uow, message_id, reason, *, now, not_before=None):
         "next_attempt_at": not_before, "created_at": now, "updated_at": now})
 
 
+# The error code of a cleanup that stopped because its message's send is uncertain: nothing is known to delete until the
+# owner resolves that send, and only that resolution queues it again.
+CLEANUP_SEND_UNCERTAIN = "send_uncertain"
+
+
 # ----- status -----------------------------------------------------------------------------------------------
 
 
