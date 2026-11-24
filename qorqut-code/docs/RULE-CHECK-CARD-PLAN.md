@@ -1,0 +1,103 @@
+# Rule check card: plan
+
+Status: **plan, nothing built.** The design was settled with the owner on 2026-11-23 and 2026-11-24 from a mockup made
+with the dashboard's own stylesheets and Signoff markup. The steps below wait for the owner's go. An item without a
+"Verified" line is not done.
+
+## Why
+
+Every agent files rules and corrections the owner gives in chat into the Learning Applier's queue with
+`experience_observation_file` (see [EXPERIENCE-WORKFLOWS.md](EXPERIENCE-WORKFLOWS.md)). The agent writes the rule in its
+own words, and those words can drift from what the owner said: an agent can add an exception or a condition the owner
+never gave. The owner wants one quick look at the wording while the moment is fresh, without approving anything in chat.
+
+The card is a check of the wording. It is not an approval to change an instruction: that stays the Learning Applier's
+later step, with its own delta proposal.
+
+## What the owner sees
+
+1. **A chip on the attention queue in Focus**, with an unread dot and a graduation cap icon (the Learning Applier's
+   mark). A card shown in chat does not count as seen.
+2. **The card**, a normal Approve/Reject Signoff with the same footer and styling as an email Signoff:
+   - a short line: which agent filed the rule, that it is already in the Learning Applier's queue, and that no
+     instruction changes until the weekly review;
+   - the rule as filed, in a text box the owner can type into, the same way an email body is edited;
+   - who the rule applies to;
+   - a note box, **Reject** and **Approve**. A note makes Reject the main button, as on an email.
+3. The owner's original message is not shown on the card (owner's choice, 2026-11-24).
+
+## What each answer does
+
+| Answer | Effect |
+| --- | --- |
+| Approve | The rule is marked approved by the owner in the queue. If the owner edited the text, the edited text replaces the agent's wording. |
+| Reject | The rule is removed from the queue. The owner's note, if any, goes back to the agent that filed it. |
+| No answer | The rule stays in the queue, marked as not checked. |
+
+No answer changes an instruction, a skill or a tool.
+
+## What gets a card
+
+Only a filing whose kind says the owner said it (`owner_complaint`: a rule, a correction or a complaint from the owner).
+A lesson from an agent's own mistake, a tool problem and a tool pattern are filed as today, with no card.
+
+## Build
+
+### 1. Server
+
+- A mark on a filed observation: not checked, approved by the owner. A rejected one is deleted. This is a new column on
+  `experience_observations`, so it needs a transform in `migration/upgrade.py`, a classification in
+  `operations_history/catalog.py` and the matching change in `test_migration_upgrade.py`.
+- The filing writes the observation at once, as today, and in the same transaction creates the check as an operation
+  Signoff of a new internal operation (working name `experience_rule_check`): `supports_signoff`, held for the owner by
+  default, `editable_fields=("text",)` with a `revise` step, the same mechanism the WhatsApp and email sending
+  operations use for edit-in-place.
+- Applying the approved operation sets the mark and stores the text as approved. A rejection is followed through the
+  Signoff status observer (`SignoffDomains.observe`, as `signoff_updated` does for delta proposals): it deletes the
+  observation and passes the owner's note to the filing agent.
+- The filing tool's result tells the agent that the owner was asked to check the wording, so it does not ask in chat.
+- A filing refused as a repeat stays refused; an observation already linked to a delta proposal cannot be deleted by a
+  late rejection (the rejection then marks it instead; to settle in this step).
+
+### 2. Dashboard
+
+- A Signoff renderer for the operation (`registerSignoffRenderer`): the rule text as the one editable field, the
+  "applies to" row, the notice line.
+- The graduation cap in `attention-queue.js` (`signoffIcon`) for this operation.
+- The mark on the Learning Applier's Observations page (`overseer.js`).
+- The compact card in chat opens the full card in Focus, as other Signoffs do.
+
+### 3. Learning Applier
+
+- `experience_cluster_get` and the weekly review's reading of the standing cluster show the mark, so the Learning
+  Applier can tell an owner-approved rule from one the owner has not looked at.
+- It still does not run when something is filed.
+
+### 4. Instruction texts
+
+- The filing tool's description and Ordubashy's brief: a rule from the owner produces a card for the owner; do not also
+  ask the owner in chat, and follow the rule from then on.
+- Role versions raised for every role whose text changes. Rehearse the instruction update `plan` on a copy before any
+  deploy.
+
+### 5. Tests and checks
+
+- Server: a card for an owner filing and none for the other kinds; approve; approve after an edit; reject with and
+  without a note; no answer; a repeat filing; the upgrade transform.
+- Dashboard: the renderer, the icon, the footer and the edit flow.
+- A real browser check on a fresh instance: an agent files a rule, the chip appears, edit and approve one, reject
+  another, and read the Observations page afterwards.
+- The secret scanner on the branch before it is pushed.
+
+## Choices made while planning (not rulings of the owner)
+
+- Reject deletes the rule outright; no "rejected" record is kept.
+- An edited rule replaces the agent's wording; the agent's original wording is not kept.
+- One card per rule; no grouping when several arrive close together.
+- Rules that an owner accepted through the retired per-instruction Signoff and that still wait in the old application
+  queue are moved into the Learning Applier's queue as approved, as a one-off at deploy time.
+
+## Needs the owner's word
+
+- The pull request and the merge into `dev`.
+- The deploy to a live instance.
