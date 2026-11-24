@@ -447,11 +447,30 @@ function chatViewBrowserCard(ref, url) {
   const onClick = () => toggle(!card.classList.contains('is-expanded'));
   const onKey = event => { if (event.key === 'Escape' && card.classList.contains('is-expanded')) { event.preventDefault(); event.stopPropagation(); toggle(false); } };
   button.addEventListener('click', onClick); card.addEventListener('keydown', onKey);
-  return {el: slot, update: next => { setLabel(next.label); setDisplay(next); return true; }, dispose() {
+  // A card is spared from becoming a chip while it is expanded or holds focus (see paintTyped).
+  const holds = () => card.classList.contains('is-expanded') || card.contains(document.activeElement);
+  return {el: slot, live: true, holds, update: next => { setLabel(next.label); setDisplay(next); return true; }, dispose() {
     observer?.disconnect();
     button.removeEventListener('click', onClick); card.removeEventListener('keydown', onKey);
     frame.src = 'about:blank'; frame.remove(); slot.remove();
   }};
+}
+
+// A browser reference outside the last CHAT_VIEW_LIVE_BROWSERS rows: one line, no iframe, no connection. Clicking it asks for the live card in its place.
+const CHAT_VIEW_LIVE_BROWSERS = 10;
+function chatViewBrowserChip(ref, onOpen) {
+  const button = document.createElement('button');
+  button.type = 'button'; button.className = 'gchat-reference gchat-tab-reference gchat-browser-chip';
+  const paint = next => {
+    const title = String(next.label ?? '').trim() || 'Browser';
+    button.title = title; button.setAttribute('aria-label', `Open ${title} browser`);
+    const icon = document.createElement('span'); icon.className = 'gchat-tab-icon'; icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = CHAT_VIEW_ICONS.browser;
+    const name = document.createElement('span'); name.className = 'gchat-tab-title'; name.textContent = title;
+    button.replaceChildren(icon, name);
+  };
+  paint(ref);
+  button.onclick = () => onOpen?.();
+  return {el: button, live: false, update(next) { paint(next); return true; }, dispose() { button.onclick = null; button.remove(); }};
 }
 
 // Tab: one tab of an agent's own browser, as a button. Its label is the page's own title, which is untrusted, so it is only ever set as
@@ -514,7 +533,8 @@ function chatViewTypedMount(ref, host, options, entryKey) {
   }
   if (ref.type === 'browser') {
     const url = chatViewViewerUrl(ref.viewer_url);
-    return url ? chatViewBrowserCard(ref, url) : unavailable();
+    if (!url) return unavailable();
+    return options.browserLive === false ? chatViewBrowserChip(ref, options.onBrowserOpen) : chatViewBrowserCard(ref, url);
   }
   if (ref.type === 'tab') return chatViewTabTarget(ref) ? chatViewTabButton(ref) : unavailable();
   if (ref.type === 'signoff' && options.mountSignoff) {
@@ -1088,6 +1108,20 @@ function mountChatView(host, options = {}) {
     node._typedGroups?.clear();
     node._typedHost?.remove(); node._typedHost = null;
   }
+  // Keys of the last CHAT_VIEW_LIVE_BROWSERS rows as rendered; a browser reference in any other row is a chip.
+  let liveKeys = new Set();
+  // A row that only moved into or out of that window keeps its signature, so its browser references are looked at again here; rows whose
+  // mode is already right are not repainted (a live iframe survives every other repaint of its message).
+  function refreshBrowserModes() {
+    for (const entry of model.entries) {
+      const node = nodes.get(entry.key);
+      if (!node?._typed?.size) continue;
+      const wanted = liveKeys.has(entry.key);
+      let stale = false;
+      for (const [key, item] of node._typed) if (item.live !== undefined && item.live !== (wanted || !!node._opened?.has(key))) stale = true;
+      if (stale && node._entry) paintTyped(node, node._entry);
+    }
+  }
   function paintTyped(node, entry) {
     // Agent references are retired: one from an older message or server is not drawn.
     const refs = (entry.referenceOnly || (entry.speaker === 'agent' && entry.partial !== true) ? (entry.typedReferences || []) : []).filter(ref => ref.type !== 'agent');
@@ -1102,13 +1136,20 @@ function mountChatView(host, options = {}) {
       if (next.has(key)) continue;
       const available = ref.available !== false, route = chatViewTypedRoute(ref);
       let item = node._typed.get(key);
-      // A change of availability or route replaces the item; only otherwise is it updated in place.
-      if (item && (item.available !== available || item.route !== route)) { item.dispose(); item = null; }
+      // Only the browser cards of the last rows are live; an older one is a chip until the reader opens it, and a card that is expanded or
+      // holds focus is not taken away (it is looked at again on the next render).
+      let live = true;
+      if (ref.type === 'browser' && available) {
+        live = liveKeys.has(entry.key) || !!node._opened?.has(key) || !!(item?.live && item.holds?.());
+      }
+      // A change of availability, route or live/chip mode replaces the item; only otherwise is it updated in place.
+      if (item && (item.available !== available || item.route !== route || (item.live !== undefined && ref.type === 'browser' && item.live !== live))) { item.dispose(); item = null; }
       if (item && item.signature !== signature) {
         if (item.update?.(ref)) item.signature = signature; else { item.dispose(); item = null; }
       }
       if (!item) {
-        item = chatViewTypedMount(ref, node._typedHost, {...options, referenceRuntime}, entry.key);
+        const onBrowserOpen = () => { (node._opened ||= new Set()).add(key); if (node._entry) paintTyped(node, node._entry); };
+        item = chatViewTypedMount(ref, node._typedHost, {...options, referenceRuntime, browserLive: live, onBrowserOpen}, entry.key);
         item.signature = signature; item.available = available; item.route = route;
       }
       next.set(key, item);
@@ -1292,7 +1333,9 @@ function mountChatView(host, options = {}) {
     let appended = 0;
     if (patch.entries) {
       model.entries = patch.entries;
+      liveKeys = new Set(model.entries.slice(-CHAT_VIEW_LIVE_BROWSERS).map(entry => entry.key));
       reconcileEntries(model.entries);
+      refreshBrowserModes();
       const liveReferences = model.entries.flatMap(entry => [
         ...(entry.references || []).filter(ref => !ref.disabled).map(ref => ref.value), ...(entry.typedReferences || []).filter(ref => ref.type === 'table' || ref.type === 'task'),
       ]);
