@@ -331,6 +331,15 @@ def _emit(runtime, uow, row, now):
                            (row["target_agent_id"], event))
 
 
+# Unassigned occurrences whose job succeeded, oldest first. Written to walk the occurrences in their creation index and
+# probe each one's job and membership by key; joining from the jobs side visited every succeeded job on every pass.
+UNASSIGNED_OCCURRENCES = (
+    "SELECT o.* FROM overseer_due_occurrences o "
+    "WHERE NOT EXISTS (SELECT 1 FROM overseer_due_request_occurrences m WHERE m.occurrence_id=o.id) "
+    "AND EXISTS (SELECT 1 FROM jobs j WHERE j.id=o.job_id AND j.state='succeeded') "
+    "ORDER BY o.created_at,o.id LIMIT ?")
+
+
 def reconcile(runtime, uow, *, now=None):
     """Assign at most ``MAX_RECONCILE`` unassigned successful-job occurrences and emit each new request's inbox event.
 
@@ -338,11 +347,7 @@ def reconcile(runtime, uow, *, now=None):
     commit together. A blocked occurrence stays durable with its bounded reason and is retried on a later pass.
     """
     now = now or utc_now()
-    occurrences = uow.connection.execute(
-        "SELECT o.* FROM overseer_due_occurrences o JOIN jobs j ON j.id=o.job_id "
-        "LEFT JOIN overseer_due_request_occurrences m ON m.occurrence_id=o.id "
-        "WHERE m.occurrence_id IS NULL AND j.state='succeeded' ORDER BY o.created_at,o.id LIMIT ?",
-        (MAX_RECONCILE,)).fetchall()
+    occurrences = uow.connection.execute(UNASSIGNED_OCCURRENCES, (MAX_RECONCILE,)).fetchall()
     summary = {"schema_version": 1, "assigned": 0, "blocked": 0, "requests": 0, "reasons": {}}
     for occurrence in occurrences:
         reason = _routine_authority(runtime, uow, occurrence) or _target_authority(
