@@ -40,9 +40,43 @@ class QueueWorkerWrites(unittest.TestCase):
             self.assertIsNone(self.background.run_one(queue=queue))
         self.assertEqual(self.fixture.calls, [])
         self.assertIsNone(self.background.last_error)
+        # Each queue looks first and opens no write unit for nothing.
+        self.assertEqual(self.units.take(), ([], []))
+
+    def after_look(self, change):
+        """Run ``change`` once, right after the pass's look and before its write unit would select."""
+        select, done = self.background._next_job, []
+
+        def next_job(uow, queue=None):
+            found = select(uow, queue)
+            if not done:
+                done.append(True)
+                change()
+            return found
+        self.background._next_job = next_job
+
+    def test_a_job_that_becomes_due_after_the_look_is_run_by_the_next_pass(self):
+        jobs = []
+        self.after_look(lambda: jobs.extend(self.queue_jobs()))
+        self.assertIsNone(self.background.run_one(queue='general'))
+        self.assertEqual(self.job(jobs[0])['state'], 'queued')
+        self.assertEqual(self.background.run_one(queue='general'), {'job_id': jobs[0], 'state': 'succeeded'})
+
+    def test_a_job_gone_by_the_write_unit_is_an_ordinary_empty_result(self):
+        job = self.queue_jobs()[0]
+
+        def cancel():
+            with self.fixture.database.transaction() as uow:
+                uow.connection.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (job,))
+        self.after_look(cancel)
+        self.units.take()
+        self.assertIsNone(self.background.run_one(queue='general'))
+        self.assertIsNone(self.background.last_error)
+        self.assertEqual(self.fixture.calls, [])
+        # The cancelling unit, then the pass's own write unit, which found nothing to claim and wrote nothing.
         opened, statements = self.units.take()
-        self.assertEqual(opened, [('transaction', None)] * len(self.background.queues))
-        self.assertEqual(statements, [['BEGIN', 'IMMEDIATE']] * len(self.background.queues))
+        self.assertEqual(opened, [('transaction', None)] * 2)
+        self.assertEqual(statements[-1], ['BEGIN', 'IMMEDIATE'])
 
     def test_a_job_waiting_for_its_retry_time_is_not_run(self):
         jobs = self.queue_jobs()

@@ -297,6 +297,14 @@ class BackgroundService:
         try:
             if self._stop.is_set():
                 return None
+            if not job_id:
+                # A queue worker polls every few seconds and usually finds nothing: look first, under the same maintenance
+                # check, so that an idle pass opens no write unit. The write unit below selects again; a job gone by
+                # then is the ordinary empty result, and one that becomes due after this look is taken by the next pass.
+                with self.database.read() as uow:
+                    self.app.ensure_writes_open(uow)
+                    if not self._next_job(uow, queue):
+                        return None
             with self.database.transaction() as uow:
                 self.app.ensure_writes_open(uow)
                 if job_id:
