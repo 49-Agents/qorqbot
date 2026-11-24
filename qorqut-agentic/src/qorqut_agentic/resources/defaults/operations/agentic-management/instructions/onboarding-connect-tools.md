@@ -18,10 +18,9 @@ Codex. For each site, one at a time:
 
 1. Say in Chat exactly which website you are opening.
 2. Call `website_sign_in` with action `open` and the site.
-3. The owner signs in themselves in the Chrome window and closes it. The
-   Shared browser is paused for every agent until the window closes. If the reply says `live_view`
-   (this computer has no screen), tell the owner to open your Browser tab in the
-   dashboard and sign in there, and wait until they say it is done. Only if
+3. The site's sign-in page is now open in the Shared browser. Tell the owner to
+   open your Browser tab in the dashboard and sign in there themselves, and wait
+   until they say it is done. Nothing is paused. Only if
    they cannot use it, ask for the password or code and type it yourself; never
    repeat it or write it anywhere else.
 4. Confirm it worked: `website_sign_in` with action `status` only shows that the

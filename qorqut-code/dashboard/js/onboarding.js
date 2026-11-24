@@ -57,11 +57,11 @@ const onboarding = (() => {
     },
     {id: 'connect-overview', chapter: 'connect', title: 'two ways to reach your tools', wide: true, standalone: true,
       body: 'Both are optional.',
-      instructions: ['<b>Agent browser:</b> built into Qorqbot and the default way agents use websites. Works with both Claude Code and Codex. To connect a site, ask Ordubashy, for example “connect my Slack”. It opens Chrome and you sign in yourself, so your password goes only to that website.',
+      instructions: ['<b>Agent browser:</b> built into Qorqbot and the default way agents use websites. Works with both Claude Code and Codex. To connect a site, ask Ordubashy, for example “connect my Slack”. It opens the sign-in page in the agent browser and you sign in yourself, so your password goes only to that website.',
         '<b>Extensions:</b> extra tools that run inside Qorqbot and work with both Claude Code and Codex. Start with treg: one key gives your agents thousands of live data lookups, such as search results and company details. Add your key in Settings under Extensions.'],
       target: () => null,
       // terminals-begin
-      terminals: {instructions: ['<b>Agent browser:</b> built into Qorqbot and the default way agents use websites. Works with Claude Code. To connect a site, ask Ordubashy, for example “connect my Slack”. It opens Chrome and you sign in yourself, so your password goes only to that website.',
+      terminals: {instructions: ['<b>Agent browser:</b> built into Qorqbot and the default way agents use websites. Works with Claude Code. To connect a site, ask Ordubashy, for example “connect my Slack”. It opens the sign-in page in the agent browser and you sign in yourself, so your password goes only to that website.',
         '<b>Extensions:</b> extra tools that run inside Qorqbot and work with Claude Code. Start with treg: one key gives your agents thousands of live data lookups, such as search results and company details. Add your key in Settings under Extensions.']},
       // terminals-end
     },

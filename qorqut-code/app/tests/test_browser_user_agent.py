@@ -80,10 +80,6 @@ class CommandTest(unittest.TestCase):
         self.assertFalse([part for part in supervisor.chrome_command(META) if part.startswith("--user-agent")])
         self.assertEqual(supervisor.chrome_command(META, None), supervisor.chrome_command(META))
 
-    def test_the_sign_in_window_sends_its_own(self):
-        window = supervisor.visible_chrome_command(META, "https://slack.com", 55555)
-        self.assertFalse([part for part in window if part.startswith("--user-agent")])
-
 
 class ServeTest(Folder):
     """The supervisor asks the Chrome it is about to start, and starts it either way."""

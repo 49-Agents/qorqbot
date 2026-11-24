@@ -17,6 +17,7 @@ Per client:
                    the client has no such switch here
 ``always``         the variables every session of the client is started with (``launch_environment``): Claude Code's own
                    memory is off, because what an agent has to keep is filed in Qorqbot's records
+``always_arguments`` the same for a client that takes it on its command line (``always_arguments``): Codex's own memory
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ CLAUDE, CODEX = "claude", "codex"
 # Claude Code's own memory (notes it keeps for itself under its configuration folder) is off in everything Qorqbot starts.
 CLAUDE_MEMORY_OFF = {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
 CLAUDE_MEMORY_SETTING = {"autoMemoryEnabled": False}
+# Codex's own memory (``memories_1.sqlite`` under its folder), the same way, as command-line configuration.
+CODEX_MEMORY_OFF = ("-c", "features.memories=false")
 CLIENTS = (CLAUDE, CODEX)
 NAMES = {CLAUDE: "Claude Code", CODEX: "Codex"}
 
@@ -52,6 +55,9 @@ TABLE = {
     # driver announces the thread (``ready_seconds`` 0): ``session_started`` comes right after ``thread/start``.
     CODEX: {"provider": "codex", "runtime": "codex", "driver": "qorqut.managed_runtime.codex_driver:CodexSession",
             "receipt": "codex", "role": "$role", "settings": ".codex/config.toml", "ready_seconds": 0,
+            # Checked in Codex 0.167.0 (``codex features list``): the override wins over ``memories = true`` in the
+            # ``config.toml`` of the client's own folder. The feature is off unless a configuration turns it on.
+            "always_arguments": list(CODEX_MEMORY_OFF),
             "effort_flags": {name: name for name in ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")}},
 }
 # Whether a driver exists for the client.
@@ -164,6 +170,11 @@ def launch_environment(client, *, own_compaction=False) -> dict:
     that) those that switch the client's automatic compaction off. Nothing for a client with neither (Codex)."""
     item = entry(client)
     return {**(item.get("always") or {}), **((item.get("own_compaction") or {}) if own_compaction else {})}
+
+
+def always_arguments(client) -> list:
+    """The command-line arguments every session of the client is started with, before the others."""
+    return list(entry(client).get("always_arguments") or ())
 
 
 def settings_arguments(client, workspace) -> list:
