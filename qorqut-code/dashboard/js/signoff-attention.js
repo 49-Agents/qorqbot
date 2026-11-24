@@ -189,9 +189,11 @@ window.sgAttentionRefresh = async () => {
 // backgrounded tab can miss its own change-feed connection's relevance while
 // unfocused), and the 60s safety poll bounds staleness if an event is missed.
 if (typeof embeddedAgentPane === 'undefined' || !embeddedAgentPane) {
+  // Coming back to the tab (focus, visibility, the events held back while hidden) reads once; a hidden tab reads on the timer
+  // only while signoffs are on for desktop notifications.
   onChange(['signoffs'], null, sgAttentionRefresh);
-  setInterval(sgAttentionRefresh,60000);
-  window.addEventListener('focus',sgAttentionRefresh);
+  visibleInterval(sgAttentionRefresh,60000,'signoffs');
+  onTabBack(sgAttentionRefresh);
   window.addEventListener('hashchange',sgAttentionPaint);
   sgAttentionRefresh();
 }

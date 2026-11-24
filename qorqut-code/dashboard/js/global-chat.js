@@ -197,7 +197,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   const earlier = [];
   let session = null, conversation = null, inputs = [], older = null, shown, clears = 0, shownInputs = [];
   let cursor = 0, lastRead = 0, composerScope = null, hasLocal = false;
-  let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false;
+  let stream = null, retryTimer = null, retryDelay = 1000, readTimer = null, streamDown = false, parked = false, parkTimer = null;
   let disposed = false, loading = false, again = false, generation = 0, finished = false, reading = 0;
   let bannerText = '', reconnecting = false, olderBusy = false, view = null;
   let contextStatus = null, timelineBlock = null;
@@ -916,6 +916,21 @@ function mountGlobalChat(pane, agent, options = {}) {
 
   // ---- the event stream: replay from the durable cursor, reconnect with backoff, resynchronise on reset
   function closeStream() { if (stream) { stream.close(); stream = null; } }
+  // A hidden tab holds no stream, and the server stops its loop for this chat. The stream only ever says "changed" (the page then reads
+  // the state again) and replays from a durable cursor, so closing it loses nothing: the tab's return reads the state page and
+  // reopens the stream from that page's cursor. Nothing outside the page depends on it (notifications come from js/reply-notifications.js).
+  // A short grace keeps a quick switch between tabs from closing and opening connections.
+  const HIDDEN_STREAM_GRACE = 30000;
+  listen(document, 'visibilitychange', () => {
+    clearTimeout(parkTimer);
+    if (document.hidden) {
+      parkTimer = setTimeout(() => { if (document.hidden && live()) { parked = true; clearTimeout(retryTimer); closeStream(); } }, HIDDEN_STREAM_GRACE);
+      return;
+    }
+    if (!parked) return;
+    parked = false;
+    if (live() && !finished) void load();     // opens the stream again once the page is read
+  });
   function retry(action) {
     clearTimeout(retryTimer);
     if (!live()) return;
@@ -936,6 +951,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   function connect() {
     closeStream();
     if (!live()) return;
+    if (document.hidden) { parked = true; return; }
     const source = new EventSource(evUrl(`${base}/events?cursor=${cursor}`));
     stream = source;
     source.addEventListener('open', () => {
@@ -1048,7 +1064,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       const pairedNode=pairedHost, takenNode=takeover?.node;
       endTakeover(takeover);
       pairedConversation?.dispose?.(); pairedConversation = null; pairedHost = null;
-      closeStream(); clearTimeout(retryTimer); clearTimeout(readTimer);
+      closeStream(); clearTimeout(retryTimer); clearTimeout(readTimer); clearTimeout(parkTimer);
       saveDraft();
       cleanups.splice(0).forEach(cleanup => cleanup());
       view.dispose();

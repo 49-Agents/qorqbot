@@ -345,7 +345,10 @@ const attentionQueue=(()=>{
   }
   // One read at a time; an explicit call in flight records a single trailing read.
   // `ordinary` is a mount: it reuses an in-flight read or a recent success and never records a trailing read.
+  // A hidden tab reads nothing here (nothing outside the page depends on the strip or the queue); the focus and visibility
+  // trigger below reads once when the tab is back, which also starts the timer chain again.
   function refreshSignoffs(ordinary=false){
+    if(document.hidden)return Promise.resolve();
     if(!ordinary)signoffOkAt=0;
     if(!signoffMounts.size)return Promise.resolve();
     if(ordinary && signoffPromise)return signoffPromise;
@@ -439,6 +442,7 @@ const attentionQueue=(()=>{
     }
     // During a save the caller gets the write chain: the deferred read starts after it settles and is not awaited.
     if(saving){refreshAfterSave=true;return writes;}
+    if(document.hidden)return Promise.resolve();
     if(loadPromise){loadAgain=true;return loadPromise;}
     loadPromise=(async()=>{
       try{
@@ -546,7 +550,7 @@ const attentionQueue=(()=>{
   }
   document.addEventListener('reminder-attempts-changed',()=>{if(signoffMounts.size)void refreshReminderRecovery();});
   document.addEventListener('reply-notifications-changed',()=>{if(signoffMounts.size)paintSignoffs();if(mounts.size || signoffMounts.size)void refresh();});
-  window.addEventListener('focus',()=>{if(mounts.size || signoffMounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size)void refreshReminderRecovery();});
+  if(typeof onTabBack==='function')onTabBack(()=>{if(mounts.size || signoffMounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size)void refreshReminderRecovery();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();if(mounts.size || signoffMounts.size)void refresh();});
   return {discardCalendar,signoffViewed,reminderViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
     mountSignoffs(host,name,opener){const calendarListener=()=>void refreshSignoffs();if(typeof calendarChanges!=='undefined')calendarChanges.add(calendarListener);signoffMounts.set(host,{name,opener,calendarListener});host.addEventListener('click',signoffClick);host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refresh(true);void refreshReminderRecovery();

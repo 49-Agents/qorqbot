@@ -65,3 +65,35 @@ document.addEventListener("visibilitychange", () => {
   const due = [...storePending]; storePending.clear();
   due.forEach(storeFire);
 });
+
+// ---------------------------------------------------------------- hidden tab
+// A tab that is not visible asks the server for nothing the person could perceive from outside it. What can be perceived
+// from outside is a desktop notification (js/desktop-notify.js): the reads behind those four kinds keep their pace while the
+// tab is hidden when that kind is on for this browser, and everything else waits until the tab is back.
+// True while the tab is hidden and nothing outside the page depends on this read. `kind` is the desktop-notification kind the
+// read feeds, if any.
+function tabHiddenFor(kind) {
+  if (!document.hidden) return false;
+  return !(kind && typeof desktopNotify !== "undefined" && desktopNotify.wants(kind));
+}
+// Runs `handler` when the tab comes back to the front. Returning raises the visibility change and the window focus together:
+// the handler runs for the first and not again within a second. It never runs while the tab is hidden, and going hidden clears
+// the second, so every return runs it. A window focus with the tab visible all along runs it too. `{focus: false}` listens to
+// the visibility change only.
+function onTabBack(handler, {focus = true} = {}) {
+  let last = -Infinity;
+  const run = () => {
+    if (document.hidden) { last = -Infinity; return; }
+    const now = Date.now();
+    if (now - last < 1000) return;
+    last = now;
+    handler();
+  };
+  document.addEventListener("visibilitychange", run);
+  if (focus) window.addEventListener("focus", run);
+}
+// setInterval that does not run `fn` in a hidden tab (unless `kind` keeps it running, see tabHiddenFor). Whoever returns to the
+// tab refreshes through its own visibility or focus trigger.
+function visibleInterval(fn, ms, kind) {
+  return setInterval(() => { if (!tabHiddenFor(kind)) fn(); }, ms);
+}
