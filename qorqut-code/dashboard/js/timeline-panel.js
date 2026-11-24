@@ -133,21 +133,35 @@ function timelineJournalRows(data) {
     const answer = q.state === 'answered' && q.answer_entry_id ? byId.get(q.answer_entry_id) : null;
     rows.push({id: `q:${q.id}`, at: q.closed_at || '', order: -1 - order, text: q.text, meta: [q.state === 'answered' ? 'Question answered' : 'Question dropped'], notes: answer?.text ? [answer.text] : [], quotes: []});
   });
-  // Newest first; an open question with no date is current, so it leads.
+  return timelineSortRows(rows);
+}
+// Newest first; an open question with no date is current, so it leads.
+function timelineSortRows(rows) {
   const time = row => { const at = Date.parse(row.at); return Number.isFinite(at) ? at : Infinity; };
   return rows.sort((a, b) => time(b) - time(a) || b.order - a.order);
+}
+// Signoff and Action rows (the Project reader's extra rows) carry their section's icon on the rail instead of the dot.
+const TIMELINE_KIND_ICON = {signoff: 'signoffs', action: 'actions'};
+function timelineKindMark(row) {
+  const name = TIMELINE_KIND_ICON[row.kind];
+  if (!name) return '';
+  const icon = typeof T_VIEW_ICON === 'object' && T_VIEW_ICON ? T_VIEW_ICON[name] : '';
+  return icon ? `<span class="agent-timeline-kind" aria-hidden="true">${icon}</span>` : '';
 }
 function timelineJournalRow(row) {
   const chevron = typeof AGENT_TIMELINE_CHEVRON === 'string' ? AGENT_TIMELINE_CHEVRON : '';
   const text = timelineEsc(row.text), meta = (row.meta || []).filter(Boolean), evidence = [...(row.notes || []), ...(row.quotes || []).map(quote => `“${quote}”`)];
-  const content = `<div class="agent-timeline-copy"><p class="agent-timeline-text">${row.struck ? `<s>${text}</s>` : text}</p>${meta.length ? `<p class="agent-timeline-meta">${meta.map(timelineEsc).join(' · ')}</p>` : ''}</div>`;
-  return `<li class="agent-timeline-row" data-entry-id="${timelineEsc(row.id)}"><time${row.at ? ` datetime="${timelineEsc(row.at)}"` : ''}>${timelineEsc(timelineWhen(row.at))}</time>${evidence.length
+  const content = `<div class="agent-timeline-copy${row.open ? ' agent-timeline-link' : ''}"${row.open ? ` role="button" tabindex="0" data-tl-open="${timelineEsc(row.id)}"` : ''}><p class="agent-timeline-text">${row.struck ? `<s>${text}</s>` : text}</p>${meta.length ? `<p class="agent-timeline-meta">${meta.map(timelineEsc).join(' · ')}</p>` : ''}</div>`;
+  const mark = timelineKindMark(row);
+  return `<li class="agent-timeline-row" data-entry-id="${timelineEsc(row.id)}"${mark ? ` data-kind="${timelineEsc(row.kind)}"` : ''}>${mark}<time${row.at ? ` datetime="${timelineEsc(row.at)}"` : ''}>${timelineEsc(timelineWhen(row.at))}</time>${evidence.length
     ? `<details class="agent-timeline-entry"><summary>${content}<span class="agent-timeline-expand">${chevron}</span></summary><div class="agent-timeline-evidence" aria-label="Evidence">${evidence.map(line => `<p>${timelineEsc(line)}</p>`).join('')}</div></details>`
     : content}</li>`;
 }
 // Owns one ``section.agent-timeline``. ``read(args)`` is the history read of the item; ``refresh`` reads it again, every page.
-function timelineJournalMount(host, {read} = {}) {
-  let generation = 0, disposed = false, painted = null;
+// ``extra()`` (optional) returns more dated rows ({id, at, text, meta, item}) merged into the same list; a failing read leaves the
+// journal as it is. ``open(row)`` (optional) is called when such a row is clicked or activated with Enter or Space.
+function timelineJournalMount(host, {read, extra, open: openRow} = {}) {
+  let generation = 0, disposed = false, painted = null, extraRows = new Map();
   host.innerHTML = `<div class="agent-timeline-caption"><p role="status" aria-live="polite" data-status>Loading…</p></div>
     <div class="agent-timeline-error" hidden><p role="alert"></p><button type="button" class="quiet" data-retry>Retry</button></div>
     <div class="agent-timeline-empty" hidden><p class="muted">This timeline is empty. Ordubashy has not filed anything here yet.</p></div>
@@ -164,7 +178,11 @@ function timelineJournalMount(host, {read} = {}) {
         data = {...data, entries: [...(data.entries || []), ...(next.entries || [])]}; cursor = next.next_cursor;
       }
       if (disposed || mine !== generation) return;
-      const rows = timelineJournalRows(data), html = rows.map(timelineJournalRow).join('');
+      let more = [];
+      if (extra) { try { more = await extra() || []; } catch (_) { more = []; } }
+      if (disposed || mine !== generation) return;
+      extraRows = new Map(more.map(row => [row.id, row]));
+      const rows = timelineSortRows([...timelineJournalRows(data), ...more.map((row, index) => ({...row, order: -1000 - index, open: !!openRow}))]), html = rows.map(timelineJournalRow).join('');
       if (html !== painted) {
         const open = new Set([...list.querySelectorAll('details[open]')].map(node => node.closest('[data-entry-id]')?.dataset.entryId));
         list.innerHTML = painted = html;
@@ -179,7 +197,15 @@ function timelineJournalMount(host, {read} = {}) {
       problem.querySelector('p').textContent = "Couldn't load the timeline. Try again"; problem.hidden = false;
     }
   }
-  host.addEventListener('click', event => { if (event.target.closest?.('[data-retry]')) void refresh(); });
+  host.addEventListener('click', event => {
+    if (event.target.closest?.('[data-retry]')) { void refresh(); return; }
+    const link = event.target.closest?.('[data-tl-open]');
+    if (link && openRow) openRow(extraRows.get(link.dataset.tlOpen));
+  });
+  host.addEventListener('keydown', event => {
+    const link = event.target.closest?.('[data-tl-open]');
+    if (link && openRow && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openRow(extraRows.get(link.dataset.tlOpen)); }
+  });
   return {refresh, dispose() { disposed = true; generation++; host.replaceChildren(); }};
 }
 if (typeof window !== 'undefined') Object.assign(window, {timelineHtml, timelinePanelMount, timelineJournalMount});

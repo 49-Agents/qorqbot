@@ -530,6 +530,7 @@ function agentWorkspaceShellStart() {
 
 async function agentJournalOpen(id) {
   if(embeddedAgentPane)return parent.agentJournalOpen(id);
+  if (typeof testingModeEnabled === 'function' && !testingModeEnabled()) return;
   await selectGlobal('journal');
   const mount=_agpad?.journalMount;
   if(!mount || _agpad?.view!=='journal' || !mount.root.isConnected)return;

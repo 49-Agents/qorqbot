@@ -20,6 +20,11 @@
 /* Shared with the navigation report: date and content sit to the right of the dot. */
 .agent-timeline-row,.agent-nav-events li { position:relative; padding:0 0 20px 18px; border-left:1px solid var(--line-2); }
 .agent-timeline-row::before,.agent-nav-events li::before { content:""; position:absolute; left:-4px; top:5px; width:7px; height:7px; border-radius:50%; background:var(--fg-2); }
+/* Signoff and Action rows: a 14px icon on the rail where the dot would be (dot centre: x -0.5, y 8.5). The patch hides the line behind it. */
+.agent-timeline-row[data-kind]::before { content:none; }
+.agent-timeline-kind { position:absolute; left:-7.5px; top:1.5px; display:flex; width:14px; height:14px; box-sizing:content-box; padding:2px 0; margin-top:-2px; background:var(--bg); color:var(--fg-2); }
+.agent-timeline-kind svg { width:14px; height:14px; }
+.agent-timeline-row[data-kind]:hover .agent-timeline-kind, .agent-timeline-row[data-kind]:focus-within .agent-timeline-kind { color:var(--fg); }
 .agent-timeline-row time,.agent-timeline-meta,.agent-nav-events time,.agent-nav-events small { color:var(--fg-2); font-size:11px; }
 .agent-timeline-copy { min-width:0; }
 .agent-timeline-text,.agent-nav-events p { margin:5px 0 0; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
@@ -79,3 +84,5 @@
 .owner-timeline-report-head h3 { margin:0; font-size:12px; font-weight:500; color:var(--fg-2); text-transform:none; letter-spacing:0; }
 .owner-timeline-report-status { margin:0 0 10px; font-size:12px; color:var(--fg-2); }
 .owner-timeline-report-list { list-style:none; margin:0; padding:0 0 0 12px; }
+.agent-timeline-link { cursor: pointer; }
+.agent-timeline-link:hover .agent-timeline-text { text-decoration: underline; text-underline-offset: 3px; }

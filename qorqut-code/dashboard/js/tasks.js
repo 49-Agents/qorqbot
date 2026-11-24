@@ -69,6 +69,8 @@ const T_VIEW_ICON = {
   activity: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path></svg>`,
 };
 T_VIEW_ICON.viewbox = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="11" y="11" width="7" height="5" rx="1"/></svg>`;
+// Action: a lightning bolt (the timeline mark of an Action row).
+T_VIEW_ICON.actions = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.2 2.8 5 13.4h6.2l-.8 7.8 8.6-11h-6.2l.4-7.4Z"/></svg>`;
 T_VIEW_ICON.globalNotes = T_VIEW_ICON.projectNotes = T_VIEW_ICON.notes;
 const embeddedTaskPane = typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane;
 let tView = embeddedTaskPane ? 'tasks' : globalThis.ovInitialView?.() || ls("tview") || "tasks";
@@ -615,17 +617,17 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
   const relatedTask = task => `<button type="button" class="chip task-link-chip" data-open-task="${esc(task.id)}" title="${esc(task.title)}">${stateChip(task)} ${esc(tChipLabel(task.title))}</button>`;
   const children = (t.children || []).map(relatedTask).join(' ');
   return `<div class="tdetail">
-    <div class="task-detail-heading">${taskShowsState(t) ? `<button class="ball task-status-control ${esc(t.status)}" id="td-status" type="button" aria-label="Status: ${esc(T_LABEL[t.status] || t.status)}"><span class="core"></span></button>` : tBall(t)}<button class="dtitle" type="button" title="Edit title">${esc(t.title)}</button><button class="task-snooze-control quiet" id="td-snooze" type="button" aria-label="Snooze task" title="${esc(taskSnoozeLabel(t) || 'Snooze task')}" aria-pressed="${taskSnoozed(t)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></button></div>
+    <div class="task-detail-heading">${taskShowsState(t) ? `<button class="ball task-status-control ${esc(t.status)}" id="td-status" type="button" aria-label="Status: ${esc(T_LABEL[t.status] || t.status)}"><span class="core"></span></button>` : tBall(t)}<div class="dtitle-wrap"><textarea class="dtitle editable-field ef-title" data-ef-single rows="1" maxlength="1000" aria-label="Task title">${esc(t.title)}</textarea>${efActionsHtml({save:'data-title-save',discard:'data-title-discard'})}</div><button class="task-snooze-control quiet" id="td-snooze" type="button" aria-label="Snooze task" title="${esc(taskSnoozeLabel(t) || 'Snooze task')}" aria-pressed="${taskSnoozed(t)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></button></div>
     ${special ? '<section class="record-thread-host" data-record-surface aria-label="Record conversation"><div id="td-progress"></div></section>' : ''}
-    <div class="task-type-detail">${taskTypeFields(t)}<button type="button" class="btn" data-save-type>${['story','customer'].includes(t.task_type) ? 'Save type' : 'Save overview'}</button>${t.email_conversation_id ? ' <button type="button" class="btn" data-task-read-email>Historical email reference</button>' : ''}</div>
+    <div class="task-type-detail">${taskTypeFields(t)}${efActionsHtml({save:'data-save-type',discard:'data-type-discard'})}${t.email_conversation_id ? ' <button type="button" class="btn" data-task-read-email>Historical email reference</button>' : ''}</div>
     <div class="flds">
       ${fld("Assignees", `<button class="selbtn" id="td-who" type="button"><span class="v">${esc(tAssignees(t).map(o=>tAssigneeLabel(o,project)).join(', ') || 'Unassigned')}</span></button>`)}
-      ${fld("Due", `<input id="td-due" type="date" value="${esc(t.due || "")}">`)}
+      ${fld("Due", `<input id="td-due" class="ef-control" type="date" value="${esc(t.due || "")}">`)}
       ${fld("Following", `<button type="button" class="quiet" data-task-follow aria-pressed="${t.following ? 'true' : 'false'}">${t.following ? 'Following' + (t.follow_reason ? ' · ' + esc(String(t.follow_reason).replace(/_/g, ' ')) : '') + ' — unfollow' : 'Not following — follow'}</button>`)}
       ${fld("Snoozed", t.snoozed_until ? esc(taskSnoozeLabel(t) || 'Snooze elapsed ' + workDate(t.snoozed_until)) : none("not snoozed"))}
       ${fld("Tags", `<div data-tag-picker></div><button type="button" class="btn" data-tags-save hidden>Save tags</button>`)}
       ${fld("Parent", `${t.parent ? relatedTask(t.parent) + ' <button type="button" class="quiet" data-parent-clear>Remove parent</button>' : none('none')} <button type="button" class="quiet" data-parent-set>${t.parent ? 'Change parent' : 'Set parent'}</button>`)}
-      ${fld("Children", `${children || none('none')}${t.children_has_more ? ' <span class="muted">and more</span>' : ''}<div class="task-child-add"><input class="inp" aria-label="New child task title" placeholder="Add a child task" maxlength="1000"><button type="button" class="quiet" data-child-add>Add child</button></div>`)}
+      ${fld("Children", `${children || none('none')}${t.children_has_more ? ' <span class="muted">and more</span>' : ''}<div class="task-child-add"><input class="ef-control" aria-label="New child task title" placeholder="Add a child task" maxlength="1000"><button type="button" class="quiet" data-child-add>Add child</button></div>`)}
       ${fld("Depends on", (t.blocked_by || []).length ? `<span class="task-dependency-chips" data-blocked-by>Loading…</span>` : none("nothing"), true, "Informational: a dependency never blocks or changes this task's state.")}
       ${(t.blocks || []).length ? fld("Informs", esc(String((t.blocks || []).length) + ' task' + ((t.blocks || []).length === 1 ? '' : 's')), true) : ""}
       ${fld("Created", stamp(t.created) + " · " + esc(tAssigneeLabel(t.by,project)), true)}
@@ -720,7 +722,14 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
   };
   const wire = el => {
       typeEditor?.dispose();
-      typeEditor=taskTypeMount(el,project,t);
+      typeEditor=taskTypeMount(el,project,t,{saved:true});
+      const typeBox=el.querySelector('.task-type-detail');
+      const typeActions=efActions(typeBox.querySelector('.ef-actions'),{isDirty:()=>!!typeEditor?.dirty()});
+      const typeDiscard=()=>{typeEditor.reset();typeActions.sync();};
+      typeActions.discard.onclick=typeDiscard;
+      efMount(typeBox,{onChange:()=>typeActions.sync(),onEscape:typeDiscard});
+      if(!typeBox._efSynced){typeBox._efSynced=true;typeBox.addEventListener('change',()=>typeActions.sync());}
+      typeActions.sync();
       el.querySelector('[data-save-type]').onclick=async()=>{
         try{
           const changes=taskTypeChanges(t,typeEditor.values());
@@ -750,7 +759,7 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
           // A panel save updates this detail in place: the revision stays current and the conversation is never remounted.
           onTask: fresh => {
             Object.assign(t, fresh);
-            const title = el.querySelector('.dtitle'); if (title && fresh.title) title.textContent = fresh.title;
+            const title = el.querySelector('.dtitle'); if (title && fresh.title) { const live = title._ef; if (live && !live.dirty()) live.set(fresh.title); else if (live) live.saved = fresh.title; else title.value = fresh.title; }
             refreshTasks();
           },
           openTask: link => { m.close(); return taskLinkOpen(link); }});
@@ -787,15 +796,18 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
       el.querySelector('#td-reload').onclick = async()=>{try {const fresh=await tFetchTask(project,t.id);if(!m.el.isConnected)return;
         if (onCanonical && await onCanonical(fresh, {reload: true})) return;
         leave();tDetail(fresh,{...(host ? {host,onClose} : {}), ...(embedded ? {embedded:true,navigate,relatedMount} : {}), onMount, onCanonical});}catch(error){toast(uiFailure(error,{load:true}));}};
-      const title = el.querySelector(".dtitle");
-      title.onclick = () => {
-        const inp = document.createElement("input"); inp.type = "text"; inp.className = "dtitle-in"; inp.value = t.title;
-        title.replaceWith(inp); inp.focus(); inp.select();
-        let done = false;
-        const commit = () => { if (done) return; done = true; const v = inp.value.trim(); if (v && v !== t.title) again(t.id, { set: { title: v } }); else inp.replaceWith(title); };
-        inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); commit(); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done = true; inp.replaceWith(title); } };
-        inp.onblur = commit;
+      // The title is a field like the overview; Save writes it, Discard and Esc restore the Task's title.
+      const title = el.querySelector(".dtitle"), titleBox = title.closest('.dtitle-wrap');
+      const titleField = efField(title, {onChange: () => titleActions.sync()});
+      const saveTitle = () => {
+        const value = title.value.trim();
+        if (!value) { toast('A task needs a title.'); return; }
+        if (value !== t.title) again(t.id, { set: { title: value } }); else discardTitle();
       };
+      const discardTitle = () => { titleField.reset(); titleActions.sync(); };
+      const titleActions = efActions(titleBox.querySelector('.ef-actions'), {isDirty: () => title.value.trim() !== t.title, onSave: saveTitle, onDiscard: discardTitle});
+      Object.assign(titleField.opts, {onEscape: discardTitle, onEnter: () => { if (!titleActions.el.hidden) saveTitle(); }});
+      titleField.saved = t.title;
       const sb = el.querySelector("#td-status");
       taskStateBind(sb, project, t);
       if (sb) sb.onclick = () => dropdown(sb, T_STATES.filter(s => s !== 'needs_input').map(s => ({ value: s, label: T_LABEL[s], html: `<span class="towner">${tDotHtml(s)}<span class="tn">${T_LABEL[s]}</span></span>` })),
@@ -832,7 +844,7 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
     m.dirty=()=> {
       if(typeEditor?.dirty?.()) return true;
       const tags=host.querySelector('[data-tags-save]');
-      return !!tags && !tags.hidden || !!host.querySelector('.dtitle-in');
+      return !!tags && !tags.hidden || !!host.querySelector('.dtitle')?._ef?.dirty();
     };
   }else{
     m=modal({
@@ -844,7 +856,7 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
       onOpen:wire, onClose:teardown,
     });
   }
-  if(m && !m.dirty) m.dirty=()=> !!(typeEditor?.dirty?.() || (m.el?.querySelector('[data-tags-save]:not([hidden])')) || m.el?.querySelector('.dtitle-in'));
+  if(m && !m.dirty) m.dirty=()=> !!(typeEditor?.dirty?.() || (m.el?.querySelector('[data-tags-save]:not([hidden])')) || m.el?.querySelector('.dtitle')?._ef?.dirty());
   if(m) m.changed = message => {
     const box=m.el?.querySelector('#td-error');
     if(box){box.textContent=message;box.hidden=false;}
@@ -963,13 +975,13 @@ let customerFieldSequence = 0;
 // Typed Customer fields shared by the create form, the generic type editor and the Customer context panel.
 function customerFieldsHtml(task = {}) {
   const profile = task.customer_profile || {}, list = `customer-states-${++customerFieldSequence}`;
-  const text = ([key, label]) => `<label>${label}<input class="inp" data-customer-profile="${key}" maxlength="500" autocomplete="off" value="${esc(profile[key] || '')}"></label>`;
+  const text = ([key, label]) => `<label class="ef-label">${label}<input class="editable-field" data-customer-profile="${key}" maxlength="500" autocomplete="off" value="${esc(profile[key] || '')}"></label>`;
   return `<fieldset class="task-customer-fields global-task-wide" data-task-customer hidden><legend>Customer details</legend>
-    <label>Kind<select data-customer-kind><option value="person" ${task.customer_kind !== 'company' ? 'selected' : ''}>Person</option><option value="company" ${task.customer_kind === 'company' ? 'selected' : ''}>Company</option></select></label>
+    <label class="ef-label">Kind<select class="ef-control" data-customer-kind><option value="person" ${task.customer_kind !== 'company' ? 'selected' : ''}>Person</option><option value="company" ${task.customer_kind === 'company' ? 'selected' : ''}>Company</option></select></label>
     ${CUSTOMER_PROFILE_FIELDS.map(text).join('')}
-    <label>State<input class="inp" data-customer-state maxlength="120" list="${list}" autocomplete="off" placeholder="Prospect, active, …" value="${esc(task.customer_state || '')}"></label><datalist id="${list}" data-customer-state-options></datalist>
+    <label class="ef-label">State<input class="editable-field" data-customer-state maxlength="120" list="${list}" autocomplete="off" placeholder="Prospect, active, …" value="${esc(task.customer_state || '')}"></label><datalist id="${list}" data-customer-state-options></datalist>
     <p class="muted" data-customer-state-status role="status" aria-live="polite"></p>
-    <label class="global-task-wide">Notes<textarea class="inp" data-customer-notes rows="4" maxlength="20000">${esc(profile.notes || '')}</textarea></label></fieldset>`;
+    <label class="ef-label global-task-wide">Notes<textarea class="editable-field" data-customer-notes rows="3" maxlength="20000">${esc(profile.notes || '')}</textarea></label></fieldset>`;
 }
 function customerFieldsRead(root) {
   const profile = {};
@@ -1007,8 +1019,8 @@ function customerStatesMount(root, project) {
 // `overviewOwned`: an existing Story or Customer edits its overview in the record panel, so the generic editor hides it.
 function taskTypeFields(task = {}) {
   const ownedElsewhere = !!task.id && ['story', 'customer'].includes(task.task_type);
-  return `<div class="task-type-editor global-task-wide"><label>Type<select data-task-type aria-label="Task type">${Object.entries(TASK_TYPE_LABELS).filter(([value])=>value!=='email' || task.task_type==='email').map(([value,label])=>`<option value="${value}" ${(task.task_type || 'task')===value?'selected':''}>${label}</option>`).join('')}</select></label>
-    <label data-task-overview-field ${ownedElsewhere ? 'hidden' : ''}>Overview<textarea class="inp" data-task-overview aria-label="Overview" rows="3" maxlength="20000" placeholder="Context, current situation and next steps…">${esc(task.overview || '')}</textarea></label>
+  return `<div class="task-type-editor global-task-wide"><label class="ef-label">Type<select class="ef-control" data-task-type aria-label="Task type">${Object.entries(TASK_TYPE_LABELS).filter(([value])=>value!=='email' || task.task_type==='email').map(([value,label])=>`<option value="${value}" ${(task.task_type || 'task')===value?'selected':''}>${label}</option>`).join('')}</select></label>
+    <label class="ef-label" data-task-overview-field ${ownedElsewhere ? 'hidden' : ''}>Overview<textarea class="editable-field" data-task-overview aria-label="Overview" rows="3" maxlength="20000" placeholder="Context, current situation and next steps…">${esc(task.overview || '')}</textarea></label>
     ${customerFieldsHtml(task)}
     </div>`;
 }
@@ -1032,7 +1044,8 @@ function taskConfirm({title, message, confirmLabel}) {
       onClose: () => finish(false)});
   });
 }
-function taskTypeMount(host, project, task = {}) {
+// `saved`: the owner wires Save / Discard for these fields itself (the Task detail); otherwise every field is live.
+function taskTypeMount(host, project, task = {}, {saved = false} = {}) {
   const type=host.querySelector('[data-task-type]');
   const customerBox=host.querySelector('[data-task-customer]'), overviewField=host.querySelector('[data-task-overview-field]');
   const originalType=task.task_type || 'task', ownedElsewhere=!!task.id && ['story','customer'].includes(originalType);
@@ -1053,6 +1066,7 @@ function taskTypeMount(host, project, task = {}) {
   }
   type.onchange=update;
   update();
+  if(!saved && typeof efMount==='function')efMount(host,{live:true});
   return {
     // Converting a Customer away clears its kind, state and profile; the owner confirms that first.
     async confirmConversion(){
@@ -1089,6 +1103,18 @@ function taskTypeMount(host, project, task = {}) {
       else if(task_type==='customer'&&originalType!=='customer')values.customer_kind='person';
       else if(originalType==='customer'&&task_type!=='customer')Object.assign(values,{customer_kind:null,customer_state:'',customer_profile:{}});
       return values;
+    },
+    // Back to the Task as last known: type, overview and Customer fields.
+    reset(){
+      type.value=originalType;
+      const overview=host.querySelector('[data-task-overview]');if(overview)overview.value=task.overview||'';
+      const profile=task.customer_profile||{};
+      host.querySelectorAll('[data-customer-profile]').forEach(input=>{input.value=profile[input.dataset.customerProfile]||'';});
+      const notes=host.querySelector('[data-customer-notes]');if(notes)notes.value=profile.notes||'';
+      const kind=host.querySelector('[data-customer-kind]');if(kind)kind.value=task.customer_kind==='company'?'company':'person';
+      const customerState=host.querySelector('[data-customer-state]');if(customerState)customerState.value=task.customer_state||'';
+      update();
+      if(typeof efSettle==='function')efSettle(host);
     },
     // True while the editor holds a change that has not been saved.
     dirty(){try{return Object.keys(taskTypeChanges(task,this.values())).length>0;}catch(_){return true;}},

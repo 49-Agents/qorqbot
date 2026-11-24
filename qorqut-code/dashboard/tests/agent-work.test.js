@@ -58,12 +58,12 @@ async function fixture(browser, {paired = false} = {}) {
     window.esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
     window.$ = (selector, host = document) => host.querySelector(selector);
     window.coreData = value => value; window.toast = message => { (window.toasts ||= []).push(message); };
-    window.T_VIEW_LABEL = {}; window.T_VIEW_ICON = {tasks: '<svg data-icon="tasks"></svg>', signoffs: '', timeline: '<svg data-icon="timeline"></svg>'};
+    window.T_VIEW_LABEL = {}; window.T_VIEW_ICON = {tasks: '<svg data-icon="tasks"></svg>', signoffs: '', timeline: '<svg data-icon="timeline"></svg>', routines: '<svg data-icon="routines"></svg>'};
     window.AICONS = {globe: '<circle cx="12" cy="12" r="10"/>'};
     window.T_LABEL = {open: 'Open', working: 'Working', blocked: 'Blocked', needs_input: 'Needs your input', waiting: 'Waiting', done: 'Done', cancelled: 'Cancelled'};
     window.TASK_TYPE_LABELS = {task: 'Task', story: 'Story', customer: 'Customer', email: 'Email'};
     window.taskShowsState = task => !['story', 'customer', 'email'].includes(task?.task_type);
-    window.taskTypeIcon = type => `<span class="task-type-icon task-type-icon-${type}"></span>`;
+    window.taskTypeIcon = type => !type || type === 'task' ? '' : `<span class="task-type-icon task-type-icon-${type}"></span>`;
     window.taskSnoozed = task => Boolean(task.snoozed_until && Date.parse(task.snoozed_until) > Date.now());
     window.taskSnoozeLabel = task => 'Snoozed until ' + task.snoozed_until.slice(0, 10);
     window.tDue = task => `<span class="tdl far" title="Due ${task.due}">${task.due}</span>`;
@@ -97,6 +97,13 @@ async function fixture(browser, {paired = false} = {}) {
       '/project/alpha/routines': [{name: 'Alpha paused', scope: 'project', status: 'paused'}, {name: 'Needs a key', scope: 'project', status: 'active', scheduling_available: false, scheduling_unavailable_reason: 'Scheduling needs a key'}, {name: 'Global leak', scope: 'global', status: 'active'}],
       '/project/beta/routines': [],
     };
+    window.INVENTORY = {
+      documents: [{type: 'material', id: 'd1', label: 'Brief', resource_type: 'documents', updated_at: '2026-11-10T10:00:00Z'}, {type: 'material', id: 'd2', label: 'Newest note', resource_type: 'documents', updated_at: '2026-11-20T10:00:00Z'}],
+      tables: [{type: 'table', id: 't1', label: 'Budget', resource_type: 'data_tables', updated_at: '2026-11-15T10:00:00Z'}],
+      automation: [{type: 'routine', id: 'r1', label: 'Weekly sync', resource_type: 'routines', state: 'active', updated_at: '2026-11-01T10:00:00Z'}],
+      actions: [{type: 'action', id: 'ac1', label: 'Sent the invoice', resource_type: 'action_logs', state: 'recorded', updated_at: '2026-11-18T10:00:00Z'}],
+      signoffs: [{type: 'signoff', id: 'sg1', label: 'Approve budget', resource_type: 'signoffs', state: 'pending', updated_at: '2026-11-19T10:00:00Z'}],
+    };
     window.fail = new Set(); window.routineGate = null; window.routineFail = new Set();
     window.calls = [];
     window.api = async url => {
@@ -109,6 +116,9 @@ async function fixture(browser, {paired = false} = {}) {
       calls.push([url, body]);
       if (url.endsWith('/timeline_view')) return {item: body.item, title: 'T', revision: 1, further: {}, state: {goal: {id: 'g', text: 'Goal of ' + body.item.id}, decisions: [], facts: [], progress: null, questions: []},
         entries: [{id: 'g', sequence: 1, action: 'add', kind: 'goal', text: 'Goal of ' + body.item.id, created_at: '2026-11-13T10:00:00Z', sources: [], refs: []}], links: {}, closed_questions: [], next_cursor: null};
+      if (url.endsWith('/project_record_get')) return {project: {id: body.project_id, name: 'Alpha', summary: 'The alpha project.'}};
+      if (url.endsWith('/project_item_get')) return {item: {type: body.item.type, id: body.item.id}};
+      if (url.endsWith('/project_items_list')) return {items: (INVENTORY[body.section] || []).map(row => ({project_id: 'id-alpha', ...row})), next_cursor: null};
       if (url.endsWith('/tasks_get')) return {task: {...Object.values(LAYER).flat().find(row => row.id === body.task_id)}};
       const match = /^(\/root|\/project\/([^/]+))\/operations\/tasks_list$/.exec(url);
       if (!match) throw new Error('unexpected ' + url);
@@ -367,5 +377,132 @@ test('routine reads never delay the task list: a late answer still shows up and 
   // Every Task read was sent before the first Routine read.
   const order = await page.evaluate(() => calls.map(([url]) => url.endsWith('/tasks_list') ? 't' : url.endsWith('/routines') ? 'r' : '').join(''));
   assert.match(order, /^t{3}r{3}$/);
+  assert.deepEqual(errors, []);
+}));
+
+// A Project record's reader gets a Tasks tab (the Work view for that project).
+const projectRecord = () => rwRecordFromItem({source: {type: 'project', id: 'id-alpha', project_id: 'id-alpha', project_slug: 'alpha', label: 'Alpha'}}, {can_thread: true});
+const openProject = async page => {
+  await page.evaluate(() => {
+    document.querySelector('#agpad-body').replaceChildren();
+    window.reader = recordWorkspaceMount(document.querySelector('#agpad-body'), {entry: 'work', independentChat: true});
+  });
+};
+const tabNames = page => page.evaluate(() => [...document.querySelectorAll('.rw-record:not([hidden]) .rw-tab')].map(tab => tab.dataset.rwTab));
+
+test('a Project record has a Tasks tab after its page tab and before Chat; a Task record does not', {skip: !available}, withBrowser(async browser => {
+  const {page, errors} = await fixture(browser);
+  await openProject(page);
+  await page.evaluate(`window.projectRecord = ${projectRecord.toString()}`);
+  await page.evaluate(() => reader.open(window.projectRecord(), {root: true}));
+  await page.locator('.rw-tab[data-rw-tab="tasks"]').waitFor();
+  assert.deepEqual(await tabNames(page), ['timeline', 'dashboard', 'tasks', 'automation', 'chat']);
+  assert.equal(await page.getAttribute('.rw-tab[data-rw-tab="tasks"]', 'aria-label'), 'Tasks');
+  assert.equal(await page.getAttribute('.rw-tab[data-rw-tab="tasks"]', 'title'), 'Tasks');
+  assert.equal(await page.locator('.rw-tab[data-rw-tab="tasks"] svg path').first().getAttribute('d'), 'm3 6 1 1 2-2m-3 8 1 1 2-2m-3 8 1 1 2-2M10 6h11M10 13h11M10 20h11');
+  // The project's open work, grouped, with search and the List/Board toggle, but no project picker.
+  await page.click('.rw-tab[data-rw-tab="tasks"]');
+  await page.locator('.rw-tasks [data-task="alpha:a2"]').waitFor();
+  assert.equal(await page.locator('.rw-tasks button[data-scope]').count(), 0);
+  assert.equal(await page.locator('.rw-tasks [data-layout]').count(), 2);
+  assert.equal(await page.locator('.rw-tasks input[type=search]').count(), 1);
+  assert.equal(await page.locator('.rw-tasks [data-task^="beta:"], .rw-tasks [data-task^=":"]').count(), 0);
+  assert.equal(await page.locator('.rw-tasks .agwork-project').count(), 0);
+  assert.deepEqual(await page.locator('.rw-tasks .tsh h2').allTextContents().then(list => list.slice(0, 3)), ['Needs your input', 'Working', 'Blocked']);
+  await page.click('.rw-tasks [data-layout="board"]');
+  assert.equal(await page.locator('.rw-tasks .agwork-board').count(), 1);
+  await page.click('.rw-tasks [data-layout="list"]');
+  // A row opens that Task in the same reader, with Back to the Project.
+  await page.click('.rw-tasks [data-task="alpha:a2"]');
+  await page.waitForFunction(() => document.querySelector('.rw-record:not([hidden]) .rw-title')?.textContent === 'Fix billing');
+  assert.equal(await page.locator('.rw-record:not([hidden]) .rw-back').isVisible(), true);
+  assert.equal(await page.evaluate(() => document.querySelector('.rw-record:not([hidden])').dataset.rwType), 'task');
+  assert.equal(await page.locator('.rw-record:not([hidden]) .rw-tab[data-rw-tab="tasks"]').count(), 0);
+  await page.click('.rw-record:not([hidden]) .rw-back');
+  await page.waitForFunction(() => document.querySelector('.rw-record:not([hidden])')?.dataset.rwType === 'project');
+  assert.equal(await page.locator('.rw-record:not([hidden]) .rw-tasks [data-task="alpha:a2"]').count(), 1);
+  assert.deepEqual(errors, []);
+}));
+
+test('a Project opens on its Folder tab: title, description and one merged Documents and Tables list, newest first', {skip: !available}, withBrowser(async browser => {
+  const {page, errors} = await fixture(browser);
+  await openProject(page);
+  await page.evaluate(`window.projectRecord = ${projectRecord.toString()}`);
+  await page.evaluate(() => reader.open(window.projectRecord(), {root: true}));
+  await page.locator('.rw-record:not([hidden]) .rw-project-row').first().waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector('.rw-record:not([hidden])').dataset.tab), 'dashboard');
+  assert.equal(await page.locator('.rw-project-name').textContent(), 'Alpha');
+  assert.equal(await page.locator('.rw-project-summary').textContent(), 'The alpha project.');
+  assert.deepEqual(await page.locator('.rw-project-label').allTextContents(), ['Newest note', 'Budget', 'Brief']);
+  assert.deepEqual(await page.locator('.rw-project-row').evaluateAll(rows => rows.map(row => row.dataset.rwItemType)), ['material', 'table', 'material']);
+  // Documents and tables carry different icons.
+  const icons = await page.locator('.rw-project-icon').evaluateAll(nodes => nodes.map(node => node.innerHTML));
+  assert.notEqual(icons[0], icons[1]);
+  assert.equal(icons[0], icons[2]);
+  // The tools row, the section strip and the removed sections are gone.
+  for (const gone of ['[data-project-link]', '[data-project-closed]', '[data-project-archived]', '[data-project-section]', '.rw-project-sections', '.rw-project-tools'])
+    assert.equal(await page.locator(gone).count(), 0, gone);
+  const sections = await page.evaluate(() => calls.filter(([url]) => url.endsWith('/project_items_list')).map(([, body]) => body.section).sort());
+  assert.deepEqual(sections, ['documents', 'tables']);
+  assert.deepEqual(errors, []);
+}));
+
+test('a Project has its own Automation tab between Tasks and Chat holding the old Automation section', {skip: !available}, withBrowser(async browser => {
+  const {page, errors} = await fixture(browser);
+  await openProject(page);
+  await page.evaluate(`window.projectRecord = ${projectRecord.toString()}`);
+  await page.evaluate(() => reader.open(window.projectRecord(), {root: true}));
+  await page.locator('.rw-tab[data-rw-tab="automation"]').waitFor();
+  assert.deepEqual(await tabNames(page), ['timeline', 'dashboard', 'tasks', 'automation', 'chat']);
+  assert.equal(await page.getAttribute('.rw-tab[data-rw-tab="automation"]', 'title'), 'Automation');
+  assert.equal(await page.getAttribute('.rw-tab[data-rw-tab="automation"]', 'aria-label'), 'Automation');
+  // Keyboard: the arrows move through the tabs, Enter opens the focused one.
+  await page.focus('.rw-tab[data-rw-tab="tasks"]');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await page.locator('.rw-automation .rw-project-row').waitFor();
+  assert.equal(await page.locator('.rw-automation').isVisible(), true);
+  assert.equal(await page.locator('.rw-automation .rw-project-label').allTextContents().then(list => list.join()), 'Weekly sync');
+  assert.equal(await page.locator('.rw-automation .rw-project-state').textContent(), 'active');
+  await page.evaluate(() => { document.querySelector('.rw-automation').scrollTop = 0; });
+  await page.click('.rw-tab[data-rw-tab="dashboard"]');
+  assert.equal(await page.locator('.rw-automation').isVisible(), false);
+  // A Task record has no Automation tab.
+  await page.evaluate(() => reader.open({source: {type: 'task', id: 'a2', project_id: 'id-alpha'}, project: 'alpha', label: 'Fix billing', task_type: 'task', can_thread: false}, {root: false}));
+  await page.waitForFunction(() => document.querySelector('.rw-record:not([hidden])')?.dataset.rwType === 'task');
+  assert.equal(await page.locator('.rw-record:not([hidden]) .rw-tab[data-rw-tab="automation"]').count(), 0);
+  assert.deepEqual(errors, []);
+}));
+
+test('a Project timeline merges its Actions and Signoffs into the dated list and a row opens that record', {skip: !available}, withBrowser(async browser => {
+  const {page, errors} = await fixture(browser);
+  await openProject(page);
+  await page.evaluate(`window.projectRecord = ${projectRecord.toString()}`);
+  await page.evaluate(() => reader.open(window.projectRecord(), {root: true}));
+  await page.locator('.rw-tab[data-rw-tab="timeline"]').waitFor();
+  await page.click('.rw-tab[data-rw-tab="timeline"]');
+  await page.locator('.rw-timeline .agent-timeline-row').nth(2).waitFor();
+  assert.equal(await page.locator('.rw-timeline [data-status]').textContent(), '3 entries');
+  assert.deepEqual(await page.locator('.rw-timeline .agent-timeline-text').allTextContents(), ['Approve budget', 'Sent the invoice', 'Goal of id-alpha']);
+  assert.deepEqual(await page.locator('.rw-timeline .agent-timeline-meta').allTextContents(), ['Signoff · pending', 'Action', 'Goal']);
+  await page.click('.rw-timeline [data-tl-open="signoff:sg1"]');
+  await page.waitForFunction(() => document.querySelector('.rw-record:not([hidden])')?.dataset.rwType === 'signoff');
+  assert.equal(await page.locator('.rw-record:not([hidden]) .rw-back').isVisible(), true);
+  await page.click('.rw-record:not([hidden]) .rw-back');
+  await page.waitForFunction(() => document.querySelector('.rw-record:not([hidden])')?.dataset.rwType === 'project');
+  await page.focus('.rw-timeline [data-tl-open="action:ac1"]');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('.rw-record:not([hidden])')?.dataset.rwType === 'action');
+  assert.deepEqual(errors, []);
+}));
+
+test('a Task record keeps its timeline default and has no Actions or Signoffs rows', {skip: !available}, withBrowser(async browser => {
+  const {page, errors} = await fixture(browser);
+  await openProject(page);
+  await page.evaluate(() => reader.open({source: {type: 'task', id: 'a2', project_id: 'id-alpha'}, project: 'alpha', label: 'Fix billing', task_type: 'task', can_thread: false}, {root: true}));
+  await page.locator('.rw-timeline .agent-timeline-row').first().waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector('.rw-record:not([hidden])').dataset.tab), 'timeline');
+  assert.equal(await page.locator('.rw-timeline [data-tl-open]').count(), 0);
+  assert.equal(await page.evaluate(() => calls.filter(([url]) => url.endsWith('/project_items_list')).length), 0);
   assert.deepEqual(errors, []);
 }));

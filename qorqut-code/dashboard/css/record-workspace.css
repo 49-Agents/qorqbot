@@ -44,12 +44,8 @@
 .rw-dashboard .task-inline-actions{display:flex;justify-content:flex-end;margin-bottom:10px}
 .rw-status,.rw-unavailable{margin:8px 2px}
 /* Story overview: readable paragraphs until the owner explicitly edits. */
-.record-overview{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;font-size:12.6px;margin:0 0 6px}
-.record-overview.muted{color:var(--fg-2)}
-.record-overview-edit textarea{display:block;width:100%;box-sizing:border-box}
-.record-story-overview .record-actions{margin-top:6px}
 .rw-dashboard .record-section{margin:0 0 16px}
-.rw-dashboard .record-section .record-section-head{margin:0 0 7px}
+.rw-dashboard .record-section .record-section-head{margin:0 0 6px}
 .rw-dashboard .record-section-head>h4{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-2)}
 .rw-dashboard .record-section>h4{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-2);margin:0 0 7px}
 .rw-dashboard .record-actions{gap:6px}
@@ -57,12 +53,6 @@
 .rw-project-head h3{margin:0 0 4px;font-size:15px;font-weight:600;overflow-wrap:anywhere}
 .rw-project-archived{display:inline-block;margin:0 0 5px;padding:1px 8px;border:1px solid var(--line-2);border-radius:10px;font-size:10px;color:var(--fg-2)}
 .rw-project-summary{margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
-.rw-project-tools{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
-.rw-project-tools button{min-height:26px;padding:3px 9px;font-size:11px}
-.rw-project-tools button[aria-pressed="true"]{background:var(--hover);border-color:var(--fg-3);color:var(--fg)}
-.rw-project-sections{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line-2)}
-.rw-project-sections button{min-height:26px;padding:3px 10px;font-size:11px;border-radius:8px;background:transparent;color:var(--fg-2)}
-.rw-project-sections button[aria-pressed="true"]{background:var(--hover);border-color:var(--fg-3);color:var(--fg)}
 .rw-project-list{display:flex;flex-direction:column;gap:1px;min-width:0}
 .rw-project-row{display:flex;align-items:center;gap:4px;min-width:0;border-radius:7px}
 .rw-project-row:hover{background:var(--hover)}
@@ -79,14 +69,6 @@
 .rw-project-more{margin:8px 0 0;min-height:26px;padding:3px 10px;font-size:11px}
 .rw-project-empty{margin:8px 2px}
 /* Link an existing item: scope, kind, search, real candidates. */
-.rw-link-dialog{display:grid;gap:8px;min-width:0}
-.rw-link-dialog label{display:grid;gap:3px;font-size:11px;color:var(--fg-2)}
-.rw-link-dialog .inp{width:100%;box-sizing:border-box}
-.rw-link-results{display:flex;flex-direction:column;gap:1px;max-height:min(46vh,420px);overflow:auto;min-width:0}
-.rw .rw-link-option{display:flex;align-items:center;gap:7px;width:100%;min-height:32px;height:auto;padding:4px 7px;border:0;border-radius:6px;background:transparent;color:var(--fg);font-weight:400;text-align:left;transform:none}
-.rw .rw-link-option:hover{background:var(--hover)}
-.rw-link-option .rw-project-label{flex:1;min-width:0}
-.rw-link-empty{margin:2px}
 .rw-reader{padding:2px}
 .rw-reader h3{margin:0 0 8px;font-size:14px;font-weight:600;overflow-wrap:anywhere}
 /* A Signoff dashboard is the existing canonical view, full width. */
@@ -195,7 +177,7 @@
 @media(max-width:600px){.rw-activity{padding:12px}.task-activity-entry>summary{gap:6px}.task-activity-actor{max-width:20%}}
 
 /* The selected signoff owns the record reader's scroll frame. */
-.rw-dashboard.record-panel.rw-signoff-panel{display:flex;flex-direction:column;min-height:0;padding:0;overflow:hidden}
+.rw-dashboard.record-panel.rw-signoff-panel{display:flex;flex-direction:column;min-height:0;padding:0 12px;overflow:hidden}
 /* The thread button beside the tabs: the same control as a tab, pressed while the Chat area shows this record's thread. */
 .rw .rw-head .rw-open-thread{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--nav-control-size);height:var(--nav-control-size);min-height:var(--nav-control-size);margin:0;padding:6px;
   border:0;border-radius:var(--nav-control-radius);background:transparent;color:var(--fg-2);transform:none}
@@ -205,8 +187,11 @@
 .rw .rw-head .rw-open-thread:focus-visible{outline:2px solid var(--fg-2);outline-offset:-2px}
 .rw .rw-head .rw-open-thread[hidden]{display:none}
 /* The timeline pane: the panel fills it and the pane scrolls, so the panel drops the height cap and rule it has above a chat. */
+.rw-tasks{display:flex;flex-direction:column;overflow:hidden;padding:10px 12px 0}
+.rw-tasks[hidden]{display:none}
 .rw-timeline{overflow:auto;overscroll-behavior:contain;padding:10px 20px 18px}
 /* The journal brings the rail Timeline page's look; the pane already has the padding. */
 .rw-timeline .agent-timeline{padding:0 2px}
 .rw-timeline .agent-timeline-empty{margin-top:4px}
 .rw-timeline .agent-timeline-empty p{margin:0;font-size:13px;line-height:1.5}
+.rw-automation{overflow:auto;overscroll-behavior:contain;padding:10px 12px;font-size:12px}

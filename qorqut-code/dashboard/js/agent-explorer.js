@@ -11,6 +11,56 @@ const AGEXPLORER_BALL = {open: 'white', working: 'in_progress', blocked: 'blocke
 const agentExplorerFinished = status => status === 'done' || status === 'cancelled';
 const agentExplorerGlobe = () => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${(typeof AICONS === 'object' && AICONS.globe) || ''}</svg>`;
 
+const AGEXPLORER_SPLIT_KEY = 'qorqut.explorer.listWidth', AGEXPLORER_LIST_MIN = 200, AGEXPLORER_READER_MIN = 320, AGEXPLORER_SPLIT_STEP = 16;
+// A draggable divider between the list and the reader of a `.agfiles-layout`. Width is kept in localStorage; double-click resets it.
+function agentSplitMount(layout) {
+  const list = layout.firstElementChild;
+  if (!list) return () => {};
+  const handle = document.createElement('div');
+  handle.className = 'agfiles-split';
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-orientation', 'vertical');
+  handle.setAttribute('aria-label', 'Resize list');
+  handle.tabIndex = 0;
+  layout.appendChild(handle);
+  let width = null;
+  try { const n = Number.parseFloat(localStorage.getItem(AGEXPLORER_SPLIT_KEY)); if (Number.isFinite(n) && n > 0) width = n; } catch (_) { /* Works without storage. */ }
+  const bounds = () => { const total = layout.clientWidth, min = AGEXPLORER_LIST_MIN; return {min, max: Math.max(min, total - AGEXPLORER_READER_MIN), total}; };
+  const clamp = value => { const b = bounds(); return Math.min(b.max, Math.max(b.min, Math.round(value))); };
+  const sync = () => {
+    if (width === null) layout.style.removeProperty('--agfiles-list-w'); else layout.style.setProperty('--agfiles-list-w', clamp(width) + 'px');
+    const b = bounds(), now = Math.round(list.getBoundingClientRect().width);
+    handle.style.left = (now - 3) + 'px';
+    handle.setAttribute('aria-valuemin', String(b.min)); handle.setAttribute('aria-valuemax', String(b.max)); handle.setAttribute('aria-valuenow', String(now));
+  };
+  const save = () => { try { if (width === null) localStorage.removeItem(AGEXPLORER_SPLIT_KEY); else localStorage.setItem(AGEXPLORER_SPLIT_KEY, String(width)); } catch (_) { /* Works without storage. */ } };
+  const set = value => { width = value === null ? null : clamp(value); sync(); save(); };
+  let drag = null;
+  handle.addEventListener('pointerdown', event => {
+    if (event.button > 0) return;
+    event.preventDefault();
+    drag = {x: event.clientX, w: list.getBoundingClientRect().width};
+    try { handle.setPointerCapture(event.pointerId); } catch (_) { /* Not every pointer can be captured. */ }
+    handle.classList.add('dragging'); layout.classList.add('agfiles-resizing');
+  });
+  handle.addEventListener('pointermove', event => { if (drag) set(drag.w + event.clientX - drag.x); });
+  const end = () => { drag = null; handle.classList.remove('dragging'); layout.classList.remove('agfiles-resizing'); };
+  handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end); handle.addEventListener('lostpointercapture', end);
+  handle.addEventListener('dblclick', () => set(null));
+  handle.addEventListener('keydown', event => {
+    const base = list.getBoundingClientRect().width;
+    if (event.key === 'ArrowLeft') set(base - AGEXPLORER_SPLIT_STEP);
+    else if (event.key === 'ArrowRight') set(base + AGEXPLORER_SPLIT_STEP);
+    else if (event.key === 'Home' || event.key === 'Escape') set(null);
+    else return;
+    event.preventDefault();
+  });
+  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : null;
+  if (observer) observer.observe(layout); else window.addEventListener('resize', sync);
+  sync();
+  return () => { observer?.disconnect(); window.removeEventListener('resize', sync); };
+}
+
 function agentExplorerMount(p) {
   if (!agentPaneViewAllowed(p.workspaceRole, 'explorer')) return;
   const host = $('#agpad-body', p.el);
@@ -30,6 +80,7 @@ function agentExplorerMount(p) {
   p.explorerMount = shell;
   const tree = shell.querySelector('.agfiles-tree'), detail = shell.querySelector('.agfiles-detail');
   const live = () => !s.closed && shell.isConnected;
+  agentSplitMount(shell.querySelector('.agfiles-layout'));
   const projects = () => typeof workspaceProjects === 'function' ? workspaceProjects() : (state.projects || []);
   const projectOf = slug => (state.projects || []).find(project => project.slug === slug) || null;
 

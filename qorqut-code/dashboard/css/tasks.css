@@ -215,16 +215,6 @@
 /* ---------------------------------------------------------------- detail modal */
 .tdetail { font-size: 13px; }
 .tdetail .dstat { display: flex; align-items: center; gap: 8px; font-size: 10px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; color: var(--fg-2); margin-bottom: 8px; }
-.tdetail .dtitle {
-  display: block; width: 100%; height: auto; padding: 0; border: 0; border-radius: 0; background: none; text-align: left;
-  font-size: 20px; font-weight: 600; letter-spacing: -.02em; line-height: 1.3; color: var(--fg); cursor: text; word-break: break-word;
-  transition: opacity .15s ease;
-}
-.tdetail .dtitle:hover { background: none; transform: none; opacity: .85; color: var(--fg); }
-.tdetail .dtitle-in {
-  width: 100%; font-size: 20px; font-weight: 600; letter-spacing: -.02em; line-height: 1.3; color: var(--fg);
-  background: none; border: 0; border-bottom: 1px solid rgba(247,247,247,.3); border-radius: 0; padding: 0 0 2px; outline: none; box-shadow: none;
-}
 .tdetail .did { font: 11px var(--mono); color: var(--fg-3); margin: 4px 0 18px; }
 .tdetail .flds { display: grid; grid-template-columns: 92px 1fr; gap: 8px 14px; align-items: center; margin-bottom: 18px; }
 .tdetail .k { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-2); opacity: .7; }
@@ -233,7 +223,6 @@
 .tdetail .v .none { color: var(--fg-3); }
 .tdetail .selbtn { height: 32px; min-width: 180px; }
 .tdetail .selbtn .v { display: inline-flex; align-items: center; gap: 8px; }
-.tdetail input[type=date] { height: 32px; padding: 0 10px; font: 12px var(--mono); }
 .tdetail .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 /* tag chips live in the detail only (rows carry no chips); a chip opens the tag picker */
 .tdetail .chip {
@@ -312,8 +301,13 @@
 .task-assignee-column .identity-founder { color:rgba(220, 75, 75, .8); }
 
 /* Compact source detail controls, shared by the pane and task dialog. */
-.task-detail-heading{display:flex;align-items:flex-start;gap:9px;margin:0 0 16px}
-.tdetail .task-detail-heading .dtitle,.tdetail .task-detail-heading .dtitle-in{font-size:14px;line-height:1.45;font-weight:600;flex:1;min-width:0}
+/* Status icon | title | snooze icon; the title's Save / Discard row sits in the second row and ends at the content column's right edge. */
+.task-detail-heading{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:9px;align-items:start;margin:0 0 16px}
+.tdetail .task-detail-heading .dtitle-wrap{display:contents}
+.task-detail-heading>:first-child{grid-column:1;grid-row:1}
+.task-detail-heading .dtitle{grid-column:2;grid-row:1}
+.task-detail-heading .task-snooze-control{grid-column:3;grid-row:1}
+.task-detail-heading .ef-actions.ef-actions{grid-column:2/4;grid-row:2;justify-self:end}
 .tdetail .task-status-control,.tdetail .task-snooze-control{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;min-height:28px;padding:5px;background:transparent;border:0;color:var(--fg-2)}
 .tdetail .task-status-control:hover,.tdetail .task-snooze-control:hover{background:var(--hover);transform:none;color:var(--fg)}
 .tdetail .task-status-control .sdot{width:12px;height:12px}
@@ -323,7 +317,6 @@
 .tdetail .k{font-size:9px;letter-spacing:.08em}
 .tdetail .v{font-size:12px}
 .tdetail .selbtn{height:29px;min-width:0;width:auto;max-width:100%;font-size:12px;padding-left:9px}
-.tdetail input[type=date]{height:29px;font-size:11px}
 .tdetail h4{font-size:10px;letter-spacing:.08em;margin-top:16px}
 .task-dependency-chips{display:flex;flex-wrap:wrap;gap:5px}
 .tdetail .task-dependency-chips .chip{height:auto;min-height:25px;max-width:100%;white-space:normal;text-align:left;padding:4px 8px;line-height:1.4;font-size:11px}
@@ -365,8 +358,7 @@
 .task-type-editor{display:grid;gap:12px;width:100%;min-width:0}
 .task-type-editor label{display:grid;gap:5px;font-size:12px;color:var(--fg-2)}
 .task-type-editor select,.task-type-editor textarea{width:100%;min-width:0;color:var(--fg)}
-.task-type-editor textarea{resize:vertical;max-height:260px}
-.task-type-detail{margin:14px 0}.task-type-detail>button{margin-top:10px}
+.task-type-detail{margin:14px 0}
 .task-overview-text{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--fg)}
 
 .task-type-icon{display:inline-block;flex:none;width:18px;height:18px;vertical-align:middle;margin-right:6px;background:var(--fg-2);mask-position:center;mask-repeat:no-repeat;mask-size:contain}
