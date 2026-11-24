@@ -132,7 +132,7 @@ def worker_command(assignment, registration, registration_path, *, executable="c
     ])
     # This child has no project config, Apps, plugins, code mode, browser, web
     # search, native subagents, parent MCP entry, or writable shell sandbox.
-    feature_override = "features={apps=false,plugins=false,code_mode=false,multi_agent=false,browser_use=false,shell_tool=false}"
+    feature_override = "features={apps=false,plugins=false,code_mode=false,multi_agent=false,browser_use=false,shell_tool=false,memories=false}"
     command = [executable]
     if thread_id is None:
         command.extend(["exec", "--json", "--ignore-user-config", "--skip-git-repo-check",
