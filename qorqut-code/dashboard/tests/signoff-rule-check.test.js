@@ -31,11 +31,11 @@ function chip() {
 
 test('a rule check chip wears the graduation cap on the 24 grid and other chips keep theirs', () => {
   const q = chip();
-  const icon = q.signoffIcon({kind: 'signoff', id: 's1', title: 'Check your rule', operation_name: 'experience_rule_check'});
+  const icon = q.signoffIcon({kind: 'signoff', id: 's1', title: 'Approve proposed learning', operation_name: 'experience_rule_check'});
   assert.match(icon, /data-signoff-kind="rule"/);
   assert.match(icon, /viewBox="0 0 24 24"[^>]*stroke-width="1.7"[^>]*stroke-linejoin="round" stroke-linecap="round"/);
   assert.ok(icon.includes(`<path d="${CAP}"/>`), 'the graduation cap path');
-  assert.equal(q.label({kind: 'signoff', title: 'Check your rule', operation_name: 'experience_rule_check'}), 'Review · Check your rule');
+  assert.equal(q.label({kind: 'signoff', title: 'Approve proposed learning', operation_name: 'experience_rule_check'}), 'Review · Approve proposed learning');
   assert.match(q.signoffIcon({kind: 'signoff', operation_name: 'generic_change'}), /data-signoff-kind="approval"/);
   // Read and question rows keep their own icon even if they ever carried this operation's name.
   assert.match(q.signoffIcon({kind: 'signoff', operation_name: 'experience_rule_check', to_read: true}), /data-signoff-kind="read"/);
@@ -58,7 +58,7 @@ browserTest('the card shows the notice, the rule as filed, whom it applies to an
     const chipEl = page.locator('[data-signoff-key="rule"]');
     await chipEl.waitFor();
     assert.equal(await chipEl.locator('.attention-signoff').getAttribute('data-signoff-kind'), 'rule');
-    assert.equal(await chipEl.getAttribute('aria-label'), 'Review Check your rule');
+    assert.equal(await chipEl.getAttribute('aria-label'), 'Review Approve proposed learning');
     await chipEl.click();
     await page.waitForSelector('.sg-row[data-id="rule"] .sg-detail-footer [data-sg="approve"]:not([disabled])');
     const card = await page.evaluate(() => {
@@ -74,7 +74,7 @@ browserTest('the card shows the notice, the rule as filed, whom it applies to an
         note: row.querySelector('textarea.sg-feedback').getAttribute('aria-label'), compactFlag: window.signoffMessageRenderer('experience_rule_check').message,
         overflow: document.documentElement.scrollWidth > innerWidth};
     });
-    assert.match(card.title, /Check your rule/);
+    assert.match(card.title, /Approve proposed learning/);
     assert.equal(card.notice, 'Worker <i> filed this rule from your words. It is already in the Learning Applier’s queue; no instruction changes until the weekly review.');
     assert.deepEqual(card.labels, ['Rule as filed', 'Applies to']);
     assert.equal(card.text, 'Never send an email without a Signoff.\nAsk me first, every time.');

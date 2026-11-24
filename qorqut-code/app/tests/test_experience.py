@@ -498,7 +498,7 @@ class RuleCheckTests(ExperienceCase):
         signoff = self.signoff(row['check_signoff_id'])
         self.assertEqual((signoff['operation_name'], signoff['state'], signoff['category'], signoff['proposer_agent_id']),
                          ('experience_rule_check', 'pending', 'internal_change', self.worker))
-        self.assertEqual(signoff['preview']['title'], 'Check your rule')
+        self.assertEqual(signoff['preview']['title'], 'Approve proposed learning')
         (preview,) = signoff['preview']['changes']
         self.assertEqual(preview['resource'], {'resource_type': 'experience_rule', 'resource_id': row['id'], 'label': 'Rule'})
         with self.runtime.database.read() as uow:
