@@ -35,8 +35,40 @@ class RoutineTickWrites(unittest.TestCase):
         self.assertEqual(rows(self.fixture.database, 'SELECT * FROM routine_slots'), self.slot)
         self.assertEqual(self.scheduler.errors, [])
         opened, statements = self.units.take()
-        self.assertEqual(opened, [('transaction', 'jobs_routines_tick')] * 3)
-        self.assertEqual(statements, [['BEGIN', 'IMMEDIATE']] * 3)
+        # Each tick opens its unit without the writer and, finding nothing due, never takes it.
+        self.assertEqual(opened, [('write_if_needed', 'jobs_routines_tick')] * 3)
+        self.assertEqual(statements, [])
+
+    def test_a_tick_refused_the_writer_runs_again_and_does_its_work_once(self):
+        with self.fixture.database.transaction() as uow:
+            uow.connection.execute("UPDATE routines SET job_kind='example.not_installed' WHERE id=?", (self.identity,))
+        broken, working = self.identity, routine(self.fixture)
+        self.assertEqual(self.scheduler.tick(START), [])
+        targets, calls = self.fixture.routines.targets, []
+
+        def targets_then_commit(ctx, row, uow):
+            # Another writer commits while the tick is still reading, so its first write cannot have the writer.
+            calls.append(row['id'])
+            if len(calls) == 1:
+                with self.fixture.database.transaction() as other:
+                    other.connection.execute("UPDATE installation SET updated_at='2026-11-01T09:00:59.000000Z' WHERE id='service'")
+            return targets(ctx, row, uow)
+        self.fixture.routines.targets = targets_then_commit
+        self.units.take()
+        queued = self.scheduler.tick(START + timedelta(minutes=1))
+        self.assertEqual(calls, [working, working])
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(self.jobs(), [{'id': queued[0], 'kind': PROGRAM, 'state': 'queued'}])
+        self.assertEqual([error['routine_id'] for error in self.scheduler.errors], [broken])
+        # The tick's one entry and the other writer's unit; the repeat runs inside the tick's own entry.
+        opened, _ = self.units.take()
+        self.assertEqual(opened, [('write_if_needed', 'jobs_routines_tick'), ('transaction', None)])
+
+    def test_a_routine_that_becomes_due_between_ticks_is_queued_by_the_next(self):
+        self.assertEqual(self.scheduler.tick(START), [])
+        with self.fixture.database.transaction() as uow:
+            uow.connection.execute("UPDATE routine_slots SET slot='2026-11-01T08:59:00Z',wall_slot='2026-11-01T08:59'")
+        self.assertEqual(len(self.scheduler.tick(START)), 1)
 
     def test_a_due_slot_queues_one_job(self):
         queued = self.scheduler.tick(START + timedelta(minutes=1))
