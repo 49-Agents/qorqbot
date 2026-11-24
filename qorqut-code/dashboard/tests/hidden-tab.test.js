@@ -74,15 +74,32 @@ test('visibleInterval does not run while hidden and runs on its pace again when 
   await p.setHidden(false); await p.advance(60000); assert.equal(runs, 3);
 });
 
-test('a read begun after the tab came back covers the triggers that follow within a second, and nothing later', async () => {
+test('onTabBack runs once for the visibility change and the focus of one return, and again for every later return', async () => {
   const p = page();
-  assert.equal(p.context.tabReturnCovered(0), false, 'the tab was never hidden');
+  let runs = 0;
+  p.context.onTabBack(() => runs++);
+  await p.setHidden(true); assert.equal(runs, 0, 'never while hidden');
+  await p.setHidden(false); assert.equal(runs, 1);
   await p.setHidden(true); await p.setHidden(false);
-  const returned = p.now;
-  assert.equal(p.context.tabReturnCovered(returned - 5000), false, 'a read from before the return does not cover it');
-  assert.equal(p.context.tabReturnCovered(returned), true);
+  assert.equal(runs, 2, 'a quick second return is a return of its own');
+});
+
+test('onTabBack: a window focus with the tab visible all along runs the handler, and two within a second run it once', async () => {
+  const p = page();
+  let runs = 0;
+  p.context.onTabBack(() => runs++);
+  p.fire('window', 'focus'); assert.equal(runs, 1);
+  p.fire('window', 'focus'); assert.equal(runs, 1);
   await p.advance(1001);
-  assert.equal(p.context.tabReturnCovered(returned), false, 'a trigger a second later is an ordinary one');
+  p.fire('window', 'focus'); assert.equal(runs, 2);
+});
+
+test('onTabBack with focus off listens to the visibility change only', async () => {
+  const p = page();
+  let runs = 0;
+  p.context.onTabBack(() => runs++, {focus: false});
+  p.fire('window', 'focus'); assert.equal(runs, 0);
+  await p.setHidden(true); await p.setHidden(false); assert.equal(runs, 1);
 });
 
 // ---------------------------------------------------------------- reply notifications
@@ -124,11 +141,9 @@ test('reply notifications: with replies on for desktop notifications a hidden ta
 function reminderPage(notify) {
   class Node { constructor() { this.style = {setProperty() {}}; this.classList = {add() {}, remove() {}}; this.isConnected = true; } addEventListener() {} setAttribute() {} appendChild() {} remove() {} }
   const p = page({notify, extra: {
-    embeddedAgentPane: true, state: {session: {principal_id: 'owner'}, projects: []}, loadSession: async () => ({principal_id: 'owner', principal_kind: 'human', is_owner: true}),
+    embeddedAgentPane: false, state: {session: {principal_id: 'owner'}, projects: []}, loadSession: async () => ({principal_id: 'owner', principal_kind: 'human', is_owner: true}),
     post: async url => { p.requests.push(url); return {reminders: []}; }, api: async () => ({}), requestAnimationFrame() {}, $: () => new Node(), agentGlyph: () => ''}});
   p.run('relative-time.js', 'reminders.js');
-  vm.runInContext('this.poller = reminderNotifications', p.context);
-  p.context.poller.start();
   return p;
 }
 
@@ -141,8 +156,6 @@ test('reminders: a hidden tab with reminders off asks for nothing and the return
   await p.advance(600000);
   assert.deepEqual(p.requests, []);
   await p.setHidden(false);
-  p.context.poller.start();           // what the page's visibility listener does on return (this page does not install it)
-  await flush();
   assert.equal(count(p, '/root/operations/reminders_list'), 1);
   await p.advance(30000);
   assert.equal(count(p, '/root/operations/reminders_list'), 2);
@@ -176,9 +189,10 @@ test('signoff strip: a hidden tab with signoffs off reads nothing; the return re
   p.context.storeNotify('signoffs', null);          // an event held back while hidden
   await p.advance(1000);
   assert.deepEqual(p.requests, []);
+  p.requests.length = 0;
   await p.setHidden(false);
   await p.advance(1000);
-  assert.equal(count(p, '/me/attention'), 2, 'one overview and one deliveries read for the visibility change, the focus and the held event');
+  assert.equal(count(p, '/me/attention'), 4, 'the return reads overview and deliveries once, and the held event one trailing read');
 });
 
 test('signoff strip: with signoffs on for desktop notifications a hidden tab still reads every 60 seconds', async () => {
@@ -191,7 +205,7 @@ test('signoff strip: with signoffs on for desktop notifications a hidden tab sti
 });
 
 // ---------------------------------------------------------------- Focus attention queue and strip
-function queuePage() {
+function queuePage({mount = true} = {}) {
   const host = () => ({isConnected: true, innerHTML: '', addEventListener() {}, removeEventListener() {}, contains: () => false, querySelectorAll: () => [], querySelector: () => null});
   const p = page({extra: {
     api: async url => { p.requests.push(url); return {items: []}; }, post: async () => ({items: []}), loadSession: async () => ({}),
@@ -199,12 +213,12 @@ function queuePage() {
     embeddedAgentPane: true, requestAnimationFrame() {}, $: () => host(), agentGlyph: () => ''}});
   p.run('relative-time.js', 'reminders.js', 'attention-queue.js');
   vm.runInContext('this.queue = attentionQueue', p.context);
-  p.context.queue.mount(host());
-  p.context.queue.mountSignoffs(host(), () => '', () => {});
+  p.mountViews = () => { p.context.queue.mount(host()); p.context.queue.mountSignoffs(host(), () => '', () => {}); };
+  if (mount) p.mountViews();
   return p;
 }
 
-test('Focus queue and strip: a hidden tab reads nothing; the return reads each once for the visibility change, the focus and the held events', async () => {
+test('Focus queue and strip: a hidden tab reads nothing and the return reads each once', async () => {
   const p = queuePage();
   await flush();
   assert.equal(count(p, '/root/attention-queue'), 1);
@@ -213,15 +227,117 @@ test('Focus queue and strip: a hidden tab reads nothing; the return reads each o
   p.requests.length = 0;
   await p.advance(600000);
   assert.deepEqual(p.requests, [], 'neither the 10 s queue timer nor the 60 s strip timer reads while hidden');
-  p.context.storeNotify('signoffs', null);
-  p.context.document.dispatchEvent();
-  await p.advance(1000);
-  assert.deepEqual(p.requests, []);
   await p.setHidden(false);
   await p.advance(1000);
+  assert.equal(count(p, '/root/attention-queue'), 1, 'the visibility change and the focus share one read');
+  assert.equal(count(p, '/root/signoffs'), 1);
+});
+
+test('Focus queue and strip: events held back while hidden add one trailing read each, as they always did', async () => {
+  const p = queuePage();
+  await flush();
+  await p.setHidden(true);
+  await p.advance(600000);
+  p.context.storeNotify('signoffs', null);
+  await p.advance(1000);
+  p.requests.length = 0;
+  await p.setHidden(false);
+  await p.advance(1000);
+  assert.equal(count(p, '/root/attention-queue'), 2);
+  assert.equal(count(p, '/root/signoffs'), 2);
+});
+
+test('Focus queue and strip: an event that arrives right after a return is read, not dropped', async () => {
+  const p = queuePage();
+  await flush();
+  await p.setHidden(true); await p.advance(600000); await p.setHidden(false); await p.advance(300);
+  p.requests.length = 0;
+  p.context.storeNotify('signoffs', null);
+  await p.advance(400);
   assert.equal(count(p, '/root/attention-queue'), 1);
   assert.equal(count(p, '/root/signoffs'), 1);
+});
+
+// ---------------------------------------------------------------- every periodic read comes back after a long hide
+const away = async p => { await p.setHidden(true); await p.advance(300000); await p.setHidden(false); await p.advance(1000); p.requests.length = 0; };
+
+test('after five minutes hidden the Focus queue is read every 10 s again and the strip every 60 s', async () => {
+  const p = queuePage();
+  await flush(); await away(p);
+  await p.advance(60000);
+  assert.equal(count(p, '/root/attention-queue'), 6);
+  assert.equal(count(p, '/root/signoffs'), 1);
+});
+
+test('a tab that returns while no Focus view is mounted starts the reads when a view mounts later', async () => {
+  const p = queuePage({mount: false});
+  await flush(); await away(p);
+  await p.advance(120000);
+  assert.deepEqual(p.requests, []);
+  p.mountViews(); await flush();
+  assert.equal(count(p, '/root/attention-queue'), 1);
   p.requests.length = 0;
-  await p.advance(10000);
-  assert.equal(count(p, '/root/attention-queue'), 1, 'the 10 second pace is back once the tab is');
+  await p.advance(60000);
+  assert.equal(count(p, '/root/attention-queue'), 6);
+  assert.equal(count(p, '/root/signoffs'), 1);
+});
+
+test('a view that mounts while the tab is hidden reads when the tab is back and keeps its pace', async () => {
+  const p = queuePage({mount: false});
+  await flush();
+  await p.setHidden(true); await p.advance(300000);
+  p.mountViews(); await flush();
+  assert.deepEqual(p.requests, []);
+  await p.setHidden(false); await p.advance(1000);
+  assert.equal(count(p, '/root/attention-queue'), 1);
+  p.requests.length = 0;
+  await p.advance(60000);
+  assert.equal(count(p, '/root/attention-queue'), 6);
+});
+
+test('after five minutes hidden the signoff strip is read every 60 s again', async () => {
+  const p = attentionPage();
+  await flush(); await away(p);
+  await p.advance(120000);
+  assert.equal(count(p, '/me/attention'), 4);
+});
+
+test('after five minutes hidden reply notifications are read every 10 s again', async () => {
+  const p = replyPage();
+  await flush(); await away(p);
+  await p.advance(30000);
+  assert.equal(count(p, '/root/reply-notifications'), 3);
+});
+
+test('after five minutes hidden reminders are polled every 30 s again', async () => {
+  const p = reminderPage();
+  await flush(); await away(p);
+  await p.advance(90000);
+  assert.equal(count(p, '/root/operations/reminders_list'), 3);
+});
+
+// ---------------------------------------------------------------- Context tab
+test('after five minutes hidden the Context tab is read every 60 s again, and a return with another tab open reads nothing', async () => {
+  const text = source('context.js');
+  const start = text.indexOf('let _ctxHeld = null;'), end = text.indexOf('// The footer speaks only about the Context queue');
+  assert.ok(start > 0 && end > start);
+  const p = page({extra: {state: {tab: 'context', project: 'p1', ctx: {}}, isTopic: () => false, ctxDataFits: () => true, ctxPaint() {}, ctxQueueRefresh() {},
+    ctxSig: () => '', ctxShow() {}, ctxLoadData: async () => { p.requests.push('ctx'); return {}; }, _ctxTimer: null, _ctxUnwatch: null, _ctxLastSig: ''}});
+  p.context.$ = () => ({isConnected: true});
+  vm.runInContext(text.slice(start, end), p.context);
+  p.context.ctxWatch();
+  await p.advance(60000);
+  assert.equal(count(p, 'ctx'), 1);
+  await p.setHidden(true); await p.advance(300000);
+  assert.equal(count(p, 'ctx'), 1, 'nothing while hidden');
+  await p.setHidden(false); await flush();
+  assert.equal(count(p, 'ctx'), 2, 'one read on the return');
+  await p.advance(120000);
+  assert.equal(count(p, 'ctx'), 4, 'and the 60 s pace is back');
+  // Another tab is open when the tab returns: the held read does nothing, and the chain ends as it does on any tab change.
+  await p.setHidden(true); await p.advance(300000);
+  p.context.state.tab = 'tasks';
+  const before = count(p, 'ctx');
+  await p.setHidden(false); await flush();
+  assert.equal(count(p, 'ctx'), before);
 });

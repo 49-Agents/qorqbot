@@ -22,7 +22,7 @@ function renderer() {
     sgNonblank: v => typeof v === 'string' && v.trim() !== '',
     sgUnavailable: what => ({ok: false, html: `unavailable ${what}`}),
     sgField: (label, html) => `<div data-field="${label}">${html}</div>`};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));
   vm.runInContext(text.slice(start, end), context);
   return registered.timeline_file;
 }
@@ -73,7 +73,7 @@ function queue(list, details = {}) {
     },
     coreData: x => x, toast() {}, accessLost: () => false, newRequestId: () => 'key', URLSearchParams, Date, AbortController,
     remAttempts: new Map(), remVerifiedOwner: async () => 'owner', remindersOwnerDue: async () => []};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));
   vm.runInContext(source('attention-queue.js') + '\nthis.queue=attentionQueue;', context);
   return {context, handlers, posts, opened, host};
 }

@@ -694,7 +694,7 @@ const reminderNotifications = (() => {
 })();
 if (typeof embeddedAgentPane === 'undefined' || !embeddedAgentPane) {
   reminderNotifications.start();
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) void reminderNotifications.start(); });
+  onTabBack(() => void reminderNotifications.start(), {focus: false});
 }
 
 // The Reminders button: the owner's upcoming reminders with creation and per-reminder controls.

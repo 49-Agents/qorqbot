@@ -148,12 +148,12 @@ let _ctxLastSig = "";
 // own project: a fresh subscription replaces the old one (see the
 // clear above and at renderContext's top) on every load, so there is no reason to
 // accept another project's over-match here.
-// The read a hidden tab skipped, and when the last read began; the tab's return runs it once (ctxWatch).
-let _ctxHeld = null, _ctxReadAt = 0;
-document.addEventListener("visibilitychange", () => {
+// The read a hidden tab skipped; the tab's return runs it once (ctxWatch).
+let _ctxHeld = null;
+onTabBack(() => {
   const held = _ctxHeld; _ctxHeld = null;
-  if (held && !document.hidden && !tabReturnCovered(_ctxReadAt)) void held();
-});
+  if (held) void held();
+}, {focus: false});
 function ctxWatch() {
   if (typeof _ctxUnwatch === 'function') _ctxUnwatch();
   clearTimeout(_ctxTimer); _ctxTimer = null;
@@ -162,7 +162,7 @@ function ctxWatch() {
     if (state.tab !== "context" || state.project !== project || !tree.isConnected) return;
     // A hidden tab does not re-read; the visibility handler below reads once when it is back.
     if (document.hidden) { _ctxHeld = tick; return; }
-    _ctxHeld = null; _ctxReadAt = Date.now();
+    _ctxHeld = null;
     let d2;
     try { d2 = await ctxLoadData(project); } catch (_) {
       if (state.tab === "context" && state.project === project && tree.isConnected) _ctxTimer = setTimeout(tick, 60000);
@@ -175,7 +175,7 @@ function ctxWatch() {
     ctxQueueRefresh();
     _ctxTimer = setTimeout(tick, 60000);
   };
-  _ctxUnwatch = typeof onChange === 'function' ? onChange(['documents', 'jobs_routines', 'context_queue'], project, () => { if (!tabReturnCovered(_ctxReadAt)) void tick(); }) : null;
+  _ctxUnwatch = typeof onChange === 'function' ? onChange(['documents', 'jobs_routines', 'context_queue'], project, tick) : null;
   _ctxTimer = setTimeout(tick, 60000);
 }
 

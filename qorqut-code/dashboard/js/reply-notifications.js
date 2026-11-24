@@ -1,6 +1,6 @@
 // Owner reply notifications and shared unread markers, independent of the current page.
 const replyNotifications=(()=>{
-  let communicationCursor=null,loaded=false,inflight=null,trailing=false,items=[],signature='',seen=new Set(),timer,startedAt=0;
+  let communicationCursor=null,loaded=false,inflight=null,trailing=false,items=[],signature='',seen=new Set(),timer;
   try{seen=new Set(JSON.parse(sessionStorage.getItem('reply-notifications:seen') || '[]'));}catch(_){}
   const key=s=>`${s?.type}:${s?.project_id || 'global'}:${s?.id}`;
   const unread=source=>loaded?items.some(item=>item.kind==='thread' && item.unread && key(item.source)===key(source)):null;
@@ -51,7 +51,6 @@ const replyNotifications=(()=>{
   // Order-independent comparison of every field, so a changed flag or preview counts as well as a new ID.
   const canonical=value=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([x],[y])=>x<y?-1:x>y?1:0)):v);
   async function load(){
-    startedAt=Date.now();
     try{
       const [response]=await Promise.all([api('/root/reply-notifications'+(communicationCursor===null?'':'?communications_after='+communicationCursor)),loadGlobalAgentProfiles()]);
       const data=coreData(response);
@@ -102,6 +101,6 @@ const replyNotifications=(()=>{
     if(inflight){trailing=true;return inflight;}
     return run();
   }
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden && !tabReturnCovered(startedAt))void refresh();});
+  onTabBack(()=>void refresh(),{focus:false});
   return {start:poll,refresh,unread,unreadAgent,unreadChat,paint:paintDots,open};
 })();

@@ -25,7 +25,7 @@ test('calendar events join the queue an hour before they start, retire two hours
       if (url.endsWith('calendar_events_list')) return {events:structuredClone(events),next_cursor:null};
       throw new Error('Unexpected request ' + url);
     }};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));
   vm.runInContext(source('san-juan-time.js') + '\n' + source('global-calendar.js') + '\nthis.load = calendarQueueLoad; this.configure = sjConfigure;', context);
   context.configure({operational_timezone:'UTC'});
   const now = Date.parse('2026-11-11T02:54:00Z'), result = await context.load(now);
@@ -58,7 +58,7 @@ function strip(options = {}) {
     calendarEventSpan:event => ({start:Date.parse(event.start), end:Date.parse(event.start) + (event.id === 'past' ? -20 : 30) * 60000}),
     post:(url, args) => new Promise((resolve, reject) => writes.push({url, args, resolve, reject}))};
   const host = {isConnected:true, innerHTML:'', hidden:true, addEventListener(name, fn){listeners[name] = fn;}, removeEventListener(name){delete listeners[name];}, contains:() => true};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,tabReturnCovered:()=>false}));
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));
   vm.runInContext(source('attention-queue.js') + '\nthis.queue = attentionQueue;', context);
   const chip = key => ({dataset:{calendarKey:key}, closest(selector){return selector === '[data-calendar-key]' ? this : null;}});
   return {context, host, writes, toasts, opened, notes, listeners, calendarChanges, rows, chip};
