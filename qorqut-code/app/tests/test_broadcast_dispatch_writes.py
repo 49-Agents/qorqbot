@@ -1,4 +1,5 @@
 """The broadcast dispatcher's check on a real store: what an idle check opens, and what a check with work does."""
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -68,9 +69,46 @@ class BroadcastDispatchWrites(unittest.TestCase):
         self.assertIsNone(self.dispatcher.tick())
         self.assertEqual(self.deliveries(), [])
         self.assertEqual(self.stored(later)['occurrence_count'], 0)
+        # It looks first and opens no write unit for nothing.
+        self.assertEqual(self.units.take(), ([], []))
+
+    def after_look(self, change):
+        """Run ``change`` right after the check's due look, before its write unit opens.
+
+        A check reads twice before it may write: pending deliveries left by an earlier check, then what is due."""
+        read, calls = self.database.read, []
+
+        @contextmanager
+        def counted(*args, **kwargs):
+            calls.append(True)
+            with read(*args, **kwargs) as uow:
+                yield uow
+            if len(calls) == 2:
+                self.database.read = read
+                change()
+        self.database.read = counted
+
+    def test_a_broadcast_due_after_the_look_is_claimed_by_the_next_check(self):
+        made = []
+        self.after_look(lambda: made.append(self.broadcast(next_due_at='2026-11-01T09:00:00Z')))
+        self.assertIsNone(self.dispatcher.tick())
+        self.assertEqual(self.deliveries(), [])
+        self.assertEqual(self.dispatcher.tick(), made[0])
+        self.assertEqual(len(self.deliveries()), 1)
+
+    def test_a_broadcast_gone_by_the_write_unit_is_an_ordinary_empty_result(self):
+        identity = self.broadcast(next_due_at='2026-11-01T09:00:00Z')
+
+        def cancel():
+            with self.database.transaction() as uow:
+                uow.connection.execute("UPDATE broadcasts SET status='cancelled' WHERE id=?", (identity,))
+        self.after_look(cancel)
+        self.assertIsNone(self.dispatcher.tick())
+        self.assertEqual(self.deliveries(), [])
+        # The cancelling unit, then the check's own write unit, which found nothing and wrote nothing.
         opened, statements = self.units.take()
-        self.assertEqual(opened, [('transaction', None)])
-        self.assertEqual(statements, [['BEGIN', 'IMMEDIATE']])
+        self.assertEqual(opened, [('transaction', None)] * 2)
+        self.assertEqual(statements[-1], ['BEGIN', 'IMMEDIATE'])
 
     def test_a_due_broadcast_is_claimed_and_delivered(self):
         identity = self.broadcast(next_due_at='2026-11-01T09:00:00Z')
