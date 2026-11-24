@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 import re
 import stat as stat_module
-from threading import Lock, RLock
+from threading import Lock, RLock, local
 import time
 from typing import Any, Mapping
 
@@ -44,6 +44,8 @@ PROFILE_CACHE_LIMIT = 128
 SNAPSHOT_REUSE_SECONDS = 2.0
 FINGERPRINT_CACHE_LIMIT = 256
 # Only global agents run; these are the registered mandatory orientation sources, all in the Global namespace.
+# The active projects the latest snapshot on this thread read, as (resolver, ids); invocation_context takes it.
+_SNAPSHOT_PROJECTS = local()
 BOOTSTRAP_KEYS = frozenset({"foundation", "ecosystem-agent", "ecosystem"})
 # Private account capabilities: an operation declaring one is available only to a profile holding it.
 EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
@@ -351,10 +353,17 @@ class AgentConfigResolver:
     def invocation_context(self, principal: Principal, *, project_id: str | None = None,
                            source: str = "mcp", session_registration_id: str | None = None,
                            review_project_id: str | None = None) -> InvocationContext:
+        _SNAPSHOT_PROJECTS.seen = None
         config = self.resolve_agent_config(principal, project_id=project_id, include_preparation=False)
         data = config.data
-        with self.database.read() as uow:
-            allowed = active_project_ids(uow.connection)
+        # The active projects the snapshot of this very call read (never part of the cached configuration); an
+        # override of the resolution that took no snapshot reads them in a unit of its own.
+        seen, _SNAPSHOT_PROJECTS.seen = _SNAPSHOT_PROJECTS.seen, None
+        if seen is not None and seen[0] is self:
+            allowed = seen[1]
+        else:
+            with self.database.read() as uow:
+                allowed = active_project_ids(uow.connection)
         if review_project_id and review_project_id not in allowed:
             raise DomainError("forbidden", "Review project is outside the current scope")
         return InvocationContext(principal, project_id=data.get("project_id"),
@@ -411,6 +420,8 @@ class AgentConfigResolver:
             projects = [{**dict(project), "display_name": project["name"]} for project in connection.execute(
                 "SELECT * FROM projects WHERE archived_at IS NULL ORDER BY id")]
             selected = next((item for item in projects if item["id"] == target), None)
+            # Same rows and filter as active_project_ids, for the caller of this call (invocation_context).
+            _SNAPSHOT_PROJECTS.seen = (self, frozenset(item["id"] for item in projects))
             registration = connection.execute("SELECT * FROM machine_registrations WHERE principal_id=? AND workspace=?", (principal.id, row["workspace"])).fetchone()
             owner_names = [item[0] for item in connection.execute(
                 "SELECT p.display_name FROM installation i JOIN principals p ON p.id=i.owner_principal_id WHERE i.id='service' AND p.active=1")]
