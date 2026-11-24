@@ -348,7 +348,9 @@ const evUrl = p => "/api" + p;
 // wait in FIFO order. Each note expires after NOTE_MS, including its exit animation; hover, focus and
 // reply updates never extend that deadline. Its close button, or a click on the card, dismisses it early. A backlog longer than
 // NOTE_QUEUE_MAX folds its tail into one "N more" note so a burst never floods the corner.
-// `notify({text, sub?, color?, reminder?, onClick?, onDismiss?})`; `toast(text)` is the short form.
+// `notify({text, sub?, color?, icon?, reminder?, actions?, onClick?, onDismiss?})`; `toast(text)` is the short form.
+// `actions` is a list of `{label, run}` shown as a Signoff action row under the text (the last one primary); a note with
+// actions stays until it is handled or closed. A `run` that rejects keeps the note and shows its error.
 const NOTE_MAX = 3, NOTE_MS = 10000, NOTE_EXIT_MS = 260, NOTE_QUEUE_MAX = 6;
 const _notes = { queue: [], live: 0, replies: new Map() };
 function notify(n) {
@@ -379,10 +381,13 @@ function noteCardHTML(icon, heading, line) {
 }
 // A reply: the agent's glyph, its name, and one preview line of the reply.
 const replyToastHTML = n => noteCardHTML(agentGlyph({agent_id:n.replyAgentId}, 28), n.text, n.sub || "");
-// A reminder: a bell, "Reminder", and the reminder's text; the accessible label keeps the full text.
-const reminderToastHTML = n => noteCardHTML(NOTE_BELL, "Reminder", n.text);
+// A reminder: a bell, the reminder's text and one grey line ("Reminder · due now"); the accessible label keeps the full text.
+const reminderToastHTML = n => noteCardHTML(NOTE_BELL, n.text, n.sub || "Reminder");
 // Any other note: its text as the heading and `sub` under it; `color` tints the icon (an error is red).
-const plainToastHTML = n => noteCardHTML(NOTE_INFO, n.text, n.sub || "");
+// `icon` is trusted fixed markup (the calendar glyph), never text from a provider.
+const plainToastHTML = n => noteCardHTML(n.icon || NOTE_INFO, n.text, n.sub || "");
+// The action row of a note: the same Signoff buttons as a chat card, on their own line under the text.
+const toastActionsHTML = actions => `<div class="toast-actions sg-body sg-chat"><div class="sg"><div class="sg-actions">${actions.map((a, i) => `<button type="button" class="${i === actions.length - 1 ? "sg-approve sg-primary-action" : "sg-reject"}" data-note-action="${i}">${esc(a.label)}</button>`).join("")}</div></div></div>`;
 // The close button on the right of every note; it only closes the note and never opens or changes anything.
 const TOAST_X = `<button type="button" class="toast-x" aria-label="Close notification"><svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3.5 3.5l7 7M10.5 3.5l-7 7"/></svg></button>`;
 function notePump() {
@@ -390,11 +395,12 @@ function notePump() {
   while (_notes.live < NOTE_MAX && _notes.queue.length) {
     const n = _notes.queue.shift(); _notes.live++;
     const el = document.createElement("div");
-    el.className = "toast in has-x reply-toast" + (n.fold ? " fold" : "") + (n.reminder || n.replyAgentId ? "" : " plain-toast");
+    const actions = Array.isArray(n.actions) ? n.actions.filter(a => a && a.label && typeof a.run === "function") : [];
+    el.className = "toast in has-x reply-toast" + (n.fold ? " fold" : "") + (n.reminder || n.replyAgentId ? "" : " plain-toast") + (actions.length ? " has-actions" : "");
     if (n.color) el.style.setProperty("--c", n.color);
     if (n.reminder) { el.setAttribute("aria-label", `Reminder: ${n.text}`); }
     el.innerHTML = n.reminder ? reminderToastHTML(n) : n.replyAgentId ? replyToastHTML(n) : plainToastHTML(n);
-    el.innerHTML += TOAST_X;
+    el.innerHTML += TOAST_X + (actions.length ? toastActionsHTML(actions) : "");
     box.appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("in")));
     let t, gone = false, dismissing = false;
@@ -403,8 +409,21 @@ function notePump() {
       Object.assign(n, next);
       el.innerHTML = replyToastHTML(n) + TOAST_X;
     } });
-    const activate=()=>{if(gone)return;go();if(n.onClick)Promise.resolve().then(()=>n.onClick()).catch(error=>toast(error.message));};
-    el.addEventListener("click", event => { if (event?.target?.closest?.(".toast-x")) { event.stopPropagation(); go(); return; } activate(); });
+    const activate=()=>{if(gone||acting)return;go();if(n.onClick)Promise.resolve().then(()=>n.onClick()).catch(error=>toast(error.message));};
+    let acting = false;
+    const act = (index, button) => {
+      if (acting || gone) return; acting = true;
+      const buttons = [...(el.querySelectorAll?.("[data-note-action]") || [])]; buttons.forEach(b => { b.disabled = true; });
+      Promise.resolve().then(() => actions[index].run()).then(result => { if (result !== false) go(); })
+        .catch(error => toast(error?.message || "That did not work."))
+        .finally(() => { acting = false; buttons.forEach(b => { b.disabled = false; }); });
+    };
+    el.addEventListener("click", event => {
+      if (event?.target?.closest?.(".toast-x")) { event.stopPropagation(); go(); return; }
+      const button = event?.target?.closest?.("[data-note-action]");
+      if (button) { event.stopPropagation?.(); act(Number(button.dataset.noteAction), button); return; }
+      activate();
+    });
     if (n.reminder && n.onDismiss) el.addEventListener("contextmenu", event => {
       event.preventDefault(); if (gone || dismissing) return;
       dismissing = true;
@@ -412,7 +431,7 @@ function notePump() {
         .finally(() => { dismissing = false; });
     });
     if(n.onClick){el.tabIndex=0;el.setAttribute('role','button');el.addEventListener('keydown',event=>{if(event.target===el&&['Enter',' '].includes(event.key)){event.preventDefault();activate();}});}
-    t = setTimeout(go, NOTE_MS - NOTE_EXIT_MS);
+    if (!actions.length) t = setTimeout(go, NOTE_MS - NOTE_EXIT_MS);
   }
 }
 const toast = m => notify(m);

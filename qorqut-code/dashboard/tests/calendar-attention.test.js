@@ -45,7 +45,7 @@ test('calendar events join the queue an hour before they start, retire two hours
 });
 
 function strip(options = {}) {
-  const now = Date.now(), writes = [], toasts = [], opened = [], listeners = {}, calendarChanges = new Set();
+  const now = Date.now(), writes = [], toasts = [], opened = [], notes = [], listeners = {}, calendarChanges = new Set();
   const event = id => ({id, title:id, start:new Date(now + (id === 'upcoming' ? 20 : -30) * 60000).toISOString(), end:'x'});
   const row = (id, appearMinutes, retireMinutes = 120) => ({key:`calendar:2026-11-11:["c","cal","${id}","${id}"]`, appear:now + appearMinutes * 60000, retire:now + retireMinutes * 60000, event:event(id), label:`${id} label`});
   const rows = [row('past', -90), row('upcoming', -40), row('hidden', 20), row('ended', -300, -1)];
@@ -53,13 +53,15 @@ function strip(options = {}) {
     accessLost:() => false, document:{addEventListener(){}, hidden:false}, window:{addEventListener(){}}, T_VIEW_ICON:{calendar:'<svg></svg>'},
     api:async () => ({items:[]}), calendarChanges, remindersOwnerDue:async () => [], remVerifiedOwner:async () => 'owner', remAttempts:new Map(),
     setTimeout:() => 0, clearTimeout(){}, toast:text => toasts.push(text), calendarQueueLoad:async () => ({items:rows,calendars:[{id:'cal'}],errors:options.errors || []}),
-    calendarOpen:(item, calendars, refresh, clicked, origin) => { opened.push({item, calendars, origin}); },
+    calendarOpen:(item, calendars, refresh, clicked, origin, opts) => { opened.push({item, calendars, origin, opts}); },
+    notify:note => notes.push(note), calendarToastLine:event => `Starts soon · ${event.id}`,
+    calendarEventSpan:event => ({start:Date.parse(event.start), end:Date.parse(event.start) + (event.id === 'past' ? -20 : 30) * 60000}),
     post:(url, args) => new Promise((resolve, reject) => writes.push({url, args, resolve, reject}))};
   const host = {isConnected:true, innerHTML:'', hidden:true, addEventListener(name, fn){listeners[name] = fn;}, removeEventListener(name){delete listeners[name];}, contains:() => true};
   vm.createContext(context);
   vm.runInContext(source('attention-queue.js') + '\nthis.queue = attentionQueue;', context);
   const chip = key => ({dataset:{calendarKey:key}, closest(selector){return selector === '[data-calendar-key]' ? this : null;}});
-  return {context, host, writes, toasts, opened, listeners, calendarChanges, rows, chip};
+  return {context, host, writes, toasts, opened, notes, listeners, calendarChanges, rows, chip};
 }
 
 test('the strip shows calendar events that have appeared and not yet retired, past ones included, and opens them', async () => {
@@ -119,4 +121,28 @@ test('a calendar read failure shows a retry control and keeps the last events', 
   assert.match(s.host.innerHTML, /data-calendar-retry/);
   assert.match(s.host.innerHTML, /provider unavailable/);
   assert.match(s.host.innerHTML, /data-calendar-key/);
+});
+
+test('the strip opens events as a card and a pop-up appears once for each event that has not ended', async () => {
+  const s = strip();
+  s.context.queue.mountSignoffs(s.host);
+  await tick(); await tick();
+  // "past" had already ended at page load and stays quiet; "upcoming" pops up with the calendar icon and two actions.
+  assert.equal(s.notes.length, 1);
+  const note = s.notes[0];
+  assert.equal(note.text, 'upcoming'); assert.equal(note.sub, 'Starts soon · upcoming'); assert.equal(note.icon, '<svg></svg>');
+  assert.deepEqual(Array.from(note.actions, a => a.label), ['Open', 'Got it']);
+  await s.context.queue.refreshSignoffs(); await tick(); await tick();
+  assert.equal(s.notes.length, 1);
+  // Clicking the chip and "Open" both open the card; "Got it" saves a discard of that chip only.
+  s.listeners.click({target:s.chip(s.rows[1].key), currentTarget:s.host});
+  assert.equal(s.opened[0].opts.card, true);
+  await note.actions[0].run();
+  assert.equal(s.opened.length, 2); assert.equal(s.opened[1].opts.card, true);
+  const done = note.actions[1].run(); await tick();
+  assert.deepEqual(JSON.parse(JSON.stringify(s.writes.at(-1).args)), {discarded:[s.rows[1].key]});
+  s.writes.at(-1).resolve({items:[], discarded:[s.rows[1].key]}); await done;
+  // The card's own completion discards the chip the same way.
+  const again = s.opened[0].opts.onDone();
+  assert.ok(again instanceof Promise || again === undefined);
 });

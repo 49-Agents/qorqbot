@@ -48,6 +48,9 @@ function remRecurrenceText(recurrence) {
   if (!parts) return `Repeats · ${recurrence.schedule}${zone}`;
   return parts.weekday == null ? `Daily at ${parts.time}${zone}` : `Every ${REM_WEEKDAYS[parts.weekday]} at ${parts.time}${zone}`;
 }
+const REM_CHECK = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7"/></svg>';
+// "repeats every Monday at 09:00 (UTC)": the recurrence text without its leading capital.
+const remRepeatNotice = recurrence => remRecurrenceText(recurrence).replace(/^Repeats · /, '').replace(/^[A-Z]/, c => c.toLowerCase());
 const remSameTime = (a, b) => !!a && !!b && Number.isFinite(Date.parse(a)) && Date.parse(a) === Date.parse(b);
 const remLinkText = link => link ? `${({task: 'Work', email: 'Email', project: 'Project', table: 'Table', signoff: 'Signoff', action: 'Action'}[link.type] || link.type)} ${link.id}` : '';
 const remWho = reminder => reminder.recipient_name || reminder.recipient_display_name || (reminder.recipient_id && reminder.recipient_id === remSelf() ? 'You' : reminder.recipient_id) || '—';
@@ -116,6 +119,32 @@ function remindersDismissDue(reminder) {
   return work;
 }
 
+// Snooze one due occurrence from a notification: the same checks, request identity and unconfirmed-retry handling as a dismissal.
+const remSnoozes = new Map();
+function remindersSnoozeDue(reminder, date) {
+  const at = remOffsetISO(remInputOf(date)), key = JSON.stringify([remId(reminder), reminder?.occurrence_id, at]);
+  if (remSnoozes.has(key)) return remSnoozes.get(key);
+  const work = (async () => {
+    if (!remId(reminder) || reminder.revision == null || !remMutable(reminder))
+      throw new Error('This reminder is no longer available.');
+    if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) throw new Error('Choose a future date and time.');
+    if (reminder.project_id != null && !(state.projects || []).some(b => (b.id === reminder.project_id || b.project_id === reminder.project_id) && b.slug))
+      throw new Error('The reminder project is no longer accessible.');
+    const owner = await remVerifiedOwner();
+    if (remSelf() !== owner || reminder.recipient_id !== owner) throw new Error('Could not verify the reminder owner.');
+    const args = {reminder_id: remId(reminder), revision: reminder.revision, at};
+    if (remMatching(owner, reminder, null, 'detail', 'reminders_snooze', args) || remPending(owner, reminder, null, 'detail').length || remPending(owner, reminder, null, 'editor').length)
+      throw new Error('This reminder has an unconfirmed change. Use Unconfirmed reminder changes to retry.');
+    const attempt = await remAttempt(reminder, null, 'detail', 'reminders_snooze', args);
+    if (attempt.owner !== owner || remSelf() !== owner) throw new Error('The owner session changed. Retry.');
+    const result = await remSubmitAttempt(attempt);
+    if (typeof attentionQueue !== 'undefined') void attentionQueue.refreshSignoffs();
+    return result;
+  })();
+  remSnoozes.set(key, work);
+  work.finally(() => remSnoozes.delete(key)).catch(() => {});
+  return work;
+}
 
 // Snooze presets use the viewer's own clock and write an explicit offset.
 const REM_SNOOZES = [['1h', '1 hour'], ['3h', '3 hours'], ['tomorrow', 'Tomorrow 9:00'], ['week', 'Next week']];
@@ -141,12 +170,85 @@ function remindersDetailMount(host, initial, opts = {}) {
   document.addEventListener('visibilitychange', acknowledge);
   const node = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text != null) n.textContent = text; return n; };
 
+  // The unconfirmed-request and duplicate-request prompts, shared by the plain detail and the Signoff-style card.
+  function pendingNodes() {
+    const out = [];
+    for (const attempt of verifiedOwner && remSelf()===verifiedOwner ? remPending(verifiedOwner, initial, opts.project, 'detail') : []) {
+      const pending = node('div', 'rem-pending');
+      pending.append(node('p', 'rem-note', `Unconfirmed: ${remAttemptLabel(attempt)}`));
+      const check = node('button', 'quiet', 'Retry the same request'); check.type='button'; check.disabled=busy;
+      check.onclick=()=>void run(attempt.op, {}, attempt); pending.append(check); out.push(pending);
+    }
+    if (duplicate && verifiedOwner === duplicate.owner && remSelf() === verifiedOwner) {
+      const choice=node('div','rem-pending');
+      choice.append(node('p','rem-note','This request is unconfirmed. Retry the same request or cancel.'));
+      const retry=node('button','quiet','Retry same request');retry.type='button';retry.disabled=busy;
+      retry.onclick=()=>{const attempt=duplicate;duplicate=null;void run(attempt.op,{},attempt);};
+      const cancel=node('button','quiet','Cancel');cancel.type='button';cancel.disabled=busy;
+      cancel.onclick=()=>{duplicate=null;paint();};choice.append(retry,cancel);out.push(choice);
+    }
+    return out;
+  }
+  // The Focus review surface shows a due reminder as a Signoff card: the "when" goes in the grey notice line,
+  // the actions sit right-aligned and Done is the primary one.
+  function paintCard() {
+    const r = current, mutable = !gone && remMutable(r);
+    const row = node('article', 'sg-row sg-open');
+    row.dataset.state = 'pending'; row.dataset.input = '1'; row.dataset.kind = 'acknowledge';
+    const detail = node('div', 'sg-detail'), body = node('div', 'sg-detail-body');
+    const meta = node('div', 'sg-attention-meta');
+    const when = r.state === 'due' ? 'due ' + remFormatTime(r.due_at || r.at)
+      : r.state === 'scheduled' ? 'scheduled · ' + remFormatTime(r.next_at || r.at)
+      : String(REM_STATES[r.state] || r.state || '').toLowerCase();
+    meta.append(node('p', 'sg-notice', ['Reminder', when, r.recurrence ? 'repeats ' + remRepeatNotice(r.recurrence) : ''].filter(Boolean).join(' · ')));
+    body.append(meta);
+    const extra = [];
+    if (r.linked_item && r.link_available !== false) {
+      const line = node('p', '', 'Linked: ');
+      if (typeof agentOpenRecordReference === 'function') {
+        const b = node('button', 'quiet rem-link-open', remLinkText(r.linked_item)); b.type = 'button';
+        b.setAttribute('aria-label', 'Open linked ' + remLinkText(r.linked_item));
+        b.onclick = () => void Promise.resolve(agentOpenRecordReference(r.linked_item)).catch(() => toast('The linked item could not be opened.'));
+        line.append(b);
+      } else line.append(remLinkText(r.linked_item));
+      extra.push(line);
+    } else if (r.link_available === false) extra.push(node('p', 'muted', 'Linked item not available to you.'));
+    if (extra.length) { const report = node('div', 'sg-report'); report.append(...extra); const preview = node('div', 'sg-preview'); preview.append(report); body.append(preview); }
+    const message = node('p', 'ferr rem-error', error); message.setAttribute('role', 'alert'); message.hidden = !error;
+    body.append(message, ...pendingNodes());
+    if (gone) body.append(node('p', 'muted', 'This reminder is no longer available.'));
+    if (mutable) {
+      const actions = node('div', 'sg-actions');
+      const add = (label, handler, cls = 'sg-reject', key = label) => { const b = node('button', cls, label); b.dataset.remFocus = key; b.type = 'button'; b.disabled = busy; b.onclick = handler; actions.append(b); return b; };
+      add(confirmCancel ? 'Confirm cancel' : 'Cancel reminder', () => {
+        if (!confirmCancel) { confirmCancel = true; paint(); return; }
+        run('reminders_cancel', {});
+      }, confirmCancel ? 'sg-reject danger' : 'sg-reject', 'cancel');
+      add('Edit', () => (opts.onEdit || remindersEditor)(current, {project: opts.project, onSaved: next => { current = remNormalize(next); error = ''; paint(); opts.onChange?.(current, 'reminders_update'); }}));
+      add('Tomorrow 9 AM', () => choose(remSnoozeTime('tomorrow')), 'sg-reject', 'tomorrow');
+      add('In 1 hour', () => choose(remSnoozeTime('1h')), 'sg-reject', '1h');
+      if (r.state === 'due' && r.occurrence_id) {
+        const done = add('Done', () => run('reminders_dismiss', {occurrence_id: r.occurrence_id}), 'sg-approve sg-primary-action', 'done');
+        done.insertAdjacentHTML?.('afterbegin', REM_CHECK);
+      }
+      body.append(actions);
+      if (confirmCancel) body.append(node('p', 'muted rem-note', r.recurrence ? 'This stops the whole repeating reminder.' : 'This cancels the reminder.'));
+    }
+    detail.append(body); row.append(detail);
+    const rows = node('div', 'sg-rows'); rows.append(row);
+    const toread = node('section', 'sg-toread'); toread.append(rows);
+    const sg = node('div', 'sg'); sg.append(toread);
+    const shell = node('div', 'sg-focus sg-body sg-single'); shell.append(sg);
+    box.append(shell);
+  }
+
   function paint() {
     const focusKey = box.contains(document.activeElement) ? document.activeElement.dataset.remFocus : null;
     box.replaceChildren();
     if (focusKey) queueMicrotask(() => {
       if (alive() && document.activeElement === document.body) box.querySelector(`[data-rem-focus="${focusKey}"]`)?.focus({preventScroll: true});
     });
+    if (opts.reviewLayout) { paintCard(); return; }
     const r = current, mutable = !gone && remMutable(r);
     box.append(node('h2', 'rw-reminder-text rem-text', r.text || 'Reminder'));
     const fields = [['State', REM_STATES[r.state] || r.state || '—']];
@@ -172,20 +274,7 @@ function remindersDetailMount(host, initial, opts = {}) {
     box.append(list);
     const message = node('p', 'ferr rem-error', error); message.setAttribute('role', 'alert'); message.hidden = !error;
     box.append(message);
-    for (const attempt of verifiedOwner && remSelf()===verifiedOwner ? remPending(verifiedOwner, initial, opts.project, 'detail') : []) {
-      const pending = node('div', 'rem-pending');
-      pending.append(node('p', 'rem-note', `Unconfirmed: ${remAttemptLabel(attempt)}`));
-      const check = node('button', 'quiet', 'Retry the same request'); check.type='button'; check.disabled=busy;
-      check.onclick=()=>void run(attempt.op, {}, attempt); pending.append(check); box.append(pending);
-    }
-    if (duplicate && verifiedOwner === duplicate.owner && remSelf() === verifiedOwner) {
-      const choice=node('div','rem-pending');
-      choice.append(node('p','rem-note','This request is unconfirmed. Retry the same request or cancel.'));
-      const retry=node('button','quiet','Retry same request');retry.type='button';retry.disabled=busy;
-      retry.onclick=()=>{const attempt=duplicate;duplicate=null;void run(attempt.op,{},attempt);};
-      const cancel=node('button','quiet','Cancel');cancel.type='button';cancel.disabled=busy;
-      cancel.onclick=()=>{duplicate=null;paint();};choice.append(retry,cancel);box.append(choice);
-    }
+    box.append(...pendingNodes());
     if (gone) { box.append(node('p', 'muted', 'This reminder is no longer available.')); return; }
     if (!mutable) return;
     const actions = node('div', 'rem-actions');
@@ -200,11 +289,6 @@ function remindersDetailMount(host, initial, opts = {}) {
     box.append(actions);
     if (confirmCancel) box.append(node('p', 'muted rem-note', r.recurrence ? 'This stops the whole repeating reminder.' : 'This cancels the reminder.'));
     if (snoozeOpen) box.append(snoozePicker());
-    if (opts.reviewLayout) {
-      const body=node('div','rem-detail-body');
-      for (const child of [...box.children]) if (child!==actions) body.append(child);
-      box.prepend(body); box.append(actions);
-    }
   }
   function snoozePicker() {
     const picker = node('div', 'rem-snooze');
@@ -593,7 +677,10 @@ const reminderNotifications = (() => {
           const openDue = () => remindersOpenDetail(reminder, {onChange: () => {
             if (typeof attentionQueue !== 'undefined') void attentionQueue.refreshSignoffs();
           }});
-          notify({text: reminder.text || 'Reminder due', reminder: true, onDismiss: () => remindersDismissDue(reminder), onClick: openDue});
+          notify({text: reminder.text || 'Reminder due', sub: 'Reminder · due ' + remFormatTime(reminder.due_at || reminder.at), reminder: true, onDismiss: () => remindersDismissDue(reminder), onClick: openDue,
+            actions: [{label: 'In 1 hour', run: () => remindersSnoozeDue(reminder, remSnoozeTime('1h'))},
+              {label: 'Tomorrow', run: () => remindersSnoozeDue(reminder, remSnoozeTime('tomorrow'))},
+              {label: 'Done', run: () => remindersDismissDue(reminder)}]});
           if (typeof desktopNotify !== 'undefined') desktopNotify.send({kind: 'reminders', title: 'Reminder', body: reminder.text || 'Reminder due', tag: 'reminder:' + key, onClick: openDue});
         }
       } catch (_) { /* Retry on the next poll without losing seen occurrences. */ }

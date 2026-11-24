@@ -125,13 +125,55 @@ test('reminder Focus opening and disposal do not dismiss the reminder', async ()
   const context={document:{createElement:()=>new Node(),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{focusExpansion:{async open(s){spec=s;return {};}},addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
     state:{session:{principal_id:'owner'},projects:[]},post:async(_path,args)=>{calls.push(args);return {reminder};},coreData:x=>x,
     accessLost:()=>false,sourceGone:()=>false,uiFailure:()=>'',Intl,Date};
-  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.open=remindersOpenDetail;',context);
+  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/relative-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.open=remindersOpenDetail;',context);
   await context.open(reminder);
   assert.equal(calls.length,0);
   const dispose=spec.mount(new Node(),{setTitle(){},setBeforeLeave(fn){guard=fn;}});
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(await guard(),true);assert.equal(calls.length,1);assert.equal(calls[0].reminder_id,'r');
   dispose();assert.equal(calls.length,1);
+});
+
+test('the Focus reminder is a Signoff card whose actions snooze or dismiss the due occurrence', async () => {
+  class Node { constructor(tag){this.tag=tag;this.children=[];this.isConnected=true;this.dataset={};this.className='';} closest(){return null;} prepend(...n){this.children.unshift(...n);} append(...n){this.children.push(...n);} replaceChildren(...n){this.children=n;} contains(node){return node===this || this.children.some(child=>child.contains?.(node));} remove(){this.isConnected=false;} setAttribute(){} getClientRects(){return [];} }
+  const writes=[], reminder={reminder_id:'r',revision:2,state:'due',occurrence_id:'o',text:'Text Fares.',recipient_id:'owner',due_at:new Date(Date.now()-5*3600000).toISOString(),recurrence:{schedule:'0 9 * * 1',timezone:'UTC'}};
+  let serial=0, served=reminder;
+  const context={document:{createElement:tag=>new Node(tag),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
+    state:{session:{principal_id:'owner'},projects:[]},post:async(path,args)=>{if(path.endsWith('reminders_get'))return {reminder:served};writes.push({path,args:{...args}});return {reminder:{...reminder,state:'scheduled',occurrence_id:null}};},coreData:x=>x,
+    accessLost:()=>false,sourceGone:()=>false,uiFailure:()=>'',newRequestId:()=>'key-'+(++serial),Intl,Date};
+  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/relative-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
+  const all=(node,test,out=[])=>{if(test(node))out.push(node);node.children.forEach(child=>all(child,test,out));return out;};
+  const flush=()=>new Promise(resolve=>setImmediate(resolve));
+  let host=new Node('div'),view=context.mount(host,reminder,{reviewLayout:true});await flush();
+  const notice=all(host,n=>n.className==='sg-notice')[0];
+  assert.equal(notice.textContent,'Reminder · due 5 hours ago · repeats every Monday at 09:00 (UTC)');
+  assert.equal(all(host,n=>n.className==='rem-text' || n.tag==='h2').length,0);
+  const buttons=()=>all(host,n=>n.tag==='button');
+  assert.deepEqual(buttons().map(b=>b.textContent),['Cancel reminder','Edit','Tomorrow 9 AM','In 1 hour','Done']);
+  assert.match(buttons().at(-1).className,/sg-primary-action/);
+  const before=writes.length;
+  buttons().find(b=>b.textContent==='In 1 hour').onclick();await flush();await flush();
+  assert.equal(writes.length,before+1);assert.match(writes.at(-1).path,/reminders_snooze$/);
+  const hour=Date.parse(writes.at(-1).args.at)-Date.now();assert.ok(hour>3500000 && hour<3700000);
+  view.dispose();
+  host=new Node('div');view=context.mount(host,reminder,{reviewLayout:true});await flush();
+  buttons().find(b=>b.textContent==='Tomorrow 9 AM').onclick();await flush();await flush();
+  assert.match(writes.at(-1).path,/reminders_snooze$/);const tomorrow=new Date(writes.at(-1).args.at);assert.equal(tomorrow.getHours(),9);assert.ok(tomorrow>new Date());
+  view.dispose();
+  host=new Node('div');view=context.mount(host,reminder,{reviewLayout:true});await flush();
+  buttons().find(b=>b.textContent==='Done').onclick();await flush();await flush();
+  assert.match(writes.at(-1).path,/reminders_dismiss$/);assert.equal(writes.at(-1).args.occurrence_id,'o');
+  // Cancel reminder keeps its confirm step.
+  view.dispose();
+  host=new Node('div');view=context.mount(host,reminder,{reviewLayout:true});await flush();
+  const count=writes.length;buttons().find(b=>b.textContent==='Cancel reminder').onclick();
+  assert.equal(writes.length,count);assert.ok(buttons().some(b=>b.textContent==='Confirm cancel'));
+  view.dispose();
+  // A scheduled reminder shows its state and time without Done.
+  served={...reminder,state:'scheduled',occurrence_id:null,due_at:null,at:new Date(Date.now()+3*3600000).toISOString(),recurrence:null};
+  host=new Node('div');view=context.mount(host,served,{reviewLayout:true});await flush();
+  assert.equal(all(host,n=>n.className==='sg-notice')[0].textContent,'Reminder · scheduled · in 3 hours');
+  assert.equal(buttons().some(b=>b.textContent==='Done'),false);view.dispose();
 });
 
 test('embedded task and project signoff links dispatch canonical identity to parent', async () => {
