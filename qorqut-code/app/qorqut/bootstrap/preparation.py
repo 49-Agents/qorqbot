@@ -6,7 +6,7 @@ from qorqut.agents import role_workflow
 from qorqut.agents import cleanup_workflow
 from qorqut.agents.operational_delegation import supports_durable_delegation_version
 from qorqut.agents.roles import GLOBAL_WORKER_ROLE, ORDUBASHY_ROLE, SUPPORTED_GLOBAL_ROLES
-from qorqut.composition.locations import agent_workspace, business_code, business_hq
+from qorqut.composition.locations import project_code, project_root
 
 from dataclasses import dataclass
 import hashlib
@@ -36,7 +36,6 @@ from .tool_permissions import (VERSION as TOOL_CONFIGURATION_VERSION, fingerprin
 MINIMUM_CLAUDE_VERSION = agent_cli_install.MINIMUM_VERSIONS["claude"]
 MINIMUM_CODEX_VERSION = agent_cli_install.MINIMUM_VERSIONS["codex"]
 RUNTIMES = ("claude-code", "codex")
-LEGACY_PLUGINS = {"biz-agents-manager@bazarlyk", "biz-agents-marketing@bazarlyk"}
 # External MCP connections come only from installed extensions (resolver.native_connections); a registered role may
 # declare one by name, and any name that no installed extension provides is refused (see external_connections). A
 # previously prepared entry stays managed (see previous_connections) and is removed on the next authorized preparation.
@@ -77,7 +76,6 @@ def durable_delegation_enabled(data: dict, *, delegate_operations: bool) -> bool
     role = data.get("role") or {}
     scope = data.get("scope") or {}
     return (delegate_operations and supports_durable_delegation_version(role.get("version"), role.get("id"))
-        and scope.get("kind") == "ecosystem"
         and "manage_delegated_assignments" in scope.get("global_capabilities", []))
 
 
@@ -202,14 +200,12 @@ def _coordinator_workspace(resolver) -> Path | None:
     return Path(row[0]) if row else None
 
 
-def _business_code_root(resolver, data, business) -> Path | None:
-    """Validate a business code tree; every global may carry out explicitly assigned code work."""
-    if data["scope"]["kind"] != "ecosystem":
-        return None
-    code = business_code(resolver.paths, business)
+def _project_code_root(resolver, data, project) -> Path | None:
+    """The project's existing code tree, or ``None`` when it has none; every global may carry out explicitly assigned code work."""
+    code = project_code(resolver.paths, project)
     if path_has_symlink(code) or (code.exists() and not code.is_dir()):
         raise DomainError("preparation_error", "Project code directory must be a local directory inside its registered workspace")
-    return code
+    return code if code.exists() else None
 
 
 def skill_projection(resolver, data) -> tuple[dict, dict]:
@@ -349,7 +345,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         raise DomainError("invalid_configuration", "Transcript capture selection must be a boolean")
     data = config.to_dict()
     if codex_permission_mode is None:
-        codex_permission_mode = "bypass" if data["scope"]["kind"] == "ecosystem" else "scoped"
+        codex_permission_mode = "bypass"
     workspace = Path(data["workspace"])
     terminal = _terminal_mode(resolver)
     registration_path = workspace / ".qorqut/registration.json"
@@ -410,7 +406,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
                  resolver.paths.runtime, resolver.paths.context, resolver.paths.operations / "CLAUDE.md"]
     read_roots = []
     code_roots = []
-    ordubashy = data["role"]["id"] == "ordubashy" and data["scope"]["kind"] == "ecosystem"
+    ordubashy = data["role"]["id"] == "ordubashy"
     delegate_operations = ordubashy and any(
         skill["name"] == "qorqut-role-operations-delegation"
         and skill.get("owner") == {"kind": "role", "id": data["role"]["id"]}
@@ -420,18 +416,15 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         # Always-loaded skills are injected only for the configured Ordubashy.
         from qorqut.management.identity import configured_ordubashy
         always_skills = ordubashy and configured_ordubashy(uow) == data["agent_id"]
-        # Every active business in the agent's derived scope; no home or membership is assumed.
-        businesses = [row for row in uow.connection.execute(
-            "SELECT id,slug FROM businesses WHERE archived_at IS NULL ORDER BY id")
-            if row["id"] in data["scope"].get("allowed_business_ids", ())]
-        for business in businesses:
-            code_root = _business_code_root(resolver, data, business)
+        # Every active project; no membership is assumed.
+        projects = uow.connection.execute("SELECT id,slug FROM projects WHERE archived_at IS NULL ORDER BY id").fetchall()
+        for project in projects:
+            code_root = _project_code_root(resolver, data, project)
             if code_root is not None:
                 code_roots.append(code_root)
-            hq = business_hq(resolver.paths, business)
-            protected += [hq / part for part in ("business.yaml", "CLAUDE.md", "context", "tasks", "log")]
-            protected += [agent_workspace(resolver.paths, row[0], business) for row in uow.connection.execute("SELECT agent_id FROM agent_profiles WHERE home_business_id=? AND agent_id<>?", (business["id"], data["agent_id"]))]
-            read_roots += [hq / part for part in ("context", "analytics", "assets")]
+            folder = project_root(resolver.paths, project)
+            protected += [folder / part for part in ("CLAUDE.md", "context", "tasks", "log")]
+            read_roots += [folder / part for part in ("context", "analytics", "assets")]
     local = {"hooks": {
         "SessionStart": [{"matcher": "startup|resume|clear|compact|fork", "hooks": [{"type": "command", "command": command, "timeout": 240}]}],
         "UserPromptSubmit": [{"hooks": [{"type": "command", "command": command, "timeout": 240}]}]},
@@ -448,12 +441,11 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         connection = extension_connections.get(server)
         tools = connection.tools if connection and connection.tools else ("*",)
         local["permissions"]["allow"] += ["mcp__" + server + "__" + tool for tool in tools]
-    if data["scope"]["kind"] == "ecosystem":
-        # Claude refuses project-local bypass defaults. The prepared terminal
-        # passes a trusted --settings file; local dontAsk also prevents popups
-        # when starting outside the prepared terminal.
-        local["permissions"]["allow"] += ["Bash", "Edit", "Write", "Agent"]
-        local["permissions"]["deny"] = []
+    # Claude refuses project-local bypass defaults. The prepared terminal
+    # passes a trusted --settings file; local dontAsk also prevents popups
+    # when starting outside the prepared terminal.
+    local["permissions"]["allow"] += ["Bash", "Edit", "Write", "Agent"]
+    local["permissions"]["deny"] = []
     local["permissions"]["deny"] = [*local["permissions"]["deny"], *connector_gate_guard(workspace)]
     if capture_transcripts:
         snapshot_command = shlex.join(helper('qorqut.bootstrap.transcript_snapshot', '--registration', str(registration_path)))
@@ -463,7 +455,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     # This setting is agent-folder-local, never a personal/global CLI setting.
     local.setdefault('env', {})['MCP_TIMEOUT'] = '240000'
     from .codex_config import add_activity_hooks, configuration, role_model_default, worker_model_default
-    model_default = role_model_default(data["scope"]["kind"], data["role"]["id"])
+    model_default = role_model_default(data["role"]["id"])
     if model_default is not None and data["role"]["id"] == GLOBAL_WORKER_ROLE:
         model_default = worker_model_default(workspace, _coordinator_workspace(resolver), model_default)
     # Codex trusts the exact hook definition. Keep release-specific interpreter
@@ -541,9 +533,6 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         '.qorqut/codex-hook': codex_launcher.encode(),
         **({'.qorqut/always-skills.py': Path(__file__).with_name('always_skills.py').read_bytes()} if always_skills else {}),
         '.qorqut/activity-hook.py': Path(__file__).with_name('activity_hook.py').read_bytes(),
-        # The activity hook runs with Python isolation and therefore needs its
-        # stdlib-only outbox helper beside the generated script.
-        '.qorqut/technical_reporting.py': Path(__file__).with_name('technical_reporting.py').read_bytes(),
         '.qorqut/agentic': ('#!/bin/sh\nexec ' + shlex.join(helper(
             'qorqut.agentic.client', '--registration', str(registration_path))) + '\n').encode(),
         "agent.yaml": yaml.safe_dump(profile, sort_keys=False, allow_unicode=False).encode(),
@@ -562,11 +551,10 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             "checkpoint_protocol": dict(checkpoint_protocol or {}),
             "read_operations": read_operations, **({"runtime_mode": "terminal"} if terminal else {})}),
     }
-    claude_mode = "bypassPermissions" if data["scope"]["kind"] == "ecosystem" else "dontAsk"
     # Claude Code's own memory is off for every agent: the file is passed with ``--settings`` at each launch, which
     # outranks the owner's own Claude settings for that launch only and changes none of them.
     from qorqut.managed_runtime.clients import CLAUDE_MEMORY_SETTING
-    files[".qorqut/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": claude_mode}, **CLAUDE_MEMORY_SETTING})
+    files[".qorqut/claude-launch-settings.json"] = _bytes({"permissions": {"defaultMode": "bypassPermissions"}, **CLAUDE_MEMORY_SETTING})
     if terminal:
         # The prepared shell exists only while terminals are the mode, so a managed projection (and its hash) is untouched.
         from qorqut.agent_trust import marker_path
@@ -600,7 +588,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
                 'qorqut.bootstrap.browser_entry', '--workspace', str(workspace))) + ' "$@"\n').encode()
     metadata = {"schema_version": 1, "helper_runtime":{"executable":stable_helper or executable,"stable":bool(stable_helper)}, "codex_permission_mode": codex_permission_mode or "scoped",
                 "native_guidance_digest": data["native_guidance_digest"],
-                "business_code_roots": [str(path) for path in code_roots],
+                "project_code_roots": [str(path) for path in code_roots],
                 "files": {name: content_hash(body) for name, body in sorted(files.items())},
                 "selected_skills": selected,
                 "external_connections": connections,
@@ -645,15 +633,6 @@ def inspect_projection(workspace: Path, projection: dict, *, runtime="claude-cod
                     drift.append(child.relative_to(workspace).as_posix())
             if path.name not in projection.get("selected_skills", {}) and not core_generated_skill(path.name):
                 drift.append(path.relative_to(workspace).as_posix())
-    for name in ((".claude/settings.json", ".claude/settings.local.json") if runtime == "claude-code" else ()):
-        if path_has_symlink(workspace / name):
-            continue
-        try:
-            settings = json.loads(safe_io.read_bytes(workspace / name))
-        except (ValueError, OSError):
-            continue
-        if any(settings.get("enabledPlugins", {}).get(plugin) for plugin in LEGACY_PLUGINS):
-            drift.append("legacy_role_plugin_enabled")
     return sorted(set(drift))
 
 
@@ -713,8 +692,7 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
         raise DomainError("registration_conflict", "Prepared folder is already bound to a different principal")
     old = registration["projection_json"] if registration else {}
     if codex_permission_mode is None:
-        codex_permission_mode = old.get("codex_permission_mode",
-            "bypass" if data["scope"]["kind"] == "ecosystem" else "scoped")
+        codex_permission_mode = old.get("codex_permission_mode", "bypass")
     if codex_permission_mode not in {"scoped", "bypass"}:
         raise DomainError("validation_error", "Codex permission mode must be scoped or bypass")
     unmanaged = []
@@ -778,11 +756,6 @@ def _prepare_agent_locked(resolver, principal: Principal, *, endpoint: str, vers
                 if previous and not previous["revoked_at"]:
                     uow.repository("credentials").update(previous_credential_id, {"revoked_at": utc_now()}, expected_revision=previous["revision"])
     safe_io.mkdir(workspace)
-    for path in projection.metadata.get("business_code_roots", []):
-        code_root = Path(path)
-        if path_has_symlink(code_root):
-            raise DomainError("projection_conflict", "Project code directory cannot follow symlinks")
-        safe_io.mkdir(code_root)
     for directory in ("notes", "work", ".qorqut/delivery"):
         safe_io.mkdir(workspace / directory)
     for name in old.get("files", {}):

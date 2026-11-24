@@ -18,7 +18,7 @@ from qorqut_operations.application.plans import IDENTITY, schema
 from qorqut_operations.storage.repositories import decode_row
 
 from .analysis import BUCKETS, SCOPES, TAGS
-from .scope import SCOPE
+from .scope import SCOPE, located
 from .shared import STATES, agenda, content_cursor, reasoning_projection
 from . import legacy
 
@@ -106,13 +106,13 @@ def _frame(candidate, *, offset=0, child=0, index=0):
 
 class LearningReview:
     def review_get(self, ctx, args, options, uow):
-        row = uow.repository("learning_candidates", business_id=ctx.business_id).get(args["learning_id"], required=True)
-        decision = uow.repository("learning_decisions", business_id=ctx.business_id).get(row["id"])
+        row = uow.repository("learning_candidates", project_id=ctx.project_id).get(args["learning_id"], required=True)
+        decision = uow.repository("learning_decisions", project_id=ctx.project_id).get(row["id"])
         item = self.item(row, decision)
         evidence_cursor, history_cursor = args.get("evidence_cursor"), args.get("history_cursor")
         bundle = self.page(uow, ctx, row, decision, item, evidence_cursor, history_cursor)
         serialized = canonical_bytes(bundle).decode()
-        capture = canonical_hash([ctx.business_id, row["id"], row["revision"], serialized])
+        capture = canonical_hash([ctx.project_id, row["id"], row["revision"], serialized])
         if args.get("content_cursor"):
             offset = self._content_offset(args["content_cursor"], capture, serialized)
             content = serialized[offset:offset + CHUNK_CHARS]
@@ -156,14 +156,14 @@ class LearningReview:
         if "history" in collections:
             events, cursor, complete = self.history_page(uow, ctx, row, decision, history_cursor)
             bundle.update(history=events, next_history_cursor=cursor, history_complete=complete)
-        bundle.update(reasoning_projection(uow, ctx.business_id, item))
+        bundle.update(reasoning_projection(uow, ctx.project_id, item))
         return bundle
 
     @staticmethod
     def binding(ctx, row, decision, kind):
         """The frozen identity a collection cursor belongs to: scope, candidate, effective decision and graph."""
         decision = decision or {}
-        return canonical_hash({"version": CURSOR_VERSION, "kind": kind, "business_id": ctx.business_id,
+        return canonical_hash({"version": CURSOR_VERSION, "kind": kind, "project_id": ctx.project_id,
             "candidate_id": row["id"], "candidate_revision": row["revision"],
             "decision_revision": decision.get("revision"), "decision_state": decision.get("state"),
             "decision_changes": canonical_hash(plain(decision["changes_json"])) if decision else None,
@@ -252,7 +252,7 @@ class LearningReview:
     def core(self, uow, ctx, run, session, cores):
         """The saved frozen core of one ``(run, session)`` reference, looked up in this caller's own scope only."""
         if run not in cores:
-            stored = uow.repository("learning_runs", business_id=ctx.business_id).get(run)
+            stored = uow.repository("learning_runs", project_id=ctx.project_id).get(run)
             cores[run] = stored["result_json"].get("cores") if stored else None
         return (cores[run] or {}).get(session)
 
@@ -260,11 +260,11 @@ class LearningReview:
     def history_metadata(self, uow, ctx, candidate_id):
         """O(1) append-sensitive boundary metadata: the row count and the final ordered identity, never snapshots."""
         total = uow.connection.execute(
-            "SELECT COUNT(*) AS total FROM learning_history WHERE business_id IS ? AND candidate_id = ?",
-            (ctx.business_id, candidate_id)).fetchone()["total"]
+            "SELECT COUNT(*) AS total FROM learning_history WHERE project_id IS ? AND candidate_id = ?",
+            (ctx.project_id, candidate_id)).fetchone()["total"]
         last = uow.connection.execute(
-            "SELECT created_at, id FROM learning_history WHERE business_id IS ? AND candidate_id = ? "
-            "ORDER BY created_at DESC, id DESC LIMIT 1", (ctx.business_id, candidate_id)).fetchone()
+            "SELECT created_at, id FROM learning_history WHERE project_id IS ? AND candidate_id = ? "
+            "ORDER BY created_at DESC, id DESC LIMIT 1", (ctx.project_id, candidate_id)).fetchone()
         return total, ([last["created_at"], last["id"]] if last else None)
 
     def history_page(self, uow, ctx, row, decision, cursor):
@@ -283,7 +283,7 @@ class LearningReview:
             if decoded.get("boundary") != boundary:
                 raise _stale("The append-only history changed after this cursor was issued; restart the review page")
             after = decoded["position"].get("after")
-        clause, parameters = "business_id IS ? AND candidate_id = ?", [ctx.business_id, row["id"]]
+        clause, parameters = "project_id IS ? AND candidate_id = ?", [ctx.project_id, row["id"]]
         if after is not None:
             clause += " AND (created_at, id) > (?, ?)"
             parameters.extend(after)
@@ -300,14 +300,14 @@ class LearningReview:
                                                    "gaps": 0, "after": [selected[-1]["created_at"], selected[-1]["id"]]})
         return events, next_cursor, not more
 
-    def register_review(self):
+    def register_review(self, lookup):
         self.app.registry.register(OperationDescriptor("learnings_review_list", schema({**{"limit": {"type": "integer", "minimum": 1, "maximum": 200},
             "cursor": {"type": "string", "maxLength": 2000}},
             "states": {"type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": True, "items": {"enum": list(STATES)}},
             "bucket": {"enum": list(BUCKETS)}, "tag": {"enum": list(TAGS)}, "scope": {"enum": list(SCOPES)}}),
-            effect_kind="read", supports_signoff=False, scope_kinds={"business", "agent_workspace", "global"},
+            effect_kind="read", supports_signoff=False, scope_kinds={"project", "agent_workspace", "global"},
             global_capability="read_global_context",
-            resolve_namespace=lambda c,a: "business:" + c.business_id if c.business_id else "agent:" + c.agent_id if c.agent_id else "global",
+            resolve_namespace=lambda c,a: "project:" + c.project_id if c.project_id else "agent:" + c.agent_id if c.agent_id else "global",
             read=agenda,
             description=instruction_text('review-read-the-compact-factual-context-review-agenda-across')))
         self.app.registry.register(OperationDescriptor("learnings_review_get", schema({"learning_id": IDENTITY,
@@ -316,4 +316,4 @@ class LearningReview:
             "history_cursor": {"type": "string", "maxLength": 4000, "description": instruction_text('review-continue-the-append-only-history-collection-at-this')}},
             ("learning_id",)),
             **SCOPE, effect_kind="read", supports_signoff=False, read=self.review_get,
-            description=instruction_text('review-read-one-retained-learning-candidate-with-its-owner')))
+            **located(lookup, instruction_text('review-read-one-retained-learning-candidate-with-its-owner'))))

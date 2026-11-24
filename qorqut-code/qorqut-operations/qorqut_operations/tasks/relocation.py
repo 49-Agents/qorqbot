@@ -1,7 +1,7 @@
 """Move whole Task trees between owning scopes without changing any Task's identity.
 
-A Task is owned by exactly one scope (a project, or Global) and its id is only unique inside that scope. Moving a Task
-means changing the one ``business_id`` of the Task row and of the rows that belong to it, in one transaction, while its id,
+A Task is owned by exactly one scope (a project, or Global) and its id names it in the whole store. Moving a Task
+means changing the one ``project_id`` of the Task row and of the rows that belong to it, in one transaction, while its id,
 parents inside the moved tree, discussion, follows, completion, snooze history, tags, assignments and CRM memberships keep
 their identity and content. Nothing is copied, recreated or merged.
 
@@ -45,16 +45,16 @@ FORMAT = 1
 FOREIGN_KEY_CHILDREN = frozenset({"task_snooze_wakes", "crm_entries", "crm_activity_events"})
 
 
-def namespace(business_id) -> str:
-    return "global" if business_id is None else "business:" + business_id
+def namespace(project_id) -> str:
+    return "global" if project_id is None else "project:" + project_id
 
 
 def scope_of(text):
-    """The inverse of ``namespace``: ``(True, business_id)`` for ``global`` or ``business:<id>``, ``(False, None)`` otherwise."""
+    """The inverse of ``namespace``: ``(True, project_id)`` for ``global`` or ``project:<id>``, ``(False, None)`` otherwise."""
     if text == "global":
         return True, None
-    if isinstance(text, str) and text.startswith("business:") and len(text) > len("business:"):
-        return True, text[len("business:"):]
+    if isinstance(text, str) and text.startswith("project:") and len(text) > len("project:"):
+        return True, text[len("project:"):]
     return False, None
 
 
@@ -151,9 +151,9 @@ class TaskRelocation:
     def tree(uow, source, given):
         """``(rows by id, ordered ids, root ids)`` of the given Tasks and all their descendants in the source scope."""
         found = uow.connection.execute(
-            "WITH RECURSIVE tree(id) AS (SELECT id FROM tasks WHERE business_id IS ? AND id IN " + marks(given)
-            + " UNION SELECT t.id FROM tasks t JOIN tree ON t.parent_id=tree.id WHERE t.business_id IS ?) "
-            "SELECT * FROM tasks WHERE business_id IS ? AND id IN (SELECT id FROM tree) ORDER BY id LIMIT ?",
+            "WITH RECURSIVE tree(id) AS (SELECT id FROM tasks WHERE project_id IS ? AND id IN " + marks(given)
+            + " UNION SELECT t.id FROM tasks t JOIN tree ON t.parent_id=tree.id WHERE t.project_id IS ?) "
+            "SELECT * FROM tasks WHERE project_id IS ? AND id IN (SELECT id FROM tree) ORDER BY id LIMIT ?",
             (source, *given, source, source, MAXIMUM_TASKS + 1)).fetchall()
         if len(found) > MAXIMUM_TASKS:
             raise DomainError("validation_error", f"The selection expands to more than {MAXIMUM_TASKS} Tasks")
@@ -185,7 +185,7 @@ class TaskRelocation:
         for start in range(0, len(keys), 500):
             chunk = keys[start:start + 500]
             found.update(row[0] for row in connection.execute(
-                "SELECT DISTINCT relationship_id FROM context_reviews WHERE business_id IS ? AND relationship_id IN " + marks(chunk), (source, *chunk)))
+                "SELECT DISTINCT relationship_id FROM context_reviews WHERE project_id IS ? AND relationship_id IN " + marks(chunk), (source, *chunk)))
         return found
 
     @staticmethod
@@ -197,7 +197,7 @@ class TaskRelocation:
         for start in range(0, len(waiting), 500):
             chunk = waiting[start:start + 500]
             found.update((row["id"], row["status"]) for row in connection.execute(
-                "SELECT id, status FROM tasks WHERE business_id IS ? AND id IN " + marks(chunk), (source, *chunk)))
+                "SELECT id, status FROM tasks WHERE project_id IS ? AND id IN " + marks(chunk), (source, *chunk)))
         return found
 
     # -- inspection ------------------------------------------------------------------------------------------------
@@ -208,10 +208,10 @@ class TaskRelocation:
         given = self.selection(task_ids)
         if not isinstance(destination, str) or not destination or destination == source:
             raise DomainError("validation_error", "Choose a project other than the Task's current scope")
-        target = uow.connection.execute("SELECT id, slug, name, archived_at FROM businesses WHERE id=?", (destination,)).fetchone()
+        target = uow.connection.execute("SELECT id, slug, name, archived_at FROM projects WHERE id=?", (destination,)).fetchone()
         if target is None or target["archived_at"] is not None:
             raise DomainError("not_found", "Destination project is unavailable")
-        if source is not None and uow.connection.execute("SELECT 1 FROM businesses WHERE id=?", (source,)).fetchone() is None:
+        if source is not None and uow.connection.execute("SELECT 1 FROM projects WHERE id=?", (source,)).fetchone() is None:
             raise DomainError("not_found", "Source project is unavailable")
         rows, ordered, roots = self.tree(uow, source, given)
         relocation = Relocation(source, destination, ordered, roots)
@@ -223,12 +223,12 @@ class TaskRelocation:
                              for row in (rows[item] for item in ordered)]
         material["roots"] = list(roots)
 
-        # Destination identity: a Task id is unique only inside its scope, so another record there with the same id blocks.
-        for row in connection.execute("SELECT id FROM tasks WHERE business_id IS ? AND id IN " + marks(ids) + " ORDER BY id", (destination, *ids)):
+        # Destination identity: another record there with the same id blocks.
+        for row in connection.execute("SELECT id FROM tasks WHERE project_id IS ? AND id IN " + marks(ids) + " ORDER BY id", (destination, *ids)):
             blockers.append(blocker("task_id_exists", "The destination project already has a Task with this id", row["id"]))
 
         # Typed fields must validate under the destination's own configuration; links among the moved Tasks follow them.
-        config = connection.execute("SELECT config_json, revision FROM business_configs WHERE business_id IS ? AND domain='tasks'",
+        config = connection.execute("SELECT config_json, revision FROM project_configs WHERE project_id IS ? AND domain='tasks'",
                                     (destination,)).fetchone()
         fields = stored_fields(json.loads(config["config_json"]) if config else DEFAULT_CONFIG)
         material["destination_config"] = [config["revision"], digest([[config["config_json"]]])] if config else None
@@ -238,7 +238,7 @@ class TaskRelocation:
             row["fields_json"] = json.loads(row["fields_json"]) if isinstance(row["fields_json"], str) else row["fields_json"]
             links = row["fields_json"].get(LINKS)
             if links:
-                row["fields_json"][LINKS] = [{**item, "business_id": destination} if item.get("business_id") == source
+                row["fields_json"][LINKS] = [{**item, "project_id": destination} if item.get("project_id") == source
                                              and item.get("task_id") in rows else item for item in links]
             rewritten[identity] = row
             # An Email Task's conversation binding is a read-only historical reference (mail is no longer read through it),
@@ -257,48 +257,48 @@ class TaskRelocation:
         counts["tasks"] = len(ordered)
 
         # Discussion: immutable messages keep id, content, authors and event association; only their scope changes.
-        count = connection.execute("SELECT COUNT(*) FROM thread_messages WHERE business_id IS ? AND item_type='task' AND item_id IN "
+        count = connection.execute("SELECT COUNT(*) FROM thread_messages WHERE project_id IS ? AND item_type='task' AND item_id IN "
                                    + marks(ids), (source, *ids)).fetchone()[0]
         if count > MAXIMUM_MESSAGES:
             blockers.append(blocker("history_too_large", f"The selection has more than {MAXIMUM_MESSAGES} discussion entries"))
         else:
-            messages = connection.execute("SELECT item_id, id, event_id, created_at, reference_namespace FROM thread_messages WHERE business_id IS ? AND "
+            messages = connection.execute("SELECT item_id, id, event_id, created_at, reference_namespace FROM thread_messages WHERE project_id IS ? AND "
                                           "item_type='task' AND item_id IN " + marks(ids) + " ORDER BY item_id, id", (source, *ids)).fetchall()
             material["messages"] = [len(messages), digest(messages)]
-            clash = connection.execute("SELECT id FROM thread_messages WHERE business_id IS ? AND id IN (SELECT id FROM thread_messages "
-                                       "WHERE business_id IS ? AND item_type='task' AND item_id IN " + marks(ids) + ") LIMIT 1",
+            clash = connection.execute("SELECT id FROM thread_messages WHERE project_id IS ? AND id IN (SELECT id FROM thread_messages "
+                                       "WHERE project_id IS ? AND item_type='task' AND item_id IN " + marks(ids) + ") LIMIT 1",
                                        (destination, source, *ids)).fetchone()
             if clash:
                 blockers.append(blocker("message_id_exists", "The destination project already has a discussion entry with the same id"))
         counts["comments"] = count
 
-        follows = connection.execute("SELECT * FROM thread_follows WHERE business_id IS ? AND item_type='task' AND item_id IN " + marks(ids)
+        follows = connection.execute("SELECT * FROM thread_follows WHERE project_id IS ? AND item_type='task' AND item_id IN " + marks(ids)
                                      + " ORDER BY item_id, principal_id", (source, *ids)).fetchall()
         material["follows"] = [len(follows), digest(follows)]
-        if connection.execute("SELECT 1 FROM thread_follows WHERE business_id IS ? AND item_type='task' AND item_id IN " + marks(ids) + " LIMIT 1",
+        if connection.execute("SELECT 1 FROM thread_follows WHERE project_id IS ? AND item_type='task' AND item_id IN " + marks(ids) + " LIMIT 1",
                               (destination, *ids)).fetchone():
             blockers.append(blocker("follow_exists", "The destination project already has follows for the same Task ids"))
 
-        completions = connection.execute("SELECT * FROM task_completions WHERE business_id IS ? AND task_id IN " + marks(ids) + " ORDER BY task_id",
+        completions = connection.execute("SELECT * FROM task_completions WHERE project_id IS ? AND task_id IN " + marks(ids) + " ORDER BY task_id",
                                          (source, *ids)).fetchall() if source is not None else []
         material["completions"] = [len(completions), digest(completions)]
-        if connection.execute("SELECT 1 FROM task_completions WHERE business_id=? AND task_id IN " + marks(ids) + " LIMIT 1",
+        if connection.execute("SELECT 1 FROM task_completions WHERE project_id=? AND task_id IN " + marks(ids) + " LIMIT 1",
                               (destination, *ids)).fetchone():
             blockers.append(blocker("completion_exists", "The destination project already has completion history for the same Task ids"))
-        wakes = connection.execute("SELECT * FROM task_snooze_wakes WHERE business_id IS ? AND task_id IN " + marks(ids)
+        wakes = connection.execute("SELECT * FROM task_snooze_wakes WHERE project_id IS ? AND task_id IN " + marks(ids)
                                    + " ORDER BY task_id, snooze_generation", (source, *ids)).fetchall()
         material["wakes"] = [len(wakes), digest(wakes)]
-        tags = connection.execute("SELECT * FROM item_tags WHERE business_id IS ? AND item_type='task' AND item_id IN " + marks(ids)
+        tags = connection.execute("SELECT * FROM item_tags WHERE project_id IS ? AND item_type='task' AND item_id IN " + marks(ids)
                                   + " ORDER BY item_id, tag_id", (source, *ids)).fetchall()
         material["tags"] = [len(tags), digest(tags)]
-        if connection.execute("SELECT 1 FROM item_tags WHERE business_id IS ? AND item_type='task' AND item_id IN " + marks(ids) + " LIMIT 1",
+        if connection.execute("SELECT 1 FROM item_tags WHERE project_id IS ? AND item_type='task' AND item_id IN " + marks(ids) + " LIMIT 1",
                               (destination, *ids)).fetchone():
             blockers.append(blocker("tag_exists", "The destination project already has tags for the same Task ids"))
 
         # Relationships: edges inside the move, assignments and other links from a moved Task to an agent travel with it. A live
         # dependency that would cross the move blocks it. Every other crossing edge is history: it stays in the source scope as
         # written, where the record at its other end lives, and is read through the audited move resolver (``RelationshipOperations.stay_edges``).
-        edges = connection.execute("SELECT * FROM relationships WHERE business_id IS ? AND ((from_type='task' AND from_id IN " + marks(ids)
+        edges = connection.execute("SELECT * FROM relationships WHERE project_id IS ? AND ((from_type='task' AND from_id IN " + marks(ids)
                                    + ") OR (to_type='task' AND to_id IN " + marks(ids) + ")) ORDER BY id LIMIT ?",
                                    (source, *ids, *ids, MAXIMUM_RELATED + 1)).fetchall()
         carried_edges, assignees, historical = [], set(), 0
@@ -338,49 +338,49 @@ class TaskRelocation:
         material["outside_dependents"] = sorted(outside.items())
         if carried_edges:
             keys = [edge["id"] for edge in carried_edges]
-            if connection.execute("SELECT 1 FROM relationships WHERE business_id IS ? AND id IN " + marks(keys) + " LIMIT 1",
+            if connection.execute("SELECT 1 FROM relationships WHERE project_id IS ? AND id IN " + marks(keys) + " LIMIT 1",
                                   (destination, *keys)).fetchone():
                 blockers.append(blocker("relationship_id_exists", "The destination project already has a relationship with the same id"))
         for task_id, identity in sorted(assignees):
             try:
-                self.operations.assignee(replace(ctx, business_id=destination, review_business_id=destination), identity, uow)
+                self.operations.assignee(replace(ctx, project_id=destination, review_project_id=destination), identity, uow)
             except DomainError:
                 blockers.append(blocker("assignee_unavailable", "An assignee cannot work in the destination project", task_id))
 
         # Links stored on a Task outside the move that name a moved Task follow it: that Task's link entry is retargeted to the
         # destination in the same transaction (its revision advances), so no stored link goes stale.
         linking = connection.execute(
-            "SELECT DISTINCT t.business_id, t.id, t.revision, t.fields_json FROM tasks t, json_each(t.fields_json, '$.\"$task_links\"') edge "
-            "WHERE json_extract(edge.value,'$.business_id') IS ? AND json_extract(edge.value,'$.task_id') IN " + marks(ids)
-            + " AND NOT (t.business_id IS ? AND t.id IN " + marks(ids) + ") ORDER BY 1, 2 LIMIT ?",
+            "SELECT DISTINCT t.project_id, t.id, t.revision, t.fields_json FROM tasks t, json_each(t.fields_json, '$.\"$task_links\"') edge "
+            "WHERE json_extract(edge.value,'$.project_id') IS ? AND json_extract(edge.value,'$.task_id') IN " + marks(ids)
+            + " AND NOT (t.project_id IS ? AND t.id IN " + marks(ids) + ") ORDER BY 1, 2 LIMIT ?",
             (source, *ids, source, *ids, MAXIMUM_RELATED + 1)).fetchall()
         if len(linking) > MAXIMUM_RELATED:
             blockers.append(blocker("relationships_too_large", "Too many Tasks outside the move link to these Tasks to retarget them safely"))
             linking = []
-        material["linking_tasks"] = [[row["business_id"], row["id"], row["revision"]] for row in linking]
+        material["linking_tasks"] = [[row["project_id"], row["id"], row["revision"]] for row in linking]
         counts["linking_tasks"] = len(linking)
 
         # Memberships and observations of CRM Tables: table ownership stays where it is; only the record scope changes.
         entries = events = []
         if "crm_entries" in tables:
-            entries = connection.execute("SELECT id, business_id, table_id, revision, removed FROM crm_entries WHERE record_business_id IS ? "
-                                         "AND record_task_id IN " + marks(ids) + " ORDER BY business_id, id", (source, *ids)).fetchall()
-            events = connection.execute("SELECT id, content_hash FROM crm_activity_events WHERE business_id IS ? AND task_id IN " + marks(ids)
+            entries = connection.execute("SELECT id, project_id, table_id, revision, removed FROM crm_entries WHERE record_project_id IS ? "
+                                         "AND record_task_id IN " + marks(ids) + " ORDER BY project_id, id", (source, *ids)).fetchall()
+            events = connection.execute("SELECT id, content_hash FROM crm_activity_events WHERE project_id IS ? AND task_id IN " + marks(ids)
                                         + " ORDER BY id", (source, *ids)).fetchall()
-            if connection.execute("SELECT 1 FROM crm_entries WHERE record_business_id IS ? AND record_task_id IN " + marks(ids) + " LIMIT 1",
+            if connection.execute("SELECT 1 FROM crm_entries WHERE record_project_id IS ? AND record_task_id IN " + marks(ids) + " LIMIT 1",
                                   (destination, *ids)).fetchone() or connection.execute(
-                    "SELECT 1 FROM crm_activity_events WHERE business_id IS ? AND (task_id IN " + marks(ids) + " OR id IN (SELECT id FROM "
-                    "crm_activity_events WHERE business_id IS ? AND task_id IN " + marks(ids) + ")) LIMIT 1", (destination, *ids, source, *ids)).fetchone():
+                    "SELECT 1 FROM crm_activity_events WHERE project_id IS ? AND (task_id IN " + marks(ids) + " OR id IN (SELECT id FROM "
+                    "crm_activity_events WHERE project_id IS ? AND task_id IN " + marks(ids) + ")) LIMIT 1", (destination, *ids, source, *ids)).fetchone():
                 blockers.append(blocker("crm_record_exists", "The destination project already has CRM records for the same Task ids"))
         material["crm"] = [[tuple(row) for row in entries], len(events), digest(events)]
         counts["crm_entries"] = len(entries)
 
         # Subscriptions and project links are Operations tables that name a Task by exact scope.
         subscriptions = connection.execute("SELECT id, agent_id, source_type, source_id, include_related FROM inbox_subscriptions WHERE "
-                                           "business_id IS ? AND source_type='tasks' AND source_id IN " + marks(ids) + " ORDER BY id",
+                                           "project_id IS ? AND source_type='tasks' AND source_id IN " + marks(ids) + " ORDER BY id",
                                            (source, *ids)).fetchall() if "inbox_subscriptions" in tables else []
         material["subscriptions"] = [len(subscriptions), digest(subscriptions)]
-        if subscriptions and connection.execute("SELECT 1 FROM inbox_subscriptions WHERE business_id IS ? AND source_type='tasks' AND "
+        if subscriptions and connection.execute("SELECT 1 FROM inbox_subscriptions WHERE project_id IS ? AND source_type='tasks' AND "
                                                 "source_id IN " + marks(ids) + " LIMIT 1", (destination, *ids)).fetchone():
             blockers.append(blocker("subscription_exists", "The destination project already has subscriptions for the same Task ids"))
         links = connection.execute("SELECT * FROM project_item_links WHERE target_type='task' AND target_namespace=? AND target_id IN "
@@ -433,8 +433,8 @@ class TaskRelocation:
                 before, after = rows["original"][identity], rows["tasks"][identity]
                 changed = after["fields_json"] != json.loads(before["fields_json"])
                 updated = connection.execute(
-                    "UPDATE tasks SET business_id=?, parent_id=" + ("NULL" if identity in relocation.roots else "parent_id")
-                    + (", fields_json=?" if changed else "") + ", revision=revision+1, updated_at=? WHERE business_id IS ? AND id=? AND revision=?",
+                    "UPDATE tasks SET project_id=?, parent_id=" + ("NULL" if identity in relocation.roots else "parent_id")
+                    + (", fields_json=?" if changed else "") + ", revision=revision+1, updated_at=? WHERE project_id IS ? AND id=? AND revision=?",
                     (destination, *((canonical_bytes(after["fields_json"]).decode(),) if changed else ()), at, source, identity,
                      before["revision"])).rowcount
                 if updated != 1:
@@ -444,37 +444,37 @@ class TaskRelocation:
                 # The references a message holds name Tasks of the scope it was written in. The first relocation pins that
                 # scope (a later one keeps it) so the references keep their meaning; the payload itself never changes.
                 counts["comments"] += connection.execute(
-                    "UPDATE thread_messages SET business_id=?, reference_namespace=COALESCE(reference_namespace, ?) WHERE business_id IS ? "
+                    "UPDATE thread_messages SET project_id=?, reference_namespace=COALESCE(reference_namespace, ?) WHERE project_id IS ? "
                     "AND item_type='task' AND item_id=?", (destination, namespace(source), source, identity)).rowcount
-                connection.execute("UPDATE thread_follows SET business_id=? WHERE business_id IS ? AND item_type='task' AND item_id=?", (*params, identity))
-                connection.execute("UPDATE item_tags SET business_id=? WHERE business_id IS ? AND item_type='task' AND item_id=?", (*params, identity))
-                connection.execute("UPDATE task_snooze_wakes SET business_id=? WHERE business_id IS ? AND task_id=?", (*params, identity))
+                connection.execute("UPDATE thread_follows SET project_id=? WHERE project_id IS ? AND item_type='task' AND item_id=?", (*params, identity))
+                connection.execute("UPDATE item_tags SET project_id=? WHERE project_id IS ? AND item_type='task' AND item_id=?", (*params, identity))
+                connection.execute("UPDATE task_snooze_wakes SET project_id=? WHERE project_id IS ? AND task_id=?", (*params, identity))
                 if source is not None:
-                    connection.execute("UPDATE task_completions SET business_id=? WHERE business_id=? AND task_id=?", (*params, identity))
+                    connection.execute("UPDATE task_completions SET project_id=? WHERE project_id=? AND task_id=?", (*params, identity))
                 if "inbox_subscriptions" in tables:
-                    connection.execute("UPDATE inbox_subscriptions SET business_id=? WHERE business_id IS ? AND source_type='tasks' AND source_id=?",
+                    connection.execute("UPDATE inbox_subscriptions SET project_id=? WHERE project_id IS ? AND source_type='tasks' AND source_id=?",
                                        (*params, identity))
                 if "crm_entries" in tables:
                     counts["crm_entries"] += connection.execute(
-                        "UPDATE crm_entries SET record_business_id=?, record_namespace=?, revision=revision+1, updated_at=? "
-                        "WHERE record_business_id IS ? AND record_task_id=?", (destination, namespace(destination), at, source, identity)).rowcount
-                    connection.execute("UPDATE crm_activity_events SET business_id=? WHERE business_id IS ? AND task_id=?", (*params, identity))
+                        "UPDATE crm_entries SET record_project_id=?, record_namespace=?, revision=revision+1, updated_at=? "
+                        "WHERE record_project_id IS ? AND record_task_id=?", (destination, namespace(destination), at, source, identity)).rowcount
+                    connection.execute("UPDATE crm_activity_events SET project_id=? WHERE project_id IS ? AND task_id=?", (*params, identity))
             for edge in inspection.rows["edges"]:
-                connection.execute("UPDATE relationships SET business_id=? WHERE business_id IS ? AND id=?", (*params, edge["id"]))
+                connection.execute("UPDATE relationships SET project_id=? WHERE project_id IS ? AND id=?", (*params, edge["id"]))
             for link in inspection.rows["links"]:
-                if link["business_id"] == destination:
+                if link["project_id"] == destination:
                     connection.execute("DELETE FROM project_item_links WHERE id=?", (link["id"],))
                 else:
-                    connection.execute("UPDATE project_item_links SET target_business_id=?, target_namespace=?, revision=revision+1, "
+                    connection.execute("UPDATE project_item_links SET target_project_id=?, target_namespace=?, revision=revision+1, "
                                        "updated_at=? WHERE id=?", (destination, namespace(destination), at, link["id"]))
                 counts["project_links"] += 1
             moving = set(ids)
             for row in inspection.rows["linking"]:
                 fields = json.loads(row["fields_json"]) if isinstance(row["fields_json"], str) else row["fields_json"]
-                fields[LINKS] = [{**item, "business_id": destination} if item.get("business_id") == source and item.get("task_id") in moving
+                fields[LINKS] = [{**item, "project_id": destination} if item.get("project_id") == source and item.get("task_id") in moving
                                  else item for item in fields[LINKS]]
-                if connection.execute("UPDATE tasks SET fields_json=?, revision=revision+1, updated_at=? WHERE business_id IS ? AND id=? AND revision=?",
-                                      (canonical_bytes(fields).decode(), at, row["business_id"], row["id"], row["revision"])).rowcount != 1:
+                if connection.execute("UPDATE tasks SET fields_json=?, revision=revision+1, updated_at=? WHERE project_id IS ? AND id=? AND revision=?",
+                                      (canonical_bytes(fields).decode(), at, row["project_id"], row["id"], row["revision"])).rowcount != 1:
                     raise DomainError("revision_conflict", "A linked Task changed during the move; preview it again")
             counts["linking_tasks"] = len(inspection.rows["linking"])
             for adapter in self.adapters:
@@ -483,7 +483,7 @@ class TaskRelocation:
             for identity in ids:
                 before = rows["original"][identity]
                 connection.execute(
-                    "INSERT INTO task_moves(move_id,task_id,source_business_id,destination_business_id,task_created_at,previous_parent_id,"
+                    "INSERT INTO task_moves(move_id,task_id,source_project_id,destination_project_id,task_created_at,previous_parent_id,"
                     "revision_before,revision_after,actor_id,moved_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                     (move_id, identity, source, destination, before["created_at"], before["parent_id"], before["revision"],
                      before["revision"] + 1, ctx.principal_id, at))
@@ -492,7 +492,7 @@ class TaskRelocation:
                 connection.execute("DELETE FROM inbox_changes WHERE id>?", (watermark,))
             self.verify(uow, relocation, inspection)
         moved = [dict(row) for row in connection.execute(
-            "SELECT id, business_id, parent_id, revision FROM tasks WHERE business_id=? AND id IN " + marks(ids) + " ORDER BY id", (destination, *ids))]
+            "SELECT id, project_id, parent_id, revision FROM tasks WHERE project_id=? AND id IN " + marks(ids) + " ORDER BY id", (destination, *ids))]
         order = {identity: position for position, identity in enumerate(ids)}
         moved.sort(key=lambda row: order[row["id"]])
         return {"moved": moved, "counts": counts}
@@ -501,19 +501,19 @@ class TaskRelocation:
     def verify(uow, relocation, inspection):
         """Nothing of the move may remain in the source and no reference may be left dangling; raises (rolling back)."""
         connection, ids, source = uow.connection, relocation.ids, relocation.source
-        left = connection.execute("SELECT COUNT(*) FROM tasks WHERE business_id IS ? AND id IN " + marks(ids), (source, *ids)).fetchone()[0]
-        left += connection.execute("SELECT COUNT(*) FROM thread_messages WHERE business_id IS ? AND item_type='task' AND item_id IN "
+        left = connection.execute("SELECT COUNT(*) FROM tasks WHERE project_id IS ? AND id IN " + marks(ids), (source, *ids)).fetchone()[0]
+        left += connection.execute("SELECT COUNT(*) FROM thread_messages WHERE project_id IS ? AND item_type='task' AND item_id IN "
                                    + marks(ids), (source, *ids)).fetchone()[0]
-        left += connection.execute("SELECT COUNT(*) FROM thread_messages WHERE business_id=? AND item_type='task' AND item_id IN "
+        left += connection.execute("SELECT COUNT(*) FROM thread_messages WHERE project_id=? AND item_type='task' AND item_id IN "
                                    + marks(ids) + " AND reference_namespace IS NULL", (relocation.destination, *ids)).fetchone()[0]
         if left:
             raise DomainError("relocation_failed", "The move left records behind; nothing was changed")
-        present = connection.execute("SELECT COUNT(*) FROM tasks WHERE business_id=? AND id IN " + marks(ids), (relocation.destination, *ids)).fetchone()[0]
+        present = connection.execute("SELECT COUNT(*) FROM tasks WHERE project_id=? AND id IN " + marks(ids), (relocation.destination, *ids)).fetchone()[0]
         if present != len(ids):
             raise DomainError("relocation_failed", "The move did not reach every Task; nothing was changed")
         for identity in ids:
             before = inspection.rows["original"][identity]
-            current = connection.execute("SELECT worker_ids_json,latest_completed_at FROM tasks WHERE business_id=? AND id=?",
+            current = connection.execute("SELECT worker_ids_json,latest_completed_at FROM tasks WHERE project_id=? AND id=?",
                                          (relocation.destination, identity)).fetchone()
             if current is None or current["worker_ids_json"] != before["worker_ids_json"] or current["latest_completed_at"] != before["latest_completed_at"]:
                 raise DomainError("relocation_failed", "The move changed Task Workers or completion; nothing was changed")
@@ -531,7 +531,7 @@ _UNSET = object()
 def journeys(uow, task_id):
     """Every recorded Task journey of this id, keyed by the Task's immutable creation time: ``{created_at: [move, ...]}`` in
     order, or ``None`` when the bounded history overflows (a Task is identified across moves by its id and creation time)."""
-    history = uow.connection.execute("SELECT source_business_id, destination_business_id, task_created_at, moved_at FROM task_moves WHERE task_id=? "
+    history = uow.connection.execute("SELECT source_project_id, destination_project_id, task_created_at, moved_at FROM task_moves WHERE task_id=? "
                                      "ORDER BY seq LIMIT ?", (task_id, MAXIMUM_STEPS + 1)).fetchall()
     if len(history) > MAXIMUM_STEPS:
         return None
@@ -541,62 +541,62 @@ def journeys(uow, task_id):
     return found
 
 
-def moved_location(uow, business_id, task_id):
-    """The project that holds the Task a stale ``(business_id, task_id)`` reference once named, or ``None``.
+def moved_location(uow, project_id, task_id):
+    """The project that holds the Task a stale ``(project_id, task_id)`` reference once named, or ``None``.
 
-    ``business_id`` is ``None`` for the Global scope, which is a real place a Task can be moved from: the walk below keeps
+    ``project_id`` is ``None`` for the Global scope, which is a real place a Task can be moved from: the walk below keeps
     "not started yet" apart from "at Global" so a Global -> Project move resolves like any other.
 
     A current Task with that exact scoped identity always wins and is never redirected. Otherwise the recorded moves of that
     task id are replayed in order as one Task's journey: it must be unambiguous - one Task whose journey includes the scope -
     and its last location must still hold that very Task. Any doubt, a bounded history overflow or a missing current record
     returns ``None``. A found location is always a project (a destination is never Global)."""
-    if uow.connection.execute("SELECT 1 FROM tasks WHERE business_id IS ? AND id=?", (business_id, task_id)).fetchone():
+    if uow.connection.execute("SELECT 1 FROM tasks WHERE project_id IS ? AND id=?", (project_id, task_id)).fetchone():
         return None
     found = journeys(uow, task_id)
     if found is None:
         return None
-    candidates = [created for created, moves in found.items() if any(move["source_business_id"] == business_id for move in moves)]
+    candidates = [created for created, moves in found.items() if any(move["source_project_id"] == project_id for move in moves)]
     if len(candidates) != 1:
         return None
     created, location = candidates[0], _UNSET
     for move in found[created]:
-        if location is _UNSET and move["source_business_id"] == business_id:
-            location = move["source_business_id"]
-        if location is not _UNSET and move["source_business_id"] == location:
-            location = move["destination_business_id"]
-    if location is _UNSET or location == business_id:
+        if location is _UNSET and move["source_project_id"] == project_id:
+            location = move["source_project_id"]
+        if location is not _UNSET and move["source_project_id"] == location:
+            location = move["destination_project_id"]
+    if location is _UNSET or location == project_id:
         return None
-    current = uow.connection.execute("SELECT created_at FROM tasks WHERE business_id IS ? AND id=?", (location, task_id)).fetchone()
+    current = uow.connection.execute("SELECT created_at FROM tasks WHERE project_id IS ? AND id=?", (location, task_id)).fetchone()
     return location if current is not None and current["created_at"] == created else None
 
 
-def proven_journey(uow, business_id, task_id):
-    """Where the Task now at ``(business_id, task_id)`` has been, as ``journey_spans`` lists it, or ``None`` when the audit
+def proven_journey(uow, project_id, task_id):
+    """Where the Task now at ``(project_id, task_id)`` has been, as ``journey_spans`` lists it, or ``None`` when the audit
     cannot prove it.
 
     A Task whose bare id no recorded move of its own names has a proven, current-only stay. Anything the bounded audit cannot
     settle - a history that overflows, moves that are not one continuous journey ending here, or a Task that is not here -
     proves nothing: ``None`` is "unknown", never a stay. Readers that infer an association from a stay must fail closed on it;
     ``journey_spans`` keeps its whole-stay fallback for everyone else."""
-    row = uow.connection.execute("SELECT created_at FROM tasks WHERE business_id IS ? AND id=?", (business_id, task_id)).fetchone()
+    row = uow.connection.execute("SELECT created_at FROM tasks WHERE project_id IS ? AND id=?", (project_id, task_id)).fetchone()
     history = journeys(uow, task_id) if row is not None else None
     if history is None:
         return None
     moves = history.get(row["created_at"], [])
     if not moves:
-        return [(business_id, row["created_at"], None)]
-    stays, scope, since = [], moves[0]["source_business_id"], row["created_at"]
+        return [(project_id, row["created_at"], None)]
+    stays, scope, since = [], moves[0]["source_project_id"], row["created_at"]
     for move in moves:
-        if move["source_business_id"] != scope:
+        if move["source_project_id"] != scope:
             return None
         stays.append((scope, since, move["moved_at"]))
-        scope, since = move["destination_business_id"], move["moved_at"]
-    return None if scope != business_id else [(scope, since, None), *stays]
+        scope, since = move["destination_project_id"], move["moved_at"]
+    return None if scope != project_id else [(scope, since, None), *stays]
 
 
-def journey_spans(uow, business_id, task_id) -> list:
-    """Where the Task now at ``(business_id, task_id)`` has been: ``[(scope, since, until), ...]``, the current scope first
+def journey_spans(uow, project_id, task_id) -> list:
+    """Where the Task now at ``(project_id, task_id)`` has been: ``[(scope, since, until), ...]``, the current scope first
     (``until=None``) and then every earlier stay in order, each with the time it began and the time it was left (Global is
     ``None``; a Task's first stay begins when it was created).
 
@@ -604,10 +604,10 @@ def journey_spans(uow, business_id, task_id) -> list:
     another creation time, and what it wrote before this Task arrived or after it left lies outside the stay. A Task that
     never moved, whose history overflows or whose recorded moves are not one continuous journey has a single stay in its
     current scope (``proven_journey`` tells those apart)."""
-    row = uow.connection.execute("SELECT created_at FROM tasks WHERE business_id IS ? AND id=?", (business_id, task_id)).fetchone()
+    row = uow.connection.execute("SELECT created_at FROM tasks WHERE project_id IS ? AND id=?", (project_id, task_id)).fetchone()
     if row is None:
-        return [(business_id, "", None)]
-    return proven_journey(uow, business_id, task_id) or [(business_id, row["created_at"], None)]
+        return [(project_id, "", None)]
+    return proven_journey(uow, project_id, task_id) or [(project_id, row["created_at"], None)]
 
 
 __all__ = ["AdapterReport", "FOREIGN_KEY_CHILDREN", "Inspection", "Relocation", "RelocationAdapter", "TaskRelocation", "blocker",

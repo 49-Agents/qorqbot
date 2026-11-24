@@ -194,7 +194,7 @@ class TranscriptArchive:
     Construction validates the root string and creates nothing. ``capture`` is the only
     operation that writes; it creates the archive directories it needs (the root's *parent* must
     already exist) and publishes receipts. The caller chooses the root from the registered
-    agent's transcripts directory; nothing here discovers agents, businesses, provider homes or
+    agent's transcripts directory; nothing here discovers agents, projects, provider homes or
     processes.
     """
 

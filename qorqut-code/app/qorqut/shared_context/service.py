@@ -26,7 +26,7 @@ from qorqut.management.identity import configured_ordubashy
 from qorqut.service.changes import CONTEXT_QUEUE_KIND
 
 CONFIG_BYTES = 64 * 1024
-# One shared Context: every supported global role is eligible to instruct and edit it, in any business or the Global target,
+# One shared Context: every supported global role is eligible to instruct and edit it, in any project or the Global target,
 # through the same validated operations, policy and source checks. Eligibility grants nothing: a worker has no default write
 # grant and needs the ordinary explicit permission, rechecked at execution.
 INSTRUCT_ROLES = SUPPORTED_GLOBAL_ROLES

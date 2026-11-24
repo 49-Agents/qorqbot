@@ -41,7 +41,7 @@ Raw profiles and operational records are not included in this repository.
 | --- | --- |
 | Instruction inventory | Walk through already-open confined directory descriptors and `lstat` every entry on every inventory. A file's digest is reused only when this process hashed those bytes itself, its device, inode, mode, size, mtime and ctime are all unchanged, and it had been unchanged for two seconds when it was hashed; otherwise it is opened with no symlink following and hashed as before. A file that changes while it is read is not remembered. |
 | Instruction projection | Share one verified outer snapshot across nested projections; reuse an exactly matching parsed catalog; cache runtime prose by its content revision and return private documents. Entry/exit inventories and recovery checks remain. Only the snapshot's own verification is retried; an error the projection itself raises, a conflict included, reaches the caller unchanged. |
-| Configuration | Return the recursively frozen cached configuration for ordinary invocations. Remember the configuration fingerprint and cache key per exact input (catalogue revision, stored profile text, effective scope, businesses, owners, artifact rows and on-disk signatures) for a frozen registry; the values are byte-identical. Sign artifact and catalogue stores with `scandir`. Diagnostic preparation and session-delivery projections still run when requested; current profile, scope and source checks remain. |
+| Configuration | Return the recursively frozen cached configuration for ordinary invocations. Remember the configuration fingerprint and cache key per exact input (catalogue revision, stored profile text, effective scope, projects, owners, artifact rows and on-disk signatures) for a frozen registry; the values are byte-identical. Sign artifact and catalogue stores with `scandir`. Diagnostic preparation and session-delivery projections still run when requested; current profile, scope and source checks remain. |
 | MCP dispatch | Bypass the SDK's process-wide tool-definition cache, which re-ran the whole `tools/list` handler inside `tools/call` on every miss and whose result was unused (SDK input validation is off). Run the per-use authority gate on the worker thread with the work it guards. |
 | Hook processes | The two per-tool-call hook processes no longer import the storage engine, the instruction authoring layer, `jsonschema`, `yaml` or urllib's HTTP stack. |
 | Transaction duration | Load checkpoint prose once before database units. Recheck session ownership and current source state inside the claim transaction. Render task/attention guidance after commit, outside the writer; skip unchanged clock updates. |
@@ -168,7 +168,7 @@ five-second busy timeout.
 | Hook claim, chat pass, background pass | Run through `write_if_needed`. The two statements that took the writer without changing a row (recovery of expired claims, the occurrence upsert) are preceded by a read that decides whether they are needed. The other steps of the background pass (snoozes, reminders, overseer requests, agentic inbox) were audited and already write only what they find. |
 | Hook claim order | The clock decides first whether anything is due; authority (policy, the focused Task) is established only for an occurrence that is. Both were always required for a claim, so the result is the same. |
 | Board mode | Derived only for an Unfocused board. The clock ignores it while Focused, and leaving focus rebuilds the board deadline from that moment whatever mode was stored. |
-| Per-unit memo | `unit_memo()` is a dictionary that lives as long as one unit of work. Within a unit, an identity's workspace is selected on disk once, a published role or plugin package is inventoried once, and the effective-scope projection is reused for the same parsed profile and the same active businesses (which are still read every time). Every check still runs in every unit; a refusal is never kept. |
+| Per-unit memo | `unit_memo()` is a dictionary that lives as long as one unit of work. Within a unit, an identity's workspace is selected on disk once, a published role or plugin package is inventoried once, and the effective-scope projection is reused for the same parsed profile and the same active projects (which are still read every time). Every check still runs in every unit; a refusal is never kept. |
 | Hook process | `DomainError` is defined in `qorqut_operations.errors` and re-exported by the contracts module (one class under both names). The modules the per-tool-call hook loads import it from there, so the hook no longer builds the engine's contract vocabulary to start. |
 
 ### Measurements
@@ -226,54 +226,6 @@ environment failures as before (`test_browser_sign_in` ×2,
 `test_process_info_terminal` ×3).
 
 None of this round changes the schema; it needs no migration of its own.
-
-## Release requirement
-
-The three indexes change the composed schema fingerprint. Include
-`qorqut.migration.queue_indexes` in the approved installed release-worker migration
-plan with the exact extension selection. Its `inspect` command is read-only;
-`apply` requires exclusive instance ownership and refuses a running owner, an
-unknown schema or a different extension selection. Normal startup never migrates.
-
-Using the target release environment, the command interface is:
-
-```sh
-python -m qorqut.migration.queue_indexes inspect --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
-python -m qorqut.migration.queue_indexes apply --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
-python -m qorqut.migration.queue_indexes revert --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
-```
-
-Omit `--extensions-config` only for an instance with no selected extensions.
-The recognized predecessor is the base composition plus those extensions;
-earlier schema transitions must already be complete.
-
-That last condition blocks a store that is more than one transform behind: a
-store that also lacks the Signoff source links matches neither this command's
-predecessor nor that of `qorqut.migration.signoff_sources`, so neither runs.
-`qorqut.migration.upgrade` applies every pending transform in release
-order, in one transaction, and is the command to use for an existing instance:
-
-```sh
-python -m qorqut.migration.upgrade inspect --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
-python -m qorqut.migration.upgrade apply --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
-python -m qorqut.migration.upgrade revert --to base --instance-root /path/to/instance --extensions-config /path/to/selected-extensions.json
-```
-
-`inspect` reports the state the store is at (`base`, `signoff_sources` or
-`queue_indexes`), what is applied and what is pending. `revert --to STATE`
-walks back to that state. It refuses to remove the Signoff source links table
-while it holds rows unless `--discard-rows` is given, because those rows exist
-nowhere else. A store that matches no state of the chain is refused unchanged.
-
-The gate works in both directions: this release refuses a store without the
-indexes, and an earlier release refuses a store that has them. `revert`, with
-the same arguments and ownership requirement as `apply`, drops the three
-indexes and restores the predecessor identity in one transaction, so a rollback
-of the release does not need a database restore. All three commands were run
-against a seeded instance: the predecessor store was refused by this release,
-opened after `apply`, was refused by the earlier code, and opened there again
-after `revert`.
-No production migration, deployment, restart or process cleanup was performed.
 
 ## Next areas, in priority order
 

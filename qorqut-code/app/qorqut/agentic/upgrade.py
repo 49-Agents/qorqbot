@@ -215,7 +215,7 @@ def _profile_grants(paths, *, immutable=False):
                 connection.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 16 * 1024 * 1024)
             fields = "agent_id,substr(profile_json,1,1048577) AS profile_json,revision" if immutable else "agent_id,profile_json,revision"
             query = ("SELECT " + fields + " FROM agent_profiles "
-                     "WHERE home_business_id IS NULL AND status='active' ORDER BY agent_id")
+                     "WHERE status='active' ORDER BY agent_id")
             rows = connection.execute(query + (" LIMIT 101" if immutable else "")).fetchall()
             if immutable and (len(rows) > 100 or any(len(row["profile_json"] or "") > 1048576 for row in rows)):
                 raise ValueError("profile limit exceeded")

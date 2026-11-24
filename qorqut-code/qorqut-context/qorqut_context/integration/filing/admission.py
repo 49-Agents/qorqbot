@@ -81,21 +81,21 @@ def _prepared_job(builder, job_id: str, filing_id: str) -> dict:
 
 def admit(builder, uow, *, kind: str, source_id: str, filing_id: str, job_id: str, document: str | None,
           event_metadata: dict, retracts: int | None = None, max_content_bytes: int | None = None,
-          business_id: str | None) -> Admission:
+          project_id: str | None) -> Admission:
     """Prepare the three records of one new source version and return its identities.
 
     ``document`` is the frozen ``qorqut-source-v1`` text (``envelope.source_document``), or ``None`` for a retraction
     (which names ``retracts``, the revision of the exact published version it removes). ``event_metadata`` is the Context
-    source metadata (``kind``, ``title``, ``origin``, optional ``origin_ref``/``created_at``). ``business_id`` is the
+    source metadata (``kind``, ``title``, ``origin``, optional ``origin_ref``/``created_at``). ``project_id`` is the
     source's owning scope and must be the caller's selected scope."""
     ctx = builder.ctx
-    if business_id != ctx.business_id:
+    if project_id != ctx.project_id:
         raise DomainError("forbidden", "A source is filed in the caller's selected scope")
     if kind == "instruction" and source_id != job_id:
         raise DomainError("invalid_plan", "An instruction's source is its own registered job")
     path = source_path(kind, source_id)
     accepted = versions(uow, kind, source_id)
-    if accepted and accepted[0]["business_id"] != business_id:
+    if accepted and accepted[0]["project_id"] != project_id:
         raise DomainError("forbidden", "This source belongs to another scope")
     operation = lineage_operation(accepted, retracts is not None)
     if operation == "remove":
@@ -128,14 +128,14 @@ def admit(builder, uow, *, kind: str, source_id: str, filing_id: str, job_id: st
     version_id, input_id = new_id(), new_id()
     revision = len(accepted) + 1
     builder.record("context_source_versions", version_id, None, {
-        "id": version_id, "business_id": business_id, "source_kind": kind, "source_id": source_id, "source_revision": revision,
+        "id": version_id, "project_id": project_id, "source_kind": kind, "source_id": source_id, "source_revision": revision,
         "operation": operation, "source_path": path, "source_digest": digest, "retracts_revision": retracts,
-        "created_by": ctx.principal_id}, business_id=business_id, label=f"{path} v{revision}")
+        "created_by": ctx.principal_id}, project_id=project_id, label=f"{path} v{revision}")
     builder.record("context_filings", filing_id, None, {
-        "id": filing_id, "business_id": business_id, "source_version_id": version_id, "request_id": ctx.request_id,
-        "job_id": job_id, **program, "input_id": input_id}, business_id=business_id, label=f"Filing of {path} v{revision}")
+        "id": filing_id, "project_id": project_id, "source_version_id": version_id, "request_id": ctx.request_id,
+        "job_id": job_id, **program, "input_id": input_id}, project_id=project_id, label=f"Filing of {path} v{revision}")
     builder.record("context_inputs", input_id, None, {**general_values(input_id, change, ctx.principal_id, builder.at),
-                   "business_id": business_id}, business_id=business_id, label=path)
+                   "project_id": project_id}, project_id=project_id, label=path)
     builder.effects.append(f"Queues source version {revision} of {path} for the shared Context; it is processed later by the "
                            "backend driver and the source is not filed until its authorized completion applies.")
     return Admission(version_id, filing_id, input_id, revision, operation, path, digest)

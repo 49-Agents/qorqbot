@@ -96,10 +96,3 @@ ancestry and allow legitimate later authored changes; they do not reapply the ol
 content. An unrecorded directory left between creation and its journal write is
 an ambiguous conflict: preserve it for explicit resolution rather than adopting
 or deleting it automatically. No automatic rollback is performed.
-
-The legacy-learning-removal coordinator uses this same updater after layout and
-module-state prerequisites are complete. Its bounded public plan contains the
-validated plan identity, exact file-change metadata and hashes of larger records,
-not authored file bodies. It verifies the real private completion proof, unchanged
-unrelated module records and exact file effects before its separate database
-transition. Context and Operations migrations retain their own contracts.

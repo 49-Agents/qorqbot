@@ -37,7 +37,7 @@ from qorqut_operations.tasks.scope import task_context
 from qorqut.read_admission import admit_read, may_read
 
 # Refusals that mean "this reader cannot read that source now"; the source is then skipped without a trace.
-UNAVAILABLE = frozenset({*ITEM_UNAVAILABLE, "policy_denied", "validation_error", "business_archived", "context_refresh_required",
+UNAVAILABLE = frozenset({*ITEM_UNAVAILABLE, "policy_denied", "validation_error", "project_archived", "context_refresh_required",
                          "scope_required", "invalid_principal"})
 SUMMARY = 500
 BODY = 20000
@@ -55,8 +55,8 @@ def instant(value) -> str:
     return moment.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-def scope_name(business_id) -> str:
-    return business_id or "global"
+def scope_name(project_id) -> str:
+    return project_id or "global"
 
 
 def snippet(text, limit=SUMMARY):
@@ -76,16 +76,16 @@ def actor(uow, principal_id):
 class Target:
     """One explicitly linked record: its kind, owning scope and identity. Equal scoped targets are the same source.
 
-    An Action's identity is its canonical ``action_key`` and its scope the business that stores it (``None`` for a Global
-    Action); every other kind uses its bare identity in its own scope."""
+    An Action's scope is the project that stores it (``None`` for a Global Action); every kind's identity is its
+    own id in that scope."""
 
     kind: str
-    business_id: str | None
+    project_id: str | None
     id: str
 
     @property
     def key(self) -> str:
-        return f"{self.kind}:{scope_name(self.business_id)}:{self.id}"
+        return f"{self.kind}:{scope_name(self.project_id)}:{self.id}"
 
 
 class Row(NamedTuple):
@@ -122,16 +122,16 @@ class Sources:
 
     # ----- authorization --------------------------------------------------------------------------------------------
 
-    def selected(self, ctx, business_id, uow):
+    def selected(self, ctx, project_id, uow):
         """The caller's context for a source's own scope, refreshed from current access."""
-        if business_id is None:
-            return replace(task_context(ctx, {"scope": "global"}, uow), review_business_id=None)
-        return self.app.current_context(replace(ctx, business_id=business_id, review_business_id=business_id), uow)
+        if project_id is None:
+            return replace(task_context(ctx, {"scope": "global"}, uow), review_project_id=None)
+        return self.app.current_context(replace(ctx, project_id=project_id, review_project_id=project_id), uow)
 
-    def scoped(self, operation, business_id, arguments):
+    def scoped(self, operation, project_id, arguments):
         """``arguments`` of the read ``operation`` with its ``scope`` where the operation takes one."""
         properties = self.app.registry.get(operation).input_schema.get("properties", {})
-        return {**arguments, **({"scope": "business" if business_id else "global"} if "scope" in properties else {})}
+        return {**arguments, **({"scope": "project" if project_id else "global"} if "scope" in properties else {})}
 
     def selector(self, operation):
         """The one record selector argument of a read (the name a delegated assignment's boundary is checked against)."""
@@ -140,14 +140,14 @@ class Sources:
             raise DomainError("operation_unavailable", "This read has no single record selector")
         return required[0]
 
-    def admit(self, selected, operation, business_id, arguments, uow):
+    def admit(self, selected, operation, project_id, arguments, uow):
         """Admit the caller's direct call of ``operation`` on exactly this record (raises when refused)."""
-        return admit_read(self.app, selected, operation, self.scoped(operation, business_id, arguments), uow)
+        return admit_read(self.app, selected, operation, self.scoped(operation, project_id, arguments), uow)
 
-    def discussion(self, selected, operation, business_id, arguments, uow):
+    def discussion(self, selected, operation, project_id, arguments, uow):
         """Whether the caller may read the source's discussion now; a refusal discloses nothing."""
         try:
-            return may_read(self.app, selected, operation, self.scoped(operation, business_id, arguments), uow)
+            return may_read(self.app, selected, operation, self.scoped(operation, project_id, arguments), uow)
         except DomainError as error:
             if error.code in UNAVAILABLE:
                 return False
@@ -167,42 +167,42 @@ class Sources:
     def open_task(self, ctx, target, uow):
         # The Task reference reader refreshes the caller's access in the Task's own scope and admits ``tasks_get`` with
         # the exact record (including a delegated assignment's boundary).
-        row = task_links.resolve(self.tasks, ctx, {"business_id": target.business_id, "task_id": target.id}, uow)
-        selected = self.selected(ctx, target.business_id, uow)
+        row = task_links.resolve(self.tasks, ctx, {"project_id": target.project_id, "task_id": target.id}, uow)
+        selected = self.selected(ctx, target.project_id, uow)
         return {"label": row["title"],
-                "discussion": self.discussion(selected, "tasks_thread_get", target.business_id, {"task_id": target.id}, uow)}
+                "discussion": self.discussion(selected, "tasks_thread_get", target.project_id, {"task_id": target.id}, uow)}
 
     def open_signoff(self, ctx, target, uow):
-        selected = self.selected(ctx, target.business_id, uow)
-        self.admit(selected, "signoffs_get", target.business_id, {"signoff_id": target.id}, uow)
+        selected = self.selected(ctx, target.project_id, uow)
+        self.admit(selected, "signoffs_get", target.project_id, {"signoff_id": target.id}, uow)
         row = self.signoffs._row(self.signoffs._context(selected, uow), target.id, uow)
-        if row["review_business_id"] != target.business_id:
+        if row["review_project_id"] != target.project_id:
             raise DomainError("not_found", "Select this signoff's owning review scope")
         return {"label": (row["preview_json"] or {}).get("title") or target.id, "row": row,
-                "discussion": self.discussion(selected, "signoffs_notes_list", target.business_id, {"signoff_id": target.id}, uow)}
+                "discussion": self.discussion(selected, "signoffs_notes_list", target.project_id, {"signoff_id": target.id}, uow)}
 
     def open_action(self, ctx, target, uow):
-        selected = self.selected(ctx, target.business_id, uow)
+        selected = self.selected(ctx, target.project_id, uow)
         view = self.items.resolve(selected, {"type": "action", "id": target.id}, uow)
-        self.admit(selected, "actions_get", target.business_id, {"action_id": target.id}, uow)
-        row = uow.connection.execute("SELECT * FROM action_logs WHERE action_key=?", (target.id,)).fetchone()
-        if row is None or row["business_id"] != target.business_id:
+        self.admit(selected, "actions_get", target.project_id, {"action_id": target.id}, uow)
+        row = uow.connection.execute("SELECT * FROM action_logs WHERE id=?", (target.id,)).fetchone()
+        if row is None or row["project_id"] != target.project_id:
             raise DomainError("not_found", "Select this Action's owning scope")
         return {"label": view.get("label") or snippet(row["action_text"], 80), "row": row,
-                "discussion": self.discussion(selected, "actions_thread_get", target.business_id, {"action_id": target.id}, uow)}
+                "discussion": self.discussion(selected, "actions_thread_get", target.project_id, {"action_id": target.id}, uow)}
 
     def open_material(self, ctx, target, uow):
-        selected = self.selected(ctx, target.business_id, uow)
+        selected = self.selected(ctx, target.project_id, uow)
         view = self.items.resolve(selected, {"type": "material", "id": target.id}, uow)
         document = None
         if view.get("resource_type") == "documents":
             document = uow.connection.execute("SELECT * FROM documents WHERE id=?", (target.id,)).fetchone()
-            if document is not None and document["business_id"] != target.business_id:
+            if document is not None and document["project_id"] != target.project_id:
                 raise DomainError("not_found", "Select this document's owning scope")
             if document is not None:
                 # The read operation of this kind of document, admitted for exactly this document.
                 operation = DOCUMENT_READS.get(document["kind"], "context_get")
-                self.admit(selected, operation, target.business_id, {self.selector(operation): target.id}, uow)
+                self.admit(selected, operation, target.project_id, {self.selector(operation): target.id}, uow)
         return {"label": view.get("label") or view.get("title") or target.id, "document": document, "discussion": False}
 
     # ----- event pages ----------------------------------------------------------------------------------------------
@@ -214,9 +214,9 @@ class Sources:
     @staticmethod
     def source(target, label):
         return {"type": "document" if target.kind == "material" else target.kind, "id": target.id,
-                "business_id": target.business_id, "label": label}
+                "project_id": target.project_id, "label": label}
 
-    def thread_rows(self, target, opened, uow, item_type, business_id, item_id, as_of, position, limit):
+    def thread_rows(self, target, opened, uow, item_type, project_id, item_id, as_of, position, limit):
         """The source's discussion events. Everything in the thread - comments and the system entries written beside them -
         is the thread's own content, so none of it is read unless the caller may read that thread now."""
         if not opened["discussion"]:
@@ -224,8 +224,8 @@ class Sources:
         prefix = f"{target.key}:thread:"
         clause, params = older(position, "created_at", "id", prefix)
         found = uow.connection.execute(
-            "SELECT * FROM thread_messages WHERE business_id IS ? AND item_type=? AND item_id=? AND created_at<=?" + clause +
-            " ORDER BY created_at DESC,id DESC LIMIT ?", (business_id, item_type, item_id, as_of, *params, limit)).fetchall()
+            "SELECT * FROM thread_messages WHERE project_id IS ? AND item_type=? AND item_id=? AND created_at<=?" + clause +
+            " ORDER BY created_at DESC,id DESC LIMIT ?", (project_id, item_type, item_id, as_of, *params, limit)).fetchall()
         events = []
         for row in found:
             comment = row["kind"] == "comment"
@@ -248,15 +248,15 @@ class Sources:
         return events
 
     def rows_task(self, target, opened, uow, as_of, position, limit):
-        return self.thread_rows(target, opened, uow, "task", target.business_id, target.id, as_of, position, limit)
+        return self.thread_rows(target, opened, uow, "task", target.project_id, target.id, as_of, position, limit)
 
     def rows_action(self, target, opened, uow, as_of, position, limit):
         action = opened["row"]
-        events = self.thread_rows(target, opened, uow, "action", action["business_id"], action["id"], as_of, position, limit)
+        events = self.thread_rows(target, opened, uow, "action", action["project_id"], action["id"], as_of, position, limit)
         prefix = f"{target.key}:revision:"
         clause, params = older(position, "created_at", "revision", prefix)
         revisions = uow.connection.execute(
-            "SELECT * FROM action_revisions WHERE action_key=? AND operation<>'add' AND created_at<=?" + clause +
+            "SELECT * FROM action_revisions WHERE action_id=? AND operation<>'add' AND created_at<=?" + clause +
             " ORDER BY created_at DESC,(? || revision) DESC LIMIT ?", (target.id, as_of, *params, prefix, limit)).fetchall()
         wording = {"edit": "Action edited: ", "remove": "Action withdrawn: "}
         for row in revisions:
@@ -326,7 +326,7 @@ class Sources:
             clause = f" AND ({VERSION_INSTANT}<? OR ({VERSION_INSTANT}=? AND (? || version)<?))"
             params = (when, when, prefix, event_id)
         versions = uow.connection.execute(
-            f"SELECT version,author_id,created_at FROM qbdv_document_versions WHERE namespace=? AND document_id=? AND {VERSION_INSTANT}<=?"
+            f"SELECT version,author_id,created_at FROM qdv_document_versions WHERE namespace=? AND document_id=? AND {VERSION_INSTANT}<=?"
             + clause + f" ORDER BY {VERSION_INSTANT} DESC,(? || version) DESC LIMIT ?",
             (document["namespace"], target.id, as_of, *params, prefix, limit)).fetchall()
         events = []
@@ -338,7 +338,7 @@ class Sources:
                      "source": self.source(target, opened["label"]), "origin": "linked",
                      "change": {"kind": "document", "version": row["version"]}}
             events.append(Row((when, event["id"]), event))
-        unversioned = uow.connection.execute("SELECT 1 FROM qbdv_document_versions WHERE namespace=? AND document_id=? LIMIT 1",
+        unversioned = uow.connection.execute("SELECT 1 FROM qdv_document_versions WHERE namespace=? AND document_id=? LIMIT 1",
                                              (document["namespace"], target.id)).fetchone() is None
         if unversioned and instant(document["created_at"]) <= as_of:
             # A document without stored text versions (a file-backed one) is known by its record alone.

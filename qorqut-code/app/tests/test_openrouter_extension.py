@@ -71,7 +71,7 @@ class Base(unittest.TestCase):
         self.profile = NS(data={"role": {"id": "ordubashy"}, "status": "active"}, scope=NS(kind="ecosystem"))
         resolver = NS(profile=lambda principal, connection=None: (self.profile, None))
         self.extension.install(NS(paths=NS(instance_root=self.root), registry=self.registry, resolver=resolver))
-        self.agent = NS(principal_kind="agent", principal_id="agent-1", principal=object(), business_id=None, home_business_id=None)
+        self.agent = NS(principal_kind="agent", principal_id="agent-1", principal=object(), project_id=None)
 
     def status(self, *, coordinator="agent-1", context=None):
         with mock.patch("qorqut.management.ManagementService._coordinator", return_value=coordinator):
@@ -150,9 +150,9 @@ class StatusTest(Base):
     def test_only_the_configured_ordubashy_in_the_global_scope_may_read_it(self):
         self.refused("forbidden", self.status, coordinator="another-agent")
         self.refused("forbidden", self.status, context=NS(principal_kind="human", principal_id="owner", principal=object(),
-                                                         business_id=None, home_business_id=None))
+                                                         project_id=None))
         self.refused("forbidden", self.status, context=NS(principal_kind="agent", principal_id="agent-1", principal=object(),
-                                                         business_id="b1", home_business_id=None))
+                                                         project_id="b1"))
         self.profile.data["role"]["id"] = "global-worker"
         self.refused("forbidden", self.status)
 

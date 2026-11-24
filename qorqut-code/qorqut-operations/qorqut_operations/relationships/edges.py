@@ -29,7 +29,7 @@ def edge_values(source, target, role, context=""):
             "role": role, "context": context}
 
 
-def related_rows(uow, business_id, *, source=None, target=None, role=None):
+def related_rows(uow, project_id, *, source=None, target=None, role=None):
     clauses, parameters = [], []
     for prefix, item in (("from", source), ("to", target)):
         if item:
@@ -38,7 +38,7 @@ def related_rows(uow, business_id, *, source=None, target=None, role=None):
     if role is not None:
         clauses.append("role=?")
         parameters.append(role)
-    return rows(uow, "relationships", business_id, where=" AND ".join(clauses), parameters=parameters)
+    return rows(uow, "relationships", project_id, where=" AND ".join(clauses), parameters=parameters)
 
 
 def create_edge(builder, source, target, role, context="", *, identity=None, operation_name=None):

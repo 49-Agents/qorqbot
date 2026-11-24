@@ -105,13 +105,13 @@ class HostTasks:
     """The owner attention overview's open-task count: the fixed Task states and the shared snooze rule."""
 
     @staticmethod
-    def open_assigned_count(uow, business_id, principal_id, now):
+    def open_assigned_count(uow, project_id, principal_id, now):
         closed = set(CLOSED_STATES)
         return sum(task['status'] not in closed for task in uow.connection.execute('''SELECT t.status FROM tasks t
-            WHERE t.business_id IS ? AND t.archived=0 AND EXISTS(SELECT 1 FROM relationships r
-            WHERE r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id
+            WHERE t.project_id IS ? AND t.archived=0 AND EXISTS(SELECT 1 FROM relationships r
+            WHERE r.project_id IS t.project_id AND r.from_type='task' AND r.from_id=t.id
             AND r.role='assigned_to' AND r.to_type='person' AND r.to_id=?) AND ''' + ACTIVE_SQL,
-            (business_id, principal_id, now)))
+            (project_id, principal_id, now)))
 
 
 class HostReferences:
@@ -119,8 +119,7 @@ class HostReferences:
     order. The engine reads each reference through the named operation as the actor, never directly."""
 
     targets = {'signoff': ReferenceTarget('signoffs_get', 'signoff_id'),
-               'task': ReferenceTarget('tasks_get', 'task_id'),
-               'dev_ticket': ReferenceTarget('dev_tickets_get', 'ticket_id')}
+               'task': ReferenceTarget('tasks_get', 'task_id')}
 
     @staticmethod
     def task_namespace(context, arguments):
@@ -138,9 +137,6 @@ class HostManagement:
 
     def coordinator(self, uow):
         return self.domains.management._coordinator(uow)
-
-    def auto_route_input(self, context, row, uow):
-        return self.domains.management.auto_route_input(context, row, uow)
 
     @staticmethod
     def routing_for(uow, signoff_id):
@@ -183,23 +179,23 @@ class HostInputSources:
         from qorqut_operations.application.plans import ref
         from qorqut_operations.contracts import DomainError
         service = application.private_conversations
-        selected = service.select(context, source['business_id'], uow)
-        if source['type'] == 'reference' and source['business_id'] is not None:
+        selected = service.select(context, source['project_id'], uow)
+        if source['type'] == 'reference' and source['project_id'] is not None:
             raise DomainError('validation_error', 'Reference threads are Global')
         service.source_check(selected, source['type'], source['id'], uow)
         # A dependency is discussion/workflow metadata, not permission to edit or execute the source's contents.
         # In particular an approval for tasks_update must remain linkable while that edit still requires approval.
         operations = {'task': ('tasks_comment', 'tasks', 'task_id'),
                       'table': ('tables_comment', 'data_tables', 'table_id'),
-                      'project': ('project_items_link', 'businesses', 'project_id'),
+                      'project': ('project_items_link', 'projects', 'project_id'),
                       'reference': ('focus_edit', 'focus_cards', 'item_id')}
         operation, table, argument = operations[source['type']]
         # Project and reference writes additionally belong to the owner/configured coordinator.
         if source['type'] in {'project', 'reference'}:
             service.role(selected, uow)
-        namespace = 'business:' + selected.business_id if selected.business_id else 'global'
+        namespace = 'project:' + selected.project_id if selected.project_id else 'global'
         decision = application.authorize(selected, application.registry.get(operation),
-            (ref(table, source['id'], selected.business_id),), uow, namespace=namespace,
+            (ref(table, source['id'], selected.project_id),), uow, namespace=namespace,
             arguments={argument: source['id']})
         if decision.mode != 'allow':
             raise DomainError('forbidden', 'Linking input requires direct write authority over its source')

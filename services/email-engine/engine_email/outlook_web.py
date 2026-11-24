@@ -1,4 +1,4 @@
-"""Owner-bound Outlook web sending; business reads stay in Fastmail.
+"""Owner-bound Outlook web sending; project reads stay in Fastmail.
 
 The operational tables contain identifiers and recovery state only. Full provider
 snapshots and MIME are appended to the independent encrypted history before use.
@@ -108,7 +108,7 @@ class OutlookWeb:
         self._status = {"available": False, "error": None, "last_checked": None}
         with store.connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS outlook_web_sends (
-                request_id TEXT PRIMARY KEY, business_id TEXT NOT NULL, mailbox TEXT NOT NULL,
+                request_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, mailbox TEXT NOT NULL,
                 internet_message_id TEXT NOT NULL UNIQUE, draft_id TEXT, native_id TEXT,
                 copy_state TEXT NOT NULL, fastmail_id TEXT, fastmail_thread_id TEXT)""")
         self.collector = OutlookCollection(store, account_address=config.address, start_at=config.start_at,
@@ -210,14 +210,14 @@ class OutlookWeb:
                 row = db.execute("SELECT * FROM outlook_web_sends WHERE request_id=?", (request_id,)).fetchone()
             else:
                 row = db.execute("SELECT * FROM outlook_web_sends WHERE draft_id=? OR native_id=?", (identity, identity)).fetchone()
-        if row and (row["business_id"] != mailbox.business_id or row["mailbox"] != mailbox.ref):
-            raise ProviderError("message_outside_business", status=404)
+        if row and (row["project_id"] != mailbox.project_id or row["mailbox"] != mailbox.ref):
+            raise ProviderError("message_outside_project", status=404)
         return row
 
     def _approved(self, mailbox, message):
         row = self.store.send(message.request_id)
         if (row is None or row["digest"] != message.digest() or row["transport"] != "outlook_web"
-                or row["business_id"] != mailbox.business_id or row["mailbox"] != mailbox.ref
+                or row["project_id"] != mailbox.project_id or row["mailbox"] != mailbox.ref
                 or message.from_address != self.config.address):
             raise ProviderError("outlook_approved_send_missing")
         return row
@@ -236,7 +236,7 @@ class OutlookWeb:
             self._verify_sent_content(row, result, attachments)
         snapshot = native_item(raw, after_cutover=True, is_sent=sent)
         self.history.external_observation(PROVIDER, self.config.address, result["id"], snapshot,
-            provenance={"request_id": row["request_id"], "business_id": row["business_id"], "mailbox": row["mailbox"]})
+            provenance={"request_id": row["request_id"], "project_id": row["project_id"], "mailbox": row["mailbox"]})
         with self.store.connect() as db:
             db.execute("UPDATE outlook_web_sends SET native_id=?,draft_id=COALESCE(draft_id,?) WHERE request_id=?",
                 (result["id"], result["id"] if result["isDraft"] else None, row["request_id"]))
@@ -270,8 +270,8 @@ class OutlookWeb:
         content = Fastmail.mime(message, parent)
         message_id = str(BytesParser(policy=default).parsebytes(content)["Message-ID"])
         with self.store.connect() as db:
-            db.execute("INSERT OR IGNORE INTO outlook_web_sends(request_id,business_id,mailbox,internet_message_id,copy_state) VALUES(?,?,?,?,'pending')",
-                (message.request_id, mailbox.business_id, mailbox.ref, message_id))
+            db.execute("INSERT OR IGNORE INTO outlook_web_sends(request_id,project_id,mailbox,internet_message_id,copy_state) VALUES(?,?,?,?,'pending')",
+                (message.request_id, mailbox.project_id, mailbox.ref, message_id))
         row = self._binding(mailbox, request_id=message.request_id)
         if row["internet_message_id"] != message_id:
             raise ProviderError("outlook_saved_message_changed")
@@ -320,7 +320,7 @@ class OutlookWeb:
         except ProviderError as exc:
             if exc.code != "outlook_import_conflicting_owner":
                 raise
-            # A recipient's existing Inbox copy is not our business archive.
+            # A recipient's existing Inbox copy is not our project archive.
             # _sent() already verified this native sent MIME against the bound
             # send. Import that authorized source separately, without reading,
             # moving or relabelling the foreign copy. The durable import gate
@@ -348,9 +348,9 @@ class OutlookWeb:
             "outlookConversationId": raw.get("ConversationId", {}).get("Id"),
             "nativeInternetMessageId": row["internet_message_id"]}
         self.history.external_observation(PROVIDER, self.config.address, row["request_id"],
-            {"request_id": row["request_id"], "business_id": mailbox.business_id, "mailbox": mailbox.ref,
+            {"request_id": row["request_id"], "project_id": mailbox.project_id, "mailbox": mailbox.ref,
                 "fastmail_message_id": found["id"], "fastmail_thread_id": found["conversationId"], **evidence},
-            kind="provider.business_copy")
+            kind="provider.project_copy")
         return {**found, **evidence}
 
     def attachments(self, mailbox, message_id):
@@ -368,7 +368,7 @@ class OutlookWeb:
         self.attachments(mailbox, message_id)
         content = self._cache[row["request_id"]][2].get(attachment_id)
         if content is None:
-            raise ProviderError("attachment_outside_business", status=404)
+            raise ProviderError("attachment_outside_project", status=404)
         return content
 
     def send_draft(self, mailbox, draft_id, message):

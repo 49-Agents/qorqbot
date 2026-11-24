@@ -17,7 +17,7 @@ immutable companion row in ``context_graph_edits``:
 * ``targets_json``: the frozen target evidence the host's authority check produced at preparation: what it must
   re-derive, never a permission.
 
-The input's immutable ``business_id`` stays its selected owning namespace. Authority is never read from this table, from
+The input's immutable ``project_id`` stays its selected owning namespace. Authority is never read from this table, from
 tags or from the source path: the host re-resolves the original caller's current permission each time it matters.
 
 The database refuses a reserved-path input without its matching companion, a companion whose input is not exactly the

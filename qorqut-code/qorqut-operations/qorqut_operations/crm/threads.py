@@ -36,7 +36,7 @@ class Threads:
         self.crm = crm
 
     def item(self, ctx, table_id):
-        return ThreadItem(ctx.business_id, "table", table_id)
+        return ThreadItem(ctx.project_id, "table", table_id)
 
     def builder(self, ctx, operation, args, title):
         return PlanBuilder(ctx, operation, args, title, clock=self.crm.clock, namespace=table_namespace(ctx, args))
@@ -49,8 +49,8 @@ class Threads:
         if not change or change.get("kind") != "crm_membership":
             return message
         reference = change["record"]
-        row = (self.crm.access.row(reference["business_id"], reference["id"], uow)
-               if self.crm.access.readable(ctx, reference["business_id"], reference["id"], uow, cache) else None)
+        row = (self.crm.access.row(reference["project_id"], reference["id"], uow)
+               if self.crm.access.readable(ctx, reference["project_id"], reference["id"], uow, cache) else None)
         if row is None:
             return {**message, "change": {"kind": "crm_membership", "entry_id": change["entry_id"],
                                           "operation": change["operation"], "unavailable": True}}
@@ -78,7 +78,7 @@ class Threads:
         if options.expected_revision is not None:
             require_revision(table, options.expected_revision)
         builder = self.builder(ctx, "tables_comment", args, "Comment on table")
-        builder.expect(ref("data_tables", table["id"], ctx.business_id), table)
+        builder.expect(ref("data_tables", table["id"], ctx.project_id), table)
         plan_comment(ctx, uow, builder, self.item(ctx, table["id"]), note=args["text"], summary=args.get("summary"),
                      refs=args.get("note_refs", []), relay=args.get("relay"),
                      resolve=lambda refs: self.crm.tasks.note_refs(ctx, refs, uow, builder),
@@ -127,13 +127,13 @@ class Threads:
             if comment["author_id"] != comment["recorder_id"]:
                 auto_follow(uow, item, [comment["author_id"]], "represented")
         # The comment's one event, delivered to the optional followers; Table data changes are announced by the capture mapping.
-        event = emit_event(uow, business_id=ctx.business_id, source_type="data_tables", source_id=table["id"],
+        event = emit_event(uow, project_id=ctx.project_id, source_type="data_tables", source_id=table["id"],
                            source_revision=table["revision"], actor_id=ctx.principal_id, event_type=EVENT_TYPE,
                            summary=table["title"], optional=follower_ids(uow, item))
         if event is not None:
             attach_event(uow, item, [message["id"] for message in messages], event)
-        row = uow.connection.execute("SELECT * FROM thread_messages WHERE business_id IS ? AND id=?",
-                                     (ctx.business_id, messages[0]["id"])).fetchone()
+        row = uow.connection.execute("SELECT * FROM thread_messages WHERE project_id IS ? AND id=?",
+                                     (ctx.project_id, messages[0]["id"])).fetchone()
         return {"table": self.crm.tables.view(ctx, table, uow), "thread_id": item.thread_id,
                 "message": message_view(row, uow, self.crm.tasks.message_refs(ctx, uow))}
 
@@ -146,9 +146,9 @@ class Threads:
         if not can_follow(uow, item, ctx.principal_id):
             raise DomainError("forbidden", "Only an active participant of this namespace can follow its items")
         builder = self.builder(ctx, "tables_follow", args, "Follow table" if args["following"] else "Unfollow table")
-        builder.expect(ref("data_tables", table["id"], ctx.business_id), table)
+        builder.expect(ref("data_tables", table["id"], ctx.project_id), table)
         key = {"item_type": "table", "item_id": table["id"], "principal_id": ctx.principal_id}
-        existing = uow.repository("thread_follows", business_id=ctx.business_id).get(key)
+        existing = uow.repository("thread_follows", project_id=ctx.project_id).get(key)
         values = {"following": int(args["following"]), "explicit": 1, "reason": "explicit", "updated_at": builder.at}
         if existing:
             builder.record("thread_follows", key, existing, values, label="follow")
@@ -182,7 +182,7 @@ class Threads:
             before is None and key in after["cells_json"]))
         old_stage = before["stage_id"] if before else None
         change = {"kind": "crm_membership", "entry_id": after["id"],
-                  "record": record_ref(after["record_business_id"], after["record_task_id"]),
+                  "record": record_ref(after["record_project_id"], after["record_task_id"]),
                   "operation": operation, "changed_fields": changed}
         if after["stage_id"] != old_stage:
             change["stage"] = {"from": old_stage, "to": after["stage_id"]}

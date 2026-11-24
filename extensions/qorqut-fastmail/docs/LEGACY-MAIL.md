@@ -11,7 +11,7 @@ The exact legacy definitions are now owned by this package as an **offline archi
 describe records for reading and export; they are never installed into a running host, and nothing here creates, alters or
 drops a table of a live instance. This is deliberate: a live provider with no per-Project mail model has no use for those
 tables, and installing them would reintroduce the coupling being retired. `qorqut_fastmail.legacy.LEGACY_DDL` is the original
-shape (with its references to `businesses`, `principals`, `signoffs`); `ARCHIVE_DDL` is the same shape for a standalone file,
+shape (with its references to `projects`, `principals`, `signoffs`); `ARCHIVE_DDL` is the same shape for a standalone file,
 where those three core references remain plain identifiers and every reference between the mail tables is kept.
 
 Not preserved by the archive: the history triggers and the Signoff snapshot view. They derived data from the tables and from the

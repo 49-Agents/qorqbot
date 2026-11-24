@@ -7,8 +7,8 @@ from .authority import BACKGROUND_REQUIRED_TABLES, BackgroundAuthority, storage_
 from .programs import Program, ProgramPending, ProgramRegistry, ProgramResult
 from .routines import RoutineScheduler
 from .schedule import RoutineError, matches, next_slot, parse_cron, prev_slot
-from .service import BackgroundService, JobControl, JobObserver
+from .service import BackgroundService, JobControl
 
-__all__ = ["BACKGROUND_REQUIRED_TABLES", "BackgroundAuthority", "BackgroundService", "JobControl", "JobObserver", "Program", "ProgramPending",
+__all__ = ["BACKGROUND_REQUIRED_TABLES", "BackgroundAuthority", "BackgroundService", "JobControl", "Program", "ProgramPending",
            "ProgramRegistry", "ProgramResult", "RoutineError", "RoutineScheduler", "matches", "next_slot",
            "parse_cron", "prev_slot", "storage_contribution"]

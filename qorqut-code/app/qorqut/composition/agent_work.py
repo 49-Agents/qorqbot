@@ -5,7 +5,7 @@ agents). A worker's authored status is not a session fact: it survives restarts 
 it has its own row. One row per agent, created by the first write; an absent row reads as revision 0 with no item, and a
 cleared assignment is a row whose ``item_json`` is NULL. Reads and restarts never create, clear or replace it.
 
-The item is the existing current-work item ``{business_id, task_id?, summary?, blocked_reason?}``. ``work_updated_at`` moves
+The item is the existing current-work item ``{project_id, task_id?, summary?, blocked_reason?}``. ``work_updated_at`` moves
 only when the item changes; ``work_reviewed_at`` moves on every write, like the session columns of the same names.
 """
 

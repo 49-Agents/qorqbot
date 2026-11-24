@@ -29,12 +29,12 @@ def _plan(connection):
         match = re.match(r"\Arun ([A-Za-z0-9_-]+)\n", result.get("stdout_tail", ""))
         if result.get("legacy") and match:
             sources.append((row, match.group(1)))
-    counts = Counter((row["business_id"], identity) for row, identity in sources)
+    counts = Counter((row["project_id"], identity) for row, identity in sources)
     changes = []
     for row, identity in sources:
-        if counts[(row["business_id"], identity)] != 1 or row["state"] != "succeeded" or row["cost_json"].get("usd") != 0:
+        if counts[(row["project_id"], identity)] != 1 or row["state"] != "succeeded" or row["cost_json"].get("usd") != 0:
             continue
-        raw = connection.execute("SELECT * FROM learning_runs WHERE business_id=? AND id=?", (row["business_id"], identity)).fetchone()
+        raw = connection.execute("SELECT * FROM learning_runs WHERE project_id=? AND id=?", (row["project_id"], identity)).fetchone()
         if raw is None:
             continue
         learning = decode_row(raw)
@@ -47,7 +47,7 @@ def _plan(connection):
         for key in ("usage", "model"):
             if key in result:
                 after[key] = result[key]
-        changes.append({"routine_run_id": row["id"], "business_id": row["business_id"], "learning_run_id": identity,
+        changes.append({"routine_run_id": row["id"], "project_id": row["project_id"], "learning_run_id": identity,
             "routine_hash": canonical_hash(row), "learning_hash": canonical_hash(learning),
             "before": row["cost_json"], "after": after})
     return {"version": 1, "installation_id": installation[0], "changes": changes}
@@ -74,7 +74,7 @@ def apply(database, plan):
         if canonical_hash(_plan(uow.connection)) != canonical_hash(plan):
             raise DomainError("revision_conflict", "Repair sources changed; generate and review a fresh preview")
         for change in plan["changes"]:
-            repo = uow.repository("routine_runs", business_id=change["business_id"])
+            repo = uow.repository("routine_runs", project_id=change["project_id"])
             row = repo.get(change["routine_run_id"], required=True)
             result = {**row["result_json"], "cost_reconciliation": {
                 "reason": "Imported routine cost omitted the linked learning run's recorded usage",

@@ -82,9 +82,9 @@ class DocumentReceiptHistory:
             else:
                 before = proven_before(previews, document_id, before_hash or deleted.get(document_id))
                 reason = f"{plan.operation_name}; documents revision {row['revision']}; receipt {receipt['id']}"
-                if before is None and latest(connection, namespace(row["business_id"]), document_id) is None and before_hash:
+                if before is None and latest(connection, namespace(row["project_id"]), document_id) is None and before_hash:
                     reason += "; earlier content was not recorded, history starts here"
-                version = save_text(connection, namespace(row["business_id"]), document_id, text, plan.principal_id, reason,
+                version = save_text(connection, namespace(row["project_id"]), document_id, text, plan.principal_id, reason,
                     before=before, drift_author=EXTERNAL_AUTHOR,
                     drift_reason="Observed external content accepted by the next edit; author unknown")
             event = pending.pop(document_id, None)
@@ -106,7 +106,7 @@ def seed_document(connection, row, data, *, author, operation, plan=None):
         return None
     if hashlib.sha256(data).hexdigest() != row["content_hash"].removeprefix("sha256:"):
         raise DomainError("document_conflict", "Seeded document bytes do not match the registered hash")
-    version = save_text(connection, namespace(row["business_id"]), row["id"], data.decode("utf-8"), author,
+    version = save_text(connection, namespace(row["project_id"]), row["id"], data.decode("utf-8"), author,
                         f"{operation}; documents revision {row['revision']}; created")
     event = document_event(None, row, actor_id=author, operation=operation, plan=plan)
     if event is not None:
@@ -124,7 +124,7 @@ def document_changed(connection, before, after, *, actor_id, operation):
 def document_event(row_before, row_after, *, actor_id, operation, plan=None):
     """The lifecycle event for a committed documents row change, or None."""
     row = row_after or row_before
-    if row["kind"] in UNTRACKED_KINDS or not row.get("business_id"):
+    if row["kind"] in UNTRACKED_KINDS or not row.get("project_id"):
         return None
     if row_after is None:
         kind, revision, occurred = "document.deleted", row_before["revision"], utc_now()
@@ -146,6 +146,6 @@ def document_event(row_before, row_after, *, actor_id, operation, plan=None):
     if plan is not None:
         data.update(initiated_by_principal_id=plan.initiated_by_principal_id, proposer_agent_id=plan.proposer_agent_id)
     verb = kind.split(".", 1)[1]
-    return {"business_id": row["business_id"], "event_id": f"document:{row['id']}:r{revision}:{verb}", "kind": kind,
+    return {"project_id": row["project_id"], "event_id": f"document:{row['id']}:r{revision}:{verb}", "kind": kind,
             "actor_id": actor_id, "summary": f"Document {verb}", "subject_type": "document", "subject_id": row["id"],
             "occurred_at": occurred, "data": data}

@@ -43,7 +43,7 @@ class Retention:
                                    (row['id'], holder, row['principal_id'], session['id'], source_json))
             return
         run_ref = {'provider': 'qorqut_overseer', 'agent_id': holder, 'conversation_id': session['conversation_id'],
-                   'run_id': None, 'namespace': {'kind': 'global', 'business_id': None}}
+                   'run_id': None, 'namespace': {'kind': 'global', 'project_id': None}}
         def allow_retention(saved, *, action):
             if saved != run_ref or action != 'capture':
                 raise DomainError('forbidden', 'The admitted owner event does not authorize this retention')
@@ -92,7 +92,7 @@ class Retention:
             if (session is None or run_ref.get('provider') != 'qorqut_overseer'
                     or run_ref.get('agent_id') != holder
                     or (not historical and run_ref.get('conversation_id') != session['conversation_id'])
-                    or run_ref.get('namespace') != {'kind': 'global', 'business_id': None}):
+                    or run_ref.get('namespace') != {'kind': 'global', 'project_id': None}):
                 raise DomainError('forbidden', 'The saved continuing conversation is unavailable')
             run_id = run_ref.get('run_id')
             if isinstance(run_id, str) and run_id.startswith('direct-instruction:'):

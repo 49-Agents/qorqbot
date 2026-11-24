@@ -23,7 +23,7 @@ import json
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock
-from qorqut_operations.business_lifecycle import in_active_business
+from qorqut_operations.project_lifecycle import in_active_project
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.tasks.lifecycle import CHILD_LIMIT
 from qorqut_operations.tasks.types import IDENTIFIER, LINE_LIMIT
@@ -49,7 +49,7 @@ DESCRIPTION = ("Owner and coordinator read. Counts where Todo boards, reminders,
                "with the Tasks they point at, with a few examples of each; summary lists the non-zero counts. Changes "
                "nothing.")
 
-ACTIVE = in_active_business("t.business_id")
+ACTIVE = in_active_project("t.project_id")
 ARCHIVED_PROJECT = "NOT " + ACTIVE
 # A work Task is an unarchived Task of the plain type in a project that is not archived; Customers, Stories and Email
 # Tasks are records of another kind.
@@ -57,12 +57,12 @@ WORK = f"t.archived=0 AND coalesce(json_extract(t.fields_json,'$.\"$task\".task_
 OPEN = "t.status NOT IN ('done','cancelled')"
 CLOSED = "t.status IN ('done','cancelled')"
 # A board entry names one Task identity: its namespace, id and creation time.
-ENTRY = ("attention_memberships m JOIN tasks t ON t.business_id IS m.task_business_id AND t.id=m.task_id "
+ENTRY = ("attention_memberships m JOIN tasks t ON t.project_id IS m.task_project_id AND t.id=m.task_id "
          "AND t.created_at=m.task_created_at")
 HOLDS = "EXISTS (SELECT 1 FROM json_each(t.worker_ids_json) w WHERE w.value=m.agent_id)"
 LINKED = ("JOIN tasks t ON t.id=json_extract({column},'$.id') "
-          "AND t.business_id IS json_extract({column},'$.business_id')")
-TASK = "t.business_id, t.id, t.title, t.status"
+          "AND t.project_id IS json_extract({column},'$.project_id')")
+TASK = "t.project_id, t.id, t.title, t.status"
 
 # name -> (what it means, FROM ... WHERE ..., extra example columns)
 CHECKS = {
@@ -73,7 +73,7 @@ CHECKS = {
     "todo_holder_not_worker": ("Todo entries on an open Task whose board agent is not a recorded worker",
         f"{ENTRY} WHERE {OPEN} AND t.archived=0 AND {ACTIVE} AND NOT {HOLDS}", "m.agent_id"),
     "open_under_closed_parent": ("Open work Tasks whose parent is done or cancelled",
-        f"tasks t JOIN tasks p ON p.business_id IS t.business_id AND p.id=t.parent_id "
+        f"tasks t JOIN tasks p ON p.project_id IS t.project_id AND p.id=t.parent_id "
         f"WHERE {WORK} AND {OPEN} AND p.status IN ('done','cancelled')", None),
     "open_without_worker": ("Open work Tasks with no recorded worker",
         f"tasks t WHERE {WORK} AND {OPEN} AND json_array_length(t.worker_ids_json)=0", None),
@@ -93,19 +93,19 @@ CHECKS = {
         f"WHERE f.archived=0 AND json_extract(f.source_json,'$.type')='task' AND {CLOSED} "
         f"AND {ACTIVE}", "f.id AS card_id"),
     "crm_record_typed_as_work": ("CRM row records stored as open work Tasks",
-        f"crm_entries e JOIN tasks t ON t.business_id IS e.record_business_id AND t.id=e.record_task_id "
+        f"crm_entries e JOIN tasks t ON t.project_id IS e.record_project_id AND t.id=e.record_task_id "
         f"WHERE e.removed=0 AND {WORK} AND {OPEN}", "e.table_id"),
     "parent_with_many_open_children": (f"Tasks with more than {CHILD_LIMIT} open work Tasks directly under them (a list kept as Tasks)",
-        "tasks t JOIN (SELECT c.business_id AS scope, c.parent_id AS parent, COUNT(*) AS open_children FROM tasks c "
+        "tasks t JOIN (SELECT c.project_id AS scope, c.parent_id AS parent, COUNT(*) AS open_children FROM tasks c "
         "WHERE c.parent_id IS NOT NULL AND c.archived=0 AND c.status NOT IN ('done','cancelled') "
         "AND coalesce(json_extract(c.fields_json,'$.\"$task\".task_type'),'task')='task' "
-        f"GROUP BY c.business_id, c.parent_id HAVING COUNT(*)>{CHILD_LIMIT}) k ON k.scope IS t.business_id AND k.parent=t.id "
+        f"GROUP BY c.project_id, c.parent_id HAVING COUNT(*)>{CHILD_LIMIT}) k ON k.scope IS t.project_id AND k.parent=t.id "
         f"WHERE {ACTIVE}",
         "k.open_children"),
 }
 TOTALS = {
     "open_work_tasks": f"tasks t WHERE {WORK} AND {OPEN}",
-    "todo_entries": "attention_memberships m WHERE " + in_active_business("m.task_business_id"),
+    "todo_entries": "attention_memberships m WHERE " + in_active_project("m.task_project_id"),
 }
 
 
@@ -122,7 +122,7 @@ def disagreements(connection, now):
         columns = TASK + (", " + extra if extra else "")
         rows = connection.execute(f"SELECT {columns} FROM {body} ORDER BY t.updated_at DESC, t.id LIMIT {EXAMPLES}",
                                   bound(body)).fetchall() if count else []
-        names = ["business_id", "task_id", "title", "status"] + ([extra.split(" AS ")[-1].split(".")[-1]] if extra else [])
+        names = ["project_id", "task_id", "title", "status"] + ([extra.split(" AS ")[-1].split(".")[-1]] if extra else [])
         checks[name] = {"count": count, "meaning": meaning, "examples": [dict(zip(names, row)) for row in rows]}
     totals = {name: connection.execute(f"SELECT COUNT(*) FROM {body}").fetchone()[0] for name, body in TOTALS.items()}
     report = {"as_of": timestamp(lambda: now), "totals": totals, "checks": checks,
@@ -139,28 +139,28 @@ def repairs(connection):
     long or names a record identifier, so somebody has to write the line. ``retype_crm_record``: an open record of a CRM
     row that is typed as work; it becomes a Customer record, which is what a row added today is."""
     listed = lambda sql, names: [dict(zip(names, row)) for row in connection.execute(sql)]
-    entry = ("membership_id", "agent_id", "business_id", "task_id", "title")
+    entry = ("membership_id", "agent_id", "project_id", "task_id", "title")
     found = {
-        "record_worker": listed(f"SELECT m.id, m.agent_id, t.business_id, t.id, t.title FROM {ENTRY} WHERE {OPEN} AND t.archived=0 "
-                                f"AND {ACTIVE} AND NOT {HOLDS} ORDER BY t.business_id, t.id, m.agent_id", entry),
-        "remove_entry": listed(f"SELECT m.id, m.agent_id, t.business_id, t.id, t.title FROM {ENTRY} WHERE {CLOSED} OR t.archived=1 "
-                               f"OR {ARCHIVED_PROJECT} ORDER BY t.business_id, t.id, m.agent_id", entry),
+        "record_worker": listed(f"SELECT m.id, m.agent_id, t.project_id, t.id, t.title FROM {ENTRY} WHERE {OPEN} AND t.archived=0 "
+                                f"AND {ACTIVE} AND NOT {HOLDS} ORDER BY t.project_id, t.id, m.agent_id", entry),
+        "remove_entry": listed(f"SELECT m.id, m.agent_id, t.project_id, t.id, t.title FROM {ENTRY} WHERE {CLOSED} OR t.archived=1 "
+                               f"OR {ARCHIVED_PROJECT} ORDER BY t.project_id, t.id, m.agent_id", entry),
         "set_status_line": [], "status_line_needs_rewrite": [],
         "retype_crm_record": listed(
-            "SELECT DISTINCT t.business_id, t.id, t.title FROM crm_entries e JOIN tasks t ON t.business_id IS e.record_business_id "
+            "SELECT DISTINCT t.project_id, t.id, t.title FROM crm_entries e JOIN tasks t ON t.project_id IS e.record_project_id "
             f"AND t.id=e.record_task_id WHERE e.removed=0 AND {WORK} AND {OPEN} "
-            "ORDER BY t.business_id, t.id", ("business_id", "task_id", "title"))}
+            "ORDER BY t.project_id, t.id", ("project_id", "task_id", "title"))}
     cards = connection.execute(
-        f"SELECT f.id, f.reason, t.business_id, t.id, t.title, t.fields_json FROM focus_cards f "
+        f"SELECT f.id, f.reason, t.project_id, t.id, t.title, t.fields_json FROM focus_cards f "
         f"{LINKED.format(column='f.source_json')} WHERE f.archived=0 AND json_extract(f.source_json,'$.type')='task' "
         f"AND coalesce(f.reason,'')<>'' AND {ACTIVE} ORDER BY f.position, f.id")
-    for card_id, reason, business_id, task_id, title, fields in cards:
+    for card_id, reason, project_id, task_id, title, fields in cards:
         if (json.loads(fields or "{}").get("$task") or {}).get("status_line"):
             continue
         text = " ".join(reason.split())
         fits = len(text) <= LINE_LIMIT and not IDENTIFIER.search(text)
         found["set_status_line" if fits else "status_line_needs_rewrite"].append(
-            {"card_id": card_id, "business_id": business_id, "task_id": task_id, "title": title, "text": text})
+            {"card_id": card_id, "project_id": project_id, "task_id": task_id, "title": title, "text": text})
     return found
 
 
@@ -221,7 +221,7 @@ class RecordsHealth:
         found = {name: items if name in chosen or name not in REPAIRS else [] for name, items in found.items()}
         done = {name: 0 for name in REPAIRS}
         for item in found["record_worker"]:
-            ref = {"type": "task", "id": item["task_id"], "business_id": item["business_id"]}
+            ref = {"type": "task", "id": item["task_id"], "project_id": item["project_id"]}
             try:
                 task = self.attention.task(ctx, ref, uow, lifecycle_only=True)
                 written = self.attention.write_task(ctx, uow, ref, task["revision"],
@@ -237,7 +237,7 @@ class RecordsHealth:
                                           + ") ORDER BY agent_id,id", stale).fetchall()
             done["remove_entry"] = self.attention.release(uow, rows, ctx.principal_id, "Task closed or archived")
         for item in found["set_status_line"]:
-            source = {"type": "task", "id": item["task_id"], "business_id": item["business_id"]}
+            source = {"type": "task", "id": item["task_id"], "project_id": item["project_id"]}
             try:
                 self.focus_board.write_status_line(ctx, source, item["text"], uow)
             except DomainError as error:
@@ -249,7 +249,7 @@ class RecordsHealth:
         if done["set_status_line"]:
             uow.next_sequence("focus_board")
         for item in found["retype_crm_record"][:RETYPE_BATCH]:
-            ref = {"type": "task", "id": item["task_id"], "business_id": item["business_id"]}
+            ref = {"type": "task", "id": item["task_id"], "project_id": item["project_id"]}
             try:
                 task = self.attention.task(ctx, ref, uow, lifecycle_only=True)
                 written = self.attention.write_task(ctx, uow, ref, task["revision"], {"task_type": "customer"})
@@ -267,6 +267,6 @@ class RecordsHealth:
         uow.connection.execute(
             "UPDATE inbox_deliveries SET acknowledged_at=:at,outcome=:outcome WHERE acknowledged_at IS NULL "
             "AND (:agent IS NULL OR agent_id=:agent) AND event_id IN (SELECT id FROM inbox_events WHERE source_type='tasks' "
-            "AND source_id=:id AND business_id IS :business AND source_revision=:revision)",
+            "AND source_id=:id AND project_id IS :project AND source_revision=:revision)",
             {"at": timestamp(self.clock), "outcome": outcome, "agent": agent_id, "id": task["id"],
-             "business": task["business_id"], "revision": task["revision"]})
+             "project": task["project_id"], "revision": task["revision"]})

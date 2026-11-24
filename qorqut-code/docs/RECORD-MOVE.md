@@ -36,16 +36,16 @@ tool is never bypassed. Global tables and Global notes do not move.
 
 ## What a note move carries
 
-Only `business_owned_note` documents move on their own. The owner's journal, Context documents, email messages and
+Only `project_owned_note` documents move on their own. The owner's journal, Context documents, email messages and
 assets do not.
 
-- The `documents` row changes project (`business_id`, `namespace`); id, kind, relative path, content and metadata are
+- The `documents` row changes project (`project_id`, `namespace`); id, kind, relative path, content and metadata are
   unchanged.
 - The file is **copied** to the same relative path in the destination project's folder inside the transaction, so a
   rollback leaves the source untouched (a stray copy is recognised by its content and reused by the next attempt). The
   source file is retired by a sweep once the move is committed: only when the recorded move is the document's latest, no
   row names the old path and the source still holds exactly the moved content. Every move preview sweeps first.
-- Earlier versions in `qbdv_document_versions` are copied to the destination namespace with their version numbers,
+- Earlier versions in `qdv_document_versions` are copied to the destination namespace with their version numbers,
   authors and times. The originals are immutable and stay where they were written.
 
 ## Relationships
@@ -75,9 +75,6 @@ that blocks the move instead.
 `qorqut_operations.storage.record_moves.moved_location`. The two scope guards that refuse a Table's discussion entry or
 CRM membership changing project accept exactly the Tables an armed move names (`relocation_permits(..., 'table:<id>')`).
 
-## Install
+## Tests
 
-The store needs the `record_moves` transform of the ordered offline upgrade (`python -m qorqut.migration.upgrade`): it
-adds the two audits and replaces the two guards. Reverting restores both guards and drops the audits, and requires explicit
-permission to discard recorded moves. Tests: `app/tests/test_table_move.py`, `app/tests/test_note_move.py`,
-`app/tests/test_task_move_history.py`, `app/tests/test_migration_upgrade.py`.
+`app/tests/test_table_move.py`, `app/tests/test_note_move.py`, `app/tests/test_task_move_history.py`.

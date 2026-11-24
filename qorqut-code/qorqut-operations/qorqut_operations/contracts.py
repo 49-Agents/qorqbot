@@ -116,9 +116,8 @@ class Principal:
 @dataclass(frozen=True)
 class InvocationContext:
     principal: Principal
-    business_id: str | None = None
-    home_business_id: str | None = None
-    allowed_business_ids: frozenset[str] = field(default_factory=frozenset)
+    project_id: str | None = None
+    allowed_project_ids: frozenset[str] = field(default_factory=frozenset)
     global_capabilities: frozenset[str] = field(default_factory=frozenset)
     profile_revision: int | None = None
     policy_revision: int | None = None
@@ -130,13 +129,13 @@ class InvocationContext:
     inbox_session_id: str | None = None
     inbox_generation: int | None = None
     initiated_by_principal_id: str | None = None
-    review_business_id: str | None = None
+    review_project_id: str | None = None
     configuration_revision: str | None = None
     context_refresh_required: bool = False
     job_id: str | None = None
     # Trusted provenance set by the owner-session transport from credential
     # metadata. It is never populated from operation arguments or options.
-    owner_session_business_id: str | None = None
+    owner_session_project_id: str | None = None
     # Trusted subordinate identity, populated only from an authenticated
     # server-side assignment binding. Caller arguments never set these fields.
     delegation_binding_id: str | None = None
@@ -146,18 +145,18 @@ class InvocationContext:
     def __post_init__(self):
         if not isinstance(self.principal, Principal):
             raise ValueError("Context requires an authenticated Principal")
-        for name in ("business_id", "home_business_id", "review_business_id", "initiated_by_principal_id", "job_id",
-                     "owner_session_business_id",
+        for name in ("project_id", "review_project_id", "initiated_by_principal_id", "job_id",
+                     "owner_session_project_id",
                      "delegation_binding_id", "delegation_assignment_id"):
             _uuid(getattr(self, name), name)
-        object.__setattr__(self, "allowed_business_ids", frozenset(self.allowed_business_ids))
+        object.__setattr__(self, "allowed_project_ids", frozenset(self.allowed_project_ids))
         object.__setattr__(self, "global_capabilities", frozenset(self.global_capabilities))
         object.__setattr__(self, "enabled_plugin_refs", tuple(self.enabled_plugin_refs))
-        for value in self.allowed_business_ids:
-            _uuid(value, "allowed_business_ids")
+        for value in self.allowed_project_ids:
+            _uuid(value, "allowed_project_ids")
         if self.source not in ("mcp", "dashboard", "worker"):
             raise ValueError("Unknown invocation source")
-        if self.owner_session_business_id is not None and (
+        if self.owner_session_project_id is not None and (
                 self.principal.kind != "human" or self.source != "mcp"):
             raise ValueError("Owner-session provenance requires the authenticated human MCP route")
         if self.job_id is not None and (self.source != "worker" or self.principal.kind != "system"):
@@ -185,19 +184,19 @@ class InvocationContext:
     def agent_id(self) -> str | None:
         return self.principal.id if self.principal.kind == "agent" else None
 
-    def select_business(self, business_id: str | None) -> InvocationContext:
-        target = business_id if business_id is not None else self.business_id
-        if target is not None and target not in self.allowed_business_ids:
+    def select_project(self, project_id: str | None) -> InvocationContext:
+        target = project_id if project_id is not None else self.project_id
+        if target is not None and target not in self.allowed_project_ids:
             raise DomainError("forbidden", "Project is outside the principal's scope")
-        return replace(self, business_id=target)
+        return replace(self, project_id=target)
 
 
 @dataclass(frozen=True)
 class InvocationOptions:
     expected_revision: int | None = None
     idempotency_key: str | None = None
-    business_id: str | None = None
-    review_business_id: str | None = None
+    project_id: str | None = None
+    review_project_id: str | None = None
     supersedes_signoff_id: str | None = None
     expected_superseded_status_revision: int | None = None
     # Transport-internal read projection hint. It is deliberately absent from
@@ -217,7 +216,7 @@ class InvocationOptions:
             raise DomainError("validation_error", "idempotency_key must contain 1-200 characters")
         if bool(self.supersedes_signoff_id) != (self.expected_superseded_status_revision is not None):
             raise DomainError("validation_error", "Signoff replacement requires its ID and current status revision")
-        for name in ("business_id", "review_business_id", "supersedes_signoff_id"):
+        for name in ("project_id", "review_project_id", "supersedes_signoff_id"):
             try:
                 _uuid(getattr(self, name), name)
             except ValueError as exc:
@@ -237,14 +236,14 @@ class InvocationOptions:
 class ResourceRef:
     resource_type: str
     resource_id: str
-    business_id: str | None = None
+    project_id: str | None = None
     namespace: str | None = None
 
     def __post_init__(self):
         if (not isinstance(self.resource_type, str) or not OPERATION_NAME.fullmatch(self.resource_type)
                 or not isinstance(self.resource_id, str) or not self.resource_id):
             raise ValueError("Invalid resource reference")
-        _uuid(self.business_id, "resource.business_id")
+        _uuid(self.project_id, "resource.project_id")
 
 
 @dataclass(frozen=True)
@@ -349,7 +348,7 @@ class ChangeSet:
     changes: tuple[PreparedChange, ...]
     preview: ChangePreview | Mapping[str, Any]
     policy_binding: Mapping[str, Any] = field(default_factory=dict)
-    review_business_id: str | None = None
+    review_project_id: str | None = None
     proposer_agent_id: str | None = None
     initiated_by_principal_id: str | None = None
     review_scope: Mapping[str, Any] | None = None
@@ -363,7 +362,7 @@ class ChangeSet:
             raise ValueError("Prepared changes require a principal ID")
         if type(self.operation_version) is not int or self.operation_version < 1 or not self.target_namespace:
             raise ValueError("Invalid operation version/namespace")
-        for name in ("principal_id", "review_business_id", "proposer_agent_id", "initiated_by_principal_id"):
+        for name in ("principal_id", "review_project_id", "proposer_agent_id", "initiated_by_principal_id"):
             _uuid(getattr(self, name), name)
         for name in ("arguments", "affected_scope", "policy_binding", "preview"):
             object.__setattr__(self, name, freeze(getattr(self, name)))
@@ -380,8 +379,8 @@ class ChangeSet:
             value.pop("review_scope")
             value.pop("encoding_version")
         elif self.encoding_version == 2:
-            expected = ({"kind": "business", "business_id": self.review_business_id}
-                        if self.review_business_id else {"kind": "global"})
+            expected = ({"kind": "project", "project_id": self.review_project_id}
+                        if self.review_project_id else {"kind": "global"})
             if self.review_scope != expected:
                 raise ValueError("Prepared review scope is invalid")
             object.__setattr__(self, "review_scope", freeze(self.review_scope))

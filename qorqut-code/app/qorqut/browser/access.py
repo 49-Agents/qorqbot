@@ -320,8 +320,7 @@ class BrowserAccess:
             if row is None or row["kind"] != "agent" or not row["active"]:
                 raise DomainError("forbidden", "Browser selection requires an active agent")
             profile, _row = resolver.profile(actor.principal, connection=uow.connection)
-            if (profile.scope.kind != "ecosystem" or profile.scope.business_id is not None
-                    or profile.data["role"]["id"] not in GLOBAL_ROLES):
+            if profile.data["role"]["id"] not in GLOBAL_ROLES:
                 raise DomainError("forbidden", "Browser selection is limited to active Global agents")
             if configured_ordubashy(uow) != actor.principal.id:
                 raise DomainError("forbidden", "Browser selection by id is limited to the configured Ordubashy")
@@ -401,8 +400,8 @@ class BrowserAccess:
             raise DomainError("forbidden", "Browser access requires a current worker generation")
         if action not in {"acquire", "status", "command", "checkpoint", "renew", "release", "artifact", "reconcile"}:
             raise DomainError("validation_error", "Unsupported browser action")
-        if body.get("business_id") is not None:
-            raise DomainError("validation_error", "browser_turn takes no business_id; projects have no browsers")
+        if body.get("project_id") is not None:
+            raise DomainError("validation_error", "browser_turn takes no project_id; projects have no browsers")
         turn_id = body.get("turn_id")
         lease_id = body.get("lease_id")
         requester = assignment_id
@@ -443,7 +442,7 @@ class BrowserAccess:
         if action == "acquire":
             with self.runtime.database.transaction(operation="browser.turn.acquire") as uow:
                 assignment = uow.repository("operational_assignments").get(assignment_id, required=True)
-                result = self.turns.acquire(uow, browser_key=browser_key, business_id=None,
+                result = self.turns.acquire(uow, browser_key=browser_key, project_id=None,
                     parent_principal_id=actor.principal.id, requester_kind="assignment", requester_id=requester,
                     assignment_id=assignment_id, generation=generation)
                 if result["state"] != "owning":
@@ -658,13 +657,11 @@ class BrowserAccess:
         if browser_key.startswith("configured:"):
             from qorqut.bootstrap import browser
             with self.runtime.database.read() as uow:
-                profile = uow.connection.execute("SELECT p.home_business_id,b.slug FROM agent_profiles p "
-                                                 "LEFT JOIN businesses b ON b.id=p.home_business_id WHERE p.agent_id=?",
+                profile = uow.connection.execute("SELECT 1 FROM agent_profiles WHERE agent_id=?",
                                                  (parent_principal_id,)).fetchone()
             if profile is None:
                 raise DomainError("operation_unavailable", "The configured browser workspace is unavailable")
-            workspace = agent_workspace_of(self.runtime.paths, parent_principal_id, profile["home_business_id"],
-                                           profile["slug"])
+            workspace = agent_workspace_of(self.runtime.paths, parent_principal_id)
             try:
                 endpoint, executable = browser.load_target(workspace)
             except browser.BrowserNotConfigured:

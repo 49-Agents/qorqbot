@@ -9,7 +9,7 @@ reminder_id. Optional delivery adapters own admission of historical queued trans
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, page_position, schema
-from qorqut_operations.business_lifecycle import in_active_business
+from qorqut_operations.project_lifecycle import in_active_project
 from qorqut_operations.contracts import DomainError, plain
 from qorqut.management.identity import installation_owner, is_active_installation_owner
 
@@ -39,17 +39,17 @@ class LegacyReminders:
             "reminder_id": {"type": "string", "format": "uuid"},
             "revision": {"type": "integer", "minimum": 1},
         }, ("action",)), supports_signoff=False, exposure=frozenset({"mcp", "dashboard"}),
-            scope_kinds=frozenset({"business", "global"}),
+            scope_kinds=frozenset({"project", "global"}),
             resolve_namespace=lambda ctx, args: self.service.namespace(ctx), global_capability="read_global_context",
             description=instruction_text('legacy-short-alias-for-the-owner-s-own-one'),
             prepare=self.prepare, apply=self.apply, replay_validator=self.replay))
         self.app.registry.register(OperationDescriptor(READ, schema({
-            "scope": {"enum": ["business", "global"]},
+            "scope": {"enum": ["project", "global"]},
             "reminder_id": {"type": "string", "format": "uuid"},
             "cursor": {"type": "string", "maxLength": 2000},
             "limit": {"type": "integer", "minimum": 1, "maximum": MAX_PAGE}}),
             effect_kind="read", supports_signoff=False, exposure=frozenset({"dashboard", "worker"}),
-            scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
+            scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
             resolve_namespace=self.read_namespace,
             description=instruction_text('legacy-owner-and-configured-ordubashy-read-of-the-owner'),
             read=self.read))
@@ -110,7 +110,7 @@ class LegacyReminders:
     def listing(self, access, owner, uow):
         """Active reminders first, then the most recent finished ones; no destination metadata. The coordinator does not
         see reminders of archived projects, which are not current work; the owner sees them all."""
-        current = "" if access.kind == "owner" else " AND " + in_active_business("business_id")
+        current = "" if access.kind == "owner" else " AND " + in_active_project("project_id")
         rows = uow.connection.execute(
             "SELECT * FROM reminders WHERE recipient_id=?" + current + " ORDER BY CASE WHEN state IN ('scheduled','due') THEN 0 ELSE 1 END, "
             "COALESCE(CASE WHEN state='due' THEN due_at END, next_at, due_at, created_at) , id LIMIT 100", (owner,)).fetchall()
@@ -121,21 +121,21 @@ class LegacyReminders:
     @staticmethod
     def read_namespace(ctx, args):
         """The one reminder namespace of this read: the selected project, or Global exactly."""
-        if args.get("scope") == "global" or ctx.business_id is None:
+        if args.get("scope") == "global" or ctx.project_id is None:
             return "global"
-        return "business:" + ctx.business_id
+        return "project:" + ctx.project_id
 
     def read(self, ctx, args, options, uow):
         """Bounded, stable read of the owner's reminders in exactly one scope; never touches delivery state."""
         access, owner = self.manager(ctx, uow, shared.LIST)
         ctx = access.ctx
         namespace = self.read_namespace(ctx, args)
-        if args.get("scope") == "global" and ctx.business_id is not None:
+        if args.get("scope") == "global" and ctx.project_id is not None:
             raise DomainError("validation_error", "Global reminders are read from the root route")
-        if args.get("scope") == "business" and ctx.business_id is None:
-            raise DomainError("scope_required", "Business reminders require a selected project")
+        if args.get("scope") == "project" and ctx.project_id is None:
+            raise DomainError("scope_required", "Project reminders require a selected project")
         binding, after = page_position(args, namespace, READ)
-        where, values = "recipient_id=? AND business_id IS ?", [owner, ctx.business_id if namespace != "global" else None]
+        where, values = "recipient_id=? AND project_id IS ?", [owner, ctx.project_id if namespace != "global" else None]
         if args.get("reminder_id"):
             where += " AND id=?"
             values.append(args["reminder_id"])

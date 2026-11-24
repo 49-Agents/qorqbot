@@ -83,18 +83,16 @@ class ActionEvidenceTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.db = Database(self.root / "state.sqlite", assembly=host_assembly(ChangeFeed())).initialize_target()
         self.addCleanup(self.db.close)
-        self.owner, self.business, self.document = new_id(), new_id(), new_id()
+        self.owner, self.project, self.document = new_id(), new_id(), new_id()
         self.ctx = InvocationContext(Principal(self.owner, "human"), source="dashboard",
-            allowed_business_ids=frozenset({self.business}), global_capabilities=frozenset({"read_global_context"}))
+            allowed_project_ids=frozenset({self.project}), global_capabilities=frozenset({"read_global_context"}))
         with self.db.transaction() as uow:
             uow.repository("principals").insert({"id": self.owner, "kind": "human", "display_name": "Synthetic owner"})
             uow.repository("installation").insert({"id": "service", "installation_id": new_id(),
                                                    "owner_principal_id": self.owner})
-            uow.repository("businesses").insert({"id": self.business, "name": "Example", "slug": "example",
-                                                 "workspace": "example", "hq_path": "hq"})
-            uow.repository("business_memberships", business_id=self.business).insert(
-                {"principal_id": self.owner, "is_owner": True})
-            uow.repository("tasks", business_id=None).insert({"id": "evidence-task", "title": "Example request",
+            uow.repository("projects").insert({"id": self.project, "name": "Example", "slug": "example",
+                                                 "workspace": "example"})
+            uow.repository("tasks", project_id=None).insert({"id": "evidence-task", "title": "Example request",
                 "status": "working", "created_by": self.owner,
                 "fields_json": {"$task": {"overview": "Request details: https://example.test/evidence"}}})
         self.registry, self.policy = OperationRegistry(), Policy()
@@ -107,7 +105,6 @@ class ActionEvidenceTests(unittest.TestCase):
         lookup = NS(resource=noop, resolve=noop, relationship_item=noop, fingerprint=noop)
         items = ItemResolver(self.app, [ItemContribution("test", ("task",), lookup)], candidates=NS(candidates=lambda *_: []))
         ports = TaskPorts(assignees=NS(protect=noop, owner_directed=lambda *_: False, worker_excluded=lambda *_: False),
-            incidents=NS(link_task=noop),
             references=NS(types=(), host_types=(), resolve=noop, derived=noop),
             routing=NS(routes=lambda *_: ((), ()), snooze_routes=lambda *_: ()))
         self.tasks = TaskOperations(self.app, items, ports)
@@ -120,9 +117,9 @@ class ActionEvidenceTests(unittest.TestCase):
             for descriptor in contribution.descriptors:
                 self.registry.register(descriptor)
         self.store = DocumentStore(self.db, operations_root=self.root / "sources",
-                                  document_root=lambda business, path: self.root / "sources")
+                                  document_root=lambda project, path: self.root / "sources")
         self.library = SourceLibrary(self.store)
-        sources = DocumentSources(self.store, self.library, agent_workspace=noop, scope_root=noop)
+        sources = DocumentSources(self.store, self.library)
         self.registry.register(sources.descriptors["context_get"])
         # Only one source descriptor is registered here, so the port ``DocumentSources.register`` publishes is set by hand.
         self.app.document_library = self.library
@@ -131,8 +128,8 @@ class ActionEvidenceTests(unittest.TestCase):
         self.path.parent.mkdir(parents=True)
         self.path.write_text("The request concerns Example. Evidence: https://example.test/evidence\n")
         with self.db.transaction() as uow:
-            uow.repository("documents", business_id=self.business).insert({
-                "id": self.document, "namespace": "business:" + self.business, "kind": "context_note",
+            uow.repository("documents", project_id=self.project).insert({
+                "id": self.document, "namespace": "project:" + self.project, "kind": "context_note",
                 "path": "context/evidence.md", "content_hash": hashlib.sha256(self.path.read_bytes()).hexdigest(),
                 "metadata_json": {"title": "Example request evidence"}})
 
@@ -143,7 +140,7 @@ class ActionEvidenceTests(unittest.TestCase):
 
     def record(self, **changes):
         return self.invoke("actions_record", {"text": "Owner sent the Example project request.",
-            "category": "business-operational", "business_ids": [self.business], "real_time": "2026-11-04T10",
+            "category": "project-operational", "project_ids": [self.project], "real_time": "2026-11-04T10",
             "evidence": {"task": "evidence-task", "document": self.document, "url": "https://example.test/evidence",
                          "signoff": "accepted-signoff"}, **changes})
 
@@ -155,8 +152,8 @@ class ActionEvidenceTests(unittest.TestCase):
     def revision(self, result):
         payload = self.queued(result)["payload"]
         with self.db.read() as uow:
-            return uow.repository("action_revisions", business_id=None).get(
-                {"action_key": payload["action_ref"], "revision": result["revision"]})
+            return uow.repository("action_revisions", project_id=None).get(
+                {"action_id": payload["action_ref"], "revision": result["revision"]})
 
     def metadata(self, result):
         return self.queued(result)["payload"]["action_metadata"]
@@ -164,7 +161,7 @@ class ActionEvidenceTests(unittest.TestCase):
     def test_admission_keeps_exact_revision_and_versioned_authorized_excerpts(self):
         result = self.record()
         revision, meta = self.revision(result), self.metadata(result)
-        for field in ("occurred", "refs", "business_ids"):
+        for field in ("occurred", "refs", "project_ids"):
             self.assertEqual(revision["snapshot_json"][field], meta[field])
         self.assertEqual(revision["created_at"], meta["recorded_at"])
         self.assertEqual("hour", meta["occurred"]["precision"])
@@ -173,7 +170,7 @@ class ActionEvidenceTests(unittest.TestCase):
         self.assertIn("Request details", task["excerpt"])
         self.assertEqual(self.path.read_text(), document["excerpt"])
         self.assertEqual(hashlib.sha256(self.path.read_bytes()).hexdigest(), document["content_hash"])
-        self.assertEqual(self.business, document["business_id"])
+        self.assertEqual(self.project, document["project_id"])
         self.assertEqual(1, document["revision"])
         self.assertEqual({"kind": "global"}, self.queued(result)["payload"]["scope"])
         self.assertNotIn("notes", task)
@@ -188,7 +185,7 @@ class ActionEvidenceTests(unittest.TestCase):
         payload["action_metadata"]["evidence"] = [{"excerpt": "forged"}]
         with self.db.transaction() as uow:
             with self.assertRaises(DomainError):
-                enqueue_action(uow, action_id=revision["action_key"], revision=revision["revision"],
+                enqueue_action(uow, action_id=revision["action_id"], revision=revision["revision"],
                                operation="add", payload=payload, capture_evidence=lambda _: self.fail("read before validation"))
 
     def test_policy_denial_scope_and_private_documents_do_not_leak_content(self):
@@ -197,11 +194,11 @@ class ActionEvidenceTests(unittest.TestCase):
         self.assertEqual(["unavailable", "unavailable"], [item["status"] for item in denied])
         self.assertTrue(all(set(item) == {"kind", "id", "status", "observed_at"} for item in denied))
         self.policy.denied.clear()
-        self.ctx = replace(self.ctx, allowed_business_ids=frozenset())
-        # Preserve a reference without granting access or a business association.
-        denied = self.metadata(self.record(category="global-operational", business_ids=[]))["evidence"]
+        self.ctx = replace(self.ctx, allowed_project_ids=frozenset())
+        # Preserve a reference without granting access or a project association.
+        denied = self.metadata(self.record(category="global-operational", project_ids=[]))["evidence"]
         self.assertEqual("unavailable", denied[1]["status"])
-        self.ctx = replace(self.ctx, allowed_business_ids=frozenset({self.business}))
+        self.ctx = replace(self.ctx, allowed_project_ids=frozenset({self.project}))
         with self.db.transaction() as uow:
             uow.connection.execute("UPDATE documents SET kind='journal' WHERE id=?", (self.document,))
         private = self.metadata(self.record())["evidence"][1]
@@ -223,17 +220,15 @@ class ActionEvidenceTests(unittest.TestCase):
             self.assertEqual(EXCERPT_BYTES, len(item["excerpt"].encode("utf-8")))
             self.assertTrue(item["truncated"])
 
-    def test_task_ids_resolve_in_scope_and_ambiguous_references_stay_unavailable(self):
+    def test_a_task_id_resolves_in_the_scope_that_holds_the_task(self):
         result = self.record()
         revision = self.revision(result)
         with self.db.transaction() as uow:
-            uow.repository("tasks", business_id=self.business).insert(
-                {"id": "evidence-task", "title": "Business task", "status": "open", "created_by": self.owner})
-            evidence = ActionEvidence(self.app)(self.ctx, revision, uow)
-            self.assertIsNone(evidence[0]["business_id"])  # the Action owns the Global ID
-            revision["business_id"] = self.business
-            self.assertEqual(self.business, ActionEvidence(self.app)(self.ctx, revision, uow)[0]["business_id"])
-            revision["business_id"] = new_id()
+            for owning in (None, self.project):
+                revision["project_id"] = owning
+                evidence = ActionEvidence(self.app)(self.ctx, revision, uow)
+                self.assertEqual(("available", None), (evidence[0]["status"], evidence[0]["project_id"]))
+            revision["snapshot_json"]["refs"]["task"] = "missing-task"
             self.assertEqual("unavailable", ActionEvidence(self.app)(self.ctx, revision, uow)[0]["status"])
 
     def test_correction_gets_new_evidence_withdrawal_does_not_reread_and_old_input_is_immutable(self):
@@ -293,7 +288,7 @@ class ActionEvidenceTests(unittest.TestCase):
         # Nothing the evidence carried is in any published file: no excerpt, reference, linked project or metadata key.
         published = b"\n".join(content for content in snapshot.files.values() if content is not None)
         secrets = [expected["evidence"][0]["excerpt"], expected["evidence"][1]["excerpt"].strip(),
-                   "https://example.test/evidence", "accepted-signoff", self.business, self.document, "action_metadata"]
+                   "https://example.test/evidence", "accepted-signoff", self.project, self.document, "action_metadata"]
         for secret in secrets:
             self.assertNotIn(secret.encode(), published, secret)
         self.assertIsNone(context.pending())
@@ -344,14 +339,14 @@ class ActionEvidenceTests(unittest.TestCase):
         self.assertTrue(document["truncated"])
 
     def test_the_bounded_excerpt_serves_what_context_get_serves(self):
-        selected = self.ctx.select_business(self.business)
-        args = {"document_id": self.document, "scope": "business", "max_chars": EXCERPT_BYTES}
+        selected = self.ctx.select_project(self.project)
+        args = {"document_id": self.document, "scope": "project", "max_chars": EXCERPT_BYTES}
         served = self.app.invoke(selected, "context_get", args)
         self.assertEqual("ok", served.status, served.error)
         full = plain(served.data)
         with self.db.read() as uow:
             short = self.library.excerpt(selected, args, uow)
-            for field in ("id", "business_id", "kind", "title", "revision", "content_hash", "metadata_stale", "archived", "body"):
+            for field in ("id", "project_id", "kind", "title", "revision", "content_hash", "metadata_stale", "archived", "body"):
                 self.assertEqual(full["document"][field], short["document"][field], field)
             self.assertEqual(full["complete"], short["complete"])
             # The same refusals: another scope, a missing capability and a private kind.
@@ -368,8 +363,8 @@ class ActionEvidenceTests(unittest.TestCase):
         self.assertEqual("error", self.app.invoke(selected, "context_get", args).status)
 
     def test_default_occurrence_and_legacy_driver_inputs_remain_distinguishable(self):
-        args = {"text": "Owner sent the Example project request.", "category": "business-operational",
-                "business_ids": [self.business]}
+        args = {"text": "Owner sent the Example project request.", "category": "project-operational",
+                "project_ids": [self.project]}
         result = self.invoke("actions_record", args)
         meta = self.metadata(result)
         self.assertEqual("instant", meta["occurred"]["precision"])

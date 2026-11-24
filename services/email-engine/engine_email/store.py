@@ -26,7 +26,7 @@ def now():
 
 
 def legacy_cold_label(send_row):
-    """(workflow_owner, contact_key, business_id) for a labelled legacy /sends row, else None."""
+    """(workflow_owner, contact_key, project_id) for a labelled legacy /sends row, else None."""
     try:
         payload = json.loads(send_row["payload"])
     except (TypeError, ValueError):
@@ -36,9 +36,9 @@ def legacy_cold_label(send_row):
     stop, owner = payload.get("stop_key"), payload.get("workflow_owner")
     if payload.get("category") != "cold_outreach" or not owner or not isinstance(stop, dict):
         return None
-    if not stop.get("contact_key") or not stop.get("business_id"):
+    if not stop.get("contact_key") or not stop.get("project_id"):
         return None
-    return (owner, stop["contact_key"], stop["business_id"])
+    return (owner, stop["contact_key"], stop["project_id"])
 
 
 class Store:
@@ -63,18 +63,18 @@ class Store:
                 CREATE TABLE IF NOT EXISTS mailbox_setting_requests (
                     id TEXT PRIMARY KEY, digest TEXT NOT NULL, response TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS mailbox_bindings (
-                    ref TEXT PRIMARY KEY, folder_id TEXT NOT NULL UNIQUE, business_id TEXT NOT NULL,
-                    address TEXT, purpose TEXT NOT NULL DEFAULT 'business_mail', sender_ref TEXT,
-                    CHECK((purpose='business_mail' AND address IS NOT NULL AND sender_ref IS NULL)
+                    ref TEXT PRIMARY KEY, folder_id TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL,
+                    address TEXT, purpose TEXT NOT NULL DEFAULT 'project_mail', sender_ref TEXT,
+                    CHECK((purpose='project_mail' AND address IS NOT NULL AND sender_ref IS NULL)
                         OR (purpose='outreach_archive' AND address IS NULL AND sender_ref IS NOT NULL)));
                 CREATE TABLE IF NOT EXISTS outreach_routes (
-                    route_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, business_id TEXT NOT NULL,
+                    route_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, project_id TEXT NOT NULL,
                     sender_ref TEXT, mailbox_ref TEXT, purpose TEXT, folder_name TEXT,
                     folder_id TEXT, folder_attempts INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL,
                     generation INTEGER NOT NULL, state TEXT NOT NULL CHECK(state IN
                     ('provisioning','ready','uncertain','failed','disabled')), blocker TEXT,
                     revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-                    UNIQUE(client_id, business_id));
+                    UNIQUE(client_id, project_id));
                 CREATE TABLE IF NOT EXISTS outreach_route_requests (
                     request_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, digest TEXT NOT NULL,
                     response TEXT NOT NULL);
@@ -96,7 +96,7 @@ class Store:
                     mailbox TEXT PRIMARY KEY, state TEXT NOT NULL,
                     synced_at TEXT, error TEXT);
                 CREATE TABLE IF NOT EXISTS sends (
-                    request_id TEXT PRIMARY KEY, business_id TEXT NOT NULL,
+                    request_id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
                     mailbox TEXT NOT NULL, digest TEXT NOT NULL,
                     payload TEXT NOT NULL, state TEXT NOT NULL,
                     draft_id TEXT, result TEXT NOT NULL DEFAULT '{}',
@@ -119,16 +119,16 @@ class Store:
                     updated_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS integration_intents (
                     client_id TEXT NOT NULL, intent_id TEXT NOT NULL, request_id TEXT NOT NULL UNIQUE,
-                    payload_digest TEXT NOT NULL, workflow_owner TEXT NOT NULL, business_id TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL, workflow_owner TEXT NOT NULL, project_id TEXT NOT NULL,
                     mailbox TEXT NOT NULL, category TEXT NOT NULL, campaign_id TEXT, enrollment_id TEXT,
                     step_index INTEGER, manifest_digest TEXT, stop_contact_key TEXT NOT NULL,
-                    stop_business_id TEXT NOT NULL, correlation TEXT NOT NULL DEFAULT '{}',
+                    stop_project_id TEXT NOT NULL, correlation TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL, PRIMARY KEY(client_id, intent_id));
                 CREATE INDEX IF NOT EXISTS integration_intents_request ON integration_intents(request_id);
                 CREATE TABLE IF NOT EXISTS integration_stops (
-                    contact_key TEXT NOT NULL, business_id TEXT NOT NULL, workflow_owner TEXT NOT NULL,
+                    contact_key TEXT NOT NULL, project_id TEXT NOT NULL, workflow_owner TEXT NOT NULL,
                     reason TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT, created_at TEXT NOT NULL,
-                    PRIMARY KEY(contact_key, business_id));
+                    PRIMARY KEY(contact_key, project_id));
                 CREATE TABLE IF NOT EXISTS integration_handoffs (
                     thread_or_message_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, client_id TEXT NOT NULL,
                     source_owner TEXT NOT NULL, destination_owner TEXT NOT NULL, payload_digest TEXT NOT NULL,
@@ -153,26 +153,26 @@ class Store:
                 db.execute("ALTER TABLE sends ADD COLUMN draft_internet_message_id TEXT")
             # Stops were once keyed by workflow_owner too; fold them onto the contact scope.
             stops = [row[1] for row in db.execute("PRAGMA table_info(integration_stops)")]
-            if stops[:3] == ["workflow_owner", "contact_key", "business_id"]:
+            if stops[:3] == ["workflow_owner", "contact_key", "project_id"]:
                 db.execute("ALTER TABLE integration_stops RENAME TO integration_stops_pre_scope")
                 db.execute("""CREATE TABLE integration_stops (
-                    contact_key TEXT NOT NULL, business_id TEXT NOT NULL, workflow_owner TEXT NOT NULL,
+                    contact_key TEXT NOT NULL, project_id TEXT NOT NULL, workflow_owner TEXT NOT NULL,
                     reason TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT, created_at TEXT NOT NULL,
-                    PRIMARY KEY(contact_key, business_id))""")
-                db.execute("INSERT OR IGNORE INTO integration_stops(contact_key,business_id,workflow_owner,"
-                    "reason,source_kind,source_id,created_at) SELECT contact_key,business_id,workflow_owner,"
+                    PRIMARY KEY(contact_key, project_id))""")
+                db.execute("INSERT OR IGNORE INTO integration_stops(contact_key,project_id,workflow_owner,"
+                    "reason,source_kind,source_id,created_at) SELECT contact_key,project_id,workflow_owner,"
                     "reason,source_kind,source_id,created_at FROM integration_stops_pre_scope ORDER BY rowid")
                 db.execute("DROP TABLE integration_stops_pre_scope")
-            # Archive-only routes have no address; legacy rows stay business mailboxes.
+            # Archive-only routes have no address; legacy rows stay project mailboxes.
             if "purpose" not in {row[1] for row in db.execute("PRAGMA table_info(mailbox_bindings)")}:
                 db.execute("ALTER TABLE mailbox_bindings RENAME TO mailbox_bindings_pre_purpose")
                 db.execute("""CREATE TABLE mailbox_bindings (
-                    ref TEXT PRIMARY KEY, folder_id TEXT NOT NULL UNIQUE, business_id TEXT NOT NULL,
-                    address TEXT, purpose TEXT NOT NULL DEFAULT 'business_mail', sender_ref TEXT,
-                    CHECK((purpose='business_mail' AND address IS NOT NULL AND sender_ref IS NULL)
+                    ref TEXT PRIMARY KEY, folder_id TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL,
+                    address TEXT, purpose TEXT NOT NULL DEFAULT 'project_mail', sender_ref TEXT,
+                    CHECK((purpose='project_mail' AND address IS NOT NULL AND sender_ref IS NULL)
                         OR (purpose='outreach_archive' AND address IS NULL AND sender_ref IS NOT NULL)))""")
-                db.execute("INSERT INTO mailbox_bindings(ref,folder_id,business_id,address) "
-                    "SELECT ref,folder_id,business_id,address FROM mailbox_bindings_pre_purpose ORDER BY rowid")
+                db.execute("INSERT INTO mailbox_bindings(ref,folder_id,project_id,address) "
+                    "SELECT ref,folder_id,project_id,address FROM mailbox_bindings_pre_purpose ORDER BY rowid")
                 db.execute("DROP TABLE mailbox_bindings_pre_purpose")
             # Handoffs once stored a single workflow_owner; split into source/destination.
             handoffs = [row[1] for row in db.execute("PRAGMA table_info(integration_handoffs)")]
@@ -256,14 +256,14 @@ class Store:
     def bind_mailboxes_in(db, mailboxes):
         changed = False
         for box in mailboxes:
-            values = (box.ref, box.folder_id, box.business_id, box.address, box.purpose, box.sender_ref)
-            old = db.execute("SELECT ref,folder_id,business_id,address,purpose,sender_ref FROM mailbox_bindings "
+            values = (box.ref, box.folder_id, box.project_id, box.address, box.purpose, box.sender_ref)
+            old = db.execute("SELECT ref,folder_id,project_id,address,purpose,sender_ref FROM mailbox_bindings "
                 "WHERE ref=? OR folder_id=?", (box.ref, box.folder_id)).fetchall()
             # Purpose and archive sender are part of ownership; never reinterpret a mailbox.
             if old and (len(old) != 1 or tuple(old[0]) != values):
                 raise ValueError("Existing mailbox identity or ownership cannot be reassigned")
             changed = changed or not old
-            db.execute("INSERT OR IGNORE INTO mailbox_bindings(ref,folder_id,business_id,address,purpose,sender_ref) "
+            db.execute("INSERT OR IGNORE INTO mailbox_bindings(ref,folder_id,project_id,address,purpose,sender_ref) "
                 "VALUES(?,?,?,?,?,?)", values)
             for address in box.owned_addresses():
                 prior = db.execute("SELECT mailbox FROM address_bindings WHERE address=?", (address,)).fetchone()
@@ -374,8 +374,8 @@ class Store:
                 if row["digest"] != message.digest():
                     raise ValueError("Request ID already belongs to different content")
                 return dict(row), False
-            db.execute("INSERT INTO sends(request_id,business_id,mailbox,digest,payload,state,updated_at,transport) VALUES(?,?,?,?,?,?,?,?)",
-                (message.request_id, message.business_id, message.mailbox, message.digest(), message.model_dump_json(),
+            db.execute("INSERT INTO sends(request_id,project_id,mailbox,digest,payload,state,updated_at,transport) VALUES(?,?,?,?,?,?,?,?)",
+                (message.request_id, message.project_id, message.mailbox, message.digest(), message.model_dump_json(),
                  "queued" if queued else "creating", now(), message.transport or "fastmail"))
             self._history(db, message.request_id, "send.prepared")
             return dict(db.execute("SELECT * FROM sends WHERE request_id=?", (message.request_id,)).fetchone()), True
@@ -486,8 +486,8 @@ class Store:
     def cancel_queued(self, request_id, mailbox):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT * FROM sends WHERE request_id=? AND mailbox=? AND business_id=?",
-                (request_id, mailbox.ref, mailbox.business_id)).fetchone()
+            row = db.execute("SELECT * FROM sends WHERE request_id=? AND mailbox=? AND project_id=?",
+                (request_id, mailbox.ref, mailbox.project_id)).fetchone()
             if row is None:
                 raise ValueError("Send not found")
             return self._cancel_if_queued_in(db, row, reason="owner_canceled")
@@ -598,7 +598,7 @@ class Store:
 
     @staticmethod
     def receipt(row):
-        return {"request_id": row["request_id"], "business_id": row["business_id"], "mailbox": row["mailbox"],
+        return {"request_id": row["request_id"], "project_id": row["project_id"], "mailbox": row["mailbox"],
             "sender_ref": json.loads(row["payload"]).get("sender_ref"),
             "transport": row["transport"],
             "state": row["state"], "draft_id": row["draft_id"], "updated_at": row["updated_at"],
@@ -607,7 +607,7 @@ class Store:
     # -- Integration envelope: intents, reply-stop guard, handoff, correlation --
 
     def begin_integration_intent(self, *, client_id, intent_id, request_id, payload_digest, workflow_owner,
-            business_id, mailbox, category, stop_contact_key, stop_business_id, correlation=None,
+            project_id, mailbox, category, stop_contact_key, stop_project_id, correlation=None,
             campaign_id=None, enrollment_id=None, step_index=None, manifest_digest=None):
         """Durably reserve ``(client_id, intent_id)`` before touching the send ledger."""
         with self.connect() as db:
@@ -617,10 +617,10 @@ class Store:
             if row:
                 return dict(row), False
             db.execute("""INSERT INTO integration_intents(client_id,intent_id,request_id,payload_digest,
-                workflow_owner,business_id,mailbox,category,campaign_id,enrollment_id,step_index,manifest_digest,
-                stop_contact_key,stop_business_id,correlation,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (client_id, intent_id, request_id, payload_digest, workflow_owner, business_id, mailbox, category,
-                 campaign_id, enrollment_id, step_index, manifest_digest, stop_contact_key, stop_business_id,
+                workflow_owner,project_id,mailbox,category,campaign_id,enrollment_id,step_index,manifest_digest,
+                stop_contact_key,stop_project_id,correlation,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (client_id, intent_id, request_id, payload_digest, workflow_owner, project_id, mailbox, category,
+                 campaign_id, enrollment_id, step_index, manifest_digest, stop_contact_key, stop_project_id,
                  json.dumps(correlation or {}, sort_keys=True), now()))
             return dict(db.execute("SELECT * FROM integration_intents WHERE client_id=? AND intent_id=?",
                 (client_id, intent_id)).fetchone()), True
@@ -651,23 +651,23 @@ class Store:
                 "intent_id=?", (client_id, intent_id)).fetchone()
             return dict(row) if row else None
 
-    def record_stop(self, workflow_owner, contact_key, business_id, *, reason, source_kind, source_id=None):
-        """Idempotent per contact/business: the first triggering owner is kept for attribution."""
+    def record_stop(self, workflow_owner, contact_key, project_id, *, reason, source_kind, source_id=None):
+        """Idempotent per contact/project: the first triggering owner is kept for attribution."""
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("INSERT OR IGNORE INTO integration_stops(contact_key,business_id,workflow_owner,"
+            db.execute("INSERT OR IGNORE INTO integration_stops(contact_key,project_id,workflow_owner,"
                 "reason,source_kind,source_id,created_at) VALUES(?,?,?,?,?,?,?)",
-                (contact_key, business_id, workflow_owner, reason, source_kind, source_id, now()))
+                (contact_key, project_id, workflow_owner, reason, source_kind, source_id, now()))
             return dict(db.execute("SELECT * FROM integration_stops WHERE contact_key=? AND "
-                "business_id=?", (contact_key, business_id)).fetchone())
+                "project_id=?", (contact_key, project_id)).fetchone())
 
-    def stop_exists(self, contact_key, business_id):
+    def stop_exists(self, contact_key, project_id):
         with self.connect() as db:
             return db.execute("SELECT 1 FROM integration_stops WHERE contact_key=? AND "
-                "business_id=?", (contact_key, business_id)).fetchone() is not None
+                "project_id=?", (contact_key, project_id)).fetchone() is not None
 
     def begin_handoff(self, thread_or_message_id, idempotency_key, *, client_id, source_owner,
-            destination_owner, payload_digest, result, mailboxes=(), business_ids=()):
+            destination_owner, payload_digest, result, mailboxes=(), project_ids=()):
         """Idempotent on ``(thread_or_message_id, idempotency_key)``; a first-time
         call must own the source, or reuse its own prior transfer (``_verify_handoff_source``)."""
         with self.connect() as db:
@@ -677,7 +677,7 @@ class Store:
             if row:
                 return dict(row), False
             reused = self._verify_handoff_source(db, thread_or_message_id, client_id, source_owner,
-                destination_owner, mailboxes, business_ids)
+                destination_owner, mailboxes, project_ids)
             if reused is not None:
                 result = {**json.loads(reused["result"]), "already_transferred": True}
             db.execute("INSERT INTO integration_handoffs VALUES(?,?,?,?,?,?,?,?)",
@@ -689,7 +689,7 @@ class Store:
                 "idempotency_key=?", (thread_or_message_id, idempotency_key)).fetchone()), True
 
     def _verify_handoff_source(self, db, message_id, client_id, source_owner, destination_owner,
-            mailboxes, business_ids):
+            mailboxes, project_ids):
         """Require every correlation row to already be owned by this client (directly and,
         when resolvable, via its intent), or return this client's prior transfer row to the same destination."""
         if not mailboxes:
@@ -701,7 +701,7 @@ class Store:
             raise HandoffTargetNotFound("Thread is not yet correlated to a cold-outreach reply")
         if all(row["workflow_owner"] == source_owner for row in rows):
             for row in rows:
-                self._verify_handoff_intent_owner(db, row, client_id, mailboxes, business_ids)
+                self._verify_handoff_intent_owner(db, row, client_id, mailboxes, project_ids)
             return None
         if destination_owner != source_owner and all(row["workflow_owner"] == destination_owner for row in rows):
             prior = db.execute("SELECT * FROM integration_handoffs WHERE thread_or_message_id=? AND "
@@ -712,17 +712,17 @@ class Store:
         raise HandoffTargetForbidden("Thread is owned by a different workflow owner")
 
     @staticmethod
-    def _verify_handoff_intent_owner(db, row, client_id, mailboxes, business_ids):
+    def _verify_handoff_intent_owner(db, row, client_id, mailboxes, project_ids):
         if not row["request_id"]:
             return
-        intent = db.execute("SELECT client_id, mailbox, business_id FROM integration_intents "
+        intent = db.execute("SELECT client_id, mailbox, project_id FROM integration_intents "
             "WHERE request_id=?", (row["request_id"],)).fetchone()
         if intent is None:
             return
         if intent["client_id"] != client_id or intent["mailbox"] not in mailboxes:
             raise HandoffTargetForbidden("Thread's originating intent belongs to a different client")
-        if business_ids and intent["business_id"] not in business_ids:
-            raise HandoffTargetForbidden("Thread's originating intent is outside this client's businesses")
+        if project_ids and intent["project_id"] not in project_ids:
+            raise HandoffTargetForbidden("Thread's originating intent is outside this client's projects")
 
     def _retarget_ownership(self, db, message_id, destination_owner, mailboxes):
         """Re-point an existing reply correlation's c_owner; bump revision so it re-syncs."""
@@ -734,7 +734,7 @@ class Store:
             db.execute("UPDATE messages SET revision=? WHERE mailbox=? AND id=?",
                 (self.revision(db), mailbox, message_id))
 
-    def correlate_replies(self, mailbox, business_id):
+    def correlate_replies(self, mailbox, project_id):
         """Annotate replies to a cold_outreach intent and record its stop, one transaction.
         Keyed once per (mailbox, message_id); a later label-only revision is skipped."""
         with self.connect() as db:
@@ -766,8 +766,8 @@ class Store:
                                 candidates.add(normalized)
                     if candidates:
                         if sent_rows is None:
-                            sent_rows = db.execute("SELECT * FROM sends WHERE business_id=? AND mailbox=? "
-                                "AND state='sent'", (business_id, mailbox)).fetchall()
+                            sent_rows = db.execute("SELECT * FROM sends WHERE project_id=? AND mailbox=? "
+                                "AND state='sent'", (project_id, mailbox)).fetchall()
                         for send_row in sent_rows:
                             result = json.loads(send_row["result"])
                             sent_identity = (internet_message_id(result.get("internet_message_id"))
@@ -778,19 +778,19 @@ class Store:
                                 (send_row["request_id"],)).fetchone()
                             if intent is not None and intent["category"] == "cold_outreach":
                                 workflow_owner, intent_id = intent["workflow_owner"], intent["intent_id"]
-                                contact, stop_business = intent["stop_contact_key"], intent["stop_business_id"]
+                                contact, stop_project = intent["stop_contact_key"], intent["stop_project_id"]
                             else:
                                 label = legacy_cold_label(send_row)
                                 if intent is not None or label is None:
                                     continue
                                 workflow_owner, intent_id = label[0], None
-                                contact, stop_business = label[1], label[2]
+                                contact, stop_project = label[1], label[2]
                             matched_request_id = send_row["request_id"]
                             correlation_payload = {"matched_internet_message_id": sent_identity,
                                 "sent_request_id": send_row["request_id"]}
-                            db.execute("INSERT OR IGNORE INTO integration_stops(contact_key,business_id,"
+                            db.execute("INSERT OR IGNORE INTO integration_stops(contact_key,project_id,"
                                 "workflow_owner,reason,source_kind,source_id,created_at) VALUES(?,?,?,?,?,?,?)",
-                                (contact, stop_business, workflow_owner, "reply_detected", "reply",
+                                (contact, stop_project, workflow_owner, "reply_detected", "reply",
                                  message_id, now()))
                             break
                 if correlation_payload is not None:

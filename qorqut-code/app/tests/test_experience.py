@@ -54,7 +54,7 @@ class ExperienceCase(unittest.TestCase):
         runtime.registry = runtime.application.registry
         self.now, self.tick, self.archives, self.opener = SUNDAY, 0.0, {}, Opener()
         runtime.native_chat = NS(indexer=NS(archive=lambda profile: self.archives[profile['agent_id']]), opener=self.opener)
-        runtime.application.attention = NS(legacy=NS(resolve=lambda ctx, found, uow: {**found, 'label': 'A record', 'business_slug': None}))
+        runtime.application.attention = NS(legacy=NS(resolve=lambda ctx, found, uow: {**found, 'label': 'A record', 'project_slug': None}))
         OwnerInputs(runtime, clock=lambda: self.now).register()
         self.owner, self.lead, self.worker = (ctx.principal_id for ctx in (runtime.owner, runtime.coordinator, runtime.worker))
         self.applier = self.agent('learning-applier', 'Overseer')
@@ -77,8 +77,8 @@ class ExperienceCase(unittest.TestCase):
         identity = new_id()
         with self.runtime.database.transaction() as uow:
             uow.repository('principals').insert({'id': identity, 'kind': 'agent', 'display_name': name})
-            uow.repository('agent_profiles', business_id=None).insert({
-                'agent_id': identity, 'principal_id': identity, 'namespace': 'ecosystem', 'name': role, 'workspace': '/' + role,
+            uow.repository('agent_profiles', project_id=None).insert({
+                'agent_id': identity, 'principal_id': identity, 'name': role, 'workspace': '/' + role,
                 'status': 'active', 'profile_json': {'name': role, 'status': 'active', 'role': {'id': role}, 'runtime': 'claude-code',
                                                     'scope': {'kind': 'ecosystem', 'global_capabilities': ['read_global_context']}}})
         return InvocationContext(Principal(identity, 'agent'), source='mcp', profile_revision=1,

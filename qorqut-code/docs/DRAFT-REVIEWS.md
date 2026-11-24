@@ -52,11 +52,11 @@ draft** submits the edited content, accompanying choices and feedback together.
 Feedback uses the existing one-line input, and version history stays collapsed.
 A returned draft is read-only.
 
-Owner HTTP routes use the review's own business or Global namespace:
+Owner HTTP routes use the review's own project or Global namespace:
 
 | Route | Body |
 |---|---|
-| `POST /api/biz/<slug>/signoffs/<id>/draft` (or `/api/root/signoffs/<id>/draft`) | Current `proposal_revision`, `payload_hash`, `expected_status_revision`, `idempotency_key`, and complete `values` map keyed by field ID |
+| `POST /api/project/<slug>/signoffs/<id>/draft` (or `/api/root/signoffs/<id>/draft`) | Current `proposal_revision`, `payload_hash`, `expected_status_revision`, `idempotency_key`, and complete `values` map keyed by field ID |
 | `POST .../signoffs/<id>/respond` | Same binding, complete `draft_values`, optional `notes` and `selected_choices` |
 | `GET .../signoffs/<id>?draft_history_before=<revision>` | Read an older page of version history |
 
@@ -100,11 +100,4 @@ The proposal stays in `signoffs.preview_json`; returned content is also sealed
 in its immutable decision. No provider credential, transport binding or send
 job is created by this feature.
 
-Fresh instances use the composed target schema. Existing instances require the
-explicit offline `qorqut.migration.draft_reviews` command with the intended
-component and extension selection. `inspect` is read-only. `apply` takes the
-exclusive instance lock, requires the exact predecessor or target fingerprint,
-adds only the table/triggers, verifies schema and foreign keys, and advances the
-target identity atomically. Repeating apply is a verified no-op. Foreign or
-partially changed schemas are refused. It never runs during service startup;
-deployment and migration require their own release authorization.
+The table and its triggers are part of the composed target schema. Service startup never alters an existing schema.

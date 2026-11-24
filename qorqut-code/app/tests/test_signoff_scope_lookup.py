@@ -18,7 +18,8 @@ from qorqut_operations.contracts import InvocationContext, PolicyDecision, Princ
 from qorqut_operations.items import ItemContribution, ItemResolver
 from qorqut_operations.roles import GLOBAL_WORKER_ROLE
 from qorqut_operations.signoffs import ABSENT, SignoffPorts
-from qorqut_operations.signoffs.lookup import LOCATED, SignoffLookup
+from qorqut_operations.records.references import KINDS, Ref, References
+from qorqut_operations.signoffs.lookup import LOCATED, SignoffLookup, reference_kind
 from qorqut_operations.signoffs.service import SignoffService
 from qorqut_operations.storage.database import Database
 from qorqut_operations.storage.locks import LockPaths
@@ -35,18 +36,18 @@ FORM = {'title': 'Choose a date', 'explanation': 'Which date works?', 'kind': 'q
 
 
 class Policy:
-    """Allow everything, except what a test lists: ``{(principal, business_id, operation): mode}``."""
+    """Allow everything, except what a test lists: ``{(principal, project_id, operation): mode}``."""
 
     def __init__(self):
         self.modes, self.contexts = {}, {}
 
     def resolve(self, context, descriptor, targets, uow):
-        mode = self.modes.get((context.principal_id, context.business_id, descriptor.name), 'allow')
+        mode = self.modes.get((context.principal_id, context.project_id, descriptor.name), 'allow')
         return PolicyDecision(mode, 'test', {'global_capability': descriptor.global_capability}
                               if descriptor.global_capability else {})
 
-    def context_for(self, principal_id, business_id=None, review_business_id=None, **_):
-        return replace(self.contexts[principal_id], business_id=business_id, review_business_id=review_business_id)
+    def context_for(self, principal_id, project_id=None, review_project_id=None, **_):
+        return replace(self.contexts[principal_id], project_id=project_id, review_project_id=review_project_id)
 
 
 class Harness(unittest.TestCase):
@@ -67,20 +68,18 @@ class Harness(unittest.TestCase):
                 owner_principal_id=self.owner, created_at=STAMP, updated_at=STAMP))
             uow.repository('principals').insert(dict(id=self.agent, kind='agent', display_name='Ordubashy',
                 active=1, created_at=STAMP, updated_at=STAMP))
-            uow.repository('agent_profiles', business_id=None).insert(dict(agent_id=self.agent, principal_id=self.agent,
-                home_business_id=None, namespace='ecosystem', name='ordubashy', workspace='/tmp/ordubashy',
+            uow.repository('agent_profiles', project_id=None).insert(dict(agent_id=self.agent, principal_id=self.agent,
+                name='ordubashy', workspace='/tmp/ordubashy',
                 status='active', profile_json={'status': 'active', 'role': {'id': GLOBAL_WORKER_ROLE}, 'scope': {
-                    'kind': 'ecosystem', 'business_id': None, 'global_capabilities': ['read_global_context']}},
+                    'kind': 'ecosystem', 'project_id': None, 'global_capabilities': ['read_global_context']}},
                 created_at=STAMP, updated_at=STAMP))
-            for business, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta'), (self.gamma, 'Gamma')):
-                uow.repository('businesses').insert({'id': business, 'slug': name.lower(), 'name': name,
-                                                     'workspace': name.lower(), 'hq_path': name.lower() + '/hq'})
-                uow.repository('business_memberships', business_id=business).insert(
-                    {'principal_id': self.owner, 'active': 1, 'is_owner': 1})
+            for project, name in ((self.alpha, 'Alpha'), (self.beta, 'Beta'), (self.gamma, 'Gamma')):
+                uow.repository('projects').insert({'id': project, 'slug': name.lower(), 'name': name,
+                                                     'workspace': name.lower()})
         self.owner_ctx = InvocationContext(Principal(self.owner, 'human'), source='dashboard',
-            allowed_business_ids={self.alpha, self.beta, self.gamma}, global_capabilities={'read_global_context'})
+            allowed_project_ids={self.alpha, self.beta, self.gamma}, global_capabilities={'read_global_context'})
         # A registered global agent over MCP: no review scope selected unless a call names one.
-        self.agent_ctx = InvocationContext(Principal(self.agent, 'agent'), allowed_business_ids={self.alpha, self.beta},
+        self.agent_ctx = InvocationContext(Principal(self.agent, 'agent'), allowed_project_ids={self.alpha, self.beta},
                                            global_capabilities={'read_global_context'}, profile_revision=1, source='mcp')
         self.policy = Policy()
         self.policy.contexts = {self.owner: self.owner_ctx, self.agent: self.agent_ctx}
@@ -109,10 +108,10 @@ class Harness(unittest.TestCase):
             options.setdefault('idempotency_key', str(uuid4()))
         return self.app.invoke(ctx or self.agent_ctx, operation, arguments, options)
 
-    def ask(self, business, key='question', ctx=None, **form):
+    def ask(self, project, key='question', ctx=None, **form):
         """A pending input request reviewed in this project (``None`` is Global), asked by the agent unless ``ctx``."""
-        scope = {'business_id': business} if business else {}
-        arguments = {'request_key': key, 'form': {**FORM, **form}, **({} if business else {'scope': 'global'})}
+        scope = {'project_id': project} if project else {}
+        arguments = {'request_key': key, 'form': {**FORM, **form}, **({} if project else {'scope': 'global'})}
         created = self.call('signoffs_input_create', arguments, ctx, **scope)
         self.assertEqual(created.status, 'ok', created.to_dict())
         return plain(created.data['signoff'])
@@ -140,12 +139,12 @@ class SignoffScopeLookupTests(Harness):
         signoff = self.ask(self.alpha)
         read = self.call('signoffs_get', {'signoff_id': signoff['id']})
         self.assertEqual(read.status, 'ok', read.to_dict())
-        self.assertEqual(read.data['signoff']['review_business_id'], self.alpha)
+        self.assertEqual(read.data['signoff']['review_project_id'], self.alpha)
         key = str(uuid4())
         comment = self.call('signoffs_comment', {'signoff_id': signoff['id'], 'text': 'Any day but Friday.'},
                             idempotency_key=key)
         self.assertEqual(comment.status, 'ok', comment.to_dict())
-        self.assertEqual(self.receipts(key), ['business:' + self.alpha])
+        self.assertEqual(self.receipts(key), ['project:' + self.alpha])
         listed = self.call('signoffs_notes_list', {'signoff_id': signoff['id']})
         self.assertEqual([note['body'] for note in listed.data['notes']], ['Any day but Friday.'])
         urgent = self.call('signoffs_attention_set', {'signoff_id': signoff['id'], 'attention': {
@@ -159,7 +158,7 @@ class SignoffScopeLookupTests(Harness):
         signoff = self.ask(None)
         read = self.call('signoffs_get', {'signoff_id': signoff['id']})
         self.assertEqual(read.status, 'ok', read.to_dict())
-        self.assertIsNone(read.data['signoff']['review_business_id'])
+        self.assertIsNone(read.data['signoff']['review_project_id'])
         self.assertEqual(plain(read.data), plain(self.call('signoffs_get', {'signoff_id': signoff['id'], 'scope': 'global'}).data))
         key = str(uuid4())
         comment = self.call('signoffs_comment', {'signoff_id': signoff['id'], 'text': 'Asked in Global.'}, idempotency_key=key)
@@ -171,9 +170,9 @@ class SignoffScopeLookupTests(Harness):
         self.assertEqual(withdrawn.status, 'ok', withdrawn.to_dict())
 
     def test_a_located_write_replays_exactly_like_the_explicit_one(self):
-        for business, namespace, explicit in ((self.beta, 'business:' + self.beta, ({}, {'business_id': self.beta})),
+        for project, namespace, explicit in ((self.beta, 'project:' + self.beta, ({}, {'project_id': self.beta})),
                                               (None, 'global', ({'scope': 'global'}, {}))):
-            signoff = self.ask(business)
+            signoff = self.ask(project)
             key, arguments = str(uuid4()), {'signoff_id': signoff['id'], 'text': 'Sent.'}
             first = self.call('signoffs_comment', arguments, idempotency_key=key)
             again = self.call('signoffs_comment', arguments, idempotency_key=key)
@@ -211,8 +210,8 @@ class SignoffScopeLookupTests(Harness):
         # An archived project is outside every agent's reach: nothing says the Signoff is there.
         archived = self.ask(self.alpha, key='archived')
         with self.db.transaction() as uow:
-            uow.connection.execute('UPDATE businesses SET archived_at=? WHERE id=?', (STAMP, self.alpha))
-        narrowed = replace(self.agent_ctx, allowed_business_ids={self.beta})
+            uow.connection.execute('UPDATE projects SET archived_at=? WHERE id=?', (STAMP, self.alpha))
+        narrowed = replace(self.agent_ctx, allowed_project_ids={self.beta})
         self.refused(self.call('signoffs_get', {'signoff_id': archived['id']}, ctx=narrowed), ELSEWHERE)
 
     # -- a selection stands ------------------------------------------------------------------------------------------
@@ -220,27 +219,27 @@ class SignoffScopeLookupTests(Harness):
     def test_a_wrong_project_says_where_the_signoff_is(self):
         signoff, general = self.ask(self.alpha, title='Book the venue'), self.ask(None, title='Review the week')
         for operation, arguments in (('signoffs_get', {}), ('signoffs_comment', {'text': 'Booked.'})):
-            refused = self.call(operation, {'signoff_id': signoff['id'], **arguments}, business_id=self.beta)
+            refused = self.call(operation, {'signoff_id': signoff['id'], **arguments}, project_id=self.beta)
             self.assertEqual(refused.error['code'], 'not_found', refused.to_dict())
             self.assertEqual(refused.error['message'], 'Proposal is not in the selected review scope; it is in Alpha. '
-                             'Call again with signoff_id alone, without business_id or scope')
+                             'Call again with signoff_id alone, without project_id or scope')
             self.assertEqual(plain(refused.error['details']), {'signoff': {
-                'id': signoff['id'], 'review_business_id': self.alpha, 'business_name': 'Alpha', 'title': 'Book the venue'}})
-            refused = self.call(operation, {'signoff_id': general['id'], **arguments}, business_id=self.alpha)
+                'id': signoff['id'], 'review_project_id': self.alpha, 'project_name': 'Alpha', 'title': 'Book the venue'}})
+            refused = self.call(operation, {'signoff_id': general['id'], **arguments}, project_id=self.alpha)
             self.assertEqual(refused.error['code'], 'not_found', refused.to_dict())
             self.assertEqual(plain(refused.error['details']), {'signoff': {
-                'id': general['id'], 'review_business_id': None, 'business_name': 'Global', 'title': 'Review the week'}})
+                'id': general['id'], 'review_project_id': None, 'project_name': 'Global', 'title': 'Review the week'}})
         self.assertEqual(self.notes(signoff['id']) + self.notes(general['id']), [])
         # The right project still works, with the id alone or with the project named.
-        self.assertEqual(self.call('signoffs_get', {'signoff_id': signoff['id']}, business_id=self.alpha).status, 'ok')
+        self.assertEqual(self.call('signoffs_get', {'signoff_id': signoff['id']}, project_id=self.alpha).status, 'ok')
 
     def test_a_selected_project_discloses_nothing_the_caller_cannot_read(self):
         hidden = self.ask(self.gamma, ctx=self.owner_ctx)
         for signoff_id in (hidden['id'], str(uuid4())):
-            self.refused(self.call('signoffs_get', {'signoff_id': signoff_id}, business_id=self.alpha), HERE)
+            self.refused(self.call('signoffs_get', {'signoff_id': signoff_id}, project_id=self.alpha), HERE)
         denied = self.ask(self.beta)
         self.policy.modes[(self.agent, self.beta, 'signoffs_get')] = 'deny'
-        self.refused(self.call('signoffs_get', {'signoff_id': denied['id']}, business_id=self.alpha), HERE)
+        self.refused(self.call('signoffs_get', {'signoff_id': denied['id']}, project_id=self.alpha), HERE)
 
     def test_an_explicit_scope_or_review_selector_is_left_as_it_was(self):
         signoff, general = self.ask(self.alpha), self.ask(None)
@@ -251,54 +250,63 @@ class SignoffScopeLookupTests(Harness):
                 self.assertEqual(self.call('signoffs_get', {'signoff_id': chosen['id'], 'scope': 'global'}).status, 'ok')
             self.refused(self.call('signoffs_notes_list', {'signoff_id': signoff['id'], 'scope': 'global'}),
                          'Select this signoff\u2019s owning review scope')
-            # scope=business without a project keeps the operation's own refusal.
-            refused = self.call('signoffs_get', {'signoff_id': signoff['id'], 'scope': 'business'})
+            # scope=project without a project keeps the operation's own refusal.
+            refused = self.call('signoffs_get', {'signoff_id': signoff['id'], 'scope': 'project'})
             self.assertEqual(refused.error['code'], 'scope_required', refused.to_dict())
             # A review selector, as an argument or as the transport's option, is the caller's own selection too.
-            for arguments, options in (({'review_business_id': self.alpha}, {}), ({}, {'review_business_id': self.alpha})):
+            for arguments, options in (({'review_project_id': self.alpha}, {}), ({}, {'review_project_id': self.alpha})):
                 refused = self.call('signoffs_get', {'signoff_id': signoff['id'], **arguments}, **options)
                 self.assertEqual(refused.status, 'error', refused.to_dict())
                 self.assertNotIn('details', refused.error)
 
     # -- other callers ---------------------------------------------------------------------------------------------
 
-    def test_the_dashboard_and_workers_still_select_their_scope_themselves(self):
+    def test_the_dashboard_is_located_and_internal_workers_select_their_scope_themselves(self):
         signoff = self.ask(self.alpha)
-        with patch.object(SignoffLookup, '__call__', side_effect=AssertionError('lookup outside agent MCP')):
-            refused = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx)
+        # The dashboard is located under the same rules as an agent: nothing selected runs where the Signoff is reviewed,
+        # and a selection stands, saying where the Signoff is.
+        found = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx)
+        self.assertEqual(found.status, 'ok', found.to_dict())
+        elsewhere = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx, project_id=self.beta)
+        self.assertEqual((elsewhere.status, elsewhere.error['code']), ('error', 'not_found'))
+        self.assertEqual(elsewhere.error['details']['signoff']['review_project_id'], self.alpha)
+        # An internal worker is never looked up: its namespaces are the ones stored with its work.
+        worker = replace(self.owner_ctx, source='worker')
+        with patch.object(SignoffLookup, '__call__', side_effect=AssertionError('lookup for a worker')):
+            refused = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=worker)
             self.assertEqual(refused.status, 'error', refused.to_dict())
             self.assertNotEqual(refused.error['message'], ELSEWHERE)
-            self.refused(self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx, business_id=self.beta), HERE)
-            read = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=self.owner_ctx, business_id=self.alpha)
+            self.refused(self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=worker, project_id=self.beta), HERE)
+            read = self.call('signoffs_get', {'signoff_id': signoff['id']}, ctx=worker, project_id=self.alpha)
             self.assertEqual(read.status, 'ok', read.to_dict())
             # The service's own readers are not operations and never consult it.
-            direct = self.signoffs.get(replace(self.owner_ctx, business_id=self.alpha, review_business_id=self.alpha),
+            direct = self.signoffs.get(replace(worker, project_id=self.alpha, review_project_id=self.alpha),
                                        signoff['id'])
             self.assertEqual(direct.status, 'ok', direct.to_dict())
 
     def test_an_owner_session_stays_in_its_bound_project(self):
         mine, elsewhere = self.ask(self.alpha, ctx=self.owner_ctx), self.ask(self.beta, ctx=self.owner_ctx)
-        session = replace(self.owner_ctx, source='mcp', business_id=self.alpha, review_business_id=self.alpha,
-                          allowed_business_ids=frozenset({self.alpha}), owner_session_business_id=self.alpha)
+        session = replace(self.owner_ctx, source='mcp', project_id=self.alpha, review_project_id=self.alpha,
+                          allowed_project_ids=frozenset({self.alpha}), owner_session_project_id=self.alpha)
         with patch.object(SignoffLookup, 'place', side_effect=AssertionError('looked up')):
             self.assertEqual(self.call('signoffs_get', {'signoff_id': mine['id']}, ctx=session).status, 'ok')
             self.refused(self.call('signoffs_get', {'signoff_id': elsewhere['id']}, ctx=session), HERE)
 
     def test_a_delegated_worker_is_looked_up_only_in_the_scope_its_assignment_binds(self):
         mine, elsewhere, general = self.ask(self.alpha), self.ask(self.beta), self.ask(None)
-        worker_of = lambda business: self.worker(Delegation(self.agent, business, ('signoffs_get',), ()))
+        worker_of = lambda project: self.worker(Delegation(self.agent, project, ('signoffs_get',), ()))
         worker = worker_of(self.alpha)
         with self.db.read() as uow:
-            for signoff, namespace in ((mine, 'business:' + self.alpha), (elsewhere, None), (general, None)):
+            for signoff, namespace in ((mine, 'project:' + self.alpha), (elsewhere, None), (general, None)):
                 arguments = {'signoff_id': signoff['id']}
                 self.assertEqual(self.signoffs.lookup(worker, arguments, uow), (arguments, namespace))
             # A selection of its own is never looked up, and never told where the Signoff is.
-            selected = replace(worker, business_id=self.beta, review_business_id=self.beta)
+            selected = replace(worker, project_id=self.beta, review_project_id=self.beta)
             self.assertEqual(self.signoffs.lookup(selected, {'signoff_id': mine['id']}, uow), ({'signoff_id': mine['id']}, None))
         # Through the engine: the worker reads its assignment's Signoff by id alone, and one reviewed elsewhere keeps the
         # call's own answer, which says nothing about where that Signoff is.
         read = self.call('signoffs_get', {'signoff_id': mine['id']}, ctx=worker)
-        self.assertEqual((read.status, read.data['signoff']['review_business_id']), ('ok', self.alpha), read.to_dict())
+        self.assertEqual((read.status, read.data['signoff']['review_project_id']), ('ok', self.alpha), read.to_dict())
         refused = self.call('signoffs_get', {'signoff_id': elsewhere['id']}, ctx=worker)
         self.assertEqual(refused.error['code'], 'scope_required', refused.to_dict())
         self.assertNotIn('details', refused.error)
@@ -320,18 +328,8 @@ class SignoffScopeLookupTests(Harness):
         delegation.selector_kinds = lambda operation: {'signoff_id': 'signoffs'}
         scope = delegation.assignment_row['scope_json']
         scope['record_ids']['signoffs'] = AnyRecord()
-        scope['kind'] = 'business' if delegation.assignment_row['business_id'] else 'global'
+        scope['kind'] = 'project' if delegation.assignment_row['project_id'] else 'global'
         return delegation.context(self.agent_ctx)
-
-    def test_outcomes_are_observed_in_the_scope_the_signoff_was_found_in(self):
-        signoff, general = self.ask(self.alpha), self.ask(None)
-        seen = []
-        self.app.incident_reporter = NS(observe_result=lambda ctx, operation, result: seen.append(
-            (operation, ctx.business_id, result.status)))
-        self.call('signoffs_get', {'signoff_id': signoff['id']})
-        self.call('signoffs_comment', {'signoff_id': general['id'], 'text': 'Noted.'})
-        self.call('signoffs_get', {'signoff_id': str(uuid4())})
-        self.assertEqual(seen[:2], [('signoffs_get', self.alpha, 'ok'), ('signoffs_comment', None, 'ok')])
 
     # -- which operations --------------------------------------------------------------------------------------------
 
@@ -353,14 +351,14 @@ class SignoffScopeLookupTests(Harness):
         signoff = self.ask(self.alpha)
         with self.db.read() as uow:
             for arguments in ({}, {'signoff_id': 7}, {'signoff_id': signoff['id'], 'scope': 'global'},
-                              {'signoff_id': signoff['id'], 'scope': 'business'},
-                              {'signoff_id': signoff['id'], 'review_business_id': self.alpha}):
+                              {'signoff_id': signoff['id'], 'scope': 'project'},
+                              {'signoff_id': signoff['id'], 'review_project_id': self.alpha}):
                 self.assertEqual(self.signoffs.lookup(self.agent_ctx, arguments, uow), (arguments, None), arguments)
             arguments = {'signoff_id': signoff['id']}
-            reviewing = replace(self.agent_ctx, review_business_id=self.alpha)
+            reviewing = replace(self.agent_ctx, review_project_id=self.alpha)
             self.assertEqual(self.signoffs.lookup(reviewing, arguments, uow), (arguments, None))
             # A project Signoff keeps the caller's arguments; only a Global one states its scope.
-            self.assertEqual(self.signoffs.lookup(self.agent_ctx, arguments, uow), (arguments, 'business:' + self.alpha))
+            self.assertEqual(self.signoffs.lookup(self.agent_ctx, arguments, uow), (arguments, 'project:' + self.alpha))
             self.assertIs(self.signoffs.lookup(self.agent_ctx, arguments, uow)[0], arguments)
 
 
@@ -371,9 +369,9 @@ class TransportLookupTests(Harness):
         super().setUp()
         base = self.agent_ctx
 
-        def agent_context(principal, *, diagnostic=False, business_id=None, session_registration_id=None,
-                          review_business_id=None):
-            return replace(base, business_id=business_id, review_business_id=review_business_id)
+        def agent_context(principal, *, diagnostic=False, project_id=None, session_registration_id=None,
+                          review_project_id=None):
+            return replace(base, project_id=project_id, review_project_id=review_project_id)
         runtime = NS(registry=self.registry, application=self.app, agent_context=agent_context)
         self.transport = mcp.MCPTransport(runtime, None, None)
         self.actor = NS(principal=base.principal, registration_id=None, credential_id=str(uuid4()),
@@ -384,7 +382,7 @@ class TransportLookupTests(Harness):
 
     def test_the_mcp_route_finds_the_review_scope_from_the_id(self):
         signoff, general = self.ask(self.alpha), self.ask(None)
-        for chosen, business in ((signoff, self.alpha), (general, None)):
+        for chosen, project in ((signoff, self.alpha), (general, None)):
             read = self.send('signoffs_get', {'signoff_id': chosen['id']})
             self.assertEqual(read['status'], 'ok', read)
             self.assertEqual(read['data']['signoff']['id'], chosen['id'])
@@ -393,12 +391,37 @@ class TransportLookupTests(Harness):
             self.assertEqual(written['status'], 'ok', written)
             self.assertEqual(self.notes(chosen['id']), ['Over MCP.'])
             with self.db.read() as uow:
-                stored = uow.connection.execute('SELECT review_business_id FROM signoffs WHERE id=?', (chosen['id'],)).fetchone()
-            self.assertEqual(stored[0], business)
-        wrong = self.send('signoffs_get', {'signoff_id': signoff['id'], 'business_id': self.beta})
-        self.assertEqual(wrong['error']['details']['signoff']['review_business_id'], self.alpha)
+                stored = uow.connection.execute('SELECT review_project_id FROM signoffs WHERE id=?', (chosen['id'],)).fetchone()
+            self.assertEqual(stored[0], project)
+        wrong = self.send('signoffs_get', {'signoff_id': signoff['id'], 'project_id': self.beta})
+        self.assertEqual(wrong['error']['details']['signoff']['review_project_id'], self.alpha)
         missing = self.send('signoffs_get', {'signoff_id': str(uuid4())})
         self.assertEqual((missing['error']['code'], missing['error']['message']), ('not_found', ELSEWHERE))
+
+    # -- a reference to a Signoff -------------------------------------------------------------------------------------
+
+    def test_a_signoff_reference_is_completed_only_for_a_signoff_the_caller_may_read(self):
+        references = References(Ref(('item',)), kinds={**KINDS, 'signoff': reference_kind(self.signoffs)})
+        visible, in_global = self.ask(self.alpha), self.ask(None)
+        outside = self.ask(self.gamma, ctx=self.owner_ctx, key='outside')
+        denied = self.ask(self.beta, key='denied')
+        self.policy.modes[(self.agent, self.beta, 'signoffs_get')] = 'deny'
+
+        def project_of(signoff_id, kinds=references):
+            with self.db.read() as uow:
+                done = kinds(self.app, self.agent_ctx, {'item': {'type': 'signoff', 'id': signoff_id}}, uow)
+            return plain(done)['item']['project_id']
+        self.assertEqual(project_of(visible['id']), self.alpha)
+        unknown = project_of(str(uuid4()))
+        self.assertIsNone(unknown)
+        for signoff in (in_global, outside, denied):
+            self.assertEqual(project_of(signoff['id']), unknown, signoff['request_key'])
+        # The Signoff visibility rule is applied to the one record: where it says the caller may not read it, the
+        # reference reads as Global, while the same record is completed by a kind without that rule.
+        blind = NS(sources=NS(readable=lambda ctx, candidates, uow: {}))
+        withheld = References(Ref(('item',)), kinds={**KINDS, 'signoff': reference_kind(blind)})
+        self.assertIsNone(project_of(visible['id'], withheld))
+        self.assertEqual(project_of(visible['id'], References(Ref(('item',)))), self.alpha)
 
 
 class AnyRecord:

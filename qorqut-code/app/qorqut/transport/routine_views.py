@@ -8,7 +8,7 @@ from qorqut_operations.contracts import canonical_hash
 PENDING = frozenset({"queued", "running", "applying", "waiting_signoff", "cancel_requested"})
 
 
-def run_view(row, *, businesses=None, definitions=None):
+def run_view(row, *, projects=None, definitions=None):
     result, costs = row.get("result_json", {}), row.get("cost_json", {})
     data = result.get("data") or {}
     definition = {**(definitions or {}).get((row["namespace"], row["routine_id"]), {}),
@@ -25,22 +25,22 @@ def run_view(row, *, businesses=None, definitions=None):
     if row.get("finished_at"):
         seconds = max(0, int((datetime.fromisoformat(row["finished_at"].replace("Z", "+00:00")) -
             datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))).total_seconds()))
-    business = row.get("business_id")
-    member = {"id": row["id"], "business_id": business,
-        "slug": (businesses or {}).get(business, business) if business else "root",
+    project = row.get("project_id")
+    member = {"id": row["id"], "project_id": project,
+        "slug": (projects or {}).get(project, project) if project else "root",
         "ok": row["state"] == "succeeded", "state": row["state"], "model": model,
         "stdout_tail": stdout, "stderr_tail": stderr, "rc": data.get("returncode", result.get("rc")),
         "usd": costs.get("usd", 0), "error": error, "job_id": result.get("job_id")}
     return {**row, "run": row["id"], "routine": row["routine_id"],
         "name": definition.get("name", row["routine_id"]), "zone": definition.get("timezone"),
-        "scope": "global" if row["namespace"] == "global" else "biz",
+        "scope": "global" if row["namespace"] == "global" else "project",
         "start": row["started_at"], "end": row.get("finished_at"), "seconds": seconds,
         "usd": costs.get("usd", 0), "ok": member["ok"], "running": row["state"] in PENDING,
         "job_id": result.get("job_id"), "error": error, "rc": member["rc"],
         "usage_complete": costs.get("calls") is not None or bool(model), "runs": [member]}
 
 
-def recent_runs(rows, *, limit=50, businesses=None, definitions=None):
+def recent_runs(rows, *, limit=50, projects=None, definitions=None):
     groups = {}
     for row in rows:
         result = row.get("result_json", {})
@@ -52,7 +52,7 @@ def recent_runs(rows, *, limit=50, businesses=None, definitions=None):
         groups.setdefault(key, {})[row["id"]] = row
     output = []
     for key, records in groups.items():
-        members = [run_view(row, businesses=businesses, definitions=definitions)
+        members = [run_view(row, projects=projects, definitions=definitions)
                    for row in sorted(records.values(), key=lambda r: (r["started_at"], r["id"]))]
         first = members[0]
         running = any(x["running"] for x in members)

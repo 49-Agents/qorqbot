@@ -121,7 +121,7 @@ def occurrence_values(runtime, job, arguments, uow, *, job_id=None):
     definition = job["definition_ref_json"] or {}
     if definition.get("digest") != program.definition["digest"]:
         raise DomainError("policy_denied", "The scheduled program definition changed before recording its occurrence")
-    if job["business_id"] is not None or definition.get("scope") != "global":
+    if job["project_id"] is not None or definition.get("scope") != "global":
         raise DomainError("forbidden", "Scheduled extraction is a Global/root program")
     if definition.get("trigger") != "schedule":
         raise DomainError("forbidden", "Only a scheduled occurrence can record a due extraction request")
@@ -132,11 +132,11 @@ def occurrence_values(runtime, job, arguments, uow, *, job_id=None):
     if authority is None or authority.worker_id(PROGRAM, uow) != job["principal_id"]:
         raise DomainError("policy_denied", "Scheduled extraction requires its registered system worker")
     authority.require_worker(job["principal_id"], None, uow)
-    run = uow.repository("routine_runs", business_id=None).get(run_id, required=True)
+    run = uow.repository("routine_runs", project_id=None).get(run_id, required=True)
     if (run["namespace"] != "global" or run["routine_id"] != routine_id or run["trigger"] != "schedule"
-            or run["business_id"] is not None):
+            or run["project_id"] is not None):
         raise DomainError("invalid_job", "The linked routine run is not this Global scheduled occurrence")
-    routine = uow.repository("routines", business_id=None).get({"namespace": "global", "id": routine_id}, required=True)
+    routine = uow.repository("routines", project_id=None).get({"namespace": "global", "id": routine_id}, required=True)
     if routine["job_kind"] != PROGRAM or routine["target"] != "root" or routine["scope"] != "global":
         raise DomainError("forbidden", "The routine no longer registers this Global program for the root target")
     if routine["metadata_json"].get("retired"):
@@ -177,7 +177,7 @@ class DueRecord:
     def prepare(self, ctx, args, options, uow):
         if ctx.job_id is None or ctx.principal_kind != "system" or ctx.source != "worker":
             raise DomainError("forbidden", "A due record is derived only from its own internal scheduled job")
-        job = uow.repository("jobs", business_id=ctx.business_id).get(ctx.job_id, required=True)
+        job = uow.repository("jobs", project_id=ctx.project_id).get(ctx.job_id, required=True)
         values = occurrence_values(self.runtime, job, args, uow)
         builder = PlanBuilder(ctx, OUTPUT, args, "Record a scheduled Overseer extraction due request")
         existing = uow.connection.execute(
@@ -323,7 +323,7 @@ def _emit(runtime, uow, row, now):
     visibility = {"reference": request_reference,
                   "target": {"agent_id": row["target_agent_id"], "conversation_id": row["target_conversation_id"]}}
     event = uow.connection.execute(
-        "INSERT INTO inbox_events(business_id,source_type,source_id,source_revision,actor_id,event_type,summary,"
+        "INSERT INTO inbox_events(project_id,source_type,source_id,source_revision,actor_id,event_type,summary,"
         "visibility_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
         (None, EVENT_SOURCE, row["id"], 1, None, EVENT_TYPE,
          runtime.resolver.require_agentic_view().runtime_instructions().render('overseer-extraction-due'), canonical(visibility), now)).lastrowid
@@ -745,7 +745,7 @@ def request_visible(app, ctx, request_id, uow):
     conversation are checked here, while the actual tool invocation still requires the real full registration.
     """
     row = uow.connection.execute("SELECT * FROM overseer_due_requests WHERE id=?", (request_id,)).fetchone()
-    if row is None or ctx.principal_id != row["target_agent_id"] or ctx.business_id is not None:
+    if row is None or ctx.principal_id != row["target_agent_id"] or ctx.project_id is not None:
         return False
     if active_role_holder(uow.connection, LEARNING_APPLIER_ROLE) != ctx.principal_id:
         return False

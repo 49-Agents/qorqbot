@@ -5,8 +5,8 @@ from qorqut_operations.history_exports import Arr, Boolean, Integer, Obj, Struct
 def action_snapshot():
     schema = Obj(fields={
         "text": Text(), "category": Text(nullable=True), "origin": Text(), "withdrawn": Boolean(),
-        "business_ids": Arr(item=Text(), max_items=10000),
-        "tag_snapshots": Arr(item=Obj(fields={"id": Text(), "name": Text(), "business_id": Text(nullable=True)}), max_items=10000),
+        "project_ids": Arr(item=Text(), max_items=10000),
+        "tag_snapshots": Arr(item=Obj(fields={"id": Text(), "name": Text(), "project_id": Text(nullable=True)}), max_items=10000),
         "occurred": Obj(fields={"at": Text(), "date": Text(nullable=True), "hour": Integer(nullable=True),
                                 "precision": Text(), "time_zone": Text()}),
     })

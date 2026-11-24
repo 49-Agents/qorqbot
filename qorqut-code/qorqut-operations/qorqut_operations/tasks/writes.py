@@ -36,10 +36,10 @@ class TaskWrites:
     def apply(self, ctx, plan, uow):
         """Apply the plan's records, then announce every Task they touched; returns the applied records' result."""
         ids = touched(plan)
-        before = {identity: events.state(uow, ctx.business_id, identity) for identity in ids}
+        before = {identity: events.state(uow, ctx.project_id, identity) for identity in ids}
         result = apply_records(ctx, plan, uow)
         for identity in ids:
-            after = events.state(uow, ctx.business_id, identity)
+            after = events.state(uow, ctx.project_id, identity)
             if after is None:
                 continue
             comments = [plain(change.values) for change in plan.changes

@@ -52,9 +52,9 @@ class PrivateArchive:
         if (run_ref["provider"] != "qorqut_overseer" or not isinstance(run_ref["agent_id"], str) or not run_ref["agent_id"]
                 or not isinstance(run_ref["conversation_id"], str) or not run_ref["conversation_id"]
                 or run_ref["run_id"] is not None and (not isinstance(run_ref["run_id"], str) or not run_ref["run_id"])
-                or not isinstance(namespace, dict) or set(namespace) != {"kind", "business_id"}
-                or not (namespace["kind"] == "global" and namespace["business_id"] is None
-                        or namespace["kind"] == "business" and isinstance(namespace["business_id"], str) and namespace["business_id"])):
+                or not isinstance(namespace, dict) or set(namespace) != {"kind", "project_id"}
+                or not (namespace["kind"] == "global" and namespace["project_id"] is None
+                        or namespace["kind"] == "project" and isinstance(namespace["project_id"], str) and namespace["project_id"])):
             raise DomainError("validation_error", "Invalid Overseer conversation reference")
 
     def _retention(self, run_ref, action):

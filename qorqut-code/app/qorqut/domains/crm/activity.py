@@ -61,11 +61,11 @@ class CRMActivityOperations:
         registry = registry or self.application.registry
         registry.register(OperationDescriptor(
             NAME, schema({
-                "scope": {"enum": ["business", "global"]}, "task_id": IDENTITY,
+                "scope": {"enum": ["project", "global"]}, "task_id": IDENTITY,
                 "include_linked": {"type": "boolean", "description": instruction_text('activity-also-merge-the-events-of-sources-this-record')},
                 "cursor": {"type": "string", "maxLength": 2000},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAXIMUM_LIMIT}}, ("task_id",)),
-            effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"business", "global"}),
+            effect_kind="read", supports_signoff=False, scope_kinds=frozenset({"project", "global"}),
             global_capability="read_global_context", resolve_namespace=task_namespace, locate_scope=self.tasks.lookup,
             description=instruction_text('activity-one-record-s-activity-newest-first-its-own') + LOCATED,
             read=lambda ctx, args, options, uow: self.read(ctx, args, uow)))
@@ -77,11 +77,11 @@ class CRMActivityOperations:
     def read(self, ctx, args, uow):
         ctx = task_context(ctx, args, uow)
         task_id = args["task_id"]
-        record_ref = {"type": "task", "id": task_id, "business_id": ctx.business_id}
+        record_ref = {"type": "task", "id": task_id, "project_id": ctx.project_id}
         self.crm.resolve_record(ctx, record_ref, uow)
         include_linked = args.get("include_linked", True)
         limit = min(args.get("limit", DEFAULT_LIMIT), MAXIMUM_LIMIT)
-        binding = canonical_hash({"operation": NAME, "principal": ctx.principal_id, "business_id": ctx.business_id,
+        binding = canonical_hash({"operation": NAME, "principal": ctx.principal_id, "project_id": ctx.project_id,
                                   "task_id": task_id, "include_linked": include_linked})
         candidates = self.candidates(ctx, task_id, uow) if include_linked else []
         fingerprint = canonical_hash([target.key for target in candidates])[:32]
@@ -156,26 +156,26 @@ class CRMActivityOperations:
 
         Each kind of link is discovered completely, in keyset batches of ``DISCOVERY_BATCH`` rows, so a source is neither
         missed nor reordered however many exist, and the whole set is what the cursor fingerprint covers."""
-        scope = ctx.business_id
+        scope = ctx.project_id
         found = {}
 
-        def add(kind, business_id, identity):
-            target = Target(kind, business_id, identity)
-            if target.kind == "task" and (business_id, identity) == (scope, task_id):
+        def add(kind, project_id, identity):
+            target = Target(kind, project_id, identity)
+            if target.kind == "task" and (project_id, identity) == (scope, task_id):
                 return
             found.setdefault(target.key, target)
 
-        row = uow.repository("tasks", business_id=scope).get(task_id, required=True)
+        row = uow.repository("tasks", project_id=scope).get(task_id, required=True)
         for link in task_links.stored(row):
-            add("task", link["business_id"], link["task_id"])
+            add("task", link["project_id"], link["task_id"])
         for other in self.batches(
-                uow, "SELECT t.rowid AS position,t.business_id,t.id FROM tasks t WHERE t.rowid>? AND EXISTS ("
+                uow, "SELECT t.rowid AS position,t.project_id,t.id FROM tasks t WHERE t.rowid>? AND EXISTS ("
                 "SELECT 1 FROM json_each(t.fields_json, '$.\"$task_links\"') edge "
-                "WHERE json_extract(edge.value,'$.business_id') IS ? AND json_extract(edge.value,'$.task_id')=?) "
+                "WHERE json_extract(edge.value,'$.project_id') IS ? AND json_extract(edge.value,'$.task_id')=?) "
                 "ORDER BY t.rowid LIMIT ?", (scope, task_id)):
-            add("task", other["business_id"], other["id"])
+            add("task", other["project_id"], other["id"])
         for edge in self.batches(
-                uow, "SELECT rowid AS position,from_type,from_id,to_type,to_id FROM relationships WHERE rowid>? AND business_id IS ? "
+                uow, "SELECT rowid AS position,from_type,from_id,to_type,to_id FROM relationships WHERE rowid>? AND project_id IS ? "
                 "AND role IN (?,?) AND ((from_type='task' AND from_id=?) OR (to_type='task' AND to_id=?)) ORDER BY rowid LIMIT ?",
                 (scope, *ROLES, task_id, task_id)):
             other = (edge["to_type"], edge["to_id"]) if (edge["from_type"], edge["from_id"]) == ("task", task_id) \
@@ -183,7 +183,7 @@ class CRMActivityOperations:
             self.add_reference(uow, scope, *other, add)
         located = {}
         for message in self.batches(
-                uow, "SELECT rowid AS position,refs_json,reference_namespace FROM thread_messages WHERE rowid>? AND business_id IS ? "
+                uow, "SELECT rowid AS position,refs_json,reference_namespace FROM thread_messages WHERE rowid>? AND project_id IS ? "
                 "AND item_type='task' AND item_id=? AND kind='comment' AND refs_json<>'[]' ORDER BY rowid LIMIT ?", (scope, task_id)):
             # A note's references are relative to the scope it was written in: the pinned namespace once its Task has moved.
             valid, origin = scope_of(message["reference_namespace"]) if message["reference_namespace"] is not None else (True, scope)
@@ -217,21 +217,15 @@ class CRMActivityOperations:
 
     @staticmethod
     def add_reference(uow, scope, kind, identity, add):
-        """Canonical scoped target of a relationship endpoint or note reference; other kinds are not activity sources."""
+        """Scoped target of a relationship endpoint or note reference; other kinds are not activity sources."""
         if kind == "signoff":
-            row = uow.connection.execute("SELECT review_business_id FROM signoffs WHERE id=?", (identity,)).fetchone()
+            row = uow.connection.execute("SELECT review_project_id FROM signoffs WHERE id=?", (identity,)).fetchone()
             if row is not None:
-                add("signoff", row["review_business_id"], identity)
+                add("signoff", row["review_project_id"], identity)
         elif kind == "action":
-            if identity.startswith("global/"):
-                add("action", None, identity)
-            elif identity.startswith("business/") and identity.count("/") >= 2:
-                add("action", identity.split("/", 2)[1], identity)
-            else:
-                row = uow.connection.execute("SELECT action_key,business_id FROM action_logs WHERE id=? AND business_id IS ?",
-                                             (identity, scope)).fetchone()
-                if row is not None:
-                    add("action", row["business_id"], row["action_key"])
+            row = uow.connection.execute("SELECT project_id FROM action_logs WHERE id=?", (identity,)).fetchone()
+            if row is not None:
+                add("action", row["project_id"], identity)
         elif kind in ("task", "material"):
             add(kind, scope, identity)
 

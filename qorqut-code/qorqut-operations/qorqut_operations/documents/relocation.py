@@ -1,12 +1,12 @@
 """Move project notes (and a Table's uploaded files) between projects without changing their identity.
 
 A registered document is a ``documents`` row plus its file below the owning project's folder. Moving one changes the row's
-``business_id`` and ``namespace``; its id, kind, relative path, content and metadata are unchanged, and the file moves to
+``project_id`` and ``namespace``; its id, kind, relative path, content and metadata are unchanged, and the file moves to
 the same relative path below the destination project's folder. Earlier versions in the shared history are copied to the
 destination namespace (version numbers, authors and times unchanged); the originals are immutable and stay where they were
 written. ``document_moves`` records each move with both paths.
 
-Only ``business_owned_note`` documents move on their own. A ``data_upload`` moves only together with the Tables whose rows
+Only ``project_owned_note`` documents move on their own. A ``data_upload`` moves only together with the Tables whose rows
 came from it (``TableRelocation`` carries it); the owner's journal, Context documents, email messages and assets do not
 move. Relationships follow ``relationships.relocation``, project links naming a moved document are retargeted.
 
@@ -27,7 +27,7 @@ from qorqut_operations.contracts import DomainError
 from qorqut_operations.relationships import relocation as edges
 from qorqut_operations.tasks.relocation import FORMAT, blocker, canonical, digest, existing_tables, marks, namespace
 
-NOTE_KIND = "business_owned_note"
+NOTE_KIND = "project_owned_note"
 UPLOAD_KIND = "data_upload"
 MAXIMUM_DOCUMENTS = 200
 COUNTS = ("documents", "versions", "project_links", "historical_relationships")
@@ -65,19 +65,19 @@ class DocumentInspection:
 
 
 class DocumentRelocation:
-    """``root(business_row, relative_path) -> Path`` is the host's choice of the folder a registered path is relative to."""
+    """``root(project_row, relative_path) -> Path`` is the host's choice of the folder a registered path is relative to."""
 
     def __init__(self, root):
         if not callable(root):
-            raise TypeError("Document relocation needs the host's document_root(business, relative_path)")
+            raise TypeError("Document relocation needs the host's document_root(project, relative_path)")
         self.root = root
 
-    def location(self, uow, business_id, path) -> Path:
-        business = uow.repository("businesses").get(business_id, required=True)
+    def location(self, uow, project_id, path) -> Path:
+        project = uow.repository("projects").get(project_id, required=True)
         relative = PurePosixPath(path)
         if relative.is_absolute() or ".." in relative.parts:
             raise DomainError("invalid_document", "A registered document path must stay inside its project")
-        return Path(self.root(business, path)) / path
+        return Path(self.root(project, path)) / path
 
     @staticmethod
     def selection(document_ids):
@@ -96,12 +96,12 @@ class DocumentRelocation:
         if not isinstance(destination, str) or not destination or destination == source:
             raise DomainError("validation_error", "Choose a project other than the document's current project")
         connection, tables = uow.connection, existing_tables(uow)
-        target = connection.execute("SELECT id, slug, name, archived_at FROM businesses WHERE id=?", (destination,)).fetchone()
+        target = connection.execute("SELECT id, slug, name, archived_at FROM projects WHERE id=?", (destination,)).fetchone()
         if target is None or target["archived_at"] is not None:
             raise DomainError("not_found", "Destination project is unavailable")
         self.sweep(uow)
         found = {row["id"]: dict(row) for row in connection.execute(
-            "SELECT * FROM documents WHERE business_id=? AND id IN " + marks(ids) + " ORDER BY id", (source, *ids))}
+            "SELECT * FROM documents WHERE project_id=? AND id IN " + marks(ids) + " ORDER BY id", (source, *ids))}
         if set(ids) - set(found):
             raise DomainError("not_found", "Document does not exist in this project")
         blockers, counts = [], {"documents": len(ids)}
@@ -122,16 +122,16 @@ class DocumentRelocation:
                 if existing is not None and existing != bare(row["content_hash"]):
                     blockers.append(blocker("path_exists", "The destination project's folder already has a different file at this path", row["id"]))
             if row["kind"] == UPLOAD_KIND and "data_rows" in tables:
-                using = connection.execute("SELECT DISTINCT table_id FROM data_rows WHERE business_id=? AND source_upload_id=?",
+                using = connection.execute("SELECT DISTINCT table_id FROM data_rows WHERE project_id=? AND source_upload_id=?",
                                            (source, row["id"])).fetchall()
                 if {item[0] for item in using} - set(with_tables):
                     blockers.append(blocker("upload_in_use", "A table that stays in this project still uses this upload", row["id"]))
-        versions = connection.execute("SELECT document_id, version, content_sha256 FROM qbdv_document_versions WHERE namespace=? AND document_id IN "
+        versions = connection.execute("SELECT document_id, version, content_sha256 FROM qdv_document_versions WHERE namespace=? AND document_id IN "
                                       + marks(ids) + " ORDER BY document_id, version", (namespace(source), *ids)).fetchall() \
-            if "qbdv_document_versions" in tables else []
+            if "qdv_document_versions" in tables else []
         material["versions"] = [len(versions), digest(versions)]
         counts["versions"] = len(versions)
-        if versions and connection.execute("SELECT 1 FROM qbdv_document_versions WHERE namespace=? AND document_id IN " + marks(ids) + " LIMIT 1",
+        if versions and connection.execute("SELECT 1 FROM qdv_document_versions WHERE namespace=? AND document_id IN " + marks(ids) + " LIMIT 1",
                                            (namespace(destination), *ids)).fetchone():
             blockers.append(blocker("history_exists", "The destination project already has history for one of these documents"))
         moving = {(kind, identity) for identity in ids for kind in edges.DOCUMENT_ENDS}
@@ -142,7 +142,7 @@ class DocumentRelocation:
                                    + " ORDER BY id", (namespace(source), *ids)).fetchall() if "project_item_links" in tables else []
         material["project_links"] = [len(links), digest(links)]
         counts["project_links"] = len(links)
-        subscriptions = connection.execute("SELECT id FROM inbox_subscriptions WHERE business_id=? AND source_type='documents' AND source_id IN "
+        subscriptions = connection.execute("SELECT id FROM inbox_subscriptions WHERE project_id=? AND source_type='documents' AND source_id IN "
                                            + marks(ids) + " ORDER BY id", (source, *ids)).fetchall() if "inbox_subscriptions" in tables else []
         material["subscriptions"] = [len(subscriptions), digest(subscriptions)]
         blockers.sort(key=lambda item: (item["code"], item.get("task_id") or "", item["message"]))
@@ -176,33 +176,33 @@ class DocumentRelocation:
         connection, source, destination = uow.connection, inspection.source, inspection.destination
         ids = inspection.ids
         for identity, row in inspection.rows["documents"].items():
-            if connection.execute("UPDATE documents SET business_id=?, namespace=?, revision=revision+1, updated_at=? "
-                                  "WHERE business_id=? AND id=? AND revision=?",
+            if connection.execute("UPDATE documents SET project_id=?, namespace=?, revision=revision+1, updated_at=? "
+                                  "WHERE project_id=? AND id=? AND revision=?",
                                   (destination, destination, at, source, identity, row["revision"])).rowcount != 1:
                 raise DomainError("revision_conflict", "A document changed during the move; preview it again")
-            connection.execute("INSERT INTO document_moves(move_id,document_id,kind,source_business_id,destination_business_id,source_path,"
+            connection.execute("INSERT INTO document_moves(move_id,document_id,kind,source_project_id,destination_project_id,source_path,"
                                "destination_path,revision_before,actor_id,moved_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                                (move_id, identity, row["kind"], source, destination, row["path"], row["path"], row["revision"],
                                 ctx.principal_id, at))
         if inspection.rows["versions"]:
-            connection.execute("INSERT INTO qbdv_document_versions(namespace,document_id,version,content,content_sha256,author_id,created_at,"
+            connection.execute("INSERT INTO qdv_document_versions(namespace,document_id,version,content,content_sha256,author_id,created_at,"
                                "reason,restored_from_version) SELECT ?,document_id,version,content,content_sha256,author_id,created_at,reason,"
-                               "restored_from_version FROM qbdv_document_versions WHERE namespace=? AND document_id IN " + marks(ids),
+                               "restored_from_version FROM qdv_document_versions WHERE namespace=? AND document_id IN " + marks(ids),
                                (namespace(destination), namespace(source), *ids))
         edges.carry(uow, source, destination, inspection.rows["edges"])
         for link in inspection.rows["links"]:
-            if link["business_id"] == destination:
+            if link["project_id"] == destination:
                 connection.execute("DELETE FROM project_item_links WHERE id=?", (link["id"],))
             else:
-                connection.execute("UPDATE project_item_links SET target_business_id=?, target_namespace=?, revision=revision+1, updated_at=? "
+                connection.execute("UPDATE project_item_links SET target_project_id=?, target_namespace=?, revision=revision+1, updated_at=? "
                                    "WHERE id=?", (destination, namespace(destination), at, link["id"]))
         if "inbox_subscriptions" in inspection.rows["store"]:
-            connection.execute("UPDATE inbox_subscriptions SET business_id=? WHERE business_id=? AND source_type='documents' AND source_id IN "
+            connection.execute("UPDATE inbox_subscriptions SET project_id=? WHERE project_id=? AND source_type='documents' AND source_id IN "
                                + marks(ids), (destination, source, *ids))
         # Files last: every record change above could still fail. A copy is all this transaction does to the disk.
         for row in inspection.rows["documents"].values():
             self.copy(self.location(uow, source, row["path"]), self.location(uow, destination, row["path"]), bare(row["content_hash"]))
-        return {"moved": [{"id": identity, "business_id": destination} for identity in ids],
+        return {"moved": [{"id": identity, "project_id": destination} for identity in ids],
                 "counts": {name: inspection.counts.get(name, 0) for name in COUNTS}}
 
     @staticmethod
@@ -230,16 +230,16 @@ class DocumentRelocation:
         connection, removed = uow.connection, 0
         if "document_moves" not in existing_tables(uow):
             return 0
-        latest = connection.execute("SELECT m.document_id, m.source_business_id, m.source_path, d.business_id, d.path, d.content_hash "
+        latest = connection.execute("SELECT m.document_id, m.source_project_id, m.source_path, d.project_id, d.path, d.content_hash "
                                     "FROM document_moves m JOIN documents d ON d.id=m.document_id WHERE m.seq=(SELECT MAX(seq) FROM "
-                                    "document_moves WHERE document_id=m.document_id) AND d.business_id=m.destination_business_id").fetchall()
+                                    "document_moves WHERE document_id=m.document_id) AND d.project_id=m.destination_project_id").fetchall()
         for row in latest:
-            if connection.execute("SELECT 1 FROM documents WHERE namespace=? AND path=?", (row["source_business_id"], row["source_path"])).fetchone():
+            if connection.execute("SELECT 1 FROM documents WHERE namespace=? AND path=?", (row["source_project_id"], row["source_path"])).fetchone():
                 continue
-            origin = self.location(uow, row["source_business_id"], row["source_path"])
+            origin = self.location(uow, row["source_project_id"], row["source_path"])
             if not origin.exists():
                 continue
-            current = file_digest(self.location(uow, row["business_id"], row["path"]))
+            current = file_digest(self.location(uow, row["project_id"], row["path"]))
             if current is not None and file_digest(origin) == current:
                 origin.unlink()
                 removed += 1

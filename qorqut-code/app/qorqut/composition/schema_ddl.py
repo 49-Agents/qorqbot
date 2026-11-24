@@ -14,15 +14,15 @@ from qorqut_operations.records import schema as records_schema
 
 OWNER_TABLES = {
     'access': ('credentials', 'machine_registrations', 'session_registrations', 'session_deliveries', 'artifacts'),
-    'business': ('business_configs', 'workspace_presentations', 'management_routing'),
-    'documents': ('documents', 'working_memory_versions', 'working_memory_provenance', 'qbdv_document_versions', 'qbdv_business_events', *operations_tables.TABLE_NAMES),
+    'project': ('project_configs', 'workspace_presentations', 'management_routing'),
+    'documents': ('documents', 'working_memory_versions', 'working_memory_provenance', 'qdv_document_versions', 'qdv_project_events', *operations_tables.TABLE_NAMES),
     'ledger': ('agent_activity',),
     'focus': ('agent_focus', 'focus_cards', 'focus_notes', 'agent_viewbox_boards', 'agent_viewbox_items'),
     'inbox': ('inbox_changes', 'native_session_owners', 'broadcasts', 'broadcast_deliveries', 'agent_messages', 'owner_conversations', 'owner_conversation_messages', 'owner_conversation_reads'),
     'delegation': ('operational_assignments', 'operational_assignment_events', 'operational_delegation_bindings', 'operational_action_receipts', 'operational_event_claims'),
     'browser': ('browser_turns', 'browser_turn_actions', 'browser_handles'),
     'learning': ('learning_candidates', 'learning_decisions', 'learning_runs', 'learning_scan_state', 'learning_history'),
-    'incidents': ('system_incidents', 'system_incident_observations', 'system_incident_recoveries', 'system_incident_history', 'system_incident_ingested', 'system_incident_impacts', 'system_incident_fault_runs', 'agent_checkpoint_findings', 'dev_tickets', 'dev_ticket_events'),
+    'checkpoints': ('agent_checkpoint_findings',),
     'global-chat': ('global_chat_bindings', 'global_chat_runner', 'global_chat_messages', 'global_chat_turns', 'global_chat_actions', 'global_chat_events', 'global_chat_reads'),
     'maintenance': ('imports', 'backup_runs', 'journal_reviews', 'journal_reconciliations', 'terminal_commands', 'terminal_actions'),
     'legacy-context': tuple(records_schema.TABLES),
@@ -103,23 +103,23 @@ BEGIN
     SELECT RAISE(ABORT, 'published artifact records are immutable');
 END""",
     ),
-    'business': (
-        """CREATE TABLE "business_configs" (
-    business_id TEXT REFERENCES businesses(id),
+    'project': (
+        """CREATE TABLE "project_configs" (
+    project_id TEXT REFERENCES projects(id),
     domain TEXT NOT NULL,
     config_json TEXT NOT NULL CHECK (json_valid(config_json)),
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    CHECK (business_id IS NOT NULL OR domain IN ('tasks','task_customer_states')),
-    PRIMARY KEY (business_id, domain)
+    CHECK (project_id IS NOT NULL OR domain IN ('tasks','task_customer_states')),
+    PRIMARY KEY (project_id, domain)
 )""",
-        """CREATE UNIQUE INDEX business_configs_global_key ON business_configs(domain) WHERE business_id IS NULL""",
+        """CREATE UNIQUE INDEX project_configs_global_key ON project_configs(domain) WHERE project_id IS NULL""",
         """CREATE TABLE management_routing (
     id TEXT PRIMARY KEY,
     source_type TEXT NOT NULL CHECK(source_type IN ('signoffs','agent_messages')),
     source_id TEXT NOT NULL,
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     coordinator_id TEXT NOT NULL REFERENCES principals(id),
     attention_destination TEXT NOT NULL CHECK(attention_destination IN ('management','owner')),
     escalation_reason TEXT NOT NULL DEFAULT '' CHECK(length(escalation_reason)<=4000),
@@ -134,9 +134,9 @@ END""",
     revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>=1),
     UNIQUE(source_type, source_id)
 )""",
-        """CREATE INDEX management_routing_scope ON management_routing(business_id,attention_destination,disposition,updated_at)""",
+        """CREATE INDEX management_routing_scope ON management_routing(project_id,attention_destination,disposition,updated_at)""",
         """CREATE TABLE workspace_presentations (
-    business_id TEXT NOT NULL REFERENCES businesses(id),
+    project_id TEXT NOT NULL REFERENCES projects(id),
     id TEXT NOT NULL,
     agent_id TEXT NOT NULL REFERENCES principals(id),
     workspace_key TEXT NOT NULL,
@@ -144,17 +144,18 @@ END""",
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    PRIMARY KEY(business_id, id),
-    UNIQUE(business_id, agent_id, workspace_key)
+    PRIMARY KEY(project_id, id),
+    UNIQUE(project_id, agent_id, workspace_key)
 )""",
-        """CREATE INDEX workspace_presentations_agent ON workspace_presentations(agent_id, business_id, workspace_key)""",
+        """CREATE UNIQUE INDEX workspace_presentations_id_unique ON workspace_presentations(id)""",
+        """CREATE INDEX workspace_presentations_agent ON workspace_presentations(agent_id, project_id, workspace_key)""",
     ),
     # One serialized group, in its committed order: Operations' documents, the host's working memory and jobs index, Operations'
     # document history, then Operations' tables. Splitting it into several groups would change the schema fingerprint.
     'documents': (
         *documents_schema.SCHEMA,
         *documents_schema.CHANGE_CAPTURE,
-        """CREATE UNIQUE INDEX working_memory_scope ON documents(owning_agent_id, coalesce(business_id,''))
+        """CREATE UNIQUE INDEX working_memory_scope ON documents(owning_agent_id, coalesce(project_id,''))
 WHERE kind='working_memory'""",
         """CREATE TRIGGER working_memory_owner_insert BEFORE INSERT ON documents
 WHEN NEW.kind='working_memory' AND NEW.owning_agent_id IS NULL BEGIN
@@ -165,7 +166,7 @@ WHEN NEW.kind='working_memory' AND NEW.owning_agent_id IS NULL BEGIN
         """CREATE TABLE working_memory_versions (
  document_id TEXT NOT NULL REFERENCES documents(id),
  version INTEGER NOT NULL CHECK(version > 0),
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  file_bytes TEXT NOT NULL,
  content_hash TEXT NOT NULL,
  source_refs_json TEXT NOT NULL CHECK(json_valid(source_refs_json)),
@@ -178,11 +179,11 @@ WHEN NEW.kind='working_memory' AND NEW.owning_agent_id IS NULL BEGIN
  SELECT RAISE(ABORT,'Working memory history is immutable'); END""",
         """CREATE TRIGGER working_memory_history_delete BEFORE DELETE ON working_memory_versions BEGIN
  SELECT RAISE(ABORT,'Working memory history is immutable'); END""",
-        """CREATE INDEX jobs_business_kind_upload ON jobs(business_id, kind, json_extract(arguments_json, '$.upload_id'))""",
+        """CREATE INDEX jobs_project_kind_upload ON jobs(project_id, kind, json_extract(arguments_json, '$.upload_id'))""",
         """CREATE TABLE working_memory_provenance (
  document_id TEXT NOT NULL REFERENCES documents(id),
  version INTEGER NOT NULL CHECK(version > 0),
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  content_hash TEXT NOT NULL,
  source_refs_json TEXT NOT NULL CHECK(json_valid(source_refs_json)),
  legacy_plan_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(legacy_plan_json)),
@@ -289,7 +290,7 @@ WHEN NEW.kind='working_memory' AND NEW.owning_agent_id IS NULL BEGIN
         """CREATE TABLE owner_conversations (
  id TEXT PRIMARY KEY,
  source_key TEXT NOT NULL UNIQUE,
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  source_type TEXT NOT NULL CHECK(source_type IN ('task','signoff','reference','project','table')),
  source_id TEXT NOT NULL,
  audience TEXT NOT NULL CHECK(audience='owner_ordubashy'),
@@ -328,7 +329,7 @@ WHEN NEW.kind='working_memory' AND NEW.owning_agent_id IS NULL BEGIN
         """CREATE TABLE operational_assignments (
  id TEXT PRIMARY KEY,
  parent_principal_id TEXT NOT NULL REFERENCES principals(id),
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  scope_json TEXT NOT NULL CHECK(json_valid(scope_json)),
  objective TEXT NOT NULL CHECK(length(objective) BETWEEN 1 AND 10000),
  plan_json TEXT NOT NULL CHECK(json_valid(plan_json)),
@@ -426,13 +427,13 @@ WHEN NEW.kind='working_memory' AND NEW.owning_agent_id IS NULL BEGIN
         """CREATE INDEX operational_event_claims_assignment ON operational_event_claims(assignment_id,state,event_id)""",
     ),
     'browser': (
-        """CREATE UNIQUE INDEX businesses_browser_cdp_port
-ON businesses(json_extract(config_json, '$.browser.cdp_port'))
+        """CREATE UNIQUE INDEX projects_browser_cdp_port
+ON projects(json_extract(config_json, '$.browser.cdp_port'))
 WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
         """CREATE TABLE browser_turns (
  id TEXT PRIMARY KEY,
  browser_key TEXT NOT NULL,
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  assignment_id TEXT REFERENCES operational_assignments(id),
  parent_principal_id TEXT NOT NULL REFERENCES principals(id),
  execution_generation INTEGER,
@@ -482,7 +483,7 @@ WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
     ),
     'learning': (
         """CREATE TABLE "learning_candidates" (
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     id TEXT NOT NULL,
     candidate_json TEXT NOT NULL CHECK (json_valid(candidate_json)),
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
@@ -493,12 +494,13 @@ WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
     work_targets_json TEXT NOT NULL DEFAULT '[]',
     work_outcome_json TEXT NOT NULL DEFAULT '{}',
     filing_json TEXT NOT NULL DEFAULT '{}',
-    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,
-    PRIMARY KEY (business_id, id)
+    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN project_id IS NULL THEN 'global' ELSE 'project:' || project_id END) STORED,
+    PRIMARY KEY (project_id, id)
 )""",
         """CREATE UNIQUE INDEX learning_candidates_workspace ON learning_candidates(scope_key, id)""",
+        """CREATE UNIQUE INDEX learning_candidates_id_unique ON learning_candidates(id)""",
         """CREATE TABLE "learning_decisions" (
-    business_id TEXT,
+    project_id TEXT,
     candidate_id TEXT NOT NULL,
     state TEXT NOT NULL,
     feedback TEXT,
@@ -507,34 +509,35 @@ WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,
-    PRIMARY KEY (business_id, candidate_id),
+    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN project_id IS NULL THEN 'global' ELSE 'project:' || project_id END) STORED,
+    PRIMARY KEY (project_id, candidate_id),
     FOREIGN KEY (scope_key, candidate_id) REFERENCES learning_candidates(scope_key, id)
 )""",
         """CREATE UNIQUE INDEX learning_decisions_workspace ON learning_decisions(scope_key, candidate_id)""",
         """CREATE TABLE "learning_runs" (
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     id TEXT NOT NULL,
     result_json TEXT NOT NULL CHECK (json_valid(result_json)),
     created_at TEXT NOT NULL,
-    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,
-    PRIMARY KEY (business_id, id)
+    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN project_id IS NULL THEN 'global' ELSE 'project:' || project_id END) STORED,
+    PRIMARY KEY (project_id, id)
 )""",
         """CREATE UNIQUE INDEX learning_runs_workspace ON learning_runs(scope_key, id)""",
+        """CREATE UNIQUE INDEX learning_runs_id_unique ON learning_runs(id)""",
         """CREATE TABLE "learning_scan_state" (
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     session_id TEXT NOT NULL,
     transcript_hash TEXT NOT NULL,
     state_json TEXT NOT NULL CHECK (json_valid(state_json)),
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,
-    PRIMARY KEY (business_id, session_id)
+    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN project_id IS NULL THEN 'global' ELSE 'project:' || project_id END) STORED,
+    PRIMARY KEY (project_id, session_id)
 )""",
         """CREATE UNIQUE INDEX learning_scan_state_workspace ON learning_scan_state(scope_key, session_id)""",
         """CREATE TABLE "learning_history" (
-    business_id TEXT,
+    project_id TEXT,
     id TEXT NOT NULL,
     candidate_id TEXT NOT NULL,
     event TEXT NOT NULL,
@@ -542,44 +545,19 @@ WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
     before_json TEXT NOT NULL,
     after_json TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN business_id IS NULL THEN 'global' ELSE 'business:' || business_id END) STORED,
-    PRIMARY KEY (business_id, id),
+    scope_key TEXT GENERATED ALWAYS AS (CASE WHEN project_id IS NULL THEN 'global' ELSE 'project:' || project_id END) STORED,
+    PRIMARY KEY (project_id, id),
     FOREIGN KEY (scope_key, candidate_id) REFERENCES learning_candidates(scope_key, id)
 )""",
         """CREATE UNIQUE INDEX learning_history_workspace ON learning_history(scope_key, id)""",
-        """CREATE INDEX learning_history_candidate ON learning_history(business_id, candidate_id, created_at, id)""",
+        """CREATE INDEX learning_history_candidate ON learning_history(project_id, candidate_id, created_at, id)""",
     ),
-    'incidents': (
-        """CREATE TABLE dev_tickets (
- id TEXT PRIMARY KEY,
- title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200),
- details TEXT NOT NULL DEFAULT '' CHECK(length(details)<=12000),
- kind TEXT NOT NULL DEFAULT 'bug' CHECK(kind IN ('bug','feature','tooling','workflow')),
- status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
- reporter_id TEXT NOT NULL REFERENCES principals(id),
- business_id TEXT REFERENCES businesses(id),
- created_at TEXT NOT NULL,
- updated_at TEXT NOT NULL,
- revision INTEGER NOT NULL DEFAULT 1
-, resolved_at TEXT, resolved_by TEXT REFERENCES principals(id), resolution TEXT NOT NULL DEFAULT '' CHECK(length(resolution)<=12000))""",
-        """CREATE INDEX dev_tickets_queue ON dev_tickets(status,created_at,id)""",
-        """CREATE TABLE dev_ticket_events (
- id TEXT PRIMARY KEY,
- ticket_id TEXT NOT NULL REFERENCES dev_tickets(id),
- event_kind TEXT NOT NULL CHECK(event_kind IN ('follow_up','resolved','status_changed')),
- actor_id TEXT NOT NULL REFERENCES principals(id),
- created_at TEXT NOT NULL,
- details TEXT NOT NULL DEFAULT '' CHECK(length(details)<=12000),
- resolution TEXT NOT NULL DEFAULT '' CHECK(length(resolution)<=12000),
- verification TEXT NOT NULL DEFAULT '' CHECK(length(verification)<=12000),
- deployment_ref TEXT NOT NULL DEFAULT '' CHECK(length(deployment_ref)<=200)
-)""",
-        """CREATE INDEX dev_ticket_events_ticket ON dev_ticket_events(ticket_id,created_at,id)""",
+    'checkpoints': (
         """CREATE TABLE agent_checkpoint_findings (
  agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id),
  check_key TEXT NOT NULL CHECK(length(check_key)<=200),
  code TEXT NOT NULL,
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  task_id TEXT,
  session_id TEXT NOT NULL,
  episode INTEGER NOT NULL DEFAULT 1,
@@ -593,81 +571,6 @@ WHERE json_extract(config_json, '$.browser.cdp_port') IS NOT NULL""",
  PRIMARY KEY(agent_id,check_key)
 )""",
         """CREATE INDEX agent_checkpoint_open ON agent_checkpoint_findings(agent_id,state)""",
-        """CREATE TABLE system_incidents (
- id TEXT PRIMARY KEY,
- fingerprint TEXT NOT NULL UNIQUE,
- ticket_id TEXT NOT NULL UNIQUE REFERENCES dev_tickets(id),
- title TEXT NOT NULL CHECK(length(title)<=200),
- status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','recovering','closed')),
- classification TEXT NOT NULL CHECK(length(classification)<=60),
- first_seen TEXT NOT NULL,
- last_seen TEXT NOT NULL,
- occurrence_count INTEGER NOT NULL DEFAULT 0 CHECK(occurrence_count>=0),
- recovery_count INTEGER NOT NULL DEFAULT 0 CHECK(recovery_count>=0),
- business_id TEXT REFERENCES businesses(id),
- representative_observation_id TEXT
-)""",
-        """CREATE INDEX system_incidents_scope ON system_incidents(business_id,status,last_seen)""",
-        """CREATE TABLE system_incident_observations (
- id TEXT PRIMARY KEY,
- fingerprint TEXT NOT NULL REFERENCES system_incidents(fingerprint),
- observed_at TEXT NOT NULL,
- payload_json TEXT NOT NULL CHECK(length(payload_json)<=4096)
-)""",
-        """CREATE INDEX system_incident_observations_fingerprint ON system_incident_observations(fingerprint,observed_at)""",
-        """CREATE TABLE system_incident_recoveries (
- incident_id TEXT NOT NULL REFERENCES system_incidents(id),
- observation_id TEXT NOT NULL UNIQUE REFERENCES system_incident_observations(id),
- observed_at TEXT NOT NULL,
- evidence TEXT NOT NULL CHECK(length(evidence)<=500)
-, agent_id TEXT REFERENCES principals(id), episode INTEGER NOT NULL DEFAULT 1)""",
-        """CREATE UNIQUE INDEX system_incident_recovery_agent ON system_incident_recoveries(incident_id,coalesce(agent_id,''),episode)""",
-        """CREATE TABLE system_incident_history (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- incident_id TEXT NOT NULL REFERENCES system_incidents(id),
- event_kind TEXT NOT NULL CHECK(event_kind IN ('opened','observed','recovered')),
- observed_at TEXT NOT NULL,
- observation_id TEXT,
- details TEXT NOT NULL DEFAULT '' CHECK(length(details)<=500)
-)""",
-        """CREATE INDEX system_incident_history_incident ON system_incident_history(incident_id,observed_at,id)""",
-        """CREATE TABLE system_incident_ingested (
- observation_id TEXT PRIMARY KEY,
- created_at TEXT NOT NULL
-)""",
-        """CREATE INDEX system_incident_ingested_retention ON system_incident_ingested(created_at)""",
-        """CREATE TABLE system_incident_impacts (
- incident_id TEXT NOT NULL REFERENCES system_incidents(id),
- business_id TEXT REFERENCES businesses(id),
- agent_id TEXT REFERENCES principals(id),
- session_id TEXT,
- task_id TEXT,
- operation TEXT,
- job_id TEXT,
- receipt_id TEXT,
- episode INTEGER NOT NULL DEFAULT 1,
- recovered_at TEXT,
- first_seen TEXT NOT NULL,
- last_seen TEXT NOT NULL,
- PRIMARY KEY(incident_id,business_id,agent_id,session_id,task_id,operation,job_id,receipt_id)
-)""",
-        """CREATE INDEX system_incident_impacts_agent ON system_incident_impacts(agent_id,business_id,session_id,incident_id)""",
-        """CREATE INDEX system_incident_impacts_task ON system_incident_impacts(task_id,incident_id)""",
-        """CREATE UNIQUE INDEX system_incident_impacts_identity ON system_incident_impacts(
- incident_id,coalesce(business_id,''),coalesce(agent_id,''),coalesce(session_id,''),coalesce(task_id,''),coalesce(operation,''),coalesce(job_id,''),coalesce(receipt_id,''))""",
-        """CREATE TABLE system_incident_fault_runs (
- fingerprint TEXT NOT NULL,
- agent_key TEXT NOT NULL,
- session_id TEXT,
- business_id TEXT,
- operation TEXT NOT NULL,
- component TEXT NOT NULL,
- call_site TEXT NOT NULL,
- first_seen TEXT NOT NULL,
- last_seen TEXT NOT NULL,
- failures INTEGER NOT NULL DEFAULT 0,
- PRIMARY KEY(fingerprint,agent_key,session_id)
-)""",
     ),
     'global-chat': (
         """CREATE TABLE global_chat_bindings (

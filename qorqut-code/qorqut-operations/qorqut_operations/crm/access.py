@@ -25,7 +25,7 @@ from .refs import namespace_of
 # Errors that mean "this caller cannot see that Task right now" (an archived Project is excluded from active work, so its
 # Tasks are unavailable like any other revoked source). Any other error is a real failure and propagates.
 HIDDEN = frozenset({"forbidden", "policy_denied", "not_found", "invalid_principal", "operation_unavailable", "scope_required",
-                    "business_archived"})
+                    "project_archived"})
 PROFILE_PREFIX, CUSTOM_PREFIX = "customer_profile.", "fields."
 CUSTOMER_ONLY = frozenset({"customer_kind", "customer_state"})
 
@@ -37,9 +37,9 @@ class ScopeCache:
         self.allowed, self.contexts, self.fields, self.labels, self.threads = {}, {}, {}, {}, {}
 
 
-def task_resource(business_id, task_id):
-    """The pinned Task. A Global Task pinned from a business plan needs its explicit ``global`` namespace."""
-    return ref("tasks", task_id, business_id, "global" if business_id is None else None)
+def task_resource(project_id, task_id):
+    """The pinned Task. A Global Task pinned from a project plan needs its explicit ``global`` namespace."""
+    return ref("tasks", task_id, project_id, "global" if project_id is None else None)
 
 
 class RecordAccess:
@@ -48,19 +48,19 @@ class RecordAccess:
 
     # -- scope and authority ---------------------------------------------------------------------------------------
 
-    def scoped(self, ctx, business_id, uow):
+    def scoped(self, ctx, project_id, uow):
         """``(context, task operation arguments, namespace)`` of a Task scope; a Global or foreign project is checked."""
-        if business_id is None:
-            base = replace(ctx, business_id=None, review_business_id=None)
+        if project_id is None:
+            base = replace(ctx, project_id=None, review_project_id=None)
             return task_context(base, {"scope": "global"}, uow), {"scope": "global"}, "global"
-        return ctx.select_business(business_id), {}, namespace_of(business_id)
+        return ctx.select_project(project_id), {}, namespace_of(project_id)
 
-    def authorize(self, ctx, business_id, task_id, uow):
+    def authorize(self, ctx, project_id, task_id, uow):
         """The caller's Task-scoped context, or the error that makes this exact Task unavailable to them.
 
         A delegated call is authorized with the selector a direct ``tasks_get`` of the Task would carry, so the assignment's
         record boundary applies to the Task itself and not only to its scope."""
-        scoped, args, namespace = self.scoped(ctx, business_id, uow)
+        scoped, args, namespace = self.scoped(ctx, project_id, uow)
         application = self.crm.application
         decision = application.authorize(scoped, application.registry.get("tasks_get"), (), uow, namespace=namespace,
                                          arguments={"task_id": task_id, **args} if scoped.delegation_assignment_id is not None else None)
@@ -68,12 +68,12 @@ class RecordAccess:
             raise DomainError("policy_denied", "Reading Tasks in this scope is not permitted")
         return scoped, args, namespace
 
-    def readable(self, ctx, business_id, task_id, uow, cache: ScopeCache):
+    def readable(self, ctx, project_id, task_id, uow, cache: ScopeCache):
         """Whether the caller may currently read this Task (memoized for one call, per Task)."""
-        key = (business_id, task_id)
+        key = (project_id, task_id)
         if key not in cache.allowed:
             try:
-                cache.contexts[business_id] = self.authorize(ctx, business_id, task_id, uow)
+                cache.contexts[project_id] = self.authorize(ctx, project_id, task_id, uow)
                 cache.allowed[key] = True
             except DomainError as error:
                 if error.code not in HIDDEN:
@@ -81,30 +81,30 @@ class RecordAccess:
                 cache.allowed[key] = False
         return cache.allowed[key]
 
-    def context_for(self, ctx, business_id, task_id, uow, cache: ScopeCache):
+    def context_for(self, ctx, project_id, task_id, uow, cache: ScopeCache):
         """The Task-scoped context of a Task this call has authorized, authorizing it now if it has not been."""
-        if not self.readable(ctx, business_id, task_id, uow, cache):
+        if not self.readable(ctx, project_id, task_id, uow, cache):
             raise DomainError("policy_denied", "Reading Tasks in this scope is not permitted")
-        return cache.contexts[business_id][0]
+        return cache.contexts[project_id][0]
 
-    def table_scoped(self, ctx, business_id, uow):
+    def table_scoped(self, ctx, project_id, uow):
         """``(context, scope arguments)`` of a Table scope, as the Table operations would run there."""
-        if business_id is None:
-            return table_context(replace(ctx, business_id=None, review_business_id=None), {"scope": "global"}, uow), {"scope": "global"}
-        return ctx.select_business(business_id), {}
+        if project_id is None:
+            return table_context(replace(ctx, project_id=None, review_project_id=None), {"scope": "global"}, uow), {"scope": "global"}
+        return ctx.select_project(project_id), {}
 
-    def source_readable(self, ctx, business_id, table_id, uow, cache: ScopeCache):
+    def source_readable(self, ctx, project_id, table_id, uow, cache: ScopeCache):
         """Whether the caller may read this Table's discussion now: the Table and its thread, each for this exact Table.
 
         Both are authorized in the Table's own scope with the ``table_id`` selector a direct call carries, so a delegated
         assignment's record boundary applies to the Table too."""
-        key = (business_id, table_id)
+        key = (project_id, table_id)
         if key not in cache.threads:
             try:
-                scoped, arguments = self.table_scoped(ctx, business_id, uow)
+                scoped, arguments = self.table_scoped(ctx, project_id, uow)
                 application = self.crm.application
                 selector = {**arguments, "table_id": table_id} if scoped.delegation_assignment_id is not None else None
-                allowed = all(application.authorize(scoped, application.registry.get(name), (), uow, namespace=namespace_of(business_id),
+                allowed = all(application.authorize(scoped, application.registry.get(name), (), uow, namespace=namespace_of(project_id),
                                                     arguments=selector).mode == "allow" for name in ("tables_get", "tables_thread_get"))
             except DomainError as error:
                 if error.code not in HIDDEN:
@@ -113,55 +113,55 @@ class RecordAccess:
             cache.threads[key] = allowed
         return cache.threads[key]
 
-    def row(self, business_id, task_id, uow):
-        return uow.repository("tasks", business_id=business_id).get(task_id)
+    def row(self, project_id, task_id, uow):
+        return uow.repository("tasks", project_id=project_id).get(task_id)
 
     # -- resolution ------------------------------------------------------------------------------------------------
 
     def resolve(self, ctx, reference, uow, builder=None):
         """The Task's normal public DTO under current Task read policy; pins its exact row on ``builder`` when preparing."""
-        scoped, args, _ = self.authorize(ctx, reference["business_id"], reference["id"], uow)
-        row = self.row(reference["business_id"], reference["id"], uow)
+        scoped, args, _ = self.authorize(ctx, reference["project_id"], reference["id"], uow)
+        row = self.row(reference["project_id"], reference["id"], uow)
         if row is None:
             raise DomainError("not_found", "Task does not exist in this scope")
         if builder is not None:
-            builder.expect(task_resource(reference["business_id"], reference["id"]), row)
+            builder.expect(task_resource(reference["project_id"], reference["id"]), row)
         return self.crm.tasks.read("tasks_get", scoped, {"task_id": reference["id"], **args}, uow)["task"]
 
     def require(self, ctx, reference, uow, builder=None):
         """Authorize and pin the Task without building its DTO; returns the raw row."""
-        self.authorize(ctx, reference["business_id"], reference["id"], uow)
-        row = self.row(reference["business_id"], reference["id"], uow)
+        self.authorize(ctx, reference["project_id"], reference["id"], uow)
+        row = self.row(reference["project_id"], reference["id"], uow)
         if row is None:
             raise DomainError("not_found", "Task does not exist in this scope")
         if builder is not None:
-            builder.expect(task_resource(reference["business_id"], reference["id"]), row)
+            builder.expect(task_resource(reference["project_id"], reference["id"]), row)
         return row
 
-    def fields(self, scoped, business_id, uow, cache: ScopeCache):
-        if business_id not in cache.fields:
-            cache.fields[business_id] = self.crm.tasks.configuration(scoped, uow)[0]["fields"]
-        return cache.fields[business_id]
+    def fields(self, scoped, project_id, uow, cache: ScopeCache):
+        if project_id not in cache.fields:
+            cache.fields[project_id] = self.crm.tasks.configuration(scoped, uow)[0]["fields"]
+        return cache.fields[project_id]
 
-    def definitions(self, ctx, business_id, task_id, uow, cache: ScopeCache):
+    def definitions(self, ctx, project_id, task_id, uow, cache: ScopeCache):
         """The custom Task fields the record's own scope defines now (what its values are judged against)."""
-        return self.fields(self.context_for(ctx, business_id, task_id, uow, cache), business_id, uow, cache)
+        return self.fields(self.context_for(ctx, project_id, task_id, uow, cache), project_id, uow, cache)
 
     def view(self, ctx, row, uow, cache: ScopeCache, now=None):
         """The list-sized public Task DTO (its discussion page and related-link expansion are left to ``tasks_get``)."""
-        scoped = self.context_for(ctx, row["business_id"], row["id"], uow, cache)
-        return self.crm.tasks.detail(scoped, row, uow, self.fields(scoped, row["business_id"], uow, cache),
+        scoped = self.context_for(ctx, row["project_id"], row["id"], uow, cache)
+        return self.crm.tasks.detail(scoped, row, uow, self.fields(scoped, row["project_id"], uow, cache),
                                      now or timestamp(self.crm.clock), notes=False)
 
     # -- shared-field projection -----------------------------------------------------------------------------------
 
     def source(self, row, uow, cache: ScopeCache):
         """The shared fields a projection reads, from a raw Task row (the same values the public DTO carries)."""
-        business_id = row["business_id"]
-        if business_id not in cache.labels:
-            cache.labels[business_id] = labels_by_item(uow, business_id, "task")
+        project_id = row["project_id"]
+        if project_id not in cache.labels:
+            cache.labels[project_id] = labels_by_item(uow, project_id, "task")
         return {"title": row["title"], "status": row["status"], **attributes(row), "fields": custom_fields(row),
-                "tags": cache.labels[business_id].get(row["id"], [])}
+                "tags": cache.labels[project_id].get(row["id"], [])}
 
     @staticmethod
     def project(record, column, definitions):

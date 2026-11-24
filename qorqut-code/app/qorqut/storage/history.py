@@ -25,7 +25,7 @@ from datetime import datetime
 import hashlib
 import json
 
-from qorqut_business_docs_versioning import HistoryStore, ImportConflict, NotFound, initialize_schema
+from qorqut_docs_versioning import HistoryStore, ImportConflict, NotFound, initialize_schema
 
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.document_history.files import DocumentReceiptHistory
@@ -40,7 +40,7 @@ SQL_DOCUMENTS = {
     "learning_candidates": ("learning-candidate", "id", ("candidate_json", "agent_note")),
     "learning_decisions": ("learning-decision", "candidate_id", ("feedback", "changes_json")),
 }
-# Append-only source facts of the host's own tables, summarised as business activity (Action logs are generic).
+# Append-only source facts of the host's own tables, summarised as project activity (Action logs are generic).
 FACT_TABLES = ("learning_history",)
 SOURCE_KINDS = {"learning_candidate": "learning_candidates", "learning_decision": "learning_decisions"}
 SQL = SqlDocuments(SQL_DOCUMENTS)
@@ -63,7 +63,7 @@ def baseline_sql_documents(connection, *, reason, apply=True):
         for raw in cursor.fetchall():
             row = {name: (json.loads(value) if name.endswith("_json") and value is not None else value)
                    for name, value in zip(names, raw)}
-            space, document_id = namespace(row.get("business_id")), SQL.document_id(table, row)
+            space, document_id = namespace(row.get("project_id")), SQL.document_id(table, row)
             if latest(connection, space, document_id) is not None:
                 continue
             if apply:
@@ -77,7 +77,7 @@ def baseline_sql_documents(connection, *, reason, apply=True):
 
 def capture_working_memory(connection, row, text, receipt_id):
     """The single writer of working-memory content versions; numbering is the document revision."""
-    space, document_id, version = namespace(row["business_id"]), row["id"], row["revision"]
+    space, document_id, version = namespace(row["project_id"]), row["id"], row["revision"]
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     provenance = connection.execute("SELECT * FROM working_memory_provenance WHERE document_id=? AND version=?",
                                     (document_id, version)).fetchone()
@@ -98,9 +98,9 @@ def capture_working_memory(connection, row, text, receipt_id):
 
 def _copy_provenance(connection, legacy):
     connection.execute(
-        "INSERT INTO working_memory_provenance(document_id,version,business_id,content_hash,source_refs_json,"
+        "INSERT INTO working_memory_provenance(document_id,version,project_id,content_hash,source_refs_json,"
         "legacy_plan_json,author_id,created_at) VALUES (?,?,?,?,?,?,?,?)",
-        (legacy["document_id"], legacy["version"], legacy["business_id"], legacy["content_hash"],
+        (legacy["document_id"], legacy["version"], legacy["project_id"], legacy["content_hash"],
          legacy["source_refs_json"], legacy["legacy_plan_json"], legacy["author_id"], legacy["created_at"]))
 
 
@@ -135,24 +135,24 @@ def has_schema(connection):
 def import_converted_memory(connection, legacy):
     """An offline conversion's new working-memory version: provenance plus shared content, no legacy row."""
     _copy_provenance(connection, legacy)
-    return _import_memory_version(HistoryStore(connection), namespace(legacy["business_id"]), legacy)
+    return _import_memory_version(HistoryStore(connection), namespace(legacy["project_id"]), legacy)
 
 
-def working_memory_version(connection, business_id, document_id, version=None):
+def working_memory_version(connection, project_id, document_id, version=None):
     """One committed version joined with its provenance, shaped like the legacy row; None if absent."""
     if version is None:
-        provenance = connection.execute("SELECT * FROM working_memory_provenance WHERE document_id=? AND business_id IS ? "
-            "ORDER BY version DESC LIMIT 1", (document_id, business_id)).fetchone()
+        provenance = connection.execute("SELECT * FROM working_memory_provenance WHERE document_id=? AND project_id IS ? "
+            "ORDER BY version DESC LIMIT 1", (document_id, project_id)).fetchone()
     else:
-        provenance = connection.execute("SELECT * FROM working_memory_provenance WHERE document_id=? AND business_id IS ? "
-            "AND version=?", (document_id, business_id, version)).fetchone()
+        provenance = connection.execute("SELECT * FROM working_memory_provenance WHERE document_id=? AND project_id IS ? "
+            "AND version=?", (document_id, project_id, version)).fetchone()
     if provenance is None:
         return None
     try:
-        content = HistoryStore(connection).get_document(namespace(business_id), document_id, version=provenance["version"])
+        content = HistoryStore(connection).get_document(namespace(project_id), document_id, version=provenance["version"])
     except NotFound as exc:
         raise DomainError("memory_drift", "Working-memory version content is missing from shared history") from exc
-    return {"document_id": document_id, "version": provenance["version"], "business_id": business_id,
+    return {"document_id": document_id, "version": provenance["version"], "project_id": project_id,
             "file_bytes": base64.b64encode(content.content.encode("utf-8")).decode("ascii"),
             "content_hash": provenance["content_hash"],
             "source_refs_json": json.loads(provenance["source_refs_json"]),
@@ -173,7 +173,7 @@ def migrate_100(connection):
     history = HistoryStore(connection)
     legacy_rows = connection.execute("SELECT * FROM working_memory_versions ORDER BY document_id, version").fetchall()
     for legacy in legacy_rows:
-        _import_memory_version(history, namespace(legacy["business_id"]), legacy)
+        _import_memory_version(history, namespace(legacy["project_id"]), legacy)
     problems = verify_working_memory(connection)
     if problems:
         raise DomainError("migration_conflict", "Working-memory history is incomplete or inconsistent with its registered "
@@ -181,7 +181,7 @@ def migrate_100(connection):
     baseline_sql_documents(connection, reason="History baseline at schema migration 100; earlier edits were not recorded")
 
 
-PROVENANCE_FIELDS = ("business_id", "content_hash", "source_refs_json", "legacy_plan_json", "author_id", "created_at")
+PROVENANCE_FIELDS = ("project_id", "content_hash", "source_refs_json", "legacy_plan_json", "author_id", "created_at")
 
 
 def _same_time(left, right):
@@ -208,7 +208,7 @@ def verify_working_memory(connection):
 
     store = HistoryStore(connection)
     documents = {row["id"]: row for row in connection.execute(
-        "SELECT id, business_id, kind, revision, content_hash, archived FROM documents WHERE kind=? OR id IN "
+        "SELECT id, project_id, kind, revision, content_hash, archived FROM documents WHERE kind=? OR id IN "
         "(SELECT document_id FROM working_memory_provenance UNION SELECT document_id FROM working_memory_versions)",
         (WORKING_MEMORY,))}
     for document_id, document in sorted(documents.items()):
@@ -230,10 +230,10 @@ def verify_working_memory(connection):
             continue
         if [row["version"] for row in chain] != list(range(1, len(chain) + 1)):
             problem(document_id, "gapped_chain")
-        if any(row["business_id"] != document["business_id"] for row in chain):
+        if any(row["project_id"] != document["project_id"] for row in chain):
             problem(document_id, "scope_mismatch")
             continue
-        space = namespace(document["business_id"])
+        space = namespace(document["project_id"])
         for row in chain:
             try:
                 content = store.get_document(space, document_id, version=row["version"])
@@ -261,7 +261,7 @@ def verify_working_memory(connection):
 
 def learning_fact(row, *, operation):
     """The summary event for one committed learning change; its ID is the source row's."""
-    return {"business_id": row["business_id"], "event_id": f"learning-history:{row['id']}", "kind": "learning.changed",
+    return {"project_id": row["project_id"], "event_id": f"learning-history:{row['id']}", "kind": "learning.changed",
             "actor_id": row["actor_id"], "summary": "Learning changed", "subject_type": "learning",
             "subject_id": row["candidate_id"], "occurred_at": row["created_at"], "data": {"learning_id": row["candidate_id"],
             "learning_history_id": row["id"], "event": row["event"], "operation": operation}}
@@ -289,14 +289,14 @@ def capture_receipt(uow, receipt, plan):
 def import_facts(connection, *, apply):
     """Existing append-only source facts with a real actor and time, under the same IDs as live capture.
 
-    Present events are left untouched; rows without a business, actor or timezone-aware time are
+    Present events are left untouched; rows without a project, actor or timezone-aware time are
     reported, never guessed. Task completions are not imported: task_completions has no actor and
     no revision identity, and historical completion times may be unknown.
     """
     report = {"imported": 0, "present": 0, "missing_evidence": 0}
     store = HistoryStore(connection)
     for table, fact_event in RECORDS.facts.items():
-        cursor = connection.execute(f'SELECT * FROM "{table}" WHERE business_id IS NOT NULL ORDER BY rowid')
+        cursor = connection.execute(f'SELECT * FROM "{table}" WHERE project_id IS NOT NULL ORDER BY rowid')
         names = [column[0] for column in cursor.description]
         for raw in cursor.fetchall():
             event = fact_event(dict(zip(names, raw)), operation="history_import")
@@ -304,7 +304,7 @@ def import_facts(connection, *, apply):
                 report["missing_evidence"] += 1
                 continue
             try:
-                store.get_event(event["business_id"], event["event_id"])
+                store.get_event(event["project_id"], event["event_id"])
                 report["present"] += 1
                 continue
             except NotFound:

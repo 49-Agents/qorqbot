@@ -23,7 +23,7 @@ The donor's whole-prefix snapshots are not used: the archive keeps one append-on
 
 `from qorqut.native_archive import CaptureBinding, CaptureError, CaptureReceipt, FinalCaptureEvidence, IndexEntry, MAX_READ_BYTES, RawRange, RawRecord, RecordIterator, TranscriptArchive`.
 
-- `TranscriptArchive(archive_root, *, clock=None, lock_timeout=10.0)` validates an absolute path string and creates nothing. The caller supplies the root (an agent's transcripts directory from `InstancePaths`); the library never discovers agents, businesses, provider homes or processes. `capture` creates only the root's final directory (its parent must exist: `archive_root_missing`), so a mistaken root cannot fabricate a tree.
+- `TranscriptArchive(archive_root, *, clock=None, lock_timeout=10.0)` validates an absolute path string and creates nothing. The caller supplies the root (an agent's transcripts directory from `InstancePaths`); the library never discovers agents, projects, provider homes or processes. `capture` creates only the root's final directory (its parent must exist: `archive_root_missing`), so a mistaken root cannot fabricate a tree.
 - `capture(binding, *, final_evidence=None) -> CaptureReceipt`: the only writer. Returns the existing latest receipt with no new storage when bytes, binding generation and completeness evidence are unchanged.
 - `latest(binding)`, `load_receipt(receipt_id)`: committed receipts only. A receipt published ahead of the pointer is `receipt_uncommitted`.
 - `read_raw(receipt, *, offset, limit)`: up to `limit` (1 … `MAX_READ_BYTES`, 16 MiB) exact bytes, never beyond `receipt.length`; `RawRange.next_offset` is `None` at the end.

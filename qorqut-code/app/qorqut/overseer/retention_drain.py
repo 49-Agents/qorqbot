@@ -51,7 +51,7 @@ class RetentionDrain:
             cursor = json.loads(event['cursor_json']) if event['cursor_json'] else {}
         run_ref = {'provider': 'qorqut_overseer', 'agent_id': ctx.principal_id,
                    'conversation_id': session['conversation_id'], 'run_id': binding['run_id'] if binding else None,
-                   'namespace': {'kind': 'global', 'business_id': None}}
+                   'namespace': {'kind': 'global', 'project_id': None}}
         gate.authorize_retention(run_ref, action='read')
         if event['kind'] == 'native_capture':
             records, refs, targets, next_cursor, complete = self._native(gate, source, session, cursor)
@@ -132,7 +132,7 @@ class RetentionDrain:
         receipt = archive.load_receipt(source['receipt_id'])
         gate.authorize_retention({'provider': 'qorqut_overseer', 'agent_id': ctx.principal_id,
             'conversation_id': current['conversation_id'], 'run_id': None,
-            'namespace': {'kind': 'global', 'business_id': None}}, action='read')
+            'namespace': {'kind': 'global', 'project_id': None}}, action='read')
         window = self.reader.window(archive, receipt, source['provider'], source['conversation_id'], before=cursor.get('before'), limit=50)
         with self.runtime.database.read() as uow:
             gate._resolve(uow)
@@ -169,15 +169,15 @@ class RetentionDrain:
                         ctx=ctx, source=source, entry=entry, base=base))
                 refs.extend(linked_refs)
             elif entry.speaker == SPEAKER_AGENT:
-                references = [{'type': t, 'id': i, 'business_id': b} for t, i, b in (entry.references or ())]
+                references = [{'type': t, 'id': i, 'project_id': b} for t, i, b in (entry.references or ())]
                 records.append({**base, 'actor_kind': 'agent', 'source_kind': 'native_agent', 'text': entry.text,
                                 'references': references, 'gaps': []})
                 targets.extend(ref for ref in references if ref['type'] in ('delta', 'application', 'batch'))
         return records, refs, targets, {'before': window.older}, window.older is None
 
     def _signoff(self, gate, source, binding, cursor):
-        sid, business = source['signoff_id'], binding['review_business_id']
-        namespace = {'kind': 'business', 'business_id': business} if business else {'kind': 'global', 'business_id': None}
+        sid, project = source['signoff_id'], binding['review_project_id']
+        namespace = {'kind': 'project', 'project_id': project} if project else {'kind': 'global', 'project_id': None}
         def ref(kind, identity):
             loc = {'signoff_id': sid}
             if kind == 'signoff_note': loc['note_id'] = identity
@@ -223,7 +223,7 @@ class RetentionDrain:
         from qorqut_operations.discussion.threads import message_view
         task_ref = binding['task_ref']
         namespace, identity = task_ref['namespace'], task_ref['id']
-        business = namespace['business_id']
+        project = namespace['project_id']
         task_source = {'provider': 'operations', 'kind': 'task', 'namespace': namespace,
                        'record_id': identity, 'locator': {'task_id': identity}}
         gate.authorize_source(task_source)
@@ -231,8 +231,8 @@ class RetentionDrain:
         with self.runtime.database.read() as uow:
             gate._resolve(uow)
             rows = uow.connection.execute('''SELECT id,created_at FROM thread_messages
-                WHERE business_id IS ? AND item_type='task' AND item_id=? AND (created_at,id)>(?,?)
-                ORDER BY created_at,id LIMIT 50''', (business, identity, *after)).fetchall()
+                WHERE project_id IS ? AND item_type='task' AND item_id=? AND (created_at,id)>(?,?)
+                ORDER BY created_at,id LIMIT 50''', (project, identity, *after)).fetchall()
         records, refs = [], [task_source]
         for row in rows:
             ref = {'provider': 'operations', 'kind': 'task_message', 'namespace': namespace,
@@ -240,8 +240,8 @@ class RetentionDrain:
             gate.authorize_source(ref)
             with self.runtime.database.read() as uow:
                 _, _, _, ctx, _ = gate._resolve(uow)
-                actual = uow.connection.execute('''SELECT * FROM thread_messages WHERE business_id IS ?
-                    AND item_type='task' AND item_id=? AND id=?''', (business, identity, row['id'])).fetchone()
+                actual = uow.connection.execute('''SELECT * FROM thread_messages WHERE project_id IS ?
+                    AND item_type='task' AND item_id=? AND id=?''', (project, identity, row['id'])).fetchone()
                 if actual is None: raise DomainError('evidence_unavailable', 'The linked Task message is unavailable')
                 view = message_view(dict(actual), uow, self.runtime.domains.tasks.message_refs(ctx, uow))
                 if any(item.get('unavailable') for item in view['refs']):

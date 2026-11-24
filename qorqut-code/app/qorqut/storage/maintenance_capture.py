@@ -148,20 +148,20 @@ class MaintenanceCaptureService:
         if self.maintenance.wall_clock() >= request["deadline_at"]:
             raise DomainError("timeout", "The nightly backup capture did not complete within its time limit")
         with background.database.read() as uow:
-            row = uow.repository("jobs", business_id=None).get(generation)
+            row = uow.repository("jobs", project_id=None).get(generation)
             if row is None:
                 raise DomainError("not_found", "The nightly job is gone")
             if row["state"] == "cancel_requested":
                 raise DomainError("cancelled", "Owner stopped this routine")
             program = background.programs.require(PROGRAM)
-            if (row["kind"] != PROGRAM or row["business_id"] is not None or row["arguments_json"] != {}
+            if (row["kind"] != PROGRAM or row["project_id"] is not None or row["arguments_json"] != {}
                     or row["state"] not in ELIGIBLE_JOB_STATES):
                 raise DomainError("policy_denied", "The nightly job is not eligible for capture")
             if not (row["definition_ref_json"].get("digest") == program.definition["digest"] == request["definition_digest"]
                     and row["principal_id"] == request["principal_id"]
                     and background.authority.installation(uow) == request["installation"]):
                 raise DomainError("policy_denied", "Registered program definition or worker changed since the request")
-            background.authority.require_worker(row["principal_id"], row["business_id"], uow)
+            background.authority.require_worker(row["principal_id"], row["project_id"], uow)
 
     def _check(self, run, state, request, generation):
         """The per-capture ``check`` for ``BackupStore.create``: stop, deadline, cancellation and eligibility."""

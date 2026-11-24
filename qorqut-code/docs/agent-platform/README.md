@@ -11,7 +11,7 @@ operational records, and owner Signoffs for protected changes.
 1. [Decisions](00-DECISIONS.md): product boundaries and engineering choices.
 2. [Architecture](01-ARCHITECTURE.md): runtime, storage, context and approvals.
 3. [Global ownership and review destinations](05-GLOBAL-SCOPE-AND-REVIEW.md): routing of
-   global routines and protected changes. Business work retains its own review queue.
+   global routines and protected changes. Project work retains its own review queue.
 4. [Learning Applier and context library](LEARNING-APPLIER-IMPLEMENTATION.md): guided
    learning work, automatic context intake, bounded MCP reads and setup.
 5. [Domain APIs](../../DOMAIN-APIS.md) and the [v1.2 contracts](../v1.2/CONTRACTS.md):

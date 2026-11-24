@@ -632,43 +632,9 @@
       "path": "messages/project-briefing-evidence.md",
       "parameters": [],
       "status": "conditional",
-      "trigger": "domains/business_briefing.py",
+      "trigger": "domains/project_briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/qorqut/domains/business_briefing.py:118"
-    },
-    {
-      "id": "retirement-inbox-history",
-      "path": "messages/retirement-inbox-history.md",
-      "parameters": [
-        "VALUE0",
-        "VALUE1"
-      ],
-      "status": "conditional",
-      "trigger": "inbox/retirement_contract.py",
-      "audience": "registered agent",
-      "previous_source": "qorqut-code/app/qorqut/inbox/retirement_contract.py:77"
-    },
-    {
-      "id": "retirement-inbox-reading",
-      "path": "messages/retirement-inbox-reading.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "inbox/retirement_contract.py",
-      "audience": "registered agent",
-      "previous_source": "qorqut-code/app/qorqut/inbox/retirement_contract.py:81"
-    },
-    {
-      "id": "retirement-review-history",
-      "path": "messages/retirement-review-history.md",
-      "parameters": [
-        "VALUE0",
-        "VALUE1",
-        "VALUE2"
-      ],
-      "status": "conditional",
-      "trigger": "inbox/retirement_contract.py",
-      "audience": "registered agent",
-      "previous_source": "qorqut-code/app/qorqut/inbox/retirement_contract.py:87"
+      "previous_source": "qorqut-code/app/qorqut/domains/project_briefing.py:118"
     },
     {
       "id": "runtime-diagnostic-guidance",

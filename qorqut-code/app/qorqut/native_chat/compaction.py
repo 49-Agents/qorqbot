@@ -219,7 +219,7 @@ class CompactionController:
 
     def _context(self, agent_id, uow):
         """The coordinator's own context, as the handoff's host side asks for it."""
-        return self.runtime.application.policy.context_for(agent_id, business_id=None, review_business_id=None, uow=uow)
+        return self.runtime.application.policy.context_for(agent_id, project_id=None, review_project_id=None, uow=uow)
 
     def _profile(self, agent_id, uow):
         return store.active_profile(uow.connection, agent_id, self.runtime.paths)

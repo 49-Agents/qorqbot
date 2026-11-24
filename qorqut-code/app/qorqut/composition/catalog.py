@@ -32,8 +32,8 @@ ENGINE_ENTRIES = (*SIGNOFF_ENTRIES, *ROUTINE_ENTRIES, *RELATIONSHIP_ENTRIES, *TA
 # declared here because published roles and saved profiles still name some of them, and a permission map that names an operation
 # the registry does not know is refused as a whole.
 _READS = """
-business_progress_get
-business_briefing
+project_progress_get
+project_briefing
 files_link
 dashboard_summary_get
 global_progress_get
@@ -46,13 +46,13 @@ plans_list plans_get notes_list notes_get
 assets_list assets_get content_list content_get learnings_list learnings_get
 learnings_review_list learnings_review_get learnings_legacy_pending
 context_list context_get context_search
-jobs_get business_config_get
+jobs_get project_config_get
 roles_list roles_get plugins_list agents_icons_list
 delegated_assignment_get delegated_assignments_list
 """.split()
 _MUTATIONS = """
-owner_action_propose business_archive
-business_create
+owner_action_propose project_archive
+project_create
 tables_create tables_update tables_rows_write tables_history_retry tables_archive
 data_uploads_upload
 plans_set notes_create notes_update notes_delete
@@ -62,7 +62,7 @@ assets_upload assets_update
 assets_delete learnings_extract
 agents_create
 agents_update agents_deactivate permissions_set plugins_enable plugins_disable
-business_config_update business_config_patch roles_publish plugins_publish shared_instructions_update
+project_config_update project_config_patch roles_publish plugins_publish shared_instructions_update
 delegated_assignments_create delegated_assignments_control delegated_assignments_revise delegated_assignment_checkpoint delegated_assignment_events_claim delegated_assignment_event_settle
 """.split()
 _CONTEXT_READS = """
@@ -76,14 +76,8 @@ learnings_record_batch
 """.split()
 
 BUILTIN_CATALOG = (
-    CatalogEntry("dev_tickets_list", False, "read", frozenset({"dashboard"}), True),
     *(CatalogEntry(name, False, "read", frozenset({"dashboard"}), True)
-      for name in ("document_history_get", "business_history_list")),
-    CatalogEntry("dev_tickets_status_set", False, "records", frozenset({"dashboard"}), True),
-    # Retained internal reader for surviving Task, Signoff and Project references. The agent MCP caller
-    # refuses it in discovery and dispatch; phase 2 removes it with the remaining views and data.
-    CatalogEntry("dev_tickets_get", False, 'read', frozenset({'mcp'})),
-    *(CatalogEntry(name, False, 'read', frozenset({'dashboard'}), True) for name in ('system_incidents_list', 'system_incidents_get')),
+      for name in ("document_history_get", "project_history_list")),
     CatalogEntry("learnings_decide", False, "records", frozenset({"mcp"})),
     # Retired: viewbox_place has no handler installed, so it is never offered or callable; the owner's dashboard has no
     # way to open a Viewbox board. The name stays declared because a role or saved profile may still name it, and a
@@ -141,8 +135,8 @@ BUILTIN_CATALOG = (
     *BROADCAST_READ_ENTRIES,
     CatalogEntry("learnings_intake_status", False, "read", frozenset({"dashboard", "worker"}), True),
     *(CatalogEntry(name, False, "read", frozenset({"mcp"})) for name in ("journal_entries_list", "journal_entry_get")),
-    CatalogEntry("business_restore", False, "records", frozenset({"dashboard"}), True),
-    CatalogEntry("business_archived_list", False, "read", frozenset({"dashboard"}), True),
+    CatalogEntry("project_restore", False, "records", frozenset({"dashboard"}), True),
+    CatalogEntry("project_archived_list", False, "read", frozenset({"dashboard"}), True),
     *(CatalogEntry(name, False, "read") for name in _READS),
     *(CatalogEntry(name, True, "records") for name in _MUTATIONS),
     *(CatalogEntry(name, False, "read", frozenset({"dashboard", "worker"})) for name in _CONTEXT_READS),

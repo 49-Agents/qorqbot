@@ -48,18 +48,18 @@ def tag_snapshots(values):
         raise ContextError("Tags must be a list of revision snapshots")
     result, seen = [], set()
     for item in values:
-        if not isinstance(item, dict) or set(item) != {"id", "name", "business_id"}:
-            raise ContextError("A tag snapshot requires id, name, and business_id")
+        if not isinstance(item, dict) or set(item) != {"id", "name", "project_id"}:
+            raise ContextError("A tag snapshot requires id, name, and project_id")
         tag_id = opaque_ref(item["id"], "tag id")
         name = text(item["name"], "tag name")
         utf8(name, "tag name")
-        business_id = item["business_id"]
-        if business_id is not None:
-            opaque_ref(business_id, "tag business_id")
+        project_id = item["project_id"]
+        if project_id is not None:
+            opaque_ref(project_id, "tag project_id")
         if tag_id in seen:
             raise ContextError("Duplicate tag id")
         seen.add(tag_id)
-        result.append({"id": tag_id, "name": name, "business_id": business_id})
+        result.append({"id": tag_id, "name": name, "project_id": project_id})
     return result
 
 
@@ -101,10 +101,10 @@ def record_context(value, limit=SOURCE_BYTES):
         raise ContextError("record_context scope must be an object")
     if scope.get("kind") == "global" and set(scope) == {"kind"}:
         normalized_scope = {"kind": "global"}
-    elif scope.get("kind") == "business" and set(scope) == {"kind", "business_id"}:
-        normalized_scope = {"kind": "business", "business_id": opaque_ref(scope["business_id"], "record_context business_id")}
+    elif scope.get("kind") == "project" and set(scope) == {"kind", "project_id"}:
+        normalized_scope = {"kind": "project", "project_id": opaque_ref(scope["project_id"], "record_context project_id")}
     else:
-        raise ContextError("record_context scope must be {kind: 'global'} or {kind: 'business', business_id}")
+        raise ContextError("record_context scope must be {kind: 'global'} or {kind: 'project', project_id}")
     if not isinstance(value["provenance"], dict):
         raise ContextError("record_context provenance must be a JSON object")
     try:

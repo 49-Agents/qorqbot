@@ -21,6 +21,7 @@ from qorqut_operations.application.plans import (PAGE, UUID, PlanBuilder, apply_
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.items import UNAVAILABLE, ItemResolver
+from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
 from qorqut_operations.relationships.edges import (CONTEXT, ROLE, edge_values, edge_view, endpoints, related_rows)
 from qorqut_operations.relationships.ports import RelationshipPorts
 from qorqut_operations.relationships.reviews import ContextReviews
@@ -29,17 +30,17 @@ from qorqut_operations.relationships.relocation import DOCUMENT_ENDS, current_pl
 from qorqut_operations.tasks.relocation import proven_journey
 from qorqut_operations.tasks.scope import task_context, task_namespace
 
-SCOPE = {"scope": {"enum": ["business", "global"]}}
+SCOPE = {"scope": {"enum": ["project", "global"]}}
 # The edge's own scope is the selected one (the default ``origin`` of an endpoint read).
 _HERE = object()
 # Edge end types whose record a relocation can take out of the edge's scope.
 MOVABLE_ENDS = frozenset({"task", "table", *DOCUMENT_ENDS})
-# The eight operations whose owning namespace is the business or, for the owner and an authorized global agent, Global. This is
+# The eight operations whose owning namespace is the project or, for the owner and an authorized global agent, Global. This is
 # the Task namespace contract (``task_namespace`` / ``task_context``) and nothing else: graph, navigation, archive, Material and
-# review operations stay business-only.
+# review operations stay project-only.
 SCOPED = ("relationship_roles_list", "relationships_list", "relationships_get", "context_items_list", "context_items_get",
           "relationships_create", "relationships_update", "relationships_remove")
-GLOBAL_SCOPE = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
+GLOBAL_SCOPE = dict(scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
                     resolve_namespace=task_namespace)
 GLOBAL_NOTE = (" With scope=global it works in the Global namespace (owner and authorized global agents only); both endpoints and "
                "the link stay in that one namespace.")
@@ -92,8 +93,14 @@ class RelationshipOperations:
             "context_graph_get": ({"item": item, "include_archived": filters["include_archived"]}, (), instruction_text('operations-read-the-project-context-map-or-one-item')),
         }
         descriptors = []
+        # An edge named by its own id runs where it is (both its endpoints stay in that one scope).
+        lookup = RecordLookup(Family("relationships", "relationship_id", "relationships_get", "Relationship",
+                                     global_gate=lambda ctx, uow: task_context(ctx, {"scope": "global"}, uow)))
+        located = lambda properties: dict(locate_scope=lookup) if "relationship_id" in properties else {}
         for name, (properties, required, description) in reads.items():
             scoped = {**GLOBAL_SCOPE, "description": description + GLOBAL_NOTE} if name in SCOPED else {"description": description}
+            if "relationship_id" in properties:
+                scoped = {**scoped, **located(properties), "description": scoped["description"] + LOCATED}
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties} if name in SCOPED else properties, required),
                 effect_kind="read", supports_signoff=False, **scoped,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
@@ -103,8 +110,9 @@ class RelationshipOperations:
             "relationships_remove": ({"relationship_id": UUID}, ("relationship_id",), instruction_text('operations-remove-only-this-relationship-using-its-expected-revision')),
         }
         for name, (properties, required, description) in writes.items():
-            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), description=description + GLOBAL_NOTE,
-                **GLOBAL_SCOPE, prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
+            descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required),
+                description=description + GLOBAL_NOTE + (LOCATED if "relationship_id" in properties else ""),
+                **GLOBAL_SCOPE, **located(properties), prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_prepared))
         descriptors.append(OperationDescriptor("context_items_archive", schema({"item": item, "archived": {"type": "boolean"}}, ("item", "archived")),
             description=instruction_text('operations-archive-or-restore-an-item-without-deleting-its'),
@@ -136,8 +144,8 @@ class RelationshipOperations:
         """One endpoint, resolved in its own scope. A Task, Table or project document that a relocation took out of the edge's
         scope is read where its audited move record says it is now, with the caller's authority there; anything else
         unavailable stays unavailable."""
-        here = ctx.business_id if origin is _HERE else origin
-        if item["type"] == "task" and here != ctx.business_id and self.task_here(ctx, item, uow):
+        here = ctx.project_id if origin is _HERE else origin
+        if item["type"] == "task" and here != ctx.project_id and self.task_here(ctx, item, uow):
             return self.items.resolve(ctx, item, uow)
         try:
             return self.items.resolve(self.scoped(ctx, here, uow), item, uow)
@@ -147,18 +155,18 @@ class RelationshipOperations:
             location = current_place(uow, item["type"], here, item["id"])
             if location == here:
                 raise
-        return {**self.items.resolve(self.scoped(ctx, location, uow), item, uow), "business_id": location, "moved": True}
+        return {**self.items.resolve(self.scoped(ctx, location, uow), item, uow), "project_id": location, "moved": True}
 
     @staticmethod
     def task_here(ctx, item, uow):
-        return uow.connection.execute("SELECT 1 FROM tasks WHERE business_id IS ? AND id=?", (ctx.business_id, item["id"])).fetchone() is not None
+        return uow.connection.execute("SELECT 1 FROM tasks WHERE project_id IS ? AND id=?", (ctx.project_id, item["id"])).fetchone() is not None
 
     def scoped(self, ctx, scope, uow):
         """``ctx`` selected on ``scope`` with the caller's current reach there; a scope they cannot enter is unavailable."""
-        if scope == ctx.business_id:
+        if scope == ctx.project_id:
             return ctx
         try:
-            return self.items.application.current_context(replace(ctx, business_id=scope, review_business_id=scope), uow)
+            return self.items.application.current_context(replace(ctx, project_id=scope, review_project_id=scope), uow)
         except DomainError:
             raise DomainError("not_found", "Reference scope is unavailable") from None
 
@@ -170,7 +178,7 @@ class RelationshipOperations:
         tasks = {item["id"] for item in (args.get("source"), args.get("target"), args.get("item")) if item and item["type"] == "task"}
         found = []
         for task_id in sorted(tasks):
-            stays = proven_journey(uow, ctx.business_id, task_id) or []
+            stays = proven_journey(uow, ctx.project_id, task_id) or []
             for scope, since, until in stays[1:]:
                 role = args.get("role")
                 for edge in rows(uow, "relationships", scope, where="((from_type='task' AND from_id=?) OR (to_type='task' AND to_id=?))"
@@ -197,7 +205,7 @@ class RelationshipOperations:
         if operation == "context_items_get":
             return {"item": self.items.resolve(ctx, args["item"], uow)}
         if operation == "relationships_get":
-            edge = uow.repository("relationships", business_id=ctx.business_id).get(args["relationship_id"], required=True)
+            edge = uow.repository("relationships", project_id=ctx.project_id).get(args["relationship_id"], required=True)
             return {"relationship": self.visible_edge(ctx, edge, uow)}
         found = []
         if operation == "context_items_list":
@@ -221,7 +229,7 @@ class RelationshipOperations:
             for item in (args.get("source"), args.get("target"), args.get("item")):
                 if item:
                     self.items.resolve(ctx, item, uow)
-            current = [(edge, _HERE) for edge in related_rows(uow, ctx.business_id, source=args.get("source"), target=args.get("target"), role=args.get("role"))]
+            current = [(edge, _HERE) for edge in related_rows(uow, ctx.project_id, source=args.get("source"), target=args.get("target"), role=args.get("role"))]
             for edge, origin in current + self.stay_edges(ctx, args, uow):
                 source, target = endpoints(edge)
                 if args.get("source_type") and source["type"] != args["source_type"]:
@@ -243,7 +251,7 @@ class RelationshipOperations:
                 if args.get("query") and args["query"].casefold() not in (edge["context"] + " " + edge["role"] + " " + value["source_item"]["label"] + " " + value["target_item"]["label"]).casefold():
                     continue
                 found.append(value)
-        selected, cursor = page(found, args, ctx.business_id, operation)
+        selected, cursor = page(found, args, ctx.project_id, operation)
         return {"items": selected, "next_cursor": cursor}
 
     def graph(self, ctx, args, uow):
@@ -261,7 +269,7 @@ class RelationshipOperations:
             if value["raw_source"] or (value["archived"] and not args.get("include_archived")):
                 continue
             nodes[key(item)] = value
-        edges = [self.edge_view(edge) for edge in related_rows(uow, ctx.business_id)
+        edges = [self.edge_view(edge) for edge in related_rows(uow, ctx.project_id)
                  if all(key(endpoint) in nodes for endpoint in endpoints(edge))]
         if args.get("item"):
             edges = [edge for edge in edges if args["item"] in (edge["source"], edge["target"])]
@@ -277,7 +285,7 @@ class RelationshipOperations:
                               namespace=task_namespace(ctx, args))
         creating = operation == "relationships_create"
         identity = new_id() if creating else args["relationship_id"]
-        before = None if creating else uow.repository("relationships", business_id=ctx.business_id).get(identity, required=True)
+        before = None if creating else uow.repository("relationships", project_id=ctx.project_id).get(identity, required=True)
         if before:
             require_revision(before, options.expected_revision)
             self.generic_role(before["role"])
@@ -304,7 +312,7 @@ class RelationshipOperations:
         for change in plan.changes:
             if change.resource.resource_type != "relationships":
                 continue
-            before = uow.repository("relationships", business_id=ctx.business_id).get(change.resource.resource_id)
+            before = uow.repository("relationships", project_id=ctx.project_id).get(change.resource.resource_id)
             for edge in (before, {**(before or {}), **plain(change.values)}):
                 if not edge:
                     continue
@@ -316,5 +324,5 @@ class RelationshipOperations:
         ctx = task_context(ctx, plan.arguments, uow)
         apply_records(ctx, plan, uow)
         identity = next(change.resource.resource_id for change in plan.changes if change.resource.resource_type == "relationships")
-        row = uow.repository("relationships", business_id=ctx.business_id).get(identity)
+        row = uow.repository("relationships", project_id=ctx.project_id).get(identity)
         return {"relationship": self.visible_edge(ctx, row, uow)} if row else {"removed_id": identity}

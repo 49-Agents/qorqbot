@@ -9,7 +9,6 @@ from qorqut_operations.contracts import DomainError, plain
 from qorqut_operations.storage.structured import parse_yaml
 from qorqut_operations.application.plans import schema
 from .models import REFERENCE_SCHEMA
-from .resolver import INTERNAL_ONLY_OPERATIONS
 
 DIAGNOSTIC_OPERATIONS = frozenset({'agent_runtime_get', 'operations_describe'})
 
@@ -36,9 +35,9 @@ class AgentDiagnostics:
                 'plugins': {'type': 'array', 'maxItems': 5, 'items': REFERENCE_SCHEMA}}, ('names',)),
              instruction_text('diagnostics-read-exact-live-mcp-schemas-for-1-10'), self.describe)):
             self.runtime.registry.register(OperationDescriptor(name, arguments, effect_kind='read', supports_signoff=False,
-                scope_kinds=(frozenset({'agent_workspace', 'business'}) if name == 'operations_describe'
+                scope_kinds=(frozenset({'agent_workspace', 'project'}) if name == 'operations_describe'
                              else frozenset({'agent_workspace'})),
-                resolve_namespace=(lambda ctx, args: ('business:' + ctx.business_id if ctx.business_id
+                resolve_namespace=(lambda ctx, args: ('project:' + ctx.project_id if ctx.project_id
                                   else 'agent:' + ctx.agent_id)) if name == 'operations_describe' else None,
                 description=description, read=handler))
         return self
@@ -46,7 +45,7 @@ class AgentDiagnostics:
     def describe(self, ctx, args, options, uow):
         from qorqut.transport.mcp import tool_schema
         instructions = self.runtime.resolver.require_agentic_view().tool_instructions()
-        owner_route = ctx.owner_session_business_id is not None
+        owner_route = ctx.owner_session_project_id is not None
         tools = []
         for name in args['names']:
             try:
@@ -57,11 +56,10 @@ class AgentDiagnostics:
                     or (not descriptor.owner_only and "mcp" in descriptor.exposure))
                 if owner_route and not owner_tool_route:
                     raise DomainError('forbidden', 'Not exposed in the owner-session catalog')
-                if not owner_route and (descriptor.owner_only or 'mcp' not in descriptor.exposure
-                                        or descriptor.name in INTERNAL_ONLY_OPERATIONS):
+                if not owner_route and (descriptor.owner_only or 'mcp' not in descriptor.exposure):
                     raise DomainError('forbidden', 'Not exposed to agents')
                 decision = self.runtime.application.authorize(ctx,
-                    descriptor.business_policy if ctx.business_id else descriptor, (), uow)
+                    descriptor.project_policy if ctx.project_id else descriptor, (), uow)
                 required = self.runtime.registry.required_plugin_for(name)
                 if required and required not in {r.id for r in ctx.enabled_plugin_refs}:
                     raise DomainError('plugin_unavailable', 'Plugin is not granted')
@@ -75,7 +73,7 @@ class AgentDiagnostics:
             if owner_route:
                 raise DomainError('forbidden', 'Plugin descriptions are not exposed in the owner-session catalog')
             descriptor = self.runtime.registry.get('plugins_list')
-            self.runtime.application.authorize(ctx, descriptor.business_policy if ctx.business_id else descriptor, (), uow)
+            self.runtime.application.authorize(ctx, descriptor.project_policy if ctx.project_id else descriptor, (), uow)
             for pin in args['plugins']:
                 package = self.runtime.catalog.get('plugin', pin, connection=uow.connection)
                 plugins.append({'plugin': package.ref,
@@ -86,7 +84,7 @@ class AgentDiagnostics:
         if ctx.principal_kind != 'agent':
             raise DomainError('forbidden', 'Runtime diagnostics describe the authenticated agent only')
         try:
-            config = self.runtime.resolver.resolve_agent_config(ctx.principal, business_id=ctx.business_id,
+            config = self.runtime.resolver.resolve_agent_config(ctx.principal, project_id=ctx.project_id,
                 session_registration={'registration_id': ctx.session_registration_id,
                     'session_id':ctx.inbox_session_id} if ctx.session_registration_id else None)
             preparation = plain(config.data.get('preparation', {}))
@@ -97,7 +95,7 @@ class AgentDiagnostics:
             preparation = {'ready': False, 'mandatory_context_available': False,
                 'error': {'code': error.code, 'retryable': error.retryable}}
             delivery = None
-        scopes = ['agent:' + ctx.principal_id, *['business:' + identity for identity in ctx.allowed_business_ids]]
+        scopes = ['agent:' + ctx.principal_id, *['project:' + identity for identity in ctx.allowed_project_ids]]
         if 'read_global_context' in ctx.global_capabilities:
             scopes.append('global')
         receipts = uow.connection.execute('SELECT id,operation_name,state,error_json,updated_at, '

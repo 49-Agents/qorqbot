@@ -12,7 +12,7 @@ one-item `agent_work_update` assignment; reading an empty board changes nothing.
 
 - `todo_get` reads your board: the Tasks, their state and their Workers.
 - `attention_focus_set` points at the Task you are working on; pass that exact Task reference
-  as both `focus` and `task`. Setting the todo_focus on an open Task marks it working. `attention_focus_clear`
+  `{type: "task", id}` as both `focus` and `task`. Setting the todo_focus on an open Task marks it working. `attention_focus_clear`
   clears it. That todo_focus is your current work, so you keep no second `agent_work_update` list.
 - Say what happens next in the Task's `next_step` and where it stands, in one plain sentence
   for the owner, in its `status_line` (`tasks_update`). These replace the old Intent sentence.

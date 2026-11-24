@@ -110,34 +110,34 @@ def project_metadata(runtime, scope, slugs):
     with runtime.database.read() as uow:
         signoffs = runtime.signoffs
         context = signoffs._context(scope(None), uow)
-        allowed = context.allowed_business_ids
+        allowed = context.allowed_project_ids
         projects = [row for row in uow.connection.execute(
-            "SELECT id,slug,name,config_json FROM businesses WHERE archived_at IS NULL")
+            "SELECT id,slug,name,config_json FROM projects WHERE archived_at IS NULL")
             if row["id"] in allowed and row["slug"] in slugs]
         if not projects:
             return result
         ids = [row["id"] for row in projects]
         marks = ",".join("?" for _ in ids)
         closed_marks = ",".join("?" for _ in CLOSED_STATES)
-        tasks = {row["business_id"]: row["n"] for row in uow.connection.execute(
-            f"SELECT business_id,COUNT(*) n FROM tasks WHERE business_id IN ({marks}) AND archived=0 "
+        tasks = {row["project_id"]: row["n"] for row in uow.connection.execute(
+            f"SELECT project_id,COUNT(*) n FROM tasks WHERE project_id IN ({marks}) AND archived=0 "
             f"AND status NOT IN ({closed_marks}) "
-            "AND COALESCE(json_extract(fields_json,'$.\"$task\".task_type'),'task')='task' GROUP BY business_id",
+            "AND COALESCE(json_extract(fields_json,'$.\"$task\".task_type'),'task')='task' GROUP BY project_id",
             [*ids, *CLOSED_STATES])}
         clause, params = signoffs._visibility(context, uow)
         if signoffs.ports.management is not ABSENT:
             clause += " AND NOT (" + signoffs.ports.management.managed_input_sql + ")"
-        pending = {row["review_business_id"]: row["n"] for row in uow.connection.execute(
-            f"SELECT s.review_business_id,COUNT(*) n FROM signoffs s WHERE {clause} "
-            f"AND s.review_business_id IN ({marks}) AND s.state='pending' "
-            "AND s.superseded_by_id IS NULL GROUP BY s.review_business_id", [*params, *ids])}
+        pending = {row["review_project_id"]: row["n"] for row in uow.connection.execute(
+            f"SELECT s.review_project_id,COUNT(*) n FROM signoffs s WHERE {clause} "
+            f"AND s.review_project_id IN ({marks}) AND s.state='pending' "
+            "AND s.superseded_by_id IS NULL GROUP BY s.review_project_id", [*params, *ids])}
         for row in projects:
             config = json.loads(row["config_json"])
             description = config.get("one_liner", config.get("description", ""))
             result[row["slug"]] = {"id": row["id"], "name": row["name"],
                 "description": description if isinstance(description, str) else "",
                 "open_tasks": tasks.get(row["id"], 0), "signoffs": pending.get(row["id"], 0),
-                # Project ancestry is not recorded. hq/code/agents are folders, not subprojects.
+                # Project ancestry is not recorded. Folders inside a project are not subprojects.
                 "subprojects": None}
     return result
 

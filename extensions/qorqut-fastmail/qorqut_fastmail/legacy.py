@@ -6,7 +6,7 @@ exact legacy shapes, kept here so an operator can copy a legacy database, export
 (``qorqut_fastmail.export``) and read them from a standalone archive. They are never installed into a live instance by this
 package: nothing here creates, alters or drops a table of a running host.
 
-``LEGACY_DDL`` is the original definitions, including references to the core ``businesses``, ``principals`` and ``signoffs``
+``LEGACY_DDL`` is the original definitions, including references to the core ``projects``, ``principals`` and ``signoffs``
 tables. ``ARCHIVE_DDL`` is the same definitions with those references removed, because the archive is a standalone file in which
 those core tables do not exist: the identifiers they hold stay as plain text, and every reference between the mail tables
 themselves is kept and checked."""
@@ -19,7 +19,7 @@ TABLES = ('email_mailboxes', 'email_conversations', 'email_messages',
           'email_account_comments', 'email_owned_folders', 'email_comments', 'email_thread_controls', 'email_decisions')
 
 # Core tables the legacy mail tables referenced. Their rows are not part of this package; related rows are exported separately.
-CORE_REFERENCES = ("businesses", "principals", "signoffs")
+CORE_REFERENCES = ("projects", "principals", "signoffs")
 
 # Rows of other core tables that point at legacy mail records and are exported next to them (see ``qorqut_fastmail.export``).
 RELATED = {
@@ -34,7 +34,7 @@ LEGACY_DDL = {
     'email_mailboxes': (
         """CREATE TABLE "email_mailboxes" (
     id TEXT PRIMARY KEY,
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     address TEXT UNIQUE,
     aliases_json TEXT NOT NULL DEFAULT '[]',
     cursor INTEGER NOT NULL DEFAULT 0,
@@ -43,14 +43,14 @@ LEGACY_DDL = {
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     provider_folder_id TEXT,
-    purpose TEXT NOT NULL DEFAULT 'business_mail' CHECK (length(purpose) BETWEEN 1 AND 64 AND purpose GLOB '[a-z]*' AND purpose NOT GLOB '*[^a-z0-9_]*'),
+    purpose TEXT NOT NULL DEFAULT 'project_mail' CHECK (length(purpose) BETWEEN 1 AND 64 AND purpose GLOB '[a-z]*' AND purpose NOT GLOB '*[^a-z0-9_]*'),
     sender_ref TEXT,
     sender_address TEXT,
     sender_transport TEXT CHECK (sender_transport IS NULL OR sender_transport IN ('fastmail','outlook_web')),
-    CHECK ((purpose = 'owner_mail') = (business_id IS NULL)),
-    CHECK ((purpose IN ('business_mail','owner_mail') AND address IS NOT NULL AND sender_ref IS NULL
+    CHECK ((purpose = 'owner_mail') = (project_id IS NULL)),
+    CHECK ((purpose IN ('project_mail','owner_mail') AND address IS NOT NULL AND sender_ref IS NULL
             AND sender_address IS NULL AND sender_transport IS NULL)
-        OR (purpose NOT IN ('business_mail','owner_mail') AND address IS NULL AND sender_ref IS NOT NULL
+        OR (purpose NOT IN ('project_mail','owner_mail') AND address IS NULL AND sender_ref IS NOT NULL
             AND sender_address IS NOT NULL AND sender_transport IS NOT NULL AND aliases_json = '[]'))
 )""",
         """CREATE UNIQUE INDEX email_mailboxes_one_owner ON email_mailboxes(purpose) WHERE purpose = 'owner_mail'""",
@@ -58,7 +58,7 @@ LEGACY_DDL = {
     'email_conversations': (
         """CREATE TABLE "email_conversations" (
     id TEXT PRIMARY KEY,
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     mailbox TEXT NOT NULL REFERENCES email_mailboxes(id),
     provider_id TEXT NOT NULL,
     subject TEXT NOT NULL DEFAULT '',
@@ -72,13 +72,13 @@ LEGACY_DDL = {
     thread_revision INTEGER NOT NULL DEFAULT 1,
     UNIQUE(mailbox, provider_id)
 )""",
-        """CREATE INDEX email_conversations_business ON email_conversations(business_id, last_message_at)""",
-        """CREATE UNIQUE INDEX email_conversations_business_identity ON email_conversations(business_id,id)""",
+        """CREATE INDEX email_conversations_project ON email_conversations(project_id, last_message_at)""",
+        """CREATE UNIQUE INDEX email_conversations_project_identity ON email_conversations(project_id,id)""",
     ),
     'email_messages': (
         """CREATE TABLE "email_messages" (
     id TEXT PRIMARY KEY,
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     conversation_id TEXT NOT NULL REFERENCES email_conversations(id),
     mailbox TEXT NOT NULL REFERENCES email_mailboxes(id),
     provider_id TEXT NOT NULL,
@@ -91,9 +91,9 @@ LEGACY_DDL = {
     origin TEXT NOT NULL DEFAULT 'sync' CHECK(origin IN ('sync','draft','sent','moved','baseline')),
     UNIQUE(mailbox, provider_id)
 )""",
-        """CREATE INDEX email_messages_conversation ON email_messages(business_id, conversation_id, deleted)""",
-        """CREATE INDEX email_memory_observe ON email_messages(business_id,conversation_id,id)""",
-        """CREATE INDEX email_messages_provider_folder ON email_messages(business_id, provider_folder_id, deleted)""",
+        """CREATE INDEX email_messages_conversation ON email_messages(project_id, conversation_id, deleted)""",
+        """CREATE INDEX email_memory_observe ON email_messages(project_id,conversation_id,id)""",
+        """CREATE INDEX email_messages_provider_folder ON email_messages(project_id, provider_folder_id, deleted)""",
     ),
     'email_routing_history': (
         """CREATE TABLE email_routing_history (
@@ -101,7 +101,7 @@ LEGACY_DDL = {
  provider_message_id TEXT NOT NULL,
  from_folder_id TEXT,
  to_folder_id TEXT NOT NULL,
- to_business_id TEXT REFERENCES businesses(id),
+ to_project_id TEXT REFERENCES projects(id),
  moved_by TEXT NOT NULL REFERENCES principals(id),
  moved_at TEXT NOT NULL,
  created_at TEXT NOT NULL
@@ -147,7 +147,7 @@ LEGACY_DDL = {
     'email_owned_folders': (
         """CREATE TABLE email_owned_folders (
  folder_id TEXT PRIMARY KEY,
- business_id TEXT NOT NULL REFERENCES businesses(id),
+ project_id TEXT NOT NULL REFERENCES projects(id),
  mailbox TEXT NOT NULL,
  name TEXT NOT NULL
 )""",
@@ -156,19 +156,19 @@ LEGACY_DDL = {
         """CREATE TABLE "email_comments" (
  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
  id TEXT NOT NULL UNIQUE,
- business_id TEXT REFERENCES businesses(id),
+ project_id TEXT REFERENCES projects(id),
  conversation_id TEXT NOT NULL REFERENCES email_conversations(id),
  body TEXT NOT NULL CHECK(length(trim(body))>0 AND length(body)<=20000),
  summary TEXT CHECK(summary IS NULL OR (length(trim(summary))>0 AND length(summary)<=500)),
  created_by TEXT NOT NULL REFERENCES principals(id),
  created_at TEXT NOT NULL,
- FOREIGN KEY(business_id,conversation_id) REFERENCES email_conversations(business_id,id)
+ FOREIGN KEY(project_id,conversation_id) REFERENCES email_conversations(project_id,id)
 )""",
-        """CREATE INDEX email_comments_thread ON email_comments(business_id,conversation_id,sequence)""",
+        """CREATE INDEX email_comments_thread ON email_comments(project_id,conversation_id,sequence)""",
     ),
     'email_thread_controls': (
         """CREATE TABLE "email_thread_controls" (
- business_id TEXT,
+ project_id TEXT,
  conversation_id TEXT NOT NULL REFERENCES email_conversations(id),
  tags_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(tags_json)),
  owner_attention_priority TEXT NOT NULL DEFAULT 'none' CHECK(owner_attention_priority IN ('none','low','normal','high')),
@@ -179,14 +179,14 @@ LEGACY_DDL = {
  priority_changed_by TEXT REFERENCES principals(id),
  priority_reason TEXT,
  priority_message_id TEXT REFERENCES email_messages(id),
- FOREIGN KEY(business_id,conversation_id) REFERENCES email_conversations(business_id,id)
+ FOREIGN KEY(project_id,conversation_id) REFERENCES email_conversations(project_id,id)
 )""",
-        """CREATE UNIQUE INDEX email_thread_controls_key ON email_thread_controls(ifnull(business_id,''),conversation_id)""",
-        """CREATE INDEX email_controls_priority ON email_thread_controls(business_id,owner_attention_priority,conversation_id)""",
+        """CREATE UNIQUE INDEX email_thread_controls_key ON email_thread_controls(ifnull(project_id,''),conversation_id)""",
+        """CREATE INDEX email_controls_priority ON email_thread_controls(project_id,owner_attention_priority,conversation_id)""",
     ),
     'email_decisions': (
         """CREATE TABLE "email_decisions" (
- business_id TEXT,
+ project_id TEXT,
  conversation_id TEXT NOT NULL REFERENCES email_conversations(id),
  decision_key TEXT NOT NULL,
  signoff_id TEXT NOT NULL UNIQUE REFERENCES signoffs(id),
@@ -195,9 +195,9 @@ LEGACY_DDL = {
  request_hash TEXT NOT NULL,
  replaces_id TEXT UNIQUE REFERENCES signoffs(id),
  created_at TEXT NOT NULL,
- FOREIGN KEY(business_id,conversation_id) REFERENCES email_conversations(business_id,id)
+ FOREIGN KEY(project_id,conversation_id) REFERENCES email_conversations(project_id,id)
 )""",
-        """CREATE UNIQUE INDEX email_decisions_key ON email_decisions(ifnull(business_id,''),conversation_id,decision_key)""",
+        """CREATE UNIQUE INDEX email_decisions_key ON email_decisions(ifnull(project_id,''),conversation_id,decision_key)""",
     ),
 }
 

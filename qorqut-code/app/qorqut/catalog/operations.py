@@ -42,7 +42,7 @@ class CatalogOperations:
         return {**dict(row), "content_hash": row["digest"]} if row else None
 
     def resolve_file_target(self, resource) -> RegisteredFileTarget:
-        if resource.resource_type != "artifact_files" or resource.namespace != "global" or resource.business_id is not None:
+        if resource.resource_type != "artifact_files" or resource.namespace != "global" or resource.project_id is not None:
             raise DomainError("invalid_plan", "Not an artifact file resource")
         try:
             kind, identity, version, digest, path = json.loads(resource.resource_id)
@@ -70,9 +70,6 @@ class CatalogOperations:
         if source is None or source[0] != kind:
             raise DomainError("not_found", "Authored source is not registered for this artifact kind")
         package = load_package(source[1], source[2], kind, self.catalog.registry)
-        if kind == "role" and "business" in package.manifest["scope_kinds"]:
-            # Businesses own resources only; existing immutable business-role artifacts stay readable.
-            raise DomainError("retired_role", "Business-scoped roles are retired; only global roles are published")
         record_id = canonical_bytes([kind, package.id, package.version]).decode()
         record = ResourceRef("artifacts", record_id, namespace="global")
         current = self.resolve_record(ctx, record, uow)
@@ -108,7 +105,7 @@ class CatalogOperations:
             tuple(expectations), tuple(changes), ChangePreview(f"Publish {kind} {package.id}@{package.version}", args.get("rationale", ""),
                 {"kind": "global", "artifact": package.ref}, tuple(resources), tuple(previews),
                 ("Publishes the exact reviewed files. Existing profile revision pins do not change.",)),
-            review_business_id=options.review_business_id or ctx.review_business_id,
+            review_project_id=options.review_project_id or ctx.review_project_id,
             proposer_agent_id=ctx.agent_id)
 
     def apply(self, ctx, plan, uow):

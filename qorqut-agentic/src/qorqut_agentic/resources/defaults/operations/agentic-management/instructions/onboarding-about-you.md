@@ -24,7 +24,7 @@ question the personal context node already answers. Every question has
 `required: false`:
 
 1. `name`, no choices: "What should I call you?"
-2. `work`, no choices: "What do you do?", explained as "Your work or business
+2. `work`, no choices: "What do you do?", explained as "Your work or company
    and your role, in a sentence. Or drop your LinkedIn link, or anything else
    that gives quick context."
 3. `todo`, no choices: "What's your todo list right now?", explained as "You can

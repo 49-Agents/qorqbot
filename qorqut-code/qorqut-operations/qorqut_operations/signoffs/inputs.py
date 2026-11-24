@@ -13,6 +13,7 @@ from qorqut_operations.application.plans import PlanBuilder, schema
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.conversations import SUMMARY
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.storage.repositories import decode_row
 from .lookup import LOCATED
 from .ports import ABSENT
@@ -41,7 +42,7 @@ LEGACY_FORM = schema({"title": {**TEXT, "maxLength": 200}, "explanation": TEXT,
     "previous_review_id": {"type": "string", "format": "uuid"}},
     ("title", "explanation", "kind", "selection_mode"))
 FORM = {"oneOf": [LEGACY_FORM, questions.FORM]}
-SCOPE = {"scope": {"enum": ["business", "global"]}}
+SCOPE = {"scope": {"enum": ["project", "global"]}}
 
 
 def acknowledges(form):
@@ -117,9 +118,9 @@ class InputRequests:
         self.service = signoffs
 
     def descriptors(self):
-        common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
+        common = dict(supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
             global_capability='read_global_context',
-            resolve_namespace=lambda c,a: 'global' if a.get('scope') == 'global' else 'business:' + (c.business_id or ''))
+            resolve_namespace=lambda c,a: 'global' if a.get('scope') == 'global' else 'project:' + (c.project_id or ''))
         descriptors = []
         for name, properties, required, description in (
             ('signoffs_input_create', {'request_key': {"type": "string", "minLength": 1, "maxLength": 200},
@@ -133,6 +134,9 @@ class InputRequests:
             # An operation that names one Signoff finds its review scope from the id when the caller selects none.
             located = (dict(locate_scope=self.service.lookup, description=description + ' ' + LOCATED)
                        if 'signoff_id' in properties else dict(description=description))
+            # A source and a report's Task name their records by type and id; their projects are found from the ids.
+            if name == 'signoffs_input_create':
+                located['complete_references'] = References(Ref(('source',)), Ref(('report_task',), kind='task'))
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), **common, **located,
                 prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply))
         # Delegated management answers need the management domain; without it the operation is not installed.
@@ -150,11 +154,11 @@ class InputRequests:
 
     def prepare(self, name, ctx, args, options, uow):
         if args.get('scope') == 'global':
-            ctx = replace(ctx, business_id=None, review_business_id=None)
+            ctx = replace(ctx, project_id=None, review_project_id=None)
         ctx = self.service._context(ctx, uow)
-        scope = {'kind': 'business', 'business_id': ctx.business_id} if ctx.business_id else {'kind': 'global'}
+        scope = {'kind': 'project', 'project_id': ctx.project_id} if ctx.project_id else {'kind': 'global'}
         builder = PlanBuilder(ctx, name, args, 'Request owner input',
-            namespace='business:' + ctx.business_id if ctx.business_id else 'global', affected_scope=scope)
+            namespace='project:' + ctx.project_id if ctx.project_id else 'global', affected_scope=scope)
         if name == 'signoffs_input_create':
             form = validate_form({'response_policy': 'owner_only', **args['form']} if 'source' in args else args['form'])
             acknowledge = acknowledges(form)
@@ -174,12 +178,12 @@ class InputRequests:
             if form.get('previous_review_id'):
                 previous = self.service._row(ctx, form['previous_review_id'], uow)
                 if (previous['proposer_principal_id'] != ctx.principal_id or previous['state'] != 'answered'
-                        or previous['review_business_id'] != ctx.business_id
+                        or previous['review_project_id'] != ctx.project_id
                         or previous['preview_json'].get('input', {}).get('kind') != 'draft_review'):
                     raise DomainError('validation_error', 'Previous review must be an answered draft review by the same proposer in this scope')
             attention = normalize_attention(args.get('attention', {}), acknowledge=acknowledge)
-            row = decode_row(uow.connection.execute("SELECT * FROM signoffs WHERE proposer_principal_id=? AND review_business_id IS ? AND request_key=? AND state='pending' AND superseded_by_id IS NULL",
-                (ctx.principal_id, ctx.business_id, args['request_key'])).fetchone())
+            row = decode_row(uow.connection.execute("SELECT * FROM signoffs WHERE proposer_principal_id=? AND review_project_id IS ? AND request_key=? AND state='pending' AND superseded_by_id IS NULL",
+                (ctx.principal_id, ctx.project_id, args['request_key'])).fetchone())
             replaced = None
             if row and row['preview_json'].get('input') != form:
                 # A new report under the same key takes the place of the one the owner has not acknowledged yet.
@@ -189,7 +193,7 @@ class InputRequests:
             if row and acknowledge:
                 link = self.service.reports.find(row['id'], uow)
                 given = args.get('report_task')
-                if link and (not given or (link['task_id'], link['task_business_id']) != (given['id'], given['business_id'])):
+                if link and (not given or (link['task_id'], link['task_project_id']) != (given['id'], given['project_id'])):
                     raise DomainError('request_conflict', 'This report already belongs to another Task; use a new request_key for a report on a different Task')
             identity = row['id'] if row else new_id()
             builder.record('signoffs', identity, row, {'form': form, 'request_key': args['request_key'],
@@ -212,9 +216,8 @@ class InputRequests:
         """Whether the caller is the active ecosystem coordinator (Ordubashy)."""
         if ctx.principal_kind != 'agent':
             return False
-        profile = uow.repository('agent_profiles', business_id=None).get(ctx.principal_id)
-        return bool(profile and profile['status'] == 'active' and profile['profile_json']['role']['id'] == 'ordubashy'
-                    and profile['profile_json']['scope']['kind'] == 'ecosystem')
+        profile = uow.repository('agent_profiles', project_id=None).get(ctx.principal_id)
+        return bool(profile and profile['status'] == 'active' and profile['profile_json']['role']['id'] == 'ordubashy')
 
     def authorize_update(self, ctx, row, name, uow):
         if ctx.principal_kind == 'human':
@@ -255,10 +258,10 @@ class InputRequests:
     def apply(self, ctx, plan, uow):
         change = plan.changes[0]
         identity, values = change.resource.resource_id, plain(change.values)
-        repo = uow.repository('signoffs', business_id=change.resource.business_id)
+        repo = uow.repository('signoffs', project_id=change.resource.project_id)
         row = repo.get(identity)
         if change.action in {'attention_set', 'input_cancel'}:
-            scoped = replace(ctx, business_id=change.resource.business_id, review_business_id=change.resource.business_id)
+            scoped = replace(ctx, project_id=change.resource.project_id, review_project_id=change.resource.project_id)
             row = self.service._row(scoped, identity, uow)
             self.authorize_update(scoped, row, plan.operation_name, uow)
         existed = row is not None
@@ -272,7 +275,7 @@ class InputRequests:
                         and old['proposer_principal_id'] == ctx.principal_id and acknowledges(old['preview_json'].get('input'))):
                     self.service._update(old, {'state': 'cancelled'}, uow)
             row = repo.insert({'id': identity, 'category': 'input_request', 'request_key': values['request_key'],
-                'review_scope_kind': 'business' if change.resource.business_id else 'global',
+                'review_scope_kind': 'project' if change.resource.project_id else 'global',
                 'proposer_principal_id': ctx.principal_id, 'proposer_agent_id': ctx.agent_id,
                 'initiated_by_principal_id': ctx.initiated_by_principal_id,
                 'operation_name': plan.operation_name, 'operation_version': 1, 'proposal_revision': 1,
@@ -283,11 +286,9 @@ class InputRequests:
                 'affected_scope_json': plain(plan.affected_scope), 'state': 'pending',
                 'updated_sequence': uow.next_sequence('signoffs'), 'created_at': self.service.clock()})
             if acknowledges(form) and values.get('report_task'):
-                scoped = replace(ctx, business_id=change.resource.business_id, review_business_id=change.resource.business_id)
+                scoped = replace(ctx, project_id=change.resource.project_id, review_project_id=change.resource.project_id)
                 self.service.reports.check(scoped, values['report_task'], uow)
                 self.service.reports.link(ctx, identity, values['report_task'], uow)
-            if self.service.ports.management is not ABSENT:
-                self.service.ports.management.auto_route_input(ctx, row, uow)
         elif change.action == 'input_cancel':
             row = self.service._update(row, {'state': 'cancelled'}, uow)
         if 'attention' in values:
@@ -310,8 +311,8 @@ class InputRequests:
         if ctx.principal_kind != 'agent' or ctx.principal_id != self._coordinator(uow):
             raise DomainError('forbidden', 'Only the configured management coordinator can answer delegated input')
         return PlanBuilder(ctx, 'signoffs_input_answer_delegated', args, 'Answer management input',
-            namespace=self.service.ports.references.task_namespace(ctx,args), affected_scope={'kind': 'business', 'business_id': ctx.business_id}
-            if ctx.business_id else {'kind':'global'}).build()
+            namespace=self.service.ports.references.task_namespace(ctx,args), affected_scope={'kind': 'project', 'project_id': ctx.project_id}
+            if ctx.project_id else {'kind':'global'}).build()
 
     def apply_delegated(self, ctx, plan, uow):
         args = plain(plan.arguments)
@@ -328,7 +329,7 @@ class InputRequests:
                 or not route['management_allowed'] or row['preview_json']['input'].get('response_policy','owner_only') != 'management_allowed'
                 or row['preview_json']['input'].get('kind') != 'question'):
             raise DomainError('forbidden', 'This input request is not delegated to management')
-        if ctx.business_id is not None and row['review_business_id'] != ctx.business_id:
+        if ctx.project_id is not None and row['review_project_id'] != ctx.project_id:
             raise DomainError('forbidden', 'Input request is outside the coordinator scope')
         notes, selected = validate_response(row['preview_json']['input'], args.get('notes', ''), args.get('selected_choices') or [])
         # The application dispatcher owns idempotency, including exact MCP

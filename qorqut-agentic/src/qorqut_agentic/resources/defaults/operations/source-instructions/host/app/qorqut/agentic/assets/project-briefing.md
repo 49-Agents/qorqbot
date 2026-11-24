@@ -1,1 +1,1 @@
-When the owner names a project to work on, call business_briefing(business_id=...) first; it shows what is happening there. Then read its agent_config_get(response_detail=context) before acting.
+When the owner names a project to work on, call project_briefing(project_id=...) first; it shows what is happening there. Then read its agent_config_get(response_detail=context) before acting.

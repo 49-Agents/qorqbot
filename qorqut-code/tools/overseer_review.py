@@ -103,22 +103,22 @@ def source_identity(ref, *, strict_namespace=False):
     if not HASH.match(ref["content_hash"]):
         raise ReviewError("source_ref.content_hash must be a SHA-256 hex digest")
     namespace = ref.get("namespace")
-    if not isinstance(namespace, dict) or not {"kind", "business_id"} <= namespace.keys():
-        raise ReviewError("source_ref.namespace must contain kind and business_id")
-    kind, business = namespace["kind"], namespace["business_id"]
-    if kind not in ("global", "business") or (kind == "global") != (business is None):
+    if not isinstance(namespace, dict) or not {"kind", "project_id"} <= namespace.keys():
+        raise ReviewError("source_ref.namespace must contain kind and project_id")
+    kind, project = namespace["kind"], namespace["project_id"]
+    if kind not in ("global", "project") or (kind == "global") != (project is None):
         raise ReviewError("source_ref.namespace is invalid")
-    if kind == "business":
-        if not isinstance(business, str) or not business.strip():
-            raise ReviewError("source_ref.namespace.business_id must be a nonempty string")
+    if kind == "project":
+        if not isinstance(project, str) or not project.strip():
+            raise ReviewError("source_ref.namespace.project_id must be a nonempty string")
         if strict_namespace:
             from uuid import UUID
             try:
-                if str(UUID(business)) != business:
+                if str(UUID(project)) != project:
                     raise ValueError
             except ValueError as error:
-                raise ReviewError("source_ref.namespace.business_id must be a canonical UUID") from error
-    return canonical([ref["provider"], ref["kind"], {"kind": kind, "business_id": business}, ref["record_id"],
+                raise ReviewError("source_ref.namespace.project_id must be a canonical UUID") from error
+    return canonical([ref["provider"], ref["kind"], {"kind": kind, "project_id": project}, ref["record_id"],
                       ref["revision"], ref["content_hash"]])
 
 

@@ -158,7 +158,7 @@ class HostVisibility:
             # event_visible still checks each source under current authority.
             ctx = inbox.context(inbox.resolver.runtime_context(Principal(agent_id, "agent")), uow)
             descriptor = inbox.app.registry.get("inbox_list")
-            if ctx.business_id is not None:
+            if ctx.project_id is not None:
                 descriptor = replace(descriptor, global_capability=None)
             if inbox.app.policy.resolve(ctx, descriptor, (), uow).mode != "allow":
                 ctx = None
@@ -185,7 +185,7 @@ class HostVisibility:
                 # also use their historical kind. Reuse only within this batch and
                 # recipient; later reads must observe changed grants and sources.
                 # Other event kinds can have event-specific authorization.
-                key = ((row['business_id'], row['source_type'], row['source_id'],
+                key = ((row['project_id'], row['source_type'], row['source_id'],
                         row['event_type'], row['visibility_json'])
                        if row['source_type'] in {'tasks', 'documents'} else None)
                 if key is None or key not in source_visibility:

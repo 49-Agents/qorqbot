@@ -1,7 +1,7 @@
 """``context_queue_*``: ordinary registered operations over the one durable Context input queue.
 
 Source admission, inspection, retry and discard use the v1 prepare/apply authority like any other operation: the
-caller's own namespace (a selected business, otherwise Global), the normal policy decision for that operation (which may
+caller's own namespace (a selected project, otherwise Global), the normal policy decision for that operation (which may
 be allow, signoff or deny), idempotency and Signoff-bound plans. Nothing here reads or controls another namespace's
 inputs; the single cross-namespace fact a reader sees is ``queue_blocked``.
 
@@ -23,7 +23,7 @@ from qorqut_operations.contracts import DomainError, new_id, plain
 QUEUE_ENTRIES = (CatalogEntry("context_queue_list", False, "read"), CatalogEntry("context_queue_get", False, "read"),
                  CatalogEntry("context_queue_submit", True, "records"), CatalogEntry("context_queue_retry", True, "records"),
                  CatalogEntry("context_queue_discard", True, "records"))
-SCOPE_KINDS = frozenset({"business", "global"})
+SCOPE_KINDS = frozenset({"project", "global"})
 NULLABLE_TEXT = {"type": ["string", "null"]}
 NULLABLE_OBJECT = {"type": ["object", "null"]}
 # A controlled input's execution facts (the graph-edit binding's), or null for an ordinary input.
@@ -32,7 +32,7 @@ EXECUTION_FACTS = schema({"kind": {"const": "deterministic_graph_edit"}, "plan_d
                          ("kind", "plan_digest", "expected_revision", "reserved_event_id"))
 EXECUTION = {"oneOf": [{"type": "null"}, EXECUTION_FACTS]}
 SCOPE = {"oneOf": [schema({"kind": {"const": "global"}}, ("kind",)),
-                   schema({"kind": {"const": "business"}, "business_id": {"type": "string"}}, ("kind", "business_id"))]}
+                   schema({"kind": {"const": "project"}, "project_id": {"type": "string"}}, ("kind", "project_id"))]}
 INPUT_PROPERTIES = {
     "id": {"type": "string"}, "sequence": {"type": "integer"}, "input_kind": {"enum": ["general", "action"]},
     "operation": {"enum": list(OPERATIONS)}, "item_id": NULLABLE_TEXT, "revision": {"type": ["integer", "null"]},
@@ -63,8 +63,8 @@ CONTROL_INPUT = schema({"input_id": UUID, "expected_state": {"enum": list(STATES
 
 
 def queue_namespace(ctx, arguments):
-    """The caller's own namespace: its selected business, otherwise Global (which needs a global capability)."""
-    return "business:" + ctx.business_id if ctx.business_id else "global"
+    """The caller's own namespace: its selected project, otherwise Global (which needs a global capability)."""
+    return "project:" + ctx.project_id if ctx.project_id else "global"
 
 
 def decide(uow, row, intent: str, expected_state: str) -> tuple[str, str, dict | None]:
@@ -128,10 +128,10 @@ class ContextQueueOperations:
     # -- reads -----------------------------------------------------------------------------------------------------
 
     def list_inputs(self, ctx, arguments, options, uow):
-        return list_inputs(uow, ctx.business_id, arguments, "context_queue_list", ctx.principal_id, self.executions)
+        return list_inputs(uow, ctx.project_id, arguments, "context_queue_list", ctx.principal_id, self.executions)
 
     def get_input(self, ctx, arguments, options, uow):
-        view = detail(uow, lookup(uow, ctx.business_id, arguments["input_id"]), self.executions)
+        view = detail(uow, lookup(uow, ctx.project_id, arguments["input_id"]), self.executions)
         # The driver works from the complete payload; a reader of the queue never sees an Action's model-only metadata.
         return {"input": {**view, "payload": public_payload(view["payload"])}}
 
@@ -143,8 +143,8 @@ class ContextQueueOperations:
         builder = PlanBuilder(ctx, "context_queue_submit", arguments, f"Queue Context source {change['operation']} {change['path']}",
                               clock=self.clock)
         input_id = new_id()
-        values = {**general_values(input_id, change, ctx.principal_id, builder.at), "business_id": ctx.business_id}
-        builder.record("context_inputs", input_id, None, values, business_id=ctx.business_id, label=change["path"])
+        values = {**general_values(input_id, change, ctx.principal_id, builder.at), "project_id": ctx.project_id}
+        builder.record("context_inputs", input_id, None, values, project_id=ctx.project_id, label=change["path"])
         builder.effects.append("Queues this source change in the shared Context order. Nothing is published until the "
                                "backend driver processes it; it cannot be edited afterwards.")
         return builder.build()
@@ -152,26 +152,26 @@ class ContextQueueOperations:
     def apply_submit(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
         change = next(change for change in plan.changes if change.resource.resource_type == "context_inputs")
-        row = lookup(uow, change.resource.business_id, plain(change.values)["id"])
+        row = lookup(uow, change.resource.project_id, plain(change.values)["id"])
         return {"input": input_view(row, execution=self.executions(uow, row))}
 
     # -- controls --------------------------------------------------------------------------------------------------
 
     def prepare_control(self, intent, ctx, arguments, options, uow):
-        row = lookup(uow, ctx.business_id, arguments["input_id"])
+        row = lookup(uow, ctx.project_id, arguments["input_id"])
         status, state, resolution = decide(uow, row, intent, arguments["expected_state"])
         builder = PlanBuilder(ctx, "context_queue_" + intent, arguments, f"Request {intent} of Context input {row['id']}", clock=self.clock)
         control_id = new_id()
         builder.record("context_input_controls", control_id, None, {
-            "id": control_id, "business_id": row["business_id"], "input_id": row["id"], "intent": intent,
+            "id": control_id, "project_id": row["project_id"], "input_id": row["id"], "intent": intent,
             "expected_state": row["state"], "requested_by": ctx.principal_id, "requested_at": builder.at, "status": status,
             "resolved_at": builder.at if status == "applied" else None, "result_json": resolution},
-            business_id=row["business_id"], label=intent)
+            project_id=row["project_id"], label=intent)
         if state != row["state"]:
             builder.record("context_inputs", row["id"], dict(row), {"state": state, **({"result_json": resolution} if state == "discarded" else {})},
-                           business_id=row["business_id"], label=row["id"])
+                           project_id=row["project_id"], label=row["id"])
         else:
-            builder.expect(ref("context_inputs", row["id"], row["business_id"]), dict(row))
+            builder.expect(ref("context_inputs", row["id"], row["project_id"]), dict(row))
         if intent == "retry":
             builder.effects.append("Records the request; the backend driver starts the next attempt.")
         elif state == "discarded":
@@ -184,7 +184,7 @@ class ContextQueueOperations:
         """Approval and apply re-derive the decision from the input's current state."""
         control = next(change for change in plan.changes if change.resource.resource_type == "context_input_controls")
         values = plain(control.values)
-        row = lookup(uow, control.resource.business_id, values["input_id"])
+        row = lookup(uow, control.resource.project_id, values["input_id"])
         status, state, _ = decide(uow, row, values["intent"], values["expected_state"])
         moves = [change for change in plan.changes if change.resource.resource_type == "context_inputs" and change.action == "update"]
         if status != values["status"] or (state != row["state"]) != bool(moves) or (moves and plain(moves[0].values)["state"] != state):
@@ -194,7 +194,7 @@ class ContextQueueOperations:
         apply_records(ctx, plan, uow)
         control = next(change for change in plan.changes if change.resource.resource_type == "context_input_controls")
         values = plain(control.values)
-        row = lookup(uow, control.resource.business_id, values["input_id"])
+        row = lookup(uow, control.resource.project_id, values["input_id"])
         if row["state"] == "discarded":
             self.outcomes.record(uow, row)
         return {"result": {"input_id": row["id"], "control_id": values["id"], "intent": values["intent"], "status": values["status"],

@@ -81,7 +81,7 @@ class CommandTest(CommandTestCase):
         self.bind(TAB)
         reference = self.run_command(listed(TAB))[1]["reference"]
         self.assertEqual(references.normalize("Please look.", [reference])["references"],
-                         [{"type": "tab", "id": f"{AGENT}:{TAB}", "business_id": None}])
+                         [{"type": "tab", "id": f"{AGENT}:{TAB}", "project_id": None}])
 
     def test_each_session_gets_its_own_tab(self):
         self.bind(OTHER, instance=f"configured:{WORKER}")

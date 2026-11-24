@@ -1,6 +1,6 @@
 """Move whole Tables between projects without changing any Table's identity, as a Task move does for Tasks.
 
-A Table (general or CRM) is owned by one project. Moving it changes the ``business_id`` of the Table row and of every row that
+A Table (general or CRM) is owned by one project. Moving it changes the ``project_id`` of the Table row and of every row that
 belongs to it - its data rows, its history captures, its CRM memberships, its discussion, follows and subscriptions - in one
 transaction. Ids, contents, revisions of the rows, history paths and Git commits are unchanged; a CRM membership keeps naming
 its Task wherever that Task is. Nothing is copied, recreated or merged.
@@ -88,13 +88,13 @@ class TableRelocation:
         if not isinstance(destination, str) or not destination or destination == source:
             raise DomainError("validation_error", "Choose a project other than the table's current project")
         connection = uow.connection
-        target = connection.execute("SELECT id, slug, name, archived_at FROM businesses WHERE id=?", (destination,)).fetchone()
+        target = connection.execute("SELECT id, slug, name, archived_at FROM projects WHERE id=?", (destination,)).fetchone()
         if target is None or target["archived_at"] is not None:
             raise DomainError("not_found", "Destination project is unavailable")
-        if connection.execute("SELECT 1 FROM businesses WHERE id=?", (source,)).fetchone() is None:
+        if connection.execute("SELECT 1 FROM projects WHERE id=?", (source,)).fetchone() is None:
             raise DomainError("not_found", "Source project is unavailable")
         found = {row["id"]: dict(row) for row in connection.execute(
-            "SELECT * FROM data_tables WHERE business_id=? AND id IN " + marks(ids) + " ORDER BY id", (source, *ids))}
+            "SELECT * FROM data_tables WHERE project_id=? AND id IN " + marks(ids) + " ORDER BY id", (source, *ids))}
         if set(ids) - set(found):
             raise DomainError("not_found", "Table does not exist in this project")
         move, tables = TableMove(source, destination, ids), existing_tables(uow)
@@ -102,11 +102,11 @@ class TableRelocation:
                                                "destination_project": [target["id"], target["slug"], target["name"]]}
         material["tables"] = [[row["id"], row["revision"], row["updated_at"], row["table_kind"]] for row in found.values()]
         counts["tables"] = len(ids)
-        for row in connection.execute("SELECT id FROM data_tables WHERE business_id=? AND id IN " + marks(ids), (destination, *ids)):
+        for row in connection.execute("SELECT id FROM data_tables WHERE project_id=? AND id IN " + marks(ids), (destination, *ids)):
             blockers.append(blocker("table_id_exists", "The destination project already has a table with this id", row["id"]))
 
         def owned(table, extra=""):
-            return connection.execute(f"SELECT * FROM {table} WHERE business_id=? AND table_id IN " + marks(ids) + extra
+            return connection.execute(f"SELECT * FROM {table} WHERE project_id=? AND table_id IN " + marks(ids) + extra
                                       + " ORDER BY id", (source, *ids)).fetchall()
 
         data_rows, versions = owned("data_rows"), owned("table_versions")
@@ -136,30 +136,30 @@ class TableRelocation:
             keys = [row["id"] for row in rows_here]
             for start in range(0, len(keys), 500):
                 chunk = keys[start:start + 500]
-                if table in tables and connection.execute(f"SELECT 1 FROM {table} WHERE business_id=? AND id IN " + marks(chunk)
+                if table in tables and connection.execute(f"SELECT 1 FROM {table} WHERE project_id=? AND id IN " + marks(chunk)
                                                           + " LIMIT 1", (destination, *chunk)).fetchone():
                     blockers.append(blocker(f"{table}_id_exists", f"The destination project already has a table {label} with the same id"))
                     break
 
         # Discussion, follows and subscriptions of the Tables follow them; ids and contents are unchanged.
-        messages = connection.execute("SELECT item_id, id, event_id, created_at, reference_namespace FROM thread_messages WHERE business_id=? "
+        messages = connection.execute("SELECT item_id, id, event_id, created_at, reference_namespace FROM thread_messages WHERE project_id=? "
                                       "AND item_type='table' AND item_id IN " + marks(ids) + " ORDER BY item_id, id", (source, *ids)).fetchall()
         material["messages"] = [len(messages), digest(messages)]
         counts["comments"] = len(messages)
-        if messages and connection.execute("SELECT 1 FROM thread_messages WHERE business_id=? AND id IN (SELECT id FROM thread_messages "
-                                           "WHERE business_id=? AND item_type='table' AND item_id IN " + marks(ids) + ") LIMIT 1",
+        if messages and connection.execute("SELECT 1 FROM thread_messages WHERE project_id=? AND id IN (SELECT id FROM thread_messages "
+                                           "WHERE project_id=? AND item_type='table' AND item_id IN " + marks(ids) + ") LIMIT 1",
                                            (destination, source, *ids)).fetchone():
             blockers.append(blocker("message_id_exists", "The destination project already has a discussion entry with the same id"))
-        follows = connection.execute("SELECT * FROM thread_follows WHERE business_id=? AND item_type='table' AND item_id IN " + marks(ids)
+        follows = connection.execute("SELECT * FROM thread_follows WHERE project_id=? AND item_type='table' AND item_id IN " + marks(ids)
                                      + " ORDER BY item_id, principal_id", (source, *ids)).fetchall()
         material["follows"] = [len(follows), digest(follows)]
-        if connection.execute("SELECT 1 FROM thread_follows WHERE business_id=? AND item_type='table' AND item_id IN " + marks(ids) + " LIMIT 1",
+        if connection.execute("SELECT 1 FROM thread_follows WHERE project_id=? AND item_type='table' AND item_id IN " + marks(ids) + " LIMIT 1",
                               (destination, *ids)).fetchone():
             blockers.append(blocker("follow_exists", "The destination project already has follows for the same tables"))
-        subscriptions = connection.execute("SELECT id, agent_id, source_id FROM inbox_subscriptions WHERE business_id=? AND source_type='data_tables' "
+        subscriptions = connection.execute("SELECT id, agent_id, source_id FROM inbox_subscriptions WHERE project_id=? AND source_type='data_tables' "
                                            "AND source_id IN " + marks(ids) + " ORDER BY id", (source, *ids)).fetchall() if "inbox_subscriptions" in tables else []
         material["subscriptions"] = [len(subscriptions), digest(subscriptions)]
-        if subscriptions and connection.execute("SELECT 1 FROM inbox_subscriptions WHERE business_id=? AND source_type='data_tables' AND "
+        if subscriptions and connection.execute("SELECT 1 FROM inbox_subscriptions WHERE project_id=? AND source_type='data_tables' AND "
                                                 "source_id IN " + marks(ids) + " LIMIT 1", (destination, *ids)).fetchone():
             blockers.append(blocker("subscription_exists", "The destination project already has subscriptions for the same tables"))
 
@@ -206,25 +206,25 @@ class TableRelocation:
         params = (destination, source)
         with uow.relocating(source, destination, [GUARD_PREFIX + identity for identity in ids]):
             for identity, row in inspection.rows["tables"].items():
-                if connection.execute("UPDATE data_tables SET business_id=?, revision=revision+1, updated_at=? WHERE business_id=? AND id=? AND revision=?",
+                if connection.execute("UPDATE data_tables SET project_id=?, revision=revision+1, updated_at=? WHERE project_id=? AND id=? AND revision=?",
                                       (destination, at, source, identity, row["revision"])).rowcount != 1:
                     raise DomainError("revision_conflict", "A table changed during the move; preview it again")
             for table in ("data_rows", "table_versions", *(("crm_entries",) if "crm_entries" in store else ())):
-                connection.execute(f"UPDATE {table} SET business_id=? WHERE business_id=? AND table_id IN " + marks(ids), (*params, *ids))
+                connection.execute(f"UPDATE {table} SET project_id=? WHERE project_id=? AND table_id IN " + marks(ids), (*params, *ids))
             # A message's references name records of the scope it was written in: the first relocation pins that scope.
-            connection.execute("UPDATE thread_messages SET business_id=?, reference_namespace=COALESCE(reference_namespace, ?) WHERE business_id=? "
+            connection.execute("UPDATE thread_messages SET project_id=?, reference_namespace=COALESCE(reference_namespace, ?) WHERE project_id=? "
                                "AND item_type='table' AND item_id IN " + marks(ids), (destination, namespace(source), source, *ids))
-            connection.execute("UPDATE thread_follows SET business_id=? WHERE business_id=? AND item_type='table' AND item_id IN " + marks(ids),
+            connection.execute("UPDATE thread_follows SET project_id=? WHERE project_id=? AND item_type='table' AND item_id IN " + marks(ids),
                                (*params, *ids))
             if "inbox_subscriptions" in store:
-                connection.execute("UPDATE inbox_subscriptions SET business_id=? WHERE business_id=? AND source_type='data_tables' AND source_id IN "
+                connection.execute("UPDATE inbox_subscriptions SET project_id=? WHERE project_id=? AND source_type='data_tables' AND source_id IN "
                                    + marks(ids), (*params, *ids))
             edges.carry(uow, source, destination, inspection.rows["edges"])
             for link in inspection.rows["links"]:
-                if link["business_id"] == destination:
+                if link["project_id"] == destination:
                     connection.execute("DELETE FROM project_item_links WHERE id=?", (link["id"],))
                 else:
-                    connection.execute("UPDATE project_item_links SET target_business_id=?, target_namespace=?, revision=revision+1, updated_at=? "
+                    connection.execute("UPDATE project_item_links SET target_project_id=?, target_namespace=?, revision=revision+1, updated_at=? "
                                        "WHERE id=?", (destination, namespace(destination), at, link["id"]))
             if inspection.rows["uploads"] is not None:
                 self.documents.apply(ctx, uow, inspection.rows["uploads"], move_id=move_id, at=at)
@@ -232,21 +232,21 @@ class TableRelocation:
                 for name, value in adapter.apply(uow, move, at).items():
                     counts[name] = counts.get(name, 0) + value
             for identity, row in inspection.rows["tables"].items():
-                connection.execute("INSERT INTO table_moves(move_id,table_id,source_business_id,destination_business_id,revision_before,actor_id,"
+                connection.execute("INSERT INTO table_moves(move_id,table_id,source_project_id,destination_project_id,revision_before,actor_id,"
                                    "moved_at) VALUES(?,?,?,?,?,?,?)", (move_id, identity, source, destination, row["revision"], ctx.principal_id, at))
             if watermark is not None:
                 # A relocation is not new activity: the capture triggers' rows would otherwise announce every moved row.
                 connection.execute("DELETE FROM inbox_changes WHERE id>?", (watermark,))
             self.verify(uow, move, inspection)
-        return {"moved": [{"id": identity, "business_id": destination} for identity in ids], "counts": counts}
+        return {"moved": [{"id": identity, "project_id": destination} for identity in ids], "counts": counts}
 
     @staticmethod
     def verify(uow, move, inspection):
         connection, ids = uow.connection, move.ids
-        left = sum(connection.execute(f"SELECT COUNT(*) FROM {table} WHERE business_id=? AND table_id IN " + marks(ids), (move.source, *ids)).fetchone()[0]
+        left = sum(connection.execute(f"SELECT COUNT(*) FROM {table} WHERE project_id=? AND table_id IN " + marks(ids), (move.source, *ids)).fetchone()[0]
                    for table in ("data_rows", "table_versions", *(("crm_entries",) if "crm_entries" in inspection.rows["store"] else ())))
-        left += connection.execute("SELECT COUNT(*) FROM data_tables WHERE business_id=? AND id IN " + marks(ids), (move.source, *ids)).fetchone()[0]
-        left += connection.execute("SELECT COUNT(*) FROM thread_messages WHERE business_id=? AND item_type='table' AND item_id IN " + marks(ids),
+        left += connection.execute("SELECT COUNT(*) FROM data_tables WHERE project_id=? AND id IN " + marks(ids), (move.source, *ids)).fetchone()[0]
+        left += connection.execute("SELECT COUNT(*) FROM thread_messages WHERE project_id=? AND item_type='table' AND item_id IN " + marks(ids),
                                    (move.source, *ids)).fetchone()[0]
         if left:
             raise DomainError("relocation_failed", "The move left records behind; nothing was changed")

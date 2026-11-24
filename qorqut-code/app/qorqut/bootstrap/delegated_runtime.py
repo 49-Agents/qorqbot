@@ -235,7 +235,7 @@ def claude_usage(raw):
 
 def _prompt(assignment, events, *, instructions, continuation=False):
     scope = {
-        "assignment_id": assignment["id"], "business_id": assignment.get("business_id"),
+        "assignment_id": assignment["id"], "project_id": assignment.get("project_id"),
         "scope": assignment.get("scope_json"), "objective": assignment.get("objective"),
         "approved_plan": assignment.get("plan_json"), "plan_revision": assignment.get("plan_revision"),
         "allowed_operations": assignment.get("allowed_operations_json"),

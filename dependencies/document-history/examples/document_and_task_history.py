@@ -14,10 +14,10 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from qorqut_business_docs_versioning import HistoryStore, initialize_schema
+from qorqut_docs_versioning import HistoryStore, initialize_schema
 
-BUSINESS_ID = "7f1c2d9e-0000-4000-8000-000000000001"
-NAMESPACE = f"business:{BUSINESS_ID}"
+PROJECT_ID = "7f1c2d9e-0000-4000-8000-000000000001"
+NAMESPACE = f"project:{PROJECT_ID}"
 
 
 @contextmanager
@@ -43,11 +43,11 @@ def save_brief(connection, history, content, actor_id, expected_version, event_i
         expected_version=expected_version, reason="Brief edit",
     )
     connection.execute(
-        "UPDATE businesses SET brief_version = ?, brief_updated_at = ? WHERE id = ?",
-        (saved.version, saved.created_at, BUSINESS_ID),
+        "UPDATE projects SET brief_version = ?, brief_updated_at = ? WHERE id = ?",
+        (saved.version, saved.created_at, PROJECT_ID),
     )
     history.append_event(
-        BUSINESS_ID, event_id, "document.updated", actor_id, f"Project brief saved as version {saved.version}",
+        PROJECT_ID, event_id, "document.updated", actor_id, f"Project brief saved as version {saved.version}",
         subject_type="document", subject_id="project-brief", occurred_at=saved.created_at,
         data={"namespace": NAMESPACE, "version": saved.version},
     )
@@ -55,21 +55,21 @@ def save_brief(connection, history, content, actor_id, expected_version, event_i
 
 
 def complete_task(connection, history, task_id, actor_id, event_id):
-    # Only a task of this business that the host actually updated gets a completion event.
+    # Only a task of this project that the host actually updated gets a completion event.
     row = connection.execute(
-        "SELECT title FROM tasks WHERE id = ? AND business_id = ?", (task_id, BUSINESS_ID)
+        "SELECT title FROM tasks WHERE id = ? AND project_id = ?", (task_id, PROJECT_ID)
     ).fetchone()
     if row is None:
-        raise LookupError(f"task {task_id!r} not found in business {BUSINESS_ID}")
+        raise LookupError(f"task {task_id!r} not found in project {PROJECT_ID}")
     title = row[0]
     completed_at = now()
     updated = connection.execute(
-        "UPDATE tasks SET status = 'done' WHERE id = ? AND business_id = ?", (task_id, BUSINESS_ID)
+        "UPDATE tasks SET status = 'done' WHERE id = ? AND project_id = ?", (task_id, PROJECT_ID)
     )
     if updated.rowcount != 1:
-        raise LookupError(f"task {task_id!r} was not updated in business {BUSINESS_ID}")
+        raise LookupError(f"task {task_id!r} was not updated in project {PROJECT_ID}")
     history.append_event(
-        BUSINESS_ID, event_id, "task.completed", actor_id, f"Completed: {title}",
+        PROJECT_ID, event_id, "task.completed", actor_id, f"Completed: {title}",
         subject_type="task", subject_id=task_id, occurred_at=completed_at,
     )
 
@@ -78,13 +78,13 @@ def create_example_database():
     connection = sqlite3.connect(":memory:", isolation_level=None)
     with transaction(connection):
         connection.execute(
-            "CREATE TABLE businesses (id TEXT PRIMARY KEY, name TEXT, brief_version INTEGER, brief_updated_at TEXT)"
+            "CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, brief_version INTEGER, brief_updated_at TEXT)"
         )
-        connection.execute("CREATE TABLE tasks (id TEXT PRIMARY KEY, business_id TEXT, title TEXT, status TEXT)")
-        connection.execute("INSERT INTO businesses (id, name) VALUES (?, 'Example Co')", (BUSINESS_ID,))
+        connection.execute("CREATE TABLE tasks (id TEXT PRIMARY KEY, project_id TEXT, title TEXT, status TEXT)")
+        connection.execute("INSERT INTO projects (id, name) VALUES (?, 'Example Co')", (PROJECT_ID,))
         connection.executemany(
             "INSERT INTO tasks VALUES (?, ?, ?, 'open')",
-            [("task-1", BUSINESS_ID, "Draft outline"), ("task-2", BUSINESS_ID, "Review notes")],
+            [("task-1", PROJECT_ID, "Draft outline"), ("task-2", PROJECT_ID, "Review notes")],
         )
         initialize_schema(connection)
     return connection, HistoryStore(connection)
@@ -111,16 +111,16 @@ def main():
         print(f"rolled back: {error}")
 
     latest = history.get_document(NAMESPACE, "project-brief")
-    brief_version = connection.execute("SELECT brief_version FROM businesses").fetchone()[0]
+    brief_version = connection.execute("SELECT brief_version FROM projects").fetchone()[0]
     statuses = dict(connection.execute("SELECT id, status FROM tasks ORDER BY id"))
     print(f"brief: history version {latest.version}, host brief_version {brief_version}")
     print(f"tasks: {statuses}")
-    for event in history.list_events(BUSINESS_ID).events:
+    for event in history.list_events(PROJECT_ID).events:
         print(f"event #{event.sequence} {event.kind}: {event.summary}")
 
     assert latest.version == brief_version == 1
     assert statuses == {"task-1": "done", "task-2": "open"}
-    assert [e.event_id for e in history.list_events(BUSINESS_ID).events] == ["evt-task-1", "evt-brief-1"]
+    assert [e.event_id for e in history.list_events(PROJECT_ID).events] == ["evt-task-1", "evt-brief-1"]
     connection.close()
 
 

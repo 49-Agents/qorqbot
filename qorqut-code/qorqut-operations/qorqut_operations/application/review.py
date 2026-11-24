@@ -1,8 +1,8 @@
-"""Where a prepared change is reviewed, and the trusted exceptions to "business content needs a business proposal".
+"""Where a prepared change is reviewed, and the trusted exceptions to "project content needs a project proposal".
 
-A globally owned operation may not stage effects on business-scoped rows: business content requires a separate
-business-owned proposal. A few v1 operations legitimately do (execution records of a global routine definition,
-membership grants of a global agent profile, one owner-selected document in the unified journal). Each such
+A globally owned operation may not stage effects on project-scoped rows: project content requires a separate
+project-owned proposal. A few v1 operations legitimately do (execution records of a global routine definition,
+one owner-selected document in the unified journal). Each such
 exception is a typed ``ReviewScopeException`` made by trusted composition and handed to ``Application``; there is
 no other way to widen the rule, and an unlisted effect still fails closed with ``invalid_plan``."""
 
@@ -76,13 +76,13 @@ class ReviewScopeException:
 
 
 def review_scope(context, plan, exceptions=()):
-    """The review destination of ``plan`` from its target ownership; business content in a global plan is
+    """The review destination of ``plan`` from its target ownership; project content in a global plan is
     refused unless a trusted exception permits that exact resource."""
-    business = plan.target_namespace.removeprefix("business:") if plan.target_namespace.startswith("business:") else None
-    scope = {"kind": "business", "business_id": business} if business else {"kind": "global"}
+    project = plan.target_namespace.removeprefix("project:") if plan.target_namespace.startswith("project:") else None
+    scope = {"kind": "project", "project_id": project} if project else {"kind": "global"}
     for change in plan.changes:
         target = change.resource
-        if target.business_id and business is None:
+        if target.project_id and project is None:
             if not any(exception.permits(context, plan, target) for exception in exceptions):
-                raise DomainError("invalid_plan", "Project content requires a separate business-owned proposal")
+                raise DomainError("invalid_plan", "Project content requires a separate project-owned proposal")
     return scope

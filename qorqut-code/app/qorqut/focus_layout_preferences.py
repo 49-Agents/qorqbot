@@ -352,7 +352,7 @@ def save_layout(runtime_directory, owner_id, agent_id, change):
 def _owned_agent(runtime, ctx, agent_id):
     """The canonical target agent ID once the caller is the active installation owner and the target an active registered agent."""
     with runtime.database.read() as uow:
-        ctx = runtime.application.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = runtime.application.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         if not is_active_installation_owner(uow, ctx.principal_id, ctx.principal_kind):
             raise DomainError('forbidden', 'Focus layouts are owner-only')
         if not isinstance(agent_id, str) or not _AGENT.fullmatch(agent_id):

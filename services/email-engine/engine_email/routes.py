@@ -38,7 +38,7 @@ class RouteEnsure(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     request_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
     client_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
-    business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
+    project_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
     sender_ref: str = Field(pattern=REF)
     generation: int = Field(ge=1, le=2**53)
     active: bool = True
@@ -49,37 +49,37 @@ class RouteDeactivate(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     request_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
     client_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,60}$")
-    business_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
+    project_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")
     generation: int = Field(ge=1, le=2**53)
 
 
-def _key(client_id, business_id):
-    return hashlib.sha256(f"{client_id}:{business_id}".encode()).hexdigest()[:32]
+def _key(client_id, project_id):
+    return hashlib.sha256(f"{client_id}:{project_id}".encode()).hexdigest()[:32]
 
 
-def route_id(client_id, business_id):
-    return "route-" + _key(client_id, business_id)
+def route_id(client_id, project_id):
+    return "route-" + _key(client_id, project_id)
 
 
-def archive_ref(client_id, business_id):
-    return "oa-" + _key(client_id, business_id)
+def archive_ref(client_id, project_id):
+    return "oa-" + _key(client_id, project_id)
 
 
-def _row(db, client_id, business_id):
-    row = db.execute("SELECT * FROM outreach_routes WHERE client_id=? AND business_id=?",
-        (client_id, business_id)).fetchone()
+def _row(db, client_id, project_id):
+    row = db.execute("SELECT * FROM outreach_routes WHERE client_id=? AND project_id=?",
+        (client_id, project_id)).fetchone()
     return dict(row) if row else None
 
 
 def routes_for(store, client_id):
     with store.connect() as db:
         return [dict(row) for row in db.execute(
-            "SELECT * FROM outreach_routes WHERE client_id=? ORDER BY business_id", (client_id,))]
+            "SELECT * FROM outreach_routes WHERE client_id=? ORDER BY project_id", (client_id,))]
 
 
-def route(store, client_id, business_id):
+def route(store, client_id, project_id):
     with store.connect() as db:
-        return _row(db, client_id, business_id)
+        return _row(db, client_id, project_id)
 
 
 def _save(store, current, changes):
@@ -100,15 +100,21 @@ def _save(store, current, changes):
 
 def view(service, row, *, request_id=None, operation=None):
     sender = next((item for item in service.settings.shared_senders if item.ref == row["sender_ref"]), None)
-    sender_available = bool(sender and sender.enabled and sender.permits_business(row["business_id"]))
+    sender_available = bool(sender and sender.enabled and sender.permits_project(row["project_id"]))
     ready = row["state"] == "ready" and bool(row["active"]) and sender_available
     blocker = row["blocker"]
     if row["state"] == "ready" and row["active"] and not sender_available:
         blocker = "sender_unavailable"
     result = {"route_id": row["route_id"], "revision": row["revision"], "generation": row["generation"],
-        "client_id": row["client_id"], "business_id": row["business_id"], "mailbox_ref": row["mailbox_ref"],
+        "client_id": row["client_id"], "project_id": row["project_id"], "mailbox_ref": row["mailbox_ref"],
         "purpose": row["purpose"], "sender_ref": row["sender_ref"], "active": bool(row["active"]),
         "state": row["state"], "ready": ready, "blocker": blocker, "updated_at": row["updated_at"]}
+    # Operational health is separate from the durable, revisioned route binding.
+    # A tab crash must not revoke approvals or change a campaign's route pin.
+    health = service.sender_health(sender) if sender else None
+    if health is not None:
+        result['sender_health'] = health
+        result['send_available'] = ready and health['status'] == 'healthy'
     if request_id is not None:
         result["receipt"] = {"request_id": request_id, **({"folder_operation": operation} if operation else {})}
     return result
@@ -123,7 +129,7 @@ def _begin(service, request, digest):
             (request.request_id,)).fetchone()
         if receipt and (receipt[0] != request.client_id or receipt[1] != digest):
             raise RouteConflict("route_request_conflict", "Route request ID was already used for another change")
-        current = _row(db, request.client_id, request.business_id)
+        current = _row(db, request.client_id, request.project_id)
         active = getattr(request, "active", False)
         sender_ref = getattr(request, "sender_ref", None)
         mailbox_ref = getattr(request, "mailbox_ref", None)
@@ -144,13 +150,13 @@ def _begin(service, request, digest):
                 (request.request_id, request.client_id, digest, "{}"))
         if current is None:
             stamp = now()
-            db.execute("""INSERT INTO outreach_routes(route_id,client_id,business_id,sender_ref,mailbox_ref,purpose,
+            db.execute("""INSERT INTO outreach_routes(route_id,client_id,project_id,sender_ref,mailbox_ref,purpose,
                 folder_name,folder_id,folder_attempts,active,generation,state,blocker,revision,created_at,updated_at)
                 VALUES(?,?,?,?,?,?,NULL,NULL,0,?,?,?,NULL,1,?,?)""",
-                (route_id(request.client_id, request.business_id), request.client_id, request.business_id,
+                (route_id(request.client_id, request.project_id), request.client_id, request.project_id,
                  sender_ref, mailbox_ref, None, int(active), request.generation,
                  "provisioning" if active else "disabled", stamp, stamp))
-            return _row(db, request.client_id, request.business_id), True
+            return _row(db, request.client_id, request.project_id), True
         if receipt and request.generation < current["generation"]:
             # An exact replay of a superseded request reports the current route unchanged.
             return current, False
@@ -177,14 +183,14 @@ def ensure(service, request):
     client = client_for(service, request.client_id)
     if not client.managed_routes:
         raise RouteRejected("managed_routes_disabled", "Managed routes are not enabled for this client")
-    if client.business_ids and request.business_id not in client.business_ids:
-        raise RouteRejected("client_business_restricted", "The client's static business scope excludes this business")
+    if client.project_ids and request.project_id not in client.project_ids:
+        raise RouteRejected("client_project_restricted", "The client's static project scope excludes this project")
     if not request.active:
         return deactivate(service, RouteDeactivate(request_id=request.request_id, client_id=request.client_id,
-            business_id=request.business_id, generation=request.generation), digest_source=request)
+            project_id=request.project_id, generation=request.generation), digest_source=request)
     sender = next((item for item in service.settings.shared_senders if item.ref == request.sender_ref), None)
-    if sender is None or not sender.permits_business(request.business_id):
-        raise RouteRejected("sender_outside_business", "The shared sender does not grant this business")
+    if sender is None or not sender.permits_project(request.project_id):
+        raise RouteRejected("sender_outside_project", "The shared sender does not grant this project")
     digest = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
     with service.send_lock, service.sync_lock:
         row, _ = _begin(service, request, digest)
@@ -201,20 +207,20 @@ def _provision(service, client, row):
         return row, None
     if row["mailbox_ref"] and row["purpose"] != "outreach_archive":
         box = next((item for item in service.settings.mailboxes if item.ref == row["mailbox_ref"]), None)
-        if box is None or box.business_id != row["business_id"] or (
+        if box is None or box.project_id != row["project_id"] or (
                 box.archive_only and box.sender_ref != row["sender_ref"]):
-            return _save(store, row, {"state": "failed", "blocker": "mailbox_outside_business"}), None
+            return _save(store, row, {"state": "failed", "blocker": "mailbox_outside_project"}), None
         return _save(store, row, {"state": "ready", "blocker": None, "purpose": box.purpose}), None
-    ref = archive_ref(client.client_id, row["business_id"])
+    ref = archive_ref(client.client_id, row["project_id"])
     existing = next((item for item in service.settings.mailboxes if item.ref == ref), None)
     if existing is not None:
-        if existing.business_id != row["business_id"] or existing.sender_ref != row["sender_ref"]:
-            return _save(store, row, {"state": "failed", "blocker": "mailbox_outside_business"}), None
+        if existing.project_id != row["project_id"] or existing.sender_ref != row["sender_ref"]:
+            return _save(store, row, {"state": "failed", "blocker": "mailbox_outside_project"}), None
         return _save(store, row, {"state": "ready", "blocker": None, "mailbox_ref": ref,
             "purpose": "outreach_archive", "folder_id": existing.folder_id}), None
     if not row["folder_name"]:
         # The random token is saved first; only this route's own create can carry it.
-        name = f"Outreach archive {row['business_id']} {secrets.token_hex(6)}"
+        name = f"Outreach archive {row['project_id']} {secrets.token_hex(6)}"
         row = _save(store, row, {"folder_name": name, "mailbox_ref": ref, "purpose": "outreach_archive"})
     operation = None
     folder_id = row["folder_id"]
@@ -226,7 +232,7 @@ def _provision(service, client, row):
                 "blocker": "archive_folder_" + ("uncertain" if exc.uncertain else "unavailable")}), operation
         if folder_id is None:
             return row, operation
-    box = Mailbox(ref=ref, folder_id=folder_id, business_id=row["business_id"], purpose="outreach_archive",
+    box = Mailbox(ref=ref, folder_id=folder_id, project_id=row["project_id"], purpose="outreach_archive",
         sender_ref=row["sender_ref"])
     with store.connect() as db:
         managed = db.execute("SELECT revision FROM managed_mailboxes WHERE ref=?", (ref,)).fetchone()
@@ -277,9 +283,9 @@ def deactivate(service, request, *, digest_source=None):
             # Queued work stops through the durable engine cancellation path.
             with service.store.connect() as db:
                 queued = [item[0] for item in db.execute("""SELECT i.request_id FROM integration_intents i
-                    JOIN sends s ON s.request_id=i.request_id WHERE i.client_id=? AND i.business_id=?
+                    JOIN sends s ON s.request_id=i.request_id WHERE i.client_id=? AND i.project_id=?
                     AND i.mailbox=? AND s.state='queued' AND json_extract(s.payload,'$.sender_ref')=?""",
-                    (request.client_id, request.business_id, row["mailbox_ref"], row["sender_ref"]))]
+                    (request.client_id, request.project_id, row["mailbox_ref"], row["sender_ref"]))]
             for request_id in queued:
                 result = service.store.cancel_send_if_queued(request_id, reason=REVOKED_REASON)
                 cancelled += result["state"] == "canceled"
@@ -287,11 +293,11 @@ def deactivate(service, request, *, digest_source=None):
         return {**view(service, row, request_id=request.request_id), "cancelled_queued": cancelled}
 
 
-def submit_permitted(service, client, mailbox_ref, business_id, sender_ref):
+def submit_permitted(service, client, mailbox_ref, project_id, sender_ref):
     """A managed route decides its own mailbox/sender binding; otherwise static scope applies."""
-    if client.business_ids and business_id not in client.business_ids:
+    if client.project_ids and project_id not in client.project_ids:
         return False
-    row = route(service.store, client.client_id, business_id)
+    row = route(service.store, client.client_id, project_id)
     if (row and row["mailbox_ref"] == mailbox_ref and sender_ref is not None
             and row["sender_ref"] == sender_ref):
         # Takes precedence over a static grant of the same mailbox, so shutdown always wins.
@@ -312,15 +318,15 @@ def mailbox_access(service, client, mailbox_ref):
 
 
 def handoff_scope(service, client):
-    """Mailboxes and businesses a handoff may name, including revoked routes' history."""
-    mailboxes, businesses = list(client.allowed_mailboxes), list(client.business_ids)
+    """Mailboxes and projects a handoff may name, including revoked routes' history."""
+    mailboxes, projects = list(client.allowed_mailboxes), list(client.project_ids)
     if client.managed_routes:
         for row in routes_for(service.store, client.client_id):
             if row["mailbox_ref"] and row["mailbox_ref"] not in mailboxes:
                 mailboxes.append(row["mailbox_ref"])
-            if businesses and row["business_id"] not in businesses:
-                businesses.append(row["business_id"])
-    return mailboxes, businesses
+            if projects and row["project_id"] not in projects:
+                projects.append(row["project_id"])
+    return mailboxes, projects
 
 
 def listing(service, client_id):

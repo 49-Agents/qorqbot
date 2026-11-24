@@ -45,7 +45,7 @@ the publication result confirms success.
 | --- | --- |
 | `conflict` | the head moved (stale `expected_revision`), the event ID is used with different input or is reserved by a queued edit, or the records changed ownership: read again and prepare a new reviewed plan. An edit is never rebased or auto-discarded |
 | `busy` (retryable) | the Context writer is busy, or another pending Context job must complete first: retry the same edit later |
-| `forbidden`, `policy_denied`, `business_archived` | the caller lacks the authority below, or it was revoked before publication |
+| `forbidden`, `policy_denied`, `project_archived` | the caller lacks the authority below, or it was revoked before publication |
 | `operation_unavailable` | no supervised pipeline is composed, or the Context cannot be read: retryable when so marked |
 
 ## Authority

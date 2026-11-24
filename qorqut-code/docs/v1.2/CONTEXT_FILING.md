@@ -81,7 +81,7 @@ only the `retry` action. The Context process view is `{context_queue: {...}}`, a
 
 ## Composition boundary
 
-The real host runtime does not compose the queue/filing tables or the driver, and `register_business_domains` is not given a
+The real host runtime does not compose the queue/filing tables or the driver, and `register_project_domains` is not given a
 `filing` port by it, so filing is unavailable in a stock runtime until that composition lands. The acceptance fixture
 (`app/tests/context_completion_support.py`) composes the real host policy, application, file effects, `DocumentOperations`,
 registered programs and `BackgroundService` with the Operations queue and filing storage, a real Context in a disposable

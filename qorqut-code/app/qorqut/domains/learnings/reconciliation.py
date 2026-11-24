@@ -25,7 +25,7 @@ In addition to merges/duplicates/contradicts, return:
   "earlier_quote":"exact supporting substring of earlier owner_quote",
   "later_quote":"exact supporting substring of later owner_quote"}].
 Judge each boolean independently; do not default them to true. same_subject means
-the SAME person, business, contract/obligation, time period and conditions, not
+the SAME person, project, contract/obligation, time period and conditions, not
 just matching names. complete means no unresolved part of the older claim remains.
 explicit means directly stated resolution or replacement, not your inference.
 earlier_uncertain is true only for an unresolved question or stated uncertainty.
