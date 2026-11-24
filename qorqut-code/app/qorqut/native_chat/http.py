@@ -17,6 +17,8 @@ Every agent runs as a headless session (see ``managed_runtime``). All routes are
   for a permission request, ``{"answers": {<question text>: <answer>}}`` for a question.
 * ``POST   .../close``      ``{expected_binding?}`` -> ``{closing}``: end the open session and turn the agent off.
 
+* ``POST   .../use-other-product`` ``{client?}`` -> the options view plus ``previous_client``, ``restarted``, ``continued``: move this
+  agent to the other product (or to ``client``), restart its open session on it and send it a notice (``account_switch.py``).
 * ``GET/POST .../options``  ``{client?, model?, effort?}`` -> ``{client, model, effort, effective_client, clients, session_open}``: the
   agent's launch options (``launch_options.py``); a change of ``client`` while a session is open is refused ``session_open``.
 
@@ -182,6 +184,12 @@ async def route(runtime, request, principal_id, parts, request_id):
         # Owner-only like every Chat route (the Authorization header was refused above). The fields are checked by the handler.
         from . import launch_options
         return ok(await run(partial(launch_options.change, chat, runtime, principal_id, agent_id, body)))
+    if tail == ["use-other-product"]:
+        # Move this agent to the other product (or to ``client``) and restart its session on it (``account_switch.py``).
+        checked_fields(body, {"client"})
+        if "client" in body and body["client"] not in ("claude", "codex"):
+            raise DomainError("validation_error", "client is claude or codex")
+        return ok(await run(partial(chat.account_switch.use_other_product, principal_id, agent_id, body.get("client"))))
     if tail == ["select"]:
         # The owner's explicit selection of the running native conversation: the one way to replace a selection.
         fields = {"provider", "conversation_id", "expected_generation"}

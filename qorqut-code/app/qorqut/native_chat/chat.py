@@ -20,6 +20,7 @@ from pathlib import Path
 import uuid
 
 from qorqut_operations.contracts import DomainError, Principal
+from qorqut import account_state
 from qorqut.bootstrap.client import path_has_symlink
 from qorqut.management.identity import installation_owner, require_protected_control
 from qorqut.native_archive import CaptureError
@@ -28,6 +29,7 @@ from qorqut.managed_runtime import mode
 
 from . import selection, store
 from .adapters import ManagedAdapter, TerminalAdapter
+from .account_switch import AccountSwitch
 from .attachment import AttachmentService
 from .arbiter import AgentLocks, InputArbiter, MANAGED_COMMAND, SESSION_CLOSED, TERMINAL_OFFLINE
 from .commands import unrunnable
@@ -107,7 +109,7 @@ _OPEN_REFUSALS = {
 _OWN_MESSAGE = frozenset({"cli_unavailable", "cli_not_signed_in", "resume_unavailable"})
 _OPEN_FAILED = ("driver_unavailable", "The session could not be started")
 # The fields of the managed state Chat shows (the dashboard reads exactly these under ``session.managed``).
-MANAGED_FIELDS = ("open", "phase", "activity", "turn_started_at", "can_stop", "pending", "last_turn_status", "turn_error", "closed_reason", "closed_text", "off")
+MANAGED_FIELDS = ("open", "phase", "activity", "turn_started_at", "can_stop", "pending", "last_turn_status", "turn_error", "turn_error_kind", "account_problem", "closed_reason", "closed_text", "off")
 # An answer to a permission request, or to a question: ``{"answers": {<question text>: <answer text>}}``.
 ANSWER_DECISIONS = ("allow", "deny")
 
@@ -135,6 +137,8 @@ class NativeChat:
                                     limits=lambda: (OPEN_TOTAL_SECONDS, OPEN_POLL_SECONDS, ROLE_GRACE_SECONDS, OPEN_RECORD_SECONDS))
         self.arbiter.opener = self.opener
         self.backend.adopt = self.adopt_session
+        # What follows a change of account: the sessions of the product are restarted, one agent can move to the other product.
+        self.account_switch = AccountSwitch(self)
 
     @classmethod
     def build(cls, runtime, *, probe: SessionProbe | None = None, adapter=None, archive_factory=None,
@@ -171,6 +175,8 @@ class NativeChat:
         # running one is found again when asked. Nothing stops hosts: they outlive the service on purpose.
         if self.managed is not None:
             self.managed.start()
+            from qorqut import agent_cli_sign_in
+            agent_cli_sign_in.set_completion_handler(self.account_switch.after_sign_in)
         self.backend.start()
 
     def stop_observer(self, timeout: float = 5) -> None:
@@ -337,10 +343,25 @@ class NativeChat:
         summary["open"] = bool(found.get("open"))
         summary["can_stop"] = bool(found.get("can_stop"))
         summary["pending"] = [dict(item) for item in found.get("pending") or () if isinstance(item, dict)]
+        summary["account_problem"] = self._account_problem(found)
         # ``off``: the owner ended this agent's session (or Ordubashy killed the worker) and nothing but the owner's own input
         # starts it again. A closed session that is not off is asleep: anything that reaches the agent opens it.
         summary["off"] = self._is_off(profile["agent_id"])
         return summary
+
+    @staticmethod
+    def _account_problem(found: dict):
+        """The notice for a session whose last turn ended in a usage limit or a sign-in problem (``account_state.problem``), else
+        None. It is the same in every chat of an agent on that product: ``managed_runtime.account_errors`` labels the turn, and the
+        account and the other product's readiness come from the status Settings shows (kept a short while)."""
+        kind, provider = found.get("turn_error_kind"), found.get("provider")
+        if kind not in ("usage_limit", "sign_in") or provider not in ("claude", "codex"):
+            return None
+        try:
+            return account_state.problem(provider, kind, found.get("turn_error_resets_at"), found.get("turn_error_resets_text"))
+        except Exception:  # noqa: BLE001 - the plain error text is still shown
+            LOG.debug("The account notice could not be composed", exc_info=True)
+            return None
 
     def _is_off(self, agent_id: str) -> bool:
         try:
