@@ -93,8 +93,8 @@ OPEN_RECORD_SECONDS = 600.0
 # What ``ManagedRuntime.ensure_open`` can fail with, as the refusal the owner sees (nothing was stored or sent). The message is
 # fixed here: a launcher's own detail may carry paths. ``code`` is what the dashboard's refusal table keys on.
 _OPEN_REFUSALS = {
-    "cli_unavailable": ("cli_unavailable", "The agent's client is not installed. Download it under Settings > Agents first"),
-    "cli_not_signed_in": ("cli_not_signed_in", "The agent's client is not signed in. Sign in under Settings > Agents first"),
+    "cli_unavailable": ("cli_unavailable", "The agent's client is not installed. Download it under Settings > Model/Provider first"),
+    "cli_not_signed_in": ("cli_not_signed_in", "The agent's client is not signed in. Sign in under Settings > Model/Provider first"),
     "resume_failed": ("resume_failed", "The earlier conversation could not be resumed, so no session was started"),
     "resume_unavailable": ("resume_unavailable", "The earlier conversation can't be continued because its file is missing. "
                                                  "Start a new conversation to carry on without it."),

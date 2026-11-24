@@ -201,7 +201,7 @@ END_TEXT = {
     "host_gone": "The session stopped unexpectedly. Send a message to start it again.",
     "host_error": "The session stopped because of an internal error. Send a message to start it again.",
     "resume_failed": "The earlier conversation could not be continued. Send a message to start it again, or start a new conversation.",
-    "driver_unavailable": "{client} could not be started. Check that it is installed and signed in under Settings > Agents, then send a message.",
+    "driver_unavailable": "{client} could not be started. Check that it is installed and signed in under Settings > Model/Provider, then send a message.",
     "invalid_launch": "The session could not be started. Send a message to try again.",
 }
 

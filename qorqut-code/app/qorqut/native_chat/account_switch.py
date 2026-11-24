@@ -1,7 +1,7 @@
 """What follows a change of account: restarting the sessions of the product that was signed in again, and moving one agent to the
 other product.
 
-Both are the owner's own actions (the sign-in on Settings > Agents; the button in an agent's chat). The owner has said agents may
+Both are the owner's own actions (the sign-in on Settings > Model/Provider; the button in an agent's chat). The owner has said agents may
 be interrupted for them, so nothing here asks, waits for a quiet moment or protects a running turn: a session is closed, then opened
 again.
 
@@ -135,7 +135,7 @@ class AccountSwitch:
             raise DomainError("validation_error", f"This agent already uses {table.NAMES[target]}.")
         if not ready(target):
             raise DomainError("cli_not_signed_in", f"{table.NAMES[target]} isn't installed and signed in yet. Do that under "
-                                                   "Settings > Agents first.")
+                                                   "Settings > Model/Provider first.")
         change = lambda: launch_options.change(chat, chat.runtime, principal_id, agent_id, {"client": target}, ready=ready)  # noqa: E731
         was_open = self.managed is not None and self._open(agent_id)
         if not was_open:

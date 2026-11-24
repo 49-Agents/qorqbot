@@ -26,7 +26,7 @@ CODES = (CLI_UNAVAILABLE, CLI_NOT_SIGNED_IN)
 READY = "ready"
 NAME_LIMIT = 40
 # Where the owner downloads, updates and signs in a client, and where an agent's client is chosen.
-PLACE = "Settings > Agents"
+PLACE = "Settings > Model/Provider"
 
 
 def _state(row) -> str:

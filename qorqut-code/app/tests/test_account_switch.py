@@ -219,7 +219,7 @@ class UseOtherProductTests(RestartCase):
         with self.assertRaises(DomainError) as refused:
             self.use()
         self.assertEqual((refused.exception.code, self.order, stored.read(self.paths, AGENT).client), ("cli_not_signed_in", [], None))
-        self.assertIn("Settings > Agents", refused.exception.message)
+        self.assertIn("Settings > Model/Provider", refused.exception.message)
 
     def test_terminals_cannot_move_to_codex(self):
         with mock.patch("qorqut.managed_runtime.mode.is_terminal", return_value=True):

@@ -45,10 +45,10 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 
 - Qorqbot downloads Claude Code and Codex itself; the owner never installs either one. With managed sessions nobody
   types a command or opens a terminal.
-- The owner connects one of them once, from the dashboard in the browser: **Settings > Agents**, then **Download** if
+- The owner connects one of them once, from the dashboard in the browser: **Settings > Model/Provider**, then **Download** if
   it is shown, then **Connect**, and sign in with their Claude or Codex account. Until one says Ready, no agent can
   start.
-- How agents run is one choice for the whole installation, in **Settings > Agents** under **How agents run**:
+- How agents run is one choice for the whole installation, in **Settings > Model/Provider** under **How agents run**:
   **Managed sessions (recommended)**, the default, or **Terminals (legacy)**. Only the owner can switch; an agent
   cannot. Switching ends every agent's session, and conversations carry over. Terminals need tmux on this computer and
   run Claude Code agents only. Ordubashy can see which applies: `agent_terminal_status` shows `managed: true` for an
@@ -64,7 +64,7 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   a switch to Terminals, Qorqbot starts each agent that was on and has a conversation to continue.
 - **End session** in the session line of Chat turns a managed agent off. An agent that is off stays off until the owner
   sends it a message. Ordubashy can also turn a worker off or on.
-- Which client an agent uses (Claude Code or Codex), and its model and effort, is set per agent in **Settings > Agents**.
+- Which client an agent uses (Claude Code or Codex), and its model and effort, is set per agent in **Settings > Model/Provider**.
   A model or effort change applies the next time the session opens. A client change needs the session closed (**End
   session** first) and starts a separate conversation; the old one stays in history.
 - Agents do not ask the owner for permission to run their tools. The only questions that reach the owner are ones an
@@ -90,7 +90,7 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
     is connected (see Calendar below).
   - **Journal**: the owner's notes, saved as they type.
 - **Learning Applier** is shown to the owner as **Overseer** and is available only when **Testing mode** is on
-  (**Settings > Agents**). Until then its entry says "Overseer, available in testing mode only" and opens nothing. With
+  (**Settings > Model/Provider**). Until then its entry says "Overseer, available in testing mode only" and opens nothing. With
   testing mode on, its pane has **Context** (the shared context the agents work from, which the owner can read and
   edit: Graph, People, Learning, Filed context) and **Changes** (proposed changes to how agents work, for review).
 - The divider between Chat and the right pane can be dragged.
@@ -179,7 +179,7 @@ Walkthrough**, or in the Mac app with **Help > Show Walkthrough**.
 - **Chat does not answer, or the agent shows as off**: if the owner ended the session, sending the agent a message turns
   it on. If Chat says the session could not open, it gives the reason. With Terminals, an agent that is offline has
   to be started in its Terminal first.
-- **The agent never starts**: open **Settings > Agents**. The client the agent uses must say Ready; press **Download** or
+- **The agent never starts**: open **Settings > Model/Provider**. The client the agent uses must say Ready; press **Download** or
   **Connect** if it does not. If only the other client is ready, set that one for the agent there.
 - **A message shows as not delivered or unconfirmed**: wait a moment, since the session may still be opening, then
   resend from Chat.
