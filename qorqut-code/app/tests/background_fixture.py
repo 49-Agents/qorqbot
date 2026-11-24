@@ -21,6 +21,8 @@ from qorqut.composition.assembly import host_assembly
 from qorqut.service.changes import ChangeFeed
 
 PROGRAM = 'example.idle_check'
+# A second program on its own queue, as a provider's programs are routed to theirs.
+OTHER_PROGRAM, OTHER_QUEUE = 'example.provider_check', 'provider'
 WRITES = ('INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'BEGIN IMMEDIATE')
 
 
@@ -72,8 +74,9 @@ def build(root, *, clock=None, run=None):
     def default_run(control, arguments):
         calls.append(arguments)
         return ProgramResult()
-    programs.register(Program(PROGRAM, 1, {'type': 'object', 'additionalProperties': False}, run or default_run,
-                              scope_kinds=('global',)))
+    for identity, queue in ((PROGRAM, 'general'), (OTHER_PROGRAM, OTHER_QUEUE)):
+        programs.register(Program(identity, 1, {'type': 'object', 'additionalProperties': False}, run or default_run,
+                                  scope_kinds=('global',), background_queue=queue))
     programs.freeze()
     authority = BackgroundAuthority(database, programs)
     with database.transaction() as uow:
@@ -84,17 +87,17 @@ def build(root, *, clock=None, run=None):
     routines = RoutineOperations(programs, authority, clock=clock)
     scheduler = RoutineScheduler(routines, database)
     background = BackgroundService(application, programs, authority, locks=LockPaths.under(root / 'locks'),
-                                   scheduler=scheduler, clock=clock)
+                                   scheduler=scheduler, clock=clock, queues={OTHER_QUEUE: [OTHER_PROGRAM]})
     return SimpleNamespace(database=database, programs=programs, authority=authority, routines=routines,
                            scheduler=scheduler, background=background, application=application, calls=calls, clock=clock)
 
 
-def routine(fixture, schedule='* * * * *'):
+def routine(fixture, schedule='* * * * *', program=PROGRAM):
     identity = new_id()
     with fixture.database.transaction() as uow:
         uow.repository('routines', project_id=None).insert({'namespace': 'global', 'id': identity, 'project_id': None,
             'name': 'Example', 'scope': 'global', 'target': 'root', 'schedule': schedule, 'timezone': 'UTC',
-            'status': 'active', 'job_kind': PROGRAM, 'arguments_json': {}, 'timeout_seconds': 60, 'metadata_json': {}})
+            'status': 'active', 'job_kind': program, 'arguments_json': {}, 'timeout_seconds': 60, 'metadata_json': {}})
     return identity
 
 
