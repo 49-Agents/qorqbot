@@ -63,3 +63,44 @@ test('every note has a close button that only closes it, and notes last 10 secon
   assert.equal(stopped,true);assert.deepEqual(calls,[]);
   box.children[0].listeners.click({target:{closest:()=>null}});await tick();assert.deepEqual(calls,[]);
 });
+
+test('a note with actions shows them on their own line, stays until handled and keeps clicks apart', async () => {
+  class Node {constructor(){this.listeners={};this.style={setProperty(){}};this.classList={add(){},remove(){}};} addEventListener(n,f){this.listeners[n]=f} setAttribute(){} remove(){} }
+  const box={children:[],appendChild(n){this.children.push(n)}},calls=[],timers=[],toasts=[];
+  const ctx={document:{createElement:()=>new Node()},$:()=>box,esc:String,agentGlyph:()=>'',requestAnimationFrame(){},setTimeout:(fn,ms)=>{timers.push({fn,ms});return timers.length},clearTimeout(){},Date,Promise};
+  vm.createContext(ctx);const s=source('core.js');vm.runInContext(s.slice(s.indexOf('const NOTE_MAX'),s.indexOf('// ---------------------------------------------------------------- byte formatting'))+'\nthis.notify=notify;',ctx);
+  let fail=true;
+  ctx.notify({text:'Text Fares.',sub:'Reminder · due now',reminder:true,onClick:()=>calls.push('open'),actions:[
+    {label:'In 1 hour',run:()=>calls.push('hour')},{label:'Tomorrow',run:()=>calls.push('tomorrow')},{label:'Done',run:async()=>{if(fail)throw new Error('Could not dismiss');calls.push('done');}}]});
+  const el=box.children[0];
+  assert.match(el.className,/has-actions/);
+  assert.match(el.innerHTML,/<span class="reply-name">Text Fares.<\/span><span class="reply-preview">Reminder · due now<\/span>/);
+  assert.match(el.innerHTML,/<div class="toast-actions sg-body sg-chat"><div class="sg"><div class="sg-actions"><button type="button" class="sg-reject" data-note-action="0">In 1 hour<\/button><button type="button" class="sg-reject" data-note-action="1">Tomorrow<\/button><button type="button" class="sg-approve sg-primary-action" data-note-action="2">Done<\/button>/);
+  assert.equal(timers.length,0);
+  const button=index=>({dataset:{noteAction:String(index)}}),click=index=>{const b=button(index);let stopped=false;el.listeners.click({target:{closest:sel=>sel==='[data-note-action]'?b:null},stopPropagation(){stopped=true}});return stopped;};
+  assert.equal(click(0),true);await tick();assert.deepEqual(calls,['hour']);
+  // A failed action keeps its note and shows the error as a toast.
+  ctx.notify({text:'Second',reminder:true,onClick:()=>calls.push('open2'),actions:[{label:'Done',run:async()=>{throw new Error('Could not dismiss');}}]});
+  const second=box.children.at(-1),before=box.children.length;
+  second.listeners.click({target:{closest:sel=>sel==='[data-note-action]'?{dataset:{noteAction:'0'}}:null},stopPropagation(){}});await tick();await tick();
+  assert.equal(box.children.length,before+1);assert.match(box.children.at(-1).innerHTML,/Could not dismiss/);assert.deepEqual(calls,['hour']);
+  // Clicking the card itself still opens the detail.
+  second.listeners.click({target:{closest:()=>null}});await tick();assert.deepEqual(calls,['hour','open2']);
+});
+
+test('a due reminder note offers In 1 hour, Tomorrow and Done wired to snooze and dismiss', async () => {
+  const writes=[],notes=[];
+  const reminder={reminder_id:'r',recipient_id:'owner',revision:7,state:'due',occurrence_id:'one',text:'Text Fares.',due_at:new Date().toISOString()};
+  const ctx={document:{addEventListener(){},dispatchEvent(){}},window:{addEventListener(){}},Event:class{},state:{session:{principal_id:'owner'},projects:[]},
+    loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`k${writes.length}`,coreData:x=>x,Date,Intl,Map,Set,JSON,Promise,
+    setTimeout:()=>0,clearTimeout(){},notify:n=>notes.push(n),
+    post:async(url,args)=>{if(url.endsWith('reminders_list'))return {reminders:[reminder]};writes.push({url,args:{...args}});return {reminder:{...reminder,state:'scheduled',occurrence_id:null}};}};
+  vm.createContext(ctx);vm.runInContext(source('relative-time.js')+source('reminders.js'),ctx);
+  await tick();await tick();await tick();
+  assert.equal(notes.length,1);assert.equal(notes[0].text,'Text Fares.');assert.equal(notes[0].sub,'Reminder · due now');
+  assert.deepEqual(Array.from(notes[0].actions,a=>a.label),['In 1 hour','Tomorrow','Done']);
+  await notes[0].actions[0].run();assert.match(writes[0].url,/reminders_snooze$/);assert.equal(writes[0].args.occurrence_id,undefined);
+  const hour=Date.parse(writes[0].args.at)-Date.now();assert.ok(hour>3500000&&hour<3700000);
+  await notes[0].actions[1].run();assert.equal(new Date(writes[1].args.at).getHours(),9);
+  await notes[0].actions[2].run();assert.match(writes[2].url,/reminders_dismiss$/);assert.equal(writes[2].args.occurrence_id,'one');
+});

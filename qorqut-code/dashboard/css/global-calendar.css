@@ -165,6 +165,7 @@
 .calendar-guests small { flex: none; color: var(--fg-2); }
 .calendar-focus-actions { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-2); }
 .calendar-focus-actions button { min-height: 32px; padding: 0 14px; }
+.calendar-focus-actions:empty { display: none; }
 @media(max-width:600px) { .calendar-meta-row { grid-template-columns: 1fr; gap: 2px; } }
 .calendar-detail a { text-decoration: underline; text-underline-offset: 2px; }
 .calendar-personal-status [data-calendar-status-retry] { justify-self: start; min-height: 28px; padding: 0 12px; }

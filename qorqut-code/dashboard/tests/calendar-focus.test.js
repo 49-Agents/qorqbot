@@ -17,11 +17,28 @@ function harness() {
     after(child) { this.retry = child; }
     remove() { this.removed = true; if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); }
     focus() { this.focused = true; }
-    querySelectorAll(selector) { return selector === '.mfoot button' ? this.footer.children : selector === '[data-calendar-status-choice]' ? this.pills || [] : []; }
+    closest() { return null; }
+    querySelectorAll(selector) {
+      if (selector === '.mfoot button') return this.footer.children;
+      if (selector === '.sg-actions button') return this.cardButtons || [];
+      const attribute = /^\[(data-[a-z-]+)\]$/.exec(selector);
+      if (attribute) return this.cardButtons ? this.cardButtons.filter(b => attribute[1] in b.attributes) : attribute[1] === 'data-calendar-status-choice' ? this.pills || [] : [];
+      return [];
+    }
     set innerHTML(value) {
       this.html = value;
       if (value.includes('calendar-focus-content')) {
         const root = this.firstElementChild = new Element(); root.footer = new Element(); root.error = new Element(); root.note = new Element(); root.pills = ['pending','completed','cancelled','rescheduled'].map(v => { const pill = new Element(); pill.dataset.calendarStatusChoice = v; pill['aria-pressed'] = 'false'; return pill; }); root.meetOption = new Element(); root.review = new Element();
+        if (value.includes('sg-focus')) {
+          // The Signoff card: its buttons, found by their data attribute.
+          root.cardButtons = [...value.matchAll(/<button type="button" class="([^"]*)" (data-[a-z-]+)(?:="([^"]*)")?>([\s\S]*?)<\/button>/g)].map(m => {
+            const button = new Element(); button.className = m[1]; button.attributes = {[m[2]]: m[3] ?? ''}; button.textContent = m[4].replace(/<[^>]*>/g, '');
+            button.dataset = {[m[2].slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())]: m[3] ?? ''}; button.currentTarget = button; return button;
+          });
+          root.pills = root.cardButtons.filter(b => 'data-calendar-status-choice' in b.attributes);
+          root.html = value;
+          root.notice = /<p class="sg-notice">([^<]*)<\/p>/.exec(value)?.[1];
+        }
         if (value.includes('calendar-form')) {
           const form = root.form = new Element(); form.elements = {};
           for (const match of value.matchAll(/<(input|select|textarea)\b([^>]*)>(?:([^<]*))?/g)) {
@@ -68,6 +85,7 @@ function harness() {
   return {context,run,occurrence,calendar,calls,notices,flush,button,get session(){return session;},focusWindow:()=>{for (const fn of windowListeners) fn();},success: operation => {successOperation=operation;},setOwner: value => {owner=value;},choose: label => { const prompt=session.host.children.at(-1); const option=prompt.children.find(b=>b.textContent===label); assert.ok(option); option.onclick(); },defer:()=>{deferRead=true;},resolveRead:()=>resolveRead(),respond:()=>rejectResponse(Error('Provider mutation intentionally rejected'))};
 }
 
+const card = (root, label) => root.cardButtons.find(b => b.textContent === label);
 const pill = (root, status) => root.pills.find(p => p.dataset.calendarStatusChoice === status);
 
 test('editing app-local times preserves unchanged instants and the provider recurrence zone', async () => {
@@ -370,4 +388,64 @@ test('status pills: unknown state selects nothing, disables pills and offers Ret
   await root.pills[1].onclick(); assert.equal(h.calls.filter(c=>c.url==='/root/calendar-statuses').length,0);
   assert.ok(root.note.retry); h.context.api=async()=>({items:[]}); await root.note.retry.onclick();
   assert.deepEqual(root.pills.filter(p=>p['aria-pressed']==='true').map(p=>p.dataset.calendarStatusChoice),['pending']); assert.ok(root.pills.every(p=>!p.disabled));
+});
+
+// The Focus strip opens an event as a Signoff card with the personal status choices.
+async function openCard(h, minutesFromNow, durationMinutes, onDone, extra = {}) {
+  const start = Date.now() + minutesFromNow * 60000;
+  Object.assign(h.occurrence, {series_id:null, start:new Date(start).toISOString(), end:new Date(start + durationMinutes * 60000).toISOString(), description:'Prep call https://ok.example/x', attendees:[{email:'me@example.com',status:'accepted'},{email:'guest@example.com',status:'needsAction'}], ...extra});
+  h.context.event = h.occurrence; h.context.calendars = [h.calendar]; h.context.done = onDone;
+  const base = h.context.post;
+  h.context.post = async (url, args) => {
+    if (url !== '/root/calendar-statuses') return base(url, args);
+    h.calls.push({url, args});
+    return {item:{connection_id:args.connection_id, calendar_id:args.calendar_id, event_id:args.event_id, occurrence_start:args.occurrence_start, status:args.status, revision:(args.expected_revision || 0) + 1}};
+  };
+  await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, () => {}, event, null, {card:true, onDone:done})'); await h.flush();
+  return h.session.host.firstElementChild;
+}
+const labels = root => root.cardButtons.map(b => b.textContent);
+
+test('an upcoming event card shows the start in the notice, the guests and the before-end actions', async () => {
+  const h = harness(); const root = await openCard(h, 14, 30, () => {});
+  assert.match(root.notice, /^Starts in 14 min · .* · Work$/);
+  assert.match(root.html, /Prep call <a href="https:\/\/ok.example\/x"/);
+  assert.match(root.html, /<p>With guest@example.com \(awaiting response\)<\/p>/);
+  assert.deepEqual(labels(root), ['Delete', 'Edit event', 'Rescheduled', 'Cancelled', 'Got it']);
+  assert.match(card(root, 'Got it').className, /sg-primary-action/);
+  assert.equal(h.session.host.firstElementChild.footer.children.length, 0);
+});
+
+test('an ended event card asks whether it happened and the choices save the matching personal status', async () => {
+  for (const [label, status] of [['It happened', 'completed'], ["Didn't happen", 'cancelled'], ['Rescheduled', 'rescheduled']]) {
+    const h = harness(); let discarded = 0; const root = await openCard(h, -50, 30, () => { discarded++; });
+    assert.match(root.notice, /^Ended 20 min ago · .* · Work · did it happen\?$/);
+    assert.deepEqual(labels(root), ['Delete', 'Rescheduled', "Didn't happen", 'It happened']);
+    await card(root, label).onclick({currentTarget: card(root, label)}); await h.flush();
+    const write = h.calls.find(call => call.url === '/root/calendar-statuses');
+    assert.equal(write.args.status, status); assert.equal(write.args.event_id, 'occ');
+    assert.equal(discarded, 1); assert.equal(h.session.isCurrent(), false);
+  }
+});
+
+test('Got it only discards the chip, Edit event and Delete keep their flows and a failed save keeps the card open', async () => {
+  const h = harness(); let discarded = 0; const root = await openCard(h, 5, 30, () => { discarded++; });
+  await card(root, 'Edit event').onclick({currentTarget: card(root, 'Edit event')}); await h.flush(); assert.equal(h.session.title, 'Edit event');
+  await h.button('Cancel').onclick(); await h.flush(); assert.equal(h.session.title, 'Meeting');
+  const again = h.session.host.firstElementChild;
+  await card(again, 'Delete').onclick({currentTarget: card(again, 'Delete')}); await h.flush(); assert.equal(h.session.title, 'Delete event?');
+  await h.button('Cancel').onclick(); await h.flush();
+  const back = h.session.host.firstElementChild, before = h.calls.length;
+  await card(back, 'Got it').onclick({currentTarget: card(back, 'Got it')}); await h.flush();
+  assert.equal(discarded, 1); assert.equal(h.calls.filter(call => call.url === '/root/calendar-statuses').length, 0); assert.equal(h.calls.length, before);
+  assert.equal(h.session.isCurrent(), false);
+});
+
+test('the card keeps Accept, Maybe and Decline while the owner must respond and an unsaved status leaves it open', async () => {
+  const h = harness(); let discarded = 0;
+  const root = await openCard(h, 5, 30, () => { discarded++; }, {attendees:[{email:'me@example.com',status:'needsAction'}]});
+  assert.deepEqual(labels(root).slice(0, 3), ['Accept', 'Maybe', 'Decline']);
+  h.context.post = async () => { throw Object.assign(new Error('nope'), {httpStatus:400}); };
+  await card(root, 'Cancelled').onclick({currentTarget: card(root, 'Cancelled')}); await h.flush();
+  assert.match(root.note.textContent, /Not saved/); assert.equal(discarded, 0); assert.equal(h.session.isCurrent(), true);
 });

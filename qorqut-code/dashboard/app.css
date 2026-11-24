@@ -300,6 +300,11 @@ details[open] summary { color: var(--fg); }
 .reply-toast .reply-icon { display: inline-flex; flex: none; width: 28px; height: 28px; }
 .reply-toast .reply-icon svg { width: 28px; height: 28px; }
 .reply-toast .reply-copy { min-width: 0; flex: 1; }
+/* A note with actions wraps its Signoff action row onto its own line under the text. */
+.toast.reply-toast.has-actions { flex-wrap: wrap; }
+.reply-toast .toast-actions { flex: 0 0 100%; min-width: 0; }
+.reply-toast .toast-actions .sg { padding: 0; }
+.reply-toast .toast-actions .sg-actions { margin-top: 10px; }
 .reply-toast .reply-name { display: block; font-size: 12px; font-weight: 600; line-height: 18px; color: var(--fg); }
 .reply-toast .reply-preview { display: block; font-size: 13px; font-weight: 400; line-height: 20px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Reminders and every other note use the same card (core.js notePump): the icon takes the note's colour (an error is red), and a

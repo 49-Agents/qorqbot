@@ -5,7 +5,7 @@ const attentionQueue=(()=>{
   let queueRows=[];
   // Calendar events join the strip an hour before they start and leave it two hours after they end, or when the owner discards
   // them (saved on the server). The minute signoff refresh repaints, so a chip leaves within a minute of its retire time.
-  let calendarRows=[],calendarCalendars=[],calendarError='',discardedKeys=new Set();
+  let calendarRows=[],calendarCalendars=[],calendarError='',calendarLoaded=false,discardedKeys=new Set();
   const pendingDiscards=new Set();
   const mounts=new Set(),lists=new Set(),acknowledged=new Set(),signoffMounts=new Map();
   // Signoffs the owner just marked unread from the strip, shown unread until the server answers.
@@ -301,6 +301,7 @@ const attentionQueue=(()=>{
       }
       host.hidden=!markup && !signoffsError && !remindersError && !calendarError;
     }
+    notifyCalendar();
     paintSelection();
   }
   async function loadSignoffs(){
@@ -330,7 +331,7 @@ const attentionQueue=(()=>{
   // The browser reads the owner's calendars itself. A failed read keeps the last events; losing access removes them.
   async function loadCalendar(){
     if(typeof calendarQueueLoad!=='function')return;
-    try{const data=await calendarQueueLoad();calendarRows=data.items;calendarCalendars=data.calendars;calendarError=data.errors.join(' · ');}
+    try{const data=await calendarQueueLoad();calendarRows=data.items;calendarCalendars=data.calendars;calendarError=data.errors.join(' · ');calendarLoaded=true;}
     catch(e){
       if(accessLost(e)){calendarRows=[];calendarCalendars=[];calendarError='';}
       else calendarError=e.message || 'Calendar unavailable';
@@ -377,6 +378,25 @@ const attentionQueue=(()=>{
     const reminder=dueReminders.find(r=>r.reminder_id===chip.dataset.reminderKey);
     if(reminder)void remindersDismissDue(reminder).catch(error=>toast(error.message || 'Could not dismiss reminder.'));
   }
+  // A strip event opens as a Signoff card; saving its status or "Got it" takes its chip off the strip.
+  const openCalendarRow=(row,origin)=>Promise.resolve(calendarOpen(row.event,calendarCalendars,()=>{},row.event,origin,{card:true,onDone:()=>discardCalendar(row.key)}));
+  // Each event pops up once per page session when its chip first shows; events already over at page load stay quiet.
+  const calendarNotified=new Set();let calendarNotifyStarted=false;
+  function notifyCalendar(){
+    try{
+      if(typeof notify!=='function' || typeof calendarToastLine!=='function' || (typeof embeddedAgentPane!=='undefined' && embeddedAgentPane))return;
+      if(!calendarLoaded || !queueOkAt)return;
+      const now=Date.now(),first=!calendarNotifyStarted;calendarNotifyStarted=true;
+      for(const row of calendarVisible()){
+        if(calendarNotified.has(row.key))continue;
+        calendarNotified.add(row.key);
+        if(first && calendarEventSpan(row.event).end<=now)continue;
+        notify({text:row.event.title||'Event',sub:calendarToastLine(row.event,now),icon:typeof T_VIEW_ICON==='object'?T_VIEW_ICON.calendar:undefined,
+          onClick:()=>openCalendarRow(row,document.activeElement),
+          actions:[{label:'Open',run:()=>openCalendarRow(row,document.activeElement)},{label:'Got it',run:()=>discardCalendar(row.key)}]});
+      }
+    }catch(e){console.error(e);}
+  }
   function signoffClick(event){
     if(event.target.closest('[data-reminder-recovery-check]')){void refreshReminderRecovery();return;}
     if(event.target.closest('[data-reminder-recovery]')){void remindersOpenUnconfirmed();return;}
@@ -385,7 +405,7 @@ const attentionQueue=(()=>{
     if(calendarChip){
       const row=calendarRows.find(item=>item.key===calendarChip.dataset.calendarKey);
       // Provider writes made from the event dialog reach the strip through the calendar change listener.
-      if(row)void Promise.resolve(calendarOpen(row.event,calendarCalendars,()=>{},row.event,calendarChip)).catch(e=>toast(e.message));
+      if(row)void openCalendarRow(row,calendarChip).catch(e=>toast(e.message));
       return;
     }
     if(event.target.closest('[data-filings-group]')){void filingsOpen().catch(e=>toast(e.message));return;}
@@ -398,7 +418,7 @@ const attentionQueue=(()=>{
     loading=true;const request=++generation;
     try{const data=coreData(await api('/root/attention-queue'));if(request===generation){acceptQueue(data);error='';queueOkAt=Date.now();}}
     catch(e){if(request===generation){error=e.message;if(accessLost(e)){acceptQueue({});queueOkAt=0;}}}
-    finally{loading=false;paintAll();}
+    finally{loading=false;paintAll();notifyCalendar();}
   }
   // One read at a time. Explicit triggers (focus, reply change, retry) arriving in flight
   // record a single trailing read and resolve after it; the poll timer never does.
@@ -522,7 +542,7 @@ const attentionQueue=(()=>{
   document.addEventListener('reply-notifications-changed',()=>{if(signoffMounts.size)paintSignoffs();if(mounts.size || signoffMounts.size)void refresh();});
   window.addEventListener('focus',()=>{if(mounts.size || signoffMounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size)void refreshReminderRecovery();});
   if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();if(mounts.size || signoffMounts.size)void refresh();});
-  return {signoffViewed,reminderViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
+  return {discardCalendar,signoffViewed,reminderViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
     mountSignoffs(host,name,opener){const calendarListener=()=>void refreshSignoffs();if(typeof calendarChanges!=='undefined')calendarChanges.add(calendarListener);signoffMounts.set(host,{name,opener,calendarListener});host.addEventListener('click',signoffClick);host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refresh(true);void refreshReminderRecovery();
       return ()=>{if(typeof calendarChanges!=='undefined')calendarChanges.delete(calendarListener);if(selected?.host===host)clearSelection(selected);signoffMounts.delete(host);host.removeEventListener('click',signoffClick);host.removeEventListener('contextmenu',reminderContextMenu);delete host._signoffHTML;if(!signoffMounts.size){clearTimeout(signoffTimer);if(!mounts.size)clearTimeout(timer);}};},
     mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh(true);

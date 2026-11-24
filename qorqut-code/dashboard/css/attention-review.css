@@ -66,11 +66,10 @@
 .agfocus-review-open .sg .sg-actions .sg-approve{order:2}
 .agfocus-review-open .sg .sg-actions .sg-primary-action,.agfocus-review-open .rem-actions .primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
 .agfocus-review-open .rem-actions .primary{order:2}
-.agfocus-review-open .rem-actions .danger{color:var(--danger);border-color:var(--danger)}
+.agfocus-review-open .rem-actions .danger,.agfocus-review-open .sg .sg-actions .danger{color:var(--danger);border-color:var(--danger)}
 .agfocus-reminder-open .agfocus-surface-body:has(.rem-detail){flex:1}
 .agfocus-reminder-open .rem-detail{display:flex;flex-direction:column;flex:1;min-height:0;max-width:none}
 .agfocus-reminder-open .rem-text{display:none}
-.agfocus-reminder-open .rem-detail-body{flex:1;min-height:0;overflow:auto;padding:0 4px 16px 0}
 .agfocus-reminder-open .rem-actions{flex:none;padding:12px 0 0;margin:0}
 .agfocus-reminder-open .rem-fields{grid-template-columns:88px minmax(0,1fr);gap:12px;margin:0}
 .agfocus-reminder-open .rem-snooze{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}

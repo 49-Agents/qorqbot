@@ -667,7 +667,63 @@ function calendarReviewOpen(origin) {
   });
 }
 
-async function calendarOpen(event, calendars, refresh, clicked = event, origin = document.activeElement) {
+// The Focus strip opens an event as a Signoff card: the "when" is the grey notice line, the body is the description and
+// guests, and the actions are the personal tracking choices. Before the end it asks for a quick "Got it"; after the end,
+// whether it happened.
+const calendarCheck = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7"/></svg>';
+function calendarEventSpan(event) {
+  const allDay = event.start.length === 10;
+  const start = +(allDay ? calendarDayStart(event.start) : new Date(event.start));
+  const endValue = typeof event.end === 'string' && event.end ? event.end : '';
+  const end = endValue ? +(endValue.length === 10 ? calendarDayStart(endValue) : new Date(endValue)) : start;
+  return {start, end: Number.isFinite(end) ? end : start};
+}
+const calendarMinutes = ms => { const m = Math.max(1, Math.round(ms / 60000)); return m < 60 ? `${m} min` : `${Math.round(m / 60)} ${Math.round(m / 60) === 1 ? 'hour' : 'hours'}`; };
+function calendarCardNotice(event, calendar, now = Date.now()) {
+  const {start, end} = calendarEventSpan(event), when = calendarEventWhen(event);
+  let lead;
+  if (now >= end) lead = `Ended ${calendarMinutes(now - end)} ago`;
+  else if (now >= start) lead = 'Happening now';
+  else if (start - now <= 3600000) lead = `Starts in ${calendarMinutes(start - now)}`;
+  else lead = `Starts at ${event.start.length === 10 ? calendarDateLabel(event.start) : calendarTime(new Date(event.start))}`;
+  return [lead, when, calendar?.name || '', now >= end ? 'did it happen?' : ''].filter(Boolean).join(' · ');
+}
+// The pop-up's grey line: "Starts in 14 min · 11:00 PM – 11:30 PM".
+function calendarToastLine(event, now = Date.now()) {
+  const lead = calendarCardNotice(event, null, now).split(' · ')[0];
+  const time = event.start.length === 10 ? 'All day' : calendarTimeRange(new Date(event.start), new Date(event.end));
+  return `${lead} · ${time}`;
+}
+function calendarCardBody(event, calendar, attendee, now = Date.now()) {
+  const ended = now >= calendarEventSpan(event).end;
+  const own = new Set((calendar?.organizers || []).map(address => address.toLowerCase()));
+  const guests = (event.attendees || []).filter(a => !own.has(String(a.email).toLowerCase()));
+  const meet = event.meet_url && /^https:\/\/meet\.google\.com\//.test(event.meet_url) ? `<a href="${esc(event.meet_url)}" target="_blank" rel="noopener noreferrer">Join Google Meet</a>` : '';
+  const where = [event.location ? calendarLinkify(event.location) : '', meet].filter(Boolean).join(' · ');
+  const body = [
+    event.description ? `<div class="calendar-description">${calendarLinkify(event.description)}</div>` : '',
+    guests.length ? `<p>With ${guests.map(a => `${esc(calendarDisplayAddress(a.email))} (${esc(calendarGuestLabel(a.status).toLowerCase())})`).join(', ')}</p>` : '',
+    where ? `<p>${where}</p>` : ''].filter(Boolean).join('');
+  const button = (label, attrs = '', cls = 'sg-reject') => `<button type="button" class="${cls}" ${attrs}>${cls.includes('primary') ? calendarCheck : ''}${esc(label)}</button>`;
+  const status = (label, value, primary) => button(label, `data-calendar-status-choice="${value}"`, primary ? 'sg-approve sg-primary-action' : 'sg-reject');
+  const actions = [
+    ...(attendee?.status === 'needsAction' ? [['accepted','Accept'],['tentative','Maybe'],['declined','Decline']].map(([value,label]) => button(label, `data-card-respond="${value}"`)) : []),
+    ...(event.series_id && event.series_id !== event.id ? [button('Open series', 'data-card-series')] : []),
+    ...(calendar?.writable ? [button('Delete', 'data-card-delete')] : []),
+    ...(ended
+      ? [status('Rescheduled','rescheduled'), status("Didn't happen",'cancelled'), status('It happened','completed',true)]
+      : [...(calendar?.writable ? [button('Edit event', 'data-card-edit')] : []), status('Rescheduled','rescheduled'), status('Cancelled','cancelled'), button('Got it', 'data-card-ack', 'sg-approve sg-primary-action')])];
+  return `<div class="sg-focus sg-body sg-single"><div class="sg"><section class="sg-toread"><div class="sg-rows">
+    <article class="sg-row sg-open" data-state="pending" data-input="1" data-kind="acknowledge"><div class="sg-detail"><div class="sg-detail-body">
+      <div class="sg-attention-meta"><p class="sg-notice">${esc(calendarCardNotice(event, calendar, now))}</p></div>
+      ${body ? `<div class="sg-preview"><div class="sg-report">${body}</div></div>` : ''}
+      <p class="sg-notice calendar-status-note" role="status"></p><p class="ferr calendar-detail-error" role="alert"></p>
+      <div class="sg-actions">${actions.join('')}</div>
+    </div></div></article></div></section></div></div>`;
+}
+
+// `opts.card` (from the Focus strip) shows the Signoff card; `opts.onDone` runs after a status is saved or "Got it" is pressed.
+async function calendarOpen(event, calendars, refresh, clicked = event, origin = document.activeElement, opts = {}) {
   const statusTarget = calendarStatusTarget(clicked);
   return calendarSurface(event.title || 'Event',origin, async surface => {
     let detailGeneration = 0;
@@ -687,6 +743,31 @@ async function calendarOpen(event, calendars, refresh, clicked = event, origin =
             try { if (await calendarSubmitAttempt(attempt,refresh,surface)) close(); else el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
             catch (error) { $('.calendar-detail-error',el).textContent = error.message; el.querySelectorAll('.mfoot button').forEach(button => button.disabled = false); }
           }}); }) : [];
+        if (opts.card) {
+          const respond = (response, el) => {
+            const key = newRequestId(), attempt = calendarAttempt('calendar_event_respond',{...calendarTarget(event),attendee:attendee.email,response},key,clicked,calendar);
+            return (async () => {
+              el.querySelectorAll('.sg-actions button').forEach(button => button.disabled = true);
+              try { if (await calendarSubmitAttempt(attempt,refresh,surface)) { await surface.close(); return; } }
+              catch (error) { $('.calendar-detail-error',el).textContent = error.message; }
+              el.querySelectorAll('.sg-actions button').forEach(button => button.disabled = false);
+            })();
+          };
+          await surface.show({title:event.title || 'Event', body:calendarCardBody(event,calendar,attendee), actions:[], onBack:() => surface.close(), onOpen:el => {
+            const area = el.closest('.agfocus-surface');
+            area?.classList.add('agfocus-review-open');
+            const finish = async () => { try { await opts.onDone?.(); } catch (error) { toast(error.message); } await surface.close(); };
+            const unsubscribe = calendarStatusEditor(el,statusTarget,surface,clicked,calendar,finish);
+            const on = (attr, handler) => el.querySelectorAll(`[${attr}]`).forEach(button => { button.onclick = handler; });
+            on('data-card-ack', finish);
+            on('data-card-respond', event2 => void respond(event2.currentTarget.dataset.cardRespond, el));
+            on('data-card-series', () => void surface.back(() => detail({...event,id:event.series_id})));
+            on('data-card-delete', () => void surface.back(() => calendarDelete(event,refresh,surface,() => detail(event),clicked,calendar)));
+            on('data-card-edit', () => void surface.back(() => calendarEdit(event,calendars,refresh,new Date(),null,surface,() => detail(event),clicked)));
+            return () => { unsubscribe?.(); area?.classList.remove('agfocus-review-open'); };
+          }});
+          return;
+        }
         await surface.show({title:event.title || 'Event', body:calendarDetailBody(event,calendar,attendee,recurring,statusTarget),
           onOpen:el => calendarStatusEditor(el,statusTarget,surface,clicked,calendar), onBack:() => surface.close(), actions:[
           ...responseActions,
@@ -702,7 +783,7 @@ async function calendarOpen(event, calendars, refresh, clicked = event, origin =
 }
 
 // Personal status editor inside the Focus detail; returns its store unsubscribe.
-function calendarStatusEditor(el, target, surface, clicked, calendar) {
+function calendarStatusEditor(el, target, surface, clicked, calendar, onSaved = null) {
   const pills = Array.from(el.querySelectorAll('[data-calendar-status-choice]')), note = $('.calendar-status-note',el);
   let displayed = calendarStatuses.get(target), busy = false, lastPayload, requestId, attempt;
   const status = () => displayed?.status || 'pending', revision = () => displayed?.revision || 0;
@@ -727,14 +808,17 @@ function calendarStatusEditor(el, target, surface, clicked, calendar) {
     note.after(retry);
   };
   const choose = async chosen => {
+    let saved = false;
     const {known,denied} = calendarStatuses.state;
-    if (busy || !known || denied || chosen === status()) return;
+    if (busy || !known || denied) return;
+    // Already that status: nothing to save, but a card that waits on the choice still finishes.
+    if (chosen === status()) { if (onSaved) await onSaved(); return; }
     const payload = JSON.stringify([target,chosen,revision()]);
     if (payload !== lastPayload) { requestId = newRequestId(); lastPayload = payload; attempt = calendarAttempt('personal_status',{target,status:chosen,revision:revision()},requestId,clicked,calendar); }
     busy = true; surface.setBusy(true); note.textContent = 'Saving…'; sync();
     try {
       if (!await calendarSubmitAttempt(attempt,null,surface)) { note.textContent = 'Retry cancelled; the outcome remains unconfirmed.'; return; } displayed = calendarStatuses.get(target);
-      note.textContent = `Saved: ${calendarStatusLabels[displayed.status]}.`;
+      note.textContent = `Saved: ${calendarStatusLabels[displayed.status]}.`; saved = true;
     } catch (error) {
       if (calendarStatuses.state.denied) note.textContent = calendarStatuses.state.error;
       else if (calendarStatusConflict(error)) {
@@ -746,8 +830,11 @@ function calendarStatusEditor(el, target, surface, clicked, calendar) {
         note.textContent = definite ? `Not saved: ${error.message} Click the status again to retry.` : `Couldn’t confirm the save. ${error.message || ''} Click the status again to retry.`;
       }
     } finally { busy = false; surface.setBusy(false); sync(); }
+    if (saved && onSaved) await onSaved();
   };
   for (const pill of pills) pill.onclick = () => choose(pill.dataset.calendarStatusChoice);
+  // Opened from the Focus strip, nothing else has read the statuses yet: read them now instead of waiting for a Retry.
+  if (!calendarStatuses.state.known && !calendarStatuses.state.denied) void calendarStatuses.refresh();
   sync();
   return calendarStatuses.subscribe(() => { if (!busy) sync(); });
 }
