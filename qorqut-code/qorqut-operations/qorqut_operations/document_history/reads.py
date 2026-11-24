@@ -1,6 +1,6 @@
-"""Owner-only reads of shared document history and business activity.
+"""Owner-only reads of shared document history and project activity.
 
-Scope always comes from the selected business/Global context, never from a namespace in the request. Each source is first
+Scope always comes from the selected project/Global context, never from a namespace in the request. Each source is first
 resolved through its owning domain's own access rules; only then is shared history read. A host passes the resolvers of the
 sources it owns and the kinds whose history is private to their own reader, so the readers here know neither. The shared
 Context's history is its published Git graph and is read with ``context_object`` and ``context_changes``, not here."""
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
-from qorqut_business_docs_versioning import HistoryStore, NotFound
+from qorqut_docs_versioning import HistoryStore, NotFound
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import schema
@@ -69,13 +69,13 @@ class DocumentHistory:
                     "source_id": {"type": "string", "minLength": 1, "maxLength": 600},
                     "version": VERSION, "from_version": VERSION, "to_version": VERSION,
                     "before_version": VERSION, "limit": LIMIT}, ("source_kind", "source_id")),
-            scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
-            resolve_namespace=lambda c, _a: "business:" + c.business_id if c.business_id else "global",
+            scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
+            resolve_namespace=lambda c, _a: "project:" + c.project_id if c.project_id else "global",
             description=instruction_text('reads-owner-shared-content-history-of-one-document-in'),
             read=self.get, **common))
-        registry.register(OperationDescriptor("business_history_list",
+        registry.register(OperationDescriptor("project_history_list",
             schema({"source": {"enum": ["core"]}, "before_sequence": VERSION, "limit": LIMIT}),
-            scope_kinds=frozenset({"business"}), resolve_namespace=lambda c, _a: "business:" + c.business_id,
+            scope_kinds=frozenset({"project"}), resolve_namespace=lambda c, _a: "project:" + c.project_id,
             description=instruction_text('reads-owner-the-selected-project-s-recorded-activity-facts'),
             read=self.events, **common))
         return self
@@ -107,7 +107,7 @@ class DocumentHistory:
             if saved and saved["kind"] in self.private_kinds:
                 raise DomainError("forbidden", self.private_kinds[saved["kind"]])
             row = self.store.get(ctx, source_id, uow)
-            return namespace(row["business_id"]), row["id"], row["revision"]
+            return namespace(row["project_id"]), row["id"], row["revision"]
         return self.resolvers[kind](ctx, source_id, uow)
 
     @staticmethod
@@ -124,12 +124,12 @@ class DocumentHistory:
         return {"history_document_id": document_id, "versions": [version_item(item, content=False) for item in page.versions],
                 "next_before_version": page.next_before_version}
 
-    # business_history_list
+    # project_history_list
 
     def events(self, ctx, args, options, uow):
         self.owner(ctx, uow)
         source = args.get("source", "core")
-        page = HistoryStore(uow.connection).list_events(ctx.business_id, before_sequence=args.get("before_sequence"),
+        page = HistoryStore(uow.connection).list_events(ctx.project_id, before_sequence=args.get("before_sequence"),
                                                         limit=args.get("limit", 50))
         return {"source": source, "events": [event_item(item) for item in page.events],
                 "next_before_sequence": page.next_before_sequence}

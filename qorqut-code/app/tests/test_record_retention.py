@@ -27,7 +27,7 @@ def store(path):
     connection = sqlite3.connect(path, isolation_level=None)
     connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
     connection.execute("PRAGMA foreign_keys = ON")
-    for table in ("principals", "businesses", "signoffs"):
+    for table in ("principals", "projects", "signoffs"):
         connection.execute(f"CREATE TABLE {table}(id TEXT PRIMARY KEY)")
     for statement in CORE_SCHEMA:
         if statement.startswith(TABLES):

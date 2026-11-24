@@ -5,7 +5,7 @@ The shared Context reads (`context_home`, `context_object`, `context_expand`, `c
 registered here. `context_filings` and `context_upload_map` are owner-only projections over the Operations
 source versions, filings, queue inputs and attempts: exact source, input, attempt, event and publication facts,
 never model logs. `context_instruct` is a focused correction surface granted only to approved role policies, in the
-selected business or the Global target; it files one attributed instruction as its own frozen source through the same
+selected project or the Global target; it files one attributed instruction as its own frozen source through the same
 admission, queue, publication and completion path as uploads. `context_edit` queues one explicit
 `qorqut-graph-edit-v1` plan through the same shared queue (`qorqut_context.integration.graph_edits.graph_edit`): the host decides its
 targets and authority, the Operations `context_graph_edits` binding makes it durable, and the queue driver runs exactly that
@@ -57,7 +57,7 @@ ENTRIES = (
 class ContextSourceOperations:
     """``filing`` is the composed ``ContextFiling`` and ``graph_edits`` the controlled graph-edit authority; either may be None
     (those operations are then registered but unavailable). ``clock`` builds every plan. ``instruct_roles`` is the set of roles
-    eligible to instruct and edit the one shared Context, in any business or the Global target, through the same validated
+    eligible to instruct and edit the one shared Context, in any project or the Global target, through the same validated
     operations, policy and source checks. Eligibility grants nothing: a worker has no default write grant and needs the
     ordinary explicit permission, rechecked at execution."""
 
@@ -73,8 +73,8 @@ class ContextSourceOperations:
         return self.filing
 
     def register(self, registry):
-        shared = {"scope_kinds": {"business", "global"}, "global_capability": "read_global_context",
-                  "resolve_namespace": lambda c, a: "business:" + c.business_id if c.business_id else "global"}
+        shared = {"scope_kinds": {"project", "global"}, "global_capability": "read_global_context",
+                  "resolve_namespace": lambda c, a: "project:" + c.project_id if c.project_id else "global"}
         for name, (properties, required) in READS.items():
             registry.register(OperationDescriptor(name, schema(properties, required), effect_kind="read", supports_signoff=False,
                 exposure={"dashboard", "worker"}, owner_only=True,
@@ -111,7 +111,7 @@ class ContextSourceOperations:
             "FROM context_filings f JOIN context_source_versions v ON v.id = f.source_version_id "
             "JOIN context_inputs i ON i.id = f.input_id LEFT JOIN jobs j ON j.id = f.job_id "
             "LEFT JOIN context_completions c ON c.filing_id = f.id "
-            "WHERE f.business_id IS ? " + where + " ORDER BY i.sequence DESC LIMIT ?", (ctx.business_id, *parameters, limit)).fetchall()
+            "WHERE f.project_id IS ? " + where + " ORDER BY i.sequence DESC LIMIT ?", (ctx.project_id, *parameters, limit)).fetchall()
         facts = []
         for row in found:
             row = dict(row)
@@ -160,8 +160,8 @@ class ContextSourceOperations:
             owner = uow.connection.execute("SELECT owner_principal_id FROM installation WHERE id='service'").fetchone()
             if not owner or owner["owner_principal_id"] != ctx.principal_id:
                 raise DomainError("forbidden", "Only the installation owner may issue human context instructions")
-        namespace = "business:" + ctx.business_id if ctx.business_id else "global"
-        scope = {"kind": "business", "business_id": ctx.business_id} if ctx.business_id else {"kind": "global"}
+        namespace = "project:" + ctx.project_id if ctx.project_id else "global"
+        scope = {"kind": "project", "project_id": ctx.project_id} if ctx.project_id else {"kind": "global"}
         builder = PlanBuilder(ctx, "context_instruct", args, "Context Instruct", clock=self.clock, namespace=namespace, affected_scope=scope)
         self.require_filing().admit_instruction(builder, uow, args, self.attribution(ctx, uow))
         builder.effects.append("Files an attributed, focused context correction; it does not launch tasks or approve external actions.")

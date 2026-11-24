@@ -6,7 +6,7 @@ Use the [operating guide](../../../docs/v1.2/OPERATING_GUIDE.md) and the explici
 
 ## Runtime and assembly
 
-`build_runtime(workspace, *, paths, ...)` receives explicit `InstancePaths`, composed Operations storage, and the shared Context interfaces. See [the factory](runtime.py) for its full signature. `workspace` supplies trusted package/configuration locations; `paths` supplies instance/component locations. The live service uses `--instance-root` and explicit `--component` selectors, not the removed `--root`/`BIZ_ROOT` contract.
+`build_runtime(workspace, *, paths, ...)` receives explicit `InstancePaths`, composed Operations storage, and the shared Context interfaces. See [the factory](runtime.py) for its full signature. `workspace` supplies trusted package/configuration locations; `paths` supplies instance/component locations. The live service uses `--instance-root` and explicit `--component` selectors.
 
 The database is `operations/.runtime/operations.sqlite3`; published Context is `operations/context-graph/`, with separate `operations/.runtime/context/`. Ordinary startup validates the existing composed target; it does not initialize or migrate it. The host owns one application, policy, HTTP/MCP registry, and the lifecycle of background, Context, native Chat and inbox-nudge services. Assembly itself does not start a native agent. Failed drains must be reconciled; do not treat a timed-out shutdown as complete.
 
@@ -39,7 +39,7 @@ Global → Agents reads the canonical `agents_list` operation with explicit
 `scope: global` through `GET /api/root/agents`. In managed mode every agent runs as a managed session and is reached through Chat, and the terminal routes (`/api/root/terminals`, `/api/root/terminal/<agent-id>/...`, `/api/root/workspace-terminal/...`) refuse. In Terminals mode they answer. The owner reads and changes the mode through `GET/POST /api/root/agents/runtime`. All owner
 writes retain same-origin checks.
 
-- Configure `BIZ_ROOT`, `HOST`, `PORT` and explicit `BIZ_SERVICE_ORIGINS` in the
+- Configure `HOST`, `PORT` and explicit `QORQUT_SERVICE_ORIGINS` in the
   existing `.env.dashboard`. The live port remains 1049; test fixtures forbid it.
 - `QORQUT_MCP_URL` selects the advertised shared endpoint for generated folders.
 - The private, single-owner dashboard has no browser authentication. Owner API
@@ -49,17 +49,16 @@ writes retain same-origin checks.
   their existing scoped agent credentials; they do not become owner requests.
 - Hostnames and origins must be explicitly configured. A reverse proxy must
   preserve the external Host. Forwarded headers are not trusted for identity.
-  Owner mutations require an exact same-origin Origin header and current active
-  owner membership in the selected business.
+  Owner mutations require an exact same-origin Origin header and the installation
+  owner in an active selected project.
 - `GET /api/session` returns `data.{principal_id,principal_kind,display_name,is_owner}`.
-- `GET /api/biz/{slug}/agents/{id}/config` returns `data.effective_config`.
-  `POST .../permissions` accepts only `expected_revision`, `idempotency_key` and
+- `POST /api/project/{slug}/agents/{id}/permissions` accepts only `expected_revision`, `idempotency_key` and
   the replacement `overrides` map. The UI rereads configuration after saving.
 - Signoff list/get and approve/reject/retry routes use the shared signoff DTOs. Decision
   bodies preserve proposal revision, payload hash and status revision verbatim.
   Approved work is durable and applies without a connected proposing agent.
-- `POST /api/biz/{slug}/operations/{name}` invokes the same canonical application
-  operation as MCP. URL business scope cannot be changed by the body.
+- `POST /api/project/{slug}/operations/{name}` invokes the same canonical application
+  operation as MCP. URL project scope cannot be changed by the body.
 - `POST /api/agent/bootstrap` and `/api/agent/bootstrap/receipt` accept only the
   bound agent bearer credential and machine registration. Receipts prove hook
   emission, not model compliance. External mandatory-file drift fails closed.
@@ -88,31 +87,31 @@ The custom conversation-summary button and `/compact` endpoint are retired;
 Claude's native compaction and bootstrap redelivery are unchanged.
 Routines accept fixed program definitions and typed
 arguments, not shell commands. Global routine views/actions require an explicit
-review business; stop targets a registered routine/job, never the whole worker.
+review project; stop targets a registered routine/job, never the whole worker.
 
 ## Local And External Ports
 
-Global environment defaults live in `<root>/.env`; business overrides live in
-each registered HQ's `.env`. Owner-only GET/POST `/api/root/env` manages shared
-defaults; `/api/biz/<slug>/env` returns local `pairs` plus `inherited` Global pairs,
+Global environment defaults live in `<root>/.env`; project overrides live in
+each registered project folder's `.env`. Owner-only GET/POST `/api/root/env` manages shared
+defaults; `/api/project/<slug>/env` returns local `pairs` plus `inherited` Global pairs,
 and POST replaces only local pairs. Removing an override restores inheritance.
 Responses are no-store and writes are atomic, mode 0600, with identity keys
 rejected. No secret values are stored in the database or committed to Git.
 A permanent worker receives no plugin when `agents_create` omits `plugins`;
 Ordubashy selects its plugins (`qorqut/agents/plugin_defaults.py` lists the
-supported pins). Other agents with business access receive the email
+supported pins). Other agents with project access receive the email
 toolkit as an exact pin of the newest published version with default config.
 Explicit `[]` opts out and an explicit plugin list remains the caller's exact
-selection. Seeding and business restore apply the same defaults;
+selection. Seeding and project restore apply the same defaults;
 no separate `plugins_enable` approval is needed. An email grant sends only from its
 own mailbox list (Ordubashy: every registered mailbox).
 The model provider resolves explicit service configuration, Global defaults, then
-the selected business's overrides for each job. Managed sessions receive Global defaults only, and an
+the selected project's overrides for each job. Managed sessions receive Global defaults only, and an
 open session (or a running agent terminal) keeps its environment until it is closed and started again.
 
 Historical transcript reads accept supported saved Claude/Codex records in
 registered agent `sessions/*.jsonl` inside the selected owning workspace. Old
-harness-format JSONL is excluded. Business learning retains its newest-20 files
+harness-format JSONL is excluded. Project learning retains its newest-20 files
 per agent selection. Global learning scans registered Global agents' saved
 history in bounded incremental batches, excluding Learning Applier chats. No
 personal CLI history or arbitrary application cache is read. See
@@ -122,7 +121,7 @@ Transcript capture is **on by default for every prepared agent**, including
 global agents such as Learning Applier. Saving and processing are distinct:
 Learning Applier copies remain excluded from automatic learning. Copies live in each agent's own
 `sessions/` folder. The existing service `QORQUT_CAPTURE_TRANSCRIPTS` override
-accepts `true` or `false`; business `.env` values and
+accepts `true` or `false`; project `.env` values and
 dashboard request bodies cannot select it. Preparation pins the boolean in the
 private registration and adds `Stop` and `SessionEnd` command hooks only when
 enabled. Changing the flag back to false takes effect when the agent is prepared
@@ -149,10 +148,10 @@ testing; consent is recorded and fixture tests use synthetic transcripts only.
 
 ```sh
 .venv/bin/python -I -m pytest -q tests/test_service_*.py
-../biz-core/.venv/bin/python -I -m pytest -q tests
+../core/.venv/bin/python -I -m pytest -q tests
 ```
 
-The second command is run from `biz-dashboard`. Tests use temporary databases,
+The second command is run from `dashboard`. Tests use temporary databases,
 files, credentials and isolated localhost ports.
 The actual installed SDK and generated Python hooks are exercised; no test
 launches Claude. `tests/service_browser_fixture.py` provides the real isolated
@@ -162,19 +161,19 @@ signoff. Its deterministic model port is test-only.
 After the reviewed cutover, the owner should:
 
 1. Message an active agent in its Chat, and confirm
-   current identity, role, assignment and selected business facts arrive.
+   current identity, role, assignment and selected project facts arrive.
 2. Compare an ordinary worker with an agent granted a plugin: only the latter has
    that plugin's skill and aliases. Confirm plugin-native procedure use.
 3. Exercise Claude resume, clear and native compact; confirm current bootstrap
-   provenance and a matching session copy in this agent's business folder.
+   provenance and a matching session copy in this agent's project folder.
 4. Revoke a tool/plugin while the session is open and confirm the next call is
    refused. Restore only through the owner profile UI.
 5. Propose a signoff mutation, disconnect the agent, approve it in the selected
-   business and confirm one exact application with draft feedback discarded.
+   project and confirm one exact application with draft feedback discarded.
 6. Reject a separate proposal with feedback and confirm the agent can read it.
 
 Actual Claude behavior and transcript copying remain pending the owner's
-confirmation. Live health, authentication and business views were independently
+confirmation. Live health, authentication and project views were independently
 checked after cutover. Generated settings and hook receipts alone do
 not establish that the model received or followed the supplied context.
 

@@ -1,7 +1,7 @@
 # Shared task snoozing
 
 Deferral is metadata, not a status or priority system. It applies identically to
-business and Global tasks, using existing task read/write permissions. It is
+project and Global tasks, using existing task read/write permissions. It is
 shared by all assignees. Status, due date, dependencies, ownership, notes and
 scope remain unchanged.
 
@@ -38,8 +38,8 @@ its observation token without rewriting the source. Snoozing does not dismiss
 historical evidence or inbox events. Dependency resolution and unfinished-work
 safety checks (including deactivation/founding handoff) still include deferred work.
 
-`/api/me/tasks` includes deferred business records for dashboard Active/Snoozed/All
-views. `/api/biz/<slug>/tasks` defaults to active; `?all=1` includes snoozed/closed
+`/api/me/tasks` includes deferred project records for dashboard Active/Snoozed/All
+views. `/api/project/<slug>/tasks` defaults to active; `?all=1` includes snoozed/closed
 records, and `snooze_filter` can be explicit. Neither inherits Global tasks. Global
 UI uses scoped typed operations. Dates display in the installation's configured timezone.
 

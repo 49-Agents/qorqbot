@@ -7,6 +7,7 @@ from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
 from qorqut_operations.background.schedule import RoutineError, next_slot, parse_cron, zone
 from qorqut_operations.contracts import DomainError, canonical_hash, new_id, plain
+from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
 from qorqut_operations.application.plans import (IDENTITY, PAGE, TEXT, UUID, PlanBuilder, apply_records, page, ref,
     require_revision, rows, schema, page_position)
 from qorqut_operations.storage.repositories import decode_row
@@ -15,16 +16,16 @@ from .reads import activity, history_scope
 DEFINITION = schema({"name": {"type": "string", "minLength": 1, "maxLength": 80}, "why": TEXT,
     "schedule": {"type": "string", "maxLength": 100}, "timezone": {"type": "string", "maxLength": 100},
     "status": {"enum": ["active", "paused"]}, "program": {"type": "string", "maxLength": 100},
-    "arguments": {"type": "object"}, "target": {"enum": ["business", "each-business", "root"]},
+    "arguments": {"type": "object"}, "target": {"enum": ["project", "each-project", "root"]},
     "timeout_seconds": {"type": "integer", "minimum": 60, "maximum": 7200}},
     ["name", "schedule", "timezone", "status", "program", "arguments"])
-SCOPE = {"scope": {"enum": ["business", "global"]}}
+SCOPE = {"scope": {"enum": ["project", "global"]}}
 SINCE = {"anyOf": [{"type": "string", "format": "date-time"},
                     {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"}]}
 
 
 def namespace(ctx, args):
-    return "global" if args.get("scope") == "global" else "business:" + (ctx.business_id or "")
+    return "global" if args.get("scope") == "global" else "project:" + (ctx.project_id or "")
 
 
 # Authority metadata of the routine operations (deployed v1 catalog lines, unchanged).
@@ -45,11 +46,11 @@ class RoutineOperations:
 
     @staticmethod
     def scope(ctx, args):
-        return (None, "global") if args.get("scope") == "global" else (ctx.business_id, ctx.business_id)
+        return (None, "global") if args.get("scope") == "global" else (ctx.project_id, ctx.project_id)
 
     def row(self, ctx, args, uow):
-        business, ns = self.scope(ctx, args)
-        return uow.repository("routines", business_id=business).get({"namespace": ns, "id": args["routine_id"]}, required=True)
+        project, ns = self.scope(ctx, args)
+        return uow.repository("routines", project_id=project).get({"namespace": ns, "id": args["routine_id"]}, required=True)
 
     def dto(self, row):
         program = self.programs.get(row["job_kind"])
@@ -63,10 +64,10 @@ class RoutineOperations:
                 "program": row["job_kind"], "arguments": row["arguments_json"]}
 
     def list(self, ctx, args, options, uow):
-        business, ns = self.scope(ctx, args)
-        values = [self.dto(row) for row in rows(uow, "routines", business)
+        project, ns = self.scope(ctx, args)
+        values = [self.dto(row) for row in rows(uow, "routines", project)
                   if row["namespace"] == ns and not row["metadata_json"].get("retired")]
-        items, cursor = page(values, args, business, "routines_list")
+        items, cursor = page(values, args, project, "routines_list")
         return {"items": items, "next_cursor": cursor}
 
     def get(self, ctx, args, options, uow):
@@ -87,23 +88,23 @@ class RoutineOperations:
             raise DomainError("validation_error", str(exc)) from exc
 
     def history(self, ctx, args, options, uow):
-        business, ns = self.scope(ctx, args)
+        project, ns = self.scope(ctx, args)
         if args.get("view"):
             return activity(uow, ctx, args, self.clock())
         clause, parameters = history_scope(ctx, args)
         if args.get("costs"):
             values = [decode_row(row) for row in uow.connection.execute(
-                "SELECT namespace,routine_id,business_id,cost_json FROM routine_runs WHERE " + clause, parameters)]
-            by_routine, by_business = {}, {}
+                "SELECT namespace,routine_id,project_id,cost_json FROM routine_runs WHERE " + clause, parameters)]
+            by_routine, by_project = {}, {}
             for value in values:
                 key = value["namespace"] + "/" + value["routine_id"]
                 amount = value["cost_json"].get("usd", 0)
                 by_routine[key] = round(by_routine.get(key, 0) + amount, 8)
-                target = value["business_id"] or "global"
-                by_business[target] = round(by_business.get(target, 0) + amount, 8)
+                target = value["project_id"] or "global"
+                by_project[target] = round(by_project.get(target, 0) + amount, 8)
             return {"usd": round(sum(x["cost_json"].get("usd", 0) for x in values), 8), "runs": len(values),
-                "routines": by_routine, "businesses": by_business}
-        _, after = page_position(args, business, "routines_runs")
+                "routines": by_routine, "projects": by_project}
+        _, after = page_position(args, project, "routines_runs")
         if after is not None:
             if len(after) != 2 or any(not isinstance(value, str) for value in after):
                 raise DomainError("validation_error", "Invalid routine history cursor")
@@ -112,11 +113,11 @@ class RoutineOperations:
         values = [decode_row(row) for row in uow.connection.execute(
             "SELECT * FROM routine_runs WHERE " + clause + " ORDER BY created_at DESC,id DESC LIMIT ?",
             [*parameters, args.get("limit", 50) + 1])]
-        items, cursor = page(values, args, business, "routines_runs")
+        items, cursor = page(values, args, project, "routines_runs")
         return {"items": items, "next_cursor": cursor}
 
     def _builder(self, ctx, name, args, title):
-        target = replace(ctx, business_id=None) if args.get("scope") == "global" else ctx
+        target = replace(ctx, project_id=None) if args.get("scope") == "global" else ctx
         return PlanBuilder(target, name, args, title, namespace=namespace(ctx, args))
 
     @staticmethod
@@ -133,7 +134,7 @@ class RoutineOperations:
         for change in preview["changes"]:
             change["resource"]["label"] = routine["name"]
         if builder.operation in {"routines_create", "routines_update"}:
-            target = {"root": "Global workspace", "each-business": "Each authorized project", "business": "This project"}[routine["target"]]
+            target = {"root": "Global workspace", "each-project": "Each authorized project", "project": "This project"}[routine["target"]]
             preview["effects"] = [f"{routine['job_kind']} · {routine['schedule']} ({routine['timezone']}) · {target} · {routine['status']}"]
         plan = replace(plan, preview=preview)
         if builder.namespace == "global":
@@ -159,11 +160,11 @@ class RoutineOperations:
                 raise DomainError("operation_unavailable", program.unavailable_reason)
         else:
             program.validate(data["arguments"])
-        business, ns = self.scope(ctx, args)
-        target = data.get("target", "business" if business else "root")
-        if (business is not None and target != "business") or (business is None and target == "business"):
+        project, ns = self.scope(ctx, args)
+        target = data.get("target", "project" if project else "root")
+        if (project is not None and target != "project") or (project is None and target == "project"):
             raise DomainError("validation_error", "Routine target does not match its scope")
-        if ("global" if target == "root" else "business") not in program.scope_kinds:
+        if ("global" if target == "root" else "project") not in program.scope_kinds:
             raise DomainError("validation_error", "Registered program does not support this routine target")
         old_meta = plain(previous["metadata_json"]) if previous else {}
         changed = previous is None or (previous["schedule"], previous["timezone"]) != (data["schedule"], data["timezone"])
@@ -174,37 +175,37 @@ class RoutineOperations:
                 old_meta.get("schedule_revision", previous["revision"] if previous else 0) + int(changed)}}
 
     def targets(self, ctx, row, uow):
-        if row["scope"] == "business":
-            return [row["business_id"]]
+        if row["scope"] == "project":
+            return [row["project_id"]]
         if row["target"] == "root":
             return [None]
-        # One schedule/run group, with isolated outputs and cursors per business. A saved target keeps its meaning: an
-        # each-business routine never also runs in Global, and a root one never fans out.
-        return [x[0] for x in uow.connection.execute("SELECT id FROM businesses ORDER BY id")
-                if x[0] in ctx.allowed_business_ids]
+        # One schedule/run group, with isolated outputs and cursors per project. A saved target keeps its meaning: an
+        # each-project routine never also runs in Global, and a root one never fans out.
+        return [x[0] for x in uow.connection.execute("SELECT id FROM projects ORDER BY id")
+                if x[0] in ctx.allowed_project_ids]
 
-    def add_run(self, builder, row, business_id, uow, *, trigger="manual", slot=None, missed=0, group_id=None):
+    def add_run(self, builder, row, project_id, uow, *, trigger="manual", slot=None, missed=0, group_id=None):
         run_id, job_id = new_id(), new_id()
         group_id = group_id or canonical_hash([row["namespace"], row["id"], trigger, slot or run_id])
-        context = replace(builder.ctx, business_id=business_id)
+        context = replace(builder.ctx, project_id=project_id)
         values = self.programs.job_values(context, row["job_kind"], row["arguments_json"], uow, job_id=job_id,
             definition_extra={"routine_run_id": run_id, "routine_id": row["id"], "routine_revision": row["revision"],
                 "trigger": trigger, "run_timeout_seconds": row["timeout_seconds"], "scope": row["scope"],
                 "run_group_id": group_id, "missed": missed})
         builder.record("routine_runs", run_id, None, {"id": run_id, "namespace": row["namespace"], "routine_id": row["id"],
-            "business_id": business_id, "trigger": trigger, "slot": slot, "state": "queued", "started_at": builder.at,
+            "project_id": project_id, "trigger": trigger, "slot": slot, "state": "queued", "started_at": builder.at,
             "result_json": {"job_id": job_id, "run_group_id": group_id, "missed": missed, "definition": {
                 "name": row["name"], "program": row["job_kind"], "arguments": row["arguments_json"],
-                "revision": row["revision"], "timezone": row["timezone"]}}}, business_id=business_id)
-        builder.record("jobs", job_id, None, values, business_id=business_id)
+                "revision": row["revision"], "timezone": row["timezone"]}}}, project_id=project_id)
+        builder.record("jobs", job_id, None, values, project_id=project_id)
         return job_id
 
     def prepare(self, name, ctx, args, options, uow):
         builder = self._builder(ctx, name, args, name.replace("_", " ").capitalize())
-        business, ns = self.scope(ctx, args)
+        project, ns = self.scope(ctx, args)
         if name == "routines_create":
             identity = new_id()
-            values = {"namespace": ns, "id": identity, "business_id": business, "scope": "global" if business is None else "business",
+            values = {"namespace": ns, "id": identity, "project_id": project, "scope": "global" if project is None else "project",
                       **self.definition_values(ctx, args)}
             builder.record("routines", {"namespace": ns, "id": identity}, None, values)
         else:
@@ -226,30 +227,30 @@ class RoutineOperations:
             elif name == "routines_run":
                 if row["metadata_json"].get("retired"):
                     raise DomainError("not_found", "Routine is retired")
-                builder.expect(ref("routines", key, business), row)
+                builder.expect(ref("routines", key, project), row)
                 targets = self.targets(ctx, row, uow)
                 if not targets:
                     raise DomainError("forbidden", "Routine has no authorized project targets")
                 group_id = new_id()
                 for target in targets:
                     active = uow.connection.execute("SELECT 1 FROM jobs WHERE json_extract(definition_ref_json,'$.routine_id')=? "
-                        "AND business_id IS ? AND state IN ('queued','running','applying','waiting_signoff','cancel_requested') LIMIT 1",
+                        "AND project_id IS ? AND state IN ('queued','running','applying','waiting_signoff','cancel_requested') LIMIT 1",
                         (row["id"], target)).fetchone()
                     if active:
                         raise DomainError("busy", "Routine is already running or queued", retryable=True)
                     self.add_run(builder, row, target, uow, group_id=group_id)
             elif name == "routines_stop":
-                target_business = args.get("target_business_id", business)
-                if target_business is not None and (target_business not in ctx.allowed_business_ids
-                        or business is not None and target_business != business):
+                target_project = args.get("target_project_id", project)
+                if target_project is not None and (target_project not in ctx.allowed_project_ids
+                        or project is not None and target_project != project):
                     raise DomainError("forbidden", "Routine job target is outside this scope")
-                job = uow.repository("jobs", business_id=args.get("target_business_id", business)).get(args["job_id"], required=True)
+                job = uow.repository("jobs", project_id=args.get("target_project_id", project)).get(args["job_id"], required=True)
                 if job["definition_ref_json"].get("routine_id") != row["id"] or job["state"] not in {"queued", "running", "applying", "waiting_signoff"}:
                     raise DomainError("revision_conflict", "Routine job is no longer stoppable")
                 if "outputs" in (job["result_json"] or {}) or "dispatch_intent" in (job["result_json"] or {}):
                     raise DomainError("invalid_transition", "Prepared application or external dispatch has begun; pending signoffs can be rejected separately")
-                builder.expect(ref("routines", key, business), row)
-                builder.record("jobs", job["id"], job, {"state": "cancel_requested"}, business_id=job["business_id"])
+                builder.expect(ref("routines", key, project), row)
+                builder.record("jobs", job["id"], job, {"state": "cancel_requested"}, project_id=job["project_id"])
         return self._plan(builder, values if name == "routines_create" else {**row, **(values if name == "routines_update" else {})})
 
     @staticmethod
@@ -262,7 +263,10 @@ class RoutineOperations:
 
     def descriptors(self):
         descriptors = []
-        common = dict(scope_kinds=frozenset({"business", "global"}), global_capability="manage_global_routines", resolve_namespace=namespace)
+        common = dict(scope_kinds=frozenset({"project", "global"}), global_capability="manage_global_routines", resolve_namespace=namespace)
+        # A routine named by its id runs where it is; a Global one has the Global scope stated for it (``scope``).
+        lookup = RecordLookup(Family("routines", "routine_id", "routines_get", "Routine", state_global=True))
+        located = dict(locate_scope=lookup, description=LOCATED.lstrip())
         for name, properties, handler in (
             ("routines_list", PAGE, self.list), ("routines_get", {"routine_id": IDENTITY}, self.get),
             ("routines_runs", {**PAGE, "routine_id": IDENTITY, "since": SINCE,
@@ -273,7 +277,7 @@ class RoutineOperations:
                                   "after": {"type": "string", "format": "date-time"}}, self.preview)):
             required = ["routine_id"] if name == "routines_get" else (["schedule", "timezone"] if name == "routines_preview" else [])
             descriptors.append(OperationDescriptor(name, schema({**SCOPE, **properties}, required), effect_kind="read",
-                supports_signoff=False, read=handler, **common))
+                supports_signoff=False, read=handler, **common, **(located if "routine_id" in properties else {})))
         for name in ("routines_create", "routines_update", "routines_pause", "routines_resume", "routines_delete", "routines_run", "routines_stop"):
             properties, required = {**SCOPE}, []
             if name != "routines_create":
@@ -281,8 +285,9 @@ class RoutineOperations:
             if name in {"routines_create", "routines_update"}:
                 properties["definition"], required = DEFINITION, [*required, "definition"]
             if name == "routines_stop":
-                properties.update(job_id=UUID, target_business_id=UUID)
+                properties.update(job_id=UUID, target_project_id=UUID)
                 required.append("job_id")
             descriptors.append(OperationDescriptor(name, schema(properties, required),
-                prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply, **common))
+                prepare=lambda c,a,o,u,n=name: self.prepare(n,c,a,o,u), apply=self.apply, **common,
+                **(located if "routine_id" in properties else {})))
         return tuple(descriptors)

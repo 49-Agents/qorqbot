@@ -15,6 +15,8 @@ Per client:
 ``efforts``        the effort levels the client's own command line accepts, and how the others are written (``minimal`` for Claude)
 ``own_compaction`` the variables that switch the client's own automatic compaction off (``launch_environment``); absent when
                    the client has no such switch here
+``always``         the variables every session of the client is started with (``launch_environment``): Claude Code's own
+                   memory is off, because what an agent has to keep is filed in Qorqbot's records
 """
 
 from __future__ import annotations
@@ -24,6 +26,9 @@ from pathlib import Path
 import tomllib
 
 CLAUDE, CODEX = "claude", "codex"
+# Claude Code's own memory (notes it keeps for itself under its configuration folder) is off in everything Qorqbot starts.
+CLAUDE_MEMORY_OFF = {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+CLAUDE_MEMORY_SETTING = {"autoMemoryEnabled": False}
 CLIENTS = (CLAUDE, CODEX)
 NAMES = {CLAUDE: "Claude Code", CODEX: "Codex"}
 
@@ -35,7 +40,12 @@ TABLE = {
              "effort_flags": {"minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"},
              # Checked in Claude Code 2.1.328: with it set the client compacts neither at its limit nor while idle, whatever
              # its ``autoCompactEnabled`` setting says; the manual ``/compact`` stays.
-             "own_compaction": {"DISABLE_AUTO_COMPACT": "1"}},
+             "own_compaction": {"DISABLE_AUTO_COMPACT": "1"},
+             # Checked in Claude Code 2.1.329: with it set the client gets no memory folder in its prompt and writes no notes
+             # there, whatever the owner's own Claude settings say. It is set on the process Qorqbot starts and nowhere else,
+             # so the owner's own Claude Code keeps its memory. ``autoMemoryEnabled`` in the prepared launch settings
+             # (``bootstrap/preparation.py``) says the same for a client started from the agent's terminal.
+             "always": dict(CLAUDE_MEMORY_OFF)},
     # Codex: the first message is the ``$role`` skill text (the engine expands it; ``/role`` would be plain text). Model and effort
     # reach the driver as ``--model`` / ``--effort`` in the arguments (it reads and strips them); the permission mode comes from the
     # prepared ``.codex/config.toml`` (full access = ``bypass``), not from a Claude settings file. The host is ready only when the
@@ -149,10 +159,11 @@ def launch_arguments(client, model, effort, workspace=None) -> list:
 
 
 def launch_environment(client, *, own_compaction=False) -> dict:
-    """The variables this table adds to the client's environment. ``own_compaction``: Qorqbot compacts this session's
-    conversation itself (``native_chat/compaction.py`` decides that), so the client's automatic compaction is switched off.
-    Nothing by default, and nothing for a client with no such switch (Codex keeps its own)."""
-    return dict(entry(client).get("own_compaction") or {}) if own_compaction else {}
+    """The variables this table adds to the client's environment: those every session of the client gets (``always``),
+    and with ``own_compaction`` (Qorqbot compacts this session's conversation itself, ``native_chat/compaction.py`` decides
+    that) those that switch the client's automatic compaction off. Nothing for a client with neither (Codex)."""
+    item = entry(client)
+    return {**(item.get("always") or {}), **((item.get("own_compaction") or {}) if own_compaction else {})}
 
 
 def settings_arguments(client, workspace) -> list:

@@ -18,7 +18,7 @@ the factory template: never treat it as the owner's instructions or edit it.
 These hold even before you open the local files:
 
 - Choose the account, inbox and sender explicitly. Use a Project association only where the owner
-  recorded it in the local inbox files; never invent one or treat Project membership as mailbox
+  recorded it in the local inbox files; never invent one or treat reaching a Project as mailbox
   ownership or permission. When that and the conversation do not settle the sender, ask the owner;
   never guess an identity.
 - Use the access method the owner chose. A connector or tool exists only when this runtime shows

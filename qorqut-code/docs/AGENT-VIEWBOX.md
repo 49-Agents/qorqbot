@@ -6,8 +6,7 @@
 > Viewbox board, so agents were putting files where the owner could not see them. Boards already placed stay stored
 > and readable through the owner-only board read. The rest of this page describes the feature as it was.
 
-A Viewbox tab in every registered agent's right-hand pane (Global agents, business agents, and business agents
-selected on Global). The agent places links; the owner opens them beside the session.
+A Viewbox tab in every registered agent's right-hand pane (every Global agent). The agent places links; the owner opens them beside the session.
 
 ## Tool
 
@@ -19,7 +18,7 @@ override still wins). No signoff, no network fetch, no agent wake.
 - `link`: trimmed `http`/`https` only, at most 4096 characters, no userinfo, no control characters or backslashes,
   valid host and port. Query and fragment are preserved. Anything else (`javascript:`, `file:`, `data:`, …) is rejected before any write.
 - Root-relative links are accepted only for `/files/view` and `/tables/view` with their strict selectors:
-  `/files/view?path=…` or `?document_id=<uuid>[&business_id=<uuid>&version=<n>]`; `/tables/view?table_id=<uuid>[&business_id=<uuid>]`.
+  `/files/view?path=…` or `?document_id=<uuid>[&project_id=<uuid>&version=<n>]`; `/tables/view?table_id=<uuid>[&project_id=<uuid>]`.
   An absolute link to this application's own non-loopback origin and a viewer path is stored root-relative.
 - Kind is inferred: `file`, `table`, `local` (host `qorqut` or this application's host) or `web`.
 
@@ -52,7 +51,7 @@ mark viewed. Dismissals persist per owner and agent in `runtime/dashboard-prefer
 At most 200 dismissals are kept per agent; beyond that the oldest placements no longer on the board are forgotten (a
 replaced placement never returns, so none can reappear).
 
-Unread placements from active Global and business agents appear newest-first in the owner's attention queue,
+Unread placements from active agents appear newest-first in the owner's attention queue,
 bounded to each agent's latest 30 links. Opening a placement in Viewbox (or using Open in new tab) acknowledges
 its `attention_id` through the existing owner queue endpoint. Listing the board does not acknowledge it.
 The read state persists in owner dashboard preferences; repinning the same link creates a new attention ID,
@@ -84,8 +83,9 @@ pending reads and removes the frame and listeners.
 
 ## Table viewer
 
-`/tables/view?table_id=<uuid>[&business_id=<uuid>]` is a minimal owner-only read-only page (50-row pages, Load
-more) over `tables_get` / `tables_rows_list`. Global tables omit `business_id`. Unknown, duplicate or non-UUID
+`/tables/view?table_id=<uuid>[&project_id=<uuid>]` is a minimal owner-only read-only page (50-row pages, Load
+more) over `tables_get` / `tables_rows_list`. With the table's id alone the page finds the table's project from the id (Global
+included); a stated `project_id` names it. Unknown, duplicate or non-UUID
 selectors return 400. The Tables screen has a Copy link button for the canonical URL.
 
 ## Discovery

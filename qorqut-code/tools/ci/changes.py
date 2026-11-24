@@ -10,7 +10,7 @@ import subprocess
 
 
 CHECKS = ("backend", "dashboard", "distribution", "connectors")
-DOCS = ("qorqut-code/docs/", "qorqut-code/biz-dashboard/docs/")
+DOCS = ("qorqut-code/docs/", "qorqut-code/dashboard/docs/")
 DOC_FILES = {"README.md", "CONTRIBUTING.md", "RELEASES.md", "SECURITY.md", "LICENSE-SCOPE.md",
              "qorqut-code/README.md", "qorqut-agentic/README.md",
              "qorqut-code/qorqut-operations/README.md", "qorqut-code/qorqut-context/README.md",
@@ -43,7 +43,7 @@ def select(paths, *, full=False):
         elif path.startswith(("qorqut-code/extensions/google-calendar/", "qorqut-code/extensions/treg/",
                               "qorqut-code/extensions/openrouter/")):
             selected.update(backend=True, distribution=True)
-        elif path.startswith("qorqut-code/biz-dashboard/"):
+        elif path.startswith("qorqut-code/dashboard/"):
             selected["dashboard"] = True
         elif path.startswith(BACKEND):
             selected["backend"] = True

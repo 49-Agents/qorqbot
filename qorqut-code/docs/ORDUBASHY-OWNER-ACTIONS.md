@@ -1,10 +1,10 @@
 # Ordubashy owner assistance
 
-Ordubashy uses existing business-scoped task operations for the owner's tasks:
+Ordubashy uses existing project-scoped task operations for the owner's tasks:
 identify the owner with `assignees_list`, filter `tasks_list` by that human's ID,
 read the task and configured statuses, then use `tasks_update` or `tasks_complete`
-with its current revision. Personal taskbox entries remain business-owned tasks.
-A full task ID alone finds the task's project; pass `business_id` only when the
+with its current revision. Personal taskbox entries remain project-owned tasks.
+A full task ID alone finds the task's project; pass `project_id` only when the
 answer lists several, and keep full task IDs, never shortened ones, in notes
 ([details](GLOBAL-TASKS.md#finding-a-tasks-scope-from-its-id)).
 The built-in [inbox](AGENT-INBOX.md#ordubashy-follows-the-owners-tasks) automatically

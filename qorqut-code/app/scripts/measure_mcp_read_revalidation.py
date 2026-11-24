@@ -29,7 +29,7 @@ def measure(service):
         normal_headers = service.initialize(client, service.ordu)
         selected_headers = service.initialize(client, service.ordu)
         history, saved, comparisons = {}, {}, []
-        scope = {"business_id": service.fixture.business_id}
+        scope = {"project_id": service.fixture.project_id}
         reads = [
             ("tasks_list", scope),
             ("tasks_get", {**scope, "task_id": records["tasks"][1]["id"]}),
@@ -82,7 +82,7 @@ def measure(service):
             repeat_rounds.append([pair(name, args) for name, args in reads])
         repeat_report = {str(n): total(cold + [row for group in repeat_rounds[:n - 1] for row in group]) for n in (1, 2, 3, 5)}
 
-        # A complete scripted read sequence: business entry, full instructions,
+        # A complete scripted read sequence: project entry, full instructions,
         # both board pages, unchanged follow-ups, source mutation, error/retry.
         # Reset client state: a new workflow cannot assume old data survived.
         history.clear()
@@ -118,7 +118,7 @@ def measure(service):
             "changed_tool_definition_delta_tokens": tokens(packed(selected_definitions)) - tokens(packed(original_definitions)),
             "tokenizer": "tiktoken 0.14.0 / cl100k_base", "production_target_validated": False,
             "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-            "limitations": ["Small simulated business, not representative production traffic or billed tokens.",
+            "limitations": ["Small simulated project, not representative production traffic or billed tokens.",
                 "Normal requests are Phase 1 behavior on this same server; only the opt-in selector differs.",
                 "Every reported hit is checked against an ordinary fresh read for exact data equality.",
                 "Mixed workflow includes full instructions, pages, changed data, errors, retry and lost-context recovery.",

@@ -42,7 +42,7 @@ from qorqut_operations.storage.files import FileApplier
 # by contract: a composition that lacks them is incomplete, never an empty class. A selected extension's services are
 # further named writers (``Runtime.extension_writers``) and required while the extension is selected; an absent
 # extension adds no required writer.
-RECOVERY_WRITERS = ("native_chat", "inbox_nudges", "activity", "incidents", "terminal_control", "broadcast_dispatcher", "changes",
+RECOVERY_WRITERS = ("native_chat", "inbox_nudges", "activity", "terminal_control", "broadcast_dispatcher", "changes",
                     "context", "history")
 RECOVERY_REQUIRED = RECOVERY_WRITERS
 # How often the backend pass looks for workers whose sessions cannot take input.
@@ -94,9 +94,7 @@ class Runtime:
     background_operations: object = None
     checkpoints: object = None
     management: object = None
-    incidents: object = None
     private_conversations: object = None
-    side_chats: object = None
     calendar: object = None
     owner_bootstrap: object = None
     workspaces: object = None
@@ -121,22 +119,10 @@ class Runtime:
     recovery_controllers: dict = field(default_factory=dict, repr=False)  # name -> (service, BoundedWriter), kept across windows
     recovery_guard: object = field(default_factory=threading.Lock, init=False, repr=False)  # one recovery window at a time
 
-    def observed_agent_call(self, context, component, operation, call, *, readiness=False):
-        if self.incidents is None:
-            return call()
-        return self.incidents.reporter.boundary(context, component, operation, call, readiness=readiness)
-
     def agent_context(self, principal, *, diagnostic=False, **options):
-        """Observe context failures before an operation can reach its dispatcher.
-
-        Only the authenticated identity is known if resolution fails. Do not
-        attribute an unvalidated business selector or guess the agent's task.
-        """
-        from qorqut_operations.contracts import InvocationContext
-        context = InvocationContext(principal)
+        """Resolve the agent's invocation context (or, with ``diagnostic``, its runtime context) from the authenticated identity."""
         method = self.resolver.runtime_context if diagnostic else self.resolver.invocation_context
-        return self.observed_agent_call(context, 'agent.context',
-            'identity' if diagnostic else 'configuration', lambda: method(principal, **options))
+        return method(principal, **options)
 
     @contextmanager
     def recovery_quiescence(self, **kwargs):
@@ -239,7 +225,7 @@ class Runtime:
         runtime's cached ``LifetimeState`` (ownership, incomplete services, phase).
 
         ``Runtime.start`` and ``Runtime.stop`` are its only entrypoints. The start order is the retained required one
-        (chat, activity, incidents, Signoffs, background, ...); the stop order is the retained drain order, which
+        (chat, activity, Signoffs, background, ...); the stop order is the retained drain order, which
         stops the owner-visible writers first and the Signoff writer last. An optional service
         that this composition does not install is recorded with its existing reason rather than silently omitted.
         The Context services (``context_services``) and the history observer (``history_observer``) are read with
@@ -277,7 +263,6 @@ class Runtime:
             # native input arbiter and never starts, resumes or stops an agent.
             step("inbox_nudges", self.inbox_nudges, lambda x: x.start(), stop_with_timeout, "no inbox nudges", required=True),
             step("activity", self.activity, lambda x: x.start(), stop_without_timeout, "no agent activity", required=True),
-            step("incidents", self.incidents, lambda x: x.start(), stop_with_timeout, "no incident drain", required=True),
             step("signoffs", self.signoffs, lambda x: x.start(), stop_with_timeout, required=True, recovery="engine"),
             step("background", self.background, lambda x: x.start(), stop_with_timeout, "background service is not attached",
                  recovery="engine", running=lambda x: x.is_running()),
@@ -313,7 +298,7 @@ class Runtime:
                  recovery="caller", running=lambda x: bool(x.running)))
         # The recovery orchestrators drain first: an in-flight capture or thaw owns the services and resources below it.
         stop_order = ("recovery_admin", "maintenance_capture", "context", "history", "inbox_nudges",
-                      "native_chat", "terminal_control", "broadcast_dispatcher", "activity", "incidents", "changes",
+                      "native_chat", "terminal_control", "broadcast_dispatcher", "activity", "changes",
                       "previews", "sandbox", "background", "signoffs")
         # A selected extension's services join at the start-before and stop-before anchors they name. Each is a required
         # recovery writer: it drains and resumes through the same stop adapter and start the lifetime uses.
@@ -370,7 +355,7 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
 
     The operational root is ``paths.operations`` and the database only ``paths.database``: an already initialised
     target store, validated (never created or converted) by the engine. ``workspace`` is the absolute owner-controlled
-    protected configuration and package-source base, not a source, database, HQ or agent-workspace locator.
+    protected configuration and package-source base, not a source, database, project folder or agent-workspace locator.
     The returned registry is still open for the service assembler's last trusted registrations; whoever serves
     traffic calls ``Runtime.freeze_registry`` first.
 
@@ -418,10 +403,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
                     job_programs, register_domains=None, context=None):
     """The inert common composition body of ``build_runtime``: everything after the explicit inputs are validated and the
     store is opened. ``registry`` is the still open operation registry the host then registers every handler on; the
-    ordinary runtime passes the strict target registry, and only the offline learning-removal preparation passes one
-    that also carries metadata-only historical declarations. ``database`` is whatever store the caller opened for its own
-    exact composition (``build_runtime`` validates it against the selected target; the offline preparation opens the
-    exact reconstructed predecessor). Nothing here starts a service, takes ownership or admits a mutation."""
+    ordinary runtime passes the strict target registry. ``database`` is whatever store the caller opened for its own
+    exact composition (``build_runtime`` validates it against the selected target). Nothing here starts a service,
+    takes ownership or admits a mutation."""
     root, workspace = paths.operations, Path(workspace).resolve()
     from qorqut.agents.terminal_control import validate_package as validate_terminal_package
     from qorqut.bootstrap.email_guidance import validate_package as validate_email_guidance_package
@@ -452,7 +436,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # File targets are resolved lazily: the document, environment, artifact and agent-bootstrap resolvers exist only
     # once the Application and its domains do, but the Signoff service applies through the sealed applier.
     file_targets = FileTargetResolver(lambda resource: domains.resolve_file_target(resource))
-    file_targets.register("business_environment_files", lambda resource: environment_file(resource))
+    file_targets.register("project_environment_files", lambda resource: environment_file(resource))
     file_targets.register("artifact_files", lambda resource: publisher.resolve_file_target(resource))
     file_targets.register("agent_bootstrap_files", lambda resource: agents.resolve_file_target(resource))
     file_applier = FileApplier(database, file_targets.seal(), locks=locks)
@@ -478,8 +462,8 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.shared_context.service import ContextServices, compose_context
     composed = compose_context(application, paths, context)
     if register_domains is None:
-        from qorqut.domains import register_business_domains
-        register_domains = register_business_domains
+        from qorqut.domains import register_project_domains
+        register_domains = register_project_domains
     domains = register_domains(registry, application, paths, catalog=catalog, agent_resolver=resolver, job_programs=job_programs,
                                filing=composed.filing, graph_edits=composed.graph_edits, queue=composed.queue,
                                on_revision=composed.on_revision, extensions=selection)
@@ -566,7 +550,12 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
         isolated(uow, "Reminder reconcile", lambda: runtime.reminders.reconcile(uow))
         isolated(uow, "Due extraction reconcile", lambda: reconcile_due(runtime, uow))
         isolated(uow, "Unreachable worker reconcile", lambda: unreachable_workers(uow))
+        # The Learning Applier's scheduled workflows: queue a run whose time has come, and let a delta proposal follow an
+        # approval the Signoff observer missed. Starting a run is the native Chat backend's pass (``experience/runs.py``).
+        isolated(uow, "Experience runs due", lambda: runtime.experience.runs.due(uow))
+        isolated(uow, "Delta proposal decisions", lambda: settle_proposals(uow))
 
+    settle_proposals = paced(60.0, lambda uow: runtime.experience.settle(uow))
     runtime.inbox_nudges = NudgeBackend.build(runtime, inbox, reconcile=reconcile_inbox)
     from qorqut.agentic.inbox import attach_agentic_inbox
     attach_agentic_inbox(runtime, agentic_layer, inbox)
@@ -579,17 +568,15 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     runtime.focus = FocusService(inbox, signoffs).register()
     from qorqut.native_chat.user_input import UserInput
     UserInput(runtime).register()
-    # Retained Signoff domains are management routing and the Focus attention board. Selected connectors
-    # supply their own private visibility and outcome callbacks through the explicit extension declarations.
-    signoff_domains.bind(management=management, focus_board=runtime.focus.board).require()
+    # Retained Signoff domains are management routing, the Focus attention board and Chat's tab reads (the open tabs a
+    # browser-action request names). Selected connectors supply their own private visibility and outcome callbacks through
+    # the explicit extension declarations.
+    signoff_domains.bind(management=management, focus_board=runtime.focus.board, user_input=runtime.user_input).require()
     from qorqut.inbox.private_conversations import PrivateConversations
     runtime.private_conversations = PrivateConversations(inbox, references=signoffs.notes).register()
     # The owner's own messages across every agent's chat and the private threads, for the owner and the coordinator.
     from qorqut.domains.owner_inputs import OwnerInputs
     OwnerInputs(runtime).register()
-    # The owner's pinned-threads row at the top of Focus: the owner's dashboard route, plus these two tools for the coordinator.
-    from qorqut.domains.thread_pins import ThreadPins
-    ThreadPins(runtime).register()
     # The owner's Settings page as two tools for the coordinator: the same reads and changes as the owner's own routes.
     from qorqut.domains.settings_tools import SettingsTools
     SettingsTools(runtime).register()
@@ -611,8 +598,10 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # native Chat backend's pass and does nothing unless QORQUT_OWN_COMPACTION is set.
     from qorqut.native_chat.compaction import CompactionController
     runtime.compaction = CompactionController(runtime)
-    from qorqut.inbox.side_chats import SideChats
-    runtime.side_chats = SideChats(runtime).register()
+    # The Learning Applier's two scheduled workflows (the daily experience extraction and the weekly review and application):
+    # their tools, the queue of runs, and the delta proposals that follow the owner's choice on their approval requests.
+    from qorqut.experience.operations import Experience
+    signoff_domains.observe(Experience(runtime).register().signoff_updated)
     # The six Project record operations: one existing Project's inventory, item reads and explicit cross-scope links.
     from qorqut.domains.projects import ProjectRecords
     runtime.projects = ProjectRecords(application, domains.items).register(registry)
@@ -626,7 +615,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.domains.documents.moves import NoteMoves
     from qorqut.domains.tables.moves import TableMoves
     from qorqut_operations.documents.relocation import DocumentRelocation
-    document_moves = DocumentRelocation(lambda business, path: document_root(paths, business, path))
+    document_moves = DocumentRelocation(lambda project, path: document_root(paths, project, path))
     runtime.table_moves = TableMoves(application, documents=document_moves).register(registry)
     runtime.note_moves = NoteMoves(application, document_moves).register(registry)
     # The aggregate CRM activity read: the Domain's local activity merged with the directly linked sources, which are read
@@ -636,7 +625,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.workspaces import WorkspaceService
     runtime.workspaces = WorkspaceService(application, types=selection.workspace_types()).register(registry)
     from qorqut.owner_bootstrap import OwnerSessionBootstrap
-    runtime.owner_bootstrap = OwnerSessionBootstrap(domains.documents).register(registry)
+    runtime.owner_bootstrap = OwnerSessionBootstrap(domains.documents, paths).register(registry)
     from qorqut.agents.activity import AgentActivity
     runtime.activity = AgentActivity(runtime).register()
     resolver.activity = runtime.activity
@@ -664,15 +653,6 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     register_task_plans(runtime)
     from qorqut.agents.attention_delivery import attach_attention_runtime
     attach_attention_runtime(runtime)
-    from qorqut.incidents import IncidentReporter, IncidentDrain, INCIDENT_PROGRAM_ID
-    from qorqut_operations.background.programs import Program
-    job_programs.register(Program(INCIDENT_PROGRAM_ID,1,{'type':'object','additionalProperties':False},
-        None,unavailable_reason='Internal deterministic incident drain; not a schedulable agent job',
-        scope_kinds=('global',)))
-    reporter = IncidentReporter(paths.runtime / 'incidents')
-    application.incident_reporter = reporter
-    runtime.incidents = IncidentDrain(reporter,database,
-        authority=authority,writer=runtime.activity.writer)
     runtime.focus.desktop_url = lambda: next((pair['value'] for pair in LocalFiles(runtime).environment_pairs(None)
         if pair['key'] == 'DESKTOP_CONTROL_URL'), None)
     from .environment import register_environment

@@ -1,9 +1,9 @@
-"""Scheduled pulls of a business's own database backup; configuration never loads executable code.
+"""Scheduled pulls of a project's own database backup; configuration never loads executable code.
 
-A business routine runs `backups.pull` with the names of two business secrets: an HTTPS endpoint
+A project routine runs `backups.pull` with the names of two project secrets: an HTTPS endpoint
 that returns a gzipped SQLite database, and a bearer token for it. The copy must decompress and
 pass SQLite's quick check before it is kept, privately, under
-`<instance runtime>/business-backups/<business id>/`, outside Git, the agents' workspace
+`<instance runtime>/project-backups/<project id>/`, outside Git, the agents' workspace
 and the nightly authored backup. The newest `keep` copies are retained.
 """
 from datetime import datetime
@@ -30,12 +30,12 @@ SUFFIX = ".sqlite3.gz"
 
 
 class BackupDownloader:
-    """Stream one backup to a file, using the business's own secrets."""
+    """Stream one backup to a file, using the project's own secrets."""
     def __init__(self, environment):
         self.environment = environment
 
-    def __call__(self, business_id, endpoint_env, token_env, stream, timeout):
-        env = self.environment(business_id)
+    def __call__(self, project_id, endpoint_env, token_env, stream, timeout):
+        env = self.environment(project_id)
         endpoint, token = env.get(endpoint_env, ""), env.get(token_env, "")
         parts = urlsplit(endpoint)
         if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.fragment:
@@ -80,8 +80,8 @@ def verify(path, scratch):
         raise DomainError("invalid_backup", "Downloaded backup is not a readable SQLite database")
 
 
-def private_folder(runtime_directory, business_id):
-    folder = Path(runtime_directory)/"business-backups"/business_id
+def private_folder(runtime_directory, project_id):
+    folder = Path(runtime_directory)/"project-backups"/project_id
     for path in (folder.parent.parent, folder.parent, folder):
         if path.is_symlink():
             raise DomainError("invalid_configuration", "Project backups must not pass through a symlink")
@@ -97,7 +97,7 @@ class BackupPullProgram:
         control.check()
         if self.downloader is None:
             raise DomainError("operation_unavailable", "Backup downloader is not configured")
-        folder = private_folder(control.service.paths.runtime, control.business_id)
+        folder = private_folder(control.service.paths.runtime, control.project_id)
         job = control.job["id"]
         created = datetime.fromisoformat(control.job["created_at"].replace("Z", "+00:00"))
         name = created.strftime("%Y%m%dT%H%M%SZ") + "-" + job[:8] + SUFFIX
@@ -107,7 +107,7 @@ class BackupPullProgram:
             descriptor = os.open(incoming, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
             try:
                 with os.fdopen(descriptor, "wb") as stream:
-                    self.downloader(control.business_id, args["endpoint_env"], args["token_env"], stream,
+                    self.downloader(control.project_id, args["endpoint_env"], args["token_env"], stream,
                                     control.remaining_seconds())
                     stream.flush()
                     os.fsync(stream.fileno())

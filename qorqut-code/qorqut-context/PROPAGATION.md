@@ -172,7 +172,7 @@ configuration explicit and record it; no automatic model/provider fallback.
 Use existing Codex authentication, never copy or log credential files. The
 application need not know the account's secret. Do not change global Codex
 configuration. Isolate each attempt in an otherwise empty scratch cwd outside
-the code and data repositories. Do not mount the business repo into that cwd.
+the code and data repositories. Do not mount the project repo into that cwd.
 
 Initialize with experimentalApi=true, acknowledge initialized, start an ephemeral
 thread with baseInstructions, developerInstructions and dynamicTools, then
@@ -192,7 +192,7 @@ workspace integrations, and delegation for the runner invocation. Disable web
 search, notifications and project instruction loading (project_doc_max_bytes=0).
 Use read-only/never permissions as a further filesystem-write restriction. Do
 not mistake read-only permissions for filesystem read isolation; the model gets
-business content exclusively through the bound application tools. Verify no
+project content exclusively through the bound application tools. Verify no
 model-facing filesystem/shell/external tools are usable. Codex code-mode host
 must remain enabled for this installed Astra runtime: its JavaScript wrapper
 can compose registered tools, but does not provide a Node/network/filesystem API.
@@ -237,7 +237,7 @@ global files/configuration or copy credentials into another store.
 
 Both prompts begin with a dedicated-context-task paragraph. It
 makes generic coding and agent-launch workflows inapplicable to this task,
-forbids delegation, and separates trusted runner configuration from business
+forbids delegation, and separates trusted runner configuration from project
 evidence. Bootstrap still has no tools; propagation uses only the bound registry.
 Read-only is not read isolation, and self-described model tools are not proof
 of capability enforcement. The other required capability checks remain.
@@ -267,11 +267,11 @@ Preserve loaded-thread experimentalFeature/list verification, disabled MCP
 inventory, all other capability restrictions and the prior instruction/tier
 amendment. Raw config echoes alone do not establish the capability boundary.
 
-An installation-boundary negative probe with the same runner configuration, a fresh empty scratch cwd and no business
+An installation-boundary negative probe with the same runner configuration, a fresh empty scratch cwd and no project
 input inspects the callable registry and shell/file-tool types, attempts harmless exec_command and shell_command calls
 within try/catch, and inspects require/process/fetch and delegation bindings. Machine-produced results go to the
 probe_report tool with the actual call and error evidence. Shell execution must be unavailable or rejected; unexpected
-execution blocks business ingestion. This is one installation check, not a repeated model preflight or a general sandbox.
+execution blocks project ingestion. This is one installation check, not a repeated model preflight or a general sandbox.
 Focused mechanical validation accepts unified_exec=true with shell_tool=false and rejects shell_tool=true.
 
 ## Durable attempts and publication
@@ -287,7 +287,7 @@ runtime, not graph/foundation. Include event ID, base revision, submission and
 prompt digests, model/effort, stage, thread/turn IDs, sampled bootstrap, completion
 status and error. Keep successful run receipts/diagnostics outside the event
 directory that Context cleans, using runtime/runs/<event>/<attempt>/; no global
-agent transcript scan. Runtime logs contain business content and stay local;
+agent transcript scan. Runtime logs contain project content and stay local;
 use private directory/file permissions. No sensitive snippets in committed reports.
 
 Add a narrow Context draft-inspection/validation method reusing publication

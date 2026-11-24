@@ -45,7 +45,7 @@ class WorkBriefing:
 
     def build(self, principal, config):
         resolver = self.application.policy.agent_resolver
-        ctx = resolver.invocation_context(principal, business_id=config.get("business_id"))
+        ctx = resolver.invocation_context(principal, project_id=config.get("project_id"))
         with self.application.database.read() as uow:
             ctx = self.application.current_context(ctx, uow)
             return _Briefing(self.application, ctx, uow, config).build()
@@ -71,7 +71,7 @@ class _Briefing:
                 raise DomainError("invalid_briefing", "Briefing sources must be read operations")
             arguments = self.app.registry.bind_arguments(name, args or {})
             namespace = self.app.namespace(self.ctx, descriptor, arguments)
-            ctx = replace(self.ctx, business_id=None) if namespace == "global" else self.ctx
+            ctx = replace(self.ctx, project_id=None) if namespace == "global" else self.ctx
             self.app.authorize(ctx, descriptor, (), self.uow, namespace=namespace)
             return descriptor.read(ctx, arguments, InvocationOptions(), self.uow)
         except DomainError as error:
@@ -143,7 +143,7 @@ class _Briefing:
         # Never hydrate raw uploads, complete conversations, table rows or posted content.
         value = select(item, ("type", "id", "label", "revision", "updated_at", "summary", "subtype", "material_type", "tags", "about", "role", "org", "contact", "resource_type"))
         document = item.get("resource_type") == "documents"
-        note = item.get("kind") in {"business_note", "agent_note", "journal", "business_owned_note"}
+        note = item.get("kind") in {"project_note", "agent_note", "journal", "project_owned_note"}
         expand = item["type"] in {"topic", "person"} or (not item.get("summary") and
             (note or item.get("material_type") in {"document", "excerpt", "note"}))
         if document and expand:
@@ -159,17 +159,16 @@ class _Briefing:
                  read=f"context_items_get(item={dict(type=item['type'], id=item['id'])}); then the owning domain's get tool", limit=5500)
 
     def build(self):
-        scope = {"scope": "global"} if not self.ctx.business_id else {}
-        team = self.read("agents_list", scope).get("agents", [])
+        team = [] if self.ctx.project_id else self.read("agents_list").get("agents", [])
         for agent in team:
             self.add("Team", agent.get("display_name", "Agent"), select(agent,
                 ("agent_id", "name", "display_name", "role", "assignment_brief", "status")),
                 reason="active teammate in selected scope", read=f"agents_get(agent_id={agent['agent_id']})", limit=1800)
-        if self.ctx.business_id:
+        if self.ctx.project_id:
             people = self.read("assignees_list").get("assignees", [])
             self.add("Team", "Human collaborators", [p for p in people if p["kind"] == "human"],
                      reason="tasks can also be assigned to the owner or human teammates", read="assignees_list", limit=2000)
-        if self.ctx.business_id:
+        if self.ctx.project_id:
             # Own work comes first, even for managers; broader work is explicitly labelled.
             for task in self.listing("tasks_list", "tasks", {"assignee_id": self.ctx.agent_id, "include_closed": False}, limit=40):
                 self.load_work("task", task["id"], "explicitly assigned to you (possibly with other assignees)")

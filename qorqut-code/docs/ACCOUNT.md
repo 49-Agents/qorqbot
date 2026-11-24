@@ -3,7 +3,7 @@
 A released Qorqbot asks the owner to sign in once per installation with an emailed one-time code. This is how
 installations and people are counted, and how work use is recorded for the commercial license. Code:
 `app/qorqut/account.py`, the owner-only `/root/account` routes in `app/qorqut/transport/http.py`, and the dashboard's
-`biz-dashboard/js/account-gate.js` (shown before the walkthrough) and Settings > About.
+`dashboard/js/account-gate.js` (shown before the walkthrough) and Settings > About.
 
 ## What leaves this computer
 

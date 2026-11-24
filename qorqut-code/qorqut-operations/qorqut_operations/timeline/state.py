@@ -17,8 +17,8 @@ MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 
 
 
 def item_key(item):
-    """``(item_type, item_id, business_id)`` of an ``{type, id, business_id}`` item."""
-    return item['type'], item['id'], item['business_id']
+    """``(item_type, item_id, project_id)`` of an ``{type, id, project_id}`` item."""
+    return item['type'], item['id'], item['project_id']
 
 
 def next_sequence(connection):
@@ -28,12 +28,12 @@ def next_sequence(connection):
 
 def entry_rows(connection, item):
     return [dict(row) for row in connection.execute(
-        f'SELECT * FROM {ENTRIES} WHERE item_type=? AND item_id=? AND business_id IS ? ORDER BY sequence', item_key(item))]
+        f'SELECT * FROM {ENTRIES} WHERE item_type=? AND item_id=? AND project_id IS ? ORDER BY sequence', item_key(item))]
 
 
 def question_rows(connection, item):
     return [dict(row) for row in connection.execute(
-        f'SELECT * FROM {QUESTIONS} WHERE item_type=? AND item_id=? AND business_id IS ? ORDER BY sequence', item_key(item))]
+        f'SELECT * FROM {QUESTIONS} WHERE item_type=? AND item_id=? AND project_id IS ? ORDER BY sequence', item_key(item))]
 
 
 def removed_ids(entries):
@@ -68,7 +68,7 @@ def state(connection, item):
     def latest(kind):
         row = next((row for row in reversed(added) if row['kind'] == kind), None)
         return _entry(row) if row and row['id'] not in gone else None
-    return {'item': {'type': item['type'], 'id': item['id'], 'business_id': item['business_id']},
+    return {'item': {'type': item['type'], 'id': item['id'], 'project_id': item['project_id']},
             'revision': revision_of(entries, questions), 'goal': latest('goal'),
             'decisions': [_entry(row) for row in standing if row['kind'] == 'decision'],
             'facts': [_entry(row) for row in standing if row['kind'] == 'fact'], 'progress': latest('progress'),

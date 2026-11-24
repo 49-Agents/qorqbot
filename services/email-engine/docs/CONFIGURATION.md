@@ -16,7 +16,7 @@ source exports or distributable packages. The administration, read and send toke
 | `EMAIL_HOST`, `EMAIL_PORT` | Listen address and port; use a private local binding. |
 | `EMAIL_SYNC_SECONDS` | Poll interval, default 120 seconds, minimum 30. |
 
-Leave `EMAIL_MAILBOXES_FILE` unset for account-only use. There are then no registered business mailboxes, the business-folder
+Leave `EMAIL_MAILBOXES_FILE` unset for account-only use. There are then no registered project mailboxes, the project-folder
 sync loop is idle and `/mailboxes` is empty; `/fastmail` still serves the owner account through the administration credential.
 The Fastmail extension receives the explicit engine URL and the path of its administration token file.
 
@@ -24,7 +24,7 @@ The Fastmail extension receives the explicit engine URL and the path of its admi
 
 These settings name private JSON files. Their schemas live in `engine_email.models`; none is enabled by installation.
 
-- `EMAIL_MAILBOXES_FILE`: registered business mailbox mappings. Existing account/folder/address ownership cannot be reassigned.
+- `EMAIL_MAILBOXES_FILE`: registered project mailbox mappings. Existing account/folder/address ownership cannot be reassigned.
 - `EMAIL_SHARED_SENDERS_FILE`: shared sender profiles, disabled until explicitly enabled. Exact approved transport, recipients,
   footer and expiry remain binding. Shared accounts use atomic rolling limits and a separate installation-wide ceiling
   of 220 messages per rolling 24 hours. The lower allowance wins: a profile still configured with `rolling_limit: 150`

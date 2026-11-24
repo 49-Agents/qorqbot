@@ -20,7 +20,7 @@ The canonical package sources now live in Agentic's
 below are relative to that library. Native package IDs and installed catalog
 locations are unchanged; this directory retains licensing and package history.
 
-- `plugin.yaml`: id `email-management`, version `3.3.0`, schema version 1, `scope_kinds`
+- `plugin.yaml`: id `email-management`, version `3.4.0`, schema version 1, `scope_kinds`
   `[ecosystem]`. The scope kind says where the package may be granted and grants nothing.
 - `tools.yaml`: `tools: {}`.
 - `rules.yaml`: `channel: email`, `approval: owner_input`. This is the guidance policy for access

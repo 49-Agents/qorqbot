@@ -18,7 +18,7 @@ class TaskNarrowingTests(unittest.TestCase):
     def setUp(self):
         self.connection = sqlite3.connect(":memory:")
         self.connection.row_factory = sqlite3.Row
-        self.connection.execute("CREATE TABLE tasks (business_id TEXT, id TEXT, status TEXT, archived INTEGER, fields_json TEXT, updated_at TEXT)")
+        self.connection.execute("CREATE TABLE tasks (project_id TEXT, id TEXT, status TEXT, archived INTEGER, fields_json TEXT, updated_at TEXT)")
         for position, (identity, status, archived, task_type) in enumerate(TASKS):
             fields = {"$task": {"task_type": task_type, "overview": 'A "story" about a "customer".'}} if task_type else {"note": "story"}
             self.connection.execute("INSERT INTO tasks VALUES ('p1',?,?,?,?,?)",

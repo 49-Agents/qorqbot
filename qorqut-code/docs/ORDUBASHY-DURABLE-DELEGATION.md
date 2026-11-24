@@ -75,7 +75,7 @@ The adapter accepts the previously verified `0.155.x` series and exactly
 contract passed on 0.159.3, covering initial execution, saved-session resume,
 JSON completion events and scoped MCP without loading the parent connection.
 This verification uses synthetic responses and credentials, with no live model
-or business operations. It does not claim an owner live acceptance run.
+or project operations. It does not claim an owner live acceptance run.
 
 `tests/test_codex_delegated_runtime_contract.py` launches the installed
 Codex CLI against loopback-only model and MCP fixtures. In the observed
@@ -107,7 +107,7 @@ saved CLI thread ID is runtime state, not the canonical progress record.
 ## Core implementation checkpoint
 
 Core migration `078_operational_delegation.sql` now stores revisioned
-assignments, exact business/record boundaries, approved plans, worker
+assignments, exact project/record boundaries, approved plans, worker
 checkpoints, wake conditions, runtime generations/leases, hashed subordinate
 bindings, and stable action receipts. Parent MCP operations can create, inspect,
 revise, pause, resume, or cancel assignments. A bound worker can read only its
@@ -268,4 +268,4 @@ real-CLI native-subagent contracts (low/medium), and ten companion role tests
 passed. CLI contracts use synthetic model/MCP servers; authenticated model
 availability was checked separately through `model/list`. Journal tests use
 an interpreter with the current context-base dependency and the companion
-agent-roles worktree. No live business task or agent session was started.
+agent-roles worktree. No live project task or agent session was started.

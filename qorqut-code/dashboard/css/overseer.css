@@ -1,0 +1,43 @@
+.overseer { padding: 16px; overflow: auto; height: 100%; }
+.overseer nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.overseer button { cursor: pointer; }
+.overseer nav button[aria-pressed="true"] { font-weight: 700; }
+.overseer h2, .overseer h3 { margin: 16px 0 8px; }
+.overseer p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.overseer-list { display: grid; gap: 8px; }
+.overseer-item { text-align: left; padding: 10px; border: 1px solid var(--border, #ddd); border-radius: 6px; background: transparent; color: inherit; }
+.overseer-item { white-space: pre-wrap; overflow-wrap: anywhere; justify-content: flex-start; }
+.overseer-item small { display: block; margin-top: 4px; }
+.overseer .overseer-content nav { margin: 8px 0 12px; }
+.overseer details { margin: 10px 0; }
+.overseer pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.overseer-notice { color: var(--muted, #777); }
+
+/* Testing mode OFF: one centered availability state in place of Overseer's
+   chat and right-hand workspace. */
+.overseer-coming-soon {
+  grid-column: 2; display: grid; place-items: center; min-width: 0; min-height: 0;
+  padding: 32px 24px; overflow: auto;
+}
+.overseer-coming-soon-embed { grid-column: auto; flex: 1; }
+.overseer-coming-soon-box {
+  width: min(340px, 80vw); max-width: 340px; text-align: center;
+  transform: translateY(-20px);
+}
+.overseer-coming-soon-box h2 {
+  margin: 0 0 12px; color: var(--fg); font-size: 16px; font-weight: 600;
+  letter-spacing: normal; text-transform: none;
+}
+.overseer-coming-soon-description {
+  margin: 0 auto; color: var(--fg-2); font-size: 13px; line-height: 1.5;
+}
+.overseer-coming-soon-hint { margin: 18px 0 0; color: var(--fg-3); font-size: 12px; }
+.overseer-coming-soon-error { margin: 14px 0 0; color: var(--danger); font-size: 12px; }
+.overseer-coming-soon-retry { height: 30px; margin-top: 10px; padding: 0 12px; font-size: 11px; }
+@media (max-width: 800px) {
+  .overseer-coming-soon { padding: 24px 16px; }
+  .overseer-coming-soon-box { width: min(340px, 100%); transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .overseer-coming-soon-box { transform: none; }
+}

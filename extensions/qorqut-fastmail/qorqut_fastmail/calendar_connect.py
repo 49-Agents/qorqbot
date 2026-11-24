@@ -19,7 +19,7 @@ def connection(username: str, app_password: str, identities: str = "") -> dict:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True, help="Private output calendar.json, outside Git")
-    parser.add_argument("--name", required=True, help="Connection name, e.g. personal or business")
+    parser.add_argument("--name", required=True, help="Connection name, e.g. personal or work")
     args = parser.parse_args(argv)
     try:
         username = input("Fastmail login email: ").strip()

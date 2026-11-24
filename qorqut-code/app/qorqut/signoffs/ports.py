@@ -14,6 +14,8 @@ behaves exactly as it does without them. Every optional domain the host retains 
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from qorqut_operations.signoffs import ABSENT, ReferenceTarget, SignoffPorts
 from qorqut_operations.storage.assembly import AssemblyError
 
@@ -30,10 +32,22 @@ class SignoffDomains:
 
     Using a port before its domain is bound is a composition error, never a silent default."""
 
-    NAMES = ('management', 'focus_board')
+    NAMES = ('management', 'focus_board', 'user_input')
 
     def __init__(self):
         self._bound = {}
+        self._observers = []
+
+    def observe(self, observer):
+        """Add ``observer(before, after, uow)``, called inside the transaction of every Signoff status update after the Focus
+        board has been told. An observer keeps its own records in step with a decision; it never changes the Signoff."""
+        if not callable(observer):
+            raise AssemblyError('A Signoff observer must be callable')
+        self._observers.append(observer)
+        return self
+
+    def observers(self):
+        return tuple(self._observers)
 
     def bind(self, **domains):
         for name, value in domains.items():
@@ -93,13 +107,13 @@ class HostTasks:
     """The owner attention overview's open-task count: the fixed Task states and the shared snooze rule."""
 
     @staticmethod
-    def open_assigned_count(uow, business_id, principal_id, now):
+    def open_assigned_count(uow, project_id, principal_id, now):
         closed = set(CLOSED_STATES)
         return sum(task['status'] not in closed for task in uow.connection.execute('''SELECT t.status FROM tasks t
-            WHERE t.business_id IS ? AND t.archived=0 AND EXISTS(SELECT 1 FROM relationships r
-            WHERE r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id
+            WHERE t.project_id IS ? AND t.archived=0 AND EXISTS(SELECT 1 FROM relationships r
+            WHERE r.project_id IS t.project_id AND r.from_type='task' AND r.from_id=t.id
             AND r.role='assigned_to' AND r.to_type='person' AND r.to_id=?) AND ''' + ACTIVE_SQL,
-            (business_id, principal_id, now)))
+            (project_id, principal_id, now)))
 
 
 class HostReferences:
@@ -107,8 +121,7 @@ class HostReferences:
     order. The engine reads each reference through the named operation as the actor, never directly."""
 
     targets = {'signoff': ReferenceTarget('signoffs_get', 'signoff_id'),
-               'task': ReferenceTarget('tasks_get', 'task_id'),
-               'dev_ticket': ReferenceTarget('dev_tickets_get', 'ticket_id')}
+               'task': ReferenceTarget('tasks_get', 'task_id')}
 
     @staticmethod
     def task_namespace(context, arguments):
@@ -127,9 +140,6 @@ class HostManagement:
     def coordinator(self, uow):
         return self.domains.management._coordinator(uow)
 
-    def auto_route_input(self, context, row, uow):
-        return self.domains.management.auto_route_input(context, row, uow)
-
     @staticmethod
     def routing_for(uow, signoff_id):
         return uow.connection.execute("SELECT * FROM management_routing WHERE source_type='signoffs' AND source_id=?",
@@ -144,6 +154,8 @@ class HostFocus:
 
     def release_signoff(self, row, updated, uow):
         self.domains.focus_board.release_signoff(row, updated, uow)
+        for observer in self.domains.observers():
+            observer(row, updated, uow)
 
 
 class PrivateSignoffVisibility:
@@ -160,8 +172,6 @@ class PrivateSignoffVisibility:
             return '', []
         excluded = [name for name in self.operations if name not in self.rules or not self.rules[name](context, uow)]
         predicates = ['s.operation_name NOT IN (' + ','.join('?' for _ in excluded) + ')'] if excluded else []
-        if context.principal_kind != 'agent' or context.principal_id != configured_ordubashy(uow):
-            predicates.append("s.category != 'side_chat'")
         return (' AND (' + ' AND '.join(predicates) + ')' if predicates else ''), excluded
 
 
@@ -171,26 +181,60 @@ class HostInputSources:
         from qorqut_operations.application.plans import ref
         from qorqut_operations.contracts import DomainError
         service = application.private_conversations
-        selected = service.select(context, source['business_id'], uow)
-        if source['type'] == 'reference' and source['business_id'] is not None:
+        selected = service.select(context, source['project_id'], uow)
+        if source['type'] == 'reference' and source['project_id'] is not None:
             raise DomainError('validation_error', 'Reference threads are Global')
         service.source_check(selected, source['type'], source['id'], uow)
         # A dependency is discussion/workflow metadata, not permission to edit or execute the source's contents.
         # In particular an approval for tasks_update must remain linkable while that edit still requires approval.
         operations = {'task': ('tasks_comment', 'tasks', 'task_id'),
                       'table': ('tables_comment', 'data_tables', 'table_id'),
-                      'project': ('project_items_link', 'businesses', 'project_id'),
+                      'project': ('project_items_link', 'projects', 'project_id'),
                       'reference': ('focus_edit', 'focus_cards', 'item_id')}
         operation, table, argument = operations[source['type']]
         # Project and reference writes additionally belong to the owner/configured coordinator.
         if source['type'] in {'project', 'reference'}:
             service.role(selected, uow)
-        namespace = 'business:' + selected.business_id if selected.business_id else 'global'
+        namespace = 'project:' + selected.project_id if selected.project_id else 'global'
         decision = application.authorize(selected, application.registry.get(operation),
-            (ref(table, source['id'], selected.business_id),), uow, namespace=namespace,
+            (ref(table, source['id'], selected.project_id),), uow, namespace=namespace,
             arguments={argument: source['id']})
         if decision.mode != 'allow':
             raise DomainError('forbidden', 'Linking input requires direct write authority over its source')
+
+
+class HostTabs:
+    """The open tabs of the Shared browser for a browser-action request, read exactly as Chat's tab card reads them
+    (``native_chat.user_input``): the caller's ``agents_get`` read of the tab's agent, then Chrome's current tab list."""
+
+    def __init__(self, domains):
+        self.domains = domains
+
+    def check(self, application, context, tab_id, uow):
+        from qorqut_operations.contracts import DomainError
+        from qorqut_operations.items import UNAVAILABLE
+        user_input = self.domains.user_input
+        # A tab is Global, as in Chat: the agent is read without a Project selected.
+        ctx = application.current_context(replace(context, project_id=None, review_project_id=None), uow)
+        try:
+            found = user_input.tab(ctx, tab_id, uow)
+        except DomainError as error:
+            if error.code not in UNAVAILABLE:
+                raise
+            raise DomainError('not_found', 'This tab is not open, or its browser is not answering. Run tab-reference in the '
+                                           'page again and use the reference it prints') from None
+        return {'title': found['title'], 'url': found['url']}
+
+    def view(self, tab_id, uow):
+        from qorqut.native_chat import references, store
+        agent_id, chrome_id = references.tab_parts(tab_id)
+        user_input = self.domains.user_input
+        tab = (user_input._open_tabs(agent_id) or {}).get(chrome_id)
+        agent = store.agent_identity(uow.connection, agent_id) if tab else None
+        available = bool(tab and agent)
+        return {'id': tab_id, 'agent_id': agent_id, 'tab_id': chrome_id, 'available': available,
+                'label': user_input.tab_label(tab['title'], tab['url']) if available else None,
+                'agent_label': agent['display_name'] if available else None}
 
 
 def signoff_ports(domains: SignoffDomains, private_signoffs=None, outcomes=None) -> SignoffPorts:
@@ -198,4 +242,5 @@ def signoff_ports(domains: SignoffDomains, private_signoffs=None, outcomes=None)
     return SignoffPorts(execution=HostExecution(outcomes), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
                         platform=ABSENT, email=ABSENT,
                         management=HostManagement(domains), focus=HostFocus(domains),
-                        narrowing=PrivateSignoffVisibility(private_signoffs or {}), sources=HostInputSources())
+                        narrowing=PrivateSignoffVisibility(private_signoffs or {}), sources=HostInputSources(),
+                        tabs=HostTabs(domains))

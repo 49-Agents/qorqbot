@@ -17,7 +17,7 @@ from qorqut_context.integration import filing as context_filing
 from qorqut_operations.application.registry import CatalogEntry
 from qorqut_operations.application.plans import DATE, TEXT, UUID, apply_records, ref, require_revision, schema
 from qorqut_operations.contracts import DomainError, OperationResult, new_id
-from qorqut_operations.documents.business_notes import KIND as BUSINESS_NOTE, TARGET
+from qorqut_operations.documents.project_notes import KIND as PROJECT_NOTE, TARGET
 from qorqut_operations.documents.journal_access import JOURNAL_KINDS, require_owner
 from qorqut_operations.documents.materials import ENCOUNTER_ORIGINS
 from qorqut_operations.documents.note_snapshot import filing_snapshot, snapshot_hash
@@ -62,8 +62,8 @@ GLOBAL_CONTEXT = WORKERS | {"context_retry", "context_retract"}
 GLOBAL_SCOPED = GLOBAL_CONTEXT | GLOBAL_OWNER_CONTEXT
 
 
-def business_namespace(ctx, args):
-    return 'business:' + ctx.business_id if ctx.business_id else 'global'
+def project_namespace(ctx, args):
+    return 'project:' + ctx.project_id if ctx.project_id else 'global'
 
 
 class FilingOperations:
@@ -96,8 +96,8 @@ class FilingOperations:
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow),
                 apply=self.apply, validate_targets=self.validate_targets,
                 description=FILING_DESCRIPTIONS.get(name, ""),
-                scope_kinds={"global"} if name == "journal_upload_to_filer" else {"business", "global"} if name in GLOBAL_SCOPED else {"business", "agent_workspace"},
-                resolve_namespace=business_namespace if name in GLOBAL_SCOPED else DocumentSources.own_namespace if name.startswith("notes_") else None,
+                scope_kinds={"global"} if name == "journal_upload_to_filer" else {"project", "global"} if name in GLOBAL_SCOPED else {"project", "agent_workspace"},
+                resolve_namespace=project_namespace if name in GLOBAL_SCOPED else DocumentSources.own_namespace if name.startswith("notes_") else None,
                 global_capability="read_global_context" if name in GLOBAL_SCOPED or name in GLOBAL_NOTES else None,
                 # Legacy authoring remains a dashboard/worker compatibility surface only.
                 # Agent and owner-session MCP clients use canonical context_edit/instruct/upload.
@@ -131,11 +131,11 @@ class FilingOperations:
                     raise DomainError("validation_error", "Participant Persons must be distinct")
                 identities.add(identity)
                 row = self.store.get(ctx, identity, uow, kinds={"context_person"})
-                if row["business_id"] != ctx.business_id:
+                if row["project_id"] != ctx.project_id:
                     raise DomainError("not_found", "Participant is not a Person in this project")
                 if row.get("archived"):
                     raise DomainError("validation_error", "Participant is archived; restore them or choose another Person")
-                builder.expect(ref("documents", identity, ctx.business_id), row)
+                builder.expect(ref("documents", identity, ctx.project_id), row)
             # The owner's chosen display name is kept; it is never replaced by the Person's stored name.
             participants.append({"person_id": identity, "name": name} if identity else {"name": name})
         return {"origin": origin, **({"occurred_on": args["occurred_on"]} if "occurred_on" in args else {}),
@@ -166,12 +166,12 @@ class FilingOperations:
         return builder.build(), identity, job
 
     def prepare(self, operation, ctx, args, options, uow):
-        if operation == 'context_retry' and ctx.business_id is None:
+        if operation == 'context_retry' and ctx.project_id is None:
             require_owner(ctx, uow)
         self.require_filing()
         if operation == 'context_retract' and ctx.principal_kind != 'human':
             raise DomainError('forbidden', 'Only the owner retracts a Context source')
-        if operation == 'context_upload' and ctx.business_id is None:
+        if operation == 'context_upload' and ctx.project_id is None:
             self.require_global_upload(ctx, uow)
             if args.get('task_ids'):
                 raise DomainError('validation_error', 'Task associations are per project')
@@ -192,13 +192,13 @@ class FilingOperations:
             self._upload(builder, uow, body=body, title=note_meta.get("title") or "Daily",
                 source="global-journal",
                 metadata={"format": "notes-v1", "journal_source_id": source["id"],
-                    "journal_source_kind": source["kind"], "journal_source_business_id": source["business_id"],
+                    "journal_source_kind": source["kind"], "journal_source_project_id": source["project_id"],
                     "journal_source_revision": source["revision"], "journal_source_hash": digest,
                     "journal_source_date": note_meta.get("date"), "journal_uploader_id": ctx.principal_id,
                     "journal_uploaded_at": builder.at},
                 source_refs=[{"resource_type": "documents", "resource_id": source["id"]}])
         elif operation in {"context_upload", "notes_upload"}:
-            source = self.store.get(ctx, args["document_id"], uow, kinds={"business_note", "journal", BUSINESS_NOTE}, write=True) if operation == "notes_upload" else None
+            source = self.store.get(ctx, args["document_id"], uow, kinds={"project_note", "journal", PROJECT_NOTE}, write=True) if operation == "notes_upload" else None
             encounter = {}
             if source:
                 self.sources.note_target(ctx, args, source)
@@ -218,7 +218,7 @@ class FilingOperations:
                 metadata={"format": "notes-v1", "source_revision": source["revision"], "source_snapshot_hash": digest} if source else encounter,
                 source_refs=[{"resource_type": "documents", "resource_id": source["id"]}] if source else [])
             if source:
-                self.store.write(builder, uow, kind=BUSINESS_NOTE if source["kind"] == BUSINESS_NOTE else "business_note", before=source, metadata={**note_meta, "uploaded": builder.at, "upload_id": identity, "upload_snapshot_hash": digest},
+                self.store.write(builder, uow, kind=PROJECT_NOTE if source["kind"] == PROJECT_NOTE else "project_note", before=source, metadata={**note_meta, "uploaded": builder.at, "upload_id": identity, "upload_snapshot_hash": digest},
                     expected_revision=options.expected_revision, expected_content_hash=args.get("expected_content_hash"))
         elif operation == "context_retract":
             row = self._upload_row(ctx, args["upload_id"], uow)
@@ -235,7 +235,7 @@ class FilingOperations:
             row = self._upload_row(ctx, args["upload_id"], uow)
             if options.expected_revision is not None:
                 require_revision(row, options.expected_revision)
-            builder.expect(ref("documents", row["id"], ctx.business_id), row)
+            builder.expect(ref("documents", row["id"], ctx.project_id), row)
             self.filing.retry(builder, uow, ctx, row, options, append_plan)
             if not builder.changes:
                 return builder.build()
@@ -247,7 +247,7 @@ class FilingOperations:
         return self.sources.finalize(builder, uow, operation, args)
 
     def validate_targets(self, ctx, plan, uow):
-        if plan.operation_name == "context_upload" and ctx.business_id is None:
+        if plan.operation_name == "context_upload" and ctx.project_id is None:
             self.require_global_upload(ctx, uow)
         self.sources.validate_targets(ctx, plan, uow, global_note_operations=GLOBAL_NOTES)
 
@@ -264,10 +264,10 @@ class FilingOperations:
             # The document already exists with its file, so its applicable filing (the new version when this plan admitted
             # one) can be read now. A brand-new upload has no file until its effect runs, so it is read separately.
             requested_id = plan.arguments.get("document_id", plan.arguments.get("upload_id"))
-            row = uow.repository("documents", business_id=ctx.business_id).get(requested_id, required=True)
+            row = uow.repository("documents", project_id=ctx.project_id).get(requested_id, required=True)
             result["filing"], _ = self.filing.document_filing(uow, ctx, row)
             if not jobs and result["filing"]["job_id"]:
-                state = uow.repository("jobs", business_id=ctx.business_id).get(result["filing"]["job_id"], required=True)["state"]
+                state = uow.repository("jobs", project_id=ctx.project_id).get(result["filing"]["job_id"], required=True)["state"]
                 result["job"] = {"id": result["filing"]["job_id"], "state": state}
                 return OperationResult("", "accepted", data=result, job=result["job"])
         if jobs:

@@ -1,4 +1,4 @@
-"""Business-shared and Global general tables, explicit schema edits and atomic row batches."""
+"""Project-shared and Global general tables, explicit schema edits and atomic row batches."""
 
 from datetime import date
 from dataclasses import replace
@@ -11,6 +11,7 @@ from qorqut_operations.discussion.follows import ThreadItem, auto_follow
 from qorqut_operations.application.plans import (PAGE, TEXT, UUID, PlanBuilder, apply_records, page, prepare_job, ref,
                                                  require_revision, rows, schema, utc_clock)
 from qorqut_operations.records.associations import TASK_IDS, link_new_resource
+from qorqut_operations.records.locate import LOCATED, Family, RecordLookup
 from qorqut_operations.storage.assembly import AssemblyError
 from . import crm_model
 from .history import TableHistory, snapshot
@@ -33,41 +34,44 @@ CELLS = {"type": "object", "maxProperties": 100, "propertyNames": KEY}
 ROW_ID = {"anyOf": [UUID, {"type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"}]}
 ROW = schema({"id": ROW_ID, "cells": CELLS, "source_upload_id": {"anyOf": [UUID, {"type": "null"}]}}, ("cells",))
 MAX_ROWS, MAX_SNAPSHOT = 50000, 10 * 1024 * 1024
-SCOPE = {"scope": {"enum": ["business", "global"]}}
+SCOPE = {"scope": {"enum": ["project", "global"]}}
 ARCHIVE = "tables_archive"
 
 
 def table_namespace(ctx, args):
-    if args.get("scope") == "global" or (not ctx.business_id and args.get("scope") != "business"):
+    if args.get("scope") == "global" or (not ctx.project_id and args.get("scope") != "project"):
         return "global"
-    return "business:" + (ctx.business_id or "")
+    return "project:" + (ctx.project_id or "")
+
+
+def table_lookup():
+    """The ``locate_scope`` hook of every operation that names one Table by ``table_id`` (here and in the CRM service)."""
+    return RecordLookup(Family("data_tables", "table_id", "tables_get", "Table",
+                               global_gate=lambda ctx, uow: table_context(ctx, {"scope": "global"}, uow)))
 
 
 def table_context(ctx, args, uow):
-    """The Global namespace has no business; only the owner and active ecosystem agents may enter it."""
+    """The Global namespace has no project; only the owner and active ecosystem agents may enter it."""
     if table_namespace(ctx, args) != "global":
         return ctx
-    if ctx.home_business_id is not None:
-        raise DomainError("forbidden", "Project agents cannot access Global tables")
     if ctx.principal_kind == "human":
         installation = uow.repository("installation").get("service")
         allowed = installation and installation["owner_principal_id"] == ctx.principal_id
     else:
-        profile = uow.repository("agent_profiles", business_id=None).get(ctx.principal_id)
-        allowed = (ctx.principal_kind == "agent" and profile and profile["status"] == "active"
-                   and profile["profile_json"]["scope"]["kind"] == "ecosystem")
+        profile = uow.repository("agent_profiles", project_id=None).get(ctx.principal_id)
+        allowed = (ctx.principal_kind == "agent" and profile and profile["status"] == "active")
     if not allowed or "read_global_context" not in ctx.global_capabilities:
         raise DomainError("forbidden", "Global tables require the owner or an authorized global agent")
-    return replace(ctx, business_id=None, review_business_id=None)
+    return replace(ctx, project_id=None, review_project_id=None)
 
 
 SCOPED_RESOURCES = frozenset({"data_tables", "data_rows", "crm_entries", "table_versions", "jobs"})
-# Business publication keeps its original program so jobs queued before Global tables still match their frozen definition.
+# Project publication keeps its original program so jobs queued before Global tables still match their frozen definition.
 VERSION_PROGRAM, GLOBAL_VERSION_PROGRAM = "tables.version", "tables.global-version"
 
 
-def version_program(business_id):
-    return GLOBAL_VERSION_PROGRAM if business_id is None else VERSION_PROGRAM
+def version_program(project_id):
+    return GLOBAL_VERSION_PROGRAM if project_id is None else VERSION_PROGRAM
 
 
 def plan_program(plan):
@@ -116,9 +120,9 @@ def cells_checked(cells, columns):
 
 
 class TableOperations:
-    def __init__(self, database, operations_root, project_hq, *, clock=utc_clock, job_programs=None):
+    def __init__(self, database, operations_root, project_root, *, clock=utc_clock, job_programs=None):
         self.database, self.clock, self.job_programs = database, clock, job_programs
-        self.history = TableHistory(database, operations_root, project_hq)
+        self.history = TableHistory(database, operations_root, project_root)
         self.crm = None
 
     def bind_crm(self, crm):
@@ -147,9 +151,9 @@ class TableOperations:
             "tables_rows_list": ({**PAGE, "table_id": UUID, "query": TEXT, "equals": CELLS, "order_by": KEY, "descending": {"type": "boolean"}}, ("table_id",)),
             "tables_history": ({**PAGE, "table_id": UUID}, ("table_id",)),
         }
-        scoped = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context", resolve_namespace=table_namespace)
+        scoped = dict(scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context", resolve_namespace=table_namespace)
         descriptions = {
-            "tables_list": "Find shared project tables by title, topic or table_kind (general or crm). All project agents use the same tables. Use scope=global for Global tables.",
+            "tables_list": "Find shared project tables by title, topic or table_kind (general or crm). All agents use the same tables. Use scope=global for Global tables.",
             "tables_get": "Read a table's kind (general or crm), columns, CRM stages, revision, associations and Git history status before editing it. Global tables need scope=global.",
             "tables_rows_list": "Read paginated table rows, optionally searching values or matching cells exactly. Pagination restarts if the table changes. For a CRM table the rows are its entries (same as crm_entries_list).",
             "tables_history": "Read the saved Git commit or pending snapshot for each table revision. Does not return raw upload contents.",
@@ -159,8 +163,11 @@ class TableOperations:
             "tables_history_retry": "Queue publication of a pending table version and any earlier pending versions in this project, or in Global with scope=global. Never modifies table data.",
             ARCHIVE: "Archive a table with expected_revision. For Global tables an agent's request always needs the installation owner's approval; restore with tables_update archived=false. Archived tables keep their data but reject row edits.",
         }
+        lookup = table_lookup()
+        located = lambda name, fields: ({"locate_scope": lookup, "description": descriptions[name] + LOCATED}
+                                        if "table_id" in fields else {"description": descriptions[name]})
         for name, (fields, required) in reads.items():
-            registry.register(OperationDescriptor(name, schema({**SCOPE, **fields}, required), description=descriptions[name],
+            registry.register(OperationDescriptor(name, schema({**SCOPE, **fields}, required), **located(name, fields),
                 effect_kind="read", supports_signoff=False, **scoped,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         writes = {
@@ -172,23 +179,23 @@ class TableOperations:
             ARCHIVE: ({"table_id": UUID}, ("table_id",)),
         }
         for name, (fields, required) in writes.items():
-            registry.register(OperationDescriptor(name, schema({**SCOPE, **fields, "rationale": TEXT}, required), description=descriptions[name],
+            registry.register(OperationDescriptor(name, schema({**SCOPE, **fields, "rationale": TEXT}, required), **located(name, fields),
                 prepare=lambda ctx, args, options, uow, op=name: self.prepare(op, ctx, args, options, uow), apply=self.apply,
                 validate_targets=self.validate_scope, **scoped))
 
     @staticmethod
     def table(ctx, identity, uow):
-        return uow.repository("data_tables", business_id=ctx.business_id).get(identity, required=True)
+        return uow.repository("data_tables", project_id=ctx.project_id).get(identity, required=True)
 
     @staticmethod
     def table_rows(ctx, identity, uow):
-        return rows(uow, "data_rows", ctx.business_id, where="table_id=?", parameters=(identity,), maximum=MAX_ROWS)
+        return rows(uow, "data_rows", ctx.project_id, where="table_id=?", parameters=(identity,), maximum=MAX_ROWS)
 
     @classmethod
     def table_children(cls, ctx, table, uow):
         """What a table versions as its content: its data rows, or a CRM's memberships (removed ones included)."""
         if table["table_kind"] == "crm":
-            return rows(uow, "crm_entries", ctx.business_id, where="table_id=?", parameters=(table["id"],), maximum=MAX_ROWS)
+            return rows(uow, "crm_entries", ctx.project_id, where="table_id=?", parameters=(table["id"],), maximum=MAX_ROWS)
         return cls.table_rows(ctx, table["id"], uow)
 
     @staticmethod
@@ -201,10 +208,10 @@ class TableOperations:
         result["archived"] = bool(row["archived"])
         # A CRM counts its active memberships where a general table counts its rows.
         result["row_count"] = uow.connection.execute(
-            "SELECT count(*) FROM crm_entries WHERE business_id IS ? AND table_id=? AND removed=0" if row["table_kind"] == "crm"
-            else "SELECT count(*) FROM data_rows WHERE business_id IS ? AND table_id=?", (ctx.business_id, row["id"])).fetchone()[0]
-        version = uow.connection.execute("SELECT id,git_commit FROM table_versions WHERE business_id IS ? AND table_id=? ORDER BY sequence DESC LIMIT 1",
-            (ctx.business_id, row["id"])).fetchone()
+            "SELECT count(*) FROM crm_entries WHERE project_id IS ? AND table_id=? AND removed=0" if row["table_kind"] == "crm"
+            else "SELECT count(*) FROM data_rows WHERE project_id IS ? AND table_id=?", (ctx.project_id, row["id"])).fetchone()[0]
+        version = uow.connection.execute("SELECT id,git_commit FROM table_versions WHERE project_id IS ? AND table_id=? ORDER BY sequence DESC LIMIT 1",
+            (ctx.project_id, row["id"])).fetchone()
         result["versioning"] = {"state": "saved" if version and version["git_commit"] else "pending",
             "version_id": version["id"] if version else None, "commit": version["git_commit"] if version else None}
         return result
@@ -212,19 +219,19 @@ class TableOperations:
     def read(self, operation, ctx, args, uow):
         ctx = table_context(ctx, args, uow)
         if operation == "tables_list":
-            found = rows(uow, "data_tables", ctx.business_id)
+            found = rows(uow, "data_tables", ctx.project_id)
             found = [row for row in found if (args.get("include_archived") or not row["archived"])
                 and (not args.get("query") or args["query"].casefold() in (row["title"] + " " + row["description"]).casefold())
                 and (not args.get("topic") or args["topic"] in row["tags_json"].get("topics", []))
                 and (not args.get("table_kind") or row["table_kind"] == args["table_kind"])]
-            selected, cursor = page(found, args, ctx.business_id, operation)
+            selected, cursor = page(found, args, ctx.project_id, operation)
             return {"items": [self.view(ctx, row, uow) for row in selected], "next_cursor": cursor}
         table = self.table(ctx, args["table_id"], uow)
         if operation == "tables_history":
             found = [dict(row) for row in uow.connection.execute(
                 "SELECT id,table_id,table_revision,sequence,actor_id,operation,path,snapshot_hash,git_commit,created_at "
-                "FROM table_versions WHERE business_id IS ? AND table_id=?", (ctx.business_id, args["table_id"]))]
-            selected, cursor = page(found, args, ctx.business_id, operation, key=lambda row: (row["sequence"], row["id"]))
+                "FROM table_versions WHERE project_id IS ? AND table_id=?", (ctx.project_id, args["table_id"]))]
+            selected, cursor = page(found, args, ctx.project_id, operation, key=lambda row: (row["sequence"], row["id"]))
             return {"items": selected, "next_cursor": cursor}
         if operation == "tables_get":
             return {"table": self.view(ctx, table, uow)}
@@ -244,16 +251,16 @@ class TableOperations:
             def key(row):
                 value = row["cells_json"].get(args["order_by"])
                 return value is not None, value if value is not None else "", row["position"], row["id"]
-        selected, cursor = page(found, {**args, "table_revision": table["revision"]}, ctx.business_id, operation, key=key, reverse=args.get("descending", False))
+        selected, cursor = page(found, {**args, "table_revision": table["revision"]}, ctx.project_id, operation, key=key, reverse=args.get("descending", False))
         return {"items": [self.row_view(row) for row in selected], "next_cursor": cursor, "table_revision": table["revision"]}
 
     def prepare(self, operation, ctx, args, options, uow):
         ctx = table_context(ctx, args, uow)
         builder = PlanBuilder(ctx, operation, args, operation.replace("_", " ").title(), clock=self.clock)
-        scoped = builder.ctx.business_id is None
+        scoped = builder.ctx.project_id is None
         if operation == "tables_history_retry":
-            version = uow.repository("table_versions", business_id=ctx.business_id).get(args["version_id"], required=True)
-            prepare_job(builder, uow, version_program(builder.ctx.business_id), {"version_id": version["id"]}, programs=self.job_programs)
+            version = uow.repository("table_versions", project_id=ctx.project_id).get(args["version_id"], required=True)
+            prepare_job(builder, uow, version_program(builder.ctx.project_id), {"version_id": version["id"]}, programs=self.job_programs)
             return builder.build()
         if operation == "tables_create":
             identity = new_id()
@@ -310,8 +317,8 @@ class TableOperations:
                     # Memberships keep the stage they name; one that is still used is retired, never removed.
                     crm_model.stage_removal_checked(current["crm_config_json"], values["crm_config_json"], {
                         found[0] for found in uow.connection.execute(
-                            "SELECT DISTINCT stage_id FROM crm_entries WHERE business_id IS ? AND table_id=? AND stage_id IS NOT NULL",
-                            (ctx.business_id, identity))})
+                            "SELECT DISTINCT stage_id FROM crm_entries WHERE project_id IS ? AND table_id=? AND stage_id IS NOT NULL",
+                            (ctx.project_id, identity))})
                 if "columns_json" in values and crm:
                     values["columns_json"] = crm_model.columns_validated(
                         values["columns_json"], self.crm_service().field_definitions(ctx, uow), crm=True)
@@ -349,7 +356,7 @@ class TableOperations:
         """Queue the exact snapshot of ``table_id`` and the job that publishes it, as part of ``builder``'s plan."""
         version_id = new_id()
         self.history.prepare(builder, table_id, version_id, uow)
-        prepare_job(builder, uow, version_program(builder.ctx.business_id), {"version_id": version_id}, programs=self.job_programs)
+        prepare_job(builder, uow, version_program(builder.ctx.project_id), {"version_id": version_id}, programs=self.job_programs)
 
     def append_rows(self, builder, uow, table, all_rows, updates, deletes):
         ctx, identity = builder.ctx, table["id"]
@@ -363,7 +370,7 @@ class TableOperations:
             builder.record("data_rows", key, existing[key], {}, action="delete")
         for item in updates:
             key = item.get("id") or new_id()
-            if ctx.business_id is None and item.get("source_upload_id") is not None:
+            if ctx.project_id is None and item.get("source_upload_id") is not None:
                 raise DomainError("validation_error", "Global table rows cannot reference a Data Upload")
             if key in seen:
                 raise DomainError("validation_error", "A batch cannot change a row more than once")
@@ -377,7 +384,7 @@ class TableOperations:
             if "source_upload_id" in item:
                 source = item["source_upload_id"]
                 if source:
-                    upload = uow.repository("documents", business_id=ctx.business_id).get(source, required=True)
+                    upload = uow.repository("documents", project_id=ctx.project_id).get(source, required=True)
                     if upload["kind"] != "data_upload" or upload["availability"] != "ready":
                         raise DomainError("validation_error", "Source must be a ready Data Upload in this project")
                 changes["source_upload_id"] = source
@@ -419,16 +426,16 @@ class TableOperations:
     @staticmethod
     def validate_scope(ctx, plan, uow):
         """Re-derive scope and archive authority from the stored plan, never from an ID's shape."""
-        business = None if plan.target_namespace == "global" else plan.target_namespace.removeprefix("business:")
+        project = None if plan.target_namespace == "global" else plan.target_namespace.removeprefix("project:")
         for resource in [*(target.resource for target in plan.expected_targets), *(change.resource for change in plan.changes)]:
-            if resource.resource_type in SCOPED_RESOURCES and resource.business_id != business:
+            if resource.resource_type in SCOPED_RESOURCES and resource.project_id != project:
                 raise DomainError("invalid_plan", "Prepared table effects must stay in the operation's scope")
-        if business is not None:
+        if project is not None:
             return
         for change in plan.changes:
             if change.resource.resource_type != "data_tables" or change.action not in {"insert", "update"}:
                 continue
-            before = uow.repository("data_tables", business_id=None).get(change.resource.resource_id) if change.action == "update" else None
+            before = uow.repository("data_tables", project_id=None).get(change.resource.resource_id) if change.action == "update" else None
             if archives(before, change.values) and not any(
                     other.action == "policy_effect" and other.operation_name == ARCHIVE and other.resource == change.resource
                     for other in plan.changes):
@@ -444,5 +451,5 @@ class TableOperations:
         if plan.operation_name == "tables_create":
             # Like a Task, a new Table's creator follows its discussion by default (an explicit unfollow stays).
             created = next(c for c in plan.changes if c.resource.resource_type == "data_tables" and c.action == "insert")
-            auto_follow(uow, ThreadItem(ctx.business_id, "table", created.resource.resource_id), [created.values["created_by"]], "creator")
+            auto_follow(uow, ThreadItem(ctx.project_id, "table", created.resource.resource_id), [created.values["created_by"]], "creator")
         return results[0]

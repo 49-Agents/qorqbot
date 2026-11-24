@@ -116,7 +116,7 @@ class SessionBindingTests(unittest.TestCase):
                 patch('qorqut.bootstrap.supervisor.load_registration',
                       side_effect=DomainError('registration_conflict', 'Legacy registration')):
             supervisor = Supervisor({'root': str(self.root)}, alive=lambda _: True)
-            supervisor.context_check_at = supervisor.reference_check_at = supervisor.report_check_at = float('inf')
+            supervisor.context_check_at = supervisor.reference_check_at = float('inf')
             supervisor.tick()
         pool.return_value.submit.assert_called_once_with(supervisor.recover, good)
 

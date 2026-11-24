@@ -71,7 +71,7 @@ budget so a long batch does not keep starting additional calls indefinitely;
 never interrupt an already-running mutation merely to hit that budget.
 
 All current agents can discover batching by core default, with an explicit owner
-override to deny it. Batching grants no inner operation, plugin, business access
+override to deny it. Batching grants no inner operation, plugin, project access
 or owner authority. It cannot itself be approved as a blanket Signoff. Every
 entry retains its own approval gate. The tool is not a dashboard/worker mutation
 and cannot bypass the MCP dispatcher through direct application invocation.
@@ -100,7 +100,7 @@ its tasks. Result references, branching and concurrency are not needed in v1.
 Test ten Story-linked task creations in one MCP call; mixed tasks, owner-input
 Signoff and agent message; compact/full replay without duplicate effects; partial
 failures and stop/continue semantics; nested/oversized/duplicate-ID rejection;
-wrapper denial, inner denial, cross-business and owner-only refusal; per-entry
+wrapper denial, inner denial, cross-project and owner-only refusal; per-entry
 authentication/policy refresh; and truthful budget-excluded results. Exercise the
 installed MCP client against a temporary service. No live agent mutations or
 provider/model calls are part of the implementation tests.

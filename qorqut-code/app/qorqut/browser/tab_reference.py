@@ -3,8 +3,9 @@
 When a page needs the owner (a captcha that could not be solved, a sign-in, a confirmation), describing where to click is the
 worst way to ask: the owner first has to find the right agent, browser and tab. An agent sends ``tab-reference`` as a
 ``browser_turn`` command, alone and without arguments, and gets the identity-only ``tab`` reference of the tab its session is
-bound to. Ordubashy (or the Overseer) passes it to ``request_user_input``; any other agent gives it to Ordubashy. Chat then shows
-the tab as a card, and the owner opens its live view (``live``), which the HTTP route allows the owner only.
+bound to. Ordubashy files a browser-action Signoff with it (``signoffs.inputs``); any other agent gives it to Ordubashy. The
+request is on the owner's attention queue with the tab as a card, and the owner opens its live view (``live``), which the HTTP
+route allows the owner only. ``request_user_input`` can still show the tab in Chat as a pointer, but it asks nothing.
 
 Like ``captcha`` it is a command the server runs itself, so authorization, the handle, the browser's use lock and the reply are
 those of ``click``; only ``agent-browser`` is left out. It is read-only: it touches no page and changes no browser. The one
@@ -26,7 +27,8 @@ COMMAND = "tab-reference"
 # A target's ``instance`` (``access._worker_target``) is ``configured:<agent id>`` for that agent's tabs in the Shared browser (not
 # always the caller: Ordubashy may work in a worker's) and ``desktop:<surface>`` for a managed desktop, which is no agent's.
 OWN = "configured:"
-SHOW = ("Pass this reference to request_user_input, or give it to Ordubashy, to show the owner this tab in Chat. "
+SHOW = ("Ordubashy files a browser-action Signoff with this reference (signoffs_input_create, form kind browser_action, tab set "
+        "to its id), so the tab lands on the owner's attention queue; any other agent gives the reference to Ordubashy. "
         "title and url say which page it is: check that they match what you tell the owner.")
 SHOW_FIELD = SHOW.replace("this reference", "reference")      # the same advice in a reply that names the reference as a field
 NO_TAB = "You have no tab open. Open the page first, then run tab-reference again."

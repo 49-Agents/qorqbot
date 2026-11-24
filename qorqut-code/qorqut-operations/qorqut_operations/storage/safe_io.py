@@ -1,6 +1,6 @@
 """Host file effects anchored to directory descriptors, without symlink traversal.
 
-Business processes can rename their writable directories concurrently. A path
+Project processes can rename their writable directories concurrently. A path
 check followed by ordinary path I/O cannot enforce a host filesystem boundary.
 Walk every component with O_NOFOLLOW and keep the parent descriptor through the
 effect, including temporary-file creation, rename, cleanup and directory fsync.

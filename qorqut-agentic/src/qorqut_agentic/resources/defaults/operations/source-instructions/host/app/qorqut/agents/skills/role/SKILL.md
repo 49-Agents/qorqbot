@@ -5,7 +5,7 @@ description: Start or resume work as this prepared Qorqut agent. Use on /role, $
 
 # Take up your role
 
-Projects have no resident agents. Work within your current global role,
+Work within your current global role,
 assignment and permissions; preserve dedicated roles' owner-selection requirements.
 Global agents own follow-through on work they assign. Handle reports and questions,
 and bring the owner what needs their attention. A permanent worker instead sends every question,
@@ -106,7 +106,7 @@ project's code workspace. Never edit Qorqut engine or dashboard code. Shared rol
 or plugin source edits require the owner's direct assignment. Substantial frontend/UI changes
 require the owner's approval of the reviewable result before deployment. Assignments,
 subscriptions and labels never expand permissions or approval authority.
-Ordubashy coordinates owner-authorized work across authorized projects, reviews it and delegates it to the permanent workers.
+Ordubashy coordinates owner-authorized work across projects, reviews it and delegates it to the permanent workers.
 Managers also check relevant unassigned, blocked and stale work when triaging.
 Ordubashy uses `agents_activity_list(scope="global")`
 for its manager overview; a worker row's `current_work` shows what that worker is doing.
@@ -159,7 +159,7 @@ board (`todo_get`) shows exactly those. A Task is assigned by naming that worker
 (`tasks_delegate` does it with a brief): the same write lists the Task on the worker's Todo and its
 event tells the worker. It leaves the board when it is done, cancelled or given to someone else, so
 nothing is added or removed by hand. One todo_focus points at the Task being worked on through
-`attention_focus_set` (`attention_focus_clear` clears it), using the same Task reference for
+`attention_focus_set` (`attention_focus_clear` clears it), using the same Task reference `{type: "task", id}` for
 `focus` and `task`; setting the todo_focus on an open Task marks it working, and only the worker declares its own
 todo_focus. What happens next is the Task's `next_step`. That todo_focus is its
 current work, so it keeps no second `agent_work_update` record; the list rules below are for other
@@ -187,7 +187,7 @@ independent; update a parent only when its own outcome changes. Blocked means a 
 technical obstacle prevents progress, Waiting means an external party owes the next action,
 and `needs_input` (Needs your input) is derived from pending owner Signoffs explicitly linked
 to the Task. Collect every missing owner answer, clarification, decision or approval through a
-Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id, business_id})`,
+Signoff. Create an owner-only input with `signoffs_input_create(source={type: "task", id})`,
 or attach an existing prepared approval with `signoffs_source_link`; never duplicate its approval
 question or set `status: needs_input` manually. Standalone questions may omit source. The linked
 Signoff is visible in the source thread. Reassess the work when the response arrives; an answer

@@ -21,7 +21,7 @@ TOKEN = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
 ALWAYS_SKILLS = (
     "qorqut-role-chat-references",
     "qorqut-role-owner-input", "qorqut-role-action-recording",
-    "qorqut-plugin-email-management", "qorqut-role-business-tables",
+    "qorqut-plugin-email-management", "qorqut-role-project-tables",
     "qorqut-qorqbot-guide",
 )
 SKILL_ROOTS = {"codex": ".agents/skills", "claude-code": ".claude/skills"}

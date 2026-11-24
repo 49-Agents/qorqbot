@@ -15,7 +15,7 @@ from qorqut_agentic.cli import OPERATIONS
 from qorqut_operations.application.registry import OperationDescriptor
 from qorqut_operations.contracts import DomainError
 
-from qorqut.agents.global_scope import active_role_holder
+from qorqut.agents.global_scope import active_role_holder, reaches_project
 from qorqut.agents.roles import LEARNING_APPLIER_ROLE
 from qorqut.management.identity import configured_ordubashy
 from qorqut.transport.auth import AuthenticatedPrincipal, current_agent_credential
@@ -63,7 +63,7 @@ class AgenticAccess:
             }},
             description=instruction_text('access-read-current-native-toolkit-access-and-routing-performs'),
             effect_kind="read", supports_signoff=False, exposure=frozenset({"mcp"}),
-            scope_kinds=frozenset({"global", "business", "agent_workspace"}),
+            scope_kinds=frozenset({"global", "project", "agent_workspace"}),
             global_capability="read_global_context", read=self.read,
         ))
 
@@ -85,7 +85,7 @@ class AgenticAccess:
             raise DomainError("registration_conflict", "Native registration does not match the current profile")
         current_agent_credential(uow.connection, AuthenticatedPrincipal(
             ctx.principal, registration["credential_id"], registration["id"]), now=time.time())
-        if context.get("project_id") is not None and context["project_id"] not in profile.scope.businesses:
+        if context.get("project_id") is not None and not reaches_project(uow.connection, profile.agent_id, context["project_id"]):
             raise DomainError("forbidden", "Project is outside current native access")
         can_manage = CAPABILITY in profile.scope.global_capabilities and profile.agent_id in {
             configured_ordubashy(uow),
@@ -95,9 +95,10 @@ class AgenticAccess:
             raise DomainError("forbidden", "Toolkit management requires the current manager identity and capability")
         if operation.startswith('authoring.') or operation == 'history.restore':
             raise DomainError('owner_input_required',
-                'Active agentic changes require a specific owner Signoff and the approved application workflow; use agentic_change_propose')
+                'Active agentic changes require the owner\'s approval and the approved application workflow; file the point for the '
+                'Learning Applier\'s review with experience_observation_file')
         if operation.startswith('overseer.') and profile.agent_id != active_role_holder(uow.connection, LEARNING_APPLIER_ROLE):
-            raise DomainError('forbidden', 'Use shared agentic_change tools to submit and review your direct instructions')
+            raise DomainError('forbidden', 'Overseer operations belong to the Learning Applier; file a point for its review with experience_observation_file')
         selection = self.view.selection(profile, **context)
         layer = self.view.layer
         return {"operation": operation, "actor": {"actor_id": profile.agent_id, "actor_kind": "agent"},

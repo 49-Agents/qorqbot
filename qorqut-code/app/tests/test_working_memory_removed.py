@@ -35,19 +35,19 @@ class WorkingMemoryRemovedTests(unittest.TestCase):
             yield object()
         app = SimpleNamespace(database=SimpleNamespace(read=read), current_context=lambda ctx, uow: ctx,
                               registry=builtin_registry())
-        resolver = SimpleNamespace(invocation_context=lambda principal, business_id=None: SimpleNamespace(business_id=business_id))
+        resolver = SimpleNamespace(invocation_context=lambda principal, project_id=None: SimpleNamespace(project_id=project_id))
         context = AgentContext.__new__(AgentContext)
         context.app, context.resolver = app, resolver
         context.authorize = lambda ctx, operation, uow: None
         context.access = lambda ctx, args, uow: AGENT
-        config = {'business_id': None, 'mandatory_context': {'rendered': ''}}
+        config = {'project_id': None, 'mandatory_context': {'rendered': ''}}
         with mock.patch('qorqut.domains.startup_inventory.StartupInventory') as inventory:
             inventory.return_value.page.return_value = {'attention': []}
             result = context.bootstrap(SimpleNamespace(), config)
         self.assertTrue(result['rendered'])
         text = result['rendered'].lower()
         self.assertNotIn('memory', text)
-        self.assertEqual(set(json.loads(result['rendered'].split('\n', 1)[1])), {'agent_id', 'business_id', 'startup_inventory', 'context_hash'})
+        self.assertEqual(set(json.loads(result['rendered'].split('\n', 1)[1])), {'agent_id', 'project_id', 'startup_inventory', 'context_hash'})
 
 
 if __name__ == '__main__':

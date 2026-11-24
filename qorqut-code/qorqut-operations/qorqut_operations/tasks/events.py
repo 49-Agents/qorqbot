@@ -25,25 +25,25 @@ QUIET = frozenset({"revision", "updated_at", "status", "snooze_generation", "lat
 NAMED = 5
 
 
-def assigned(uow, business_id, task_id, *, agents_only: bool = False) -> list[str]:
+def assigned(uow, project_id, task_id, *, agents_only: bool = False) -> list[str]:
     """The Task's assignees (``assigned_to`` edges), agents and people or agents only."""
     return [row[0] for row in uow.connection.execute(
-        "SELECT to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? AND role='assigned_to'"
-        + (" AND to_type='agent'" if agents_only else "") + " ORDER BY to_id", (business_id, task_id))]
+        "SELECT to_id FROM relationships WHERE project_id IS ? AND from_type='task' AND from_id=? AND role='assigned_to'"
+        + (" AND to_type='agent'" if agents_only else "") + " ORDER BY to_id", (project_id, task_id))]
 
 
-def blockers(uow, business_id, task_id) -> list[str]:
+def blockers(uow, project_id, task_id) -> list[str]:
     return [row[0] for row in uow.connection.execute(
-        "SELECT DISTINCT to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? "
-        "AND to_type='task' AND role='blocked_by' ORDER BY to_id", (business_id, task_id))]
+        "SELECT DISTINCT to_id FROM relationships WHERE project_id IS ? AND from_type='task' AND from_id=? "
+        "AND to_type='task' AND role='blocked_by' ORDER BY to_id", (project_id, task_id))]
 
 
-def dependency_followers(uow, business_id, task_id) -> set[str]:
+def dependency_followers(uow, project_id, task_id) -> set[str]:
     """Agents responsible for Tasks that are blocked by this one (derived from the graph, never subscribed)."""
     return {row[0] for row in uow.connection.execute(
-        "SELECT DISTINCT a.to_id FROM relationships d JOIN relationships a ON a.business_id IS d.business_id AND a.from_type='task' "
-        "AND a.from_id=d.from_id AND a.role='assigned_to' AND a.to_type='agent' WHERE d.business_id IS ? "
-        "AND d.from_type='task' AND d.to_type='task' AND d.role='blocked_by' AND d.to_id=?", (business_id, task_id))}
+        "SELECT DISTINCT a.to_id FROM relationships d JOIN relationships a ON a.project_id IS d.project_id AND a.from_type='task' "
+        "AND a.from_id=d.from_id AND a.role='assigned_to' AND a.to_type='agent' WHERE d.project_id IS ? "
+        "AND d.from_type='task' AND d.to_type='task' AND d.role='blocked_by' AND d.to_id=?", (project_id, task_id))}
 
 
 def change(before: Mapping | None, after: Mapping) -> dict:
@@ -54,29 +54,29 @@ def change(before: Mapping | None, after: Mapping) -> dict:
             "new_workers": sorted(workers(after) - workers(before))}
 
 
-def routes(uow, routing, business_id, task: Mapping, actor_id, *, responsibility: bool, targets: Iterable[str] = (),
+def routes(uow, routing, project_id, task: Mapping, actor_id, *, responsibility: bool, targets: Iterable[str] = (),
            change: Mapping | None = None):
     """``(required, optional)`` principal ids for an event about ``task``; ``change`` is passed on to the host's routing."""
     task_id = task["id"]
-    required = set(targets) | dependency_followers(uow, business_id, task_id)
+    required = set(targets) | dependency_followers(uow, project_id, task_id)
     if responsibility:
-        required |= set(assigned(uow, business_id, task_id, agents_only=True))
-    host_required, host_optional = routing.routes(uow, business_id, task, actor_id, change)
+        required |= set(assigned(uow, project_id, task_id, agents_only=True))
+    host_required, host_optional = routing.routes(uow, project_id, task, actor_id, change)
     required |= set(host_required)
-    optional = set(followers(uow, ThreadItem(business_id, "task", task_id))) | set(host_optional)
+    optional = set(followers(uow, ThreadItem(project_id, "task", task_id))) | set(host_optional)
     return required, optional
 
 
-def announce(uow, routing, business_id, task: Mapping, actor_id, kinds, *, responsibility: bool, targets: Iterable[str] = (),
+def announce(uow, routing, project_id, task: Mapping, actor_id, kinds, *, responsibility: bool, targets: Iterable[str] = (),
              summary=None, messages: Iterable[str] = (), change: Mapping | None = None) -> int | None:
     """Emit the one event for an operation on a Task and bind the thread entries written with it."""
-    required, optional = routes(uow, routing, business_id, task, actor_id, responsibility=responsibility, targets=targets,
+    required, optional = routes(uow, routing, project_id, task, actor_id, responsibility=responsibility, targets=targets,
                                 change=change)
-    event_id = emit_event(uow, business_id=business_id, source_type=SOURCE_TYPE, source_id=task["id"],
+    event_id = emit_event(uow, project_id=project_id, source_type=SOURCE_TYPE, source_id=task["id"],
                           source_revision=task["revision"], actor_id=actor_id, event_type=",".join(kinds),
                           summary=summary or task["title"], required=required, optional=optional)
     if event_id is not None:
-        attach_event(uow, ThreadItem(business_id, "task", task["id"]), messages, event_id)
+        attach_event(uow, ThreadItem(project_id, "task", task["id"]), messages, event_id)
     return event_id
 
 
@@ -89,7 +89,7 @@ STEP_EVENTS = ("plan_step_started", "plan_step_done", "plan_step_submitted", "pl
 SETTLED = "Settled: the step no longer waits for confirmation"
 
 
-def announce_step(uow, business_id, task: Mapping, actor_id, kinds, summary: str, recipients: Iterable[str],
+def announce_step(uow, project_id, task: Mapping, actor_id, kinds, summary: str, recipients: Iterable[str],
                   marker: Mapping | None = None) -> int | None:
     """Emit the one event for what an action on a Task's plan did to its steps, to ``recipients`` only.
 
@@ -99,19 +99,19 @@ def announce_step(uow, business_id, task: Mapping, actor_id, kinds, summary: str
     unknown = [kind for kind in kinds if kind not in STEP_EVENTS]
     if unknown or not kinds:
         raise ValueError(f"Unknown plan step event: {unknown}")
-    return emit_event(uow, business_id=business_id, source_type=SOURCE_TYPE, source_id=task["id"],
+    return emit_event(uow, project_id=project_id, source_type=SOURCE_TYPE, source_id=task["id"],
                       source_revision=task["revision"], actor_id=actor_id, event_type=",".join(kinds), summary=summary,
                       required=recipients, visibility=dict(marker) if marker else None)
 
 
-def step_announced(uow, business_id, task_id, notice: str) -> bool:
+def step_announced(uow, project_id, task_id, notice: str) -> bool:
     """Whether the plan step event marked ``plan_notice: notice`` was already written for this Task."""
     return uow.connection.execute(
-        "SELECT 1 FROM inbox_events WHERE source_type=? AND source_id=? AND business_id IS ? "
-        "AND json_extract(visibility_json,'$.plan_notice')=? LIMIT 1", (SOURCE_TYPE, task_id, business_id, notice)).fetchone() is not None
+        "SELECT 1 FROM inbox_events WHERE source_type=? AND source_id=? AND project_id IS ? "
+        "AND json_extract(visibility_json,'$.plan_notice')=? LIMIT 1", (SOURCE_TYPE, task_id, project_id, notice)).fetchone() is not None
 
 
-def settle_submissions(uow, business_id, task_id, operations: Iterable[str] | None = None, *, at) -> int:
+def settle_submissions(uow, project_id, task_id, operations: Iterable[str] | None = None, *, at) -> int:
     """Acknowledge the pending deliveries that say a step of this Task's plan waits for confirmation; returns how many.
 
     ``operations`` are the engine operations the steps were handed in with: only their events are settled, when the
@@ -124,21 +124,21 @@ def settle_submissions(uow, business_id, task_id, operations: Iterable[str] | No
                                         + ",".join("?" for _ in chosen) + ")")
     cursor = uow.connection.execute(
         "UPDATE inbox_deliveries SET acknowledged_at=?,outcome=? WHERE acknowledged_at IS NULL AND event_id IN ("
-        "SELECT e.id FROM inbox_events e WHERE e.source_type=? AND e.source_id=? AND e.business_id IS ? "
+        "SELECT e.id FROM inbox_events e WHERE e.source_type=? AND e.source_id=? AND e.project_id IS ? "
         "AND e.event_type LIKE '%plan_step_submitted%'" + narrow + ")",
-        (at, SETTLED, SOURCE_TYPE, task_id, business_id, *(chosen or ())))
+        (at, SETTLED, SOURCE_TYPE, task_id, project_id, *(chosen or ())))
     return cursor.rowcount
 
 
-def state(uow, business_id, task_id) -> dict | None:
+def state(uow, project_id, task_id) -> dict | None:
     """Everything a change of the Task can alter, for comparing before and after one operation."""
-    row = uow.connection.execute("SELECT * FROM tasks WHERE business_id IS ? AND id=?", (business_id, task_id)).fetchone()
+    row = uow.connection.execute("SELECT * FROM tasks WHERE project_id IS ? AND id=?", (project_id, task_id)).fetchone()
     if row is None:
         return None
     labels = [label[0] for label in uow.connection.execute(
-        "SELECT t.label_key FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.business_id IS ? AND i.item_type='task' "
-        "AND i.item_id=? ORDER BY t.label_key", (business_id, task_id))]
-    return {"row": dict(row), "assignees": assigned(uow, business_id, task_id), "blockers": blockers(uow, business_id, task_id),
+        "SELECT t.label_key FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.project_id IS ? AND i.item_type='task' "
+        "AND i.item_id=? ORDER BY t.label_key", (project_id, task_id))]
+    return {"row": dict(row), "assignees": assigned(uow, project_id, task_id), "blockers": blockers(uow, project_id, task_id),
             "tags": labels}
 
 
@@ -279,13 +279,13 @@ def principal_names(uow):
     return names
 
 
-def record_change(uow, business_id, before: Mapping, after: Mapping, recorder_id) -> str | None:
+def record_change(uow, project_id, before: Mapping, after: Mapping, recorder_id) -> str | None:
     """Append the system entry for a change; returns the entry id, or ``None`` for a no-op."""
     described = describe(before, after, principal_names(uow))
     if described is None:
         return None
     body, change = described
-    return system_entry(uow, ThreadItem(business_id, "task", after["row"]["id"]), recorder_id=recorder_id, body=body,
+    return system_entry(uow, ThreadItem(project_id, "task", after["row"]["id"]), recorder_id=recorder_id, body=body,
                         change=change)
 
 

@@ -27,7 +27,7 @@ OUTBOX_SOURCE = "reminder_occurrence"
 OUTSTANDING_LIMIT = 50
 WITHDRAWN = "Reminder occurrence is no longer current"
 POINTER_FIELDS = ("reminder_id", "occurrence_id", "revision", "text", "due_at", "time_critical", "linked_item",
-                  "business_id", "creator_id")
+                  "project_id", "creator_id")
 
 
 def event_occurrence(row):
@@ -43,7 +43,7 @@ def _own(payload, row, occurrence):
     """Whether the service's payload is the one this exact event names: same occurrence, reminder and scope. A payload that
     reports its link as withdrawn (``link_available`` false) is never treated as authorized."""
     return (isinstance(payload, dict) and payload.get("link_available") is not False and payload.get("occurrence_id") == occurrence
-            and payload.get("reminder_id") == row["source_id"] and payload.get("business_id") == row["business_id"])
+            and payload.get("reminder_id") == row["source_id"] and payload.get("project_id") == row["project_id"])
 
 
 def current_payload(app, uow, row):
@@ -110,7 +110,7 @@ class ReminderDelivery:
         try:
             ctx = inbox.context(inbox.resolver.runtime_context(Principal(agent_id, "agent")), uow)
             descriptor = self.app.registry.get("inbox_list")
-            if ctx.business_id is not None:
+            if ctx.project_id is not None:
                 descriptor = replace(descriptor, global_capability=None)
             return ctx if self.app.policy.resolve(ctx, descriptor, (), uow).mode == "allow" else None
         except DomainError:
@@ -132,7 +132,7 @@ class ReminderDelivery:
             summary = (("Time-critical reminder" if payload.get("time_critical") else "Reminder")
                        + f" due {payload['due_at']}: {payload['text']}")
             # actor_id=None is a system event: the creator stays on the reminder record, and a self-reminder is delivered.
-            event_id = emit_event(uow, business_id=payload["business_id"], source_type=SOURCE_TYPE,
+            event_id = emit_event(uow, project_id=payload["project_id"], source_type=SOURCE_TYPE,
                                   source_id=payload["reminder_id"], source_revision=payload["revision"], actor_id=None,
                                   event_type=EVENT_TYPE, summary=summary, required=[recipient],
                                   visibility={"occurrence_id": occurrence, "due_at": payload["due_at"]})

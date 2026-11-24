@@ -39,7 +39,7 @@ The launcher reads `.qorqut/browser.json` in that exact agent workspace. For Ord
 {
   "schema_version": 1,
   "cdp_endpoint": "http://127.0.0.1:9225",
-  "runtime_dir": "/absolute/path/to/deployed/biz-core/tools/browser"
+  "runtime_dir": "/absolute/path/to/deployed/core/tools/browser"
 }
 ```
 
@@ -261,8 +261,8 @@ The command's output is one JSON line: `captcha` is `solved`, `not_found`, `agai
 (`click`, `solver`, `already`, `waited`), a plain `reason` for a failure, and `next` when the agent has something to do
 (for a failure: "Ask the owner."). When `next` leaves the captcha to the owner (a failure, or no captcha recognised) and the
 tab is known, the reply also carries `reference`, the tab's `tab` reference (see [The tab-reference command](#the-tab-reference-command)),
-and `next` says to pass it to `request_user_input` or give it to Ordubashy, so the owner is shown the tab instead of being told
-where to look. Exit code 0 only for `solved`. The whole command is bounded at 150 seconds; an agent's tool call is given up
+and `next` says Ordubashy files a browser-action Signoff with it and any other agent gives it to Ordubashy, so the owner is
+shown the tab instead of being told where to look. Exit code 0 only for `solved`. The whole command is bounded at 150 seconds; an agent's tool call is given up
 on after 240.
 
 The key is the Global Settings variable `CAPTCHA_SOLVER_API_KEY`, read on the server for each call through the Settings
@@ -286,38 +286,42 @@ click a vendor's picture puzzle may stay open over the page.
 ## The tab-reference command
 
 When the owner must do something in a page (a captcha that could not be solved, a sign-in, a confirmation), the agent sends
-`["tab-reference"]` as a `browser_turn` command, with nothing else, and shows that tab in Chat instead of describing where to
-click. Like `captcha` it goes in a call of its own (inside `commands` it is refused before anything runs, as is any argument),
+`["tab-reference"]` as a `browser_turn` command, with nothing else, and Ordubashy asks the owner with a browser-action Signoff
+on that tab (form `kind: browser_action`, `tab` = the reference id; `qorqut_operations/signoffs/inputs.py`) instead of
+describing where to click. The request is on the owner's attention queue until the owner answers Done or Could not do it. Like `captcha` it goes in a call of its own (inside `commands` it is refused before anything runs, as is any argument),
 it is run by the server and not by `agent-browser` (`qorqut/browser/tab_reference.py`, dispatched in `access.py`), and the
 shell launcher does not have it. It is read-only: it touches no page. It marks the session's tab as used
 (`idle_tabs.note_use`), so a tab waiting for the owner's answer is not unloaded for idleness, and it takes no command lock.
 
 It reads the tab the caller's session is bound to as `captcha` does, checks that tab is open in the browser, and prints one
-JSON line with exit code 0: `{"reference": {"type": "tab", "id": "<agent uuid>:<tab id>"}, "next": "Pass this reference to
-request_user_input, or give it to Ordubashy, to show the owner this tab in Chat."}`. The agent is the one whose tabs the
+JSON line with exit code 0: `{"reference": {"type": "tab", "id": "<agent uuid>:<tab id>"}, "title", "url", "next"}`, where `next` says that
+Ordubashy files a browser-action Signoff with it and any other agent gives it to Ordubashy. The agent is the one whose tabs the
 command ran in: the caller's, or a worker's when Ordubashy has selected that worker's tabs. With no tab
 open (or a bound tab that has closed) it exits 1 with `{"reason": "..."}` telling the agent to open the page first; in a managed
 desktop, which is no agent's browser, it exits 1 and says to use a `browser` reference.
 
-`request_user_input` takes the reference as `{"type": "tab", "id": "<agent uuid>:<tab id>"}` with `business_id` absent or
-null (`qorqut/native_chat/references.py`). Naming a tab grants no control and no authorization:
+A browser-action Signoff is filed only by Ordubashy and only while the tab is open (the Signoff port `tabs`,
+`qorqut/signoffs/ports.py`); its detail read carries the tab card below as `tab`, and a list row never asks the browser.
+`request_user_input` still takes the reference, as a pointer that asks nothing, as `{"type": "tab", "id": "<agent uuid>:<tab id>"}`
+with no `project_id` (`qorqut/native_chat/references.py`). Naming a tab grants no control and no authorization:
 
 - **When the tool is called** the agent must be one the caller may read (as for an `agent` reference) and the tab must be
   listed by that agent's browser now; anything else (unknown agent, browser stopped or not answering, tab closed) is the
   tool's usual "reference is not available".
 - **When Chat is read** the same check is made again for each page of Chat, with the browser's tabs listed once per agent
-  however many of its tabs the page names. The owner's card is `{type, id, business_id: null, label, available, agent_id,
+  however many of its tabs the page names. The owner's card is `{type, id, project_id: null, label, available, agent_id,
   tab_id, agent_label}`; `label` is the page's title (at most 200 characters, else the address's host, else "Tab"). A tab that
   is gone shows the "Unavailable tab" placeholder. The title is the page's own text and is only ever shown as text.
 - **Viewing** is the owner's alone and goes through the existing live-view route (`browser/live.py`); a reference neither
   opens a view nor lets anyone else.
 
-Checked by `tests/test_browser_tab_reference.py`, `tests/test_chat_references.py` and `tests/test_user_input_tab.py`.
+Checked by `tests/test_browser_tab_reference.py`, `tests/test_chat_references.py`, `tests/test_user_input_tab.py` and
+`tests/test_browser_action_signoff.py`.
 
 ## Projects have no browsers
 
-A Project has no browser, proxy, profile or isolated desktop: `business_config_*` accepts no `browser` section
-(a section an older installation stored is kept inert and nothing reads it), and `browser_turn` takes no `business_id`.
+A Project has no browser, proxy, profile or isolated desktop: `project_config_*` accepts no `browser` section
+(a section an older installation stored is kept inert and nothing reads it), and `browser_turn` takes no `project_id`.
 Every browser is Global. An agent uses its own configured browser (see above and [browser management](BROWSER-MANAGEMENT.md)),
 and the configured Ordubashy may name one of the managed Global desktops by id ([browser desktops](BROWSER-DESKTOPS.md)).
 Naming a browser grants nothing: control is the ordinary `browser_turn` permission plus the selected browser-control skill,

@@ -3,17 +3,17 @@
 import os
 import subprocess
 
-from qorqut.composition.locations import business_hq
+from qorqut.composition.locations import project_root
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.background.programs import ProgramResult
 
 
 def repository_status(control, arguments):
     with control.service.database.read() as uow:
-        business = uow.repository("businesses").get(control.business_id, required=True)
+        project = uow.repository("projects").get(control.project_id, required=True)
     paths = control.service.paths
     root = paths.operations.resolve(strict=True)
-    path = business_hq(paths, business).resolve(strict=True)
+    path = project_root(paths, project).resolve(strict=True)
     if not path.is_relative_to(root):
         raise DomainError("invalid_configuration", "Registered repository is outside the operations root")
     environment = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_OPTIONAL_LOCKS": "0"}

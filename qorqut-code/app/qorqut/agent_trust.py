@@ -100,15 +100,15 @@ def trust_claude(path: Path, folders) -> str:
             return UNAVAILABLE
         if not isinstance(data, dict):
             return UNAVAILABLE
-        projects = data.setdefault("projects", {})
-        if not isinstance(projects, dict):
+        claude_projects = data.setdefault("projects", {})
+        if not isinstance(claude_projects, dict):
             return UNAVAILABLE
-        missing = [key for key in folders if not (isinstance(projects.get(key), dict) and projects[key].get("hasTrustDialogAccepted") is True)]
+        missing = [key for key in folders if not (isinstance(claude_projects.get(key), dict) and claude_projects[key].get("hasTrustDialogAccepted") is True)]
         if not missing:
             return ALREADY
         for key in missing:
-            entry = projects.get(key)
-            projects[key] = {**(entry if isinstance(entry, dict) else {}), "hasTrustDialogAccepted": True}
+            entry = claude_projects.get(key)
+            claude_projects[key] = {**(entry if isinstance(entry, dict) else {}), "hasTrustDialogAccepted": True}
         if _replace_if_unchanged(path, before, (json.dumps(data, indent=2) + "\n").encode()):
             return TRUSTED
         time.sleep(0.05)
@@ -135,10 +135,10 @@ def owner_view(runtime, change=None, agent_id=None, environ=None) -> dict:
     if change is not None and saved["granted"]:
         with runtime.database.read() as uow:
             rows = [row["agent_id"] for row in uow.connection.execute(
-                "SELECT agent_id FROM agent_profiles WHERE home_business_id IS NULL AND status='active'")
+                "SELECT agent_id FROM agent_profiles WHERE status='active'")
                 if active_global(uow.connection, row["agent_id"]) is not None]
         for identity in rows:
-            results[identity] = ensure(runtime.paths.runtime, agent_workspace(runtime.paths, identity, None), environ)
+            results[identity] = ensure(runtime.paths.runtime, agent_workspace(runtime.paths, identity), environ)
     return {**saved, "clients": clients(environ), **({"recorded": results} if results else {})}
 
 

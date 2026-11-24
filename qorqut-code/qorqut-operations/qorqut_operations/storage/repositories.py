@@ -19,20 +19,20 @@ def decode_row(row) -> dict[str, Any] | None:
 
 
 class Repository:
-    def __init__(self, uow, table: str, business_id=UNSET):
+    def __init__(self, uow, table: str, project_id=UNSET):
         tables = uow.database.assembly.tables
         if table not in tables:
             raise ValueError("Unknown repository")
         self.uow, self.table, self.spec = uow, table, tables[table]
         self.columns = uow.database.columns(table)
-        inherited = uow.business_id
-        if business_id is UNSET:
-            business_id = inherited
-        if self.spec.scope_column and inherited is not UNSET and business_id != inherited:
+        inherited = uow.project_id
+        if project_id is UNSET:
+            project_id = inherited
+        if self.spec.scope_column and inherited is not UNSET and project_id != inherited:
             raise DomainError("forbidden", "Repository scope cannot differ from invocation scope")
-        if self.spec.scope_column and business_id is UNSET:
+        if self.spec.scope_column and project_id is UNSET:
             raise DomainError("scope_required", "A scoped repository requires an explicit project namespace")
-        self.business_id = business_id
+        self.project_id = project_id
 
     def _values(self, values: Mapping[str, Any]) -> dict[str, Any]:
         values = dict(values)
@@ -49,9 +49,9 @@ class Repository:
             raise ValueError("Unknown filter field")
         if self.spec.scope_column:
             key = self.spec.scope_column
-            if key in result and result[key] != self.business_id:
+            if key in result and result[key] != self.project_id:
                 raise DomainError("forbidden", "Resource is outside the repository scope")
-            result[key] = self.business_id
+            result[key] = self.project_id
         return result
 
     @staticmethod

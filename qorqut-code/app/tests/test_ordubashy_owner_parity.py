@@ -18,20 +18,17 @@ OWNER_ONLY = frozenset({
     'signoffs_review', 'signoffs_retry_apply',
     # Who the coordinator is.
     'management_coordinator_set',
-    # The owner's private conversations and side chats.
+    # The owner's private conversations.
     'owner_conversations_list', 'owner_conversation_peers', 'owner_conversation_related', 'owner_conversation_mark_read',
-    'side_chats_create', 'side_chats_rename', 'side_chats_close',
-    # System incidents and the retired repair tickets.
-    'system_incidents_list', 'system_incidents_get', 'dev_tickets_list', 'dev_tickets_status_set',
     # The Learning Applier's review and the owner's own Context filing controls.
     'learnings_review', 'learnings_edit', 'learnings_intake_status',
     'context_changes', 'context_filings', 'context_retract', 'context_upload_map', 'journal_upload_to_filer',
     # Archived projects and document history: owner views today.
-    'business_archived_list', 'business_restore', 'document_history_get', 'business_history_list',
+    'project_archived_list', 'project_restore', 'document_history_get', 'project_history_list',
 })
 # The owner approves each of these: the coordinator proposes, a Signoff decides.
 NEEDS_APPROVAL = frozenset({
-    'business_archive', 'tables_archive', 'owner_action_propose', 'roles_publish', 'plugins_publish',
+    'project_archive', 'tables_archive', 'owner_action_propose', 'roles_publish', 'plugins_publish',
     'shared_instructions_update', 'learnings_extract',
 })
 # The role file denies direct Context writes by name; the coordinator files through context_instruct and context_edit.
@@ -62,7 +59,7 @@ class OrdubashyOwnerParity(unittest.TestCase):
     def refused(self):
         found = {}
         for entry in self.registry.entries():
-            for scope in ('global', 'business'):
+            for scope in ('global', 'project'):
                 decision = self.decision(entry.name, scope)
                 if decision.mode != 'allow':
                     found.setdefault(entry.name, set()).add(decision.mode)

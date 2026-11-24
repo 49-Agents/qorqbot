@@ -36,8 +36,8 @@ class Fixture(unittest.TestCase):
         self.paths = SimpleNamespace(runtime=self.runtime, context=self.root / "context", operations=self.root / "operations")
         self.connection = sqlite3.connect(":memory:")
         self.connection.row_factory = sqlite3.Row
-        self.connection.execute("CREATE TABLE businesses (id TEXT, slug TEXT, archived_at TEXT)")
-        self.connection.execute("CREATE TABLE agent_profiles (agent_id TEXT, home_business_id TEXT)")
+        self.connection.execute("CREATE TABLE projects (id TEXT, slug TEXT, archived_at TEXT)")
+        self.connection.execute("CREATE TABLE agent_profiles (agent_id TEXT)")
 
         @contextmanager
         def read():
@@ -155,13 +155,18 @@ class TerminalProjection(Fixture):
     def test_every_agent_is_denied_what_no_agent_works_with_and_ordubashy_three_tools_more(self):
         name = ".qorqut/claude-launch-settings.json"
         everyone = ["AskUserQuestion", "Workflow", "Agent(claude)", "Agent(Explore)", "Agent(Plan)", "Agent(statusline-setup)"]
-        self.assertEqual(json.loads(self.build(False).files[name]),
-                         {"permissions": {"defaultMode": "bypassPermissions", "deny": everyone}})
+        self.assertEqual(json.loads(self.build(False).files[name])["permissions"],
+                         {"defaultMode": "bypassPermissions", "deny": everyone})
         self.data["role"] = {"id": "ordubashy"}
         with mock.patch("qorqut.management.identity.configured_ordubashy", lambda uow: "agent-1"):
             for terminal in (False, True):
-                self.assertEqual(json.loads(self.build(terminal).files[name]), {"permissions": {
-                    "defaultMode": "bypassPermissions", "deny": [*everyone, "ListAgents", "ReportFindings", "ScheduleWakeup"]}})
+                self.assertEqual(json.loads(self.build(terminal).files[name])["permissions"], {
+                    "defaultMode": "bypassPermissions", "deny": [*everyone, "ListAgents", "ReportFindings", "ScheduleWakeup"]})
+
+    def test_the_launch_settings_switch_claude_codes_own_memory_off(self):
+        settings = json.loads(self.build(False).files[".qorqut/claude-launch-settings.json"])
+        self.assertIs(settings["autoMemoryEnabled"], False)
+        self.assertIn(settings["permissions"]["defaultMode"], ("bypassPermissions", "dontAsk"))
 
 
 if __name__ == "__main__":

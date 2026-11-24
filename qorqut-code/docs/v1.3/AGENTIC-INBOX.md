@@ -87,7 +87,7 @@ capabilities or touches a native session. Offline/disabled/busy native delivery
 does not prevent the ordinary durable inbox append.
 
 The reserved core source is `agentic_changes`; selected extensions cannot shadow
-it. Events have `business_id=None`, `source_id=change_id`,
+it. Events have `project_id=None`, `source_id=change_id`,
 `source_revision=sequence`, `event_type='agentic_layer_changed'` and exactly the
 existing recipient as a required delivery. A registered change actor is retained
 in `actor_id`; an unknown actor is represented as null in the host and keeps its

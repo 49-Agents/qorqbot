@@ -13,30 +13,32 @@ import sys
 import uuid
 
 from qorqut.agents import roles
-from qorqut.agents.global_scope import active_global, effective_business_ids, global_profile_data
+from qorqut.agents.global_scope import active_global, effective_project_ids, global_profile_data
 from qorqut.agents.worker_access import is_worker, require_worker_manager
 from qorqut.composition.locations import agent_workspace_of
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, Principal, plain
+from qorqut_operations.records.references import Ref, References
 from qorqut_operations.discussion import ThreadItem, can_follow, set_follow
 from qorqut_operations.application.plans import PAGE, UUID, PlanBuilder, apply_records, page, schema, timestamp, utc_clock
+from qorqut_operations.project_lifecycle import active_project_ids
 from qorqut_operations.tasks.scope import task_context, task_namespace
 
 STALE_SECONDS = 180
 # A source the reader may not read: its details are withheld, never an error for the whole answer.
-# ``business_archived``: a Task in an archived project is retained but is not current work, so it is left out like
+# ``project_archived``: a Task in an archived project is retained but is not current work, so it is left out like
 # any other Task the agent can no longer read instead of failing the whole read.
 UNREADABLE = frozenset({'forbidden', 'policy_denied', 'invalid_policy', 'not_found', 'operation_unavailable',
-                        'business_archived'})
+                        'project_archived'})
 WORK_STALE_SECONDS = 7200
 # A worker's one current assignment: authored summary and blocked reason together stay this short in words. The
 # legacy per-session items keep their character caps (checked when written); a worker item has no character cap beyond
 # the ordinary transport payload bounds, and needs a Task reference, text, or both.
 WORKER_WORD_LIMIT = 100
 LEGACY_TEXT_LIMIT = 300
-WORK_ITEM = schema({'business_id': {'anyOf': [UUID, {'type': 'null'}]},
+WORK_ITEM = schema({'project_id': {'anyOf': [UUID, {'type': 'null'}]},
     'task_id': {'type': 'string', 'minLength': 1, 'maxLength': 200},
-    'summary': {'type': 'string'}, 'blocked_reason': {'type': 'string'}}, ('business_id',))
+    'summary': {'type': 'string'}, 'blocked_reason': {'type': 'string'}}, ())
 WORK_PATCH = schema({'action': {'enum': ['add', 'replace', 'remove']},
     'item_key': {'type': 'string', 'pattern': '^[0-9a-f]{16}$'}, 'item': WORK_ITEM}, ('action',))
 
@@ -70,16 +72,16 @@ class AgentActivity:
         self._thread = None
 
     def register(self):
-        common = dict(scope_kinds=frozenset({'business', 'global'}),
+        common = dict(scope_kinds=frozenset({'project', 'global'}),
             global_capability='read_global_context', supports_signoff=False,
             resolve_namespace=task_namespace)
         self.app.registry.register(OperationDescriptor('agents_activity_list', schema({**PAGE,
-            'scope': {'enum': ['business', 'global']}, 'agent_id': UUID,
+            'scope': {'enum': ['project', 'global']}, 'agent_id': UUID,
             'role_id': {'type': 'string', 'maxLength': 100}, 'session_id': UUID}), **common, effect_kind='read',
             description=instruction_text('activity-read-current-agent-sessions-and-declared-work-in'),
             read=lambda c,a,o,u: self.list(c,a,u)))
         self.app.registry.register(OperationDescriptor('agent_work_update', schema({
-            'scope': {'enum': ['business', 'global']}, 'agent_id': UUID, 'session_id': UUID,
+            'scope': {'enum': ['project', 'global']}, 'agent_id': UUID, 'session_id': UUID,
             'items': {'type': 'array', 'maxItems': 10, 'items': WORK_ITEM},
             'patch': {'type': 'array', 'maxItems': 10, 'items': WORK_PATCH},
             'replace_current': {'type': 'boolean'},
@@ -88,6 +90,9 @@ class AgentActivity:
                 {'required': ['items'], 'not': {'required': ['patch']}},
                 {'required': ['patch'], 'not': {'required': ['items']}}]}, **common,
             description=instruction_text('activity-replace-or-explicitly-confirm-your-session-s-current'),
+            # An item names its Task by ``task_id``; the Task's project is found from it, and an item without a Task is Global.
+            complete_references=References(Ref(('items', '*'), kind='task', id_key='task_id'),
+                                           Ref(('patch', '*', 'item'), kind='task', id_key='task_id')),
             prepare=self.prepare, apply=self.apply))
         return self
 
@@ -96,40 +101,33 @@ class AgentActivity:
             installation = uow.repository('installation').get('service')
             if not installation or installation['owner_principal_id'] != ctx.principal_id:
                 raise DomainError('forbidden', 'Agent activity requires the installation owner')
-            return {None, *[r[0] for r in uow.connection.execute(
-                'SELECT b.id FROM businesses b JOIN business_memberships m ON m.business_id=b.id '
-                'WHERE b.archived_at IS NULL AND m.principal_id=? AND m.active=1', (ctx.principal_id,))]}
+            return {None, *active_project_ids(uow.connection)}
         if ctx.principal_kind == 'agent':
-            # An agent's reach is the shared active-global contract within this invocation, never a membership or a
-            # business home; any other agent identity has no scope at all.
-            scopes = set(effective_business_ids(uow.connection, ctx.principal_id) & ctx.allowed_business_ids)
+            # An agent's reach is the shared active-global contract within this invocation; any other agent identity has no scope at all.
+            scopes = set(effective_project_ids(uow.connection, ctx.principal_id) & ctx.allowed_project_ids)
             if active_global(uow.connection, ctx.principal_id) is not None and 'read_global_context' in ctx.global_capabilities:
                 scopes.add(None)
             return scopes
-        allowed = set(ctx.allowed_business_ids)
-        if ctx.home_business_id:
-            allowed.add(ctx.home_business_id)
-        scopes = {r[0] for r in uow.connection.execute(
-            'SELECT b.id FROM businesses b JOIN business_memberships m ON m.business_id=b.id '
-            'WHERE b.archived_at IS NULL AND m.principal_id=? AND m.active=1', (ctx.principal_id,)) if r[0] in allowed}
-        if ctx.home_business_id is None and 'read_global_context' in ctx.global_capabilities:
+        allowed = set(ctx.allowed_project_ids)
+        scopes = allowed & active_project_ids(uow.connection)
+        if 'read_global_context' in ctx.global_capabilities:
             scopes.add(None)
         return scopes
 
-    def allowed(self, ctx, business, operation, uow, *, cache=None, scopes=None):
-        key=(business,operation)
+    def allowed(self, ctx, project, operation, uow, *, cache=None, scopes=None):
+        key=(project,operation)
         if cache is not None and key in cache:
             if cache[key] is None: raise DomainError('forbidden','Source access is not permitted')
             return cache[key]
-        if business not in (self.scopes(ctx, uow) if scopes is None else scopes):
+        if project not in (self.scopes(ctx, uow) if scopes is None else scopes):
             raise DomainError('forbidden', 'Work item is outside your current scope')
-        selected = replace(ctx, business_id=business, review_business_id=business)
+        selected = replace(ctx, project_id=project, review_project_id=project)
         descriptor = self.app.registry.get(operation)
-        if business is not None:
+        if project is not None:
             descriptor = replace(descriptor, global_capability=None)
         try:
             self.app.authorize(selected, descriptor, (), uow,
-                namespace='business:' + business if business else 'global')
+                namespace='project:' + project if project else 'global')
         except DomainError:
             if cache is not None: cache[key]=None
             raise
@@ -217,13 +215,13 @@ class AgentActivity:
             raise DomainError('validation_error', 'Current work requires a short description')
         elif any(len(item.get(name, '')) > LEGACY_TEXT_LIMIT for name in ('summary', 'blocked_reason')):
             raise DomainError('validation_error', f'Session work text is limited to {LEGACY_TEXT_LIMIT} characters')
-        self.allowed(ctx, item['business_id'], 'agents_activity_list', uow)
+        self.allowed(ctx, item['project_id'], 'agents_activity_list', uow)
         if item.get('task_id'):
-            self.allowed(ctx, item['business_id'], 'tasks_get', uow)
-            task = uow.repository('tasks', business_id=item['business_id']).get(item['task_id'], required=True)
+            self.allowed(ctx, item['project_id'], 'tasks_get', uow)
+            task = uow.repository('tasks', project_id=item['project_id']).get(item['task_id'], required=True)
             if builder:
                 from qorqut_operations.application.plans import ref
-                builder.expect(ref('tasks', task['id'], item['business_id']), task)
+                builder.expect(ref('tasks', task['id'], item['project_id']), task)
 
     def start(self):
         if self._thread and self._thread.is_alive(): return
@@ -250,10 +248,10 @@ class AgentActivity:
     def sample(self):
         from qorqut.bootstrap.activity_hook import safe_path, owner_alive, write_state
         with self.app.database.read() as u:
-            rows=u.connection.execute('SELECT s.*,a.home_business_id,b.slug AS business_slug,w.work_reviewed_at AS assignment_reviewed_at '
-                'FROM agent_activity s JOIN agent_profiles a ON a.agent_id=s.agent_id LEFT JOIN businesses b ON b.id=a.home_business_id '
+            rows=u.connection.execute('SELECT s.*,w.work_reviewed_at AS assignment_reviewed_at '
+                'FROM agent_activity s JOIN agent_profiles a ON a.agent_id=s.agent_id '
                 'LEFT JOIN agent_current_work w ON w.agent_id=s.agent_id '
-                "WHERE a.status='active' AND (b.id IS NULL OR b.archived_at IS NULL)").fetchall()
+                "WHERE a.status='active'").fetchall()
         if sys.platform == 'darwin':
             from qorqut import process_info
             boot=process_info.boot_id();namespace=process_info.namespace_id()
@@ -265,7 +263,7 @@ class AgentActivity:
         namespace_pids=None
         now=timestamp(self.clock)
         for row in rows:
-            workspace=agent_workspace_of(self.runtime.paths,row['agent_id'],row['home_business_id'],row['business_slug'])
+            workspace=agent_workspace_of(self.runtime.paths,row['agent_id'])
             path=workspace/'.qorqut/activity'/(row['session_id']+'.json')
             try:
                 if not safe_path(path) or not path.is_file() or path.stat().st_size>8192: continue
@@ -421,7 +419,7 @@ class AgentActivity:
             self.validate_work_item(ctx, item, uow, builder, worker=True)
         old = stored[0] if stored and stored[0].get('task_id') else None
         if old and not args.get('replace_current') and items and (
-                (items[0]['business_id'], items[0].get('task_id')) != (old['business_id'], old['task_id'])):
+                (items[0]['project_id'], items[0].get('task_id')) != (old['project_id'], old['task_id'])):
             raise DomainError('replace_current_required',
                 'Switching the current Task needs replace_current=true; the previous Task is not completed for you')
 
@@ -455,7 +453,7 @@ class AgentActivity:
         seen = set()
         for item in items:
             if item.get('task_id'):
-                identity = (item['business_id'],item['task_id'])
+                identity = (item['project_id'],item['task_id'])
                 if identity in seen:
                     raise DomainError('validation_error','List each task once per session')
                 seen.add(identity)
@@ -480,7 +478,7 @@ class AgentActivity:
             values |= {'agent_id': subject, 'work_updated_at': builder.at}
         elif item != current['item_json']:
             values['work_updated_at'] = builder.at
-        builder.record('agent_current_work', subject, current, values, business_id=None)
+        builder.record('agent_current_work', subject, current, values, project_id=None)
         return builder.build()
 
     def apply(self, ctx, plan, uow):
@@ -528,9 +526,9 @@ class AgentActivity:
         completion reach him. It is the explicit follow (overriding an earlier unfollow); clearing or switching never unfollows,
         and an unchanged Task keeps his later choice."""
         from qorqut.management.identity import configured_ordubashy
-        task = (items[0]['business_id'], items[0].get('task_id')) if items else None
+        task = (items[0]['project_id'], items[0].get('task_id')) if items else None
         ordubashy = configured_ordubashy(uow)
-        if not ordubashy or not task or not task[1] or (stored and task == (stored[0]['business_id'], stored[0].get('task_id'))):
+        if not ordubashy or not task or not task[1] or (stored and task == (stored[0]['project_id'], stored[0].get('task_id'))):
             return
         thread = ThreadItem(task[0], 'task', task[1])
         try:
@@ -552,25 +550,25 @@ class AgentActivity:
             (native['root_turn_id'] if native else None, native['dirty_sequence'] if native else 0, agent_id, session_id))
 
     def work_item(self, ctx, item, uow, access):
-        business = item['business_id']
+        project_id = item['project_id']
         try:
-            self.allowed(ctx,business,'agents_activity_list',uow,**access)
-            biz = uow.repository('businesses').get(business) if business else None
+            self.allowed(ctx,project_id,'agents_activity_list',uow,**access)
+            project = uow.repository('projects').get(project_id) if project_id else None
             result = {**item,'task_id':item.get('task_id'),'title':None,'task_status':None,
-                'business_slug':biz['slug'] if biz else None,'business_name':biz['name'] if biz else 'Global',
+                'project_slug':project['slug'] if project else None,'project_name':project['name'] if project else 'Global',
                 'blocked':bool(item.get('blocked_reason')),'blockers':[]}
             if not item.get('task_id'):
                 return result
-            selected = self.allowed(ctx,business,'tasks_get',uow,**access)
-            task = uow.repository('tasks',business_id=business).get(item['task_id'],required=True)
+            selected = self.allowed(ctx,project_id,'tasks_get',uow,**access)
+            task = uow.repository('tasks',project_id=project_id).get(item['task_id'],required=True)
             config,_ = self.runtime.domains.tasks.configuration(selected,uow)
             states = {s['name']:s for s in config['states']}
             result.update(title=task['title'],task_status=task['status'])
-            for edge in uow.connection.execute("SELECT to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? AND role='blocked_by'",(business,task['id'])):
-                parent = uow.repository('tasks',business_id=business).get(edge[0])
+            for edge in uow.connection.execute("SELECT to_id FROM relationships WHERE project_id IS ? AND from_type='task' AND from_id=? AND role='blocked_by'",(project_id,task['id'])):
+                parent = uow.repository('tasks',project_id=project_id).get(edge[0])
                 if not parent or states[parent['status']]['kind']=='closed':
                     continue
-                assignees=[r[0] for r in uow.connection.execute("SELECT to_id FROM relationships WHERE business_id IS ? AND from_type='task' AND from_id=? AND role='assigned_to'",(business,parent['id']))]
+                assignees=[r[0] for r in uow.connection.execute("SELECT to_id FROM relationships WHERE project_id IS ? AND from_type='task' AND from_id=? AND role='assigned_to'",(project_id,parent['id']))]
                 result['blockers'].append({'task_id':parent['id'],'title':parent['title'],'status':parent['status'],'assignee_ids':assignees})
             result['blocked'] = result['blocked'] or bool(result['blockers']) or bool(states[task['status']].get('paused'))
             return result
@@ -588,24 +586,24 @@ class AgentActivity:
             if args.get('cursor'):
                 raise DomainError('validation_error', 'An exact session read does not use pagination')
         scopes = self.scopes(ctx,uow)
-        if args.get('scope') != 'global' and ctx.business_id is not None:
-            scopes &= {ctx.business_id}
+        if args.get('scope') != 'global' and ctx.project_id is not None:
+            scopes &= {ctx.project_id}
         candidates = []
-        # The current agents are the active supported globals (the native eligibility predicate). A permitted business
-        # view lists them with only that business's work; it never gives them a business residence.
-        for raw in uow.connection.execute('SELECT a.agent_id,a.name,a.profile_json,a.home_business_id,a.status,p.kind,p.active '
+        # The current agents are the active supported globals (the native eligibility predicate). A permitted project
+        # view lists them with only that project's work; it never gives them a project residence.
+        for raw in uow.connection.execute('SELECT a.agent_id,a.name,a.profile_json,a.status,p.kind,p.active '
                 'FROM agent_profiles a JOIN principals p ON p.id=a.agent_id '
-                "WHERE a.status='active' AND a.home_business_id IS NULL ORDER BY a.name,a.agent_id") if scopes else ():
+                "WHERE a.status='active' ORDER BY a.name,a.agent_id") if scopes else ():
             profile = global_profile_data(raw)
             requested_agent = ctx.principal_id if session_filter else args.get('agent_id', raw['agent_id'])
             if profile is None or requested_agent != raw['agent_id']:
                 continue
             if args.get('role_id',profile['role']['id']) != profile['role']['id']:
                 continue
-            candidates.append({'agent_id':raw['agent_id'],'name':raw['name'],'home_business_id':None,'slug':None,
-                'business_name':None,'id':raw['agent_id'],'display_name':profile.get('display_name'),'role_id':profile['role']['id']})
+            candidates.append({'agent_id':raw['agent_id'],'name':raw['name'],
+                'id':raw['agent_id'],'display_name':profile.get('display_name'),'role_id':profile['role']['id']})
         selected,cursor = page(candidates,{'limit':100,**args,'principal_id':ctx.principal_id,'scopes':sorted(s or '' for s in scopes)},
-            ctx.business_id,'agents_activity_list',key=lambda r:(r['slug'] or '',r['name'],r['agent_id']),reverse=False)
+            ctx.project_id,'agents_activity_list',key=lambda r:(r['name'],r['agent_id']),reverse=False)
         now = self.clock()
         access={'cache':{},'scopes':scopes}
         workers = {row['agent_id'] for row in selected if is_worker(uow.connection, row['agent_id'])}
@@ -625,9 +623,7 @@ class AgentActivity:
             if session_filter and not session_rows:
                 raise DomainError('not_found', 'Current work session is unavailable')
             for session in session_rows:
-                age=(now-datetime.fromisoformat(session['last_seen_at'])).total_seconds() if session['last_seen_at'] else None
-                state=session['state'] if age is not None and 0<=age<=STALE_SECONDS else 'unknown'
-                if session['state']=='offline': state='offline'
+                state = self.observed_state(session, now)
                 # A worker's one assignment is current_work; the old session list is never a second assignment.
                 stored_items = [] if row['agent_id'] in workers else json.loads(session['items_json'])
                 stored_keys = work_item_keys(stored_items) if session_filter else None
@@ -650,20 +646,61 @@ class AgentActivity:
                     session_view.update(item_keys=item_keys, items_complete=complete,
                         items_replacement_safe=complete)
                 sessions.append(session_view)
-            state=next((s for s in ('running','idle','unknown','offline') if any(x['state']==s for x in sessions)),'unknown')
-            availability = self.availability(state, owner)
-            if availability in ('asleep', 'off'):
-                # A managed agent with no open session is not offline: asleep, the next input opens it; off, only the owner's input
-                # (or Ordubashy's start) does. ``state`` says so, ``availability`` names the three cases for every agent.
-                state = availability
+            state, availability = self.agent_state({x['state'] for x in sessions}, owner)
             agent = {'agent_id':row['agent_id'],'name':row['name'],'display_name':row['display_name'],'role_id':row['role_id'],
-                'business_id':row['home_business_id'],'business_slug':row['slug'],'business_name':row['business_name'] or 'Global',
+                'project_id':None,'project_slug':None,'project_name':'Global',
                 'state':state,'last_seen_at':max((x['last_seen_at'] for x in sessions if x['last_seen_at']),default=None),'sessions':sessions,
                 'inbox': nudge, 'availability': availability}
             if row['agent_id'] in workers:
                 agent['current_work'] = self.current_work(ctx, row['agent_id'], assignments.get(row['agent_id']), uow, access, now)
             agents.append(agent)
         return {'agents':agents,'next_cursor':cursor,'as_of':timestamp(self.clock)}
+
+    @staticmethod
+    def observed_state(session, now):
+        """One session's state as it stands now: the recorded state while the session was seen within ``STALE_SECONDS``,
+        ``unknown`` after that, and ``offline`` once it was recorded offline."""
+        if session['state'] == 'offline':
+            return 'offline'
+        age = (now - datetime.fromisoformat(session['last_seen_at'])).total_seconds() if session['last_seen_at'] else None
+        return session['state'] if age is not None and 0 <= age <= STALE_SECONDS else 'unknown'
+
+    def agent_state(self, states, owner):
+        """An agent's one ``state`` from its sessions' states, with its ``availability``."""
+        state = next((s for s in ('running', 'idle', 'unknown', 'offline') if s in states), 'unknown')
+        availability = self.availability(state, owner)
+        if availability in ('asleep', 'off'):
+            # A managed agent with no open session is not offline: asleep, the next input opens it; off, only the owner's input
+            # (or Ordubashy's start) does. ``state`` says so, ``availability`` names the three cases for every agent.
+            state = availability
+        return state, availability
+
+    def presence(self, ctx):
+        """Each current agent's ``state`` exactly as ``agents_activity_list`` reports it, under the same permission, for the
+        dashboard's working dots. It reads the agents, their newest sessions and their session owners, and nothing the dots
+        do not show: declared work, Tasks, checkpoints, inbox notices and assignments."""
+        with self.app.database.observe('agents_presence'), self.app.database.read() as uow:
+            ctx = task_context(self.app.current_context(ctx, uow), {'scope': 'global'}, uow)
+            self.allowed(ctx, None, 'agents_activity_list', uow)
+            now = self.clock()
+            owners = {row['agent_id']: row for row in uow.connection.execute(
+                'SELECT agent_id,desired_state FROM native_session_owners')}
+            states = {}
+            # The newest twenty sessions of each agent, the same ones the full list reads.
+            for row in uow.connection.execute(
+                    'SELECT agent_id,state,last_seen_at FROM (SELECT agent_id,state,last_seen_at,ROW_NUMBER() OVER ('
+                    "PARTITION BY agent_id ORDER BY COALESCE(last_seen_at,work_updated_at,activity_at,'') DESC) AS newest "
+                    'FROM agent_activity) WHERE newest<=20'):
+                states.setdefault(row['agent_id'], set()).add(self.observed_state(row, now))
+            agents = []
+            for raw in uow.connection.execute('SELECT a.agent_id,a.profile_json,a.status,p.kind,p.active '
+                    'FROM agent_profiles a JOIN principals p ON p.id=a.agent_id '
+                    "WHERE a.status='active' ORDER BY a.name,a.agent_id"):
+                if global_profile_data(raw) is None:
+                    continue
+                state, _ = self.agent_state(states.get(raw['agent_id'], ()), owners.get(raw['agent_id']))
+                agents.append({'agent_id': raw['agent_id'], 'state': state})
+            return {'agents': agents, 'as_of': timestamp(self.clock)}
 
     def availability(self, state, owner):
         """``open`` (a session runs), ``asleep`` (managed, on, no session: opened by the next input), ``off`` (ended by the owner or
@@ -691,9 +728,9 @@ class AgentActivity:
         stored = json.loads(row['item_json']) if row and row['item_json'] else None
         item = None
         if stored:
-            item = {'business_id': None, 'task_id': None, 'summary': stored.get('summary', ''),
+            item = {'project_id': None, 'task_id': None, 'summary': stored.get('summary', ''),
                 'blocked_reason': stored.get('blocked_reason', ''), 'title': None, 'task_status': None,
-                'business_slug': None, 'business_name': None, 'blocked': bool(stored.get('blocked_reason')), 'blockers': []}
+                'project_slug': None, 'project_name': None, 'blocked': bool(stored.get('blocked_reason')), 'blockers': []}
             visible = self.work_item(ctx, stored, uow, access)
             if visible is not None:
                 item.update(visible)
@@ -712,7 +749,7 @@ class AgentActivity:
         focus, task_ref, intent = state['focus_json'], state['work_task_json'], state['intent']
         item = None
         if focus and isinstance(task_ref, dict):
-            stored = {'business_id': task_ref['business_id'], 'task_id': task_ref['id'],
+            stored = {'project_id': task_ref['project_id'], 'task_id': task_ref['id'],
                       'summary': intent, 'blocked_reason': ''}
             try:
                 membership = attention.task_membership(uow, agent_id, task_ref)
@@ -739,7 +776,7 @@ class AgentActivity:
         ctx=self.runtime.resolver.invocation_context(principal)
         with self.app.database.read() as u:
             try:
-                self.allowed(ctx,ctx.business_id,'agents_activity_list',u)
+                self.allowed(ctx,ctx.project_id,'agents_activity_list',u)
                 data=self.list(ctx,{'limit':20,'scope':'global'},u)
             except DomainError:
                 return 'Team activity unavailable; use agents_activity_list when authorized.'
@@ -755,7 +792,7 @@ class AgentActivity:
             else:
                 work=[i['summary'] + (' (blocked)' if i['blocked'] else '') for s in agent['sessions'] for i in s['items']]
                 stale = any(s['work_stale'] for s in agent['sessions'])
-            lines.append(f"{agent['business_name']} / {agent['name']} [{agent['agent_id']}]: {agent['state']}; "
+            lines.append(f"{agent['project_name']} / {agent['name']} [{agent['agent_id']}]: {agent['state']}; "
                 + ('; '.join(work)[:220] or 'no current work declared') + f"; inbox {agent['inbox']['state']}; last seen {agent['last_seen_at'] or 'never'}"
                 + ('; work declaration stale' if stale else ''))
             outstanding=max((s.get('checkpoint',{}).get('outstanding_count',0) for s in agent['sessions'] if s.get('checkpoint')),default=0)

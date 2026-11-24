@@ -83,9 +83,8 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   - Slash commands: type `/` at the start of the Chat box to list the commands Chat accepts, for example `/compact`.
     Commands that need a menu or panel are not offered in Chat.
 - **Ordubashy's right-hand pane** has tabs:
-  - **Focus**: what needs the owner in one place. The top row holds side chats and the threads the owner pinned;
-    Signoffs waiting on the owner, due reminders and calendar alerts show as chips below it; the rest is the owner's
-    personal notes, which agents cannot read or write. It does not show calendar events.
+  - **Focus**: what needs the owner in one place. Signoffs waiting on the owner, due reminders and calendar alerts
+    show as chips at its top; the rest is the owner's personal notes, which agents cannot read or write. It does not show calendar events.
   - **Todo**: the work on Ordubashy's board, the owner's and the agents'. The person icon shows only the owner's tasks.
   - **Calendar**: day, 3-day and week views, **Add event**, **My calendars**. It shows events only once Google Calendar
     is connected (see Calendar below).
@@ -107,7 +106,7 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 
 ## Projects
 
-- A project keeps the work, records and context for one client or business apart. There is no "new project" button:
+- A project keeps the work, records and context for one client or company apart. There is no "new project" button:
   the owner asks Ordubashy in Chat ("Create a project for …" with a name and its purpose), and he prepares it and asks
   for a Signoff before anything is created.
 - Opening a link or record that belongs to a project switches the workspace to that project.
@@ -119,7 +118,7 @@ Environment, Walkthrough and About & privacy; there is a search box at the top.
 
 - **Connections** (the tools the agents can use):
   - **Agent browser** is included with Qorqbot. Ordubashy and the permanent workers all use the one Shared browser: they share its website sign-ins and each works in its own tabs. It is prepared automatically when Chrome and the browser tool are available. When it is not ready, Ordubashy sets it up himself with `agent_browser_manage` (`status`, then `ensure` or `repair`) and does not send the owner to Settings for it; the owner is asked only for what needs them, such as installing Google Chrome. Settings also shows readiness and has a Retry setup button that does the same.
-  - It is the default way agents use websites. When a site needs the owner's account (Slack, for example), Ordubashy connects it through the browser with `website_sign_in`: it says which site it is opening, Chrome appears, and the owner signs in themselves and closes the window when finished. The browser is paused for every agent until that window closes. On a computer without a screen that window cannot open: the site's sign-in page opens in the Shared browser, and the owner signs in there through that agent's **Browser** tab, so no password passes through an agent. Ordubashy asks for a password or code only if the owner cannot use that. Other agents ask Ordubashy to do this.
+  - It is the default way agents use websites. When a site needs the owner's account (Slack, for example), Ordubashy connects it through the browser with `website_sign_in`: it says which site it is opening and opens the site's sign-in page in the Shared browser. The owner signs in there themselves through that agent's **Browser** tab, so no password passes through an agent, and no agent's browser is paused. Ordubashy asks for a password or code only if the owner cannot use that. Other agents ask Ordubashy to do this.
   - Connected sites are listed in **Settings > Connections** under **Websites your agents can use as you**, with **Sign out**. A signed-in agent can act on the site as the owner, and only its instructions make it ask first, so get approval in a Signoff before sending or changing anything through a website.
   - **Extensions** are extra tools that run inside Qorqbot, so they work the same in Claude Code and Codex. They are
     listed below the websites, each with its status: OpenRouter, treg and WhatsApp.

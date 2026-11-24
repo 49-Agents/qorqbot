@@ -1,4 +1,4 @@
-"""Registered business-owned files used by owner controls and background adapters."""
+"""Registered project-owned files used by owner controls and background adapters."""
 
 import json
 import os
@@ -7,15 +7,13 @@ import secrets
 import subprocess
 
 from qorqut.bootstrap.client import path_has_symlink
-from qorqut.composition.locations import agent_workspace, business_hq
+from qorqut.composition.locations import project_root
 from qorqut_operations.contracts import DomainError
-from qorqut_operations.application.plans import rows
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.storage import safe_io
 
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-IDENTITY_KEYS = frozenset({"BIZ_ACTOR", "BIZ_AGENT", "BIZLOG_ACTOR", "BIZ_DIR", "BIZTASK_DIR", "BIZLOG_DIR",
-    "BIZCTX_DIR", "BIZLEDGER_DIR", "BIZMETRICS_DIR", "BIZREQ_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"})
-SESSION_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.jsonl$")
+IDENTITY_KEYS = frozenset({"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"})
 # What one capture's archive read can expected-fail with; anything else (cancellation, timeout, service stop, storage or
 # programming faults) is not a property of that capture and propagates.
 SOURCE_READ_ERRORS = frozenset({"payload_too_large", "not_found", "operation_unavailable"})
@@ -25,23 +23,23 @@ class LocalFiles:
     def __init__(self, runtime):
         self.runtime = runtime
 
-    def business_path(self, business_id, row=None):
+    def project_path(self, project_id, row=None):
         if row is None:
             with self.runtime.database.read() as uow:
-                row = uow.repository("businesses").get(business_id, required=True)
-        path = business_hq(self.runtime.paths, row)
+                row = uow.repository("projects").get(project_id, required=True)
+        path = project_root(self.runtime.paths, row)
         if path_has_symlink(path):
             raise DomainError("invalid_configuration", "Registered project path is unavailable")
         return path
 
-    def env_path(self, business_id, row=None):
-        path = (self.business_path(business_id, row) if business_id else self.runtime.root) / ".env"
+    def env_path(self, project_id, row=None):
+        path = (self.project_path(project_id, row) if project_id else self.runtime.root) / ".env"
         if path_has_symlink(path):
             raise DomainError("invalid_configuration", "Environment file must not be a link")
         return path
 
-    def environment_pairs(self, business_id=None, row=None):
-        path = self.env_path(business_id, row)
+    def environment_pairs(self, project_id=None, row=None):
+        path = self.env_path(project_id, row)
         try:
             content = safe_io.read_bytes(path, limit=1024 * 1024)
         except FileNotFoundError:
@@ -63,9 +61,9 @@ class LocalFiles:
                 pairs[key] = value
         return [{"key": key, "value": value} for key, value in pairs.items()]
 
-    def private_environment(self, business_id=None, *, role=None, owner=False, row=None):
+    def private_environment(self, project_id=None, *, role=None, owner=False, row=None):
         """Backend-managed, scope-local role overlays; never inherited from Global."""
-        path = self.env_path(business_id, row).with_name(".env.private.json")
+        path = self.env_path(project_id, row).with_name(".env.private.json")
         if path_has_symlink(path):
             raise DomainError("invalid_configuration", "Private Settings must not be a link")
         try:
@@ -97,27 +95,26 @@ class LocalFiles:
             Principal(ctx.principal_id, "agent"), connection=uow.connection)
         return profile.role.id
 
-    def environment(self, business=None):
-        identity = business["id"] if isinstance(business, dict) else business
+    def environment(self, project=None):
+        identity = project["id"] if isinstance(project, dict) else project
         rows = self.environment_pairs()
         if identity:
             rows += self.environment_pairs(identity)
         return {row["key"]: row["value"] for row in rows if row["key"] not in IDENTITY_KEYS}
 
-    def agent_environment(self, business, profile):
-        identity = business["id"] if isinstance(business, dict) else business
-        values = self.environment(business)
+    def agent_environment(self, project, profile):
+        identity = project["id"] if isinstance(project, dict) else project
+        values = self.environment(project)
         values.update(self.private_environment(identity, role=profile.role.id))
         return values
 
     def require_environment_owner(self, context, uow):
         current = self.runtime.application.current_context(context, uow)
-        if current.business_id is None:
+        if current.project_id is None:
             installation = uow.repository("installation").get("service")
             owner = installation and installation["owner_principal_id"] == current.principal_id
         else:
-            member = uow.repository("business_memberships", business_id=current.business_id).get(current.principal_id)
-            owner = member and member["active"] and member["is_owner"]
+            owner = owner_may_act(uow.connection, current.principal_id, current.project_id)
         if current.principal_kind != "human" or not owner:
             raise DomainError("forbidden", "Environment settings require the current scope's owner")
         return current
@@ -131,12 +128,11 @@ class LocalFiles:
         self.runtime.require_authority()
         with self.runtime.database.read() as uow:
             current = self.require_environment_owner(context, uow)
-            if current.business_id is not None:
+            if current.project_id is not None:
                 raise DomainError("forbidden", "Browser surfaces require the installation owner")
             row = uow.connection.execute("SELECT a.profile_json FROM agent_profiles a JOIN principals p ON p.id=a.agent_id "
-                "WHERE a.agent_id=? AND a.home_business_id IS NULL AND a.status='active' AND p.active=1 AND p.kind='agent'",
+                "WHERE a.agent_id=? AND a.status='active' AND p.active=1 AND p.kind='agent'",
                 (agent_id,)).fetchone()
-            # A retired business agent's registration never reaches its old bindings.
             if row is None or not browser_surfaces.global_profile(row["profile_json"]):
                 raise DomainError("not_found", "Active registered Global agent was not found")
             desktop_allowed = configured_ordubashy(uow) == agent_id
@@ -152,8 +148,8 @@ class LocalFiles:
         self.runtime.require_authority()
         with self.runtime.database.read() as uow:
             current = self.require_environment_owner(context, uow)
-            return {"pairs": self.environment_pairs(current.business_id),
-                    "inherited": self.environment_pairs() if current.business_id else []}
+            return {"pairs": self.environment_pairs(current.project_id),
+                    "inherited": self.environment_pairs() if current.project_id else []}
 
     def replace_environment(self, context, pairs):
         self.runtime.require_authority()
@@ -186,65 +182,32 @@ class LocalFiles:
             data = "".join(key + "=" + value + "\n" for key, value in values.items()).encode()
             if len(data) > 1024 * 1024:
                 raise DomainError("payload_too_large", "Project environment exceeds its size limit")
-            path = self.env_path(current.business_id)
+            path = self.env_path(current.project_id)
             safe_io.atomic_write(path, data, mode=0o600, enforce_mode=True)
         return self.environment_settings(context)
 
-    def agent_workspace(self, business_id, agent_id):
-        with self.runtime.database.read() as uow:
-            uow.repository("agent_profiles", business_id=business_id).get(agent_id, required=True)
-            business = None if business_id is None else uow.repository("businesses").get(business_id, required=True)
-        # The registered identity and home scope select the workspace; the stored column never does.
-        path = agent_workspace(self.runtime.paths, agent_id, business)
-        if path_has_symlink(path):
-            raise DomainError("invalid_configuration", "Registered agent workspace is unavailable")
-        return path
+    def transcripts(self, agent_id=None):
+        return list(self.iter_transcripts(agent_id))
 
-    def session_names(self, business_id, agent_id):
-        """The agent's captured conversations, newest first, as the names the agent pane lists them under."""
-        self.agent_workspace(business_id, agent_id)
-        return [row["name"] for row in self.runtime.native_chat.transcripts.listing(agent_id)]
-
-    def session_bytes(self, business_id, agent_id, filename):
-        if not isinstance(filename, str) or not SESSION_FILE.fullmatch(filename):
-            raise DomainError("validation_error", "Invalid registered session filename")
-        self.agent_workspace(business_id, agent_id)
-        return self.runtime.native_chat.transcripts.read(agent_id, filename)
-
-    def session_events(self, business_id, agent_id, filename):
-        events = []
-        for line in self.session_bytes(business_id, agent_id, filename).splitlines():
-            try:
-                value = json.loads(line)
-                if isinstance(value, dict):
-                    events.append(value)
-            except (ValueError, UnicodeError):
-                continue
-        return events
-
-    def transcripts(self, business_id, agent_id=None):
-        return list(self.iter_transcripts(business_id, agent_id))
-
-    def iter_transcripts(self, business_id, agent_id=None):
+    def iter_transcripts(self, agent_id=None):
         """Captured conversations for the learning programs, read from the native transcript archive.
 
         A capture whose archive read or decoding expected-fails is yielded as a record carrying its registered identity and a
         ``source_failure`` (code, reason, provider, receipt) instead of ``content`` and ``transcript_hash``."""
         archive = self.runtime.native_chat.transcripts
         with self.runtime.database.read() as uow:
-            repository = uow.repository("agent_profiles", business_id=business_id)
+            repository = uow.repository("agent_profiles")
             agents = [repository.get(agent_id, required=True)] if agent_id else (
-                repository.list(filters={"status": "active"}) if business_id else
-                sorted(rows(uow, 'agent_profiles', None), key=lambda row: (row['created_at'], row['agent_id'])))
+                sorted(repository.list(limit=200), key=lambda row: (row['created_at'], row['agent_id'])))
         for agent in agents:
             if agent_id and agent["agent_id"] != agent_id:
                 continue
-            if business_id is None and agent['profile_json'].get('role', {}).get('id') == 'learning-applier':
+            if agent['profile_json'].get('role', {}).get('id') == 'learning-applier':
                 if agent_id:
                     raise DomainError('forbidden', 'Learning Applier chats are excluded from automatic learning')
                 continue
             captures = archive.listing(agent["agent_id"])
-            for capture in captures if business_id is None else captures[:20]:
+            for capture in captures:
                 # A capture that cannot be read or decoded is offered as a tagged failure with its registered identity and
                 # no content or hash, so the pass can go on to the agent's later captures.
                 try:
@@ -262,10 +225,10 @@ class LocalFiles:
                     "code": code, "reason": reason[:500], "provider": capture.get("provider"),
                     "receipt_id": capture.get("receipt_id")}}
 
-    def git_recent(self, business_id):
+    def git_recent(self, project_id):
         try:
             result = subprocess.run(["git", "log", "-8", "--format=%h%x09%ad%x09%an%x09%s", "--date=short"],
-                cwd=self.business_path(business_id), env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_PAGER": "cat"},
+                cwd=self.project_path(project_id), env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_PAGER": "cat"},
                 capture_output=True, text=True, timeout=10)
         except (OSError, subprocess.SubprocessError):
             raise DomainError("operation_unavailable", "Registered repository history is unavailable") from None

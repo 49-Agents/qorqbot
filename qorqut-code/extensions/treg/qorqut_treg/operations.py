@@ -117,7 +117,7 @@ class TregOperations:
         """The configured Ordubashy or an active general worker, in the Global scope. Resolved from the authoritative
         profile, never from a caller field; a role grant or a policy override cannot widen this."""
         refusal = DomainError("forbidden", "treg tools are for Ordubashy and general workers")
-        if ctx.principal_kind != "agent" or ctx.business_id is not None or ctx.home_business_id is not None:
+        if ctx.principal_kind != "agent" or ctx.project_id is not None:
             raise refusal
         from qorqut.agents.worker_access import is_worker
         from qorqut.management import ManagementService

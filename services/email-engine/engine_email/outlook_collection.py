@@ -1,4 +1,4 @@
-"""Private Outlook change capture and exact confirmed-message business routing.
+"""Private Outlook change capture and exact confirmed-message project routing.
 
 No message bodies or headers are stored in the operational collector tables.
 An uncertain import is reconciled by lookup, never replayed on mere absence.
@@ -67,7 +67,7 @@ class OutlookCollection:
                     observed_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS outlook_collection_imports (
                     native_id TEXT PRIMARY KEY, message_id TEXT NOT NULL, content_digest TEXT NOT NULL,
-                    business_id TEXT NOT NULL, mailbox TEXT NOT NULL, state TEXT NOT NULL,
+                    project_id TEXT NOT NULL, mailbox TEXT NOT NULL, state TEXT NOT NULL,
                     fastmail_id TEXT, fastmail_thread_id TEXT, native_thread_id TEXT, error TEXT, updated_at TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS outlook_import_message ON outlook_collection_imports(message_id);
                 CREATE TABLE IF NOT EXISTS outlook_collection_routing (
@@ -136,9 +136,9 @@ class OutlookCollection:
     def _owner(self, identities):
         with self.store.connect() as db:
             matches, pending = set(), set()
-            for row in db.execute("SELECT business_id,mailbox,state,result,draft_internet_message_id FROM sends"):
+            for row in db.execute("SELECT project_id,mailbox,state,result,draft_internet_message_id FROM sends"):
                 result = json.loads(row["result"])
-                owner = (row["business_id"], row["mailbox"])
+                owner = (row["project_id"], row["mailbox"])
                 actual = internet_message_id(result.get("internet_message_id"))
                 if row["state"] == "sent" and actual in identities:
                     matches.add(owner)
@@ -147,20 +147,20 @@ class OutlookCollection:
                     # A draft identity can delay routing, but never authorize exposure.
                     pending.add(owner)
         if pending:
-            # Even a same-business pending original may still be in the sender's
+            # Even a same-project pending original may still be in the sender's
             # durable copy step. Wait for confirmation before competing with it.
             return None, "outlook_routing_awaiting_confirmation"
         if not matches:
             return None, "outlook_routing_no_confirmed_owner"
         if len(matches) != 1:
             return None, "outlook_routing_conflicting_owners"
-        business_id, mailbox = next(iter(matches))
-        boxes = [box for box in self.mailboxes if box.ref == mailbox and box.business_id == business_id]
+        project_id, mailbox = next(iter(matches))
+        boxes = [box for box in self.mailboxes if box.ref == mailbox and box.project_id == project_id]
         if len(boxes) != 1:
             return None, "outlook_routing_mailbox_unavailable"
         with self.store.connect() as db:
-            registered = db.execute("SELECT business_id,folder_id FROM mailbox_bindings WHERE ref=?", (mailbox,)).fetchone()
-        if not registered or tuple(registered) != (business_id, boxes[0].folder_id):
+            registered = db.execute("SELECT project_id,folder_id FROM mailbox_bindings WHERE ref=?", (mailbox,)).fetchone()
+        if not registered or tuple(registered) != (project_id, boxes[0].folder_id):
             return None, "outlook_routing_mailbox_binding_changed"
         return boxes[0], None
 
@@ -168,18 +168,18 @@ class OutlookCollection:
         if not isinstance(result, dict) or not result.get("id") or not result.get("conversationId"):
             raise ProviderError("outlook_import_result_invalid", uncertain=True)
         with self.store.connect() as db:
-            expected = db.execute("SELECT message_id,content_digest,business_id,mailbox FROM outlook_collection_imports WHERE native_id=?", (native_id,)).fetchone()
+            expected = db.execute("SELECT message_id,content_digest,project_id,mailbox FROM outlook_collection_imports WHERE native_id=?", (native_id,)).fetchone()
             if not expected or internet_message_id(result.get("internetMessageId")) != expected[0]:
                 raise ProviderError("outlook_import_result_invalid", uncertain=True)
             db.execute("""UPDATE outlook_collection_imports SET state='imported',fastmail_id=?,fastmail_thread_id=?,error=NULL,updated_at=?,
                 content_variant=?,correlated_request_id=?,original_content_digest=?
-                WHERE message_id=? AND content_digest=? AND business_id=? AND mailbox=?""",
+                WHERE message_id=? AND content_digest=? AND project_id=? AND mailbox=?""",
                 (result["id"], result["conversationId"], self.clock(),
                  int(bool(correlation and correlation["content_variant"])),
                  correlation["request_id"] if correlation else None,
                  correlation["original_content_digest"] if correlation else None, *expected))
             db.execute("""UPDATE outlook_collection_routing SET state='done',error=NULL,updated_at=? WHERE native_id IN (
-                SELECT native_id FROM outlook_collection_imports WHERE message_id=? AND content_digest=? AND business_id=? AND mailbox=?)""",
+                SELECT native_id FROM outlook_collection_imports WHERE message_id=? AND content_digest=? AND project_id=? AND mailbox=?)""",
                 (self.clock(), *expected))
         self._queue_state(native_id, "done")
 
@@ -212,7 +212,7 @@ class OutlookCollection:
             message = Outgoing.model_validate_json(row["payload"])
             valid = (message.digest() == row["digest"] and message.request_id == row["request_id"]
                 and message.transport in {None, "fastmail"}
-                and message.business_id == row["business_id"] == mailbox.business_id
+                and message.project_id == row["project_id"] == mailbox.project_id
                 and message.mailbox == row["mailbox"] == mailbox.ref
                 and isinstance(receipt.get("message_id"), str) and bool(receipt["message_id"])
                 and isinstance(receipt.get("conversation_id"), str) and bool(receipt["conversation_id"]))
@@ -228,12 +228,12 @@ class OutlookCollection:
                 raise ProviderError("outlook_confirmed_original_invalid")
             verify_approved_message(self.fastmail, mailbox, message, original, is_draft=False)
         except ProviderError as exc:
-            if exc.code in {"message_outside_business", "provider_draft_changed", "provider_reply_changed", "provider_attachments_changed"}:
+            if exc.code in {"message_outside_project", "provider_draft_changed", "provider_reply_changed", "provider_attachments_changed"}:
                 raise ProviderError("outlook_confirmed_original_invalid") from exc
             raise
         native_digest, original_digest = mime_content_digest(content), mime_content_digest(original_mime)
         correlation = {"native_id": native_id, "message_id": message_id, "request_id": message.request_id,
-            "business_id": mailbox.business_id, "mailbox": mailbox.ref, "fastmail_id": original["id"],
+            "project_id": mailbox.project_id, "mailbox": mailbox.ref, "fastmail_id": original["id"],
             "fastmail_thread_id": original["conversationId"], "approved_payload_digest": row["digest"],
             "native_content_digest": native_digest, "original_content_digest": original_digest,
             "native_mime_sha256": hashlib.sha256(content).hexdigest(),
@@ -261,17 +261,17 @@ class OutlookCollection:
             self._queue_state(native_id, "awaiting_confirmation" if error == "outlook_routing_awaiting_confirmation" else "private", error)
             return
         digest = mime_content_digest(content)
-        expected = (message_id, digest, mailbox.business_id, mailbox.ref)
+        expected = (message_id, digest, mailbox.project_id, mailbox.ref)
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             prior = db.execute("SELECT * FROM outlook_collection_imports WHERE native_id=?", (native_id,)).fetchone()
-            if prior and tuple(prior[key] for key in ("message_id", "content_digest", "business_id", "mailbox")) != expected:
+            if prior and tuple(prior[key] for key in ("message_id", "content_digest", "project_id", "mailbox")) != expected:
                 conflict = True
             else:
                 conflict = False
                 thread = item.get("raw", {}).get("ConversationId")
                 thread = thread.get("Id") if isinstance(thread, dict) else thread if isinstance(thread, str) else None
-                db.execute("INSERT OR IGNORE INTO outlook_collection_imports(native_id,message_id,content_digest,business_id,mailbox,state,native_thread_id,updated_at) VALUES(?,?,?,?,?,'pending',?,?)",
+                db.execute("INSERT OR IGNORE INTO outlook_collection_imports(native_id,message_id,content_digest,project_id,mailbox,state,native_thread_id,updated_at) VALUES(?,?,?,?,?,'pending',?,?)",
                     (native_id, *expected, thread, self.clock()))
         if conflict:
             self._issue("outlook_import_source_changed", native_id)
@@ -292,7 +292,7 @@ class OutlookCollection:
             with self.store.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
                 related = list(db.execute("SELECT * FROM outlook_collection_imports WHERE message_id=?", (message_id,)))
-                if any((row["content_digest"], row["business_id"], row["mailbox"]) != expected[1:] for row in related):
+                if any((row["content_digest"], row["project_id"], row["mailbox"]) != expected[1:] for row in related):
                     raise ProviderError("outlook_import_content_conflict")
                 if any(row["state"] in {"importing", "uncertain", "imported"} for row in related):
                     # Native IDs can change after a move; a second ID is not a new import.
@@ -340,7 +340,7 @@ class OutlookCollection:
                     {"id": native_id, "raw": item.get("raw", {}), "unavailable": True, "reason": "complete_mime_unavailable"}, provenance=provenance)
                 raise ProviderError("outlook_complete_mime_unavailable") from None
             snapshot.update(mime_sha256=hashlib.sha256(content).hexdigest(), mime_size=len(content))
-        # Archival durability always precedes any possible business-folder exposure.
+        # Archival durability always precedes any possible project-folder exposure.
         self.archive.external_observation(PROVIDER, self.account_address, native_id, snapshot, provenance=provenance)
         digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         with self.store.connect() as db:
@@ -460,7 +460,7 @@ class OutlookCollection:
                     (page["cursor"], "synced" if page["complete"] else "partial", self.clock() if page["complete"] else None, token, cursor))
                 if updated.rowcount != 1:
                     raise ProviderError("outlook_collector_lease_changed")
-            # Private capture progress is independent from business import recovery.
+            # Private capture progress is independent from project import recovery.
             for item, content in archived:
                 self._route_safely(item, content, token)
             self._retry(queued, observed, token)

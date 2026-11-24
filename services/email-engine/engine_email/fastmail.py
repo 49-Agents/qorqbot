@@ -774,7 +774,7 @@ class Fastmail:
         for box in self.settings.mailboxes:
             folder = found.get(box.folder_id)
             if not folder or folder.get("role") or not folder.get("myRights", {}).get("mayReadItems"):
-                raise ProviderError("business_folder_missing_or_not_dedicated")
+                raise ProviderError("project_folder_missing_or_not_dedicated")
         for identity in self.settings.history.private_folder_ids if self.settings.history else []:
             folder = found.get(identity)
             if not folder or folder.get("role") or not folder.get("myRights", {}).get("mayReadItems"):
@@ -785,7 +785,7 @@ class Fastmail:
                 for folder in self.settings.history.private_folder_ids):
             return None
         matches = [box for box in self.settings.mailboxes if raw.get("mailboxIds", {}).get(box.folder_id)]
-        # Never expose a message filed into multiple business routes.
+        # Never expose a message filed into multiple project routes.
         return matches[0] if len(matches) == 1 else None
 
     def get_raw(self, ids, *, metadata=False, include_mime=False):
@@ -797,10 +797,10 @@ class Fastmail:
     def _scoped_raw(self, mailbox, identity, *, include_mime=False):
         metadata = self.get_raw([identity], metadata=True).get("list", [])
         if len(metadata) != 1 or self.owner(metadata[0]) != mailbox:
-            raise ProviderError("message_outside_business", status=404)
+            raise ProviderError("message_outside_project", status=404)
         items = self.get_raw([identity], **({"include_mime": True} if include_mime else {})).get("list", [])
         if len(items) != 1 or self.owner(items[0]) != mailbox:
-            raise ProviderError("message_outside_business", status=404)
+            raise ProviderError("message_outside_project", status=404)
         return items[0]
 
     def get_message(self, mailbox, identity):
@@ -875,7 +875,7 @@ class Fastmail:
         cursor = archive.cursor()
         archive.metadata_observation("provider.capture_configuration", {
             "capture_scope": archive.config.capture_scope,
-            "business_folder_ids": sorted(box.folder_id for box in self.settings.mailboxes),
+            "project_folder_ids": sorted(box.folder_id for box in self.settings.mailboxes),
             "private_folder_ids": sorted(archive.config.private_folder_ids)}, provenance={"cursor": cursor})
         catalog = self.call("Mailbox/get", {"ids": None})
         if (not isinstance(catalog.get("list"), list) or catalog.get("notFound")
@@ -980,9 +980,9 @@ class Fastmail:
             try:
                 self.settings.sender(mailbox, message)
             except ValueError as exc:
-                raise ProviderError("sender_outside_business") from exc
+                raise ProviderError("sender_outside_project") from exc
         elif not mailbox.accepts_sender(sender):
-            raise ProviderError("sender_outside_business")
+            raise ProviderError("sender_outside_project")
         if identities is None:
             identities = self.call("Identity/get")["list"]
         matches = [item for item in identities if item.get("email", "").lower() == sender]
@@ -993,12 +993,12 @@ class Fastmail:
             raise ProviderError("fastmail_identity_remove_auto_bcc_and_reply_to")
         return matches[0]["id"]
 
-    def composed_business_message(self, mailbox, message):
+    def composed_project_message(self, mailbox, message):
         if not message.forward_message_id:
             return message
-        from .business import BusinessMailService
+        from .project import ProjectMailService
         from .models import Attachment
-        BusinessMailService(self.settings, self)._scoped_metadata(
+        ProjectMailService(self.settings, self)._scoped_metadata(
             mailbox, message.forward_message_id, [message.forward_message_id])
         body, attachments = self._account_composed_content(message)
         return message.model_copy(update={"body": body, "attachments": [Attachment(
@@ -1009,7 +1009,7 @@ class Fastmail:
         self.identity(mailbox, message.from_address, message)
         self.folders()
         parent = self.get_message(mailbox, message.reply_message_id) if message.reply_message_id else None
-        content = self.mime(self.composed_business_message(mailbox, message), parent)
+        content = self.mime(self.composed_project_message(mailbox, message), parent)
         upload = self.session()["uploadUrl"].replace("{accountId}", quote(self.account_id, safe=""))
         blob = self.request("POST", upload, content=content, content_type="message/rfc822", write=True)
         if blob.get("accountId") != self.account_id or not blob.get("blobId"):
@@ -1037,10 +1037,10 @@ class Fastmail:
             if identity in {internet_message_id(value) for value in item.get("messageId", [])}]
         if not matches:
             return None
-        # A sent message can legitimately have both the authorized business
+        # A sent message can legitimately have both the authorized project
         # Bcc copy and an owner/foreign-folder copy.  Resolve ownership from
         # metadata before downloading any MIME so a foreign message body is
-        # never read or used to bind a business receipt.
+        # never read or used to bind a project receipt.
         owned = [item for item in matches if self.owner(item) == mailbox]
         if len(owned) > 1:
             raise ProviderError("outlook_import_lookup_ambiguous")
@@ -1055,7 +1055,7 @@ class Fastmail:
         return self.get_message(mailbox, selected["id"])
 
     def import_observed_mime(self, mailbox, content, *, message_id, received_at=None, is_read=False):
-        """Copy complete provider MIME into its proven business folder; never submit mail."""
+        """Copy complete provider MIME into its proven project folder; never submit mail."""
         if mailbox not in self.settings.mailboxes or not isinstance(content, bytes) or len(content) > MAX_MESSAGE_BYTES:
             raise ProviderError("outlook_import_invalid_content")
         mail = BytesParser(policy=default).parsebytes(content)
@@ -1100,7 +1100,7 @@ class Fastmail:
     def attachment(self, mailbox, message_id, attachment_id):
         selected = next((item for item in self.attachments(mailbox, message_id) if item["id"] == attachment_id), None)
         if selected is None:
-            raise ProviderError("attachment_outside_business", status=404)
+            raise ProviderError("attachment_outside_project", status=404)
         return self.download_blob(attachment_id)
 
     def download_blob(self, blob_id):

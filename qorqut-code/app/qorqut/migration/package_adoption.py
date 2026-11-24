@@ -1,13 +1,13 @@
-"""Offline adoption of the release's role and plugin packages by an existing installation.
+"""Offline adoption of a release's role and plugin packages by an existing installation.
 
 A fresh installation publishes the shipped roles and plugins and pins them in the first agent profiles
-(``bootstrap/initialize.py``). An installation made by an earlier release keeps what it was seeded with: the instruction
-update replaces the authored text of roles, skills and plugins, but the catalog packages in the database (immutable,
-digest-pinned) and the pins in the agent profiles are owner operations (``roles_publish``/``plugins_publish`` and
-``agents_update``) that no upgrade step performed. Consequences of a stale pin: the role and plugin text agents read still comes
-from the authored layer (role brief, skills and tool wording are read from it by package id, not from the pinned copy), but the
-pinned manifest decides which tools and skills exist, the role version shown in the agent's identity is the old one, and a
-plugin the release added to Ordubashy's profile is simply absent (the agent-control tools).
+(``bootstrap/initialize.py``). An existing installation keeps the packages and pins it holds: the instruction update replaces
+the authored text of roles, skills and plugins, while the catalog packages in the database (immutable, digest-pinned) and the
+pins in the agent profiles change only through owner operations (``roles_publish``/``plugins_publish`` and ``agents_update``).
+A pin that stays behind the release has these consequences: the role and plugin text agents read still comes from the authored
+layer (role brief, skills and tool wording are read from it by package id, not from the pinned copy), but the pinned manifest
+decides which tools and skills exist, the role version shown in the agent's identity is the pinned one, and a plugin the
+release gives Ordubashy's profile is absent (the agent-control tools).
 
 ``inspect`` and ``apply`` use the same arguments as the service start command (``--workspace``, ``--instance-root``, ``--component``,
 ``--extensions-config``), run with the service stopped and after ``qorqut.migration.upgrade apply``. Both take the instance
@@ -32,8 +32,8 @@ from qorqut_operations.contracts import DomainError, InvocationOptions
 
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 
-# Plugin id -> the role whose profiles must hold it. The release gave these to Ordubashy at seed
-# (``bootstrap/initialize.py: ORDUBASHY_PLUGINS``); an installation made before that has to be given them.
+# Plugin id -> the role whose profiles must hold it. A fresh installation gives these to Ordubashy at seed
+# (``bootstrap/initialize.py: ORDUBASHY_PLUGINS``); a profile without them is given them here.
 ENSURED = {"agent-terminal-control": "ordubashy"}
 
 

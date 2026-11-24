@@ -16,7 +16,7 @@ from qorqut_operations.contracts import DomainError, InvocationContext, Principa
 COORDINATOR, OWNER, SCOUT, COMPASS, GUEST = (f'00000000-0000-4000-8000-00000000000{n}' for n in range(1, 6))
 WORKERS = {SCOUT, COMPASS}
 CREATED = '2026-11-10T09:00:00.000000Z'
-REF = {'type': 'task', 'id': 'task-1', 'business_id': None}
+REF = {'type': 'task', 'id': 'task-1', 'project_id': None}
 
 
 def context(identity, kind='agent', **extra):
@@ -36,7 +36,7 @@ class DelegatedWorkBoardTests(unittest.TestCase):
         for statement in SCHEMA:
             self.conn.execute(statement)
         self.tasks = {}
-        self.uow = NS(connection=self.conn, repository=lambda name, business_id=None: NS(
+        self.uow = NS(connection=self.conn, repository=lambda name, project_id=None: NS(
             get=lambda identity, *a, **k: self.tasks.get(identity) if name == 'tasks' else None))
         self.app = NS(current_context=lambda ctx, uow: ctx, authorize=Mock(), registry=NS(get=lambda name: NS(name=name)),
                       policy=NS(context_for=lambda agent, **_: context(agent)),
@@ -59,7 +59,7 @@ class DelegatedWorkBoardTests(unittest.TestCase):
         return sorted(row[0] for row in self.conn.execute('SELECT agent_id FROM attention_memberships'))
 
     def member(self, agent, identity='task-1'):
-        self.conn.execute('INSERT INTO attention_memberships(id,agent_id,task_business_id,task_id,task_created_at,created_at) '
+        self.conn.execute('INSERT INTO attention_memberships(id,agent_id,task_project_id,task_id,task_created_at,created_at) '
                           'VALUES(?,?,NULL,?,?,?)', (agent + ':' + identity, agent, identity, CREATED, CREATED))
 
     # -- assignment lists the Task on the worker's Todo ----------------------------------------------------------

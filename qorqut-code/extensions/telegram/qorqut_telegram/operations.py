@@ -387,7 +387,7 @@ class TelegramOperations:
 
     def _still_allowed(self, uow, principal_id, operation):
         policy = self.app.policy
-        context = policy.context_for(principal_id, business_id=None, review_business_id=None, uow=uow)
+        context = policy.context_for(principal_id, project_id=None, review_project_id=None, uow=uow)
         return policy.resolve(context, self.runtime.registry.get(operation), (), uow).mode == "allow"
 
     def admit_agent(self, uow, row):

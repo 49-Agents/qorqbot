@@ -15,7 +15,7 @@ request, the Task given as an object:
 
     {"operation": "workflows.start",
      "arguments": {"ref": "agentic-management/get-set-up", "operation_id": "get-set-up-1"},
-     "attention": {"task": {"type": "task", "id": "<Task ID>", "business_id": null},
+     "attention": {"task": {"type": "task", "id": "<Task ID>"},
                    "intent": "Get the owner set up"}}
 
 Then follow each ready step's instructions and record each completed step with

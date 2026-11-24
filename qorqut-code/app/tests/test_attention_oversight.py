@@ -13,9 +13,9 @@ from qorqut_agentic.behavior.instructions import from_catalog
 
 CATALOG = Path(qorqut_agentic.__file__).parent / 'resources/defaults/operations/runtime-instructions'
 NOW = '2026-11-18T12:00:00.000000Z'
-TASK = {'id': 'own', 'business_id': None, 'title': 'Own task', 'status': 'open', 'workers': [],
+TASK = {'id': 'own', 'project_id': None, 'title': 'Own task', 'status': 'open', 'workers': [],
         'workers_omitted': 0, 'user_needed': False}
-FOCUS = {'type': 'task', 'id': 'task-1', 'business_id': None}
+FOCUS = {'type': 'task', 'id': 'task-1', 'project_id': None}
 
 
 class OversightTextTests(unittest.TestCase):
@@ -28,9 +28,9 @@ class OversightTextTests(unittest.TestCase):
 
     def test_the_coordinator_gets_the_oversight_pass_with_team_data(self):
         team = {'available': ['Harbor', 'Cedar'], 'stalled_count': 7, 'blocked_count': 1, 'blocked': [
-            {'id': 'stuck', 'business_id': None, 'title': 'Stuck task', 'status': 'blocked', 'workers': ['Harbor'],
+            {'id': 'stuck', 'project_id': None, 'title': 'Stuck task', 'status': 'blocked', 'workers': ['Harbor'],
              'updated_at': '2026-11-17T08:00:00.000000Z'}], 'stalled': [
-            {'id': 'held', 'business_id': 'project', 'title': 'Held task', 'status': 'working', 'workers': ['Scout'],
+            {'id': 'held', 'project_id': 'project', 'title': 'Held task', 'status': 'working', 'workers': ['Scout'],
              'updated_at': '2026-11-18T08:00:00.000000Z'}]}
         for kind, focus in (('focus', FOCUS), ('board_normal', None), ('board_reassess', None)):
             text = attention.render(kind, self.snapshot(team, focus), instructions=self.instructions)
@@ -55,6 +55,36 @@ class OversightTextTests(unittest.TestCase):
         self.assertIn('up to 10 shown): none', text)
         self.assertIn('check whether you can clear the blocker): none', text)
 
+    def test_the_coordinator_is_told_to_move_or_clear_a_focus_he_is_not_acting_on(self):
+        text = attention.render('focus', self.snapshot({'available': [], 'stalled': [], 'stalled_count': 0}),
+                                instructions=self.instructions)
+        self.assertIn('Your todo_focus must point only at the Task you are acting on right now.', text)
+        self.assertIn('attention_focus_set', text)
+        self.assertIn('attention_focus_clear', text)
+        self.assertIn('that clears your todo_focus', text)
+        self.assertNotIn('Keep your todo_focus on the Task you are coordinating', text)
+
+    def test_a_focus_held_for_hours_is_named_in_the_coordinators_reminder(self):
+        team = {'available': [], 'stalled': [], 'stalled_count': 0}
+        held = {**self.snapshot(team), 'focused_for': '4d 1h 29m', 'focus_held_minutes': 5849}
+        text = attention.render('focus', held, instructions=self.instructions)
+        self.assertIn('This todo_focus has been held for 4d 1h 29m. If you are not acting on this Task right now, '
+                      'move it with attention_focus_set or clear it with attention_focus_clear.', text)
+        self.assertLess(text.index('has been held for'), text.index('Todo snapshot'))
+        for minutes, shown in ((attention.HELD_MINUTES - 1, False), (attention.HELD_MINUTES, True), (None, False)):
+            text = attention.render('focus', {**held, 'focus_held_minutes': minutes}, instructions=self.instructions)
+            self.assertEqual('has been held for' in text, shown, minutes)
+        unfocused = attention.render('board_normal', {**self.snapshot(team, None), 'focus_held_minutes': 5849},
+                                     instructions=self.instructions)
+        self.assertNotIn('has been held for', unfocused)
+
+    def test_a_workers_reminder_is_unchanged_by_a_long_focus(self):
+        worker = attention.render('focus', {**self.snapshot(None), 'focused_for': '4d 1h 29m', 'focus_held_minutes': 5849},
+                                  instructions=self.instructions)
+        self.assertNotIn('has been held for', worker)
+        self.assertNotIn('Task you are acting on right now', worker)
+        self.assertIn('Your todo_focus must point only at a Task you are actively working on.', worker)
+
     def test_a_worker_and_a_blocked_workflow_keep_their_own_text(self):
         worker = attention.render('focus', self.snapshot(None), instructions=self.instructions)
         self.assertIn('Continue the Task your todo_focus points at', worker)
@@ -71,9 +101,9 @@ class TeamDataTests(unittest.TestCase):
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript('''
             CREATE TABLE principals (id TEXT, display_name TEXT);
-            CREATE TABLE businesses (id TEXT, archived_at TEXT);
-            CREATE TABLE crm_entries (record_task_id TEXT, record_business_id TEXT, removed INTEGER);
-            CREATE TABLE tasks (id TEXT, business_id TEXT, title TEXT, status TEXT, created_at TEXT, updated_at TEXT, due TEXT,
+            CREATE TABLE projects (id TEXT, archived_at TEXT);
+            CREATE TABLE crm_entries (record_task_id TEXT, record_project_id TEXT, removed INTEGER);
+            CREATE TABLE tasks (id TEXT, project_id TEXT, title TEXT, status TEXT, created_at TEXT, updated_at TEXT, due TEXT,
                 snoozed_until TEXT, worker_ids_json TEXT, fields_json TEXT, archived INTEGER DEFAULT 0);''')
         for agent in ('coordinator', 'scout', 'harbor', 'cedar'):
             self.conn.execute('INSERT INTO principals VALUES(?,?)', (agent, agent.title()))

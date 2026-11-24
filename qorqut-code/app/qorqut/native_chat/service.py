@@ -128,6 +128,11 @@ class NativeBackend:
         compaction = getattr(self.runtime, 'compaction', None)
         if compaction is not None:
             compaction.step()
+        # The Learning Applier's scheduled workflow runs (``experience/runs.py``): starts the next waiting run in a fresh
+        # conversation and watches the running one. Paced, and never a wait.
+        experience = getattr(self.runtime, 'experience', None)
+        if experience is not None:
+            experience.runs.step()
 
     def undeliver_ineligible(self) -> None:
         """Settle the waiting inputs of every recipient that is no longer an operating supported global as ``undelivered``

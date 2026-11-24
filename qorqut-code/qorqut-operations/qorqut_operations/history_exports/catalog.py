@@ -201,8 +201,8 @@ class ExportCatalog:
         if fingerprint is not None and fingerprint == held:
             return UnchangedTable(name, owner, len(source), fingerprint)
         rows = [self._row(export, row) for row in source]
-        # A nullable owning business is the distinct Global scope. Keep that
-        # value, and order it before real business IDs without comparing None
+        # A nullable owning project is the distinct Global scope. Keep that
+        # value, and order it before real project IDs without comparing None
         # with strings. Duplicate full keys are still refused below.
         rows.sort(key=lambda row: tuple((row[column] is not None, row[column]) for column in export.key))
         keys = [tuple(row[column] for column in export.key) for row in rows]

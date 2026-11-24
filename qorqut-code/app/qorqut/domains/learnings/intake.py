@@ -7,7 +7,7 @@ from qorqut_operations.contracts import DomainError, canonical_hash
 
 def snapshot(item):
     decision = item.get("decision") or {}
-    origin = 'scope="global"' if item['business_id'] is None else 'business-id=' + quoteattr(item['business_id'])
+    origin = 'scope="global"' if item['project_id'] is None else 'project-id=' + quoteattr(item['project_id'])
     text = (
         '<learning format="1" tag=' + quoteattr(item["tag"]) + '>\n'
         '<text>' + escape(item["text"]) + '</text>\n'

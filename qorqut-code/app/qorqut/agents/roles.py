@@ -11,7 +11,7 @@ GLOBAL_WORKER_ROLE = "global-worker"
 ORDUBASHY_ROLE = "ordubashy"
 LEARNING_APPLIER_ROLE = "learning-applier"
 
-# SUPPORTED_GLOBAL_ROLES, the only roles an active profile may hold (never a business home; one ecosystem registration
+# SUPPORTED_GLOBAL_ROLES, the only roles an active profile may hold (one ecosystem registration
 # per role except the repeatable REPEATABLE_GLOBAL_ROLES), is owned by the shared Operations eligibility authority and
 # re-exported here for host consumers.
 

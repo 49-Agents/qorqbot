@@ -27,7 +27,7 @@ from qorqut_operations.contracts import DomainError, PolicyDecision
 MODES = ("allow", "signoff", "deny")
 
 # (name, defaults, overrides, registry, *, role_id, scope, resolve) -> PolicyDecision | None
-# ``resolve(other_operation, scope="business")`` re-enters the resolution for another operation under the same maps.
+# ``resolve(other_operation, scope="project")`` re-enters the resolution for another operation under the same maps.
 PolicyRule = Callable[..., "PolicyDecision | None"]
 
 
@@ -64,10 +64,10 @@ def validate_modes(values, registry):
             raise DomainError("invalid_policy", "Owner-only decisions cannot be granted to an agent or worker")
 
 
-def resolve_operation_policy(operation_name, defaults, overrides, registry, *, rules: PolicyRules, role_id=None, scope="business"):
+def resolve_operation_policy(operation_name, defaults, overrides, registry, *, rules: PolicyRules, role_id=None, scope="project"):
     """Resolve a canonical mode without inventing role defaults or scope grants.
 
-    ``scope`` ("business" or "global") is passed to the contributed rules, which alone give it meaning."""
+    ``scope`` ("project" or "global") is passed to the contributed rules, which alone give it meaning."""
     if not isinstance(rules, PolicyRules):
         raise TypeError("Policy resolution requires the trusted PolicyRules of the composed domains")
     validate_modes(defaults, registry)
@@ -78,7 +78,7 @@ def resolve_operation_policy(operation_name, defaults, overrides, registry, *, r
     if registry.metadata(name).owner_only:
         return PolicyDecision("deny", "owner_only")
 
-    def resolve(other, scope="business"):
+    def resolve(other, scope="project"):
         return resolve_operation_policy(other, defaults, overrides, registry, rules=rules, role_id=role_id, scope=scope)
 
     def apply(phase):

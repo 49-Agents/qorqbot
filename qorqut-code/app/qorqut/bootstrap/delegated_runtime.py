@@ -235,7 +235,7 @@ def claude_usage(raw):
 
 def _prompt(assignment, events, *, instructions, continuation=False):
     scope = {
-        "assignment_id": assignment["id"], "business_id": assignment.get("business_id"),
+        "assignment_id": assignment["id"], "project_id": assignment.get("project_id"),
         "scope": assignment.get("scope_json"), "objective": assignment.get("objective"),
         "approved_plan": assignment.get("plan_json"), "plan_revision": assignment.get("plan_revision"),
         "allowed_operations": assignment.get("allowed_operations_json"),
@@ -313,6 +313,8 @@ class DelegatedRuntime:
             # by the command line, not by hiding the home folder.
             env.update({name: os.environ[name] for name in CLAUDE_ENVIRONMENT if name in os.environ})
             env.setdefault("HOME", str(Path.home()))
+            from qorqut.managed_runtime.clients import CLAUDE_MEMORY_OFF
+            env.update(CLAUDE_MEMORY_OFF)
         env.update(self._managed()["env"])
         for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"):
             if name in os.environ:

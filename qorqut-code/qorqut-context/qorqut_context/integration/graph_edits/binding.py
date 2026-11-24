@@ -149,15 +149,15 @@ def check_relation(plan, content, digest, event_id, revision, attribution, submi
 
 
 def admit(builder, uow, *, plan: dict, content: str, plan_digest: str, reserved_event_id: str, attribution: dict,
-          targets: list, business_id: str | None, max_content_bytes: int | None = None) -> Admission:
+          targets: list, project_id: str | None, max_content_bytes: int | None = None) -> Admission:
     """Prepare the two records of one graph edit (its binding, then its queue input) and return their identities.
 
     ``plan`` is the host's normalized primitive plan (a JSON object that carries its own ``expected_revision``), ``content``
     its canonical source text and ``plan_digest`` the SHA-256 of that text's UTF-8 bytes. ``attribution`` is the original
     caller (``principal_id`` must be the builder's caller, ``principal_kind`` the caller's kind, ``delegation`` the caller's own
-    authenticated delegation triplet or ``None``) and ``targets`` the frozen target evidence. ``business_id`` is the selected owning namespace and must be the caller's selected scope."""
+    authenticated delegation triplet or ``None``) and ``targets`` the frozen target evidence. ``project_id`` is the selected owning namespace and must be the caller's selected scope."""
     ctx = builder.ctx
-    if business_id != ctx.business_id:
+    if project_id != ctx.project_id:
         _refuse("A graph edit is queued in the caller's selected scope", "forbidden")
     text(content, "content")
     if max_content_bytes is not None and len(content.encode("utf-8")) > max_content_bytes:
@@ -177,9 +177,9 @@ def admit(builder, uow, *, plan: dict, content: str, plan_digest: str, reserved_
     builder.record("context_graph_edits", input_id, None, {
         "input_id": input_id, "reserved_event_id": reserved_event_id, "plan_digest": plan_digest,
         "expected_revision": plan["expected_revision"], "plan_json": plan, "attribution_json": attribution, "targets_json": targets},
-        business_id=business_id, label=f"Graph edit {reserved_event_id}")
+        project_id=project_id, label=f"Graph edit {reserved_event_id}")
     builder.record("context_inputs", input_id, None, {**general_values(input_id, arguments, ctx.principal_id, builder.at),
-                   "business_id": business_id}, business_id=business_id, label=arguments["path"])
+                   "project_id": project_id}, project_id=project_id, label=arguments["path"])
     builder.effects.append(f"Queues one explicit graph edit (Context event {reserved_event_id}) in the shared Context order. "
                            "Nothing is published until the backend driver rechecks the caller's current authority and the "
                            "published base and runs exactly this plan with no model.")
@@ -222,7 +222,7 @@ def load(uow, input_id: str) -> dict | None:
                        row["submitted_by"], targets, code=INTEGRITY)
     except DomainError as problem:
         raise DomainError(INTEGRITY, problem.message) from None
-    return {"input_id": input_id, "business_id": row["business_id"], "reserved_event_id": event_id,
+    return {"input_id": input_id, "project_id": row["project_id"], "reserved_event_id": event_id,
             "plan_digest": stored["plan_digest"], "expected_revision": stored["expected_revision"], "plan": plan,
             "attribution": attribution, "targets": targets, "content": payload["content"], "submitted_by": row["submitted_by"]}
 

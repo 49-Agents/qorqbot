@@ -42,8 +42,7 @@ procedural entries; discovery does not inject every plugin body. Delayed refresh
 remains pending.
 Clear owner instructions can be recorded within existing authority, while inferred
 changes need owner-led review and application. Role briefs and other unreviewed
-procedures remain preserved. See `docs/defaults-provenance.json` for
-source paths, hashes and rewritten native manifest fields.
+procedures remain preserved.
 
 Every CLI call reads one `{ "operation": "...", "arguments": {...} }` value and
 writes one `{ "ok": true, "result": ... }` or `{ "ok": false, "error": ... }`

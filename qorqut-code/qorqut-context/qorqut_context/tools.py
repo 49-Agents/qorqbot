@@ -146,7 +146,7 @@ class EventTools:
         self._add("action_lookup", "Read a shared accepted action at the published base by opaque reference. Audit pages include corrections and withdrawals; current view returns its latest revision. Default 20, max 100.",
                   obj({"action_ref": STRING, "audit": {"type": "boolean"}, **PAGE}, ("action_ref",)),
                   lambda **args: self._view(self.base.action(**args), published=True))
-        self._add("actions_history", "Page published Actions independently of graph subjects. Filter immutable revision tags by tag_id; global_only selects revisions with no linked business tag. Filters combine. Current view includes latest non-withdrawn Actions; audit includes all revisions and withdrawals. Default 20, max 100.",
+        self._add("actions_history", "Page published Actions independently of graph subjects. Filter immutable revision tags by tag_id; global_only selects revisions with no linked project tag. Filters combine. Current view includes latest non-withdrawn Actions; audit includes all revisions and withdrawals. Default 20, max 100.",
                   obj({"tag_id": STRING, "global_only": {"type": "boolean"},
                        "audit": {"type": "boolean"}, **PAGE}),
                   lambda **args: self._view(self.base.actions_history(**args), published=True))

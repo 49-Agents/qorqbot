@@ -10,7 +10,7 @@ from unittest import mock
 
 from qorqut_operations.contracts import DomainError
 from qorqut.bootstrap.browser import BrowserError
-from qorqut.browser import setup, sign_in
+from qorqut.browser import setup
 from qorqut.browser.agent_browsers import AgentBrowserManager
 
 
@@ -18,8 +18,6 @@ class BrowserSetupTest(unittest.TestCase):
     def setUp(self):
         setup.LAST_FAILURE.clear()
         self.addCleanup(setup.LAST_FAILURE.clear)
-        sign_in._window.clear()
-        self.addCleanup(sign_in._window.clear)
         connection = sqlite3.connect(":memory:")
         connection.row_factory = sqlite3.Row
         connection.executescript("""
@@ -133,12 +131,6 @@ class BrowserSetupTest(unittest.TestCase):
             with self.subTest(state=state):
                 self.assertEqual(self.run_setup({'state': state}), ['repair'])
                 self.assertEqual(self.run_setup({'state': state}, {}), [], 'automatic setup never repairs')
-
-    def test_nothing_is_set_up_while_the_owner_signs_in(self):
-        with mock.patch.dict(sign_in._window, {'site': 'example.com'}):
-            self.assertEqual(self.run_setup({'state': 'stopped'}), [])
-            self.assertEqual(self.run_setup({'state': 'stopped'}, {}), [])
-        self.runtime.browser_manager.manage.assert_not_called()
 
     def test_automatic_setup_leaves_a_deliberately_stopped_browser_alone(self):
         self.assertEqual(self.run_setup({'state': 'stopped', 'stop_requested': True}, {}), [])
@@ -268,16 +260,6 @@ class BrowserSetupTest(unittest.TestCase):
         self.assertTrue(view['ready'])
         self.runtime.browser_manager.manage.assert_called_once()
 
-    def test_the_view_says_signing_in_while_the_owners_window_is_open(self):
-        status = mock.Mock(return_value={'state': 'stopped', 'diagnostic': 'x', 'agents': []})
-        with mock.patch.dict(sign_in._window, {'site': 'example.com'}):
-            view = self.read_view(status)
-        self.assertEqual((view['state'], view['explanation']), ('signing_in', setup.SIGNING_IN))
-        self.assertEqual([agent['agent_id'] for agent in view['agents']], ['lead', 'worker'])
-        self.assertTrue(view['ready'], 'the pause for a sign-in is not a fault')
-        status.assert_not_called()
-        self.assertEqual(self.read_view(status)['state'], 'stopped')            # the window is closed again
-
     def test_setup_offers_no_browser_choice(self):
         self.assertFalse(hasattr(setup, 'choose'))
         self.assertFalse(hasattr(setup, 'CHOICES'))
@@ -335,18 +317,6 @@ class BrowserSetupTest(unittest.TestCase):
         self.agent_manage('ensure')
         self.chrome_download.assert_called_once()
         self.assertIs(self.chrome_download.call_args.kwargs['automatic'], False, 'like Retry setup, it does not wait')
-
-    def test_a_mutation_is_refused_while_the_owner_signs_in(self):
-        with mock.patch.dict(sign_in._window, {'site': 'example.com'}):
-            for action in ('ensure', 'repair', 'restart', 'stop'):
-                with self.subTest(action=action), self.assertRaises(DomainError) as caught:
-                    self.agent_manage(action)
-                self.assertEqual(caught.exception.code, 'conflict')
-                self.assertEqual(self.managed(), [mock.call('lead', {'action': 'status'})], 'only the authorization ran')
-            self.chrome_download.assert_not_called()
-            status = self.agent_manage('status', state='stopped')
-            self.assertIs(status['setup']['sign_in_window_open'], True)
-        self.assertNotIn('sign_in_window_open', self.agent_manage('status')['setup'])
 
     def test_the_answer_carries_what_the_settings_card_knows_in_ordubashys_words(self):
         own = {'state': 'failed', 'explanation': "Qorqbot's own browser couldn't be downloaded. Press Retry setup."}
@@ -410,7 +380,7 @@ class StopRequestTest(unittest.TestCase):
 
 class OwnerAuthorizationTest(unittest.TestCase):
     def setUp(self):
-        rows = [{'agent_id': agent, 'display_name': name, 'home_business_id': None, 'slug': None}
+        rows = [{'agent_id': agent, 'display_name': name, 'slug': None}
                 for agent, name in (('learning', 'Learning Applier'), ('scout', 'Scout'), ('lead', 'Ordubashy'), ('atlas', 'Atlas'))]
         connection = mock.Mock()
         connection.execute.return_value.fetchall.return_value = rows
