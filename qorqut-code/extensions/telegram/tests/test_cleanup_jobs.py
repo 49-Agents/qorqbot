@@ -87,6 +87,11 @@ class Bridge:
     def read(self):
         yield Unit(self.database)
 
+    def has_work(self, probe):
+        # The bridge's look before a write step, for when the steps of the control pass use one.
+        with self.read() as uow:
+            return bool(probe(uow))
+
 
 class CleanupCase(unittest.TestCase):
     def setUp(self):
