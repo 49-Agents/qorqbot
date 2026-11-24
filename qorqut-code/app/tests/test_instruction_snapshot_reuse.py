@@ -75,9 +75,7 @@ class Fixture(unittest.TestCase):
         resolver = AgentConfigResolver.__new__(AgentConfigResolver)
         resolver._lock, resolver._cache = threading.RLock(), OrderedDict()
         resolver.agentic_view = self.view
-        reuse = getattr(resolver_module, 'SnapshotReuse', None)
-        if reuse is not None:
-            resolver._snapshot_reuse = reuse(seconds=self.seconds, clock=self.clock)
+        resolver._snapshot_reuse = resolver_module.SnapshotReuse(seconds=self.seconds, clock=self.clock)
         resolver.composed = []
 
         def snapshot(principal, project_id, *, agentic_revision=None):
@@ -210,6 +208,210 @@ class TodayWithoutReuseTests(TodayTests):
             self.resolve()
         self.assertEqual(counts['inventories'], 2)
         self.assertEqual(counts['locks'], 1)
+
+
+class ReuseTests(Fixture):
+    """A call that finds nothing changed since the last full verification reuses it, for at most ``seconds``."""
+
+    def test_a_reused_call_builds_no_inventory_opens_no_connection_and_takes_no_lock(self):
+        first = self.resolve()
+        with self.counted() as counts:
+            second = self.resolve()
+            third = self.resolve()
+        self.assertIs(first, second)
+        self.assertIs(first, third)
+        self.assertEqual(counts, {'inventories': 0, 'connections': 0, 'locks': 0})
+        self.assertEqual(len(self.resolver.composed), 1)
+
+    def test_a_change_applied_in_this_process_is_seen_with_no_time_passing(self):
+        self.resolve()
+        self.apply_skill(SKILL + '\nApplied.\n')
+        with self.counted() as counts:
+            config = self.resolve()
+        self.assertTrue(config.data['skill'].endswith('Applied.\n'))
+        self.assertGreaterEqual(counts['inventories'], 2)
+
+    def test_a_commit_from_another_process_is_seen_with_no_time_passing(self):
+        """A commit without this process's lock (as another process makes it) moves only the state store."""
+        self.resolve()
+        other = Store(self.root / 'state')
+        with other.transaction() as conn:
+            conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('snapshot_reuse_test', '2')")
+        with self.counted() as counts:
+            self.resolve()
+        self.assertGreaterEqual(counts['inventories'], 2)
+
+    def test_any_exclusive_release_ends_the_reuse_even_when_its_body_raised(self):
+        self.resolve()
+        with self.assertRaises(RuntimeError):
+            with self.layer._ctx.store.lock(exclusive=True):
+                raise RuntimeError('body failed')
+        with self.counted() as counts:
+            self.resolve()
+        self.assertGreaterEqual(counts['inventories'], 2)
+        with self.counted() as counts:
+            self.resolve()
+        self.assertEqual(counts['inventories'], 0)
+
+    def test_a_scan_that_cannot_take_the_lock_does_not_end_the_reuse(self):
+        self.resolve()
+        with self.layer._ctx.store.lock(exclusive=False):
+            done = []
+            thread = threading.Thread(target=lambda: done.append(self.attempt_scan()))
+            thread.start()
+            thread.join(10)
+        self.assertEqual(done, ['lock_timeout'])
+        with self.counted() as counts:
+            self.resolve()
+        self.assertEqual(counts['inventories'], 0)
+
+    def attempt_scan(self):
+        try:
+            self.layer.changes.scan(lock_timeout=0)
+        except Exception as exc:
+            return getattr(exc, 'code', type(exc).__name__)
+        return 'scanned'
+
+    def test_a_hand_edit_is_seen_only_once_the_period_has_passed(self):
+        first = self.resolve()
+        self.write_skill(SKILL + '\nBy hand.\n')
+        self.clock.now += 1.9
+        self.assertIs(self.resolve(), first)
+        self.clock.now += 0.1
+        self.assertTrue(self.resolve().data['skill'].endswith('By hand.\n'))
+
+    def test_invalid_instructions_are_never_served_after_the_period(self):
+        self.resolve()
+        (self.tree / 'plugins' / 'demo' / 'agentic.yaml').write_text('schema_version: [unclosed\n')
+        self.clock.now += 2.0
+        for _ in range(2):
+            with self.assertRaises(DomainError):
+                self.resolve()
+
+    def test_a_clock_that_moves_back_ends_the_reuse(self):
+        self.resolve()
+        self.clock.now -= 1
+        with self.counted() as counts:
+            self.resolve()
+        self.assertGreaterEqual(counts['inventories'], 2)
+
+    def test_an_unreadable_data_version_means_changed(self):
+        self.resolve()
+        with mock.patch.object(Store, 'data_version', return_value=None), self.counted() as counts:
+            self.resolve()
+            self.resolve()
+        self.assertGreaterEqual(counts['inventories'], 4)
+
+    def test_a_failed_version_connection_is_replaced_and_never_compared_across_connections(self):
+        store = self.layer._ctx.store
+        self.resolve()
+        before = store.data_version()
+        store._version_conn.close()  # the next read fails on the closed connection
+        self.assertIsNone(store.data_version())
+        after = store.data_version()
+        self.assertNotEqual(before[0], after[0])
+        with self.counted() as counts:
+            self.resolve()
+        self.assertGreaterEqual(counts['inventories'], 2)
+        with self.counted() as counts:
+            self.resolve()
+        self.assertEqual(counts['inventories'], 0)
+
+    def test_the_version_connection_reads_from_any_thread(self):
+        store = self.layer._ctx.store
+        here = store.data_version()
+        found = []
+        thread = threading.Thread(target=lambda: found.append(store.data_version()))
+        thread.start()
+        thread.join(10)
+        self.assertEqual(found, [here])
+
+    def test_a_configuration_not_yet_composed_is_never_served_from_the_record(self):
+        self.resolve()
+        self.resolver._cache.clear()
+        with self.counted() as counts:
+            self.resolve()
+        self.assertGreaterEqual(counts['inventories'], 2)
+        self.assertEqual(len(self.resolver.composed), 2)
+
+    def test_preparation_session_registration_and_explicit_revision_never_reuse(self):
+        self.resolve()
+        with self.counted() as counts:
+            self.resolver.resolve_agent_config(PRINCIPAL)
+        self.assertGreaterEqual(counts['inventories'], 2)
+        with self.counted() as counts, self.assertRaises(DomainError):
+            self.resolver.resolve_agent_config(PRINCIPAL, include_preparation=False, session_registration='reg-1')
+        self.assertGreaterEqual(counts['inventories'], 1)
+        revision = self.resolve().data['revision']
+        with self.counted() as counts:
+            self.view.consistent(lambda: None, revision=revision)
+        self.assertGreaterEqual(counts['inventories'], 2)
+
+    def test_a_call_inside_a_callers_snapshot_neither_reuses_nor_records(self):
+        self.resolve()
+        reuse = self.resolver._snapshot_reuse
+        recorded = reuse._record
+        self.clock.now += 1
+        with self.view.read_snapshot():
+            with mock.patch.object(reuse, 'current', side_effect=AssertionError('reused inside a snapshot')):
+                self.resolve()
+        self.assertIs(reuse._record, recorded)
+
+    def test_racing_verifications_leave_one_consistent_record(self):
+        reuse = self.resolver._snapshot_reuse
+        barrier = threading.Barrier(2)
+        real_observe = reuse.observe
+
+        def observe(view):
+            observed = real_observe(view)
+            barrier.wait(10)  # both threads are inside their snapshot before either records
+            return observed
+
+        errors = []
+
+        def run():
+            try:
+                self.resolve()
+            except Exception as exc:
+                errors.append(exc)
+
+        with mock.patch.object(reuse, 'observe', observe):
+            threads = [threading.Thread(target=run) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(10)
+        self.assertEqual(errors, [])
+        revision, marker, at = reuse._record
+        self.assertEqual(revision, self.view.layer.catalog.revision()['catalog_revision'])
+        self.assertEqual(marker, self.view.change_marker())
+        with self.counted() as counts:
+            self.resolve()
+        self.assertEqual(counts['inventories'], 0)
+
+    def test_an_older_verification_never_replaces_a_newer_record(self):
+        reuse = self.resolver._snapshot_reuse
+        reuse.remember('newer', (('marker',), 10.0))
+        reuse.remember('older', (('marker',), 5.0))
+        self.assertEqual(reuse._record, ('newer', ('marker',), 10.0))
+
+
+class ReuseOffTests(Fixture):
+    seconds = 0
+
+    def test_a_period_of_zero_never_reuses_or_records(self):
+        self.resolve()
+        self.assertIsNone(self.resolver._snapshot_reuse._record)
+        with self.counted() as counts:
+            self.resolve()
+        self.assertEqual(counts['inventories'], 2)
+
+    def test_a_resolver_built_by_hand_without_the_record_never_reuses(self):
+        del self.resolver._snapshot_reuse
+        self.resolve()
+        with self.counted() as counts:
+            self.resolve()
+        self.assertEqual(counts['inventories'], 2)
 
 
 if __name__ == '__main__':
