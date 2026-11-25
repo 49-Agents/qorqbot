@@ -52,7 +52,7 @@ async function renderSettings(c) {
       <div class="record-section" data-search="agents model provider account switch client effort claude codex"><div class="record-section-head"><h4>Client, model and effort</h4></div>
         <p class="st-help">What each agent runs on. Leave a field empty to use the default.</p><div data-agent-options></div></div>
       ${global ? settingsGroup('Experimental', settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat workspace experimental',
-        help: 'Show Overseer in the Global agent roster and enable its chat and workspace. Also shows the Timeline, Journal and Files views in Ordubashy’s pane. Off by default.<span class="set-testing-note" id="set-testing-note" role="status"></span>',
+        help: 'Show Overseer in the Global agent roster and enable its chat and workspace. Also shows the Timeline, Journal, Files and Context views in Ordubashy’s pane. Off by default.<span class="set-testing-note" id="set-testing-note" role="status"></span>',
         control: `<label class="set-switch" for="set-testing-toggle"><input type="checkbox" id="set-testing-toggle" role="switch" aria-label="Testing mode" disabled><span class="set-switch-track" aria-hidden="true"></span><span class="set-switch-label" id="set-testing-state">Loading…</span></label>`,
         attrs: 'data-testing-mode'}), 'experimental testing mode') : ''}`,
     appearance: settingsGroup('Display', `${settingsRow({label: 'Theme', keywords: 'dark light system mode color colour', help: 'System follows your computer’s light or dark setting.',

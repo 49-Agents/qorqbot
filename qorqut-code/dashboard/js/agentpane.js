@@ -118,8 +118,8 @@ const AGPAD_RETIRED_PANE_VIEWS = new Set(["project", "campaign_review", "status"
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
 function agentPaneViewAllowed(roleId, view) {
-  // Testing mode only: Timeline, Journal and Files.
-  if (view === "files" || view === "timeline" || view === "journal") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
+  // Testing mode only: Timeline, Journal, Files and Context.
+  if (view === "files" || view === "timeline" || view === "journal" || view === "context_graph") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
   if (view === "explorer" || view === "work") return roleId === "ordubashy";
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
