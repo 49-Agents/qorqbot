@@ -2,7 +2,8 @@
 
 Accepted input, attempt and control history is append-only. Only processing state and receipts change, a published or
 discarded input is final, and every state change must be one of the legal transitions. GENERAL source changes and
-accepted Action revisions share the single ``sequence`` order; each input is owned by exactly one namespace
+accepted Action revisions share the single ``sequence`` order and at most one input is ``processing`` at a time (several may
+be blocked: a blocked input steps aside for later inputs of other sources); each input is owned by exactly one namespace
 (``project_id`` NULL is Global). The donor layout is kept: the same states, the exact reserved Context event
 identity and the same immutable payload, with ownership added and the donor's references to its own item/agent
 tables pointed at this schema (``action_revisions`` and ``principals``).
@@ -43,8 +44,8 @@ SCHEMA = (
 )""",
     """CREATE INDEX context_inputs_by_state ON context_inputs(state, sequence)""",
     """CREATE INDEX context_inputs_by_scope ON context_inputs(project_id, sequence)""",
-    """CREATE UNIQUE INDEX context_inputs_single_open_head ON context_inputs((1))
-    WHERE state IN ('processing','blocked','discard_requested')""",
+    """CREATE UNIQUE INDEX context_inputs_single_processing ON context_inputs((1))
+    WHERE state = 'processing'""",
     """CREATE TRIGGER context_inputs_action_revision
 BEFORE INSERT ON context_inputs
 WHEN NEW.input_kind = 'action' AND NOT EXISTS (

@@ -22,7 +22,9 @@ from qorqut_context.integration.driver import ContextQueueDriver
 # A step that moved the queue forward is followed at once by the next one. ``discard_failed`` and ``unrecorded`` leave the
 # same input exactly where it was (a requested discard, a publication still to be recorded), so they are not progress: the
 # loop waits, with bounded backoff, instead of rewriting the same failure continuously. Every other outcome waits for new
-# work or the next tick. No wait authorizes a model retry: a blocked head still needs its explicit retry control.
+# work or the next tick. The loop itself never retries an input: an automatic retry is the driver's, planned with the
+# blocked input and started by a later ``process_next`` once it is due (``waiting`` until then), and a blocked input with
+# none left waits for its explicit retry control while later inputs of other sources go on.
 _PROGRESS = frozenset({"published", "discarded", "input_blocked"})
 _STALLED = frozenset({"discard_failed", "unrecorded"})
 

@@ -231,8 +231,11 @@ python -m qorqut_context --repo /tmp/acme-context --runtime /tmp/acme-runtime di
 `recover` performs only mechanical publication/index recovery. `retry` first
 checks Git, then an exact completed ready draft, before starting a fresh model
 attempt. A partial, blocked, or incomplete turn cannot publish. Failed input and
-staged objects remain available for explicit retry or discard; there are no
-automatic new model attempts. The lower-level `Context.publish` remains a
+staged objects remain available for retry or discard; the library itself starts
+no new model attempt on its own. In a host, the queue driver
+(`integration/driver.py`) retries a retryable failure automatically (up to three
+times, after about 1, 5 and 15 minutes) and then lets the blocked input step
+aside for later inputs of other sources. The lower-level `Context.publish` remains a
 controlled-caller API and does not itself require a model completion.
 
 Use `submit edit` with the same foundation path and a new input file, or
