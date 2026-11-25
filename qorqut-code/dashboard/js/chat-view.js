@@ -662,7 +662,7 @@ function mountChatView(host, options = {}) {
   let composerMeasure = '';
   function resizeComposer() {
     if (disposed || form.hidden || !input.clientWidth) return;
-    const signature = JSON.stringify([input.value, form.clientWidth, attachments.hidden, model.composer.sendLabel]);
+    const signature = JSON.stringify([input.value, form.clientWidth, attachments.hidden, model.composer.sendLabel, !!mic?.wave.hidden]);
     if (signature === composerMeasure) return;
     composerMeasure = signature;
     const top = input.scrollTop;
@@ -679,6 +679,8 @@ function mountChatView(host, options = {}) {
   if (typeof ResizeObserver === 'function') {
     const composerResize = new ResizeObserver(resizeComposer);
     composerResize.observe(form);
+    // The recording waveform narrows the text field without resizing the form; its appearing and going re-measure the draft.
+    if (mic?.wave) composerResize.observe(mic.wave);
     cleanups.push(() => composerResize.disconnect());
   }
 

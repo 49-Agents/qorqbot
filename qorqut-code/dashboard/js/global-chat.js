@@ -471,7 +471,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       if (form && typeof chatModelPicker !== 'undefined') {
         const picker = chatModelPicker.mount({base, label, read: async path => coreData(await api(path)), write: async (path, body) => coreData(await post(path, body)),
           onError: showBanner});
-        form.insertBefore(picker.el, form.querySelector('.gchat-attach, .gchat-mic, .gchat-send'));
+        form.insertBefore(picker.el, form.querySelector('.gchat-wave, .gchat-attach, .gchat-mic, .gchat-send'));
         cleanups.push(() => picker.dispose());
       }
     }
