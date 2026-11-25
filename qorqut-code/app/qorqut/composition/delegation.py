@@ -69,8 +69,8 @@ HOST_REVIEW_EXCEPTIONS = (
                          bound_resources={"documents": BoundResource("document_id"),
                                           "managed_document_files": BoundResource("document_id", "document_id")},
                          principal_kinds=frozenset({"human"}), allow_delegated=False),
-    # The coordinator's compaction handoff: the note and next step it puts on each project Task it names, prepared and
-    # applied by the Task service. Its handler admits only the coordinator in person, and a filing is never staged.
+    # An agent's compaction handoff: the note and next step it puts on each project Task it names, prepared and
+    # applied by the Task service. Its handler admits only an agent in person, and a filing is never staged.
     ReviewScopeException(frozenset({"compaction_handoff_file"}), frozenset({"tasks", "thread_messages"}),
                          principal_kinds=frozenset({"agent"}), allow_delegated=False),
 )

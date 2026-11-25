@@ -13,7 +13,7 @@ const agentExplorerGlobe = () => `<svg viewBox="0 0 24 24" fill="none" stroke="c
 
 const AGEXPLORER_SPLIT_KEY = 'qorqut.explorer.listWidth', AGEXPLORER_LIST_MIN = 200, AGEXPLORER_READER_MIN = 320, AGEXPLORER_SPLIT_STEP = 16;
 // A draggable divider between the list and the reader of a `.agfiles-layout`. Width is kept in localStorage; double-click resets it.
-function agentSplitMount(layout) {
+function agentSplitMount(layout, key = AGEXPLORER_SPLIT_KEY) {
   const list = layout.firstElementChild;
   if (!list) return () => {};
   const handle = document.createElement('div');
@@ -24,7 +24,7 @@ function agentSplitMount(layout) {
   handle.tabIndex = 0;
   layout.appendChild(handle);
   let width = null;
-  try { const n = Number.parseFloat(localStorage.getItem(AGEXPLORER_SPLIT_KEY)); if (Number.isFinite(n) && n > 0) width = n; } catch (_) { /* Works without storage. */ }
+  try { const n = Number.parseFloat(localStorage.getItem(key)); if (Number.isFinite(n) && n > 0) width = n; } catch (_) { /* Works without storage. */ }
   const bounds = () => { const total = layout.clientWidth, min = AGEXPLORER_LIST_MIN; return {min, max: Math.max(min, total - AGEXPLORER_READER_MIN), total}; };
   const clamp = value => { const b = bounds(); return Math.min(b.max, Math.max(b.min, Math.round(value))); };
   const sync = () => {
@@ -33,7 +33,7 @@ function agentSplitMount(layout) {
     handle.style.left = (now - 3) + 'px';
     handle.setAttribute('aria-valuemin', String(b.min)); handle.setAttribute('aria-valuemax', String(b.max)); handle.setAttribute('aria-valuenow', String(now));
   };
-  const save = () => { try { if (width === null) localStorage.removeItem(AGEXPLORER_SPLIT_KEY); else localStorage.setItem(AGEXPLORER_SPLIT_KEY, String(width)); } catch (_) { /* Works without storage. */ } };
+  const save = () => { try { if (width === null) localStorage.removeItem(key); else localStorage.setItem(key, String(width)); } catch (_) { /* Works without storage. */ } };
   const set = value => { width = value === null ? null : clamp(value); sync(); save(); };
   let drag = null;
   handle.addEventListener('pointerdown', event => {
@@ -87,8 +87,15 @@ function agentExplorerMount(p) {
   // ---- rows. A row id names its scope, so a Task id alone is never trusted across Projects.
   const GLOBAL = {id: 'global', kind: 'global', scope: '', name: 'Global', parent: null};
   s.nodes.set('global', GLOBAL);
+  // A subproject sits under its parent Project's row, before that Project's own Tasks.
+  const parentOf = project => typeof workspaceProjectParent === 'function' ? workspaceProjectParent(project) : null;
+  const projectById = id => (state.projects || []).find(project => (project.id || project.project_id) === id) || null;
+  const subprojects = node => node.kind === 'global' ? projects().filter(project => !parentOf(project))
+    : node.kind === 'project' ? projects().filter(project => parentOf(project) === (node.project.id || node.project.project_id)) : [];
   function projectNode(project) {
-    const node = {id: 'p:' + project.slug, kind: 'project', scope: project.slug, name: project.name || project.slug, parent: 'global', project};
+    const parent = parentOf(project) && projectById(parentOf(project));
+    const node = {id: 'p:' + project.slug, kind: 'project', scope: project.slug, name: project.name || project.slug,
+      parent: parent ? 'p:' + parent.slug : 'global', project};
     s.nodes.set(node.id, node);
     return node;
   }
@@ -104,7 +111,7 @@ function agentExplorerMount(p) {
   const listKey = node => node.scope + '|' + (node.kind === 'task' ? node.task.id : '');
   const listOf = node => s.lists.get(listKey(node));
   function expandable(node) {
-    if (node.kind === 'global') return true;
+    if (node.kind === 'global' || (node.kind === 'project' && subprojects(node).length)) return true;
     const list = listOf(node);
     if (list?.loaded) return list.rows.length > 0 || !!list.next_cursor;
     if (node.kind === 'project') return true;
@@ -146,7 +153,9 @@ function agentExplorerMount(p) {
   }
   function row(node, level, flat = false) {
     const expanded = s.expanded.has(node.id), selected = s.selected === node.id, opens = !flat && expandable(node);
-    const where = flat ? `<small>${esc(node.kind === 'project' ? 'Project' : node.scope ? projectOf(node.scope)?.name || node.scope : 'Global')}</small>` : '';
+    const path = scope => { const project = projectOf(scope); return project ? (typeof workspaceProjectPath === 'function' ? workspaceProjectPath(project) : project.name) : scope; };
+    const parentPath = node.kind === 'project' && parentOf(node.project) ? path(projectById(parentOf(node.project))?.slug) : '';
+    const where = flat ? `<small>${esc(node.kind === 'project' ? (parentPath ? 'Subproject of ' + parentPath : 'Project') : node.scope ? path(node.scope) : 'Global')}</small>` : '';
     return `<div class="agfiles-row${selected ? ' selected' : ''}${finished(node) ? ' agexplorer-done' : ''}" role="treeitem" aria-level="${level + 1}" aria-selected="${selected}" ${opens ? `aria-expanded="${expanded}"` : ''} tabindex="-1" data-row="${esc(node.id)}" style="--depth:${flat ? 0 : level}" title="${esc(node.name)}">
       ${opens ? `<button type="button" tabindex="-1" class="agfiles-toggle${expanded ? ' expanded' : ''}" data-toggle="${esc(node.id)}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${esc(node.name)}">${agentFilesIcon('chevron')}</button>` : '<span class="agfiles-indent"></span>'}
       <button type="button" tabindex="-1" class="agfiles-name" data-select="${esc(node.id)}">${icon(node)}<span>${esc(node.name)}${where}</span></button></div>`;
@@ -154,7 +163,7 @@ function agentExplorerMount(p) {
   function branch(node, depth) {
     const list = listOf(node);
     let html = '';
-    if (node.kind === 'global') html += projects().map(project => { const child = projectNode(project); return row(child, depth) + group(child, depth); }).join('');
+    if (node.kind !== 'task') html += subprojects(node).map(project => { const child = projectNode(project); return row(child, depth) + group(child, depth); }).join('');
     if (!list) return html;
     html += list.rows.map(child => row(child, depth) + group(child, depth)).join('');
     if (list.loading) html += `<div class="agfiles-status" role="status">Loading…</div>`;

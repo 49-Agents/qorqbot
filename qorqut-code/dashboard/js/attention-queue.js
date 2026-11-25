@@ -10,8 +10,8 @@ const attentionQueue=(()=>{
   const mounts=new Set(),lists=new Set(),acknowledged=new Set(),signoffMounts=new Map();
   // Signoffs the owner just marked unread from the strip, shown unread until the server answers.
   const pendingUnread=new Set();
-  let queueOkAt=0,signoffOkAt=0;
-  let signoffs=[],signoffsLoading=false,signoffsError='',signoffTimer,signoffPromise=null,signoffAgain=false;
+  let queueOkAt=0;
+  let signoffs=[],signoffsLoading=false,signoffsError='';
   // Due reminders addressed to the owner. Opening or reading one never changes it; only an explicit dismiss/snooze/cancel does.
   let dueReminders=[],remindersError='',recoveryCount=0,recoveryError=false,recoveryGeneration=0;
   async function refreshReminderRecovery(){
@@ -64,7 +64,7 @@ const attentionQueue=(()=>{
         else if (!signoffsError && !remindersError) toast('All caught up.');
       }
     }
-    void refreshSignoffs(); void refresh();
+    void refreshSignoffs(false,[session.entry.kind==='reminder'?'reminders':'signoffs']); void refresh();
   }
   function selectedSignoff(session,item) {
     if (session.resolved || !item) return;
@@ -88,7 +88,7 @@ const attentionQueue=(()=>{
       const item = entry.item, mount = signoffMounts.get(host);
       if (entry.kind === 'reminder') return remindersOpenDetail(item,{onClose:hooks.onClose,onChange:(next,op)=>{
         if (next && (next.state !== 'due' || next.occurrence_id !== item.occurrence_id)) hooks.onResolved();
-        if (op !== 'reminders_get') void refreshSignoffs();
+        if (op !== 'reminders_get') void refreshSignoffs(false,['reminders']);
       }});
       if (mount?.opener) return mount.opener({type:'signoff',id:item.id,title:item.title,label:item.title,
         review_project_id:item.review_project_id??null,project_id:item.review_project_id??null,
@@ -98,7 +98,7 @@ const attentionQueue=(()=>{
         waitingOnly:false,execution:true,onResolved:hooks.onResolved,onSelectedItem:hooks.onSelectedItem,
         ...(item.proposal_revision != null && item.payload_hash ? {expectedBinding:{signoff_id:item.id,
           proposal_revision:item.proposal_revision,payload_hash:item.payload_hash,actionable:item.actionable!==false}} : {})},
-        ()=>{hooks.onClose();void refreshSignoffs();});
+        ()=>{hooks.onClose();void refreshSignoffs(false,['signoffs']);});
     })();
     try {
       session.handle = await session.opening;
@@ -144,8 +144,8 @@ const attentionQueue=(()=>{
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
     read:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
     request:'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z',
-    // A rule an agent filed from the owner's words, for the owner to check: a graduation cap.
-    rule:'M12 4.5 2.5 9 12 13.5 21.5 9 12 4.5ZM6.5 11.2v4.1c0 1.5 2.5 2.9 5.5 2.9s5.5-1.4 5.5-2.9v-4.1M21.5 9v5.4M20.7 14.4h1.6l.4 2.1h-2.4z',
+    // A rule an agent filed from the owner's words, for the owner to approve: the brain of Context's Learning section.
+    rule:'M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18ZM12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18ZM15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4M17.6 6.5a3 3 0 0 0 .4-1.375M6.003 5.125A3 3 0 0 0 6.401 6.5M3.477 10.896a4 4 0 0 1 .585-.396M19.938 10.5a4 4 0 0 1 .585.396M6 18a4 4 0 0 1-1.967-.516M19.967 17.484A4 4 0 0 1 18 18',
   };
   // Something to read and acknowledge: a queue row says so itself, a listed Signoff by its form.
   const toRead=s=>!!s.to_read || s.input?.kind==='acknowledge';
@@ -227,7 +227,7 @@ const attentionQueue=(()=>{
           catch(e){c.status='Not approved: '+(e?.message||'the request failed');failed++;}
           paint();
         }
-        busy=false;summary=`${approved} approved${failed?`, ${failed} not approved`:''}.`;paint();void refreshSignoffs();
+        busy=false;summary=`${approved} approved${failed?`, ${failed} not approved`:''}.`;paint();void refreshSignoffs(false,['signoffs']);
       }
       async function decide(c,action){
         if(busy||!approvable(c))return;
@@ -236,7 +236,7 @@ const attentionQueue=(()=>{
         busy=true;summary='';c.status=reject?'Rejecting…':'Approving…';paint();
         try{await send(c,action,note);c.status=reject?'Rejected':'Approved';}
         catch(e){c.status=(reject?'Not rejected: ':'Not approved: ')+(e?.message||'the request failed');}
-        busy=false;paint();void refreshSignoffs();
+        busy=false;paint();void refreshSignoffs(false,['signoffs']);
       }
       const card=target=>cards.get(target.closest('[data-filing]')?.dataset?.filing);
       const click=event=>{
@@ -322,13 +322,13 @@ const attentionQueue=(()=>{
         if(cursor && seen.has(cursor))throw new Error('Repeated signoff page');
         seen.add(cursor);
       }while(cursor);
-      signoffs=[...new Map(rows.filter(s=>s.state==='pending' && !resolved.has(occurrenceKey({kind:'signoff',id:s.id,item:s}))).map(s=>[s.id,s])).values()];signoffsError='';signoffOkAt=Date.now();
-    }catch(e){signoffsError=e.message;if(accessLost(e)){signoffs=[];signoffOkAt=0;}}
+      signoffs=[...new Map(rows.filter(s=>s.state==='pending' && !resolved.has(occurrenceKey({kind:'signoff',id:s.id,item:s}))).map(s=>[s.id,s])).values()];signoffsError='';sources.signoffs.okAt=Date.now();
+    }catch(e){signoffsError=e.message;if(accessLost(e)){signoffs=[];sources.signoffs.okAt=0;}}
     finally{signoffsLoading=false;paintSignoffs();}
   }
   // A failed or denied reminder read keeps the last list; losing access hides reminders entirely.
   async function loadReminders(){
-    try{dueReminders=(await remindersOwnerDue()).filter(item=>!resolved.has(occurrenceKey({kind:'reminder',id:item.reminder_id,item})));remindersError='';}
+    try{dueReminders=(await remindersOwnerDue()).filter(item=>!resolved.has(occurrenceKey({kind:'reminder',id:item.reminder_id,item})));remindersError='';sources.reminders.okAt=Date.now();}
     catch(e){
       if(accessLost(e)){dueReminders=[];remindersError='';}
       else remindersError=e.message||'Reminders unavailable';
@@ -337,31 +337,38 @@ const attentionQueue=(()=>{
   // The browser reads the owner's calendars itself. A failed read keeps the last events; losing access removes them.
   async function loadCalendar(){
     if(typeof calendarQueueLoad!=='function')return;
-    try{const data=await calendarQueueLoad();calendarRows=data.items;calendarCalendars=data.calendars;calendarError=data.errors.join(' · ');calendarLoaded=true;}
+    try{const data=await calendarQueueLoad();calendarRows=data.items;calendarCalendars=data.calendars;calendarError=data.errors.join(' · ');calendarLoaded=true;sources.calendar.okAt=Date.now();}
     catch(e){
       if(accessLost(e)){calendarRows=[];calendarCalendars=[];calendarError='';}
       else calendarError=e.message || 'Calendar unavailable';
     }
   }
-  // One read at a time; an explicit call in flight records a single trailing read.
-  // `ordinary` is a mount: it reuses an in-flight read or a recent success and never records a trailing read.
+  // Three sources (Signoffs, due reminders, calendar), each with one read in flight and one trailing read, each painting as soon as
+  // its own read ends: a slow calendar provider never holds back a Signoff chip or a reminder. A trigger names the sources it is about.
+  // `ordinary` is a mount: it reuses an in-flight read or a recent success (no error, under 60 s) and never records a trailing read.
   // A hidden tab reads nothing here (nothing outside the page depends on the strip or the queue); the focus and visibility
-  // trigger below reads once when the tab is back, which also starts the timer chain again.
-  function refreshSignoffs(ordinary=false){
+  // trigger below reads once when the tab is back, which also starts each source's timer again.
+  // Each source has its own 60 s timer, cleared before it is set again, so there is never more than one per source.
+  const sources={signoffs:{load:loadSignoffs,fresh:()=>!signoffsError},reminders:{load:()=>typeof remindersOwnerDue==='function'?loadReminders():null,fresh:()=>!remindersError},
+    calendar:{load:loadCalendar,fresh:()=>!calendarError}};
+  for(const source of Object.values(sources)){source.okAt=0;source.promise=null;source.again=false;source.timer=undefined;}
+  const sourceNames=Object.keys(sources);
+  function armSource(source,ms=60000){clearTimeout(source.timer);source.timer=setTimeout(()=>{void (source.promise||readSource(source));},ms);}
+  function readSource(source,ordinary=false){
     if(document.hidden)return Promise.resolve();
-    if(!ordinary)signoffOkAt=0;
+    if(!ordinary)source.okAt=0;
     if(!signoffMounts.size)return Promise.resolve();
-    if(ordinary && signoffPromise)return signoffPromise;
-    if(ordinary && !signoffsError && Date.now()-signoffOkAt<60000){
-      clearTimeout(signoffTimer);signoffTimer=setTimeout(()=>{void (signoffPromise||refreshSignoffs());},60000-(Date.now()-signoffOkAt));
-      return Promise.resolve();
-    }
-    if(signoffPromise){signoffAgain=true;return signoffPromise;}
-    signoffPromise=(async()=>{
-      try{do{signoffAgain=false;await Promise.all([loadSignoffs(),typeof remindersOwnerDue==='function'?loadReminders():null,loadCalendar()]);paintSignoffs();}while(signoffAgain && signoffMounts.size);}
-      finally{signoffPromise=null;clearTimeout(signoffTimer);if(signoffMounts.size)signoffTimer=setTimeout(()=>{void (signoffPromise||refreshSignoffs());},60000);}
+    if(ordinary && source.promise)return source.promise;
+    if(ordinary && source.fresh() && Date.now()-source.okAt<60000){armSource(source,60000-(Date.now()-source.okAt));return Promise.resolve();}
+    if(source.promise){source.again=true;return source.promise;}
+    source.promise=(async()=>{
+      try{do{source.again=false;await source.load();paintSignoffs();}while(source.again && signoffMounts.size);}
+      finally{source.promise=null;clearTimeout(source.timer);if(signoffMounts.size)armSource(source);}
     })();
-    return signoffPromise;
+    return source.promise;
+  }
+  function refreshSignoffs(ordinary=false,names=sourceNames){
+    return Promise.all(names.map(name=>readSource(sources[name],ordinary))).then(()=>{});
   }
   // Right-click on a Signoff chip toggles it read/unread. Read clears every new row about it (its own and replies on it);
   // unread forgets the current version's viewed marker so the server lists it as new again. Neither decides the Signoff.
@@ -524,7 +531,7 @@ const attentionQueue=(()=>{
     }
     await sgFocusOpen('Signoff', {workspace:()=>item.project || 'scope:global',
       global:item.globalReview || !item.project_id,category:item.category,item:()=>({id:item.signoff_id,projectId:item.project_id}),
-      waitingOnly:false,execution:true,...(item.proposal_revision != null && item.payload_hash ? {expectedBinding:{signoff_id:item.signoff_id,proposal_revision:item.proposal_revision,payload_hash:item.payload_hash,actionable:item.actionable !== false}} : {})}, () => { void refreshSignoffs(); });
+      waitingOnly:false,execution:true,...(item.proposal_revision != null && item.payload_hash ? {expectedBinding:{signoff_id:item.signoff_id,proposal_revision:item.proposal_revision,payload_hash:item.payload_hash,actionable:item.actionable !== false}} : {})}, () => { void refreshSignoffs(false,['signoffs']); });
   }
   function dismiss(event){
     const target=event.target.closest('[data-attention-key]');
@@ -551,10 +558,10 @@ const attentionQueue=(()=>{
   document.addEventListener('reminder-attempts-changed',()=>{if(signoffMounts.size)void refreshReminderRecovery();});
   document.addEventListener('reply-notifications-changed',()=>{if(signoffMounts.size)paintSignoffs();if(mounts.size || signoffMounts.size)void refresh();});
   if(typeof onTabBack==='function')onTabBack(()=>{if(mounts.size || signoffMounts.size)void refresh();void refreshSignoffs();if(signoffMounts.size)void refreshReminderRecovery();});
-  if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs();if(mounts.size || signoffMounts.size)void refresh();});
+  if(typeof onChange==='function')onChange(['signoffs'],null,()=>{void refreshSignoffs(false,['signoffs']);if(mounts.size || signoffMounts.size)void refresh();});
   return {discardCalendar,signoffViewed,reminderViewed,viewboxViewed,refresh,refreshSignoffs,paintSignoffs,
-    mountSignoffs(host,name,opener){const calendarListener=()=>void refreshSignoffs();if(typeof calendarChanges!=='undefined')calendarChanges.add(calendarListener);signoffMounts.set(host,{name,opener,calendarListener});host.addEventListener('click',signoffClick);host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refresh(true);void refreshReminderRecovery();
-      return ()=>{if(typeof calendarChanges!=='undefined')calendarChanges.delete(calendarListener);if(selected?.host===host)clearSelection(selected);signoffMounts.delete(host);host.removeEventListener('click',signoffClick);host.removeEventListener('contextmenu',reminderContextMenu);delete host._signoffHTML;if(!signoffMounts.size){clearTimeout(signoffTimer);if(!mounts.size)clearTimeout(timer);}};},
+    mountSignoffs(host,name,opener){const calendarListener=()=>void refreshSignoffs(false,['calendar']);if(typeof calendarChanges!=='undefined')calendarChanges.add(calendarListener);signoffMounts.set(host,{name,opener,calendarListener});host.addEventListener('click',signoffClick);host.addEventListener('contextmenu',reminderContextMenu);paintSignoffs();void refreshSignoffs(true);void refresh(true);void refreshReminderRecovery();
+      return ()=>{if(typeof calendarChanges!=='undefined')calendarChanges.delete(calendarListener);if(selected?.host===host)clearSelection(selected);signoffMounts.delete(host);host.removeEventListener('click',signoffClick);host.removeEventListener('contextmenu',reminderContextMenu);delete host._signoffHTML;if(!signoffMounts.size){for(const source of Object.values(sources))clearTimeout(source.timer);if(!mounts.size)clearTimeout(timer);}};},
     mount(host){mounts.add(host);host.addEventListener('click',clicks);host.addEventListener('contextmenu',dismiss);paint(host);void refresh(true);
     return ()=>{mounts.delete(host);host.removeEventListener('click',clicks);host.removeEventListener('contextmenu',dismiss);if(!mounts.size && !signoffMounts.size)clearTimeout(timer);};}};
 })();

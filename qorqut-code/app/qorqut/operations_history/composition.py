@@ -9,6 +9,7 @@ becomes the same ``DomainError`` (or blocked area) as before; nothing resolved h
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut_operations.history_exports import (ProjectFolder, GlobalAgentFiles, GlobalFiles,
                                                History, HistoryObserver, ResolvedArea)
+from qorqut_operations.history_exports._areas import MAXIMUM_EXCLUDED
 
 from qorqut.instance_paths import SEGMENT, InstancePathError, InstancePaths
 
@@ -21,16 +22,27 @@ from .catalog import catalog
 SNAPSHOT_SECONDS = 300.0
 
 
+# These are projections or independently protected sources, not authored
+# working notes. Runtime/config/nested repositories also have capture rules.
+PROJECT_EXCLUDED = ("exports", "tables", "context/email", "context/agent-memory",
+                    "agents", "code", "sessions", "transcripts", "logs", "browser")
+
+
 def registered_areas(uow):
     areas = [GlobalFiles()]
-    projects = {row["id"]: row["slug"] for row in uow.connection.execute("SELECT id,slug FROM projects")}
+    rows = uow.connection.execute("SELECT id,slug,folder FROM projects").fetchall()
     areas.extend(GlobalAgentFiles(row["agent_id"])
                  for row in uow.connection.execute("SELECT agent_id FROM agent_profiles ORDER BY agent_id"))
-    # These are projections or independently protected sources, not authored
-    # working notes. Runtime/config/nested repositories also have capture rules.
-    areas.extend(ProjectFolder(slug, excluded=("exports", "tables", "context/email", "context/agent-memory",
-                                                    "agents", "code", "sessions", "transcripts", "logs", "browser"))
-                 for slug in sorted(projects.values()))
+    # A subproject's folder sits inside its top-level Project's folder, so it is captured as part of that area, with the
+    # same exclusions applied below it (bounded by the engine's limit: past it, the rest is captured rather than failing).
+    nested = {}
+    for row in rows:
+        if row["folder"]:
+            top, below = row["folder"].split("/", 1)
+            nested.setdefault(top, []).append(below)
+    areas.extend(ProjectFolder(row["slug"], excluded=(*PROJECT_EXCLUDED, *(
+                     f"{below}/{item}" for below in sorted(nested.get(row["slug"], ())) for item in PROJECT_EXCLUDED))[:MAXIMUM_EXCLUDED])
+                 for row in sorted(rows, key=lambda row: row["slug"]) if not row["folder"])
     return areas
 
 

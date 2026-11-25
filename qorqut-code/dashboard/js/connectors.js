@@ -137,13 +137,13 @@ const connectorsPanel = (() => {
     const root = document.createElement('div');
     root.className = 'cx-panel' + (options.rows ? ' cx-panel-rows' : '');
     root.innerHTML = `${options.compact ? '' : PRIVACY}
-      <div class="cx-browser-area" data-cx-browser-area><div class="cx-browser" data-cx-browser aria-live="polite"><div class="cx-browser-copy"><span class="cx-eyebrow">Included with Qorqbot</span>
+      <div class="cx-browser-area" data-cx-browser-area>${options.rows ? '<div class="record-section-head"><h4>Agent browser</h4></div>' : ''}<div class="cx-browser" data-cx-browser aria-live="polite"><div class="cx-browser-copy">
         <h3>Agent browser <span class="cx-status" data-cx-browser-status>Checking…</span></h3>
-        <p>Your agents share one private browser to work on websites for you: they share its website sign-ins and each works in its own tabs. It sets itself up.</p>
+        <p>Included with Qorqbot. Your agents share one private browser to work on websites for you: they share its website sign-ins and each works in its own tabs. It sets itself up.</p>
         <p class="cx-browser-detail" data-cx-browser-detail>Checking browser readiness…</p></div>
         <button type="button" class="quiet" data-cx-browser-retry hidden>Retry setup</button></div>
       <section class="cx-accounts" data-cx-accounts hidden>
-        <h3>Websites your agents can use as you</h3>
+        ${options.rows ? '<div class="record-section-head"><h4>Websites your agents can use as you</h4></div>' : '<h3>Websites your agents can use as you</h3>'}
         <p>To connect a website, ask Ordubashy in Chat, for example “connect my Slack”. It opens the website’s sign-in page in the agent browser, and you sign in yourself through the agent’s Browser tab: your password goes only to that website, and your agent keeps just the signed-in session.</p>
         <p class="cx-accounts-empty" data-cx-accounts-empty hidden>No websites connected yet.</p>
         <p class="cx-error" data-cx-accounts-error role="alert" hidden></p>
@@ -152,7 +152,7 @@ const connectorsPanel = (() => {
       </section></div>
       <p class="cx-error" data-cx-error role="alert" hidden></p>
       <section class="cx-extensions" data-cx-extensions>
-        <${options.rows ? 'h3' : 'h2'}>Extensions</${options.rows ? 'h3' : 'h2'}>
+        ${options.rows ? '<div class="record-section-head"><h4>Extensions</h4></div>' : '<h2>Extensions</h2>'}
         <p>Extra tools that run inside Qorqbot, so they work the same for agents in Claude Code and Codex.</p>
         <div class="${options.rows ? 'cx-rows' : 'cx-grid'}" data-cx-list><p class="muted small">Loading extensions…</p></div>
       </section>`;

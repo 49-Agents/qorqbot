@@ -177,7 +177,7 @@ async function taskLinksMount(host,project,task,{open=taskLinkOpen,controlHost=n
 }
 
 function taskLinkChoose(source,onChoose) {
-  modal({stack:true,title:'Link a Task, Story or Customer',body:`<select class="inp" aria-label="Task workspace"><option value="">Global</option>${(state.projects || []).map(b=>`<option value="${esc(b.slug)}" data-id="${esc(b.id || b.project_id)}">${esc(b.name || b.display_name || b.slug)}</option>`).join('')}</select><input class="inp" aria-label="Find linked task" placeholder="Find a Task, Story or Customer"><div class="task-link-options"></div><p class="ferr" role="alert" hidden></p>`,onOpen:el=>{
+  modal({stack:true,title:'Link a Task, Story or Customer',body:`<select class="inp" aria-label="Task workspace"><option value="">Global</option>${workspaceProjectTree(state.projects || []).map(({project: b})=>`<option value="${esc(b.slug)}" data-id="${esc(b.id || b.project_id)}">${esc(workspaceProjectPath(b))}</option>`).join('')}</select><input class="inp" aria-label="Find linked task" placeholder="Find a Task, Story or Customer"><div class="task-link-options"></div><p class="ferr" role="alert" hidden></p>`,onOpen:el=>{
     const select=el.querySelector('select'),search=el.querySelector('input'),list=el.querySelector('.task-link-options'),error=el.querySelector('.ferr');
     select.value=state.projects.find(b=>(b.id || b.project_id)===source.project_id)?.slug || '';
     let generation=0,cursor=null,busy=false;

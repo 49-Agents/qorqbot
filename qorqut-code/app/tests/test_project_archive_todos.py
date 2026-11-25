@@ -14,7 +14,7 @@ class ArchiveTodoTests(unittest.TestCase):
         self.uow = NS(repository=lambda *_a, **_k: NS(get=lambda *_a, **_k: self.project),
                       connection=NS(execute=lambda *_a: []))
         self.ctx = NS(principal_id='owner')
-        self.plan = NS(arguments={'project_id': 'project'})
+        self.plan = NS(arguments={'project_id': 'project'}, changes=())
         patch.object(ProjectArchive, 'guard').start()
         patch.object(archive, 'apply_records', side_effect=lambda *_: self.calls.append('archived')).start()
         self.addCleanup(patch.stopall)

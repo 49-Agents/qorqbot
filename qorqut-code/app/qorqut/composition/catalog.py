@@ -121,7 +121,8 @@ BUILTIN_CATALOG = (
     # handler adds the owner/configured-Ordubashy identity gate and the Project's current reach to every call.
     *(CatalogEntry(name, False, kind) for name, kind in (
         ("project_record_get", "read"), ("project_items_list", "read"), ("project_items_candidates", "read"),
-        ("project_item_get", "read"), ("project_items_link", "records"), ("project_items_unlink", "records"))),
+        ("project_item_get", "read"), ("project_items_link", "records"), ("project_items_unlink", "records"),
+        ("project_move", "records"))),
     # Move to project: destination listing, the read-only preview and the one atomic relocation of Tasks with their descendants.
     # The handler adds the owner/configured-Ordubashy identity gate and the source and destination Task authority to every call.
     *(CatalogEntry(name, False, kind) for name, kind in (

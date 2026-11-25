@@ -351,7 +351,7 @@ function agentWorkMount(p, embed = null) {
     if (button && !button.disabled && shell.contains(button) && !recordHost.contains(button)) {
       if (button.hasAttribute('data-layout')) { s.layout = button.dataset.layout; paintControls(); paintBody(); return; }
       if (button.hasAttribute('data-scope')) {
-        const items = [{value: '*', label: 'All projects'}, {value: '', label: 'Global'}, ...projects().map(project => ({value: project.slug, label: project.name || project.slug}))];
+        const items = [{value: '*', label: 'All projects'}, {value: '', label: 'Global'}, ...projects().map(project => ({value: project.slug, label: typeof workspaceProjectLabel === 'function' ? workspaceProjectLabel(project) : project.name || project.slug}))];
         dropdown(button, items, value => { if (value === s.scope) return; s.scope = value; paintControls(); body.scrollTop = 0; reload(false); }, s.scope);
         return;
       }

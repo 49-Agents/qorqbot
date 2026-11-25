@@ -346,7 +346,7 @@ function crmRecordForm(project, task, onRecorded) {
 // full reference {type, id, project_id}.
 function crmScopeChoices() {
   return [{value: 'global', label: 'Global', project_id: null, slug: null},
-    ...(state.projects || []).filter(b => b && b.slug).map(b => ({value: 'p:' + (b.id || b.project_id), label: b.name || b.slug, project_id: b.id || b.project_id, slug: b.slug}))];
+    ...(state.projects || []).filter(b => b && b.slug).map(b => ({value: 'p:' + (b.id || b.project_id), label: typeof workspaceProjectLabel === 'function' ? workspaceProjectLabel(b) : b.name || b.slug, project_id: b.id || b.project_id, slug: b.slug}))];
 }
 function crmChooseRecords({scopeId = null, selected = [], onChange, onRevoke = null}) {
   const chosen = new Map(selected.map(item => [crmScopeKey(item.ref), item]));

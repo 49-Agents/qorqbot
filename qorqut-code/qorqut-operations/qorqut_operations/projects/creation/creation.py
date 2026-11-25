@@ -1,5 +1,8 @@
 """Exact local project creation: one registered row and a project folder holding an empty ``code`` folder, and nothing else.
 
+With ``parent_project_id`` the new project is a subproject: its row names the parent and its folder sits inside the parent's
+folder (``<parent folder>/subprojects/<slug>``). The parent must exist and not be archived.
+
 Creation is a global aggregate: the new project does not exist at preparation time. Its frozen change holds the selected
 identity, slug, metadata, owner and the project folder with its empty ``code`` folder. The folders are
 made by the Operations ``create_directory_tree`` file effect (a receipt-bound private staging area published with no-replace
@@ -12,6 +15,7 @@ import re
 import unicodedata
 
 from qorqut_operations.application.plans import ref
+from qorqut_operations.projects import hierarchy
 from qorqut_operations.contracts import (DomainError, ExpectedTarget, FieldChange, PreparedChange,
     PreviewResource, ResourceRef, StructuredPreview, new_id, plain)
 from qorqut_operations.storage.directories import RegisteredDirectoryTarget, observe_directory
@@ -68,14 +72,26 @@ class Creation:
     def name_snapshot(ctx, resource, uow):
         return uow.connection.execute("SELECT id,revision FROM projects WHERE lower(slug)=?", (resource.resource_id.lower(),)).fetchone()
 
+    @staticmethod
+    def location(folder):
+        """``{"slug", "folder"}`` of a creation folder named by its path below the projects directory, or ``None``.
+
+        A top-level project's folder is its slug; a subproject's is ``<parent folder>/subprojects/<slug>``."""
+        parts = folder.split("/") if isinstance(folder, str) else []
+        if (not parts or len(parts) % 2 == 0 or any(SLUG.fullmatch(part) is None for part in parts[::2])
+                or any(part != hierarchy.SUBPROJECTS for part in parts[1::2])):
+            return None
+        return {"slug": parts[-1], "folder": folder if len(parts) > 1 else None}
+
     def directory_target(self, resource) -> RegisteredDirectoryTarget:
-        """The one registered creation target: the project root below the canonical projects directory, staged privately."""
-        slug = resource.resource_id
-        if (not isinstance(slug, str) or SLUG.fullmatch(slug) is None or resource.resource_type != DIRECTORIES
+        """The one registered creation target: the project root below the canonical projects directory (inside its parent's
+        folder for a subproject), staged privately."""
+        location = self.location(resource.resource_id)
+        if (location is None or resource.resource_type != DIRECTORIES
                 or resource.project_id is not None or resource.namespace != "global"):
             raise DomainError("invalid_plan", "Invalid project folder")
         return RegisteredDirectoryTarget(self.operations.operations_root,
-                                         self.operations.relative_path(self.operations.project_root({"slug": slug})),
+                                         self.operations.relative_path(self.operations.project_root(location)),
                                          self.operations.staging_root)
 
     def directory_snapshot(self, ctx, resource, uow):
@@ -96,22 +112,30 @@ class Creation:
         except FileNotFoundError:
             return []
 
-    def occupied(self, slug, uow) -> bool:
-        """Whether a registered row, any folder or any case-variant entry already holds this slug."""
+    def occupied(self, slug, uow, location=None) -> bool:
+        """Whether a registered row, any folder or any case-variant entry already holds this slug (or, for a subproject,
+        its folder inside the parent's folder)."""
         if self.name_snapshot(None, ResourceRef(NAMES, slug, None, "global"), uow) is not None:
+            return True
+        if location is not None and location.get("folder") and os.path.lexists(self.operations.project_root(location)):
             return True
         return os.path.lexists(self.operations.project_root({"slug": slug})) or bool(self.variants(slug))
 
-    def taken(self, slug, uow) -> DomainError:
+    def taken(self, slug, uow, parent=None) -> DomainError:
         """The refusal for a taken slug: the first available numbered suggestion, never an adoption or a choice."""
         suggested = next((candidate for candidate in (numbered(slug, number) for number in range(2, SUGGESTION_LIMIT))
-                          if not self.occupied(candidate, uow)), None)
+                          if not self.occupied(candidate, uow, self.placed(parent, candidate))), None)
         details = {"slug": slug, **({"suggested_slug": suggested} if suggested else {})}
         return DomainError("revision_conflict", "That project folder name is taken; choose another one", details=details)
 
-    def require_free(self, slug, uow):
-        if self.occupied(slug, uow):
-            raise self.taken(slug, uow)
+    @staticmethod
+    def placed(parent, slug):
+        """The ``{"slug", "folder"}`` location of a new project under ``parent`` (``None`` at the top level)."""
+        return {"slug": slug, "folder": hierarchy.stored_folder(parent, slug)}
+
+    def require_free(self, slug, uow, parent=None):
+        if self.occupied(slug, uow, self.placed(parent, slug)):
+            raise self.taken(slug, uow, parent)
 
     def require_no_variant(self, slug, uow):
         """Keep the case-insensitive reservation after preparation: a sibling that appeared since refuses every later phase.
@@ -138,26 +162,35 @@ class Creation:
             raise DomainError("forbidden", "Project creation requires an active installation owner")
         builder.expect(ref("installation", "service", None, "global"), installation)
         builder.expect(ref("principals", owner["id"], None, "global"), owner)
+        parent = None
+        if args.get("parent_project_id"):
+            # A subproject: an ordinary project whose folder sits inside its active parent's folder.
+            parent = hierarchy.require_parent(uow.connection, args["parent_project_id"])
+            builder.expect(ref("projects", parent["id"], None, "global"), uow.repository("projects").get(parent["id"]))
         slug = args.get("slug") or derive_slug(name)
-        self.require_free(slug, uow)
+        self.require_free(slug, uow, parent)
         name_ref = ResourceRef(NAMES, slug, None, "global")
         builder.targets[name_ref] = ExpectedTarget(name_ref, exists=False)
-        folder_ref = ResourceRef(DIRECTORIES, slug, None, "global")
+        location = self.placed(parent, slug)
+        relative = location["folder"] or slug
+        folder_ref = ResourceRef(DIRECTORIES, relative, None, "global")
         builder.targets[folder_ref] = ExpectedTarget(folder_ref, exists=False)
         project_id = new_id()
-        folder = self.operations.project_root({"slug": slug})
+        folder = self.operations.project_root(location)
         project = {"id": project_id, "slug": slug, "workspace": str(folder), "name": name,
-                    "config_json": {"one_liner": summary, "code": []}}
+                    "config_json": {"one_liner": summary, "code": []},
+                    **({"parent_id": parent["id"], "folder": location["folder"]} if parent is not None else {})}
         builder.record("projects", project_id, None, {"project": project, "owner_id": owner["id"],
                                                          "directories": list(LAYOUT)},
                        action=ACTION, project_id=None, namespace="global", label=name)
         builder.changes.append(PreparedChange("file", folder_ref, DIRECTORY_ACTION, directory_values(LAYOUT)))
         projects = self.operations.projects_directory
-        shown = PreviewResource(DIRECTORIES, slug, f"{projects}/{slug}")
+        shown = PreviewResource(DIRECTORIES, relative, f"{projects}/{relative}")
         builder.resources.append(shown)
-        builder.previews.append(StructuredPreview(shown, (FieldChange("folders", None, [f"{projects}/{slug}", f"{projects}/{slug}/code"]),)))
-        builder.effects.append("Creates only this new project and the folder "
-                               f"{projects}/{slug} with an empty code folder in it. "
+        builder.previews.append(StructuredPreview(shown, (FieldChange("folders", None, [f"{projects}/{relative}", f"{projects}/{relative}/code"]),)))
+        builder.effects.append(("Creates only this new project, a subproject of " + parent["name"] + ", " if parent is not None
+                                else "Creates only this new project ") + "and the folder "
+                               f"{projects}/{relative} with an empty code folder in it. "
                                "It creates no agents, documents, Tasks, routines, Context inputs, external accounts, domains, "
                                "repositories or sessions. Every active global agent reaches the new project at once.")
         return builder.build()
@@ -175,11 +208,22 @@ class Creation:
                 or set(project.get("config_json") or ()) != CONFIG_KEYS or values["directories"] != list(LAYOUT)):
             raise DomainError("invalid_plan", "The project differs from what preparation writes")
         slug = project["slug"]
+        parent_id = project.get("parent_id")
+        if set(project) - {"id", "slug", "workspace", "name", "config_json", "parent_id", "folder"} or (
+                (parent_id is None) != (project.get("folder") is None)):
+            raise DomainError("invalid_plan", "The project differs from what preparation writes")
+        parent = None
+        if parent_id is not None:
+            parent = hierarchy.require_parent(uow.connection, parent_id)
+            if project["folder"] != hierarchy.child_folder(parent, slug):
+                raise DomainError("revision_conflict", "The parent project moved after preparation")
+        location = self.placed(parent, slug)
         reference = ref("projects", project["id"], None, "global")
-        if (created[0].resource != reference or folders[0].resource != ResourceRef(DIRECTORIES, slug, None, "global")
+        if (created[0].resource != reference
+                or folders[0].resource != ResourceRef(DIRECTORIES, location["folder"] or slug, None, "global")
                 or tuple(checked_values(folders[0].values)) != LAYOUT):
             raise DomainError("invalid_plan", "The project folder differs from the project")
-        if project["workspace"] != str(self.operations.project_root({"slug": slug})):
+        if project["workspace"] != str(self.operations.project_root(location)):
             raise DomainError("revision_conflict", "The project location changed after preparation")
         owner = uow.repository("principals").get(values["owner_id"])
         installation = uow.repository("installation").get("service", required=True)
@@ -196,5 +240,6 @@ class Creation:
         project = values["project"]
         uow.repository("projects").insert(project)
         return {"project": {"id": project["id"], "slug": project["slug"], "name": project["name"],
-                             "summary": project["config_json"]["one_liner"], "workspace_path": project["workspace"]},
+                             "summary": project["config_json"]["one_liner"], "workspace_path": project["workspace"],
+                             "parent_id": project.get("parent_id")},
                 "project_id": project["id"], "slug": project["slug"]}

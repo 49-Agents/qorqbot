@@ -90,9 +90,10 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
     is connected (see Calendar below).
   - **Journal**: the owner's notes, saved as they type.
 - **Learning Applier** is shown to the owner as **Overseer** and is available only when **Testing mode** is on
-  (**Settings > Model/Provider**). Until then its entry says "Overseer, available in testing mode only" and opens nothing. With
-  testing mode on, its pane has **Context** (the shared context the agents work from, which the owner can read and
-  edit: Graph, People, Learning, Filed context) and **Changes** (proposed changes to how agents work, for review).
+  (**Settings > Model/Provider**). Until then its entry says "Overseer, available in testing mode only" and opens nothing. While
+  testing mode is off he is switched off: his session is closed and he receives no notices or reminders; they are delivered
+  when testing mode is on again. With testing mode on, its pane has **Context** (the shared context the agents work from, which
+  the owner can read and edit: Graph, People, Learning, Filed context) and **Changes** (proposed changes to how agents work, for review).
 - The divider between Chat and the right pane can be dragged.
 
 ## Decisions, reminders, tasks

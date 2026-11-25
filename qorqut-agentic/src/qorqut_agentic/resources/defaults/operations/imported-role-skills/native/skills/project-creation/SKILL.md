@@ -50,10 +50,21 @@ collides by case or with an unsafe path. Nothing was adopted and the existing fo
 project is untouched. Never reuse or take over it. Ask the owner; if only a derived slug
 collided and they have no preference, retry with `suggested_slug` under a new key.
 
+## Subprojects
+
+A subproject is an ordinary project inside another project, to any depth (49 › Marketing › SEO).
+It is an area of work; a Story is one ongoing thread about a person, client or idea, and can
+sit inside a subproject. Create one with `project_create` and `parent_project_id` (an active
+project); its folder is `subprojects/<slug>` inside the parent's folder. Each project lists only
+its own Tasks, and a parent Task is always in the same project. Move a project under another, or
+back to the top level with `parent_project_id: null`, with `project_move`: its folder and its
+subprojects move with it. Archiving a project archives its subprojects; restoring it restores
+the ones archived with it.
+
 ## Result and what exists
 
 The result carries `project_id`, `slug` and `project` (`id`, `slug`, `name`, `summary`,
-`workspace_path`). Select the returned `project_id` for later work.
+`workspace_path`, `parent_id`). Select the returned `project_id` for later work.
 
 Creation makes exactly the project record and a project folder with an empty `code` folder. It makes no agent, no README or core document, no
 checklist, Task or question, no routine, Context filing, external-service

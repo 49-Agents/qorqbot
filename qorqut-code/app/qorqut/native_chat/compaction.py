@@ -1,31 +1,33 @@
-"""Qorqut's own compaction of the coordinator's conversation, in place of the client's.
+"""Qorqut's own compaction of every agent's conversation, in place of the client's.
 
-When the conversation's context reaches the limit (``limit``: 300,000 tokens, or less for a model whose own window is
-small) the coordinator is told to stop and file its handoff (``domains/compaction_handoff.py``). Once it is
+When an agent's conversation reaches the limit (``limit``: 300,000 tokens, or less for a model whose own window is
+small) the agent is told to stop and file its handoff (``domains/compaction_handoff.py``). Once it is
 filed, the conversation is closed and a fresh one is opened. The fresh session's own role command gives the agent its
 instructions again; its next message is the opening: the owner's messages in their exact words with where each stands by the
 filing, where the agent stopped, and the last messages of the closed conversation word for word. No model summarises anything
 and no instruction is carried over by this code.
 
-``step`` runs on every pass of the native Chat backend. It never waits and never raises: it reads the host's state, moves the
-one flow one stage, and gives the only slow part (closing the host and opening the next conversation) to a thread of its own.
+``step`` runs on every pass of the native Chat backend. It never waits and never raises: it reads the state of each agent that
+has a running session, moves each flow one stage, and gives the only slow part (closing the host and opening the next
+conversation) to a thread of its own.
 
     watching -> asked -> filed, or asked once more, or given up -> replacing -> opened
 
-The row of ``compactions`` that waits to be opened is the whole durable state. The flow in memory is dropped whenever the
-conversation it belongs to is no longer the one the host runs (a restart of the service, an idle close, a crash, the owner
-ending the session); when that same conversation is seen running again, the flow continues from its row.
+Each agent has its own flow, and one's failure or delay never touches another's. The row of ``compactions`` that waits to be
+opened is the whole durable state. The flow in memory is dropped whenever the conversation it belongs to is no longer the one
+the host runs (a restart of the service, an idle close, a crash, the owner ending the session); when that same conversation is
+seen running again, the flow continues from its row.
 
 What the two messages are to the client: plain user messages handed to the host directly, like the wake notice
 (``opener.WAKE_TEXT``). Both start with an opening tag, so Chat does not show them as something the owner said and the index of
 the owner's own turns never holds them.
 
 ``QORQUT_OWN_COMPACTION`` in the service's environment says how this runs (``mode_by_environment``): ``0`` turns it off;
-``1`` leaves the client's own compaction in place behind it; unset or ``only``, the default, has the
-coordinator's session started with the client's automatic compaction switched off (``replaces_client``, which the managed
-runtime asks at each start). Only the configured coordinator's conversation is compacted, and only when its client reports what
-the context holds (``usage`` in the host's status). It runs for a Claude Code session only: the request, the last messages and
-the switch for the client's own compaction were made and checked there.
+``1`` leaves the client's own compaction in place behind it; unset or ``only``, the default, has every agent's
+session started with the client's automatic compaction switched off (``replaces_client``, which the managed
+runtime asks at each start). The conversation of any agent with a running session is compacted, and only when its client
+reports what the context holds (``usage`` in the host's status). It runs for a Claude Code session only: the request, the last
+messages and the switch for the client's own compaction were made and checked there.
 """
 
 from __future__ import annotations
@@ -41,7 +43,6 @@ import uuid
 from qorqut_operations.contracts import DomainError
 
 from qorqut.composition.compactions import TABLE
-from qorqut.management.identity import configured_ordubashy
 
 from . import store
 
@@ -192,7 +193,7 @@ class CompactionController:
         self.mode = mode_by_environment() if mode is None else mode
         self._clock = clock
         self._spawn = spawn or self._thread
-        self._flow: dict | None = None
+        self._flows: dict[str, dict] = {}
         self._checked = float("-inf")
 
     # ----- what it works with -----------------------------------------------------------------------------------------
@@ -218,7 +219,7 @@ class CompactionController:
         threading.Thread(target=target, args=args, name="compaction-replace", daemon=True).start()
 
     def _context(self, agent_id, uow):
-        """The coordinator's own context, as the handoff's host side asks for it."""
+        """The agent's own context, as the handoff's host side asks for it."""
         return self.runtime.application.policy.context_for(agent_id, project_id=None, review_project_id=None, uow=uow)
 
     def _profile(self, agent_id, uow):
@@ -253,14 +254,15 @@ class CompactionController:
 
     def replaces_client(self, agent_id) -> bool:
         """Whether this agent's session is to be started with the client's own automatic compaction switched off: the mode
-        is ``only`` and the agent is the configured coordinator. Never raises; when it cannot tell, the client's stays on."""
+        is ``only`` and the agent is an active agent. Never raises; when it cannot tell, the client's stays on."""
         if self.mode != ONLY or self.handoff is None:
             return False
         try:
             with self.database.read() as uow:
-                return configured_ordubashy(uow) == agent_id
+                principal = uow.repository("principals").get(agent_id)
+            return principal is not None and principal["kind"] == "agent" and bool(principal["active"])
         except Exception:  # noqa: BLE001 - asked while a session starts: that start must not fail here
-            LOG.debug("The coordinator could not be read for %s", agent_id, exc_info=True)
+            LOG.debug("The agent %s could not be read for compaction", agent_id, exc_info=True)
             return False
 
     def step(self) -> None:
@@ -269,26 +271,45 @@ class CompactionController:
         try:
             self._step()
         except DomainError:
-            LOG.debug("Compaction deferred", exc_info=True)           # writes are closed, or the coordinator cannot act now
+            LOG.debug("Compaction deferred", exc_info=True)           # writes are closed
         except Exception:  # noqa: BLE001 - nothing here may stop the backend's pass
             LOG.warning("Compaction step failed", exc_info=True)
 
     def _step(self) -> None:
-        now, flow = self._clock(), self._flow
-        if flow is None and now - self._checked < CHECK_SECONDS:
-            return
-        self._checked = now
+        """Every agent with a flow is moved on every pass; the agents with a running session and no flow are looked at once in
+        ``CHECK_SECONDS``. One agent's failure leaves the others' flows as they were."""
+        now = self._clock()
+        agents = list(self._flows)
+        if now - self._checked >= CHECK_SECONDS:
+            self._checked = now
+            agents += [agent_id for agent_id in self._running() if agent_id not in self._flows]
+        for agent_id in agents:
+            try:
+                self._agent(agent_id)
+            except DomainError:
+                LOG.debug("Compaction of %s deferred", agent_id, exc_info=True)       # writes are closed, or the agent cannot act now
+            except Exception:  # noqa: BLE001 - this agent's flow is tried again on the next pass
+                LOG.warning("Compaction step of %s failed", agent_id, exc_info=True)
+
+    def _running(self) -> list:
+        """The ids of the agents whose sessions run, from the state folders alone: nothing is started, woken or opened."""
+        try:
+            return [item["agent_id"] for item in self.managed.running_hosts()]
+        except Exception:  # noqa: BLE001 - read again on a later pass
+            LOG.debug("The running sessions could not be listed for compaction", exc_info=True)
+            return []
+
+    def _agent(self, agent_id) -> None:
+        flow = self._flows.get(agent_id)
         if flow is not None and flow["stage"] == "replacing":
             self._replaced(flow)
             return
-        with self.database.read() as uow:
-            agent_id = configured_ordubashy(uow)
-        host, status = self._host(agent_id) if agent_id else (None, None)
+        host, status = self._host(agent_id)
         if flow is None:
             if status is not None:
                 self._watch(agent_id, host, status)
-        elif status is None or flow["agent_id"] != agent_id or status["session_id"] != flow["session"]:
-            self._flow = None                # that conversation is not running now; its row keeps where the flow stood
+        elif status is None or status["session_id"] != flow["session"]:
+            self._flows.pop(agent_id, None)      # that conversation is not running now; its row keeps where the flow stood
         else:
             self._asked(flow, host, status)
 
@@ -306,14 +327,14 @@ class CompactionController:
         if waiting is not None and waiting["reason"] == REASON and request.get("session_id") == flow["session"]:
             asks = request.get("asks")
             flow.update(row=waiting["id"], asks=asks if isinstance(asks, int) and 1 <= asks <= MAX_ASKS else 1)
-            self._flow = flow
+            self._flows[agent_id] = flow
             return
         usage = status.get("usage") if isinstance(status.get("usage"), dict) else {}
         tokens = usage.get("tokens")
         if not isinstance(tokens, int) or tokens < limit(usage.get("window")):
             return
         flow["usage"] = {"tokens": tokens, "window": usage.get("window"), "limit": limit(usage.get("window"))}
-        self._flow = flow
+        self._flows[agent_id] = flow
         self._send(flow, host)
 
     # ----- asked: wait for the filing ---------------------------------------------------------------------------------
@@ -324,7 +345,7 @@ class CompactionController:
             with self.database.read() as uow:
                 row = uow.repository(TABLE).get(flow["row"])
             if row is None or row["opened_at"]:
-                self._flow = None
+                self._flows.pop(flow["agent_id"], None)
                 return
             flow["filed"] = bool(row["filed_at"]) and row["filed_at"] >= row["requested_at"]
         if flow["filed"] and flow["stopping"] is None:
@@ -397,7 +418,7 @@ class CompactionController:
             waiting, _ = self.handoff.rows(uow, flow["agent_id"])
             profile = self._profile(flow["agent_id"], uow)
         if waiting is None or waiting["id"] != flow["row"] or profile is None:
-            self._flow = None
+            self._flows.pop(flow["agent_id"], None)
             return
         flow.update(stage="replacing", transcript=status.get("transcript_path"), profile=profile, opening=None, tries=1,
                     outcome=None, started=self._clock())
@@ -434,11 +455,11 @@ class CompactionController:
                 self.runtime.application.ensure_writes_open(uow)
                 self.handoff.opened(uow, flow["row"], flow["opening"]["unanswered"], closed=flow["session"], session=outcome[1])
             LOG.info("The conversation of %s was replaced by %s", flow["agent_id"], outcome[1])
-            self._flow = None
+            self._flows.pop(flow["agent_id"], None)
         elif outcome[1] in ("agent_off", "no_handoff") or flow["tries"] >= OPEN_TRIES:
             # The row keeps waiting: the closed conversation continues its flow when something opens it again.
             LOG.warning("The conversation of %s was not replaced: %s", flow["agent_id"], outcome[1])
-            self._flow = None
+            self._flows.pop(flow["agent_id"], None)
         elif self._clock() - flow["started"] >= RETRY_SECONDS:
             flow.update(tries=flow["tries"] + 1, outcome=None, started=self._clock())
             self._spawn(self._replacing, flow)

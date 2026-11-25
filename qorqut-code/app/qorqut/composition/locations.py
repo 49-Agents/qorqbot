@@ -1,6 +1,7 @@
 """Registered rows resolved to target locations through the one ``InstancePaths``.
 
-A project is located by its registered ``slug``, which is its folder; an agent by its registered
+A project is located by its registered ``slug``, which is its folder (a subproject by its stored ``folder``, inside its
+parent's folder); an agent by its registered
 agent identity. The stored ``workspace`` column, display names, tags and role names never select a
 location, and no probing of an older root happens here. Every function only derives and validates a path (symlinks
 of existing parts are refused by ``InstancePaths``); nothing is created.
@@ -14,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.projects.hierarchy import folder_of
 
 from qorqut.instance_paths import GRAPH_DIRECTORY, PROJECTS_DIRECTORY, InstancePathError, InstancePaths
 
@@ -28,7 +30,8 @@ def _selected(paths, call, *arguments, **options):
 
 
 def project_folder(project) -> str:
-    folder = project["slug"] if hasattr(project, "keys") else None
+    """The folder below ``projects`` of a registered row: its slug, or a subproject's stored nested folder."""
+    folder = folder_of(project) if hasattr(project, "keys") else None
     if not isinstance(folder, str) or not folder:
         raise DomainError("invalid_configuration", "A registered project folder is required")
     return folder

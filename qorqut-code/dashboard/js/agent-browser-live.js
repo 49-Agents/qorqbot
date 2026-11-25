@@ -116,7 +116,6 @@ async function agliveMount(agentId, body, options) {
   const watched = tabs.find(item => item.id === tab) || tabs[0];
   body.innerHTML = `<section class="agfocus-desktop-view agbrowser aglive"><div class="agbrowser-bar">${bar}` +
     `<select class="aglive-tabs" data-live-tabs aria-label="Browser tab"></select>` +
-    `<span class="aglive-note muted">Click the page to use it; press Esc twice to leave it. Your agent keeps working in it too.</span>` +
     `<span class="agbrowser-actions"><button type="button" class="quiet agbrowser-reconnect" data-live-reconnect aria-label="Reconnect">${typeof AGBROWSER_ICON_RECONNECT === 'string' ? AGBROWSER_ICON_RECONNECT : 'Reconnect'}</button></span></div>` +
     `<div class="agbrowser-stage aglive-stage"><img class="aglive-screen" data-live-screen tabindex="0" alt="${esc(agliveTabLabel(watched))}" draggable="false"></div></section>`;
   const screen = body.querySelector('[data-live-screen]'), picker = body.querySelector('[data-live-tabs]'), stage = body.querySelector('.aglive-stage');

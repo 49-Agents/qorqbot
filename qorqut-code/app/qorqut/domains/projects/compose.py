@@ -106,7 +106,7 @@ class ProjectRecords:
     def record_get(self, ctx, args, uow):
         project_id = access.project_id_from(args)
         _, row = access.allow(ctx, args, self.application, uow, project_id=project_id, operation=READ, include_archived=True)
-        return {"project": access.project_view(row)}
+        return {"project": access.project_view(row, uow)}
 
     def items_list(self, ctx, args, uow):
         project_id = access.project_id_from(args)

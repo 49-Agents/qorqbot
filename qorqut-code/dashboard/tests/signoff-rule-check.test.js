@@ -1,5 +1,5 @@
 'use strict';
-// The owner's check of a rule an agent filed from his words: the graduation-cap chip, and the card in Focus with the rule as
+// The owner's check of a rule an agent filed from his words: the brain chip, and the card in Focus with the rule as
 // its one editable field, whom it applies to, and the email Signoff's footer.
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
@@ -17,7 +17,7 @@ const launch = () => chromium.launch({headless: true, ...(executable ? {executab
   args: ['--allow-file-access-from-files']});
 const browserTest = (name, run) => test(name, {skip: !available && 'No local Chrome or Playwright Chromium'}, run);
 const fixture = pathToFileURL(path.join(__dirname, 'fixtures/signoff-rule-check.html')).href;
-const CAP = 'M12 4.5 2.5 9 12 13.5 21.5 9 12 4.5ZM6.5 11.2v4.1c0 1.5 2.5 2.9 5.5 2.9s5.5-1.4 5.5-2.9v-4.1M21.5 9v5.4M20.7 14.4h1.6l.4 2.1h-2.4z';
+const BRAIN = 'M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18ZM12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18ZM15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4M17.6 6.5a3 3 0 0 0 .4-1.375M6.003 5.125A3 3 0 0 0 6.401 6.5M3.477 10.896a4 4 0 0 1 .585-.396M19.938 10.5a4 4 0 0 1 .585.396M6 18a4 4 0 0 1-1.967-.516M19.967 17.484A4 4 0 0 1 18 18';
 
 const queueSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'attention-queue.js'), 'utf8');
 function chip() {
@@ -29,12 +29,12 @@ function chip() {
   return context.api;
 }
 
-test('a rule check chip wears the graduation cap on the 24 grid and other chips keep theirs', () => {
+test('a rule check chip wears the brain on the 24 grid and other chips keep theirs', () => {
   const q = chip();
   const icon = q.signoffIcon({kind: 'signoff', id: 's1', title: 'Approve proposed learning', operation_name: 'experience_rule_check'});
   assert.match(icon, /data-signoff-kind="rule"/);
   assert.match(icon, /viewBox="0 0 24 24"[^>]*stroke-width="1.7"[^>]*stroke-linejoin="round" stroke-linecap="round"/);
-  assert.ok(icon.includes(`<path d="${CAP}"/>`), 'the graduation cap path');
+  assert.ok(icon.includes(`<path d="${BRAIN}"/>`), 'the brain path');
   assert.equal(q.label({kind: 'signoff', title: 'Approve proposed learning', operation_name: 'experience_rule_check'}), 'Review · Approve proposed learning');
   assert.match(q.signoffIcon({kind: 'signoff', operation_name: 'generic_change'}), /data-signoff-kind="approval"/);
   // Read and question rows keep their own icon even if they ever carried this operation's name.

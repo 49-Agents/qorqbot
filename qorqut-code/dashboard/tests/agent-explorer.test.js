@@ -39,14 +39,14 @@ test('the Explorer’s reader pairs with the Chat area the way Focus does, and l
   assert.match(workspace, /p\?\.view === 'explorer' && p\.explorerCanLeave && !await p\.explorerCanLeave\(\)/);
 });
 
-async function fixture(browser, {paired = false} = {}) {
+async function fixture(browser, {paired = false, nested = false} = {}) {
   const page = await browser.newPage({viewport: {width: 1100, height: 700}});
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setContent('<body style="margin:0"><aside class="tasks agpad" id="agpad" style="display:flex;flex-direction:column;height:700px;width:1100px"><div class="tbody" id="agpad-body" style="flex:1;min-height:0"></div></aside></body>');
   for (const file of ['app.css', 'css/tasks.css', 'css/agent-files.css', 'css/agent-explorer.css', 'css/status-ball.css', 'css/record-workspace.css', 'css/agent-timeline.css'])
     await page.addStyleTag({path: path.join(root, file)});
-  await page.evaluate(paired => {
+  await page.evaluate(({paired, nested}) => {
     window.esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
     window.$ = (selector, host = document) => host.querySelector(selector);
     window.coreData = value => value; window.toast = message => { (window.toasts ||= []).push(message); };
@@ -56,6 +56,13 @@ async function fixture(browser, {paired = false} = {}) {
     window.taskTypeIcon = type => ['story', 'customer', 'email'].includes(type) ? `<span class="task-type-icon task-type-icon-${type}"></span>` : '';
     window.agentPaneViewAllowed = (role, view) => role === 'ordubashy' && view === 'explorer';
     window.state = {projects: [{id: 'id-alpha', project_id: 'id-alpha', slug: 'alpha', name: 'Alpha'}, {id: 'id-beta', project_id: 'id-beta', slug: 'beta', name: 'Beta'}]};
+    if (nested) {
+      // Gamma is a subproject of Alpha, and Delta one of Gamma; the helpers stand in for core.js's.
+      state.projects.push({id: 'id-gamma', project_id: 'id-gamma', slug: 'gamma', name: 'Gamma', parent_id: 'id-alpha'},
+        {id: 'id-delta', project_id: 'id-delta', slug: 'delta', name: 'Delta', parent_id: 'id-gamma'});
+      window.workspaceProjectParent = b => b.parent_id && state.projects.some(x => x.id === b.parent_id) ? b.parent_id : null;
+      window.workspaceProjectPath = b => { const names = []; for (let at = b; at; at = state.projects.find(x => x.id === at.parent_id)) names.unshift(at.name); return names.join(' › '); };
+    }
     window.conversationMount = host => { host.textContent = 'Thread'; return {expand() {}, collapse() {}, refresh() {}, canLeave: () => true, dispose() { host.replaceChildren(); }}; };
     const task = (id, title, status = 'open', extra = {}) => ({id, title, status, task_type: 'task', children: [], children_has_more: false, ...extra});
     // The synthetic layer: Global holds one Task; Alpha holds a parent with an open and a finished child, a Customer and a finished Task.
@@ -66,6 +73,8 @@ async function fixture(browser, {paired = false} = {}) {
       '/project/alpha|a1': [task('a2', 'Write copy', 'open', {parent_id: 'a1'}), task('a3', 'Old draft', 'done', {parent_id: 'a1'})],
       '/project/alpha|a6': [task('a7', 'Was done', 'done', {parent_id: 'a6'})],
       '/project/beta|': [],
+      '/project/gamma|': [task('c1', 'Gamma chore')],
+      '/project/delta|': [],
     };
     window.calls = [];
     window.post = async (url, body) => {
@@ -88,7 +97,7 @@ async function fixture(browser, {paired = false} = {}) {
       window.pairedCalls = [];
       window.agfocusPairedSource = (record, parent) => { pairedCalls.push(record ? record.source : null); return true; };
     }
-  }, paired);
+  }, {paired, nested});
   for (const file of ['agent-files', 'agent-explorer', 'timeline-panel', 'record-workspace']) {
     // The Files script registers its tab on load; only its icon helper is used here.
     await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
@@ -126,6 +135,26 @@ test('Global is the root with the Projects, then its own Tasks; a level is read 
     // An empty Project loses its arrow once it is read.
     await page.click('[data-toggle="p:beta"]');
     await page.waitForFunction(() => !document.querySelector('[data-row="p:beta"]').hasAttribute('aria-expanded'));
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test('a subproject sits under its parent Project, before that Project’s own Tasks; search names its path', {skip: !available}, async () => {
+  const browser = await chromium.launch({headless: true, executablePath: executable});
+  try {
+    const {page, errors} = await fixture(browser, {nested: true});
+    assert.deepEqual(await rows(page), ['1:Global v', '2:Alpha >', '2:Beta >', '2:Global chore']);
+    await page.click('[data-toggle="p:alpha"]');
+    await page.locator('[data-row="t:alpha:a1"]').waitFor();
+    assert.deepEqual((await rows(page)).slice(1, 4), ['2:Alpha v', '3:Gamma >', '3:Launch plan >']);
+    await page.click('[data-toggle="p:gamma"]');
+    await page.locator('[data-row="t:gamma:c1"]').waitFor();
+    assert.deepEqual((await rows(page)).slice(2, 5), ['3:Gamma v', '4:Delta >', '4:Gamma chore']);
+    // A Project lists only its own Tasks: opening Alpha and Gamma read their own levels, nothing of their subprojects.
+    assert.deepEqual((await listCalls(page)).slice(1), [['/project/alpha/operations/tasks_list', null, false, ''], ['/project/gamma/operations/tasks_list', null, false, '']]);
+    await page.fill('.agexplorer-top .agfiles-search input', 'delt');
+    await page.waitForFunction(() => [...document.querySelectorAll('.agfiles-tree [data-row]')].some(row => row.dataset.row === 'p:delta'));
+    assert.equal(await page.locator('[data-row="p:delta"] small').textContent(), 'Subproject of Alpha › Gamma');
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

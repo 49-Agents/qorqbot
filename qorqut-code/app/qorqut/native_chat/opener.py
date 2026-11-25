@@ -48,7 +48,7 @@ WAKE_TEXT = ('<qorqut-wake>\nQorqut started this session because input is waitin
 OFF_STATES = frozenset({"stopped"})
 # What a source never wakes: off, and paused (a recorded intent not to run).
 NOT_WAKEABLE = frozenset({"stopped", "paused"})
-# The sources that are the owner's own words: they may open an agent the product does not offer yet.
+# The sources that are the owner's own words (they turn an off agent on; none opens an agent the product does not offer).
 OWNER_SOURCES = frozenset({"chat", "telegram"})
 # Open failures that repeat until someone changes something: what ``agents/unreachable.py`` tells Ordubashy about.
 REPEATING = frozenset({"cli_unavailable", "cli_not_signed_in", "resume_failed", "resume_unavailable", "driver_unavailable"})
@@ -151,28 +151,39 @@ class SessionOpener:
         return self.desired(agent_id) in OFF_STATES
 
     def offered(self, agent_id: str) -> bool:
-        """Whether the product offers this agent to the owner. The Learning Applier (shown as Overseer) is offered only while the
-        owner's Testing mode is on, the same condition under which the dashboard stops saying "Coming soon" for it; every other
-        agent is always offered, and so is a Learning Applier that has had a session before (someone started it: it keeps
-        working as it did). An unreadable preference counts as off, as it does on the dashboard."""
+        """Whether the product offers this agent. The Learning Applier (shown as Overseer) is offered only while the owner's Testing
+        mode is on, whether or not it ever had a session: while it is off the agent does not run and nothing is sent to it. Every
+        other agent is always offered. An unreadable preference counts as off, as it does on the dashboard."""
         from qorqut.agents.roles import LEARNING_APPLIER_ROLE, profile_role
         with self.database.read() as uow:
             row = uow.connection.execute("SELECT profile_json FROM agent_profiles WHERE agent_id=?", (agent_id,)).fetchone()
+            if row is None or profile_role(row) != LEARNING_APPLIER_ROLE:
+                return True
             owner = uow.connection.execute("SELECT owner_principal_id FROM installation WHERE id='service'").fetchone()
-            ran = uow.connection.execute("SELECT 1 FROM native_session_owners WHERE agent_id=?", (agent_id,)).fetchone()
-        if row is None or profile_role(row) != LEARNING_APPLIER_ROLE or ran is not None:
-            return True
         try:
             from qorqut.dashboard_preferences import testing_mode
             return owner is not None and testing_mode(self.runtime.paths.runtime, owner[0])["enabled"]
         except (DomainError, OSError, AttributeError):
             return False
 
+    def close_unoffered(self, agent_id: str) -> bool:
+        """Close the running session of an agent the product does not offer (the Learning Applier while Testing mode is off), as an
+        idle close does: ``desired_state`` is left alone, so its needs are delivered once it is offered again. True when a close
+        was asked for. Never raises."""
+        try:
+            managed = self.managed
+            if managed is None or self.offered(agent_id) or managed.handle(agent_id) is None:
+                return False
+            return bool(managed.close(agent_id, "graceful"))
+        except Exception:  # noqa: BLE001 - asked again on the next pass
+            LOG.debug("Closing the unoffered agent %s failed", agent_id, exc_info=True)
+            return False
+
     def wakeable(self, agent_id: str, *, owner: bool = False) -> bool:
-        """Whether an input may open this agent's session: managed runtime composed, not off or paused, and, unless the input is the
-        owner's own, the agent is one the product offers (``offered``): nothing but the owner opens an agent that is not offered."""
+        """Whether an input may open this agent's session: managed runtime composed, not off or paused, and the agent is one the
+        product offers (``offered``). Not even the owner's own input opens an agent that is not offered (``owner`` is kept for callers)."""
         return (not self._terminals() and self.managed is not None and self.desired(agent_id) not in NOT_WAKEABLE
-                and (owner or self.offered(agent_id)))
+                and self.offered(agent_id))
 
     def set_desired(self, agent_id: str, state: str) -> bool:
         """Record the intent durably (the Chat view moves with it). False when there is no owner row to write: an agent that never
@@ -212,6 +223,8 @@ class SessionOpener:
             raise DomainError(*SWITCHING, retryable=True)
         if self.managed is None:
             raise self._failure(DomainError("driver_unavailable", "The session could not be started"))
+        if not self.offered(agent_id):
+            raise DomainError("session_closed", "This agent is not offered while Testing mode is off")
         with self._guard:
             self._opens[agent_id] = (key, self._clock() + self._limits()[3])
         self.turn_on(agent_id)
@@ -246,11 +259,11 @@ class SessionOpener:
             raise DomainError("session_closed", "This agent's session is not open")
         if self.managed is None:
             raise DomainError("session_closed", "This agent's session is not open")
+        if not self.offered(agent_id):
+            raise DomainError("session_closed", "This agent is not offered while Testing mode is off")
         if not force:
             if self.desired(agent_id) in NOT_WAKEABLE:
                 raise DomainError("session_closed", "This agent is turned off")
-            if source not in OWNER_SOURCES and not self.offered(agent_id):
-                raise DomainError("session_closed", "This agent is not offered yet and is opened only by the owner")
             self._paced(agent_id)
         if wait:
             total = self._limits()[0]
@@ -398,6 +411,8 @@ class SessionOpener:
     def _require_on(self, agent_id: str) -> None:
         if self.desired(agent_id) in NOT_WAKEABLE:
             raise DomainError("agent_off", "This agent is turned off")
+        if not self.offered(agent_id):
+            raise DomainError("agent_off", "This agent is not offered while Testing mode is off")
 
     def _conversation(self, agent_id: str) -> str | None:
         """The conversation the agent's host runs: its id, "" while the host has none yet, None when no host runs."""

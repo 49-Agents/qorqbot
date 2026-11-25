@@ -265,9 +265,12 @@ class DashboardCompatibility:
                 reachable = owner_project_ids(uow.connection, context.principal_id)
                 registered = [row for row in uow.connection.execute("SELECT * FROM projects WHERE archived_at IS NULL ORDER BY slug") if row["id"] in reachable]
             projects = []
+            # A subproject names its parent; the dashboard nests it under the parent and shows its path (49 › Z).
+            listed = {row["id"] for row in registered}
             for row in registered:
                 metadata = json.loads(row["config_json"])
                 projects.append({"slug": row["slug"], "path": str(project_root(self.runtime.paths, row)), "name": row["name"], "id": row["id"], "project_id": row["id"],
+                    "parent_id": row["parent_id"] if row["parent_id"] in listed else None,
                     "one_liner": metadata.get("one_liner", metadata.get("description", "")), "website": metadata.get("website"),
                     "owner": context.principal.display_name})
             return JSONResponse(projects)

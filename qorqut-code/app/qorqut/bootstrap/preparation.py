@@ -424,7 +424,7 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         from qorqut.management.identity import configured_ordubashy
         always_skills = ordubashy and configured_ordubashy(uow) == data["agent_id"]
         # Every active project; no membership is assumed.
-        projects = uow.connection.execute("SELECT id,slug FROM projects WHERE archived_at IS NULL ORDER BY id").fetchall()
+        projects = uow.connection.execute("SELECT * FROM projects WHERE archived_at IS NULL ORDER BY id").fetchall()
         for project in projects:
             code_root = _project_code_root(resolver, data, project)
             if code_root is not None:

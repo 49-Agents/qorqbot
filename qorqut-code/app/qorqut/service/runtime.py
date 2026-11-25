@@ -593,7 +593,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # Its companion: what the records say was done over the same period.
     from qorqut.domains.work_review import WorkReview
     WorkReview(runtime).register()
-    # The coordinator's own compaction: the handoff it files before its conversation is closed, and what the next one starts with.
+    # Every agent's own compaction: the handoff it files before its conversation is closed, and what the next one starts with.
     from qorqut.domains.compaction_handoff import CompactionHandoff
     CompactionHandoff(runtime).register()
     # What asks for that handoff when the context fills, then closes the conversation and opens the next one. It runs on the
@@ -607,6 +607,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # The six Project record operations: one existing Project's inventory, item reads and explicit cross-scope links.
     from qorqut.domains.projects import ProjectRecords
     runtime.projects = ProjectRecords(application, domains.items).register(registry)
+    # Subprojects: place a Project under another Project, or back at the top level, with its folder.
+    from qorqut.domains.projects.move import ProjectMove
+    runtime.project_move = ProjectMove(application, paths).register(registry)
     # Move to project: three operations over the engine's task relocation, plus the host adapter for private conversations,
     # Focus cards and unsupported bindings. The adapter is attached here, before the registry freezes.
     from qorqut.domains.tasks.moves import TaskMoves
