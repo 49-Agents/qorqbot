@@ -73,8 +73,8 @@ class ConversationsReportTests(ReportCase):
         late, _ = self.turn(self.worker, 'Why is the report late again?', at(11))
         long = self.said(self.worker, 'Because ' + 'the export failed. ' * 400, at(11, 2))
         self.said(self.worker, 'A reply to a reminder, not to the owner.', at(11, 30), origin='nudge')
-        private, _ = self.turn(self.lead, 'my card number is 1234', at(12), redacted=True)
-        self.said(self.lead, 'I have noted the card number 1234.', at(12, 1))
+        private, _ = self.turn(self.lead, 'my card number is zq-secret-77', at(12), redacted=True)
+        self.said(self.lead, 'I have noted the card number zq-secret-77.', at(12, 1))
         chat = create(self.runtime, 'Stop asking me to send files you can send.')
         reply(self.runtime, chat, 'Understood. I will send them myself.')
         self.stamp_thread('Stop asking me to send files you can send.', at(13))
@@ -111,7 +111,7 @@ class ConversationsReportTests(ReportCase):
         # Left out: a reply to something other than the owner, what followed a possibly private input, and the note that
         # only repeats the words of a decision.
         self.assertNotIn('reminder', text)
-        self.assertNotIn('1234', text)
+        self.assertNotIn('zq-secret-77', text)  # not hex, so no record id in the report can contain it
         self.assertEqual(text.count('stop asking twice'), 1)
         self.assertEqual(([gap['code'] for gap in page['gaps']], page['shown']), (['private'], {'owner': 4, 'reply': 3, 'decision': 1}))
         self.assertEqual((page['entries_in_period'], page['from_entry'], page['to_entry']), (9, 1, 9))
