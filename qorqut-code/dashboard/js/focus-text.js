@@ -32,11 +32,20 @@ const focusText = (() => {
   }
   const stamp = (lines, statuses) => JSON.stringify(content(lines, statuses));
 
+  // Where the owner left off in each agent's notes (scroll and caret), kept in this browser so Notes reopens there.
+  const VIEW_KEY = id => `qorqbot.focusNotesView.${id}`;
+  function readView(id) {
+    try { const v = JSON.parse(localStorage.getItem(VIEW_KEY(id)) || 'null'); return v && typeof v === 'object' ? v : null; } catch { return null; }
+  }
+  function writeView(s) {
+    try { localStorage.setItem(VIEW_KEY(s.agentId), JSON.stringify(s.view)); } catch { /* storage full or blocked: memory only */ }
+  }
+
   function state(agentId) {
     let s = states.get(agentId);
     if (!s) {
       s = {agentId, loaded: false, loadError: '', revision: 0, blockId: null, lines: [''], statuses: {}, baseline: stamp([''], {}), status: '', error: '',
-        conflict: false, saving: false, timer: null, queue: null, loadSeq: 0, saveCount: 0, views: new Set()};
+        conflict: false, saving: false, timer: null, queue: null, loadSeq: 0, saveCount: 0, views: new Set(), view: readView(agentId) || {scroll: 0, caret: null}};
       states.set(agentId, s);
     }
     return s;
@@ -124,6 +133,13 @@ const focusText = (() => {
     el.querySelector('[data-text-reload]').hidden = kind !== 'conflict';
     el.querySelector('[data-text-overwrite]').hidden = kind !== 'conflict';
   }
+  // A hidden text (a record or a browser open on the board) comes back at scroll 0; put it back where it was.
+  function restoreScroll(p) {
+    const paper = p.focusMount?.querySelector('.agfocus-notes-input');
+    if (!paper || !paper.clientHeight) return;
+    const want = state(p.agentId).view.scroll || 0;
+    if (Math.abs(paper.scrollTop - want) > 1) paper.scrollTop = want;
+  }
   function paint(p) {
     const editor = editors.get(p);
     if (editor && p.agentId) {
@@ -131,6 +147,7 @@ const focusText = (() => {
       editor.doc.closest('.agfocus-notes-input').classList.toggle('loading', !loaded);
       editor.setEditable(loaded);
       editor.sync();
+      if (loaded) restoreScroll(p);
     }
     paintStatus(p);
   }
@@ -151,6 +168,12 @@ const focusText = (() => {
     });
     editors.set(p, editor);
     paper.onpointerdown = () => editor.rememberSelection();
+    // Only a visible text reports a real position; hiding it must not overwrite the remembered one with 0.
+    let viewTimer = null;
+    const keepView = () => { clearTimeout(viewTimer); viewTimer = setTimeout(() => writeView(s), 300); };
+    paper.addEventListener('scroll', () => { if (paper.clientHeight && s.loaded) { s.view.scroll = paper.scrollTop; keepView(); } }, {passive: true});
+    const keepCaret = () => { const sel = editor.caret(); if (sel) { s.view.caret = sel; keepView(); } };
+    document.addEventListener('selectionchange', keepCaret);
     editor.doc.addEventListener('blur', () => { if (s.loaded && !s.conflict && dirty(s)) save(s); });
     status.querySelector('[data-text-retry]').onclick = () => { if (s.loaded) save(s); else load(p); };
     status.querySelector('[data-text-reload]').onclick = () => load(p, 'adopt');
@@ -162,12 +185,19 @@ const focusText = (() => {
     paint(p);
     void load(p);
     return () => {
+      document.removeEventListener('selectionchange', keepCaret); clearTimeout(viewTimer); writeView(s);
       s.views.delete(p); editors.delete(p); editor.destroy(); host.replaceChildren();
       if (s.loaded && !s.conflict && dirty(s)) save(s);
     };
   }
 
-  // Puts the caret at the end of the notes shown in this pane.
-  const focus = p => editors.get(p)?.focusLine(Infinity, Infinity);
+  // Puts the caret back where the owner left it in these notes, at the same scroll; the end only the first time.
+  function focus(p) {
+    const editor = editors.get(p);
+    if (!editor || !p.agentId) return;
+    const s = state(p.agentId);
+    if (!editor.placeCaret(s.view.caret)) editor.focusLine(Infinity, Infinity);
+    if (s.view.caret) restoreScroll(p);
+  }
   return {mount, load: p => load(p), paint, paintStatus, focus, state, FIRST_TEXT};
 })();
