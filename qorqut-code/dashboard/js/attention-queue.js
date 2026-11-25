@@ -144,8 +144,8 @@ const attentionQueue=(()=>{
     approval:'M9 5H5v16h14V5h-4M9 3h6v4H9zM8 14l3 3 5-6',
     read:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
     request:'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z',
-    // A rule an agent filed from the owner's words, for the owner to check: a graduation cap.
-    rule:'M12 4.5 2.5 9 12 13.5 21.5 9 12 4.5ZM6.5 11.2v4.1c0 1.5 2.5 2.9 5.5 2.9s5.5-1.4 5.5-2.9v-4.1M21.5 9v5.4M20.7 14.4h1.6l.4 2.1h-2.4z',
+    // A rule an agent filed from the owner's words, for the owner to approve: the brain of Context's Learning section.
+    rule:'M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18ZM12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18ZM15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4M17.6 6.5a3 3 0 0 0 .4-1.375M6.003 5.125A3 3 0 0 0 6.401 6.5M3.477 10.896a4 4 0 0 1 .585-.396M19.938 10.5a4 4 0 0 1 .585.396M6 18a4 4 0 0 1-1.967-.516M19.967 17.484A4 4 0 0 1 18 18',
   };
   // Something to read and acknowledge: a queue row says so itself, a listed Signoff by its form.
   const toRead=s=>!!s.to_read || s.input?.kind==='acknowledge';
