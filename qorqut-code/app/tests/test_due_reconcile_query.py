@@ -57,8 +57,11 @@ class DueReconcileQueryTest(unittest.TestCase):
         outer = [row['detail'] for row in plan if row['parent'] == 0]
         self.assertTrue(outer[0].startswith('SCAN o'), outer)
         self.assertIn('overseer_due_occurrence_created', outer[0])
-        # The jobs are only probed by key inside a subquery, never walked by the outer loop.
-        self.assertNotIn('j', [detail.split()[1] for detail in outer], outer)
+        # The jobs are only probed by key inside a subquery, never walked by the outer loop. Some SQLite versions (the
+        # Mac one) list that probe at the top level of the plan, so any row for the jobs must be a lookup by id.
+        for detail in (row['detail'] for row in plan):
+            if detail.split()[0] in ('SCAN', 'SEARCH') and detail.split()[1] == 'j':
+                self.assertTrue(detail.startswith('SEARCH j') and '(id=?)' in detail, detail)
 
     def test_same_rows_as_the_jobs_first_join(self):
         # Matching, already a member, job not succeeded, job queued, and unrelated succeeded jobs with no occurrence.
