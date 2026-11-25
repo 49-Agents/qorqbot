@@ -19,7 +19,7 @@ SKILLS = DEFAULTS / "operations/imported-role-skills/native/skills"
 ROLES = DEFAULTS / "roles/imported-roles/native/roles"
 GET_SET_UP = "qorqut-role-get-set-up"
 WHERE = {"environment": {"ordubashy", "global-worker", "learning-applier"},
-         "fastmail": {"ordubashy", "global-worker"}, "whatsapp": {"ordubashy"}, "get-set-up": {"ordubashy"}}
+         "get-set-up": {"ordubashy"}}
 
 
 class OnDemandGuidanceTests(unittest.TestCase):

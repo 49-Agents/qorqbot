@@ -14,8 +14,6 @@ skills:
   path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
 - id: environment
   path: operations/imported-role-skills/native/skills/environment/SKILL.md
-- id: fastmail
-  path: operations/imported-role-skills/native/skills/fastmail/SKILL.md
 default_tool_policy:
   signoffs_input_create: allow
   signoffs_source_link: allow
