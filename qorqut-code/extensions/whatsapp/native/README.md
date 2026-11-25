@@ -74,7 +74,11 @@ it is not a claim of exactly-once delivery by WhatsApp.
 
 For an authorized isolated test, add `--enable-send` to both the existing `serve`
 and `mcp` commands. The read tool remains read-only and still rejects a `send`
-action. `status.sending_enabled` reflects service enablement. There is no
+action. `status` reports sending with four keys: `read_only_tools` (true when
+this read connector's own tools cannot send), `sending_enabled` (true when the
+installation can send at all, by this test mode or by managed owner approval),
+`sending_mode` (`owner_approval`, `direct` or `off`) and `sending_note` (one
+plain sentence for that mode). There is no
 automatic send, mark-read call, typing indicator or agent wakeup. Test phone
 behavior separately before claiming send acceptance.
 
@@ -112,8 +116,8 @@ program then submits it. This section describes the connector half.
   `--pair-only`, and requires an already linked account. Both flags are
   required together and must differ from the read socket.
 - Routes: `/managed/account` (opaque account reference and connection state),
-  `/managed/chat` (is this exact `chat_id` an existing indexed conversation, and
-  its display name), `/managed/send`, and `/managed/receipt` (receipt-only
+  `/managed/chat` (is this exact `chat_id` a chat listed by `whatsapp_read` action
+  `chats`, and its display name), `/managed/send`, and `/managed/receipt` (receipt-only
   lookup). Bodies are strict JSON; unknown fields are refused.
 - The account reference is a SHA-256 over a random per-data-directory salt and
   the account JID, so no phone number reaches host configuration, receipts or

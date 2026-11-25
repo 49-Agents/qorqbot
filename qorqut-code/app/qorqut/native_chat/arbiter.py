@@ -173,6 +173,10 @@ class InputArbiter:
         profile = self._profile(request.agent_id)
         if profile is None:
             return self._refused(request, RESULT_REJECTED, "agent_unavailable")
+        if self.opener is not None and not self.opener.offered(request.agent_id):
+            # The Learning Applier while Testing mode is off: nothing reaches him, whoever sends it. Closed, so a producer waits.
+            return InputResult(state=RESULT_REJECTED if request.wait else RESULT_DEFERRED, reason=SESSION_CLOSED,
+                               origin=request.origin, input_type=request.input_type)
         with self.locks(request.agent_id):
             digest = store.request_hash(request)
             with self.database.read() as uow:

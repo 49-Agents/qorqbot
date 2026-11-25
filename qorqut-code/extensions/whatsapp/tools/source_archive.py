@@ -99,7 +99,8 @@ def build_source_archive(source, native, output, image, *, target="linux-x86_64"
     if tree.exists() or archive.exists():
         raise ValueError('Source output already exists; use a fresh output directory')
     output.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source / 'native', tree, ignore=shutil.ignore_patterns('.git', '__pycache__'))
+    # First-party developer tests stay out, as README-SOURCE.md states; go build never reads them.
+    shutil.copytree(source / 'native', tree, ignore=shutil.ignore_patterns('.git', '__pycache__', '*_test.go'))
     modules = []
     for record in module_records(native / 'modules.json'):
         # Unfetched graph-only/test-only requirements have metadata but no used source.

@@ -5,8 +5,8 @@ It grants no human identity or blanket access. An ordinary task assigned to the
 owner is not itself an API permission; use existing allowed tools for ordinary
 work and this proposal flow for supported protected changes.
 
-For ordinary project settings, use business_config_update directly only
-when the active role policy allows it; see the business-operations procedure.
+For ordinary project settings, use project_config_update directly only
+when the active role policy allows it; see the project-operations procedure.
 Configuration authority does not authorize software implementation: build and
 site/UI design work is the owner's unless the owner directly instructs you. The engineering
 proposal action below remains
@@ -14,7 +14,7 @@ compatible with existing proposals and can be used when exact owner review is
 specifically desired, but is not required for routine project configuration.
 Parent Tasks use normal Task completion and reopening permissions.
 
-Read the current business_config_get in the owning project, then
+Read the current project_config_get in the owning project, then
 send its expected_revision, a stable idempotency_key, action, parameters and a
 specific rationale. The supported action is:
 

@@ -20,7 +20,7 @@ changes triggers snapshots through the host's owned lifecycle. Construction and 
 ``History.initialize()`` creates the history repository.
 """
 
-from ._areas import (Area, AreaProvider, BusinessAgentFiles, BusinessHeadquarters, GlobalAgentFiles, GlobalFiles,
+from ._areas import (Area, AreaProvider, ProjectFolder, GlobalAgentFiles, GlobalFiles,
                      ResolvedArea)
 from .catalog import FORMAT, VERSION, ExportCatalog, ExportedTable, HistoryExport, SchemaIdentity, shard_id
 from .contributions import (CLASSIFICATIONS, EXPORTED, PRIVATE_EXCLUDED, REPRESENTED, SEPARATE_HISTORY,
@@ -31,7 +31,7 @@ from .fields import Arr, Boolean, FieldType, Integer, Obj, Real, Text
 from ._observer import HistoryObserver, ObserverState, ObserverStop
 from ._service import History
 
-__all__ = ["Area", "AreaProvider", "Arr", "Boolean", "BusinessAgentFiles", "BusinessHeadquarters", "CLASSIFICATIONS",
+__all__ = ["Area", "AreaProvider", "Arr", "Boolean", "ProjectFolder", "CLASSIFICATIONS",
            "EXPORTED", "ExportCatalog", "ExportedTable", "FORMAT", "FieldType", "GlobalAgentFiles", "GlobalFiles",
            "History", "HistoryCompositionError", "HistoryContribution", "HistoryExport", "HistoryExportError",
            "HistoryObserver", "Integer", "ObserverState", "ObserverStop", "Obj", "PRIVATE_EXCLUDED", "REPRESENTED",

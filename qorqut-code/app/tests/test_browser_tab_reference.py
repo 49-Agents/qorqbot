@@ -81,7 +81,7 @@ class CommandTest(CommandTestCase):
         self.bind(TAB)
         reference = self.run_command(listed(TAB))[1]["reference"]
         self.assertEqual(references.normalize("Please look.", [reference])["references"],
-                         [{"type": "tab", "id": f"{AGENT}:{TAB}", "business_id": None}])
+                         [{"type": "tab", "id": f"{AGENT}:{TAB}", "project_id": None}])
 
     def test_each_session_gets_its_own_tab(self):
         self.bind(OTHER, instance=f"configured:{WORKER}")
@@ -165,6 +165,15 @@ class IsCommandTest(unittest.TestCase):
         self.assertEqual(tab_reference.reference(AGENT, TAB), {"type": "tab", "id": f"{AGENT}:{TAB}"})
         for agent, tab in ((AGENT, TAB.lower()), (AGENT, TAB[:-1]), ("agent-1", TAB), (None, TAB), ("", TAB), (AGENT.upper(), TAB)):
             self.assertIsNone(tab_reference.reference(agent, tab), (agent, tab))
+
+    def test_the_advice_is_a_browser_action_signoff_by_ordubashy_and_still_says_to_check_the_page(self):
+        for text in (tab_reference.SHOW, tab_reference.SHOW_FIELD):
+            self.assertIn("browser_action", text)
+            self.assertIn("signoffs_input_create", text)
+            self.assertIn("attention queue", text)
+            self.assertIn("any other agent gives the reference to Ordubashy", text)
+            self.assertIn("title and url say which page it is", text)
+            self.assertNotIn("request_user_input", text)          # a Chat card is only a pointer now, never the way to ask
 
     def test_the_agent_is_named_by_the_target_not_by_the_caller(self):
         self.assertEqual(tab_reference.browser_agent(f"configured:{WORKER}"), WORKER)

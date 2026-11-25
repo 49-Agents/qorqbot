@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-project-creation
-description: Create a Project, the container for Tasks, assets, documents, tables, code and routines, with business_create when the owner asks you for or agrees to a new one. Only the configured Ordubashy creates projects. It takes a name, an optional Description and a folder slug and makes only the record and empty hq/ and code/ folders, with no agents, setup, services or documents.
+description: Create a Project, the container for Tasks, assets, documents, tables, code and routines, with project_create when the owner asks you for or agrees to a new one. Only the configured Ordubashy creates projects. It takes a name, an optional Description and a folder slug and makes only the record and a project folder with an empty code folder, with no agents, setup, services or documents.
+read_for: Creating a Project (`project_create`)
 ---
 
 # Create a project
@@ -13,8 +14,8 @@ and use one that already fits; never create a second project for the same purpos
 
 ## Authority
 
-Only you, the configured Ordubashy, create projects. You hold `coordinate_businesses`
-and `business_create` is `allow`; the host also checks your configured identity on every
+Only you, the configured Ordubashy, create projects. You hold `coordinate_projects`
+and `project_create` is `allow`; the host also checks your configured identity on every
 step, so a similar name or role does not qualify. The owner has no creation tool: they ask you,
 and you create the project for them. No worker, other human, the installation owner
 included, retired role or system program can create one, whatever plugin, capability,
@@ -26,7 +27,7 @@ instead of working around it, and surface a required Signoff honestly.
 
 ## Call
 
-Call `business_create` in Global (select no project) with:
+Call `project_create` in Global (select no project) with:
 
 - `name` (required): the display name, trimmed, 1 to 200 characters. A final brand or
   domain can come later, and a later rename never moves anything.
@@ -50,15 +51,23 @@ collides by case or with an unsafe path. Nothing was adopted and the existing fo
 project is untouched. Never reuse or take over it. Ask the owner; if only a derived slug
 collided and they have no preference, retry with `suggested_slug` under a new key.
 
+## Subprojects
+
+A subproject is an ordinary project inside another project, to any depth (49 › Marketing › SEO).
+It is an area of work; a Story is one ongoing thread about a person, client or idea, and can
+sit inside a subproject. Create one with `project_create` and `parent_project_id` (an active
+project); its folder is `subprojects/<slug>` inside the parent's folder. Each project lists only
+its own Tasks, and a parent Task is always in the same project. Move a project under another, or
+back to the top level with `parent_project_id: null`, with `project_move`: its folder and its
+subprojects move with it. Archiving a project archives its subprojects; restoring it restores
+the ones archived with it.
+
 ## Result and what exists
 
-The result carries `business_id`, `slug` and `business` (`id`, `slug`, `name`, `summary`,
-`workspace_path`, `hq_path`). Select the returned `business_id` for later work.
+The result carries `project_id`, `slug` and `project` (`id`, `slug`, `name`, `summary`,
+`workspace_path`, `parent_id`). Select the returned `project_id` for later work.
 
-Creation makes exactly the project record, the owner's membership (plus the memberships the
-already registered system programs need) and an empty project folder holding empty `hq/`
-and `code/` folders. It makes no agent (projects have no resident agents; never create,
-request or revive one), no README, `business.yaml` or core document, no
+Creation makes exactly the project record and a project folder with an empty `code` folder. It makes no agent, no README or core document, no
 checklist, Task or question, no routine, Context filing, external-service
 registration, Git repository, domain, mailbox, account, credential or native session, and
 it calls no provider. Do not describe it as more than that.
@@ -66,7 +75,7 @@ it calls no provider. Do not describe it as more than that.
 ## After creation
 
 The project is usable as it is. Create ordinary Tasks (`tasks_create` with its
-`business_id`), upload assets, create documents and tables, and create routines
+`project_id`), upload assets, create documents and tables, and create routines
 explicitly under their normal Signoff rules, all owned by that project. Project
 documents and tags are ordinary and written when the owner wants them. A mailbox, domain
 or other provider account starts only from an explicit request under its own procedure

@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import hashlib
 import json
+import threading
 
 from qorqut_operations.contracts import DomainError, new_id, utc_now
 
@@ -31,16 +32,16 @@ def rows(cursor) -> list[dict]:
 # The eligibility facts read beside a profile row: the row's own status and its principal's kind and activity. They decide
 # whether the identity operates and are never part of the returned profile.
 ELIGIBILITY = ("profile_status", "principal_kind", "principal_active")
-PROFILE_ROWS = ("SELECT p.agent_id,p.name,p.workspace,p.profile_json,p.revision,p.home_business_id,b.slug AS business_slug,"
+PROFILE_ROWS = ("SELECT p.agent_id,p.name,p.workspace,p.profile_json,p.revision,"
                 "p.status AS profile_status,pr.kind AS principal_kind,pr.active AS principal_active "
-                "FROM agent_profiles p LEFT JOIN businesses b ON b.id=p.home_business_id LEFT JOIN principals pr ON pr.id=p.agent_id ")
+                "FROM agent_profiles p LEFT JOIN principals pr ON pr.id=p.agent_id ")
 
 
 def operating_global(row) -> bool:
     """Only an active supported global operates natively (``global_scope.global_profile_data``): an active agent principal
-    whose profile row and stored profile are active, in ecosystem scope with a supported role and no business home. A
-    business-home identity never does, whatever its status, and a malformed profile fails closed."""
-    return global_profile_data({"home_business_id": row["home_business_id"], "status": row["profile_status"],
+    whose profile row and stored profile are active, with a supported role. A malformed profile fails
+    closed."""
+    return global_profile_data({"status": row["profile_status"],
                                 "kind": row["principal_kind"], "active": row["principal_active"],
                                 "profile_json": row["profile_json"]}) is not None
 
@@ -49,14 +50,14 @@ def _profile(row, paths) -> dict:
     result = {key: value for key, value in dict(row).items() if key not in ELIGIBILITY}
     if paths is not None:
         from qorqut.composition.locations import agent_workspace_of
-        # The registered identity and home scope select the workspace; the stored column never does.
-        result["workspace"] = str(agent_workspace_of(paths, result["agent_id"], result["home_business_id"], result["business_slug"]))
+        # The registered identity selects the workspace; the stored column never does.
+        result["workspace"] = str(agent_workspace_of(paths, result["agent_id"]))
     return result
 
 
 def active_profile(conn, agent_id: str, paths=None, *, any_status: bool = False):
     """The active profile row of this exact supported global agent, or None. ``any_status`` also returns a retired or
-    historical business-home profile, only for reading the conversations it captured while it was active; that reader
+    inactive profile, only for reading the conversations it captured while it was active; that reader
     authorizes it separately and never needs active credentials."""
     status = "" if any_status else " AND p.status='active'"
     row = conn.execute(PROFILE_ROWS + "WHERE p.agent_id=?" + status, (agent_id,)).fetchone()
@@ -66,9 +67,8 @@ def active_profile(conn, agent_id: str, paths=None, *, any_status: bool = False)
 
 
 def observed_agents(conn, paths) -> list[dict]:
-    """Active registered agents the backend observes: the supported global agents only. Business-home identities are
-    historical and are never observed, bound or delivered to."""
-    found = conn.execute(PROFILE_ROWS + "WHERE p.status='active' AND p.home_business_id IS NULL ORDER BY p.agent_id")
+    """Active registered agents the backend observes: the supported global agents only."""
+    found = conn.execute(PROFILE_ROWS + "WHERE p.status='active' ORDER BY p.agent_id")
     return [_profile(row, paths) for row in found if operating_global(row)]
 
 
@@ -95,9 +95,26 @@ def counters(conn, agent_id: str) -> dict:
                                   "work_sequence": 0, "user_sequence": 0, "revision": 0}
 
 
+# The agents whose counter this thread advanced since its last commit notice. A unit runs and commits on one thread, so the
+# notice that follows the commit (``stream_wake``) finds here whose Chat streams have something to read. A unit that rolled
+# back leaves its agents for the thread's next commit: one read that finds nothing.
+_BUMPED = threading.local()
+
+
+def take_bumped() -> set:
+    """The agents this thread advanced since it last asked, and forget them."""
+    agents = getattr(_BUMPED, "agents", None)
+    _BUMPED.agents = set()
+    return agents or set()
+
+
 def bump(conn, agent_id: str) -> int:
     """Advance the agent's visible-change counter (the Chat stream position); every change a viewer can see calls this."""
     ensure_counters(conn, agent_id)
+    agents = getattr(_BUMPED, "agents", None)
+    if agents is None:
+        agents = _BUMPED.agents = set()
+    agents.add(agent_id)
     return conn.execute("UPDATE native_agent_counters SET revision=revision+1,updated_at=? WHERE agent_id=? RETURNING revision",
                         (utc_now(), agent_id)).fetchone()[0]
 
@@ -610,11 +627,11 @@ def unread_replies(conn, principal_id: str) -> list[dict]:
     """The newest completed reply of each operating supported global that is newer than the owner's boundary, with the
     agent's scope. Replies of every other registration stay in the archive for history readers but are never unread."""
     found = conn.execute(
-        """SELECT r.*,a.home_business_id,a.profile_json,a.name AS agent_name,a.status AS profile_status,
+        """SELECT r.*,a.profile_json,a.name AS agent_name,a.status AS profile_status,
         pr.kind AS principal_kind,pr.active AS principal_active FROM native_replies r
         JOIN agent_profiles a ON a.agent_id=r.agent_id LEFT JOIN principals pr ON pr.id=a.agent_id
         LEFT JOIN native_reads n ON n.agent_id=r.agent_id AND n.principal_id=?
-        WHERE a.status='active' AND a.home_business_id IS NULL AND r.completion_sequence>COALESCE(n.last_read_sequence,0)
+        WHERE a.status='active' AND r.completion_sequence>COALESCE(n.last_read_sequence,0)
         AND r.completion_sequence=(SELECT MAX(l.completion_sequence) FROM native_replies l WHERE l.agent_id=r.agent_id)
         ORDER BY r.completed_at,r.id""", (principal_id,))
     return [{key: value for key, value in dict(row).items() if key not in ELIGIBILITY} for row in found if operating_global(row)]

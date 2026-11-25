@@ -59,8 +59,8 @@ def agent_names(agents_root):
     return names
 
 
-def session_files(projects_root):
-    return sorted(path for path in Path(projects_root).glob("-home-alp-qorqut-v1-2-operations-agents-*/*.jsonl")
+def session_files(claude_projects_root):
+    return sorted(path for path in Path(claude_projects_root).glob("-home-alp-qorqut-v1-2-operations-agents-*/*.jsonl")
                   if path.stat().st_size >= MIN_BYTES)
 
 

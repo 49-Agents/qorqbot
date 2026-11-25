@@ -64,12 +64,12 @@ def validate_binding(record):
     if record['purpose'] in ('plan', 'failure', 'close_satisfied'):
         if targets['application_id'] is None or type(targets.get('application_revision')) is not int or targets['application_revision'] < 1:
             v.invalid('targets.application_revision')
-    v.obj(record['owner_scope'], 'owner_scope', ('kind', 'business_id'))
+    v.obj(record['owner_scope'], 'owner_scope', ('kind', 'project_id'))
     scope = record['owner_scope']
-    if scope['kind'] not in ('global', 'business') or (scope['kind'] == 'global' and scope['business_id'] is not None):
+    if scope['kind'] not in ('global', 'project') or (scope['kind'] == 'global' and scope['project_id'] is not None):
         v.invalid('owner_scope')
-    if scope['kind'] == 'business':
-        v.uuid(scope['business_id'], 'owner_scope.business_id')
+    if scope['kind'] == 'project':
+        v.uuid(scope['project_id'], 'owner_scope.project_id')
     if record['request_ref'] is not None:
         ref = record['request_ref']
         v.obj(ref, 'request_ref', ('provider', 'signoff_id', 'proposal_revision', 'payload_hash'))

@@ -40,13 +40,13 @@ def validate_selection(selection, component, installation):
         raise ReleaseError('data root must be outside the installed source view')
     if Path(selection['receipt_path']) != source / 'experiences/binding.json':
         raise ReleaseError('binding receipt must belong to the installed source view')
-    forbidden = [installation.get('release_root'), installation.get('businesses_root'),
-                 component.get('adoption_recipe', {}).get('release_root'), component.get('adoption_recipe', {}).get('businesses_root')]
+    forbidden = [installation.get('release_root'), installation.get('projects_root'),
+                 component.get('adoption_recipe', {}).get('release_root'), component.get('adoption_recipe', {}).get('projects_root')]
     for path in (root, source):
         if 'artifacts' in path.parts or 'skills' in path.parts:
             raise ReleaseError('binding/data cannot be in immutable artifacts or skill subtrees')
         if any(Path(p) == path or path.is_relative_to(Path(p)) for p in forbidden if p):
-            raise ReleaseError('binding/data cannot be in releases or business projects')
+            raise ReleaseError('binding/data cannot be in releases or projects')
     sha = selection['contract_sha256']
     if not isinstance(sha, str) or len(sha) != 64 or any(c not in '0123456789abcdef' for c in sha):
         raise ReleaseError('contract_sha256 must bind exact sidecar bytes')

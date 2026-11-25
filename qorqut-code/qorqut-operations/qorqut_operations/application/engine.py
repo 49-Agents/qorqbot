@@ -8,7 +8,8 @@ import json
 
 from qorqut_operations.contracts import (ChangeSet, DomainError, InvocationContext, InvocationOptions,
     OperationResult, PolicyDecision, canonical_hash, plain)
-from qorqut_operations.global_agents import effective_business_ids, global_profile
+from qorqut_operations.global_agents import effective_project_ids, global_profile
+from qorqut_operations.project_lifecycle import owner_may_act
 from qorqut_operations.storage.directory_layout import ACTION as DIRECTORY_ACTION
 from qorqut_operations.storage.receipts import ApplyReceipts, IdempotencyReceipts
 from .delegation import authorize_delegation, creation_groups
@@ -37,9 +38,6 @@ class Application:
         self.delegated_creation_groups = creation_groups(delegated_creation_groups)
         if any(type(exception) is not ReviewScopeException for exception in self.review_exceptions):
             raise TypeError("Review exceptions are typed contributions made by trusted assembly code")
-        # Optional model-free technical incident observer. Runtime assembly
-        # installs this; ordinary applications remain completely unchanged.
-        self.incident_reporter = None
         self._target_resolvers = {}
 
     def register_target_resolver(self, resource_type, resolver):
@@ -57,45 +55,12 @@ class Application:
 
     def invoke(self, context: InvocationContext, operation_name: str, arguments=None, options=None):
         """Return the same typed envelope on success, denial, validation, or conflict."""
-        # Where ``_locate`` found the named record, the outcome is observed in that scope, as the call ran: the located
-        # options select a project, and the located arguments state a scope the operation reads from them.
-        located = {}
         try:
             with self.database.observe(operation_name, getattr(context, 'request_id', None), job_id=getattr(context, 'job_id', None)):
-                result = self.invoke_or_raise(context, operation_name, arguments, options, located=located)
-                self.observe_result(context,operation_name,result,located.get('arguments', arguments),
-                                    located.get('options', options))
-                return result
+                return self.invoke_or_raise(context, operation_name, arguments, options)
         except DomainError as exc:
             result = OperationResult.failure(exc)
-            self.observe_result(context,operation_name,result,located.get('arguments', arguments),
-                                located.get('options', options))
             return (self.result(context, result) if isinstance(context, InvocationContext) else result)
-        except Exception as exc:
-            observed = self.observe_result(context,operation_name,OperationResult.failure(
-                DomainError('internal_error','Operation failed at the application boundary')),
-                located.get('arguments', arguments), located.get('options', options))
-            # A transport boundary may catch this same exception. The
-            # application observer already recorded it when configured.
-            try:
-                setattr(exc, '_qorqut_incident_reported', bool(observed))
-            except Exception:
-                pass
-            raise
-
-    def observe_result(self, context, operation, result, arguments=None, options=None):
-        if self.incident_reporter is not None:
-            try:
-                options = options if isinstance(options, InvocationOptions) else InvocationOptions.from_mapping(options)
-                context = self._options_context(context, options)
-                namespace = self.namespace(context, self.registry.get(operation), arguments or {})
-                if namespace == 'global':
-                    context = replace(context, business_id=None, review_business_id=None)
-                outcome = self.incident_reporter.observe_result(context,operation,result)
-                return isinstance(outcome, dict) and outcome.get('status') != 'unavailable'
-            except Exception:
-                pass  # A failed observer must never change a business operation's result.
-        return False
 
     def current_context(self, context, uow):
         current = self.context_resolver(context, uow) if self.context_resolver else context
@@ -103,11 +68,11 @@ class Application:
             raise DomainError("invalid_principal", "Context refresh cannot replace the authenticated principal")
         if current.source != context.source or current.request_id != context.request_id:
             raise DomainError("invalid_principal", "Context refresh cannot replace transport provenance")
-        if current.owner_session_business_id != context.owner_session_business_id:
+        if current.owner_session_project_id != context.owner_session_project_id:
             raise DomainError("invalid_principal", "Context refresh cannot replace owner-session provenance")
-        if (current.owner_session_business_id is not None
-                and (current.owner_session_business_id not in current.allowed_business_ids
-                     or current.business_id not in (None, current.owner_session_business_id))):
+        if (current.owner_session_project_id is not None
+                and (current.owner_session_project_id not in current.allowed_project_ids
+                     or current.project_id not in (None, current.owner_session_project_id))):
             raise DomainError("invalid_principal", "Owner-session provenance is outside its bound project")
         trusted_binding = (context.delegation_binding_id, context.delegation_assignment_id,
                            context.delegation_generation)
@@ -130,43 +95,44 @@ class Application:
             if profile is None or profile["status"] != "active":
                 raise DomainError("inactive_agent", "Agent profile is missing or inactive")
             found = global_profile(uow.connection, current.principal_id)
-            # Only current supported globals act; a business-home, unsupported-role, inactive or malformed profile is
+            # Only current supported globals act; an unsupported-role, inactive or malformed profile is
             # history, never an executable registration.
-            if found is None or current.home_business_id is not None:
+            if found is None:
                 raise DomainError("forbidden", "Only active global agents may invoke operations")
             scope = found["profile"]["scope"]
             if profile["revision"] != current.profile_revision:
                 raise DomainError("context_refresh_required", "Agent configuration changed", retryable=True,
                                   current_revision=profile["revision"])
-            # A global agent's business access is the active directory in this transaction, never its stored list.
-            if not current.allowed_business_ids <= effective_business_ids(uow.connection, current.principal_id):
+            # A global agent's project access is the active directory in this transaction.
+            if not current.allowed_project_ids <= effective_project_ids(uow.connection, current.principal_id):
                 raise DomainError("forbidden", "Invocation scope is not granted by the current profile")
             if not current.global_capabilities <= set(scope.get("global_capabilities", ())):
                 raise DomainError("forbidden", "Invocation global capabilities are not granted by the current profile")
         uow.actor_id = current.principal_id
-        return current.select_business(current.business_id)
+        return current.select_project(current.project_id)
 
     @staticmethod
     def _options_context(context, options):
-        current = context.select_business(options.business_id)
-        review = options.review_business_id or current.review_business_id or current.business_id
-        if review is not None and review not in current.allowed_business_ids:
+        current = context.select_project(options.project_id)
+        review = options.review_project_id or current.review_project_id or current.project_id
+        if review is not None and review not in current.allowed_project_ids:
             raise DomainError("forbidden", "Review project is outside the principal's scope")
-        return replace(current, review_business_id=review)
+        return replace(current, review_project_id=review)
 
     @staticmethod
-    def _input_hash(descriptor, arguments, options, business_id, review_business_id):
+    def _input_hash(descriptor, arguments, options, project_id, review_project_id):
         return canonical_hash({"operation": descriptor.name, "version": descriptor.version,
-            "arguments": arguments, "options": {**plain(options), "business_id": business_id,
-            "review_business_id": review_business_id, "idempotency_key": None}})
+            "arguments": arguments, "options": {**plain(options), "project_id": project_id,
+            "review_project_id": review_project_id, "idempotency_key": None}})
 
     def _locate(self, context, descriptor, arguments, options, uow):
-        """An agent's call that selects no project runs where the record it names is, exactly as if it had selected it.
+        """A call that selects no project runs where the record it names is, exactly as if it had selected it.
 
-        Only for agent MCP calls of a descriptor with ``locate_scope``: the dashboard and workers always select their
-        scope. The hook looks the record up within the caller's current reach (this transaction's refreshed context) and
+        For every caller source except an internal worker (workers and jobs run in the namespaces stored with their work)
+        and for a descriptor with ``locate_scope``. The hook looks the record
+        up within the caller's current reach (this transaction's refreshed context) and
         returns the owning namespace it found, or ``None`` to keep the caller's selection. A found project becomes
-        ``options.business_id`` here, before namespace resolution, authorization, policy, the idempotency key and input
+        ``options.project_id`` here, before namespace resolution, authorization, policy, the idempotency key and input
         hash, and plan preparation, so the call is the explicit one in every respect: a staged plan carries that
         namespace and its approval rebuilds the proposer from it, never from this lookup. A mutation replayed with an
         idempotency key whose receipt binds this exact input in another reachable namespace (the record moved since) is
@@ -175,19 +141,30 @@ class Application:
         An operation that takes its Global selection from an argument (the Signoff tools' ``scope``) has no project to
         select for a record found in Global, so its hook states that scope in the arguments it returns, with namespace
         ``global``. Those arguments are then the call's own for namespace resolution, the input hash and the plan, so it
-        is the explicit ``scope=global`` call in every respect too."""
-        if descriptor.locate_scope is None or context.source != "mcp":
+        is the explicit ``scope=global`` call in every respect too.
+
+        First, for every caller source, a descriptor with ``complete_references`` has the project written into each record
+        reference of the arguments that names none; those arguments are the call's own from here on."""
+        if descriptor.complete_references is not None:
+            # A record reference that names no project gets the project that holds the record (``records/references.py``).
+            completed = descriptor.complete_references(self, context, arguments, uow)
+            if completed is not arguments:
+                arguments = plain(completed)
+        if descriptor.locate_scope is None or context.source == "worker":
             return context, arguments, options
+        attach = getattr(descriptor.locate_scope, "attach", None)
+        if attach is not None:
+            attach(self)
         arguments, namespace = descriptor.locate_scope(context, arguments, uow)
         arguments = plain(arguments)
         if namespace is None:
             return context, arguments, options
-        if context.business_id is not None:
+        if context.project_id is not None:
             raise DomainError("invalid_plan", "A located record cannot replace the selected project")
         if descriptor.effect_kind != "read" and options.idempotency_key is not None:
             namespace = self._receipt_namespace(context, descriptor, arguments, options, uow) or namespace
-        if namespace.startswith("business:"):
-            options = replace(options, business_id=namespace.removeprefix("business:"))
+        if namespace.startswith("project:"):
+            options = replace(options, project_id=namespace.removeprefix("project:"))
             context = self._options_context(context, options)
         elif namespace != "global":
             raise DomainError("invalid_plan", "Unknown located namespace")
@@ -195,15 +172,15 @@ class Application:
 
     def _receipt_namespace(self, context, descriptor, arguments, options, uow):
         """The reachable namespace whose saved receipt for this key and operation was made from exactly this input."""
-        candidates = ["global", *("business:" + business for business in sorted(context.allowed_business_ids))]
+        candidates = ["global", *("project:" + project for project in sorted(context.allowed_project_ids))]
         rows = uow.connection.execute(
             "SELECT target_namespace, input_hash FROM idempotency_receipts WHERE principal_id=? AND operation_name=? "
             f"AND idempotency_key=? AND target_namespace IN ({','.join('?' * len(candidates))}) ORDER BY target_namespace",
             (context.principal_id, descriptor.name, options.idempotency_key, *candidates)).fetchall()
         for row in rows:
-            business = row["target_namespace"].removeprefix("business:") if row["target_namespace"] != "global" else None
-            if self._input_hash(descriptor, arguments, replace(options, business_id=business),
-                                business, business) == row["input_hash"]:
+            project = row["target_namespace"].removeprefix("project:") if row["target_namespace"] != "global" else None
+            if self._input_hash(descriptor, arguments, replace(options, project_id=project),
+                                project, project) == row["input_hash"]:
                 return row["target_namespace"]
         return None
 
@@ -212,8 +189,8 @@ class Application:
             namespace = descriptor.resolve_namespace(context, arguments)
         elif descriptor.scope_kinds == {"global"}:
             namespace = "global"
-        elif context.business_id and "business" in descriptor.scope_kinds:
-            namespace = "business:" + context.business_id
+        elif context.project_id and "project" in descriptor.scope_kinds:
+            namespace = "project:" + context.project_id
         elif "agent_workspace" in descriptor.scope_kinds and context.agent_id:
             namespace = "agent:" + context.agent_id
         else:
@@ -223,13 +200,13 @@ class Application:
                 raise DomainError("forbidden", "Operation has no registered global capability")
             if descriptor.global_capability_selected(context.global_capabilities) is None:
                 raise DomainError("forbidden", "Global capability is not granted")
-        elif namespace.startswith("business:"):
-            if "business" not in descriptor.scope_kinds:
+        elif namespace.startswith("project:"):
+            if "project" not in descriptor.scope_kinds:
                 raise DomainError("forbidden", "Operation target differs from the selected project")
-            if context.business_id:
-                if namespace != "business:" + context.business_id:
+            if context.project_id:
+                if namespace != "project:" + context.project_id:
                     raise DomainError("forbidden", "Operation target differs from the selected project")
-            elif not (descriptor.resolve_namespace and namespace.removeprefix("business:") in context.allowed_business_ids):
+            elif not (descriptor.resolve_namespace and namespace.removeprefix("project:") in context.allowed_project_ids):
                 raise DomainError("scope_required", "Operation requires a selected project")
         elif namespace.startswith("agent:"):
             if "agent_workspace" not in descriptor.scope_kinds or namespace != "agent:" + (context.agent_id or ""):
@@ -242,30 +219,27 @@ class Application:
         if context.delegation_assignment_id is not None:
             self.authorize_delegation(context, descriptor, targets, uow,
                 namespace=namespace, arguments=arguments)
-        owner_session_route = (context.owner_session_business_id is not None
+        owner_session_route = (context.owner_session_project_id is not None
                                and getattr(descriptor, "owner_session", False))
-        if owner_session_route and context.business_id != context.owner_session_business_id:
+        if owner_session_route and context.project_id != context.owner_session_project_id:
             raise DomainError("forbidden", "Owner-only route is outside the owner-session project")
         if context.source not in descriptor.exposure and not owner_session_route:
             raise DomainError("forbidden", "Operation is not exposed to this caller")
         if descriptor.owner_only:
-            membership = (uow.repository("business_memberships", business_id=context.business_id).get(context.principal_id)
-                          if context.business_id else None)
             installation = uow.repository("installation").get("service") if namespace == "global" else None
             global_owner = bool(installation and installation["owner_principal_id"] == context.principal_id)
-            if context.principal_kind != "human" or not (global_owner or (membership and membership["active"] and membership["is_owner"])):
+            if context.principal_kind != "human" or not (global_owner or owner_may_act(uow.connection, context.principal_id, context.project_id)):
                 raise DomainError("forbidden", "This operation requires the owning human")
             return PolicyDecision("allow", "owner")
-        if context.business_id and context.principal_kind == "human":
-            membership = uow.repository("business_memberships", business_id=context.business_id).get(context.principal_id)
-            if not membership or not membership["active"]:
-                raise DomainError("forbidden", "Principal is not an active member of this project")
+        if context.project_id and context.principal_kind == "human":
+            if not owner_may_act(uow.connection, context.principal_id, context.project_id):
+                raise DomainError("forbidden", "Principal may not act in this project")
         if descriptor.plugin_requirement and context.principal_kind == "agent" and namespace != "global":
             if descriptor.plugin_requirement not in {ref.id for ref in context.enabled_plugin_refs}:
                 raise DomainError("forbidden", "Required plugin is not enabled")
         if self.policy is None:
             raise DomainError("policy_denied", "No authority policy is installed")
-        effective = (descriptor.business_policy
+        effective = (descriptor.project_policy
                      if namespace not in (None, "global") and descriptor.global_capability else descriptor)
         decision = self.policy.resolve(context, effective, tuple(targets), uow)
         if not isinstance(decision, PolicyDecision):
@@ -361,22 +335,22 @@ class Application:
         if len(set(file_resources)) != len(file_resources):
             raise DomainError("invalid_plan", "A file can have only one exact prepared effect")
         for resource in references:
-            if resource.business_id is not None:
-                if (resource.business_id not in context.allowed_business_ids
+            if resource.project_id is not None:
+                if (resource.project_id not in context.allowed_project_ids
                         or (resource in written and plan.target_namespace != "global"
-                            and resource.business_id != context.business_id)):
+                            and resource.project_id != context.project_id)):
                     raise DomainError("forbidden", "Prepared target is outside the selected project")
-                if resource.namespace not in (None, "business:" + resource.business_id, resource.business_id):
+                if resource.namespace not in (None, "project:" + resource.project_id, resource.project_id):
                     raise DomainError("invalid_plan", "Conflicting resource namespace")
             elif resource.namespace == "global":
                 if resource in written and plan.target_namespace != "global":
                     raise DomainError("forbidden", "Project operations cannot mutate global resources")
             elif resource.namespace == "ecosystem" and (plan.target_namespace == "global" or resource not in written):
-                pass  # A business plan may pin, never write, an ecosystem record such as a global assignee's profile.
+                pass  # A project plan may pin, never write, an ecosystem record such as a global assignee's profile.
             elif resource.namespace and resource.namespace != plan.target_namespace:
                 raise DomainError("forbidden", "Prepared resource namespace differs from operation scope")
             elif resource.resource_type in tables and tables[resource.resource_type].scope_column:
-                if plan.target_namespace.startswith("business:"):
+                if plan.target_namespace.startswith("project:"):
                     raise DomainError("invalid_plan", "Project resource references require an explicit project ID")
 
     def _review_scope(self, context, plan):
@@ -391,7 +365,7 @@ class Application:
         if resource.resource_type not in tables:
             raise DomainError("invalid_plan", "Prepared resource type has no registered resolver")
         spec = tables[resource.resource_type]
-        repository = uow.repository(resource.resource_type, business_id=resource.business_id)
+        repository = uow.repository(resource.resource_type, project_id=resource.project_id)
         keys = tuple(key for key in spec.keys if key != spec.scope_column)
         if len(keys) == 1:
             return repository.get(resource.resource_id)
@@ -478,15 +452,19 @@ class Application:
     def _check_approval(plan, approval, uow):
         if not isinstance(approval, ApprovalBinding) or approval.payload_hash != plan.payload_hash:
             raise DomainError("approval_required", "Exact owner approval is required")
-        row = uow.repository("signoffs", business_id=plan.review_business_id).get(approval.signoff_id)
+        row = uow.repository("signoffs", project_id=plan.review_project_id).get(approval.signoff_id)
         if (row is None or row["state"] != "approved" or row["payload_hash"] != plan.payload_hash
                 or row["change_set"] != plan.canonical or row["proposer_principal_id"] != plan.principal_id):
             raise DomainError("approval_required", "No active approval binds this exact prepared change")
 
     def validate_prepared(self, context, plan, uow, *, approval=None, receipt_id=None, allow_unverified_files=False,
-                          require_approval=True):
-        """Revalidate stored authority and targets without executing a domain handler."""
-        self.ensure_writes_open(uow)
+                          require_approval=True, _writes_checked=False):
+        """Revalidate stored authority and targets without executing a domain handler.
+
+        ``_writes_checked`` is for this engine alone: its own write unit has already read the maintenance state and
+        written nothing since, so reading it again in the same unit could not answer differently."""
+        if not _writes_checked:
+            self.ensure_writes_open(uow)
         context = self.current_context(context, uow)
         descriptor = self.registry.get(plan.operation_name)
         if (plan.principal_id != context.principal_id or descriptor.version != plan.operation_version
@@ -510,30 +488,30 @@ class Application:
             descriptor.validate_targets(context, plan, uow)
         return context, descriptor
 
-    def apply_prepared(self, context, plan, uow, *, approval=None, receipt_id=None):
+    def apply_prepared(self, context, plan, uow, *, approval=None, receipt_id=None, _writes_checked=False):
         """Finalize only exact validated effects inside the caller's short transaction."""
         # This transaction already owns SQLite's write lock. The outer invocation
         # or file executor takes recovery admission before opening it; taking a
         # filesystem lock here would invert recovery's lock order.
         uow.require_write()
-        context, descriptor = self.validate_prepared(context, plan, uow, approval=approval, receipt_id=receipt_id)
+        context, descriptor = self.validate_prepared(context, plan, uow, approval=approval, receipt_id=receipt_id,
+                                                     _writes_checked=_writes_checked)
         result = self.result(context, descriptor.apply(context, plan, uow))
         if result.status in ("error", "signoff_required"):
             raise DomainError("invalid_result", "An apply handler must complete or enqueue its exact prepared effects")
         return descriptor.validate_output(result)
 
-    def invoke_or_raise(self, context, operation_name, arguments=None, options=None, *, located=None):
-        """Run mutations under the installed recovery admission gate. ``located`` receives the options a found record
-        selected (``_locate``), when it selected any, and the arguments its lookup returned."""
+    def invoke_or_raise(self, context, operation_name, arguments=None, options=None):
+        """Run mutations under the installed recovery admission gate."""
         descriptor = self.registry.get(operation_name)
         admission = (self.writer_admission.writer()
                      if descriptor.effect_kind != "read" and self.writer_admission is not None
                      else nullcontext())
         with admission:
-            result = self._invoke_or_raise(context, operation_name, arguments, options, located=located)
+            result = self._invoke_or_raise(context, operation_name, arguments, options)
             return descriptor.project_result(result) if descriptor.project_result else result
 
-    def _invoke_or_raise(self, context, operation_name, arguments=None, options=None, *, located=None):
+    def _invoke_or_raise(self, context, operation_name, arguments=None, options=None):
         if not isinstance(context, InvocationContext):
             raise DomainError("invalid_principal", "An authenticated invocation context is required")
         options = options if isinstance(options, InvocationOptions) else InvocationOptions.from_mapping(options)
@@ -549,25 +527,20 @@ class Application:
             if (required_plugin and context.principal_kind == "agent"
                     and required_plugin not in {ref.id for ref in context.enabled_plugin_refs}):
                 raise DomainError("forbidden", "Requested tool alias requires an enabled plugin")
-            found = self._locate(context, descriptor, arguments, options, uow)
-            if found[2] is not options and located is not None:
-                located["options"] = found[2]
-            if found[1] is not arguments and located is not None:
-                located["arguments"] = found[1]
-            context, arguments, options = found
+            context, arguments, options = self._locate(context, descriptor, arguments, options, uow)
             namespace = self.namespace(context, descriptor, arguments)
             if namespace == "global":
-                context = replace(context, business_id=None, review_business_id=None)
-            elif namespace.startswith("business:") and context.business_id is None:
-                # A resolver-supplied business target (identity-routed email
-                # sends) selects that business for the whole invocation.
-                options = replace(options, business_id=namespace.removeprefix("business:"))
+                context = replace(context, project_id=None, review_project_id=None)
+            elif namespace.startswith("project:") and context.project_id is None:
+                # A resolver-supplied project target (identity-routed email
+                # sends) selects that project for the whole invocation.
+                options = replace(options, project_id=namespace.removeprefix("project:"))
                 context = self._options_context(context, options)
             self.authorize(context, descriptor, (), uow, namespace=namespace,
                            arguments=arguments if context.delegation_assignment_id is not None else None)
             if descriptor.effect_kind == "read":
                 return descriptor.validate_output(self.result(context, descriptor.read(context, arguments, options, uow)))
-            input_hash = self._input_hash(descriptor, arguments, options, context.business_id, context.review_business_id)
+            input_hash = self._input_hash(descriptor, arguments, options, context.project_id, context.review_project_id)
             replay = IdempotencyReceipts(uow).lookup(context.principal_id, namespace, descriptor.name,
                                                      options.idempotency_key, input_hash)
             if replay:
@@ -591,12 +564,12 @@ class Application:
                 needs_signoff = descriptor.signoff_category == "platform_action" or any(decision.mode == "signoff" for decision in decisions.values())
                 if options.supersedes_signoff_id and not needs_signoff:
                     raise DomainError("validation_error", "Replacing a signoff requires the current policy to stage a new proposal; policy now permits immediate execution")
-                review_business = namespace.removeprefix("business:") if namespace.startswith("business:") else None
-                if options.review_business_id and options.review_business_id != review_business:
+                review_project = namespace.removeprefix("project:") if namespace.startswith("project:") else None
+                if options.review_project_id and options.review_project_id != review_project:
                     raise DomainError("validation_error", "Review destination is determined by resource ownership")
                 review_scope = self._review_scope(context, plan)
                 plan = replace(plan, policy_binding=self._binding(context, decisions),
-                               review_business_id=review_business, review_scope=review_scope, encoding_version=2,
+                               review_project_id=review_project, review_scope=review_scope, encoding_version=2,
                                proposer_agent_id=context.agent_id,
                                initiated_by_principal_id=context.initiated_by_principal_id)
                 if self.policy is not None and hasattr(self.policy, "validate_plan"):
@@ -616,7 +589,7 @@ class Application:
             self.ensure_writes_open(uow)
             context = self._options_context(self.current_context(context, uow), options)
             if namespace == "global":
-                context = replace(context, business_id=None, review_business_id=None)
+                context = replace(context, project_id=None, review_project_id=None)
             receipts = IdempotencyReceipts(uow)
             replay = receipts.lookup(context.principal_id, namespace, descriptor.name, options.idempotency_key, input_hash)
             if replay:
@@ -634,7 +607,8 @@ class Application:
                 if result.status != "signoff_required":
                     raise DomainError("invalid_result", "Signoff staging must return a proposal reference")
             else:
-                result = self.apply_prepared(context, plan, uow)
+                # The maintenance state was read at this unit's start and nothing has been written since.
+                result = self.apply_prepared(context, plan, uow, _writes_checked=True)
             receipts.save(context.principal_id, namespace, descriptor.name, options.idempotency_key, input_hash, result)
             if context.delegation_assignment_id is not None:
                 if self.delegation is None:

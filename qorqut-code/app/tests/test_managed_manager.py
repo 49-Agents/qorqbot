@@ -353,6 +353,7 @@ class EnsureOpen(ManagerFixture):
     def test_the_clients_own_compaction_is_switched_off_only_for_an_agent_whose_conversation_qorqbot_compacts(self):
         self.manager.ensure_open(PROFILE, 30)
         self.assertNotIn("DISABLE_AUTO_COMPACT", self.launcher.started[-1][1]["env"])        # nothing composed: as before
+        self.assertEqual(self.launcher.started[-1][1]["env"].get("CLAUDE_CODE_DISABLE_AUTO_MEMORY"), "1")   # in every session
         asked = []
         self.runtime.compaction = SimpleNamespace(replaces_client=lambda agent_id: asked.append(agent_id) or self.own)
         for self.own, expected in ((False, None), (True, "1"), ("yes", None)):
@@ -668,9 +669,9 @@ class ClaudeLookup(ManagerFixture):
         with self.assertRaises(hosts.ManagedError) as refused:
             self.manager.ensure_open(PROFILE, 5)
         self.assertEqual(refused.exception.code, "cli_unavailable")
-        # One plain sentence naming the agent's client and what to do; no folders (those are the service's business, not the owner's).
+        # One plain sentence naming the agent's client and what to do; no folders (those are the service's concern, not the owner's).
         self.assertEqual(refused.exception.message, "This agent is set to use Claude Code, and Claude Code couldn't be found. "
-                                                    "Download it under Settings > Agents, then send again.")
+                                                    "Download it under Settings > Model/Provider, then send again.")
         self.assertEqual(self.launcher.started, [])
 
 

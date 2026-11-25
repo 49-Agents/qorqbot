@@ -67,10 +67,10 @@ class BrowserCleanupDefaults:
         if not owner or not is_active_installation_owner(uow, owner, "human"):
             return 0
         rows = uow.connection.execute(
-            "SELECT a.agent_id, a.home_business_id, a.status, a.profile_json, p.kind, p.active "
+            "SELECT a.agent_id, a.status, a.profile_json, p.kind, p.active "
             "FROM agent_profiles a JOIN principals p ON p.id=a.agent_id "
             "LEFT JOIN browser_cleanup_enrollments e ON e.agent_id=a.agent_id "
-            "WHERE e.agent_id IS NULL AND a.status='active' AND a.home_business_id IS NULL "
+            "WHERE e.agent_id IS NULL AND a.status='active' "
             "AND p.kind='agent' AND p.active=1 AND a.agent_id>? ORDER BY a.agent_id LIMIT ?",
             (self.after, BATCH)).fetchall()
         enrolled = 0
@@ -101,17 +101,17 @@ class BrowserCleanupDefaults:
         owner = installation["owner_principal_id"]
         # Recover the registered owner's current policy, rather than inventing
         # an agent identity or widening the recipient's browser/tool grants.
-        ctx = service.app.policy.context_for(owner, business_id=None, review_business_id=None, uow=uow)
+        ctx = service.app.policy.context_for(owner, project_id=None, review_project_id=None, uow=uow)
         service.authorize_operation(ctx, CREATE, uow)
         access = service.caller(ctx, uow)
         # Adopt the previously owner-configured series, including cancelled or
         # snoozed series, without rewriting its schedule, link or provenance.
         existing = uow.connection.execute(
             "SELECT r.id FROM reminders r JOIN tasks t "
-            "ON t.id=json_extract(r.linked_item_json,'$.id') AND t.business_id IS NULL "
-            "WHERE r.business_id IS NULL AND r.recipient_id=? AND r.creator_id=? "
+            "ON t.id=json_extract(r.linked_item_json,'$.id') AND t.project_id IS NULL "
+            "WHERE r.project_id IS NULL AND r.recipient_id=? AND r.creator_id=? "
             "AND json_extract(r.linked_item_json,'$.type')='task' "
-            "AND json_extract(r.linked_item_json,'$.business_id') IS NULL "
+            "AND json_extract(r.linked_item_json,'$.project_id') IS NULL "
             "AND t.title=? AND t.created_by=? AND r.text LIKE 'Daily browser cleanup:%' "
             "ORDER BY r.created_at,r.id LIMIT 2", (agent_id, owner, LEGACY_TITLE, owner)).fetchall()
         if len(existing) > 1:
@@ -127,11 +127,11 @@ class BrowserCleanupDefaults:
             # Keep new agents on the installation's existing shared cleanup
             # instructions when there is one unambiguous, readable task.
             tasks = uow.connection.execute(
-                "SELECT id FROM tasks WHERE business_id IS NULL AND title=? AND created_by=? "
+                "SELECT id FROM tasks WHERE project_id IS NULL AND title=? AND created_by=? "
                 "AND archived=0 AND status NOT IN ('done','cancelled') ORDER BY created_at,id LIMIT 2",
                 (LEGACY_TITLE, owner)).fetchall()
             if len(tasks) == 1:
-                link = {"type": "task", "id": tasks[0]["id"], "business_id": None}
+                link = {"type": "task", "id": tasks[0]["id"], "project_id": None}
                 peer = service.principal_context(uow, agent_id)
                 if (peer is not None and service.read_link(ctx, link, uow) is not None
                         and service.read_link(peer, link, uow) is not None):

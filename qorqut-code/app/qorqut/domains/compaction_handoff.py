@@ -1,4 +1,4 @@
-"""The coordinator's own compaction: the handoff it files when its conversation is nearly full, and what the next
+"""An agent's own compaction: the handoff it files when its conversation is nearly full, and what the next
 conversation starts with.
 
 A conversation that nears its limit is closed and a fresh one opened. The fresh one gets the agent's instructions as
@@ -7,15 +7,16 @@ always, and nothing of the old conversation is summarised for it. The agent file
 Task that holds the work and that Task's next step; for any other Task it worked on, a note and next step; a fixed form
 on where it stopped; and a paragraph on its workers. Filing writes the records: each note and next step goes onto the
 Task named, through the Task service's own write and in the same transaction. What the next conversation is pointed at
-is therefore a record that was written, never one typed from memory.
+is therefore a record that was written, never one typed from memory. Every agent files its own; the coordinator also
+gives the paragraph on its workers, which any other agent may leave out.
 
 ``opening`` is what the fresh conversation starts with after its instructions: the owner's messages in their exact
 words, each with the filed status and the Task to read; where the agent stopped; the other Tasks it wrote on; its
-workers; and the rules the owner stated that the agent proposed as instruction changes. A message is listed again in
-every handoff until one marks it done.
+workers (the coordinator's); and the rules the owner stated that the agent filed for the Learning Applier's review. A
+message is listed again in every handoff until one marks it done.
 
 One row of ``compactions`` per compaction is the log. The row waiting to be opened is the one a filing fills, so filing
-again before the fresh conversation starts replaces the earlier filing. For the coordinator only.
+again before the fresh conversation starts replaces the earlier filing. Each agent reads and files its own row, in person.
 """
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ MAX_MESSAGES = 100                      # per channel and period; older ones of 
 MESSAGE_CAP = 3000                      # characters of one owner message in the opening; the rest is read by its id
 PREVIEW = 200
 WORKER_LINES = 40
+RULES_LIMIT, RULE_LENGTH = 20, 400         # the owner's rules the agent filed that are named in the opening
 
 HANDLE = {"type": "string", "pattern": "^m[1-9][0-9]{0,3}$"}
 TASK = {"type": "string", "minLength": 1, "maxLength": 100}
@@ -61,43 +63,47 @@ FILE_SCHEMA = schema({
                       tuple(key for key, _ in STOPPED)),
     "workers": {"type": "string", "maxLength": 3000},
     "not_recorded": {"type": "string", "maxLength": 2000},
-}, ("messages", "stopped", "workers"))
+}, ("messages", "stopped"))
 
 GET_DESCRIPTION = (
-    "Coordinator only. The form of your next handoff: the owner's messages it must give a status, oldest first, each with its "
+    "The form of your next handoff: the owner's messages it must give a status, oldest first, each with its "
     "id (m1, m2, ...), time, where it was written, the start of its text and, where your last handoff left it open or gave it "
     "no status, what that handoff said. Changes nothing.")
 FILE_DESCRIPTION = (
-    "Coordinator only. File your handoff when you are asked to because your conversation is nearly full: the conversation is "
+    "File your handoff when you are asked to because your conversation is nearly full: the conversation is "
     "then closed and a fresh one opened for you from what you file. Write from memory, without looking anything up. "
     "messages: one entry for every listed owner message (compaction_handoff_get lists them): id, status (done, partly or "
     "remaining), note (one or two lines on what was done and what remains, written afresh for a message that was already "
-    "open), task_id (the Task that holds the work; needed unless done; create the Task first if none holds it) and "
+    "open), task_id (the Task that holds the work; needed unless done, from the coordinator, who creates the Task first if none holds it; any other agent "
+    "leaves it out when no Task holds the work) and "
     "next_step (what happens next on that Task and who does it). tasks: every other Task you worked on whose record does "
     "not yet show what you found, decided, promised or assigned: task_id, note, next_step. stopped: where you stopped, one "
     "line each: task_id (the Task you were on; leave out if none), doing (the step in progress), last_action (the last call, "
     "its target and its result, with the error text if it failed), next_action (the one next call or step with its exact "
     "target), waiting_on (who or what must happen first), also_open (up to five other things started and not finished: "
     "task_id, pending). workers: one paragraph on which worker holds which Task from you, the state of each and what you "
-    "wait for from each. not_recorded: only what no record can hold. Filing writes each note onto its Task and sets its "
-    "next step, so the next conversation is pointed at records that exist; do not write those notes yourself as well. It is "
-    "refused, saying why, when a listed message has no entry, an open message names no Task or a Task is not found: fix "
-    "that and file again. A rule the owner stated that should keep applying is not filed here: propose it with "
-    "agentic_change_propose before you file.")
+    "wait for from each (required of the coordinator, optional for any other agent). not_recorded: only what no record can "
+    "hold. Filing writes each note onto its Task and sets its next step, so the next conversation is pointed at records "
+    "that exist; do not write those notes yourself as well. It is refused, saying why, when a listed message has no entry, "
+    "the coordinator's open message names no Task or a Task is not found or not yours to write on: fix that and file "
+    "again. A rule the owner stated on how agents work that should keep applying is not filed here: file it with "
+    "experience_observation_file before you file.")
 ASK = """Your context is nearly full. Stop the work you are doing now: do not start another step, message the owner or send \
 anything outside. This conversation will be closed and a fresh one opened for you with the same instructions, tools and \
-access. It gets your instructions, then the owner's messages listed below in their exact words, then the handoff you file \
+access. It gets your instructions, then the owner's messages in their exact words, then the handoff you file \
 now. Nothing else of this conversation reaches it.
 
 First, for each rule or preference the owner stated in this conversation that should keep applying and that you have not \
-proposed yet, call agentic_change_propose.
+filed yet, call experience_observation_file.
 
 Then call compaction_handoff_file once, from memory, without looking anything up. It writes every note and next step you \
-give onto the Task you name, so name the Task that really holds the work, and create one first where an open message has \
-none. After it answers that the handoff is filed, stop.
+give onto the Task you name, so name the Task that really holds the work{holds}. After it answers that the handoff is \
+filed, stop.
 
 The owner's messages to give a status:
 {messages}"""
+HOLDS_COORDINATOR = ", and create one first where an open message has none"
+HOLDS_AGENT = "; an open message that no Task holds is filed without one"
 OPENING = ("This conversation continues your work. Your previous conversation was closed because its context was nearly full, "
            "and nothing of it is carried over except what follows. You filed this handoff yourself before it closed, and every "
            "note in it is also on the Task it names: read a Task before you act on it.")
@@ -146,13 +152,16 @@ class CompactionHandoff:
 
     # ----- who and what ----------------------------------------------------------------------------------------------
 
-    def coordinator(self, ctx, uow):
-        """The configured coordinator in person, at Global: never a delegated identity, another agent or the owner."""
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
-        if (ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None
-                or ctx.principal_id != configured_ordubashy(uow)):
-            raise DomainError("forbidden", "A compaction handoff is filed by the coordinator in person")
+    def agent(self, ctx, uow):
+        """The agent in person, at Global: never a delegated identity or the owner. What it reads and files is its own."""
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
+        if ctx.principal_kind != "agent" or ctx.delegation_assignment_id is not None:
+            raise DomainError("forbidden", "A compaction handoff is filed by the agent in person")
         return ctx
+
+    @staticmethod
+    def is_coordinator(uow, agent_id):
+        return configured_ordubashy(uow) == agent_id
 
     @staticmethod
     def rows(uow, agent_id):
@@ -196,7 +205,7 @@ class CompactionHandoff:
         return text
 
     def get(self, ctx, args, options, uow):
-        form = self.form(self.coordinator(ctx, uow), uow)
+        form = self.form(self.agent(ctx, uow), uow)
         return {"asked": form["asked"], "messages": [
             {"id": message["handle"], "at": message["at"], "where": where(message), "text": cut(message["text"]),
              "chars": len(message["text"] or ""), "open": message["open"]} for message in form["messages"]]}
@@ -204,10 +213,13 @@ class CompactionHandoff:
     # ----- filing ----------------------------------------------------------------------------------------------------
 
     def prepare(self, ctx, args, options, uow):
-        ctx = self.coordinator(ctx, uow)
+        ctx = self.agent(ctx, uow)
         form = self.form(ctx, uow)
         listed, problems, given = form["messages"], [], {}
         handles = {message["handle"] for message in listed}
+        coordinator = self.is_coordinator(uow, ctx.principal_id)
+        if "workers" not in args and coordinator:
+            problems.append("workers is required of the coordinator: one paragraph on which worker holds which Task from you.")
         for entry in args["messages"]:
             if entry["id"] not in handles:
                 problems.append(f"{entry['id']} is not a listed message.")
@@ -215,7 +227,7 @@ class CompactionHandoff:
                 problems.append(f"{entry['id']} has two entries.")
             else:
                 given[entry["id"]] = entry
-                if entry["status"] in OPEN and not entry.get("task_id"):
+                if entry["status"] in OPEN and not entry.get("task_id") and coordinator:
                     problems.append(f"{entry['id']} is {entry['status']} and names no Task: give task_id, and create the Task "
                                     "first if none holds this work.")
         answered = [message for message in listed if message["handle"] in given]
@@ -233,7 +245,7 @@ class CompactionHandoff:
         tasks = {}
         for key, write in writes.items():
             try:
-                tasks[key] = self.compose(ctx, builder, key, write, options, uow)
+                tasks[key] = self.compose(ctx, builder, key, write, options, uow, guard=not coordinator)
             except DomainError as error:
                 if error.code not in {"not_found", "validation_error", "record_moved", "forbidden"}:
                     raise
@@ -254,7 +266,7 @@ class CompactionHandoff:
             "stopped": {"task": task(stopped.get("task_id")), **{key: stopped[key] for key, _ in STOPPED},
                         "also_open": [{"task": task(item["task_id"]), "pending": item["pending"]}
                                       for item in stopped.get("also_open", ())]},
-            "workers": args["workers"], "not_recorded": args.get("not_recorded", ""),
+            "workers": args.get("workers", ""), "not_recorded": args.get("not_recorded", ""),
         }
         until = form["until"] if last is None else min(form["until"], stamp(datetime.fromisoformat(last.replace("Z", "+00:00"))
                                                                               + timedelta(microseconds=1)))
@@ -296,23 +308,36 @@ class CompactionHandoff:
             add(item["task_id"], "Handoff: started and not finished: " + item["pending"])
         return found
 
-    def compose(self, ctx, builder, task_id, write, options, uow):
+    def compose(self, ctx, builder, task_id, write, options, uow, *, guard=False):
         """Prepare one Task's note and next step with the Task service's own validation and adopt its effects into the
-        filing's plan. The Task is found by its id in whatever scope it is. A closed Task gets the note only."""
+        filing's plan. The Task is found by its id in whatever scope it is. A closed Task gets the note only. With ``guard``,
+        a write the caller's policy denies is a reason the filing is refused for, not a bare denial of the whole call."""
         tasks = self.runtime.domains.tasks
         located, namespace = tasks.lookup(ctx, {"task_id": task_id}, uow)
         if namespace is None:
             raise DomainError("not_found", "no Task has this id")
-        business = None if namespace == "global" else namespace.removeprefix("business:")
-        identity, scope = located["task_id"], ({} if business else {"scope": "global"})
-        row = uow.repository("tasks", business_id=business).get(identity, required=True)
+        project = None if namespace == "global" else namespace.removeprefix("project:")
+        identity, scope = located["task_id"], ({} if project else {"scope": "global"})
+        row = uow.repository("tasks", project_id=project).get(identity, required=True)
         note = "\n".join(write["notes"])
         if write["next_step"] and row["status"] not in CLOSED_STATES:
             operation, arguments = "tasks_update", {"task_id": identity, "changes": {"next_step": write["next_step"]}, "note": note, **scope}
         else:
             operation, arguments = "tasks_comment", {"task_id": identity, "text": note, **scope}
-        prepared = tasks.prepare(operation, ctx.select_business(business) if business else ctx, arguments,
+        prepared = tasks.prepare(operation, ctx.select_project(project) if project else ctx, arguments,
                                  replace(options, expected_revision=None), uow)
+        if guard:
+            effect = self.app.registry.get(operation)
+            try:
+                # The two checks the engine makes of a composed effect when the filing's plan is prepared.
+                if effect.global_capability and effect.global_capability not in ctx.global_capabilities:
+                    raise DomainError("policy_denied", "The write needs a global capability this agent does not hold")
+                self.app.authorize(ctx, effect, prepared.expected_targets, uow, namespace="global")
+            except DomainError as error:
+                if error.code != "policy_denied":
+                    raise
+                raise DomainError("forbidden", "you may not write on this Task; leave its task_id out and say what matters in "
+                                               "the note.") from None
         for target in prepared.expected_targets:
             if builder.targets.get(target.resource, target) != target:
                 raise DomainError("invalid_plan", "Prepared snapshots disagree")
@@ -323,21 +348,21 @@ class CompactionHandoff:
         builder.previews.extend(preview["changes"])
         builder.effects.extend(preview["effects"])
         # The Task write is judged by the Task service's own policy too, and this marker ends the Task's effects in the plan.
-        builder.policy_effect(builder.expect(ref("tasks", identity, business), row), operation, "Writes the handoff note on the Task")
-        return {"id": identity, "business_id": business, "title": row["title"]}
+        builder.policy_effect(builder.expect(ref("tasks", identity, project), row), operation, "Writes the handoff note on the Task")
+        return {"id": identity, "project_id": project, "title": row["title"]}
 
     def apply(self, ctx, plan, uow):
-        if plan.principal_id != configured_ordubashy(uow):
-            raise DomainError("forbidden", "A compaction handoff is filed by the coordinator in person")
+        if plan.principal_id != self.agent(ctx, uow).principal_id:
+            raise DomainError("forbidden", "A compaction handoff is filed by the agent in person")
         tasks, group, own, written = self.runtime.domains.tasks, [], [], []
         for change in plan.changes:
             if change.resource.resource_type == TABLE:
                 own.append(change)
             elif change.action == "policy_effect" and change.operation_name in {"tasks_update", "tasks_comment"}:
                 # One Task's effects, applied by the Task service: its write, follows, thread entry and event.
-                business, identity = change.resource.business_id, change.resource.resource_id
-                arguments = {"task_id": identity, **({} if business else {"scope": "global"})}
-                tasks.apply(ctx.select_business(business) if business else replace(ctx, business_id=None),
+                project, identity = change.resource.project_id, change.resource.resource_id
+                arguments = {"task_id": identity, **({} if project else {"scope": "global"})}
+                tasks.apply(ctx.select_project(project) if project else replace(ctx, project_id=None),
                             replace(plan, operation_name=change.operation_name, arguments=arguments, changes=tuple(group)), uow)
                 written.append({"task_id": identity, "set": "note and next step" if change.operation_name == "tasks_update" else "note"})
                 group = []
@@ -355,7 +380,7 @@ class CompactionHandoff:
     def ask(self, ctx, uow, *, reason="context", context=None):
         """Ask for a handoff: fix the period it answers for and return ``(row id, the request to send the agent)``. The row
         waiting to be opened is reused, so asking again asks for the same handoff. The caller owns the write transaction."""
-        ctx = self.coordinator(ctx, uow)
+        ctx = self.agent(ctx, uow)
         waiting, _ = self.rows(uow, ctx.principal_id)
         now = stamp(self.clock())
         if waiting:
@@ -369,13 +394,15 @@ class CompactionHandoff:
                                           "listed_until": now, "filed_at": None, "filing_json": None, "opened_at": None,
                                           "opened_json": None})
         listed = self.form(ctx, uow)["messages"]
-        return identity, ASK.format(messages="\n".join(self.line(message) for message in listed) or "(none in this period)")
+        none = "(none in this period: give an empty list for messages)"
+        return identity, ASK.format(messages="\n".join(self.line(message) for message in listed) or none,
+                                    holds=HOLDS_COORDINATOR if self.is_coordinator(uow, ctx.principal_id) else HOLDS_AGENT)
 
     def opening(self, ctx, uow, *, tail=""):
         """What the fresh conversation starts with after its instructions, from the row waiting to be opened:
         ``{id, text, unanswered}``, or None when no row waits. ``tail`` is the last messages of the closed conversation,
         word for word, which only the caller holds. Changes nothing: ``opened`` records that it was used."""
-        ctx = self.coordinator(ctx, uow)
+        ctx = self.agent(ctx, uow)
         waiting, _ = self.rows(uow, ctx.principal_id)
         if waiting is None:
             return None
@@ -386,19 +413,20 @@ class CompactionHandoff:
         later = self.runtime.owner_inputs.addressed(ctx, uow, since=waiting["listed_until"], until=stamp(self.clock()),
                                                     limit=MAX_MESSAGES)
         known = {message["id"] for message in listed}
+        coordinator = self.is_coordinator(uow, ctx.principal_id)
         parts = [OPENING]
         rules = self.rules(uow, ctx.principal_id)
         if rules:
-            parts.append("RULES THE OWNER STATED TO YOU. They are in force: follow them. You proposed each as a change to your "
-                         "written instructions, and only that writing-down still waits for the owner's decision.\n"
+            parts.append("RULES THE OWNER STATED TO YOU. They are in force: follow them. You filed each for the Learning Applier's "
+                         "review, and only the writing-down into your instructions still waits.\n"
                          + "\n".join(f"- {rule}" for rule in rules))
         if listed:
             parts.append("THE OWNER'S MESSAGES TO YOU, IN THEIR EXACT WORDS, AND WHERE EACH STANDS BY YOUR HANDOFF\n"
-                         + "\n".join(self.quoted(message, entries.get(message["id"])) for message in listed))
+                         + "\n".join(self.quoted(message, entries.get(message["id"]), cap=coordinator) for message in listed))
         arrived = [message for message in later if message["id"] not in known]
         if arrived:
             parts.append("THE OWNER'S MESSAGES THAT ARRIVED WHILE YOU WERE FILING. You have not answered or acted on them.\n"
-                         + "\n".join(self.quoted(message, None, pending=False) for message in arrived))
+                         + "\n".join(self.quoted(message, None, pending=False, cap=coordinator) for message in arrived))
         stopped = filing.get("stopped")
         if stopped:
             lines = [f"Task: {named(stopped['task']) if stopped['task'] else 'none'}",
@@ -411,7 +439,7 @@ class CompactionHandoff:
         if others:
             parts.append("OTHER TASKS YOU WROTE A NOTE ON WHEN YOU STOPPED (the note is on each Task)\n" + "\n".join(
                 f"- {named(item['task'])}" + (f". Next step: {item['next_step']}" if item["next_step"] else "") for item in others))
-        held = self.held(uow, ctx.principal_id)
+        held = self.held(uow, ctx.principal_id) if coordinator else []
         if filing.get("workers") or held:
             parts.append("YOUR WORKERS\n" + "\n".join(part for part in (
                 filing.get("workers"), held and "Open Tasks with a worker now, from the records:\n" + "\n".join(held)) if part))
@@ -449,12 +477,13 @@ class CompactionHandoff:
         return {"conversation_id": found["closed"], "at": found["opened_at"]} if found else None
 
     @staticmethod
-    def quoted(message, entry, *, pending=True):
-        """One owner message in its exact words with where it stands."""
+    def quoted(message, entry, *, pending=True, cap=True):
+        """One owner message in its exact words with where it stands. ``cap`` cuts one over ``MESSAGE_CAP`` and names the tool
+        that reads the rest; an agent that cannot call it gets the whole message."""
         text = message["text"]
         if text is None:
             text = "(text withheld: possibly a private input)" if message["redacted"] else "(text not readable now)"
-        elif len(text) > MESSAGE_CAP:
+        elif cap and len(text) > MESSAGE_CAP:
             text = text[:MESSAGE_CAP] + f" …[cut: read all of it with owner_input_get {message['id']}]"
         lines = [f"[{when(message['at'])}, {where(message)}] {text}"]
         if entry:
@@ -467,11 +496,17 @@ class CompactionHandoff:
 
     @staticmethod
     def rules(uow, agent_id):
-        """The summaries of the agent's instruction-change proposals the owner has not decided."""
-        return [row["title"] for row in uow.connection.execute(
-            "SELECT json_extract(preview_json,'$.input.title') AS title FROM signoffs WHERE proposer_principal_id=? "
-            "AND category='input_request' AND request_key LIKE 'direct-instruction:%' AND state='pending' "
-            "AND superseded_by_id IS NULL ORDER BY created_at, id", (agent_id,)) if row["title"]]
+        """The owner's rules the agent filed itself for the Learning Applier's review (``experience_observation_file``, kind
+        ``owner_complaint``) that no approved delta proposal names yet and the owner has not rejected on its card: the newest
+        ``RULES_LIMIT``, oldest first, each cut to ``RULE_LENGTH`` characters."""
+        rows = uow.connection.execute(
+            "SELECT o.text FROM experience_observations o WHERE o.created_by=? AND o.run_id IS NULL AND o.kind='owner_complaint' "
+            "AND o.owner_check IS NOT 'rejected' "
+            "AND NOT EXISTS (SELECT 1 FROM agentic_delta_proposal_links l JOIN agentic_delta_proposals p ON p.id=l.proposal_id "
+            "WHERE p.state='approved' AND l.target_type='observation' AND l.target_id=o.id) "
+            "ORDER BY o.created_at DESC, o.id DESC LIMIT ?", (agent_id, RULES_LIMIT)).fetchall()
+        texts = [" ".join(row["text"].split()) for row in reversed(rows)]
+        return [text if len(text) <= RULE_LENGTH else text[:RULE_LENGTH - 1].rstrip() + "…" for text in texts]
 
     @staticmethod
     def held(uow, agent_id):

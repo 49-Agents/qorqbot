@@ -105,8 +105,3 @@ restored automatically; a post-commit problem is reported and repaired forward, 
   refuse, and the backup is the preserved evidence. Do not edit the store with other tools or remove WAL sidecars.
 * This transition does not initialize the agentic authoring tree, adopt profiles, grant permissions, create routines or
   start a service; those remain separate explicit offline steps.
-
-When a release also carries another explicit offline conversion of the same store (for example the Project source
-conversion), prepare this transition again *after* that conversion, under the same continuous offline ownership: the
-predecessor is always the compiled composition of the code that will serve the instance, so a pre-conversion plan is
-refused rather than applied.

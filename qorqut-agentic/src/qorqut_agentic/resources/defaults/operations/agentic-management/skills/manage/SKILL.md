@@ -1,6 +1,7 @@
 ---
 name: manage-agentic-layer
 description: Maintain authored skills, instructions, preferences, custom tools and workflows through the shared agentic toolkit.
+read_for: Changing skills, instructions, preferences, custom tools or workflows
 ---
 
 # Maintain the agentic layer
@@ -12,9 +13,22 @@ credentials or plugin authority. Only plugins and user preferences are editable
 through these APIs; protected roles, operations and Overseer are not. This API
 boundary is not an OS sandbox.
 
-## Decide whether the instruction is explicit
+## File a rule, a correction or a lesson for review
 
-Every standing change needs an owner Signoff, including an explicit instruction.
+Any agent files a point about how agents work with `experience_observation_file`:
+a rule or correction the owner gave, a lesson from a mistake, a tool that failed
+or misled. It is filed at once, and the filing agent does not work out which
+asset should change. A rule the owner gave (kind `owner_complaint`) also puts a
+card before the owner, by itself, to check its wording: the owner approves it,
+edits it (the owner's wording then replaces yours) or rejects it (it leaves the
+queue and the owner's note comes to you). Do not also ask the owner about it in
+chat, and follow the rule from then on. The Learning Applier's weekly review and
+application reads what was filed together with its own observations and files
+agentic layer delta proposals; the owner approves or rejects those.
+
+## Decide what a change needs
+
+Every standing change needs the owner's approval of the change itself.
 A lesson inferred from conversation, accepted work or an edit is also a proposal.
 Keep proposed changes out of active files until review and approved application. Present
 the evidence references, proposed diff, applicability, uncertainty and relevant
@@ -26,33 +40,9 @@ in the relevant email instruction; a rule for one workflow does not become a
 universal preference. If the request contradicts another rule or its intended
 scope is genuinely unclear, resolve that conflict with the owner.
 
-## Submit a direct instruction for review
-
-Both Ordubashy and Overseer use `agentic_change_propose`. Supply a stable
-`request_key`, the exact complete owner Chat message as `instruction_text`
-(including whitespace), a short `summary`, the concrete `change_direction`,
-`target_refs` from the catalog, and `scope` containing `description`,
-`project_ids`, `work_types`, `workflow_refs`, `conditions`, and `exceptions`.
-An optional `source_id` identifies the original native Chat input. The host
-checks the original owner input; do not invent provenance or quote just a fragment.
-This shared path does not require the private Overseer package or an extraction run.
-
-Present the returned Signoff using the normal clickable chat reference. Read it
-with `agentic_change_get`. After the owner answers, use `agentic_change_reconcile`
-with the submission ID and `response`: its `reference` has `provider:
-qorqut_signoff`, `signoff_id`, `proposal_revision`, `payload_hash` and the current
-`status_revision`; `interpretation` is null for one choice without notes, otherwise
-provide `clarity`, `action`, and `rationale` following the owner's actual answer.
-Conditional or ambiguous answers require clarification through a Signoff.
-Reuse request and operation keys after an uncertain response. Accept queues the
-delta in the same accepted queue used by extraction; reject remains rejected,
-later leaves it undecided, and revise requests revision. None applies files.
-
-This direct path authenticates messages sent through Qorqut Chat. Other evidence
-uses Overseer's extraction/review path; never fabricate a Chat input. If access
-fails, report it and retain the request. Do not edit active files through shell,
-generated instructions or a raw authoring call as a workaround. Application is
-the separately owner-invoked Overseer workflow with its approved plan Signoff.
+Never fabricate a Chat input. Do not edit active files through shell, generated
+instructions or a raw authoring call as a workaround. Application is the
+separately owner-invoked Overseer workflow with its approved plan Signoff.
 
 ## Find and update the canonical asset during approved application
 

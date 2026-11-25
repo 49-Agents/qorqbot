@@ -56,7 +56,7 @@ from qorqut_operations.tasks.types import (CHECK_SCHEMA, CHECK_TARGETS, NOTIFY_S
                                            TARGET_LIMITS, attributes, normalize_step, step_tags, step_text)
 
 from qorqut.agents.attention import task_workers
-from qorqut.composition.locations import agent_workspace_of, business_root, relative_to_operations
+from qorqut.composition.locations import agent_workspace_of, project_root, relative_to_operations
 from qorqut.file_viewer.files import open_regular
 from qorqut.file_viewer.paths import normalize_path
 from qorqut.management.identity import configured_ordubashy, is_active_installation_owner
@@ -75,12 +75,12 @@ FINISHED = ('completed', 'skipped')
 AWAITING, REJECTED = 'awaiting_review', 'rejected'
 # The Signoff states that finish a ``signoff`` step: the owner responded to it. A proposal was approved (``approved``,
 # and ``applied`` once it was carried out) or a request was answered (``answered``); what the answer says is not read.
-# Pending, rejected, failed, conflicted and cancelled do not, and neither does a replaced Signoff or a side chat.
+# Pending, rejected, failed, conflicted and cancelled do not, and neither does a replaced Signoff.
 SIGNOFF_DECIDED = ('approved', 'applied', 'answered')
 OUTCOME_LIMIT = 256
 TITLE_CLIP, TEXT_CLIP, NOTE_CLIP = 60, 100, 150
 
-SCOPE = {'scope': {'enum': ['business', 'global']}}
+SCOPE = {'scope': {'enum': ['project', 'global']}}
 STEP = {'type': 'string', 'minLength': 1, 'maxLength': 40,
         'description': "The step's id as the Task's plan_steps lists it, such as s2."}
 STEP_TEXT = {'type': 'string', 'minLength': 1, 'maxLength': PLAN_TEXT_LIMIT}
@@ -120,7 +120,7 @@ TITLES = {'tasks_step_done': 'Mark plan step done', 'tasks_step_add': 'Add plan 
 def plan_key(task):
     """The engine operation ID a Task's plan runs under: one per Task and plan."""
     # Sorted keys keep a tagged step's key independent of how its fields were ordered; a plan of plain texts has none.
-    material = json.dumps([task.get('business_id'), task['id'], task['created_at'], attributes(task)['plan']],
+    material = json.dumps([task.get('project_id'), task['id'], task['created_at'], attributes(task)['plan']],
                           ensure_ascii=False, separators=(',', ':'), sort_keys=True)
     return 'plan-' + hashlib.sha256(material.encode()).hexdigest()[:48]
 
@@ -298,7 +298,7 @@ class TaskPlans:
         self.outcomes, self.lock = {}, threading.Lock()
 
     def register(self):
-        common = dict(supports_signoff=False, scope_kinds=frozenset({'business', 'global'}),
+        common = dict(supports_signoff=False, scope_kinds=frozenset({'project', 'global'}),
                       global_capability='read_global_context', resolve_namespace=task_namespace,
                       locate_scope=self.tasks.lookup, external=self.external, apply=self.apply)
         shared = {**SCOPE, 'task_id': IDENTITY, 'rationale': TEXT}
@@ -485,7 +485,7 @@ class TaskPlans:
         try:
             reader = signoffs._context(scoped, uow)
             self.app.authorize(reader, self.app.registry.get('signoffs_get'), (), uow,
-                               namespace='business:' + reader.business_id if reader.business_id else 'global')
+                               namespace='project:' + reader.project_id if reader.project_id else 'global')
             row = signoffs._row(reader, target, uow)
         except DomainError as error:
             if error.code not in ('not_found', 'forbidden', 'policy_denied'):
@@ -496,9 +496,6 @@ class TaskPlans:
         # A step whose plan names the Signoff is released only by the coordinator; one named as evidence can name another.
         release = ('Only the coordinator releases the step: by skipping it, or with a plan that names another Signoff'
                    if named else 'Name another Signoff as evidence, or ask the coordinator to skip the step')
-        if row['category'] == 'side_chat':
-            raise DomainError('validation_error', f"{this} is finished once the owner has responded to a Signoff; {target} is "
-                                                  f"a side chat, which decides nothing. {release}")
         if row['superseded_by_id']:
             raise DomainError('validation_error', f"{this} is finished once the owner has responded to the Signoff {target}, "
                                                   f"and that one was replaced by a newer one. {release}")
@@ -521,15 +518,12 @@ class TaskPlans:
             raise DomainError('operation_unavailable', 'Files cannot be read here, so this step cannot be checked')
         scopes = []
         try:
-            home = uow.connection.execute(
-                'SELECT p.home_business_id, b.slug FROM agent_profiles p LEFT JOIN businesses b ON b.id=p.home_business_id '
-                'WHERE p.agent_id=?', (ctx.principal_id,)).fetchone()
-            if home is not None:
-                scopes.append(relative_to_operations(paths, agent_workspace_of(paths, ctx.principal_id, home[0], home[1])))
-            if task.get('business_id'):
-                project = uow.connection.execute('SELECT slug FROM businesses WHERE id=?', (task['business_id'],)).fetchone()
+            if uow.connection.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (ctx.principal_id,)).fetchone() is not None:
+                scopes.append(relative_to_operations(paths, agent_workspace_of(paths, ctx.principal_id)))
+            if task.get('project_id'):
+                project = uow.connection.execute('SELECT * FROM projects WHERE id=?', (task['project_id'],)).fetchone()
                 if project is not None:
-                    scopes.append(relative_to_operations(paths, business_root(paths, project)))
+                    scopes.append(relative_to_operations(paths, project_root(paths, project)))
         except DomainError:
             raise DomainError('operation_unavailable', 'Files cannot be read here, so this step cannot be checked') from None
         return scopes
@@ -574,9 +568,9 @@ class TaskPlans:
         self.check(name, ctx, task, uow)
         self.said(name, arguments)
         builder = PlanBuilder(ctx, name, arguments, TITLES[name], clock=self.tasks.clock, namespace=task_namespace(ctx, arguments),
-                              affected_scope={'kind': 'business', 'business_id': ctx.business_id} if ctx.business_id else {'kind': 'global'})
+                              affected_scope={'kind': 'project', 'project_id': ctx.project_id} if ctx.project_id else {'kind': 'global'})
         # Pinned so the step is recorded against the Task and plan the caller saw.
-        builder.expect(ref('tasks', task['id'], ctx.business_id), task)
+        builder.expect(ref('tasks', task['id'], ctx.project_id), task)
         builder.effects.append("Records progress on the Task's plan. The Task record is not changed. The coordinator is told "
                                "when the step is tagged for it or waits for his confirmation, and the worker is told of the "
                                "decision on a step it handed in, also when that step is skipped.")
@@ -592,7 +586,7 @@ class TaskPlans:
         workflows, key = self.workflows(), plan_key(task)
         actor = {'actor_id': ctx.principal_id, 'actor_kind': 'agent' if ctx.principal_kind == 'agent' else 'owner'}
         try:
-            origin = f"task:{task.get('business_id') or 'global'}:{task['id']}"
+            origin = f"task:{task.get('project_id') or 'global'}:{task['id']}"
             run_id = workflows.start_plan(plan_items(attributes(task)['plan']), HOST_ACTOR, origin, key)['run']['run_id']
             # ``start_plan`` answers a started plan with the run as it began, so where it stands now is read apart.
             before = workflows.plan_run(key)['run']
@@ -676,7 +670,7 @@ class TaskPlans:
         task = self.tasks.require(scoped, uow, arguments['task_id'])
         self.announce(ctx, scoped, task, operation_id, told, uow)
         # A step that was decided or skipped no longer waits: what told the coordinator of it is settled.
-        settle_submissions(uow, scoped.business_id, task['id'], settled(run, operation_id), at=timestamp(self.tasks.clock))
+        settle_submissions(uow, scoped.project_id, task['id'], settled(run, operation_id), at=timestamp(self.tasks.clock))
         steps = step_views((), run)
         following = next((step for step in steps if step.get('current')), None)
         waiting = following is not None and following.get('awaiting_review')
@@ -690,7 +684,7 @@ class TaskPlans:
             # was told is said only when the event that told him exists.
             handed = next((attempt['operation_id'] for item in run['steps'] if item['id'] == following['id']
                            for attempt in reversed(item.get('attempts', ())) if attempt['status'] == 'submitted'), None)
-            heard = handed is not None and step_announced(uow, scoped.business_id, task['id'], f'{handed}:coordinator')
+            heard = handed is not None and step_announced(uow, scoped.project_id, task['id'], f'{handed}:coordinator')
             result['hint'] = (f"Step {following['id']} waits for the coordinator's confirmation, "
                               + ('and the coordinator was told. ' if heard else
                                  'and no coordinator could be told: tell the coordinator or the owner yourself. ')
@@ -710,10 +704,10 @@ class TaskPlans:
         not change its record or its revision."""
         for notice in told:
             marker = f"{operation_id}:{notice['to']}"
-            if step_announced(uow, scoped.business_id, task['id'], marker):
+            if step_announced(uow, scoped.project_id, task['id'], marker):
                 continue
             recipients = [configured_ordubashy(uow)] if notice['to'] == 'coordinator' else sorted(task_workers(task))
-            announce_step(uow, scoped.business_id, task, ctx.principal_id, notice['kinds'], notice['summary'],
+            announce_step(uow, scoped.project_id, task, ctx.principal_id, notice['kinds'], notice['summary'],
                           [identity for identity in recipients if identity],
                           {'plan_notice': marker, 'plan_operation': operation_id, 'plan_step': notice['step']})
 

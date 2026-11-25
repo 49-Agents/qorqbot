@@ -23,7 +23,7 @@ import json
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import UUID, schema
-from qorqut_operations.business_lifecycle import in_active_business
+from qorqut_operations.project_lifecycle import in_active_project
 from qorqut_operations.contracts import DomainError, InvocationOptions
 
 from qorqut.domains.owner_inputs import MAX_HOURS, PAGE_LIMIT, TIME, cut, stamp
@@ -54,9 +54,9 @@ SCHEMA = schema({
 # Work, not the Customer, Story or Email records that are stored as Tasks too. An archived Task still counts: closing
 # and archiving it on the same day does not make the work disappear from that day. A Task of an archived project does not.
 PLAIN = ("coalesce(json_extract(t.fields_json,'$.\"$task\".task_type'),'task')='task' AND "
-         + in_active_business("t.business_id"))
-TASK = "t.business_id AS business_id, t.id AS id, t.title AS title, t.status AS status, t.fields_json AS fields_json"
-CHANGES = ("thread_messages m JOIN tasks t ON t.business_id IS m.business_id AND t.id=m.item_id "
+         + in_active_project("t.project_id"))
+TASK = "t.project_id AS project_id, t.id AS id, t.title AS title, t.status AS status, t.fields_json AS fields_json"
+CHANGES = ("thread_messages m JOIN tasks t ON t.project_id IS m.project_id AND t.id=m.item_id "
            f"WHERE m.kind='system' AND m.item_type='task' AND m.created_at>=:since AND m.created_at<:until AND {PLAIN} "
            "AND (:actor IS NULL OR m.recorder_id=:actor)")
 # What a Task write's system line says it changed (``tasks.events.describe``).
@@ -68,10 +68,10 @@ CHANGED = {
 }
 CREATED = (f"tasks t WHERE t.created_at>=:since AND t.created_at<:until AND {PLAIN} "
            "AND (:actor IS NULL OR t.created_by=:actor)")
-ACTIONS = (f"action_logs a WHERE {in_active_business('a.business_id')} AND a.withdrawn=0 AND a.created_at>=:since AND a.created_at<:until "
+ACTIONS = (f"action_logs a WHERE {in_active_project('a.project_id')} AND a.withdrawn=0 AND a.created_at>=:since AND a.created_at<:until "
            "AND (:actor IS NULL OR coalesce(a.performed_by,a.recorded_by)=:actor)")
 NOTES = ("thread_messages m JOIN principals p ON p.id=m.author_id AND p.kind='agent' WHERE m.kind='comment' "
-         f"AND {in_active_business('m.business_id')} "
+         f"AND {in_active_project('m.project_id')} "
          "AND coalesce(json_extract(m.attribution_json,'$.audience'),'')='owner' AND m.created_at>=:since AND m.created_at<:until "
          "AND (:actor IS NULL OR m.author_id=:actor)")
 THREAD_REPLIES = ("owner_conversation_messages m JOIN owner_conversations c ON c.id=m.conversation_id WHERE c.peer_agent_id IS NULL "
@@ -147,7 +147,7 @@ class _Review:
 
     @staticmethod
     def task(row):
-        return {"id": row["id"], "business_id": row["business_id"], "title": cut(row["title"], 120), "status": row["status"]}
+        return {"id": row["id"], "project_id": row["project_id"], "title": cut(row["title"], 120), "status": row["status"]}
 
     # ----- sections --------------------------------------------------------------------------------------------------
 
@@ -176,9 +176,9 @@ class _Review:
     def actions(self):
         self.allowed("actions_list")
         return self.listed(ACTIONS, "coalesce(a.performed_by,a.recorded_by)",
-                           "a.occurred_at AS at, a.id AS id, a.business_id AS business_id, a.action_text AS text, "
+                           "a.occurred_at AS at, a.id AS id, a.project_id AS project_id, a.action_text AS text, "
                            "coalesce(a.performed_by,a.recorded_by) AS actor", "a.created_at DESC, a.id",
-                           lambda row: {"at": row["at"], "id": row["id"], "business_id": row["business_id"],
+                           lambda row: {"at": row["at"], "id": row["id"], "project_id": row["project_id"],
                                         "text": cut(row["text"], TEXT), "by": self.who(row["actor"])})
 
     def signoffs(self):
@@ -191,14 +191,14 @@ class _Review:
         def shown(found, moment, extra=()):
             items = [item for item in found["items"] if actor is None or item["proposer_principal_id"] == actor]
             return {"count": found["count"] if actor is None else len(items), "more": found["count"] - len(found["items"]),
-                    "items": [{"at": item[moment], "id": item["id"], "business_id": item["review_business_id"],
+                    "items": [{"at": item[moment], "id": item["id"], "project_id": item["review_project_id"],
                                "title": cut(item["title"], 120), "state": item["state"], "category": item["category"],
                                "by": item["proposer_display_name"] or None, **{name: item[name] for name in extra}}
                               for item in reversed(items)]}
 
         period = {"since": self.period["since"], "until": self.period["until"], "limit": self.limit}
         return {"proposed": shown(service.recent_proposals(self.ctx, self.uow, **period), "created_at"),
-                "decided": shown(service.recent_outcomes(self.ctx, self.uow, side_chats=False, **period), "updated_at",
+                "decided": shown(service.recent_outcomes(self.ctx, self.uow, **period), "updated_at",
                                  ("decision_state",))}
 
     def owner_facing(self):

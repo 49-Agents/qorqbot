@@ -61,8 +61,22 @@ class CalendarOperations:
         self.lock = threading.Lock()
 
     def access(self, ctx, uow):
-        if ctx.business_id or ctx.home_business_id or CAPABILITY not in ctx.global_capabilities:
+        if ctx.project_id or CAPABILITY not in ctx.global_capabilities:
             raise DomainError("forbidden", "Calendar tools require the Global calendar grant")
+        # One calendar call checks this up to twice per unit (prepare and validate_targets, then validate_targets and
+        # apply), and nothing in those units writes between the checks. A grant is kept for the rest of its unit while
+        # the connection has changed no row since (SQLite counts a statement's rows once it has finished); any such
+        # write, in any table, makes the next check read again. A refusal is never kept.
+        memo = getattr(uow, "memo", None)
+        changes = getattr(uow.connection, "total_changes", None)
+        key = ("calendar_access", id(self), ctx.principal_kind, ctx.principal_id)
+        if memo is not None and changes is not None and memo.get(key) == changes:
+            return
+        self._grant(ctx, uow)
+        if memo is not None and changes is not None:
+            memo[key] = changes
+
+    def _grant(self, ctx, uow):
         installation = uow.repository("installation").get("service") or {}
         if ctx.principal_kind == "human" and installation.get("owner_principal_id") == ctx.principal_id:
             return
@@ -70,7 +84,7 @@ class CalendarOperations:
             profile, _ = self.runtime.resolver.profile(ctx.principal, connection=uow.connection)
             from qorqut.management import ManagementService
             coordinator = profile.data["role"]["id"] == "ordubashy" and ManagementService._coordinator(uow) == ctx.principal_id
-            if (profile.data["status"] == "active" and profile.scope.kind == "ecosystem"
+            if (profile.data["status"] == "active"
                     and (coordinator or is_worker(uow.connection, ctx.principal_id))):
                 return
         raise DomainError("forbidden", "Private calendars belong to the owner, configured Ordubashy and granted global workers")

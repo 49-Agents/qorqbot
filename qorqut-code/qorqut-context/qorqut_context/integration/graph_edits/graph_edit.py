@@ -12,7 +12,7 @@ admission of the Operations ``context_graph_edits`` binding with its queue input
   evidence. It never calls ``begin_edit``/``submit_edit``, stages a draft, runs a model or publishes.
 * Ownership of an existing node or edge is the scope in its first creation event's controlled ``record_context.scope`` in
   the published history at the fixed base. Later support, attributes, links or tags never transfer it. A missing, malformed
-  or unresolved original scope is protected global/unknown and supplies no business grant. Objects the plan creates belong to
+  or unresolved original scope is protected global/unknown and supplies no project grant. Objects the plan creates belong to
   the admission namespace. Nothing reads the graph's current labels as authority.
 * Authority is the retained one: the real resolver and ``Application.authorize`` for the ``context_edit`` descriptor, the
   role and Global restrictions of the context instruction surface, and for a human the actual installation owner. An agent
@@ -26,7 +26,7 @@ admission of the Operations ``context_graph_edits`` binding with its queue input
   authenticated caller (``null``, or exactly its binding ID, assignment ID and generation; never a credential or a decision);
   ``apply`` requires it to equal the invoking context's, and ``recheck`` rebuilds the parent's current context, attaches precisely
   that triplet and authorizes through the same ``Application.authorize`` path (live binding, lease, generation, registration,
-  assignment operation and business scope) in the admission and every target namespace. It never looks up a newer binding,
+  assignment operation and project scope) in the admission and every target namespace. It never looks up a newer binding,
   clears the delegation or authorizes as the unrestricted parent: an expired, released, completed or revoked assignment blocks an
   unpublished edit and its retry, while an exact already-published edit still reconciles first.
 
@@ -146,8 +146,8 @@ def normalized(plan: Any, source_bytes: int) -> tuple[dict, str, str]:
 
 # -- targets and ownership -----------------------------------------------------------------------------------------------
 
-def scope_of(business_id: str | None) -> dict:
-    return {"kind": "global"} if business_id is None else {"kind": "business", "business_id": business_id}
+def scope_of(project_id: str | None) -> dict:
+    return {"kind": "global"} if project_id is None else {"kind": "project", "project_id": project_id}
 
 
 def _first_creations(snapshot, wanted: set) -> dict:
@@ -166,26 +166,26 @@ def _first_creations(snapshot, wanted: set) -> dict:
 
 
 def _ownership(first: dict | None, registered: Callable[[str], bool]) -> dict:
-    """The recorded owner of an existing object, or an explicit unknown. Only a well-formed scope of a registered business or
+    """The recorded owner of an existing object, or an explicit unknown. Only a well-formed scope of a registered project or
     the explicit Global scope is recognised; anything else is unknown and protected."""
     if first is None or first["operation"] != "add":
         return {"state": "unknown", "event_id": None if first is None else first["event_id"], "scope": None}
     scope = first["scope"]
     if scope == {"kind": "global"}:
         return {"state": "recorded", "event_id": first["event_id"], "scope": scope}
-    if (isinstance(scope, dict) and set(scope) == {"kind", "business_id"} and scope["kind"] == "business"
-            and isinstance(scope["business_id"], str) and registered(scope["business_id"])):
+    if (isinstance(scope, dict) and set(scope) == {"kind", "project_id"} and scope["kind"] == "project"
+            and isinstance(scope["project_id"], str) and registered(scope["project_id"])):
         return {"state": "recorded", "event_id": first["event_id"], "scope": scope}
     return {"state": "unknown", "event_id": first["event_id"], "scope": None}
 
 
-def owner_business(ownership: dict, admission: str | None) -> str | None:
-    """The namespace whose authority an object's change needs: a new object's admission namespace, a recorded business, and
-    Global for a recorded Global or an unknown owner (which supplies no business grant)."""
+def owner_project(ownership: dict, admission: str | None) -> str | None:
+    """The namespace whose authority an object's change needs: a new object's admission namespace, a recorded project, and
+    Global for a recorded Global or an unknown owner (which supplies no project grant)."""
     if ownership["state"] == "new":
         return admission
-    if ownership["state"] == "recorded" and ownership["scope"]["kind"] == "business":
-        return ownership["scope"]["business_id"]
+    if ownership["state"] == "recorded" and ownership["scope"]["kind"] == "project":
+        return ownership["scope"]["project_id"]
     return None
 
 
@@ -243,12 +243,12 @@ def analyze(plan: dict, snapshot, admission: str | None, registered: Callable[[s
 
 
 def namespaces(targets: list[dict], admission: str | None) -> set:
-    """Every business namespace (None is Global) whose authority the edit needs, the admission namespace included."""
-    return {admission, *(owner_business(item["ownership"], admission) for item in targets)}
+    """Every project namespace (None is Global) whose authority the edit needs, the admission namespace included."""
+    return {admission, *(owner_project(item["ownership"], admission) for item in targets)}
 
 
-def namespace_name(business_id: str | None) -> str:
-    return "global" if business_id is None else "business:" + business_id
+def namespace_name(project_id: str | None) -> str:
+    return "global" if project_id is None else "project:" + project_id
 
 
 ID_SCHEMA, TEXT_SCHEMA, COMMIT_SCHEMA, NODE_SCHEMA, EDGE_SCHEMA = _ID, _TEXT, _COMMIT, _NODE, _EDGE
@@ -298,10 +298,10 @@ class GraphEditAuthority:
             raise DomainError("invalid_principal", "Context refresh cannot replace a delegated worker binding")
         return replace(ctx, delegation_binding_id=frozen[0], delegation_assignment_id=frozen[1], delegation_generation=frozen[2])
 
-    def caller(self, uow, attribution: dict, business_id: str | None):
+    def caller(self, uow, attribution: dict, project_id: str | None):
         """The original caller's context in one namespace from its current registration (never the driver's identity), carrying
         the frozen delegation of the attribution when it was delegated."""
-        ctx = self.application.policy.context_for(attribution["principal_id"], business_id=business_id, review_business_id=None, uow=uow)
+        ctx = self.application.policy.context_for(attribution["principal_id"], project_id=project_id, review_project_id=None, uow=uow)
         if ctx.principal_kind != attribution["principal_kind"]:
             raise DomainError("invalid_principal", "The principal's kind changed since the edit was queued")
         return self.with_delegation(ctx, attribution.get("delegation"))
@@ -311,7 +311,7 @@ class GraphEditAuthority:
         return bool(owner and owner["owner_principal_id"] == ctx.principal_id)
 
     def _role(self, ctx, uow) -> None:
-        """The preserved restrictions of the Context write surface: a supported global role (in a business or the Global
+        """The preserved restrictions of the Context write surface: a supported global role (in a project or the Global
         namespace), and for a human the actual installation owner."""
         if ctx.principal_kind == "agent":
             role_id = getattr(ctx.role_artifact_ref, "id", None)
@@ -324,7 +324,7 @@ class GraphEditAuthority:
 
     def _namespace(self, ctx, uow, arguments=None) -> None:
         self._role(ctx, uow)
-        self.application.authorize(ctx, self.descriptor, (), uow, namespace=namespace_name(ctx.business_id), arguments=arguments)
+        self.application.authorize(ctx, self.descriptor, (), uow, namespace=namespace_name(ctx.project_id), arguments=arguments)
 
     def check(self, uow, ctx, needed: set, arguments=None) -> None:
         """``ctx`` is the caller in the admission namespace. It must hold the retained authority there, and an agent also in
@@ -334,10 +334,10 @@ class GraphEditAuthority:
         if ctx.principal_kind == "human":
             return
         delegation = bindings.delegation_of(ctx)
-        for business_id in sorted(needed - {ctx.business_id}, key=lambda item: item or ""):
-            other = self.application.policy.refresh_context(replace(ctx, business_id=business_id), uow)
-            if other.business_id != business_id:
-                # A business agent re-selected to its home business is not in the Global namespace; a registration that
+        for project_id in sorted(needed - {ctx.project_id}, key=lambda item: item or ""):
+            other = self.application.policy.refresh_context(replace(ctx, project_id=project_id), uow)
+            if other.project_id != project_id:
+                # An agent re-selected to a project is not in the Global namespace; a registration that
                 # resolves elsewhere has no authority in the namespace the object belongs to.
                 raise DomainError("forbidden", "The agent's registration has no authority in the namespace of an object this edit changes")
             self._namespace(self.with_delegation(other, delegation), uow, arguments)
@@ -349,7 +349,7 @@ class GraphEditAuthority:
                                    f"{snapshot.revision}; an edit is never rebased. Discard it and submit a newly reviewed plan")
         try:
             plan = library.normalize(binding["plan"])
-            fresh = analyze(plan, snapshot, binding["business_id"], lambda business: uow.repository("businesses").get(business) is not None)
+            fresh = analyze(plan, snapshot, binding["project_id"], lambda project: uow.repository("projects").get(project) is not None)
         except (ContextError, DomainError) as error:
             raise GraphEditRefused("edit_invalid", f"The edit no longer matches its fixed base: {getattr(error, 'message', error)}",
                                    "integrity") from None
@@ -357,9 +357,9 @@ class GraphEditAuthority:
             raise GraphEditRefused("targets_changed", "The edit's target ownership no longer matches the evidence frozen at "
                                    "preparation; discard it and submit a newly reviewed plan", "integrity")
         try:
-            caller = self.caller(uow, binding["attribution"], binding["business_id"])
+            caller = self.caller(uow, binding["attribution"], binding["project_id"])
             self.check_personal(uow, caller, snapshot, plan)
-            self.check(uow, caller, namespaces(fresh, binding["business_id"]), {"edit": binding["plan"]})
+            self.check(uow, caller, namespaces(fresh, binding["project_id"]), {"edit": binding["plan"]})
         except DomainError as error:
             raise GraphEditRefused("authority_revoked", "The original caller no longer holds the authority this edit needs: "
                                    f"{error.message}") from None
@@ -396,7 +396,7 @@ class GraphEdits:
 
     @staticmethod
     def _registered(uow) -> Callable[[str], bool]:
-        return lambda business: uow.repository("businesses").get(business) is not None
+        return lambda project: uow.repository("projects").get(project) is not None
 
     def _evidence(self, uow, plan: dict, admission: str | None) -> tuple[Any, list[dict]]:
         snapshot = self._head()
@@ -429,7 +429,7 @@ class GraphEdits:
         plan, its checks, the binding and the queue input are the same as for ``context_edit``."""
         self._actor(ctx)
         plan, content, digest = normalized(arguments["edit"] if edit is None else edit, self.ports.source_bytes)
-        admission = ctx.business_id
+        admission = ctx.project_id
         caller = self.application_context(ctx, uow)
         snapshot, targets = self._evidence(uow, plan, admission)
         self.authority.check_personal(uow, caller, snapshot, plan)
@@ -439,7 +439,7 @@ class GraphEdits:
                               affected_scope=scope_of(admission))
         bindings.admit(builder, uow, plan=plan, content=content, plan_digest=digest, reserved_event_id=self._reserve(uow, snapshot, plan),
                        attribution=self.attribution(ctx, uow, admission, operation),
-                       targets=targets, business_id=admission, max_content_bytes=self.ports.source_bytes)
+                       targets=targets, project_id=admission, max_content_bytes=self.ports.source_bytes)
         builder.effects.append("The published Context is not changed now. The queue driver rechecks your current authority and the "
                                "published base, then publishes exactly this plan as one event, with no model, in queue order.")
         return builder.build()
@@ -450,7 +450,7 @@ class GraphEdits:
         registration and the closed binding/assignment/generation triplet, never the plan text, a credential or a decision)."""
         actor = uow.connection.execute("SELECT display_name FROM principals WHERE id=?", (ctx.principal_id,)).fetchone()
         return {"principal_id": ctx.principal_id, "principal_kind": ctx.principal_kind, "display_name": actor["display_name"] if actor else None,
-                "agent_id": ctx.agent_id, "role_id": getattr(ctx.role_artifact_ref, "id", None), "business_id": admission,
+                "agent_id": ctx.agent_id, "role_id": getattr(ctx.role_artifact_ref, "id", None), "project_id": admission,
                 "operation": operation, "delegation": bindings.delegation_of(ctx)}
 
     def application_context(self, ctx, uow):
@@ -468,14 +468,14 @@ class GraphEdits:
         companion, queued = changes
         identity = companion.resource.resource_id
         if (companion.resource.resource_type != "context_graph_edits" or queued.resource.resource_type != "context_inputs"
-                or queued.resource.resource_id != identity or companion.resource.business_id != queued.resource.business_id
+                or queued.resource.resource_id != identity or companion.resource.project_id != queued.resource.project_id
                 or any(change.kind != "record" or change.action != "insert" or change.operation_name is not None
                        or change.resource.namespace is not None for change in changes)
                 or targets != tuple(ExpectedTarget(change.resource, exists=False) for change in changes)):
             raise DomainError("invalid_plan", "A prepared graph edit is exactly its binding and its queue input, both new")
         values = tuple(plain(change.values) for change in changes)
         if (values[0].get("input_id") != identity or values[1].get("id") != identity
-                or values[1].get("business_id") != queued.resource.business_id):
+                or values[1].get("project_id") != queued.resource.project_id):
             raise DomainError("invalid_plan", "A prepared graph edit's binding and queue input must share one new identity and scope")
         return values
 
@@ -491,8 +491,8 @@ class GraphEdits:
             raise DomainError("revision_conflict", "The prepared graph edit no longer matches its plan")
         bindings.check_relation(stored, content, digest, companion["reserved_event_id"], companion["expected_revision"], attribution,
                                 queued["submitted_by"], companion["targets_json"])
-        admission = queued["business_id"]
-        if admission != ctx.business_id:
+        admission = queued["project_id"]
+        if admission != ctx.project_id:
             raise DomainError("forbidden", "A graph edit is queued in the caller's selected scope")
         snapshot, targets = self._evidence(uow, fresh, admission)
         if targets != companion["targets_json"]:

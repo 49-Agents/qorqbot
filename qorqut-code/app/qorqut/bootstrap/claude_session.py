@@ -18,7 +18,8 @@ from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, STARTUP_INSTRUCTIONS, B
                      load_registration, path_has_symlink, write_json_private, write_text_private)
 from .transcript_snapshot import run as snapshot_transcript
 from .environment import bootstrap_environment_context
-from qorqut_agentic.behavior.instructions import BOOTSTRAP_BUDGET, from_prepared, bootstrap_failure
+from qorqut_agentic.behavior.instructions import (ALWAYS_SKILLS, BOOTSTRAP_BUDGET, from_prepared, bootstrap_failure,
+                                                  render_skill_discovery)
 
 LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 
@@ -26,6 +27,8 @@ LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 CLAUDE_HOOK_LIMIT = 9_500
 STARTUP_CONTEXT = ".qorqut/startup-context.md"
 STARTUP_SKILLS = ".qorqut/startup-skills.md"
+# Loaded with the always-loaded skills while the owner is new (the FIRST CONVERSATION and FIRST MESSAGE lines).
+FIRST_CONVERSATION_SKILLS = ("qorqut-role-get-set-up",)
 # A prompt's short operational reminder stays in the hook output; anything longer is the always-loaded skill text.
 INLINE_SKILLS_LIMIT = 1_000
 INSTRUCTIONS_CHANGED = (f"Your managed instructions changed after this session loaded them. Read {STARTUP_INSTRUCTIONS} "
@@ -165,10 +168,12 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     # Ordubashy's FIRST CONVERSATION line goes first: a CLI may show the model only the start of a long startup context.
     first = response.get('first_conversation')
     first = first.strip() if isinstance(first, str) and len(first) <= 1000 else ''
-    skills = ''
+    skills, loaded = '', ()
     if registration.get('operational_intake_enabled'):
+        loaded = (*ALWAYS_SKILLS, *(FIRST_CONVERSATION_SKILLS if first else ()))
         from .always_skills import handle as skills_hook
-        skills = skills_hook(hook, registration_path, runtime, force=recovering).get('hookSpecificOutput', {}).get('additionalContext', '')
+        extra = FIRST_CONVERSATION_SKILLS if first else ()
+        skills = skills_hook(hook, registration_path, runtime, force=recovering, extra=extra).get('hookSpecificOutput', {}).get('additionalContext', '')
     if event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required") and not recovering:
         prompt_context = '\n\n'.join(filter(None, (first, skills, reminder)))
         if len(prompt_context) > BOOTSTRAP_BUDGET:
@@ -191,7 +196,13 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         lead, rest = (first, notice, rules), (setup, facts)
     else:
         lead, rest = (first,), (setup, context)
-    context = '\n\n'.join(filter(None, (*lead, skills, *rest)))
+    # The skills this start does not load in full, each with the work it must be read before. Only a fresh start
+    # carries it (a prompt whose context is unchanged sends none), so it is never delivered twice in one start.
+    try:
+        discovery = render_skill_discovery(instructions, workspace, runtime, loaded=loaded)
+    except KeyError:
+        discovery = ''  # A prepared snapshot from before these messages existed has nothing to render them with.
+    context = '\n\n'.join(filter(None, (*lead, skills, discovery, *rest)))
     without_skills, assembled = '\n\n'.join(filter(None, (*lead, *rest))), len(context)
     briefing = response.get("work_briefing", {}).get("rendered", "")
     if not isinstance(briefing, str):
@@ -220,9 +231,16 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
             pointer = SKILLS_IN_FILE.format(lines=skills.count('\n') + 1)
         else:
             inline = skills
+        def shown(inline, body):
+            return '\n\n'.join(filter(None, (first, notice, inline, setup,
+                                              CONTEXT_IN_FILE.format(lines=body.count('\n') + 1), pointer, reminder)))
+        candidate = shown('\n\n'.join(filter(None, (inline, discovery))), body)
+        if discovery and len(candidate) > CLAUDE_HOOK_LIMIT:
+            # Inline it would push the hook output past what Claude Code shows. It leads the file the agent reads whole.
+            body = discovery + '\n\n' + body
+            candidate = shown(inline, body)
         write_text_private(workspace / STARTUP_CONTEXT, body)
-        context = '\n\n'.join(filter(None, (first, notice, inline, setup,
-                                             CONTEXT_IN_FILE.format(lines=body.count('\n') + 1), pointer, reminder)))
+        context = candidate
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
     if event == "SessionStart" and runtime == "claude-code":
         output["hookSpecificOutput"]["reloadSkills"] = bool(response.get("reload_skills", True))
@@ -240,20 +258,6 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
         registration = load_registration(registration_path)
     except (DomainError, OSError, ValueError):
         pass
-
-    def report(component, operation, code, *, retryable=False, terminal=False, recovered=False, client=None):
-        if registration is None:
-            return
-        try:
-            from .technical_reporting import record, active
-            if recovered and not active(registration, component, operation, hook.get('session_id')):
-                return
-            record(registration, hook.get('session_id'), component, operation, code,
-                   call_site=f'{component}.{operation}', retryable=retryable,
-                   terminal=terminal, recovered=recovered, client=None)
-        except Exception:
-            # Reporting must never alter hook behavior or recurse.
-            pass
 
     try:
         output, receipt, client = handle_hook(hook, registration_path, runtime=runtime, client_factory=client_factory)
@@ -296,11 +300,8 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
                     handoff.queue(registration,prepared,"/api/agent/bootstrap/receipt",receipt)
                 else:
                     client.post("/api/agent/bootstrap/receipt", receipt)
-                    report('bootstrap', 'receipt', 'success', recovered=True, client=None)
             except (DomainError, OSError, ValueError):
-                report('bootstrap', 'receipt', 'bootstrap_unavailable', retryable=True, terminal=True, client=client)
                 diagnostics.write("Qorqut emitted context; its delivery receipt could not be recorded.\n")
-        report('bootstrap', 'prepare', 'success', recovered=True, client=None)
         snapshot_transcript(hook, registration_path, runtime=runtime, diagnostics=diagnostics)
         return 0
     except (DomainError, OSError, ValueError) as exc:
@@ -341,9 +342,6 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
                     details=exc.details if isinstance(exc,DomainError) else None)
         except (OSError, ValueError, DomainError):
             diagnostics.write('Preparation recovery state could not be recorded.\n')
-        if not pending:
-            report('bootstrap', 'prepare', code, retryable=isinstance(exc, DomainError) and exc.retryable,
-                   terminal=True)
         diagnostics.write(reason + "\n")
         if hook.get("hook_event_name") == "UserPromptSubmit" and denial:
             result = {"decision": "block", "reason": reason}

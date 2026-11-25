@@ -113,7 +113,7 @@ def owner_read_route(name):
         from qorqut.transport.http import read_json, response, split_options
         context, _ = api.context(actor)
         args, options = split_options(await read_json(request))
-        if (options.business_id is not None or options.review_business_id is not None
+        if (options.project_id is not None or options.review_project_id is not None
                 or args.pop("scope", "global") != "global"):
             raise DomainError("forbidden", "Fastmail reads are Global and cannot select a project")
         result = await anyio.to_thread.run_sync(lambda: api.runtime.application.invoke(context, name, args, options))

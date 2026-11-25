@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-personal-record
 description: Read or update what is known about the owner (names, contacts, dates, background, links, their choices for forms and applications) with personal_get and personal_set. Use before asking the owner anything about themselves, when filling or building a form, application, profile, bio or message in their name, and when the owner or a source gives a new fact about them.
+read_for: What is known about the owner, reading or updating it (`personal_get`, `personal_set`)
 ---
 
 # The owner's personal record

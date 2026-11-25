@@ -13,6 +13,7 @@ import os
 import stat
 
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.projects.hierarchy import SUBPROJECTS, folder_of
 from qorqut_operations.signoffs import ABSENT
 from qorqut_operations.tasks.schema import CLOSED_STATES
 
@@ -103,57 +104,76 @@ def listing(root, path, limit, hidden, after):
     return {"path": path, "entries": page, "total": total, "next_cursor": next_cursor, "skipped": skipped}
 
 
-def project_metadata(runtime, scope, slugs):
-    if not slugs:
+def project_metadata(runtime, scope, folders):
+    """Badges keyed by project folder (below ``projects``: a slug, or ``<parent folder>/subprojects/<slug>``)."""
+    if not folders:
         return {}
     result = {}
     with runtime.database.read() as uow:
         signoffs = runtime.signoffs
         context = signoffs._context(scope(None), uow)
-        allowed = context.allowed_business_ids
+        allowed = context.allowed_project_ids
         projects = [row for row in uow.connection.execute(
-            "SELECT id,slug,name,config_json FROM businesses WHERE archived_at IS NULL")
-            if row["id"] in allowed and row["slug"] in slugs]
+            "SELECT id,slug,name,config_json,folder FROM projects WHERE archived_at IS NULL")
+            if row["id"] in allowed and folder_of(row) in folders]
         if not projects:
             return result
         ids = [row["id"] for row in projects]
         marks = ",".join("?" for _ in ids)
         closed_marks = ",".join("?" for _ in CLOSED_STATES)
-        tasks = {row["business_id"]: row["n"] for row in uow.connection.execute(
-            f"SELECT business_id,COUNT(*) n FROM tasks WHERE business_id IN ({marks}) AND archived=0 "
+        tasks = {row["project_id"]: row["n"] for row in uow.connection.execute(
+            f"SELECT project_id,COUNT(*) n FROM tasks WHERE project_id IN ({marks}) AND archived=0 "
             f"AND status NOT IN ({closed_marks}) "
-            "AND COALESCE(json_extract(fields_json,'$.\"$task\".task_type'),'task')='task' GROUP BY business_id",
+            "AND COALESCE(json_extract(fields_json,'$.\"$task\".task_type'),'task')='task' GROUP BY project_id",
             [*ids, *CLOSED_STATES])}
         clause, params = signoffs._visibility(context, uow)
         if signoffs.ports.management is not ABSENT:
             clause += " AND NOT (" + signoffs.ports.management.managed_input_sql + ")"
-        pending = {row["review_business_id"]: row["n"] for row in uow.connection.execute(
-            f"SELECT s.review_business_id,COUNT(*) n FROM signoffs s WHERE {clause} "
-            f"AND s.review_business_id IN ({marks}) AND s.state='pending' "
-            "AND s.category!='side_chat' AND s.superseded_by_id IS NULL GROUP BY s.review_business_id", [*params, *ids])}
+        pending = {row["review_project_id"]: row["n"] for row in uow.connection.execute(
+            f"SELECT s.review_project_id,COUNT(*) n FROM signoffs s WHERE {clause} "
+            f"AND s.review_project_id IN ({marks}) AND s.state='pending' "
+            "AND s.superseded_by_id IS NULL GROUP BY s.review_project_id", [*params, *ids])}
+        children = {row["parent_id"]: row["n"] for row in uow.connection.execute(
+            f"SELECT parent_id,COUNT(*) n FROM projects WHERE parent_id IN ({marks}) AND archived_at IS NULL GROUP BY parent_id",
+            ids)}
         for row in projects:
             config = json.loads(row["config_json"])
             description = config.get("one_liner", config.get("description", ""))
-            result[row["slug"]] = {"id": row["id"], "name": row["name"],
+            result[folder_of(row)] = {"id": row["id"], "name": row["name"],
                 "description": description if isinstance(description, str) else "",
                 "open_tasks": tasks.get(row["id"], 0), "signoffs": pending.get(row["id"], 0),
-                # Project ancestry is not recorded. hq/code/agents are folders, not subprojects.
-                "subprojects": None}
+                # Its active direct subprojects; other folders inside a project are not subprojects.
+                "subprojects": children.get(row["id"], 0)}
     return result
+
+
+def project_folder_of(path):
+    """The deepest project folder (below ``projects``) a path is in, or ``None``: ``projects/a/...`` is in ``a`` and
+    ``projects/a/subprojects/b/...`` in ``a/subprojects/b``."""
+    parts = path.split("/")
+    if len(parts) < 2 or parts[0] != "projects":
+        return None
+    depth = 2
+    while len(parts) >= depth + 2 and parts[depth] == SUBPROJECTS:
+        depth += 2
+    return "/".join(parts[1:depth])
 
 
 def directory(viewer, items):
     result = listing(viewer.root, *query(items, viewer.roots))
     path, entries = result["path"], result["entries"]
+    project_folder = project_folder_of(path)
+    folders = {project_folder} if project_folder else set()
+    # The projects folder and a project's subprojects folder list project folders; each gets its badge.
     parts = path.split("/")
-    project_slug = parts[1] if len(parts) >= 2 and parts[0] == "projects" else None
-    slugs = {project_slug} if project_slug else set()
-    if path == "projects":
-        slugs.update(row["name"] for row in entries if row["kind"] == "directory")
-    projects = project_metadata(viewer.runtime, viewer.scope, slugs)
-    result["project"] = projects.get(project_slug)
-    if path == "projects":
+    listing_parent = (path + "/")[len("projects/"):] if path == "projects" or (
+        len(parts) >= 3 and parts[-1] == SUBPROJECTS and project_folder_of("/".join(parts[:-1])) == "/".join(parts[1:-1])) else None
+    if listing_parent is not None:
+        folders.update(listing_parent + row["name"] for row in entries if row["kind"] == "directory")
+    projects = project_metadata(viewer.runtime, viewer.scope, folders)
+    result["project"] = projects.get(project_folder)
+    if listing_parent is not None:
         for row in entries:
             if row["kind"] == "directory":
-                row["project"] = projects.get(row["name"])
+                row["project"] = projects.get(listing_parent + row["name"])
     return result

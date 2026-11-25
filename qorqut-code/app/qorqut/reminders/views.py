@@ -8,7 +8,7 @@ def stored_link(row):
     if value is None:
         return None
     link = json.loads(value) if isinstance(value, str) else value
-    return {"type": link["type"], "id": link["id"], "business_id": link.get("business_id")}
+    return {"type": link["type"], "id": link["id"], "project_id": link.get("project_id")}
 
 
 def record(row, *, names, link=None, link_available=True):
@@ -20,7 +20,7 @@ def record(row, *, names, link=None, link_available=True):
         "reminder_id": row["id"], "revision": row["revision"], "text": row["text"],
         "recipient_id": row["recipient_id"], "recipient_name": names.get(row["recipient_id"]),
         "creator_id": row["creator_id"], "creator_name": names.get(row["creator_id"]),
-        "business_id": row["business_id"],
+        "project_id": row["project_id"],
         "at": row["due_at"] if due else (upcoming or row["next_at"] or row["due_at"]),
         "state": row["state"], "recurrence": recurrence, "time_critical": bool(row["time_critical"]),
         "linked_item": link, "link_available": link_available,

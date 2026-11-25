@@ -71,7 +71,7 @@ class OperationDescriptor:
     alias_bindings: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     effect_kind: str = "records"
     supports_signoff: bool = True
-    scope_kinds: frozenset[str] = field(default_factory=lambda: frozenset({"business"}))
+    scope_kinds: frozenset[str] = field(default_factory=lambda: frozenset({"project"}))
     exposure: frozenset[str] = field(default_factory=lambda: frozenset({"mcp", "dashboard", "worker"}))
     owner_only: bool = False
     # Selected dashboard/worker routes may be callable through the
@@ -89,6 +89,8 @@ class OperationDescriptor:
     # Optional owner amendment: rebuild a pending plan, never apply or approve it.
     editable_fields: tuple[str, ...] = ()
     revise: Callable | None = None
+    # The owner may reject this operation's Signoff without a note (normally a rejection needs one).
+    rejection_note_optional: bool = False
     # Provider calls run after authorization, outside any transaction, before apply's short write transaction.
     external: Callable | None = None
     # Identity rows this operation re-derives in full inside validate_targets, so
@@ -97,13 +99,18 @@ class OperationDescriptor:
     # state; an operation that only reads such a row while deciding must not.
     rederived_basis: frozenset[str] = field(default_factory=frozenset)
     resolve_namespace: Callable | None = None
-    # Optional, agent MCP calls only: ``(context, arguments, uow) -> (arguments, namespace | None)``. Finds the owning
+    # Optional, for every caller except an internal worker: ``(context, arguments, uow) -> (arguments, namespace | None)``. Finds the owning
     # namespace of the record an argument names when the caller selected no project, before namespace resolution,
     # authorization and idempotency hashing (see ``Application._locate``). ``None`` keeps the caller's own selection; it
     # may refuse. The arguments it returns may differ from the caller's in two ways only: the identifier it looked up in
     # its stored form, and, for an operation that selects Global through an argument, that argument stating the Global
     # scope it found (the Signoff tools' ``scope``), returned with namespace ``global``. Never consulted for a prepared plan.
     locate_scope: Callable | None = None
+    # Optional, for every caller: ``(application, context, arguments, uow) -> arguments``. Writes the project into each
+    # record reference in the arguments that names none (``records/references.py``), before ``locate_scope``, namespace
+    # resolution, authorization and idempotency hashing, so the call is the one with full references in every respect.
+    # It changes nothing else and never refuses. Never consulted for a prepared plan.
+    complete_references: Callable | None = None
     # Optional current-authority check run before a saved idempotency receipt is returned: (context, arguments, result, uow).
     # It may only refuse; a replay never reapplies the mutation. Absent for operations whose receipts carry no private data.
     replay_validator: Callable | None = None
@@ -111,7 +118,7 @@ class OperationDescriptor:
     transport_only: bool = False
     # Read-only widening of the Global gate. A caller in the global namespace is admitted when it holds
     # ``global_capability`` OR one capability named here. The primary stays required of every declaration (it is what
-    # business policy, catalogs and bindings continue to name); an empty set, the default, leaves a descriptor exactly as
+    # project policy, catalogs and bindings continue to name); an empty set, the default, leaves a descriptor exactly as
     # before. Allowed only on a plain read with no composed effects, never on a mutation or platform action.
     global_read_capability_alternatives: frozenset[str] = field(default_factory=frozenset)
     # The standing mode an operation takes when neither the agent's explicit override nor its role default names it.
@@ -160,7 +167,7 @@ class OperationDescriptor:
             raise ValueError("Alias grants and bindings must refer to declared aliases")
         object.__setattr__(self, "plugin_aliases", freeze(self.plugin_aliases))
         object.__setattr__(self, "alias_bindings", freeze(self.alias_bindings))
-        if not self.scope_kinds or not self.scope_kinds <= {"business", "global", "agent_workspace"}:
+        if not self.scope_kinds or not self.scope_kinds <= {"project", "global", "agent_workspace"}:
             raise ValueError("Unknown operation scope kind")
         alternatives = self.global_read_capability_alternatives
         if isinstance(alternatives, (str, bytes)):
@@ -204,7 +211,7 @@ class OperationDescriptor:
         return evidence
 
     @cached_property
-    def business_policy(self):
+    def project_policy(self):
         """Reuse immutable operation metadata; authority is still resolved per call."""
         return (replace(self, global_capability=None, global_read_capability_alternatives=frozenset())
                 if self.global_capability else self)

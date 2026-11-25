@@ -93,6 +93,21 @@ class CatalogReader:
         detached.source = source
         return detached
 
+    def snapshot_active(self) -> bool:
+        """Whether this thread is inside a ``read_snapshot`` already."""
+        return self._active_catalog() is not None
+
+    def change_marker(self):
+        """What moves when the authored state may have changed: ``(authoring generation, state data_version)``.
+
+        It takes no lock, opens no connection after the first and walks nothing. ``None`` means it could not be
+        read and must be taken as changed. A change made to the tree by hand, without the authoring lock and the
+        state store, does not move it.
+        """
+        from .store import authoring_generation
+        version = self.ctx.store.data_version()
+        return None if version is None else (authoring_generation(), version)
+
     def revision(self):
         """Observe the same authored revision without parsing catalogue manifests."""
         catalog = self._active_catalog()

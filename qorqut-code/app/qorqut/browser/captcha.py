@@ -13,8 +13,8 @@ What happens, in this order, each step only if the one before did not settle it:
 2. A widget with a checkbox gets a real mouse click on it. Where a person's browser passes on that click, so does this.
 3. Otherwise the paid solver (``captcha_solver``) is asked for an answer token, which is put into the page the way that
    widget's pages take it (``captcha.js``).
-4. What is left is the owner's: the result says so in words, and names the tab (``tab_reference``) so that the agent can show
-   it to the owner in Chat instead of describing where to look.
+4. What is left is the owner's: the result says so in words, and names the tab (``tab_reference``) so that Ordubashy can ask
+   the owner with a browser-action Signoff that opens it, instead of describing where to look.
 
 The solver key is read from Global Settings here, on the server, for the one call. It is never part of a result, a log
 line or an exception text, and neither is an answer token.

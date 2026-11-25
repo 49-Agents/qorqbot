@@ -70,7 +70,7 @@ adoption.
 | [Draft reviews](../qorqut-operations/qorqut_operations/signoffs/drafts.py) | Multiple editable text fields, immutable draft revisions, separate save and return actions; already used for text questionnaires. | Reuse this workflow for text questions and its shared UI machinery for new controls. Preserve existing content and string-valued responses. |
 | [Signoff notes](../qorqut-operations/qorqut_operations/signoffs/notes.py) | Immutable conversation notes, with a 20,000-character limit. | Generate bounded human-readable answer notes only inside the final submission transaction. |
 | [Inbox events](../qorqut-operations/qorqut_operations/inbox/events.py), `EventFinalizer` | A final decision emits `response_submitted`; notes on that Signoff in the transaction are coalesced with it. | Reuse one completion event. Verify coalescing when several question notes are written together. |
-| [Dashboard](../biz-dashboard/js/signoffs.js), `sgCreateView` | One shared renderer serves drawer, Focus, Chat and record references. Drafts/choices live in shared in-memory maps; retry state belongs to the whole Signoff. | Add a question-form renderer and a structured draft map to that shared implementation. Keep one submission receipt. |
+| [Dashboard](../dashboard/js/signoffs.js), `sgCreateView` | One shared renderer serves drawer, Focus, Chat and record references. Drafts/choices live in shared in-memory maps; retry state belongs to the whole Signoff. | Add a question-form renderer and a structured draft map to that shared implementation. Keep one submission receipt. |
 | [Owner HTTP route](../app/qorqut/transport/http.py), `signoff_route` | `/respond` accepts one notes/choices response or draft-review values. | Accept `answers` for the new form variant and reject mixed response shapes. |
 | [MCP presentation](../app/qorqut/transport/mcp_presentation.py) | `signoffs_get` retains decision evidence; compact lists and write receipts select fixed fields. | Keep exact question/answer content on detail reads; add bounded question counts to compact indexes if needed. |
 
@@ -338,9 +338,9 @@ submission; do not generate a new key and silently replay changed intent.
    update running agents' pinned instructions or reload old browser tabs.
 
 Current focused dashboard harnesses include
-[signoff-chat-reference.test.js](../biz-dashboard/tests/signoff-chat-reference.test.js),
-[work-signoff-link.test.js](../biz-dashboard/tests/work-signoff-link.test.js),
-and [signoff-attention-pill.test.js](../biz-dashboard/tests/signoff-attention-pill.test.js).
+[signoff-chat-reference.test.js](../dashboard/tests/signoff-chat-reference.test.js),
+[work-signoff-link.test.js](../dashboard/tests/work-signoff-link.test.js),
+and [signoff-attention-pill.test.js](../dashboard/tests/signoff-attention-pill.test.js).
 The published Operations package does not include the full test directory
 named by older documentation. Add narrowly scoped executable engine/host
 fixtures in the implementation branch rather than claiming those tests exist.
@@ -372,7 +372,7 @@ Telegram tests check comment-only replies and non-submitting reactions.
 
 Executable coverage lives in
 [host tests](../app/tests/test_signoff_questions.py),
-[browser tests](../biz-dashboard/tests/signoff-questions.test.js), and
+[browser tests](../dashboard/tests/signoff-questions.test.js), and
 [Telegram tests](../extensions/telegram/tests/test_signoff_questions.py).
 The existing source-dependency and focused dashboard tests also remain applicable.
 
@@ -388,7 +388,7 @@ With the prepared Python environment and repository package paths available:
 ```sh
 python -B -m unittest discover -s qorqut-code/app/tests -p 'test_signoff_*.py' -q
 python -B -m unittest discover -s qorqut-code/extensions/telegram/tests -p test_signoff_questions.py -q
-node --test --test-concurrency=1 qorqut-code/biz-dashboard/tests/signoff-questions.test.js qorqut-code/biz-dashboard/tests/signoff-chat-reference.test.js qorqut-code/biz-dashboard/tests/signoff-input-state.test.js qorqut-code/biz-dashboard/tests/work-signoff-link.test.js qorqut-code/biz-dashboard/tests/signoff-attention-pill.test.js
+node --test --test-concurrency=1 qorqut-code/dashboard/tests/signoff-questions.test.js qorqut-code/dashboard/tests/signoff-chat-reference.test.js qorqut-code/dashboard/tests/signoff-input-state.test.js qorqut-code/dashboard/tests/work-signoff-link.test.js qorqut-code/dashboard/tests/signoff-attention-pill.test.js
 ```
 
 Compact indexes remain unchanged; read `signoffs_get` for the complete form

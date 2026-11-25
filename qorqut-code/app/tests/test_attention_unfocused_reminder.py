@@ -7,7 +7,7 @@ from qorqut_agentic.behavior import attention
 from qorqut_agentic.behavior.instructions import from_catalog
 
 CATALOG = Path(qorqut_agentic.__file__).parent / 'resources/defaults/operations/runtime-instructions'
-TASK = {'id': 'task-1', 'business_id': None, 'title': 'Example task', 'status': 'working', 'workers': [],
+TASK = {'id': 'task-1', 'project_id': None, 'title': 'Example task', 'status': 'working', 'workers': [],
         'workers_omitted': 0, 'user_needed': False}
 
 
@@ -32,12 +32,12 @@ class UnfocusedReminderTest(unittest.TestCase):
         self.assertIn('attention_focus_set', attention.render('board_normal', None, instructions=self.instructions))
 
     def test_a_focused_agent_is_not_told_it_has_no_focus(self):
-        text = attention.render('focus', self.snapshot({'type': 'task', 'id': 'task-1', 'business_id': None}),
+        text = attention.render('focus', self.snapshot({'type': 'task', 'id': 'task-1', 'project_id': None}),
                                 instructions=self.instructions)
         self.assertNotIn('You have no todo_focus set.', text)
 
     def test_the_focus_reminder_tells_a_waiting_agent_to_set_its_status(self):
-        text = attention.render('focus', self.snapshot({'type': 'task', 'id': 'task-1', 'business_id': None}),
+        text = attention.render('focus', self.snapshot({'type': 'task', 'id': 'task-1', 'project_id': None}),
                                 instructions=self.instructions)
         self.assertIn("set the Task's status to blocked or waiting", text)
         self.assertIn('Your todo_focus must point only at a Task you are actively working on', text)

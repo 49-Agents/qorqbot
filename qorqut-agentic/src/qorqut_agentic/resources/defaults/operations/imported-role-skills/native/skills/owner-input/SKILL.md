@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-owner-input
 description: Ask the owner a question or request a missing decision, access, or input through Signoffs; retrieve the submitted response and manage notification urgency.
+read_for: Asking the owner a question, or for a decision, access or input (`signoffs_input_create`)
 ---
 
 # Owner input
@@ -21,7 +22,7 @@ input request: it records the answer and executes nothing, so read the decision 
 then perform exactly that work yourself. Use the existing prepared approval for a
 service-managed protected action. Never replace a required decision with a chat reply.
 
-A question Signoff is the item's open question: the owner sees it in the item's "what holds now" and answers it in
+A question Signoff is the item's open question: the owner sees it on the item's timeline and answers it in
 the sign-off queue, so never file it on the timeline as well. Link it to the item with `source`, and offer the likely
 answers as choices; the owner can always write something else. Only the coordinator writes timelines: once the owner
 answers, the coordinator is told as for any Signoff, reads the answer with `signoffs_get` and decides what it means: the
@@ -38,10 +39,10 @@ Use `signoffs_input_create` for an owner response that is not an approval to
 execute a prepared action. Keep platform and internal-change approvals on their
 existing tools. An answer to a question does not bypass those approvals.
 
-When work or a record thread is waiting, pass `source: {type, id, business_id}` at creation.
-Use the actual source identity (`task`, `table`, `project`, or `reference`),
-with an explicit project UUID or `null` for Global. A Project source names its own UUID in both
-fields. Source and Signoff keep their own scopes. Omit source for a standalone question.
+When work or a record thread is waiting, pass `source: {type, id}` at creation.
+Use the actual source identity (`task`, `table`, `project`, or `reference`): a reference is the
+record's type and id, and its project is found from the id. A Project source names its own UUID as
+`id`. Source and Signoff keep their own scopes. Omit source for a standalone question.
 Link an existing pending approval with `signoffs_source_link` instead of creating another
 question. Call it again for each additional dependent source. Repeated links are idempotent.
 Only an explicit pending dependency produces Needs your input; contextual `concerns` links,
@@ -77,7 +78,7 @@ with that question filled in from the answer, or without it. The personal-record
 explains the record's tools.
 
 The unversioned `form` contains `title`, `explanation`, `kind` (`question`, `request`, `draft_review`, or
-Ordubashy's `acknowledge`, described under "Read and acknowledge"), and
+Ordubashy's `acknowledge` and `browser_action`, each described under its own heading), and
 `selection_mode` (`none`, `single`, or `multiple`). For choices provide at least
 two entries with unique stable `id`, a one/two-word `label`, and `explanation`.
 Use `selection_required` and `notes_required` only when that information is
@@ -122,8 +123,7 @@ Only the final decision is the response record. One response event covers the
 whole form. It grants no authority to execute a prepared action.
 
 Discover the installed `signoffs_input_create` schema before using this variant.
-Older deployments may only support the unversioned form. Existing draft reviews
-and single-question Signoffs continue to work unchanged.
+Existing draft reviews and single-question Signoffs continue to work unchanged.
 
 ## Editable draft review
 
@@ -219,6 +219,24 @@ exact events. Events that arrive while your session is closed wait. Qorqbot open
 itself unless you are turned off or run in a terminal; then they wait until you are started. Retain submitted answers with the signoff; lasting project
 instructions can enter Context through its existing authorized source input
 (`context_upload` or a focused `context_instruct`) when appropriate.
+
+## Browser action
+
+When the owner must do something in a browser page (sign in, solve a captcha, type a code, confirm a payment), Ordubashy
+files `form.kind: browser_action` with the tab: run `tab-reference` in the page and put its reference id in `tab`. A worker
+gives Ordubashy the reference, the page and what the owner must do. The tab must be open; the result's `tab` gives its
+`title` and `url`, so check it is the page you mean. Say in plain words what to do in the page.
+
+```
+signoffs_input_create(request_key="sign-in-mercury", form={"title": "Sign in to Mercury", "kind": "browser_action",
+    "explanation": "Sign in with your usual account and approve the code on your phone.", "selection_mode": "none",
+    "tab": "<agent uuid>:<tab id>"}, attention={"notify": true, "blocking": true, "reason": "The payout run waits on it"},
+    source={"type": "task", "id": "<task id>"})
+```
+
+Send no choices or required notes: the owner opens the tab from the attention queue and answers **Done** or **Could not
+do it**, with an optional note (`decision.selected_choices` is `["done"]` or `["not_done"]`). After Done, check the page
+yourself before going on; after Could not do it, read the note. The answer approves nothing.
 
 ## Work, questions, and discussion
 

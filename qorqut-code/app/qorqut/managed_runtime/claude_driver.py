@@ -56,6 +56,8 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from . import account_errors
+
 __all__ = ["ClaudeSession", "ClaudeSessionError"]
 
 # Flags the driver owns. A caller cannot change the protocol, the session identity or the permission route through ``args``.
@@ -254,16 +256,16 @@ def _transcript_path(folder, session_id, env):
     When the computed file does not exist the other project folders are checked for the id (Claude Code shortens very long
     folder names with a hash this does not reproduce); failing that the computed path is returned."""
     config = env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
-    projects = Path(config) / "projects"
+    claude_projects = Path(config) / "projects"
     try:
         real = os.path.realpath(folder)
     except OSError:
         real = str(folder)
-    expected = projects / re.sub(r"[^A-Za-z0-9]", "-", real) / (session_id + ".jsonl")
+    expected = claude_projects / re.sub(r"[^A-Za-z0-9]", "-", real) / (session_id + ".jsonl")
     if expected.exists():
         return str(expected)
     try:
-        for candidate in projects.iterdir():
+        for candidate in claude_projects.iterdir():
             found = candidate / (session_id + ".jsonl")
             if found.exists():
                 return str(found)
@@ -624,6 +626,8 @@ class ClaudeSession:
         self._model = self._context_window = None
         self._problem_counts = collections.Counter()
         self._flush_timer = None
+        self._api_error = None        # the failed request's own record in this run: {error, api_error, status, rate_limit_info}
+        self._rate_limit = None       # the newest ``rate_limit_info`` the CLI reported
 
         self._events = collections.deque()
         self._events_wake = threading.Condition(threading.Lock())
@@ -959,6 +963,9 @@ class ClaudeSession:
                 self._finish_turn(message)
             elif kind == "assistant":
                 self._on_assistant(message)
+            elif kind == "rate_limit_event":
+                info = message.get("rate_limit_info")
+                self._rate_limit = info if isinstance(info, dict) else self._rate_limit
             elif kind == "system":
                 self._on_system(message)
             elif kind == "command_lifecycle":
@@ -1058,6 +1065,7 @@ class ClaudeSession:
             self._emit("activity", text=text)
 
     def _on_assistant(self, message):
+        self._note_api_error(message)
         body = message.get("message")
         blocks = body.get("content") if isinstance(body, dict) else None
         if isinstance(body, dict) and message.get("parent_tool_use_id") is None:
@@ -1073,6 +1081,19 @@ class ClaudeSession:
                 self._activity("Thinking")
             elif block.get("type") == "text" and str(block.get("text") or "").strip():
                 self._activity(said_activity(block["text"]), said=True)   # the agent's latest words, on one line (``_activity`` cuts it short)
+
+    def _note_api_error(self, message):
+        """A request the CLI could not complete is written as an assistant message that names the failure (``error``, ``api_error``,
+        ``api_error_status`` and ``api_error_params``): kept for the run's ``result``, which labels the turn (``account_errors``)."""
+        if message.get("parent_tool_use_id") is not None:
+            return
+        code = message.get("error") if isinstance(message.get("error"), str) else None
+        kind = message.get("api_error") if isinstance(message.get("api_error"), str) else None
+        if not (code or kind or message.get("is_api_error_message")):
+            return
+        params = message.get("api_error_params") if isinstance(message.get("api_error_params"), dict) else {}
+        info = params.get("rate_limit_info") if isinstance(params.get("rate_limit_info"), dict) else None
+        self._api_error = {"error": code, "api_error": kind, "status": message.get("api_error_status"), "rate_limit_info": info}
 
     def _on_usage(self, body):
         """Keep what the latest model request of the session held: all it sent (cached or not) plus what it wrote is what the
@@ -1161,6 +1182,22 @@ class ClaudeSession:
         if isinstance(queued, list):
             self._still_queued = [item for item in queued if isinstance(item, str)]
 
+    def _label_failure(self, event, result, text):
+        """``error_kind`` (``usage_limit`` or ``sign_in``, None for any other failure) and the reset time of a failed run, from the
+        failed request's own record, the newest ``rate_limit_info`` and, last, the result sentence (``account_errors``). The key is
+        always there for a failed run the driver looked at, so a reader can tell a label of None from a host that never labelled."""
+        recorded = self._api_error or {}
+        info = recorded.get("rate_limit_info") or self._rate_limit
+        found = account_errors.classify_claude(
+            recorded.get("error"), recorded.get("api_error") or result.get("api_error"),
+            recorded.get("status") if recorded.get("status") is not None else result.get("api_error_status"),
+            info, text if isinstance(text, str) else None)
+        event["error_kind"] = found["kind"] if found else None
+        if found:
+            for key in ("resets_at", "resets_text"):
+                if found[key]:
+                    event[key] = found[key]
+
     def _finish_turn(self, result, forced_error=None):
         subtype = str(result.get("subtype") or "")
         failed = bool(result.get("is_error")) or subtype != "success"
@@ -1189,8 +1226,11 @@ class ClaudeSession:
                 event[key] = result[key]
         if status == "error":
             event["error"] = forced_error or _bounded(text if isinstance(text, str) and text else subtype or "error", 500)
+            if not forced_error:
+                self._label_failure(event, result, text)
         elif isinstance(text, str) and not (finished and set(finished) <= set(self._blocked)):
             event["result_text"] = text[: self.RESULT_TEXT_LIMIT]
+        self._api_error = None
         self._on_model_usage(result.get("modelUsage"))
         if self._usage:
             event["usage"] = self._usage_record()

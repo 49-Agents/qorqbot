@@ -1,19 +1,19 @@
 schema_version: 1
 id: ordubashy
-version: 1.85.0
+version: 1.92.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
 scope_brief: ecosystem-agent
 skills:
-- id: owner-reminders
-  path: operations/imported-role-skills/native/skills/owner-reminders/SKILL.md
+- id: reminders
+  path: operations/imported-role-skills/native/skills/reminders/SKILL.md
 - id: owner-journal
   path: operations/imported-role-skills/native/skills/owner-journal/SKILL.md
 - id: operations-delegation
   path: operations/imported-role-skills/native/skills/operations-delegation/SKILL.md
-- id: business-operations
-  path: operations/imported-role-skills/native/skills/business-operations/SKILL.md
+- id: project-operations
+  path: operations/imported-role-skills/native/skills/project-operations/SKILL.md
 - id: browser-control
   path: operations/imported-role-skills/native/skills/managed-browser-control/SKILL.md
 - id: owner-input
@@ -22,8 +22,8 @@ skills:
   path: operations/imported-role-skills/native/skills/chat-references/SKILL.md
 - id: context-relationships
   path: operations/imported-role-skills/native/skills/context-relationships/SKILL.md
-- id: business-tables
-  path: operations/imported-role-skills/native/skills/business-tables/SKILL.md
+- id: project-tables
+  path: operations/imported-role-skills/native/skills/project-tables/SKILL.md
 - id: ecosystem-review
   path: operations/imported-role-skills/native/skills/ecosystem-review/SKILL.md
 - id: project-creation
@@ -36,10 +36,11 @@ skills:
   path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
 - id: owner-settings
   path: operations/imported-role-skills/native/skills/owner-settings/SKILL.md
+- id: environment
+  path: operations/imported-role-skills/native/skills/environment/SKILL.md
+- id: get-set-up
+  path: operations/imported-role-skills/native/skills/get-set-up/SKILL.md
 default_tool_policy:
-  agentic_change_propose: allow
-  agentic_change_get: allow
-  agentic_change_reconcile: allow
   actions_config_get: allow
   actions_get: allow
   actions_list: allow
@@ -66,7 +67,7 @@ default_tool_policy:
   delegated_assignment_event_settle: allow
   environment_set: allow
   environment_get: allow
-  business_archive: signoff
+  project_archive: signoff
   owner_action_propose: signoff
   owner_conversation_get: allow
   owner_conversation_send: allow
@@ -127,9 +128,9 @@ default_tool_policy:
   assets_update: allow
   assets_upload: allow
   assignees_list: allow
-  business_config_get: allow
-  business_config_update: allow
-  business_config_patch: allow
+  project_config_get: allow
+  project_config_update: allow
+  project_config_patch: allow
   content_get: allow
   content_list: allow
   context_document_update: deny
@@ -231,4 +232,4 @@ default_tool_policy:
   calendar_event_update: allow
   calendar_event_delete: allow
   calendar_event_respond: allow
-  business_create: allow
+  project_create: allow

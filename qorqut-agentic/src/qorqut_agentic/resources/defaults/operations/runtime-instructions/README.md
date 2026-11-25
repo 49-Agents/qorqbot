@@ -21,6 +21,7 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [attention-unavailable](messages/attention-unavailable.md) | attention prompt | conditional |
 | [attention-handover](messages/attention-handover.md) | attention prompt | conditional |
 | [attention-oversight](messages/attention-oversight.md) | attention prompt | conditional |
+| [attention-focus-held](messages/attention-focus-held.md) | attention prompt | conditional |
 | [attention-step-returned](messages/attention-step-returned.md) | attention prompt | conditional |
 | [attention-step-waiting](messages/attention-step-waiting.md) | attention prompt | conditional |
 | [attention-team-available](messages/attention-team-available.md) | attention prompt | conditional |
@@ -68,11 +69,12 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [learning-applier-assignment](messages/learning-applier-assignment.md) | bootstrap/learning_applier.py | conditional |
 | [overseer-extraction-due](messages/overseer-extraction-due.md) | overseer/due.py | conditional |
 | [plugin-discovery](messages/plugin-discovery.md) | agents/preferences.py | conditional |
-| [project-briefing-evidence](messages/project-briefing-evidence.md) | domains/business_briefing.py | conditional |
-| [retirement-inbox-history](messages/retirement-inbox-history.md) | inbox/retirement_contract.py | conditional |
-| [retirement-inbox-reading](messages/retirement-inbox-reading.md) | inbox/retirement_contract.py | conditional |
-| [retirement-review-history](messages/retirement-review-history.md) | inbox/retirement_contract.py | conditional |
+| [project-briefing-evidence](messages/project-briefing-evidence.md) | domains/project_briefing.py | conditional |
 | [runtime-diagnostic-guidance](messages/runtime-diagnostic-guidance.md) | agents/diagnostics.py | conditional |
+| [skill-discovery-header-claude-code](messages/skill-discovery-header-claude-code.md) | bootstrap/claude_session.py | conditional |
+| [skill-discovery-header-codex](messages/skill-discovery-header-codex.md) | bootstrap/claude_session.py | conditional |
+| [skill-discovery-line-claude-code](messages/skill-discovery-line-claude-code.md) | bootstrap/claude_session.py | conditional |
+| [skill-discovery-line-codex](messages/skill-discovery-line-codex.md) | bootstrap/claude_session.py | conditional |
 | [skills-header](messages/skills-header.md) | always skills | conditional |
 | [skills-omitted](messages/skills-omitted.md) | always skills | conditional |
 | [startup-denied](messages/startup-denied.md) | claude session | conditional |

@@ -121,7 +121,7 @@ def occurrence_values(runtime, job, arguments, uow, *, job_id=None):
     definition = job["definition_ref_json"] or {}
     if definition.get("digest") != program.definition["digest"]:
         raise DomainError("policy_denied", "The scheduled program definition changed before recording its occurrence")
-    if job["business_id"] is not None or definition.get("scope") != "global":
+    if job["project_id"] is not None or definition.get("scope") != "global":
         raise DomainError("forbidden", "Scheduled extraction is a Global/root program")
     if definition.get("trigger") != "schedule":
         raise DomainError("forbidden", "Only a scheduled occurrence can record a due extraction request")
@@ -132,11 +132,11 @@ def occurrence_values(runtime, job, arguments, uow, *, job_id=None):
     if authority is None or authority.worker_id(PROGRAM, uow) != job["principal_id"]:
         raise DomainError("policy_denied", "Scheduled extraction requires its registered system worker")
     authority.require_worker(job["principal_id"], None, uow)
-    run = uow.repository("routine_runs", business_id=None).get(run_id, required=True)
+    run = uow.repository("routine_runs", project_id=None).get(run_id, required=True)
     if (run["namespace"] != "global" or run["routine_id"] != routine_id or run["trigger"] != "schedule"
-            or run["business_id"] is not None):
+            or run["project_id"] is not None):
         raise DomainError("invalid_job", "The linked routine run is not this Global scheduled occurrence")
-    routine = uow.repository("routines", business_id=None).get({"namespace": "global", "id": routine_id}, required=True)
+    routine = uow.repository("routines", project_id=None).get({"namespace": "global", "id": routine_id}, required=True)
     if routine["job_kind"] != PROGRAM or routine["target"] != "root" or routine["scope"] != "global":
         raise DomainError("forbidden", "The routine no longer registers this Global program for the root target")
     if routine["metadata_json"].get("retired"):
@@ -177,7 +177,7 @@ class DueRecord:
     def prepare(self, ctx, args, options, uow):
         if ctx.job_id is None or ctx.principal_kind != "system" or ctx.source != "worker":
             raise DomainError("forbidden", "A due record is derived only from its own internal scheduled job")
-        job = uow.repository("jobs", business_id=ctx.business_id).get(ctx.job_id, required=True)
+        job = uow.repository("jobs", project_id=ctx.project_id).get(ctx.job_id, required=True)
         values = occurrence_values(self.runtime, job, args, uow)
         builder = PlanBuilder(ctx, OUTPUT, args, "Record a scheduled Overseer extraction due request")
         existing = uow.connection.execute(
@@ -323,12 +323,21 @@ def _emit(runtime, uow, row, now):
     visibility = {"reference": request_reference,
                   "target": {"agent_id": row["target_agent_id"], "conversation_id": row["target_conversation_id"]}}
     event = uow.connection.execute(
-        "INSERT INTO inbox_events(business_id,source_type,source_id,source_revision,actor_id,event_type,summary,"
+        "INSERT INTO inbox_events(project_id,source_type,source_id,source_revision,actor_id,event_type,summary,"
         "visibility_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
         (None, EVENT_SOURCE, row["id"], 1, None, EVENT_TYPE,
          runtime.resolver.require_agentic_view().runtime_instructions().render('overseer-extraction-due'), canonical(visibility), now)).lastrowid
     uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id,required) VALUES(?,?,1)",
                            (row["target_agent_id"], event))
+
+
+# Unassigned occurrences whose job succeeded, oldest first. Written to walk the occurrences in their creation index and
+# probe each one's job and membership by key; joining from the jobs side visited every succeeded job on every pass.
+UNASSIGNED_OCCURRENCES = (
+    "SELECT o.* FROM overseer_due_occurrences o "
+    "WHERE NOT EXISTS (SELECT 1 FROM overseer_due_request_occurrences m WHERE m.occurrence_id=o.id) "
+    "AND EXISTS (SELECT 1 FROM jobs j WHERE j.id=o.job_id AND j.state='succeeded') "
+    "ORDER BY o.created_at,o.id LIMIT ?")
 
 
 def reconcile(runtime, uow, *, now=None):
@@ -338,11 +347,7 @@ def reconcile(runtime, uow, *, now=None):
     commit together. A blocked occurrence stays durable with its bounded reason and is retried on a later pass.
     """
     now = now or utc_now()
-    occurrences = uow.connection.execute(
-        "SELECT o.* FROM overseer_due_occurrences o JOIN jobs j ON j.id=o.job_id "
-        "LEFT JOIN overseer_due_request_occurrences m ON m.occurrence_id=o.id "
-        "WHERE m.occurrence_id IS NULL AND j.state='succeeded' ORDER BY o.created_at,o.id LIMIT ?",
-        (MAX_RECONCILE,)).fetchall()
+    occurrences = uow.connection.execute(UNASSIGNED_OCCURRENCES, (MAX_RECONCILE,)).fetchall()
     summary = {"schema_version": 1, "assigned": 0, "blocked": 0, "requests": 0, "reasons": {}}
     for occurrence in occurrences:
         reason = _routine_authority(runtime, uow, occurrence) or _target_authority(
@@ -745,7 +750,7 @@ def request_visible(app, ctx, request_id, uow):
     conversation are checked here, while the actual tool invocation still requires the real full registration.
     """
     row = uow.connection.execute("SELECT * FROM overseer_due_requests WHERE id=?", (request_id,)).fetchone()
-    if row is None or ctx.principal_id != row["target_agent_id"] or ctx.business_id is not None:
+    if row is None or ctx.principal_id != row["target_agent_id"] or ctx.project_id is not None:
         return False
     if active_role_holder(uow.connection, LEARNING_APPLIER_ROLE) != ctx.principal_id:
         return False

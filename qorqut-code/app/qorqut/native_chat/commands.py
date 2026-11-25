@@ -131,7 +131,7 @@ def _owner_skill(name: str) -> bool:
 def _claude_custom(roots) -> list[dict]:
     found = {}
     for root, source in roots:
-        commands = root / ".claude" / "commands"
+        commands = root / "commands"
         if commands.is_dir() and not commands.is_symlink():
             for path in sorted(commands.rglob("*.md")):
                 text = _read(path)
@@ -141,7 +141,7 @@ def _claude_custom(roots) -> list[dict]:
                 name = "/" + ":".join(relative.parts)
                 found.setdefault(name, {"name": name, "description": _describe(text, _front_matter(text)) or "Your command",
                                         "where": "chat", "source": source})
-        skills = root / ".claude" / "skills"
+        skills = root / "skills"
         if skills.is_dir() and not skills.is_symlink():
             for path in sorted(skills.glob("*/SKILL.md")):
                 text = _read(path)
@@ -159,19 +159,23 @@ def _claude_custom(roots) -> list[dict]:
     return list(found.values())[:MAX_CUSTOM]
 
 
-def catalog(client: str, *, home=None, workspace=None, managed: bool = True) -> dict:
-    """The commands for ``client`` ("claude" or "codex"), built-ins first, then the owner's own (Claude only). In managed mode (the
-    default) the commands only a terminal can show are ``unavailable``; with ``managed=False`` (agents run in terminals) the
-    terminal table applies, which has Claude Code only."""
+def catalog(client: str, *, home=None, claude_home=None, workspace=None, managed: bool = True) -> dict:
+    """The commands for ``client`` ("claude" or "codex"), built-ins first, then the agent's and the owner's own (Claude only).
+    The owner's own are read where the client reads them: ``claude_home`` (the folder the client is started with, Qorqbot's
+    own on an installation that keeps one) or, without it, ``.claude`` in ``home``. In managed mode (the default) the commands
+    only a terminal can show are ``unavailable``; with ``managed=False`` (agents run in terminals) the terminal table applies,
+    which has Claude Code only."""
     table = BUILT_IN if managed else BUILT_IN_TERMINAL
     if client not in CLIENTS or client not in table:
         return {"client": None, "commands": []}
     commands = [{"name": name, "description": description, "where": where, "source": "built-in"}
                 for name, description, where in table[client]]
     if client == "claude":
-        roots = [(Path(workspace), "agent")] if workspace else []
-        if home:
-            roots.append((Path(home), "yours"))
+        roots = [(Path(workspace) / ".claude", "agent")] if workspace else []
+        if claude_home:
+            roots.append((Path(claude_home), "yours"))
+        elif home:
+            roots.append((Path(home) / ".claude", "yours"))
         taken = {item["name"] for item in commands}
         commands += [item for item in _claude_custom(roots) if item["name"] not in taken]
     return {"client": client, "commands": commands}

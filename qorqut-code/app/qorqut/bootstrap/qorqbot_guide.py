@@ -11,6 +11,7 @@ SKILL_DIRECTORIES = (".claude/skills/" + SKILL_NAME, ".agents/skills/" + SKILL_N
 SKILL = """---
 name: qorqut-qorqbot-guide
 description: Answer the owner's questions about Qorqbot itself - what it is, privacy, how agents start and sleep, where things are in the dashboard (Chat, Focus, Todo, Signoffs, Calendar, Journal, Settings, extensions), projects, the walkthrough, the Mac app and the qorqbot command, and what to do when something does not work.
+read_for: Questions from the owner about how Qorqbot works, where something is or why it fails
 ---
 
 # Qorqbot guide
@@ -45,10 +46,10 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 
 - Qorqbot downloads Claude Code and Codex itself; the owner never installs either one. With managed sessions nobody
   types a command or opens a terminal.
-- The owner connects one of them once, from the dashboard in the browser: **Settings > Agents**, then **Download** if
+- The owner connects one of them once, from the dashboard in the browser: **Settings > Model/Provider**, then **Download** if
   it is shown, then **Connect**, and sign in with their Claude or Codex account. Until one says Ready, no agent can
   start.
-- How agents run is one choice for the whole installation, in **Settings > Agents** under **How agents run**:
+- How agents run is one choice for the whole installation, in **Settings > Model/Provider** under **How agents run**:
   **Managed sessions (recommended)**, the default, or **Terminals (legacy)**. Only the owner can switch; an agent
   cannot. Switching ends every agent's session, and conversations carry over. Terminals need tmux on this computer and
   run Claude Code agents only. Ordubashy can see which applies: `agent_terminal_status` shows `managed: true` for an
@@ -64,7 +65,7 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   a switch to Terminals, Qorqbot starts each agent that was on and has a conversation to continue.
 - **End session** in the session line of Chat turns a managed agent off. An agent that is off stays off until the owner
   sends it a message. Ordubashy can also turn a worker off or on.
-- Which client an agent uses (Claude Code or Codex), and its model and effort, is set per agent in **Settings > Agents**.
+- Which client an agent uses (Claude Code or Codex), and its model and effort, is set per agent in **Settings > Model/Provider**.
   A model or effort change applies the next time the session opens. A client change needs the session closed (**End
   session** first) and starts a separate conversation; the old one stays in history.
 - Agents do not ask the owner for permission to run their tools. The only questions that reach the owner are ones an
@@ -83,17 +84,17 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
   - Slash commands: type `/` at the start of the Chat box to list the commands Chat accepts, for example `/compact`.
     Commands that need a menu or panel are not offered in Chat.
 - **Ordubashy's right-hand pane** has tabs:
-  - **Focus**: what needs the owner in one place. The top row holds side chats and the threads the owner pinned;
-    Signoffs waiting on the owner, due reminders and calendar alerts show as chips below it; the rest is the owner's
-    personal notes, which agents cannot read or write. It does not show calendar events.
+  - **Focus**: what needs the owner in one place. Signoffs waiting on the owner, due reminders and calendar alerts
+    show as chips at its top; the rest is the owner's personal notes, which agents cannot read or write. It does not show calendar events.
   - **Todo**: the work on Ordubashy's board, the owner's and the agents'. The person icon shows only the owner's tasks.
   - **Calendar**: day, 3-day and week views, **Add event**, **My calendars**. It shows events only once Google Calendar
     is connected (see Calendar below).
   - **Journal**: the owner's notes, saved as they type.
 - **Learning Applier** is shown to the owner as **Overseer** and is available only when **Testing mode** is on
-  (**Settings > Agents**). Until then its entry says "Overseer, available in testing mode only" and opens nothing. With
-  testing mode on, its pane has **Context** (the shared context the agents work from, which the owner can read and
-  edit: Graph, People, Learning, Filed context) and **Changes** (proposed changes to how agents work, for review).
+  (**Settings > Model/Provider**). Until then its entry says "Overseer, available in testing mode only" and opens nothing. While
+  testing mode is off he is switched off: his session is closed and he receives no notices or reminders; they are delivered
+  when testing mode is on again. With testing mode on, its pane has **Context** (the shared context the agents work from, which
+  the owner can read and edit: Graph, People, Learning, Filed context) and **Changes** (proposed changes to how agents work, for review).
 - The divider between Chat and the right pane can be dragged.
 
 ## Decisions, reminders, tasks
@@ -101,13 +102,13 @@ few steps. Offer to do the task yourself when you can (creating a project, a rem
 - **Signoffs** are requests for the owner's approval. Nothing they cover happens until the owner decides. They appear
   as chips at the top of **Focus** (and **Todo**). Click one, then **Approve** or **Reject**; a message typed
   first is sent with the decision, and **Reject** becomes the highlighted button that Ctrl+Enter presses. A question
-  Signoff has an answer box and **Submit**.
+  Signoff has an answer box and **Send**.
 - **Reminders**: ask an agent to remind you, once or repeating. Due reminders show as bell chips at the top of Focus.
 - **Tasks** live in projects. Click the status circle to change a task's state, or the row to open it.
 
 ## Projects
 
-- A project keeps the work, records and context for one client or business apart. There is no "new project" button:
+- A project keeps the work, records and context for one client or company apart. There is no "new project" button:
   the owner asks Ordubashy in Chat ("Create a project for …" with a name and its purpose), and he prepares it and asks
   for a Signoff before anything is created.
 - Opening a link or record that belongs to a project switches the workspace to that project.
@@ -119,7 +120,7 @@ Environment, Walkthrough and About & privacy; there is a search box at the top.
 
 - **Connections** (the tools the agents can use):
   - **Agent browser** is included with Qorqbot. Ordubashy and the permanent workers all use the one Shared browser: they share its website sign-ins and each works in its own tabs. It is prepared automatically when Chrome and the browser tool are available. When it is not ready, Ordubashy sets it up himself with `agent_browser_manage` (`status`, then `ensure` or `repair`) and does not send the owner to Settings for it; the owner is asked only for what needs them, such as installing Google Chrome. Settings also shows readiness and has a Retry setup button that does the same.
-  - It is the default way agents use websites. When a site needs the owner's account (Slack, for example), Ordubashy connects it through the browser with `website_sign_in`: it says which site it is opening, Chrome appears, and the owner signs in themselves and closes the window when finished. The browser is paused for every agent until that window closes. On a computer without a screen that window cannot open: the site's sign-in page opens in the Shared browser, and the owner signs in there through that agent's **Browser** tab, so no password passes through an agent. Ordubashy asks for a password or code only if the owner cannot use that. Other agents ask Ordubashy to do this.
+  - It is the default way agents use websites. When a site needs the owner's account (Slack, for example), Ordubashy connects it through the browser with `website_sign_in`: it says which site it is opening and opens the site's sign-in page in the Shared browser. The owner signs in there themselves through that agent's **Browser** tab, so no password passes through an agent, and no agent's browser is paused. Ordubashy asks for a password or code only if the owner cannot use that. Other agents ask Ordubashy to do this.
   - Connected sites are listed in **Settings > Connections** under **Websites your agents can use as you**, with **Sign out**. A signed-in agent can act on the site as the owner, and only its instructions make it ask first, so get approval in a Signoff before sending or changing anything through a website.
   - **Extensions** are extra tools that run inside Qorqbot, so they work the same in Claude Code and Codex. They are
     listed below the websites, each with its status: OpenRouter, treg and WhatsApp.
@@ -180,7 +181,7 @@ Walkthrough**, or in the Mac app with **Help > Show Walkthrough**.
 - **Chat does not answer, or the agent shows as off**: if the owner ended the session, sending the agent a message turns
   it on. If Chat says the session could not open, it gives the reason. With Terminals, an agent that is offline has
   to be started in its Terminal first.
-- **The agent never starts**: open **Settings > Agents**. The client the agent uses must say Ready; press **Download** or
+- **The agent never starts**: open **Settings > Model/Provider**. The client the agent uses must say Ready; press **Download** or
   **Connect** if it does not. If only the other client is ready, set that one for the agent there.
 - **A message shows as not delivered or unconfirmed**: wait a moment, since the session may still be opening, then
   resend from Chat.

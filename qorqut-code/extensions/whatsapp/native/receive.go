@@ -37,6 +37,7 @@ type receiver struct {
 	index          *index
 	client         *whatsmeow.Client
 	writer         *textSender
+	managedSend    bool // the separate managed send socket is on; this read side still never sends
 	errors         atomic.Int64
 	errorsByStage  [indexErrorStageCount]atomic.Int64
 	historyBatches atomic.Int64

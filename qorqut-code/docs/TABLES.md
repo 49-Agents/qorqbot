@@ -1,9 +1,9 @@
-# Business Tables And Data Uploads
+# Project Tables And Data Uploads
 
-Tables are shared business records, not private agent files. Agents receive the same
+Tables are shared project records, not private agent files. Agents receive the same
 table tools through their role, without a plugin.
-Normal business scope and owner-controlled allow/signoff/deny overrides apply.
-Another business's tables, rows or uploads cannot be selected by guessing IDs.
+Normal project scope and owner-controlled allow/signoff/deny overrides apply.
+Another project's tables, rows or uploads cannot be selected by guessing IDs.
 
 ## Data Model
 
@@ -48,11 +48,11 @@ Existing UUID and legacy ULID row IDs are accepted when patching preserved data.
 ## Global Tables
 
 Global > Tables (`#/global/tables`) holds general-purpose tables that belong to no
-business. Global is its own namespace: it is not an aggregate of businesses, has no
-business picker, and is not a business called "global". The same eight operations
+project. Global is its own namespace: it is not an aggregate of projects, has no
+project picker, and is not a project called "global". The same eight operations
 and `tables_archive` serve both scopes; a Global call passes `scope: "global"` (the
-owner's `/root/operations/` routes always do, and reject `scope: "business"` or a
-selected business). Business routes and defaults are unchanged. Global Costs is
+owner's `/root/operations/` routes always do, and reject `scope: "project"` or a
+selected project). Project routes and defaults are unchanged. Global Costs is
 unchanged and not a table.
 
 Access is decided by current registered authority, never by a name or a runtime.
@@ -61,17 +61,17 @@ The installation owner has direct authority. Active Global Ordubashy agents hold
 operations plus restore, resolved by core policy rather than their role files; an
 explicit `deny` override stays effective. Another active ecosystem agent holding
 `read_global_context` has no Global table access by default: only its own explicit
-per-operation overrides count, and a role's business defaults never promote into
-Global. Business-only, inactive and capability-less agents have no Global access,
-and Global grants change nothing in a business. MCP discovery lists these tools for the
-eligible agents with a `scope_modes` field showing the business and Global modes.
+per-operation overrides count, and a role's project defaults never promote into
+Global. Project-only, inactive and capability-less agents have no Global access,
+and Global grants change nothing in a project. MCP discovery lists these tools for the
+eligible agents with a `scope_modes` field showing the project and Global modes.
 
 Only the General purpose exists: purpose-specific tables, Story links (`story_ids`)
 and Data Upload references (`source_upload_id`)
-are rejected, and the dashboard hides those controls. Tags work as in a business, and
+are rejected, and the dashboard hides those controls. Tags work as in a project, and
 Global has no purpose picker or filter. Typed columns and cells,
 limits, `expected_revision`, atomic batches, idempotent retries and read-only
-archived rows behave as in a business. Rows, tables, versions, pagination cursors
+archived rows behave as in a project. Rows, tables, versions, pagination cursors
 and jobs never cross scopes, and an ID is never used to guess the other namespace.
 Tables are not deleted; restoring (`archived: false`) is an ordinary allowed update.
 
@@ -83,12 +83,12 @@ creation is then the proposal. An `allow` override cannot remove that approval; 
 still blocks it. Archiving an already archived table needs nothing (through
 `tables_update`); `tables_archive` refuses it as a validation error. Approval applies
 the exact stored proposal without the agent connected; a table edited after the
-proposal is stale and does not archive. In a business `tables_archive` follows the
-agent's `tables_update` mode, so business permissions are unchanged.
+proposal is stale and does not archive. In a project `tables_archive` follows the
+agent's `tables_update` mode, so project permissions are unchanged.
 
 Storage reuses `data_tables`, `data_rows` and `table_versions` with a nullable
-`business_id`, as Global tasks do. Migration 105 rebuilds the three stores in one
-transaction, keeps every business row, index and trigger unchanged, adds Global-only unique
+`project_id`, as Global tasks do. Migration 105 rebuilds the three stores in one
+transaction, keeps every project row, index and trigger unchanged, adds Global-only unique
 indexes for IDs, row positions and table revisions, same-scope parent triggers, and
 checks that a Global table is General with no upload reference. Recovery from a
 failed upgrade is the ordinary restore of the pre-migration SQLite backup.
@@ -106,24 +106,24 @@ repository. The publisher never initializes a repository or changes the owner's 
 index or staged work. A fresh instance gets that repository from the explicit initializer
 ([Installation](INSTALLATION.md), Stage 4): the neutral branch `qorqut-instance` holding one
 empty bootstrap commit, which table publication leaves in place; the service does not repair
-an existing instance that lacks it. `hq/tables/<table-id>.json` is a generated current-state
+an existing instance that lacks it. `projects/<slug>/tables/<table-id>.json` is a generated current-state
 projection, not an input to edits; a Global table's is `files/tables/<table-id>.json`
 under the operations root. No automatic push runs per edit.
 
 Git failure leaves the exact pending snapshot available for retry. A retry also
-publishes earlier pending snapshots in that business, or in Global for a Global
-version; Global is never treated as all businesses. Saved versions retain their
+publishes earlier pending snapshots in that project, or in Global for a Global
+version; Global is never treated as all projects. Saved versions retain their
 commit IDs and release their duplicate snapshot payload from SQLite. History and
 retry remain available through service operations, not the table UI. Dashboard
 row changes stay local until Save, which submits one batch; Discard writes nothing.
 Publication is queued, not synchronous with editing.
 Backups include current tables, pending versions and original uploads. Preserve
-the businesses Git repository separately to retain already-published past versions.
+the projects Git repository separately to retain already-published past versions.
 
 ## Original Uploads
 
 The dashboard accepts a file through Tables > Data uploads or the Uploads pane.
-Original bytes, filename and notes are preserved under `hq/data-uploads/` (20 MiB
+Original bytes, filename and notes are preserved under `data-uploads/` in the project folder (20 MiB
 per file). Uploading does not invoke a model, execute code or guess a table schema.
 The owner can download the original, link Stories, and see tables using it.
 
@@ -139,9 +139,9 @@ openpyxl is a test dependency, not a service parser.
 The table, table-history, asset and data-upload operations live in the `qorqut_operations.tables` and
 `qorqut_operations.assets` packages; this host composes them and owns no copy of them.
 
-- `TableOperations(database, operations_root, project_hq, *, clock, job_programs)` and
-  `TableHistory(database, operations_root, project_hq, *, runner)` take the operations-root Git directory and the
-  trusted `project_hq(business_row)` callable (the host passes `lambda business: business_hq(paths, business)`)
+- `TableOperations(database, operations_root, project_root, *, clock, job_programs)` and
+  `TableHistory(database, operations_root, project_root, *, runner)` take the operations-root Git directory and the
+  trusted `project_root(project_row)` callable (the host passes `lambda project: project_root(paths, project)`)
   explicitly; the package imports nothing from this host. The job programs `tables.version` and
   `tables.global-version` run `TableHistory.run`.
 - `DataUploadOperations(store)` and `AssetOperations(store, *, additional_references)` receive the host's source
@@ -155,21 +155,20 @@ The table, table-history, asset and data-upload operations live in the `qorqut_o
 
 ## Installation And Verification
 
-Keep the database schema current before restarting the service. Each business
+Keep the database schema current before restarting the service. Each project
 needs the fixed `tables.version` worker. Global tables publish through the internal
-`tables.global-version` program, which needs its own system worker principal and no
-business membership: register it with the installation's existing
+`tables.global-version` program, which needs its own system worker principal: register it with the installation's existing
 `BackgroundAuthority.register_workers` maintenance path when deploying, as for any new
-program. Until then Global table writes are refused with a setup error; business
+program. Until then Global table writes are refused with a setup error; project
 tables are unaffected. Published role artifacts and profile pins select agent
 guidance; preserve plugin grants and explicit overrides.
 
 Deploy core (with migration 105) before the dashboard and role guidance; the
 Global page and guidance depend on the new `scope` argument. The `tables.version`
-registration and its frozen definition are unchanged, so business jobs queued or
+registration and its frozen definition are unchanged, so project jobs queued or
 running across the upgrade and restart keep matching their digest and publish
 normally (recovery uses the same runner). Only Global jobs use
-`tables.global-version`; it is Global-only and never publishes business pending
+`tables.global-version`; it is Global-only and never publishes project pending
 versions, nor the reverse. No job grant or receipt is rewritten.
 Global table behavior does not depend on the migration number.
 

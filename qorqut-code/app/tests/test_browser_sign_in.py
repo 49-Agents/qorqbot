@@ -1,6 +1,7 @@
 """The owner signs in to websites on the Shared browser's profile; Qorqbot records sites, never passwords."""
 
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -10,7 +11,7 @@ from unittest import mock
 
 from qorqut_operations.contracts import DomainError
 from qorqut.bootstrap.preparation import connector_gate_guard
-from qorqut.browser import agent_supervisor as supervisor, setup, sign_in
+from qorqut.browser import setup, sign_in
 from qorqut.browser.agent_browsers import SHARED_ID
 
 AGENT = "8fdca155-2f3b-4735-800f-41624c6d26cc"
@@ -40,43 +41,8 @@ class CoversTest(unittest.TestCase):
         self.assertFalse(sign_in.covers("slack.com.evil.io", "slack.com"))
 
 
-class WatchWindowTest(unittest.TestCase):
-    def watch(self, counts, *, alive=lambda: None, limit=100):
-        replies = iter(counts)
-        def pages():
-            value = next(replies)
-            if isinstance(value, Exception):
-                raise value
-            return [{}] * value
-        now = [0]
-        def sleep(_):
-            now[0] += 1
-        sign_in.watch_window(SimpleNamespace(poll=alive), 1, limit=limit, sleep=sleep, clock=lambda: now[0], pages=pages)
-        return now[0]
-
-    def test_returns_after_the_last_window_stays_closed(self):
-        self.assertEqual(self.watch([1, 1, 0, 0]), 4)
-
-    def test_a_tab_swap_blip_does_not_end_sign_in(self):
-        self.assertEqual(self.watch([1, 0, 1, 0, 0]), 5)
-
-    def test_waits_for_a_window_to_appear_first(self):
-        self.assertEqual(self.watch([0, 0, 0, 1, 0, 0]), 6)
-
-    def test_ignores_unreachable_moments(self):
-        self.assertEqual(self.watch([OSError(), 1, OSError(), 0, 0]), 5)
-
-    def test_gives_the_browser_back_after_the_limit(self):
-        self.assertEqual(self.watch([1] * 10, limit=3), 3)
-
-    def test_a_chrome_that_quit_ends_at_once(self):
-        self.assertEqual(self.watch([], alive=lambda: 0), 0)
-
-
 class FlowTest(unittest.TestCase):
     def setUp(self):
-        # These flows mock the window process; no real display is required.
-        self.enterContext(mock.patch.dict(sign_in.os.environ, {"DISPLAY": ":synthetic-test"}))
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
@@ -96,78 +62,12 @@ class FlowTest(unittest.TestCase):
         patcher = mock.patch.object(setup, "targets", return_value=("owner", [{"agent_id": AGENT, "name": "Ordubashy"}]))
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.addCleanup(sign_in._window.clear)
-
-    def no_window(self):
-        """The window is a stand-in without a DevTools port: nothing may ask a real port on this computer for its cookies."""
-        return mock.patch.multiple(sign_in, _window_cookies=mock.Mock(return_value=[]), _quit_cleanly=mock.Mock())
-
-    def test_a_second_window_is_refused_while_one_is_open_and_names_the_first_site(self):
-        sign_in._window["site"] = "notion.so"
-        with mock.patch.object(sign_in.subprocess, "Popen") as popen, self.assertRaises(DomainError) as caught:
-            sign_in.start(self.runtime, "slack.com")
-        self.assertEqual(caught.exception.code, "conflict")
-        self.assertIn("notion.so", str(caught.exception))
-        popen.assert_not_called()
-        self.assertEqual(self.calls, [])
-        self.assertEqual(sign_in._window, {"site": "notion.so"})        # the open window is still the one being waited for
-
-    def test_a_window_is_never_started_without_a_screen_and_the_browser_is_left_running(self):
-        with mock.patch.object(sign_in, "has_screen", return_value=False), mock.patch.object(sign_in.subprocess, "Popen") as popen, \
-                self.assertRaises(DomainError) as refused:
-            sign_in.start(self.runtime, "slack.com")
-        self.assertEqual(refused.exception.code, "browser_no_screen")
-        self.assertIn("Browser tab", str(refused.exception))
-        popen.assert_not_called()
-        self.assertEqual(self.calls, [])
-        self.assertFalse(sign_in.active())
-
-    def test_failed_window_restores_the_browser_and_clears_the_session(self):
-        (self.state / "stop-requested.json").write_text("{}")
-        # The window's environment is not under test; outside an installed folder it depends on how deep the system's
-        # temporary directory is.
-        with mock.patch.object(sign_in, "chrome_environment", return_value={}), \
-                mock.patch.object(sign_in.subprocess, "Popen", side_effect=OSError("nope")), self.assertRaises(OSError):
-            sign_in.start(self.runtime, "slack.com")
-        self.assertEqual(self.calls, ["stop", "ensure"])
-        self.assertFalse(sign_in.active())
-        self.assertFalse((self.state / "stop-requested.json").exists())     # the pause is not the owner's stop
-
-    def test_a_window_that_closes_at_once_points_the_owner_to_the_live_view_not_to_installing_chrome(self):
-        # The browser's own Chrome ran headless a moment ago, so it is installed; a computer without a screen is the usual cause.
-        with mock.patch.object(sign_in, "chrome_environment", return_value={}), mock.patch.object(sign_in.time, "sleep"), \
-                mock.patch.object(sign_in.subprocess, "Popen", return_value=SimpleNamespace(poll=lambda: 1)), \
-                self.assertRaises(DomainError) as refused:
-            sign_in.start(self.runtime, "slack.com")
-        self.assertEqual(refused.exception.code, "browser_start_failed")
-        self.assertIn("Browser tab", str(refused.exception))
-        self.assertNotIn("installed", str(refused.exception))
-        self.assertEqual(self.calls, ["stop", "ensure"])
-
-    def test_finish_records_the_site_once_and_restores_the_browser(self):
-        process = SimpleNamespace()
-        sign_in._window["site"] = "slack.com"
-        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child") as stop, self.no_window():
-            sign_in._finish(self.runtime, "owner", "slack.com", process, 1)
-            sign_in._window["site"] = "slack.com"
-            sign_in._finish(self.runtime, "owner", "slack.com", process, 1)
-        self.assertEqual(stop.call_count, 2)
-        self.assertEqual([item["site"] for item in json.loads((self.state / sign_in.SITES_FILE).read_text())], ["slack.com"])
-        self.assertEqual(self.calls, ["ensure", "ensure"])
-        self.assertFalse(sign_in.active())
-
-    def test_nothing_secret_is_recorded(self):
-        with mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "stop_child"), self.no_window():
-            sign_in._window["site"] = "slack.com"
-            sign_in._finish(self.runtime, "owner", "slack.com", SimpleNamespace(), 1)
-        self.assertEqual(set(json.loads((self.state / sign_in.SITES_FILE).read_text())[0]), {"site", "added_at"})
 
     def test_accounts_report_the_real_session_state(self):
         (self.state / sign_in.SITES_FILE).write_text(json.dumps([{"site": "slack.com"}, {"site": "notion.so"}]))
         with mock.patch.object(sign_in, "_cookies", return_value=[{"domain": ".slack.com"}]):
             accounts = sign_in.accounts(self.runtime)
-        self.assertEqual(set(accounts), {"signing_in", "sites"})            # one browser: no list of agents
-        self.assertIsNone(accounts["signing_in"])
+        self.assertEqual(set(accounts), {"sites"})            # one browser: no list of agents, no window
         self.assertEqual([set(item) for item in accounts["sites"]], [{"site", "added_at", "session_saved"}] * 2)
         self.assertEqual([item["session_saved"] for item in accounts["sites"]], [True, False])
 
@@ -175,14 +75,6 @@ class FlowTest(unittest.TestCase):
         (self.state / sign_in.SITES_FILE).write_text(json.dumps([{"site": "slack.com"}]))
         with mock.patch.object(sign_in, "_cookies", side_effect=OSError("down")):
             self.assertIsNone(sign_in.accounts(self.runtime)["sites"][0]["session_saved"])
-
-    def test_accounts_name_the_site_being_signed_in_to_and_leave_the_paused_browser_alone(self):
-        (self.state / sign_in.SITES_FILE).write_text(json.dumps([{"site": "slack.com"}]))
-        sign_in._window["site"] = "notion.so"
-        with mock.patch.object(sign_in, "_cookies", side_effect=AssertionError("the paused browser was asked")):
-            accounts = sign_in.accounts(self.runtime)
-        self.assertEqual(accounts["signing_in"], "notion.so")
-        self.assertEqual([(item["site"], item["session_saved"]) for item in accounts["sites"]], [("slack.com", None)])
 
     def test_sign_out_deletes_only_that_sites_data(self):
         (self.state / sign_in.SITES_FILE).write_text(json.dumps([{"site": "slack.com"}, {"site": "notion.so"}]))
@@ -200,13 +92,6 @@ class FlowTest(unittest.TestCase):
             sign_in.sign_out(self.runtime, "slack.com")
         self.assertEqual(len(json.loads((self.state / sign_in.SITES_FILE).read_text())), 1)
 
-    def test_sign_out_waits_for_the_window(self):
-        sign_in._window["site"] = "slack.com"
-        with self.assertRaises(DomainError) as refused:
-            sign_in.sign_out(self.runtime, "slack.com")
-        self.assertEqual(refused.exception.code, "conflict")
-
-
 class AgentToolTest(unittest.TestCase):
     def setUp(self):
         class Read:
@@ -218,106 +103,58 @@ class AgentToolTest(unittest.TestCase):
         patcher = mock.patch("qorqut.management.identity.configured_ordubashy", return_value="ordubashy")
         patcher.start()
         self.addCleanup(patcher.stop)
-        # These calls reach the window, which is what a computer with a screen does; the live view has its own tests.
-        patcher = mock.patch.object(sign_in, "has_screen", return_value=True)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def test_only_ordubashy_can_call_it(self):
-        with mock.patch.object(sign_in, "start") as start, self.assertRaises(DomainError) as caught:
+        with mock.patch.object(sign_in, "open_in_live_view") as live_view, self.assertRaises(DomainError) as caught:
             sign_in.agent_call(self.runtime, "worker", {"action": "open", "site": "slack.com"})
         self.assertEqual(caught.exception.code, "forbidden")
-        start.assert_not_called()
-
-    def test_open_takes_only_the_site_and_guides_the_owner(self):
-        with mock.patch.object(sign_in, "start") as start:
-            result = sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "slack.com"})
-        start.assert_called_once_with(self.runtime, "slack.com")
-        self.assertEqual(result["opened"], "slack.com")
-        self.assertIn("sign in themselves", result["next"])
-
-    def test_with_a_screen_the_window_opens_as_before_and_the_live_view_is_not_used(self):
-        with mock.patch.object(sign_in, "has_screen", return_value=True), mock.patch.object(sign_in, "start") as start, \
-                mock.patch.object(sign_in, "open_in_live_view") as live_view:
-            result = sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "slack.com"})
-        start.assert_called_once_with(self.runtime, "slack.com")
         live_view.assert_not_called()
-        self.assertEqual(set(result), {"opened", "next"})
-        self.assertIn("close the window", result["next"])
 
-    def test_without_a_screen_no_window_is_tried_and_the_page_opens_for_the_live_view(self):
-        with mock.patch.object(sign_in, "has_screen", return_value=False), mock.patch.object(sign_in, "start") as start, \
-                mock.patch.object(sign_in, "open_in_live_view", return_value={"where": "live_view"}) as live_view:
-            result = sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "slack.com"})
-        start.assert_not_called()
-        live_view.assert_called_once_with(self.runtime, "ordubashy", "slack.com", "https://slack.com")    # the caller names the tab
-        self.assertEqual(result, {"where": "live_view"})
+    def test_open_always_puts_the_page_in_the_live_view_whatever_the_computer(self):
+        for platform, environment in (("darwin", {}), ("linux", {"DISPLAY": ":0"}), ("linux", {"WAYLAND_DISPLAY": "wayland-0"}),
+                                      ("linux", {}), ("win32", {})):
+            with self.subTest(platform=platform, environment=environment), \
+                    mock.patch.object(sys, "platform", platform), mock.patch.dict(os.environ, environment), \
+                    mock.patch.object(sign_in, "open_in_live_view", return_value={"where": "live_view"}) as live_view:
+                result = sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "slack.com"})
+            live_view.assert_called_once_with(self.runtime, "ordubashy", "slack.com", "https://slack.com")    # the caller names the tab
+            self.assertEqual(result, {"where": "live_view"})
+
+    def test_a_screen_does_not_stop_or_pause_the_browser(self):
+        manage = mock.Mock()
+        runtime = SimpleNamespace(database=self.runtime.database, browser_manager=SimpleNamespace(manage=manage))
+        with mock.patch.object(sys, "platform", "darwin"), mock.patch.dict(os.environ, {"DISPLAY": ":0"}), \
+                mock.patch("qorqut.browser.live.shared_port", return_value=20400), \
+                mock.patch.object(sign_in, "_open_tab", return_value="tab") as open_tab, \
+                mock.patch.object(sign_in, "_record_site"), mock.patch("subprocess.Popen") as popen, \
+                mock.patch.object(setup, "targets", return_value=("owner", [{"agent_id": "ordubashy", "name": "Ordubashy"}])):
+            result = sign_in.agent_call(runtime, "ordubashy", {"action": "open", "site": "slack.com"})
+        open_tab.assert_called_once_with(20400, "https://slack.com")
+        manage.assert_not_called()
+        popen.assert_not_called()
+        self.assertEqual(result["where"], "live_view")
+        self.assertIn("sign in there", result["next"])
+        self.assertNotIn("window", result["next"])
 
     def test_plain_http_is_refused_except_on_this_computer(self):
-        with mock.patch.object(sign_in, "start") as start:
+        with mock.patch.object(sign_in, "open_in_live_view") as live_view:
             with self.assertRaises(DomainError):
                 sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "http://slack.com/login"})
-            start.assert_not_called()
+            live_view.assert_not_called()
             sign_in.agent_call(self.runtime, "ordubashy", {"action": "open", "site": "http://127.0.0.1:9000/login"})
-            start.assert_called_once()
+            live_view.assert_called_once()
 
     def test_a_missing_site_is_refused(self):
         with self.assertRaises(DomainError):
             sign_in.agent_call(self.runtime, "ordubashy", {"action": "open"})
 
     def test_status_and_sign_out(self):
-        with mock.patch.object(sign_in, "accounts", return_value={"signing_in": None, "sites": []}) as accounts:
-            self.assertEqual(sign_in.agent_call(self.runtime, "ordubashy", {"action": "status"}), {"signing_in": None, "sites": []})
+        with mock.patch.object(sign_in, "accounts", return_value={"sites": []}) as accounts:
+            self.assertEqual(sign_in.agent_call(self.runtime, "ordubashy", {"action": "status"}), {"sites": []})
         accounts.assert_called_once_with(self.runtime)
         with mock.patch.object(sign_in, "sign_out") as out:
             sign_in.agent_call(self.runtime, "ordubashy", {"action": "sign_out", "site": "slack.com"})
         out.assert_called_once_with(self.runtime, "slack.com")
-
-
-class SessionCookieTest(unittest.TestCase):
-    def test_only_session_cookies_are_copied_and_they_last(self):
-        cookies = [{"name": "s", "value": "1", "domain": "a.b", "path": "/", "secure": True, "httpOnly": True, "session": True, "size": 9},
-                   {"name": "p", "value": "2", "domain": "a.b", "path": "/", "session": False, "expires": 5}]
-        self.assertEqual(sign_in.lasting_copies(cookies, 1000),
-                         [{"name": "s", "value": "1", "domain": "a.b", "path": "/", "secure": True, "httpOnly": True,
-                           "expires": 1000 + sign_in.SESSION_COOKIE_LIFETIME}])
-
-    def test_finish_gives_the_browser_the_window_session(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        root = Path(folder.name)
-        runtime = SimpleNamespace(browser_manager=SimpleNamespace(paths=None, manage=mock.Mock(return_value={})))
-        cookie = {"name": "s", "value": "1", "domain": "a.b", "path": "/", "session": True}
-        order = []
-        with mock.patch.object(sign_in, "agent_state", return_value=root), mock.patch.object(sign_in, "_meta", return_value=META), \
-                mock.patch.object(sign_in, "watch_window"), mock.patch.object(sign_in, "_quit_cleanly"), mock.patch.object(sign_in, "stop_child"), \
-                mock.patch.object(sign_in, "_window_cookies", return_value=[cookie]), \
-                mock.patch.object(sign_in, "_cdp", side_effect=lambda port, calls: order.append((port, calls))):
-            sign_in._finish(runtime, "owner", "a.b", SimpleNamespace(), 1)
-        self.assertEqual(order[0][0], 20400)
-        self.assertEqual(order[0][1][0][1]["cookies"][0]["name"], "s")
-        runtime.browser_manager.manage.assert_called_once()
-
-
-class CommandTest(unittest.TestCase):
-    def test_window_and_headless_read_the_same_profile(self):
-        headless = supervisor.chrome_command(META)
-        window = supervisor.visible_chrome_command(META, "https://slack.com", 55555)
-        self.assertIn("--headless=new", headless)
-        self.assertNotIn("--headless=new", window)
-        # Agents' headless browsers draw no 3D; the owner's sign-in window still can.
-        self.assertIn("--disable-3d-apis", headless)
-        self.assertNotIn("--disable-3d-apis", window)
-        self.assertEqual(headless[-1], "about:blank")
-        self.assertEqual(window[-1], "https://slack.com")
-        for flag in supervisor.profile_flags(META["managed"]):
-            self.assertIn(flag, headless)
-            self.assertIn(flag, window)
-
-    def test_window_never_uses_the_port_agents_know(self):
-        window = supervisor.visible_chrome_command(META, "https://slack.com", 55555)
-        self.assertIn("--remote-debugging-port=55555", window)
-        self.assertNotIn("--remote-debugging-port=20400", window)
 
 
 class GuardTest(unittest.TestCase):

@@ -1,14 +1,16 @@
-"""The coordinator's compaction handoff: what a filing writes, what it refuses, what the next conversation starts with and
+"""An agent's compaction handoff: what a filing writes, what it refuses, what the next conversation starts with and
 which messages the handoff after it answers for. Over the real Task engine; the owner's messages are a list in the test."""
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace as NS
+from unittest import mock
 from uuid import uuid4
 
-from qorqut_operations.contracts import plain
+from qorqut_operations.contracts import PolicyDecision, plain
 
 from qorqut.composition.delegation import HOST_REVIEW_EXCEPTIONS
-from qorqut.domains.compaction_handoff import CompactionHandoff
+from qorqut.composition.policy import resolve_operation_policy
+from qorqut.domains.compaction_handoff import CompactionHandoff, NAME
 
 from test_single_source import Fixture
 
@@ -28,21 +30,21 @@ class HandoffCase(Fixture):
         super().setUp()
         self.now = START + timedelta(hours=2)
         self.said = []
-        self.business = str(uuid4())
+        self.project = str(uuid4())
         with self.db.transaction() as uow:
-            uow.repository('businesses').insert({'id': self.business, 'name': 'Example project', 'slug': 'example',
-                                                 'workspace': 'example', 'hq_path': 'hq'})
+            uow.repository('projects').insert({'id': self.project, 'name': 'Example project', 'slug': 'example',
+                                                 'workspace': 'example'})
         runtime = NS(application=self.app, registry=self.registry, domains=NS(tasks=self.tasks),
                      owner_inputs=NS(addressed=self.addressed))
         self.tool = CompactionHandoff(runtime, clock=lambda: self.now).register()
         self.app.review_exceptions = HOST_REVIEW_EXCEPTIONS      # as the service composes the engine
         self.pay = self.task(self.lead, 'Pay creators')['id']
-        made = self.app.invoke(replace(self.ctx(self.lead), business_id=self.business), 'tasks_create', {'title': 'Fix the car'},
+        made = self.app.invoke(replace(self.ctx(self.lead), project_id=self.project), 'tasks_create', {'title': 'Fix the car'},
                                {'idempotency_key': str(uuid4())})
         self.car = self.ok(made)['task']['id']
 
     def ctx(self, who):
-        return replace(super().ctx(who), allowed_business_ids={self.business} if who == self.lead else ())
+        return replace(super().ctx(who), allowed_project_ids={self.project} if who == self.lead else ())
 
     # -- the owner's messages and the calls -------------------------------------------------------------------------
 
@@ -51,7 +53,7 @@ class HandoffCase(Fixture):
 
     def say(self, text, minutes, *, thread=None):
         identity = ('thread:' if thread else 'chat:') + str(uuid4())
-        place = {'type': 'task', 'id': thread, 'business_id': None, 'title': 'Pay creators'} if thread else None
+        place = {'type': 'task', 'id': thread, 'project_id': None, 'title': 'Pay creators'} if thread else None
         self.said.append({'id': identity, 'at': at(minutes), 'channel': 'thread' if thread else 'chat', 'place': place,
                           'text': text, 'redacted': False})
         return identity
@@ -77,9 +79,9 @@ class HandoffCase(Fixture):
             self.tool.opened(uow, opening['id'], opening['unanswered'], **ids)
         return opening['text']
 
-    def seen(self, task_id, business=None):
+    def seen(self, task_id, project=None):
         with self.db.read() as uow:
-            row = uow.repository('tasks', business_id=business).get(task_id)
+            row = uow.repository('tasks', project_id=project).get(task_id)
             notes = [line['body'] for line in uow.connection.execute(
                 "SELECT body FROM thread_messages WHERE item_id=? AND kind='comment' ORDER BY created_at, id", (task_id,))]
         return (row['fields_json'].get('$task') or {}).get('next_step'), notes
@@ -111,14 +113,14 @@ class CompactionHandoffTests(HandoffCase):
                                  'Last action and its result: Sent the Wise transfer to Liam; it was accepted. '
                                  'Next action: Send the transfer to Sanzida. Waiting on: Nothing.'])
         # A Task in a project is found by its id alone.
-        self.assertEqual(self.seen(self.car, self.business), ('Owner drops the car off Friday', ['Handoff: The shop confirmed Friday 10:00.']))
+        self.assertEqual(self.seen(self.car, self.project), ('Owner drops the car off Friday', ['Handoff: The shop confirmed Friday 10:00.']))
         row, = self.rows()
         filing = row['filing_json']
         self.assertEqual((row['reason'], row['agent_id'], row['opened_at']), ('agent', self.lead, None))
         self.assertEqual([(entry['handle'], entry['status'], entry['task'] and entry['task']['id']) for entry in filing['messages']],
                          [('m1', 'partly', self.pay), ('m2', 'done', None)])
-        self.assertEqual(filing['stopped']['task'], {'id': self.pay, 'business_id': None, 'title': 'Pay creators'})
-        self.assertEqual(filing['tasks'][0]['task'], {'id': self.car, 'business_id': self.business, 'title': 'Fix the car'})
+        self.assertEqual(filing['stopped']['task'], {'id': self.pay, 'project_id': None, 'title': 'Pay creators'})
+        self.assertEqual(filing['tasks'][0]['task'], {'id': self.car, 'project_id': self.project, 'title': 'Fix the car'})
         self.assertNotIn('Pay the creators today', str(filing))
 
     def test_a_closed_task_gets_the_note_and_keeps_its_next_step(self):
@@ -145,14 +147,132 @@ class CompactionHandoffTests(HandoffCase):
             'Task zzzzz: no Task has this id'])
         self.assertEqual((self.rows(), self.seen(self.pay)), ([], (None, [])))
 
-    def test_only_the_coordinator_in_person_files_or_reads_the_form(self):
+    def test_the_owner_and_a_delegated_identity_neither_file_nor_read_the_form(self):
         self.say('Pay the creators today.', 10)
-        for who in (self.worker, self.owner):
+        delegated = replace(self.ctx(self.lead), delegation_binding_id=str(uuid4()), delegation_assignment_id=str(uuid4()),
+                            delegation_generation=1)
+        for who in (self.ctx(self.owner), delegated):
             for operation, arguments in (('compaction_handoff_file', {'messages': [], 'stopped': STOPPED, 'workers': ''}),
                                          ('compaction_handoff_get', {})):
-                result = self.app.invoke(self.ctx(who), operation, {'scope': 'global', **arguments}, {'idempotency_key': str(uuid4())})
+                # The delegation is judged by the handler itself, as the engine's own refusal of it is not installed here.
+                with mock.patch.object(self.app, 'current_context', side_effect=lambda ctx, uow: ctx):
+                    result = self.app.invoke(who, operation, {'scope': 'global', **arguments}, {'idempotency_key': str(uuid4())})
                 self.assertEqual((result.status, result.error['code']), ('error', 'forbidden'))
         self.assertEqual(self.rows(), [])
+
+    def test_every_role_may_call_both_tools(self):
+        for role in ('ordubashy', 'global-worker', 'learning-applier'):
+            for name in ('compaction_handoff_get', NAME):
+                self.assertEqual(resolve_operation_policy(name, {}, {}, self.registry, role_id=role, scope='global').mode, 'allow')
+        for name in ('compaction_handoff_get', NAME):
+            self.assertNotIn('Coordinator only', self.registry.get(name).description)
+
+    def test_a_worker_files_its_own_handoff_without_workers_and_the_coordinator_may_not_leave_them_out(self):
+        self.say('Pay the creators today.', 10)
+        arguments = {'messages': [{'id': 'm1', 'status': 'partly', 'note': 'Half paid.', 'task_id': self.pay, 'next_step': 'Pay the rest'}],
+                     'stopped': STOPPED}
+        refusal = self.app.invoke(self.ctx(self.lead), 'compaction_handoff_file', {'scope': 'global', **arguments},
+                                  {'idempotency_key': str(uuid4())})
+        self.assertEqual(refusal.error['code'], 'validation_error')
+        self.assertIn('workers is required of the coordinator', refusal.error['message'])
+        self.assertEqual(self.rows(), [])
+        result = plain(self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', {'scope': 'global', **arguments},
+                                               {'idempotency_key': str(uuid4())})))
+        self.assertEqual((result['filed'], result['messages']), (True, 1))
+        row, = self.rows()
+        self.assertEqual((row['agent_id'], row['filing_json']['workers']), (self.worker, ''))
+        with self.db.read() as uow:
+            text = self.tool.opening(self.ctx(self.worker), uow)['text']
+        self.assertIn('PARTLY: Half paid.', text)
+        self.assertNotIn('YOUR WORKERS', text)
+
+    def test_an_agent_reads_and_files_only_its_own_handoff(self):
+        self.say('Pay the creators today.', 10)
+        self.filed([{'id': 'm1', 'status': 'done', 'note': 'Paid.'}])
+        mine, = self.rows()
+        self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', {
+            'scope': 'global', 'messages': [{'id': 'm1', 'status': 'done', 'note': 'Also paid.'}], 'stopped': STOPPED},
+            {'idempotency_key': str(uuid4())})
+        coordinator, worker = sorted(self.rows(), key=lambda row: row['agent_id'] != self.lead)
+        self.assertEqual((coordinator['id'], coordinator['filing_json']['messages'][0]['note']), (mine['id'], 'Paid.'))
+        self.assertEqual((worker['agent_id'], worker['filing_json']['messages'][0]['note']), (self.worker, 'Also paid.'))
+        with self.db.read() as uow:
+            self.assertEqual((self.tool.rows(uow, self.lead)[0]['id'], self.tool.rows(uow, self.worker)[0]['id']), (mine['id'], worker['id']))
+
+    def test_a_long_owner_message_is_cut_for_the_coordinator_only_and_a_worker_gets_it_whole(self):
+        long = 'Pay everyone. ' + 'x' * 4986
+        self.say(long, 10)
+        for who, whole in ((self.lead, False), (self.worker, True)):
+            with self.db.transaction() as uow:
+                self.tool.ask(self.ctx(who), uow)
+            with self.db.read() as uow:
+                text = self.tool.opening(self.ctx(who), uow)['text']
+            self.assertEqual((long in text, 'owner_input_get' in text), (whole, not whole))
+            self.assertIn('…[cut: read all of it with owner_input_get ' if not whole else long, text)
+
+    def test_a_non_coordinator_files_an_open_message_without_a_task_and_the_coordinator_may_not(self):
+        self.say('Pay the creators today.', 10)
+        entry = {'id': 'm1', 'status': 'partly', 'note': 'Half paid; no Task holds it.'}
+        refusal = self.app.invoke(self.ctx(self.lead), 'compaction_handoff_file', {'scope': 'global', 'messages': [entry], 'stopped': STOPPED,
+                                                                                  'workers': ''}, {'idempotency_key': str(uuid4())})
+        self.assertIn('m1 is partly and names no Task: give task_id, and create the Task first if none holds this work.', refusal.error['message'])
+        self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', {'scope': 'global', 'messages': [entry], 'stopped': STOPPED},
+                                {'idempotency_key': str(uuid4())}))
+        with self.db.read() as uow:
+            text = self.tool.opening(self.ctx(self.worker), uow)['text']
+        self.assertIn('[2026-11-18 09:10 UTC, chat] Pay the creators today.\n    PARTLY: Half paid; no Task holds it.', text)
+        self.assertNotIn('Read: Task', text)
+
+    def test_the_request_tells_each_agent_what_to_do_with_work_no_task_holds(self):
+        self.say('Pay the creators today.', 10)
+        for who, said in ((self.lead, 'so name the Task that really holds the work, and create one first where an open message has none. After'),
+                          (self.worker, 'so name the Task that really holds the work; an open message that no Task holds is filed without one. After')):
+            with self.db.transaction() as uow:
+                _, request = self.tool.ask(self.ctx(who), uow)
+            self.assertIn(said, request)
+
+    def test_a_task_the_agent_may_not_write_on_is_a_listed_reason_and_filing_without_it_writes_nothing_there(self):
+        self.say('Pay the creators today.', 10)
+        resolve = self.app.policy.resolve
+        self.app.policy.resolve = lambda ctx, descriptor, targets, uow: (
+            PolicyDecision('deny', 'test') if descriptor.name in ('tasks_update', 'tasks_comment') else resolve(ctx, descriptor, targets, uow))
+        entry = {'id': 'm1', 'status': 'partly', 'note': 'Half paid.', 'task_id': self.pay, 'next_step': 'Pay the rest'}
+        arguments = {'scope': 'global', 'messages': [entry], 'stopped': STOPPED}
+        refusal = self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', arguments, {'idempotency_key': str(uuid4())})
+        self.assertEqual(refusal.error['code'], 'validation_error')
+        self.assertEqual(plain(refusal.error['details'])['problems'], [
+            f'Task {self.pay}: you may not write on this Task; leave its task_id out and say what matters in the note.'])
+        self.assertEqual((self.rows(), self.seen(self.pay)), ([], (None, [])))
+        # The coordinator is judged as before: a denied write is a bare denial.
+        bare = self.app.invoke(self.ctx(self.lead), 'compaction_handoff_file', {**arguments, 'workers': ''}, {'idempotency_key': str(uuid4())})
+        self.assertEqual(bare.error['code'], 'policy_denied')
+        arguments['messages'] = [{key: value for key, value in entry.items() if key not in ('task_id', 'next_step')}]
+        self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', arguments, {'idempotency_key': str(uuid4())}))
+        self.assertEqual(self.seen(self.pay), (None, []))
+
+    def test_an_agent_that_may_write_on_tasks_has_its_note_and_next_step_written_on_the_task_it_names(self):
+        self.say('Pay the creators today.', 10)
+        entry = {'id': 'm1', 'status': 'partly', 'note': 'Half paid.', 'task_id': self.pay, 'next_step': 'Pay the rest'}
+        self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', {'scope': 'global', 'messages': [entry], 'stopped': STOPPED},
+                                {'idempotency_key': str(uuid4())}))
+        step, notes = self.seen(self.pay)
+        self.assertEqual((step, len(notes)), ('Pay the rest', 1))
+        self.assertIn('is partly. Half paid.', notes[0])
+
+    def test_an_agent_with_no_owner_messages_is_asked_and_opened_in_plain_words(self):
+        with self.db.transaction() as uow:
+            _, request = self.tool.ask(self.ctx(self.worker), uow)
+        self.assertNotIn('listed below', request)
+        self.assertTrue(request.endswith("The owner's messages to give a status:\n(none in this period: give an empty list for messages)"))
+        self.assertEqual(self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_get', {'scope': 'global'}, {}))['messages'], ())
+        self.ok(self.app.invoke(self.ctx(self.worker), NAME, {'scope': 'global', 'messages': [], 'stopped': STOPPED},
+                                {'idempotency_key': str(uuid4())}))
+        with self.db.read() as uow:
+            text = self.tool.opening(self.ctx(self.worker), uow)['text']
+        self.assertTrue(text.startswith('This conversation continues your work.'))
+        self.assertEqual([part.split('\n')[0] for part in text.split('\n\n')[1:]], ['WHERE YOU STOPPED'])
+        self.assertNotIn('THE OWNER', text)
+
 
     def test_filing_again_before_the_next_conversation_replaces_the_filing(self):
         self.say('Pay the creators today.', 10)
@@ -220,7 +340,7 @@ class CompactionHandoffTests(HandoffCase):
         listed = self.form()
         self.assertEqual([(message['id'], message['text']) for message in listed], [('m1', 'Pay the creators today.'), ('m2', 'Find me a dentist.')])
         self.assertEqual(listed[0]['open'], {'status': 'partly', 'note': 'Liam is paid; Sanzida is not.', 'next_step': 'Lead pays Sanzida',
-                                             'task': {'id': self.pay, 'business_id': None, 'title': 'Pay creators'}})
+                                             'task': {'id': self.pay, 'project_id': None, 'title': 'Pay creators'}})
         self.filed([{'id': 'm1', 'status': 'done', 'note': 'Everyone is paid.', 'task_id': self.pay},
                     {'id': 'm2', 'status': 'remaining', 'note': 'Not started.', 'task_id': self.car}])
         text = self.open()
@@ -287,16 +407,33 @@ class CompactionHandoffTests(HandoffCase):
         compact(closed='other', session='third')
         self.assertEqual(continued('third'), {'conversation_id': 'other', 'at': self.rows()[-1]['opened_at']})
 
-    def test_the_opening_names_the_rules_the_agent_proposed_and_the_owner_has_not_decided(self):
+    def test_the_opening_names_the_owner_rules_the_agent_filed_until_an_approved_proposal_names_them(self):
         with self.db.transaction() as uow:
-            uow.connection.execute('PRAGMA defer_foreign_keys=ON')
-            columns = {row[1]: row for row in uow.connection.execute('PRAGMA table_info(signoffs)')}
-            values = {'id': str(uuid4()), 'proposer_principal_id': self.lead, 'category': 'input_request', 'state': 'pending',
-                      'request_key': 'direct-instruction:abc', 'review_scope_kind': 'global', 'preview_json': '{"input": {"title": "Ask every question in a Signoff, never in chat"}}'}
-            for name, column in columns.items():      # the other required columns of an approval, which this read ignores
-                if name not in values and column[3] and column[4] is None:
-                    values[name] = 1 if column[2] == 'INTEGER' else '{}' if name.endswith('_json') or name == 'change_set' else 'x'
-            uow.connection.execute(f"INSERT INTO signoffs({','.join(values)}) VALUES({','.join('?' * len(values))})", tuple(values.values()))
-            self.assertEqual(self.tool.rules(uow, self.lead), ['Ask every question in a Signoff, never in chat'])
+            run = uow.connection.execute
+            run('PRAGMA defer_foreign_keys=ON')
+            run("INSERT INTO experience_clusters(id,label,created_by,created_at) VALUES('filed-by-agents','Filed by agents',?,'x')", (self.lead,))
+
+            def filed(identity, who, kind, text, at, in_run=None):
+                run('INSERT INTO experience_observations(id,run_id,cluster_id,kind,subject,text,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',
+                    (identity, in_run, 'filed-by-agents', kind, 'all agents', text, who, at))
+            filed('a', self.lead, 'owner_complaint', 'Ask every question  in a Signoff,\nnever in chat.', '2026-11-23T10:00:00Z')
+            filed('b', self.lead, 'agent_failure', 'I guessed an identifier.', '2026-11-23T10:01:00Z')
+            filed('c', self.worker, 'owner_complaint', 'Never send a LinkedIn note.', '2026-11-23T10:02:00Z')
+            filed('d', self.lead, 'owner_complaint', 'x' * 500, '2026-11-23T10:03:00Z')
+            filed('e', self.lead, 'owner_complaint', 'Seen by the extraction, not filed by the agent.', '2026-11-23T10:04:00Z', in_run='r1')
+            self.assertEqual(self.tool.rules(uow, self.lead), ['Ask every question in a Signoff, never in chat.', 'x' * 399 + '…'])
+            self.assertEqual(self.tool.rules(uow, self.worker), ['Never send a LinkedIn note.'])
+            # A rule the owner rejected on its card is not listed; one approved or not yet checked is.
+            run("UPDATE experience_observations SET owner_check='rejected' WHERE id='c'")
             self.assertEqual(self.tool.rules(uow, self.worker), [])
-            uow.connection.execute('DELETE FROM signoffs')
+            run("UPDATE experience_observations SET owner_check='approved' WHERE id='c'")
+            self.assertEqual(self.tool.rules(uow, self.worker), ['Never send a LinkedIn note.'])
+            # A proposal that only waits leaves the rule listed; an approved one that names it takes it off the list.
+            run("INSERT INTO agentic_delta_proposals(id,number,title,problem,change,state,created_by,created_at,updated_at) "
+                "VALUES('p',1,'Questions as Signoffs','Asked in chat.','Ask in a Signoff.','waiting_for_approval',?,'x','x')", (self.lead,))
+            run("INSERT INTO agentic_delta_proposal_links(proposal_id,target_type,target_id) VALUES('p','observation','a')")
+            self.assertEqual(len(self.tool.rules(uow, self.lead)), 2)
+            run("UPDATE agentic_delta_proposals SET state='approved', decided_at='x' WHERE id='p'")
+            self.assertEqual(self.tool.rules(uow, self.lead), ['x' * 399 + '…'])
+            for table in ('agentic_delta_proposal_links', 'agentic_delta_proposals', 'experience_observations', 'experience_clusters'):
+                run(f'DELETE FROM {table}')

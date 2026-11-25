@@ -224,7 +224,7 @@ func managedHandler(m *managedSender) http.Handler {
 			connected := m.writer.client != nil && m.writer.client.IsConnected() && m.writer.client.IsLoggedIn()
 			json.NewEncoder(w).Encode(map[string]any{"account_ref": ref, "connected": connected, "managed_send": true})
 		case "/managed/chat":
-			// Read-only: whether the exact chat ID is an existing indexed conversation and its known display name, so the
+			// Read-only: whether the exact chat ID is a chat listed by whatsapp_read and its known display name, so the
 			// owner's Signoff preview can show both. Nothing is reserved or sent.
 			var in struct {
 				ChatID string `json:"chat_id"`
@@ -233,10 +233,10 @@ func managedHandler(m *managedSender) http.Handler {
 				refuse(w, http.StatusBadRequest, "invalid request")
 				return
 			}
-			var known bool
 			var name string
 			idx := m.writer.index
-			if err := idx.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM messages WHERE chat_id=?)", in.ChatID).Scan(&known); err != nil {
+			known, err := idx.chatListed(ctx, in.ChatID)
+			if err != nil {
 				refuse(w, http.StatusServiceUnavailable, "index query failed")
 				return
 			}

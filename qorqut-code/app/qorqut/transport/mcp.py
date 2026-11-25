@@ -24,9 +24,6 @@ from starlette.requests import Request
 from qorqut_operations.contracts import DomainError, InvocationOptions, OperationResult, new_id, plain
 from qorqut_operations.application.batches import NAME as BATCH_NAME
 from qorqut.agents.diagnostics import DIAGNOSTIC_OPERATIONS
-# Repair-ticket removal, phase 1: the resolver owns the one list of retained internal readers. Discovery and
-# dispatch refuse them here too, including operations_batch entries and tool names a client cached before removal.
-from qorqut.agents.resolver import INTERNAL_ONLY_OPERATIONS
 from qorqut.browser.operations import AGENT_BROWSER_MANAGE, BROWSER_OPERATION, WEBSITE_SIGN_IN
 from qorqut.errors import domain_error_from_agentic
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -112,8 +109,8 @@ OPTION_SCHEMAS = {
     "expected_revision": {"type": "integer", "minimum": 1,
                           "description": instruction_text('mcp-optional-for-task-writes-checked-when-given-required-when')},
     "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 200},
-    "business_id": {"type": "string", "format": "uuid"},
-    "review_business_id": {"type": "string", "format": "uuid"},
+    "project_id": {"type": "string", "format": "uuid"},
+    "review_project_id": {"type": "string", "format": "uuid"},
     "supersedes_signoff_id": {"type": "string", "format": "uuid"},
     "expected_superseded_status_revision": {"type": "integer", "minimum": 1},
 }
@@ -124,6 +121,16 @@ def split_options(arguments, *, domain_fields=()):
         raise DomainError("validation_error", "Operation arguments must be an object")
     options = {key: value for key, value in arguments.items() if key in OPTION_SCHEMAS and key not in domain_fields}
     return {key: value for key, value in arguments.items() if key not in options}, InvocationOptions.from_mapping(options)
+
+
+def own_project(descriptor):
+    """Whether ``project_id`` is this operation's own argument and not the scope option, so it stays in the arguments.
+
+    A project operation that requires ``project_id`` names the Project it works on: its handler receives the value and
+    the engine selects that project from it. ``agentic_access`` takes it as routing context, which it checks itself
+    against the caller's native access. For every other operation ``project_id`` is the option that selects the scope."""
+    return descriptor.name == "agentic_access" or (
+        "project" in descriptor.scope_kinds and "project_id" in descriptor.input_schema.get("required", ()))
 
 
 # Argument names agents commonly guess, per canonical operation: {given name: the operation's real name}. Only exact
@@ -226,10 +233,10 @@ def written_task(context, arguments, result):
     """The context and arguments that name the Task a write changed, as stored: a ``task_id`` given alone runs where the
     engine found it (``locate_scope``), in the id's stored case, which the transport's own context does not know."""
     task = result.data.get("task") if isinstance(result.data, Mapping) else None
-    if not isinstance(task, Mapping) or not isinstance(task.get("id"), str) or "business_id" not in task:
+    if not isinstance(task, Mapping) or not isinstance(task.get("id"), str) or "project_id" not in task:
         return context, arguments
-    business_id = task["business_id"]
-    return (replace(context, business_id=business_id, review_business_id=business_id),
+    project_id = task["project_id"]
+    return (replace(context, project_id=project_id, review_project_id=project_id),
             {**arguments, "task_id": task["id"]})
 
 
@@ -254,7 +261,7 @@ def tool_schema(registry, name):
     if descriptor.transport_only:
         return schema
     options = (OPTION_SCHEMAS if descriptor.effect_kind != "read" else
-               {key: OPTION_SCHEMAS[key] for key in ("business_id", "review_business_id")})
+               {key: OPTION_SCHEMAS[key] for key in ("project_id", "review_project_id")})
     schema["properties"] = {**options, **schema.get("properties", {})}
     if descriptor.name in mcp_presentation.COMPACT_OPERATIONS:
         schema["properties"]["response_detail"] = (
@@ -330,8 +337,7 @@ class RegisteredAgentCaller:
                 allowed = set(assignment["allowed_operations_json"]) | set(WORKER_OPERATIONS)
         try:
             rows = self.runtime.resolver.resolve_agent_config(actor.principal, include_preparation=False).data["tools"]
-            visible = [row for row in rows if row["canonical_operation"] not in INTERNAL_ONLY_OPERATIONS
-                       and (allowed is None or row["canonical_operation"] in allowed)]
+            visible = [row for row in rows if allowed is None or row["canonical_operation"] in allowed]
             if allowed is not None and BROWSER_OPERATION in allowed and not any(
                     row["canonical_operation"] == BROWSER_OPERATION for row in visible):
                 descriptor = self.runtime.registry.get(BROWSER_OPERATION)
@@ -344,7 +350,7 @@ class RegisteredAgentCaller:
                 # inventory, which would be an alternate path around its plan.
                 return []
             # A broken mandatory document must not hide the small repair
-            # interface too. This cannot expose ordinary business tools.
+            # interface too. This cannot expose ordinary project tools.
             context = self.runtime.agent_context(actor.principal, diagnostic=True)
             rows = []
             with self.runtime.database.read() as uow:
@@ -352,7 +358,7 @@ class RegisteredAgentCaller:
                     try:
                         descriptor = self.runtime.registry.get(name)
                         self.runtime.application.authorize(context,
-                            descriptor.business_policy if context.business_id else descriptor, (), uow)
+                            descriptor.project_policy if context.project_id else descriptor, (), uow)
                         rows.append({'canonical_operation': name, 'exposed_aliases': [], 'available': True})
                     except DomainError:
                         continue
@@ -369,13 +375,14 @@ class RegisteredAgentCaller:
 
     @staticmethod
     def exposes(descriptor):
-        return (descriptor.name not in INTERNAL_ONLY_OPERATIONS
-                and not descriptor.owner_only and "mcp" in descriptor.exposure)
+        from qorqut.composition.policy import HOST_STAGED_OPERATIONS
+        return (not descriptor.owner_only and "mcp" in descriptor.exposure
+                and descriptor.name not in HOST_STAGED_OPERATIONS)
 
     def invocation_context(self, actor, *, canonical_name, options, native_binding=None):
         context = self.runtime.agent_context(actor.principal, diagnostic=canonical_name in DIAGNOSTIC_OPERATIONS,
-            business_id=options.business_id,
-            session_registration_id=actor.registration_id, review_business_id=options.review_business_id)
+            project_id=options.project_id,
+            session_registration_id=actor.registration_id, review_project_id=options.review_project_id)
         if actor.delegation_binding_id:
             context = replace(context, delegation_binding_id=actor.delegation_binding_id,
                 delegation_assignment_id=actor.delegation_assignment_id,
@@ -455,21 +462,15 @@ class MCPTransport:
         @self.server.call_tool(validate_input=False)
         async def call_tool(name, arguments):
             if name == BATCH_NAME:
-                actor = None
                 try:
-                    actor = await self._authorize_batch()
+                    await self._authorize_batch()
                     arguments = self.runtime.registry.bind_arguments(name, arguments)
                     batches.validate_entries(arguments)
                     value = await batches.execute(arguments, invoke=self._single_result, authorize=self._authorize_batch)
-                    if value.get("status") == "ok":
-                        self._report_transport_success(operation=BATCH_NAME, request_id=value.get("request_id"), actor=actor)
                 except DomainError as exc:
                     value = OperationResult.failure(exc, request_id=new_id()).to_dict()
-                except Exception as exc:
+                except Exception:
                     request_id = new_id()
-                    self.server.request_context.request.scope["qorqut.transport_failed"] = True
-                    if not getattr(exc, "_qorqut_incident_reported", False):
-                        self._report_transport_failure(operation=BATCH_NAME, request_id=request_id, actor=actor)
                     logger.exception("MCP batch failed: %s", request_id)
                     value = OperationResult.failure(DomainError("internal_error", "The batch failed; use its correlation ID for diagnosis"), request_id=request_id).to_dict()
             else:
@@ -562,35 +563,6 @@ class MCPTransport:
                 blocks.append(types.ImageContent(type="image", data=data, mimeType=mime_type))
         return blocks
 
-    def _report_transport_failure(self, *, operation, request_id, actor=None, context=None):
-        reporter = getattr(getattr(self.runtime, "incidents", None), "reporter", None)
-        if reporter is None:
-            reporter = getattr(getattr(self.runtime, "application", None), "incident_reporter", None)
-        if reporter is None:
-            return
-        principal = getattr(actor, "principal", None)
-        try:
-            reporter.transport_failure(component="mcp", operation=operation,
-                request_id=request_id, context=context,
-                agent_id=(principal.id if getattr(principal, "kind", None) == "agent" else None))
-        except Exception:
-            # Reporting must never replace or recurse into the transport error.
-            pass
-
-    def _report_transport_success(self, *, operation, request_id, actor=None, context=None):
-        reporter = getattr(getattr(self.runtime, "incidents", None), "reporter", None)
-        if reporter is None:
-            reporter = getattr(getattr(self.runtime, "application", None), "incident_reporter", None)
-        if reporter is None:
-            return
-        principal = getattr(actor, "principal", None)
-        try:
-            reporter.transport_success(component="mcp", operation=operation,
-                request_id=request_id, context=context,
-                agent_id=(principal.id if getattr(principal, "kind", None) == "agent" else None))
-        except Exception:
-            pass
-
     async def _single_result(self, name, arguments, actor=None):
         request_id = new_id()
         timing = {"operation": "unknown", "configuration_ms": 0.0, "execution_ms": 0.0}
@@ -650,10 +622,13 @@ class MCPTransport:
             arguments, tool_names = mcp_presentation.split_tool_names(canonical_name, arguments, detail)
             arguments, sections = mcp_presentation.split_sections(canonical_name, arguments, detail)
             arguments, read_token = mcp_reads.split(canonical_name, arguments, detail)
-            # A Global-only operation may target a business without selecting its
-            # scope (for example business_archive). Preserve its declared inputs;
-            # ordinary business selectors, including agent_config_get, still route.
-            domain_fields = descriptor.input_schema.get("properties", {}) if descriptor.scope_kinds == {"global"} else ()
+            # A Global-only operation may target a project without selecting its
+            # scope (for example project_archive). Preserve its declared inputs.
+            # An operation that takes project_id as its own argument keeps that
+            # one field; ordinary project selectors, including agent_config_get,
+            # still route.
+            domain_fields = (descriptor.input_schema.get("properties", {}) if descriptor.scope_kinds == {"global"}
+                             else ("project_id",) if own_project(descriptor) else ())
             args, options = split_options(arguments, domain_fields=domain_fields)
             self.caller.validate_options(actor, canonical_name, options)
             self.caller.validate_arguments(actor, canonical_name, args)
@@ -749,12 +724,12 @@ class MCPTransport:
                 binding = {"caller_route": self.caller.scope, "identity": self.caller.identity(actor),
                     "session": self.server.request_context.request.headers.get("mcp-session-id"),
                     "operation": name, "operation_version": descriptor.version, "arguments": args,
-                    "detail": detail, "business_id": context.business_id,
-                    "review_business_id": context.review_business_id,
-                    "allowed_business_ids": sorted(context.allowed_business_ids),
+                    "detail": detail, "project_id": context.project_id,
+                    "review_project_id": context.review_project_id,
+                    "allowed_project_ids": sorted(context.allowed_project_ids),
                     "global_capabilities": sorted(context.global_capabilities),
                     "profile_revision": context.profile_revision, "policy_revision": context.policy_revision,
-                    "owner_session_business_id": context.owner_session_business_id,
+                    "owner_session_project_id": context.owner_session_project_id,
                     "delegation_binding_id": context.delegation_binding_id,
                     "delegation_assignment_id": context.delegation_assignment_id,
                     "delegation_generation": context.delegation_generation}
@@ -778,20 +753,10 @@ class MCPTransport:
                     logger.exception("Timeline delivery failed for %s", request_id)
             if canonical_name in CLOSURE_ACTION_HINTS and result.status == "ok":
                 presented = await self._closure_action_hint(presented, context, result, request_id)
-            if presented.get("status") == "ok":
-                self._report_transport_success(operation=canonical_name, request_id=request_id,
-                    actor=actor, context=context)
             return await self._recoverable(presented, known_operation, name, renamed)
         except DomainError as exc:
             result = OperationResult.failure(exc, request_id=request_id)
-        except Exception as exc:
-            try:
-                self.server.request_context.request.scope["qorqut.transport_failed"] = True
-            except Exception:
-                pass
-            if not getattr(exc, "_qorqut_incident_reported", False):
-                self._report_transport_failure(operation=canonical_name, request_id=request_id,
-                    actor=actor, context=context)
+        except Exception:
             logger.exception("MCP operation failed: %s", request_id)
             result = OperationResult.failure(DomainError("internal_error", "The operation failed; use its correlation ID for diagnosis"), request_id=request_id)
         return await self._recoverable(result.to_dict(), known_operation, name, renamed)
@@ -804,7 +769,7 @@ class MCPTransport:
         try:
             task = result.data.get("task") if isinstance(result.data, Mapping) else None
             if (not isinstance(task, Mapping) or task.get("status") != "done" or not isinstance(task.get("id"), str)
-                    or "business_id" not in task or context.principal_kind != "agent"):
+                    or "project_id" not in task or context.principal_kind != "agent"):
                 return presented
             from qorqut.domains.tasks.closure_actions import coordinator_hint
             hint = await anyio.to_thread.run_sync(coordinator_hint, self.runtime, context, task)
@@ -852,9 +817,6 @@ class MCPTransport:
         if scope["type"] != "http":
             return
         request = Request(scope, receive)
-        actor = None
-        scope["qorqut.request_id"] = new_id()
-        scope["qorqut.transport_failed"] = False
         try:
             self.origins.validate(request)
             if request.query_params:
@@ -869,13 +831,9 @@ class MCPTransport:
             scope["user"] = AuthenticatedUser(AccessToken(token=transport_identity, client_id=transport_identity,
                 scopes=[self.caller.scope], subject=actor.principal.id, claims={"iss": "qorqut"}))
             await self.manager.handle_request(scope, receive, send)
-            if not scope["qorqut.transport_failed"]:
-                self._report_transport_success(operation="request", request_id=scope["qorqut.request_id"], actor=actor)
         except DomainError as exc:
             await failure(exc, new_id())(scope, receive, send)
-        except Exception as exc:
+        except Exception:
             request_id = new_id()
-            if not getattr(exc, "_qorqut_incident_reported", False):
-                self._report_transport_failure(operation="request", request_id=request_id, actor=actor)
             logger.exception("MCP transport failed: %s", request_id)
             await failure(DomainError("internal_error", "The request failed; use its correlation ID for diagnosis"), request_id)(scope, receive, send)

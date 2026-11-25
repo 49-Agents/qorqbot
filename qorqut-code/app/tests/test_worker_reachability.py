@@ -133,7 +133,7 @@ class UnreachableWorkerTests(unittest.TestCase):
         self.assertEqual(self.told(), [SCOUT])
         summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
         self.assertIn('is not installed or not usable on this computer', summary)
-        self.assertIn('tell the owner to download the client under Settings > Agents', summary)
+        self.assertIn('tell the owner to download the client under Settings > Model/Provider', summary)
 
     def test_a_busy_or_slow_host_never_makes_a_streak_and_a_success_ends_one(self):
         clock = [NOW - timedelta(hours=1)]
@@ -261,7 +261,7 @@ class WorkerMessageLimitTests(unittest.TestCase):
         return messages
 
     def test_a_longer_message_is_refused_whole_and_names_where_the_detail_goes(self):
-        ctx = NS(principal_id=SCOUT, principal_kind='agent', business_id=None)
+        ctx = NS(principal_id=SCOUT, principal_kind='agent', project_id=None)
         host = NS(binding=lambda ctx, uow: None, validate_recipient=lambda *a: None, message_limit=self.host.message_limit)
         send = lambda text, to=COORDINATOR: self.flow(host).validate(ctx, {'message': text, 'to_agent_id': to}, self.uow)
         self.assertEqual(send('x' * WORKER_MESSAGE_LIMIT)[1], 'peer')

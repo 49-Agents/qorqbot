@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-owner-journal
 description: Maintain useful visible owner journal context and reconcile it with operational records, with attribution and revision checks.
+read_for: The owner journal, writing or changing an entry (`journal_entry_*`)
 ---
 
 # Owner journal

@@ -66,9 +66,9 @@ REPAIRS = {
     # Only a Terminals-mode report names it: in managed mode an agent with no session that is on is asleep, and is not reported.
     OFFLINE: "Start it with agent_terminal_start (it opens in its terminal and takes what is waiting); if it cannot be started, reassign its open work.",
     OFF: "Turn it on with agent_terminal_start (it opens and takes what is waiting); if it cannot be started, reassign its open work.",
-    "cli_unavailable": ("Only the owner can fix this: tell the owner to download the client under Settings > Agents, or to switch the "
+    "cli_unavailable": ("Only the owner can fix this: tell the owner to download the client under Settings > Model/Provider, or to switch the "
                         "agent to the other client there. Until then reassign its open work."),
-    "cli_not_signed_in": ("Only the owner can fix this: tell the owner to sign in to the client under Settings > Agents, or to switch the "
+    "cli_not_signed_in": ("Only the owner can fix this: tell the owner to sign in to the client under Settings > Model/Provider, or to switch the "
                           "agent to the other client there. Until then reassign its open work."),
     "resume_failed": ("agent_terminal_restart can try once more; if it fails again, tell the owner and reassign its open work."),
     "resume_unavailable": ("Only the owner can fix this: tell the owner to start a new conversation for it in Chat. "
@@ -175,7 +175,7 @@ def reconcile(uow, *, now: datetime | None = None, terminal: bool = False) -> li
             continue
         waiting = uow.connection.execute(
             "SELECT COUNT(*) FROM inbox_deliveries WHERE agent_id=? AND acknowledged_at IS NULL", (agent_id,)).fetchone()[0]
-        event_id = emit_event(uow, business_id=None, source_type=SOURCE_TYPE, source_id=agent_id,
+        event_id = emit_event(uow, project_id=None, source_type=SOURCE_TYPE, source_id=agent_id,
                               source_revision=profile["revision"], actor_id=None, event_type=EVENT_TYPE,
                               summary=summary(profile["name"], found, waiting), required=[coordinator])
         if event_id is not None:

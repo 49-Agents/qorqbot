@@ -21,7 +21,7 @@ with existing inbox delivery active.
 
 Role responsibilities and grants still come from the current profile and pinned
 packages. The shared command grants no new operation and creates no alternate
-task store. Global agents retain separate business/Global records; Conversation-led
+task store. Global agents retain separate project/Global records; Conversation-led
 decisions keep their existing boundaries. New substantive
 work comes from assignments or the role's current responsibilities, not an
 obligation to generate busywork.
@@ -67,9 +67,9 @@ reprepare agents against the new core before using them. Existing registrations
 without the core skill report `selected_skills_changed` and require preparation;
 deploy and reprepare as one controlled rollout to avoid leaving agents blocked.
 Resolve any short-name collisions before rollout. No role republishing, profile
-repinning, business-context edit, or database migration is required.
+repinning, project-context edit, or database migration is required.
 
-Preserve running sessions, credentials, role/plugin selections and business
+Preserve running sessions, credentials, role/plugin selections and project
 records. Use each client's normal skill refresh behavior; confirm discovery in
 the intended session before calling it available. Do not launch real agents or
 send live work merely to validate source changes. Reverting source alone does not

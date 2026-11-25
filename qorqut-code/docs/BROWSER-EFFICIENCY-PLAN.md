@@ -166,8 +166,8 @@ The worker follows whatever the repository requires when an installed instructio
 instruction history, tests that pin text) and records what that was under "Verified".
 
 **Files.** `qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/imported-role-skills/native/skills/ordubashy-browser-control/SKILL.md`,
-`…/managed-browser-control/SKILL.md`, `…/operations/tool-instructions/messages.json` (the `browser_turn` text only),
-`qorqut-agentic/docs/defaults-provenance.json` and any test or record that pins these texts.
+`…/managed-browser-control/SKILL.md`, `…/operations/tool-instructions/messages.json` (the `browser_turn` text only)
+and any test or record that pins these texts.
 
 **Known clash.** PR #110 adds one captcha line to both skills. Whichever merges second re-adds that line to the short
 skill.
@@ -293,9 +293,7 @@ with `PYTHONPATH` pointing at this checkout; run from `qorqut-code/app/tests`):
   skills (8c09044b, 10519232, d1927201) changed only the two `SKILL.md` files, with a doc or unrelated code; no version bump
   (the `role.yaml` bump in 0d15f1a0 came with a change to the Ordubashy brief). 6f0eeb59 changed the text of an existing key in
   `messages.json` and no index; `tool-instructions/index.json` lists an entry per key with a source line and gains an entry only
-  for a new key (719dedaa, ca57833c, 48fd9df2). `qorqut-agentic/docs/defaults-provenance.json` was not edited: its
-  `defaults_sha256` for the two skills (`1d266e22...` and `76985aa6...`) was already out of date before this work (last written
-  by ca11a798; 8c09044b and 10519232 did not touch it) and no test reads it. No test pins any skill phrase. Existing installations
+  for a new key (719dedaa, ca57833c, 48fd9df2). No test pins any skill phrase. Existing installations
   receive the new texts only through a reviewed instruction catalog update and agent preparation (see
   `qorqut-agentic/docs/RUNTIME-INSTRUCTIONS.md`), which is a release step, not a repository change.
 

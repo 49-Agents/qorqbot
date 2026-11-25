@@ -2,7 +2,7 @@
 
 # Profile And Bootstrap Integration
 
-The backend constructs one AgentConfigResolver(database, businesses_root,
+The backend constructs one AgentConfigResolver(database, projects_root,
 registry, plugin_handlers={"email-management": validate_email_package}). Each
 trusted plugin handler has signature
 validate(package: ArtifactPackage) -> None and is registered by the domain
@@ -31,7 +31,7 @@ Both operation registrars install their custom target resolvers. The shared
 FileApplier resolver dispatches artifact_files to CatalogOperations.
 resolve_file_target and agent_bootstrap_files to AgentOperations.
 resolve_file_target; other registered document resources go to their document
-adapter. Every profile principal, membership, credential revocation, initial
+adapter. Every profile principal, credential revocation, initial
 plan, and artifact file effect is represented in the frozen ChangeSet.
 AgentOperations.validate_targets verifies the exact authored source bytes and
 artifact integrity again on approval/application. Preparation never replaces
@@ -39,11 +39,7 @@ that application validation.
 
 ## Owner HTTP
 
-GET /api/biz/{slug}/agents/{agent_id}/config authenticates the selected business
-owner, calls AgentOperations.owner_config(ctx, agent_id), and returns the
-canonical envelope with data: {effective_config: ...}.
-
-POST /api/biz/{slug}/agents/{agent_id}/permissions invokes permissions_set with
+POST /api/project/{slug}/agents/{agent_id}/permissions invokes permissions_set with
 arguments {agent_id, overrides} and InvocationOptions(expected_revision,
 idempotency_key). The override map replaces the old map; omitted keys inherit.
 Success data is {agent_id, profile_revision, overrides, effective_config_id}.
@@ -72,8 +68,8 @@ endpoint=shared_service_url, versions={"claude-code": observed_claude_version, "
 interpreter=installed_python). This trusted backend function prepares an already
 approved profile; it is not an agent mutation endpoint. The temporary existing
 server --prepare-agent compatibility entry delegates identically after resolving
-the registered business and agent UUIDs. Do not infer role from a directory.
-Prepared folders must be inside the registered businesses root.
+the registered project and agent UUIDs. Do not infer role from a directory.
+Prepared folders must be inside the registered projects root.
 
 An initial legacy projection requires migrate_legacy=True only as part of a
 reviewed migration. Normal preparation repairs known managed projections and
@@ -152,9 +148,8 @@ and trusts exactly those hashes for that session through launch options.
 Claude account connectors (Gmail, Calendar, Drive and others) belong to the
 owner's Claude account. Qorqbot does not list or set them up; when an agent
 has one, `qorqut/connector_gate.py` blocks its calls that change something
-until the owner approves them. Business-scoped agents run Claude with
-`dontAsk` and the prepared allow list, so a connector's tools reach Global
-agents such as Ordubashy first. Agents browse with Qorqbot's own browser
+until the owner approves them. Every agent runs Claude in bypass mode with
+the prepared settings file. Agents browse with Qorqbot's own browser
 control (`browser_turn`, docs/BROWSER-CONTROL.md), not with local connectors.
 
 Codex reviews the exact hook definition, including its command. Embedding an
@@ -180,18 +175,18 @@ bootstrap receipt, activity registration and the `native_session_owners` row nam
 this exact session, binding and generation; old lock files do not establish an owner. Preserve
 the old conversation until recovery has been verified.
 
-Project creation is the Global `business_create` operation (the configured Ordubashy is its only caller), not a bootstrap
-step: it registers the project with its owner and system memberships and makes the empty `projects/<slug>/hq` and `code` folders. It
-creates and prepares no agent, document, Task, routine or external registration: projects have no resident
-agents, and the global agents reach a new project at once with no profile or membership write. There is no
+Project creation is the Global `project_create` operation (the configured Ordubashy is its only caller), not a bootstrap
+step: it registers the project and makes the `projects/<slug>` folder with an empty `code` folder. It
+creates and prepares no agent, document, Task, routine or external registration; the global agents reach a
+new project at once with no profile write. There is no
 seed CLI or template scaffold. Existing preparation preserves current pins and authored content.
 
 register_context_sources registers authored metadata_json.bootstrap_key values:
 foundation, ecosystem-agent, ecosystem in namespace global; product, icp, brand,
-positioning in the business UUID namespace. Global paths are relative
+positioning in the project UUID namespace. Global paths are relative
 to the operations root and sit under files/instructions/ (operations/context-graph is
-reserved for the published Context graph; Global context/ documents are a separate authored tree); business paths are relative to the
-registered hq. Core
+reserved for the published Context graph; Global context/ documents are a separate authored tree); project paths are relative to the
+registered project folder. Core
 pillars require one structurally parsed Agent Brief section. Existing folders
 and external file changes require explicit migration/reconciliation.
 
@@ -268,8 +263,20 @@ owner preferences and requests for detail override the brevity default.
 SessionStart always emits the bounded full bundle; failure emits a visible
 preparation error. The primary composer emits core and topic instructions before
 identity, assignment and contextual data. It incorporates the always-loaded skills
-instead of installing a second skills hook. The combined limit preserves the
+instead of installing a second skills hook. While the owner is new, the composer
+also asks the hook for the get-set-up skill (`extra`), which stays out of the
+hook's digest. The combined limit preserves the
 previous mandatory-context and skill budgets (120,000 characters each).
+Every full delivery, for every agent, also carries the skill discovery section
+(`render_skill_discovery`, after the always-loaded skills): one line for each
+skill installed in the agent's `.claude/skills` or `.agents/skills` that this start
+does not load in full, saying "<kind of work>: read <skill>". The `role` skill
+and, for the configured Ordubashy, the always-loaded skills (and the get-set-up
+skill while the owner is new) are left out. The work phrase names the kind of work the skill is for. It is the `read_for`
+value in the skill's front matter, so a skill from an add-on brings its own; a
+skill without one gets a line built from its description. A cached prompt carries no
+discovery section. A prepared snapshot without the four `skill-discovery-*`
+messages delivers none.
 UserPromptSubmit uses the same composer, emits a replacement when changed, and
 blocks when unready. Ordubashy's operational-intake reminder is emitted on every
 prompt, including when configuration and skills are unchanged. Cached prompts can additionally emit a
@@ -294,7 +301,7 @@ transcript capture enabled, successful hooks also copy only the supplied,
 matching CLI session into the registered agent's folder. Capture defaults to on
 and can be explicitly disabled by the service owner during preparation.
 Stop/SessionEnd use the same bounded copy adapter. DeepSeek reads only these
-business-local copies. See `../service/README.md` for scope and failure behavior.
+project-local copies. See `../service/README.md` for scope and failure behavior.
 Service revocation remains authoritative on the next call regardless of old
 prompt text. Setting-layer and personal/managed-source presence are explicitly
 not_inspected. Compatibility tests pin Claude 2.1.263's generated contract;
@@ -307,47 +314,9 @@ workspace. Claude may continue after its cwd changes only when that registration
 protected session observation proves the same agent, registration, session,
 runtime and live native owner/process start, with matching boot and PID namespace
 and no offline prior state. This preserves activity and Stop checkpoints; cwd does
-not grant business authority. Codex keeps its registered-workspace cwd check.
+not grant project authority. Codex keeps its registered-workspace cwd check.
 Generated hooks adopt source changes through trusted preparation; source edits alone
 do not update an existing agent folder or recover an already stale watcher/session.
-
-Technical bootstrap, hook, activity, and inbox failures use the same bounded
-System Dev incident pipeline. A prepared runtime appends a private, fsynced
-`.qorqut/technical-reports/pending.jsonl` record when the service is
-unavailable, then replays the exact observation ID on a later authenticated
-hook or watcher check. Records contain only a component, operation, bounded
-error code, call site, retry metadata, native session ID, and recovery bit;
-prompts, tool input, credentials, mail, and transcripts are never included.
-`POST /api/agent/technical-observation` derives agent and business identity
-from the registered credential, accepts a session with no rows anywhere (a
-failed first bootstrap can report before registration succeeds), and otherwise
-requires a session row bound to the caller's principal and exact registration
-together; a native UUID alone is not an identity. The server
-uses durable observation receipts and session-scoped impacts, so a recovery
-can close only the matching agent/session/operation episode. Expected
-validation, access denial, supersession, normal shutdown, and busy results do
-not create incidents. The outbox is bounded; one deterministic recovery is
-queued per failure episode (bound, when its marker is unreadable, to the newest
-valid queued failure in the whole outbox), records the service rejects for
-themselves are quarantined in `rejected.jsonl` with their reason, and local
-health separates dropped, queue-full, rejected and quarantine-failed state.
-The pending-outbox lock orders every marker write and delete: a failure's append
-and marker install are one acquisition, replay repair rechecks under the lock, and
-retirement checks the version and unlinks in one locked step, so a newer failure's
-marker survives. No service request runs under that lock.
-Durable quarantine retires only the exact version-matched local marker; it does
-not recover or close anything on the service or clear preparation state, and the
-retained evidence keeps the diagnostics `rejected_pending_review` until it is
-reconciled. The inbox watcher keeps model-facing outage and restored notices to
-an outage of a minute or more, while technical failure and recovery observations
-are kept for any outage. Reporting failures
-never block or recursively report the user hook.
-
-Migration 072 is required before enabling the service route, followed by fresh
-preparation so generated activity hooks receive the helper. No role, grant, or
-new daemon is introduced. Replay occurs only during existing bootstrap,
-activity/checkpoint, or inbox watcher work; an idle or stopped runtime leaves
-its private outbox pending for the next connection.
 
 Generated agent-local Codex configuration explicitly sets
 `shell_environment_policy.inherit = "all"` and `ignore_default_excludes = true`
@@ -389,7 +358,7 @@ or start an agent. Normal reminders resume after successful preparation.
 Full lifecycle/refresh bootstrap responses include a separate `environment`
 metadata object. It uses the agent's policy-checked `environment_list` scope.
 Every agent is global, so the bootstrap lists Global bindings; `environment_list`
-in a selected business adds that business's bindings, which override Global ones.
+in a selected project adds that project's bindings, which override Global ones.
 Explicit tool denials are respected. No secret values are returned.
 
 The shared Claude/Codex hook renders **Environment and credentials (names only)**,
@@ -411,7 +380,7 @@ Trusted host preparation accepts `codex_permission_mode="bypass"` on
 agent. It generates `default_permissions = ":danger-full-access"` and
 `approval_policy = "never"`, with no scoped filesystem profile or deny overlay.
 This grants the model host filesystem access; Qorqut MCP authorization and
-business Signoffs still apply. Claude settings and other agents are unchanged.
+project Signoffs still apply. Claude settings and other agents are unchanged.
 
 The selection is saved in the machine registration's projection metadata and
 preserved on subsequent preparation. Pass `codex_permission_mode="scoped"`
@@ -447,11 +416,27 @@ own downloaded copy runs, named by its stable `tools/<provider>-current/` path
 `DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1` for Claude Code and
 `-c check_for_update_on_startup=false` for Codex. The owner's own CLI is never touched.
 
+Claude Code's own memory (the notes it keeps for itself under its configuration folder) is off in
+everything Qorqbot starts: the launch file carries `"autoMemoryEnabled": false`, and managed sessions,
+worker runs and Context filing runs are started with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. Both act on
+that one launch and change nothing in the owner's own Claude Code settings, so Claude Code used
+outside Qorqbot on the same computer keeps its memory. Codex's own memory is off the same way: every
+managed session is started with `-c features.memories=false`, and worker runs and Context filing runs
+disable the feature in their own launch. What an agent has to keep is filed in Qorqbot's records
+instead (Task, Context, or the Learning Applier's queue).
+
+On a download installation set up from this version on, both clients also keep their folder inside
+the installation (`instance/home/claude` as `CLAUDE_CONFIG_DIR`, `instance/home/codex` as
+`CODEX_HOME`; `tools/distribution/native_launch.py`, `client_homes`). Qorqbot then has its own
+sign-in for each client, and the instructions, skills, commands, hooks, MCP servers and settings the
+owner keeps for their own use of the client do not reach an agent. An installation set up earlier
+keeps the owner's folders.
+
 Already-open Claude sessions keep their launch settings until the session is
 closed and opened again; preparing files never sends model input or kills a
 session. Personal/managed ask rules, interaction tools, and platform-enforced
 restrictions are not silently rewritten. The no-prompt policy addresses tool
-permission dialogs, not questions about missing business information.
+permission dialogs, not questions about missing project information.
 
 ## Codex model defaults
 

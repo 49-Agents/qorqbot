@@ -16,7 +16,7 @@ from qorqut.inbox.private_conversations import PrivateConversations
 from qorqut.native_chat import projection, store
 from qorqut.native_chat.contracts import InputRequest, STATE_SUBMITTED, STATE_SUBMITTING
 
-from test_side_chat_rename import build_runtime, create, invoke, reply, source
+from private_thread_runtime import build_runtime, create, invoke, reply, source
 
 NOW = datetime(2026, 11, 12, 18, tzinfo=timezone.utc)
 COVERED = "2026-11-10T00:00:00.000000Z"      # when chat indexing began in these tests
@@ -60,7 +60,7 @@ class OwnerInputsTests(unittest.TestCase):
         runtime.native_chat = SimpleNamespace(indexer=SimpleNamespace(archive=lambda profile: self.archives[profile["agent_id"]]))
         # The label of a thread's source is the Focus board's projection; the read authorization before it is the real one.
         runtime.application.attention = SimpleNamespace(legacy=SimpleNamespace(
-            resolve=lambda ctx, found, uow: {**found, "label": "A side chat", "business_slug": None}))
+            resolve=lambda ctx, found, uow: {**found, "label": "A private thread", "project_slug": None}))
         OwnerInputs(runtime, clock=lambda: NOW).register()
         # These tests place stored private messages at chosen times.
         self.write("DROP TRIGGER owner_conversation_messages_no_update", ())
@@ -135,7 +135,7 @@ class OwnerInputsTests(unittest.TestCase):
 
     def task(self):
         identity = new_id()
-        self.write("INSERT INTO tasks(business_id,id,title,status,created_by,created_at,updated_at) VALUES(NULL,?,?,?,?,?,?)",
+        self.write("INSERT INTO tasks(project_id,id,title,status,created_by,created_at,updated_at) VALUES(NULL,?,?,?,?,?,?)",
                    (identity, "Linden contract", "open", self.lead, COVERED, COVERED))
         return identity
 
@@ -229,7 +229,7 @@ class OwnerInputsTests(unittest.TestCase):
                 ("m1", self.owner, self.owner, "Use the blue logo.", at(9)),
                 ("m2", self.owner, self.lead, "The owner said: use the blue logo.", at(9, 10)),
                 ("m3", self.worker, self.worker, "Switched to the blue logo.", at(9, 20))):
-            self.write("INSERT INTO thread_messages(business_id,id,item_type,item_id,kind,body,author_id,recorder_id,created_at) "
+            self.write("INSERT INTO thread_messages(project_id,id,item_type,item_id,kind,body,author_id,recorder_id,created_at) "
                        "VALUES(NULL,?,?,?,?,?,?,?,?)", (identity, "task", task, "comment", body, author, recorder, when))
         self.write("INSERT INTO signoff_notes(id,signoff_id,body,created_by,created_at) VALUES(?,?,?,?,?)",
                    ("n1", signoff["id"], "Approved, but cap it at 500.", self.owner, at(10)))
@@ -249,7 +249,7 @@ class OwnerInputsTests(unittest.TestCase):
         for identity, recorder, body, when in (("s1", self.worker, "Status: open -> done", at(9, 30)),
                                                ("s2", self.lead, "Workers changed", at(9, 40)),
                                                ("s3", self.worker, "Created", at(11, 30))):
-            self.write("INSERT INTO thread_messages(business_id,id,item_type,item_id,kind,body,recorder_id,change_json,created_at) "
+            self.write("INSERT INTO thread_messages(project_id,id,item_type,item_id,kind,body,recorder_id,change_json,created_at) "
                        "VALUES(NULL,?,?,?,?,?,?,?,?)", (identity, "task", task, "system", body, recorder, "{}", when))
         with patch.object(PrivateConversations, "source_check", return_value=None):
             items = self.read()["items"]
@@ -283,7 +283,7 @@ class OwnerInputsTests(unittest.TestCase):
     def test_the_coordinators_own_messages_for_a_handoff_are_its_chat_and_the_private_threads(self):
         early, _ = self.turn(self.lead, "Send the contract.", at(8))
         mine, _ = self.turn(self.lead, "Chase the invoice.", at(10), via="chat")
-        self.turn(self.worker, "Worker, clean the list.", at(10, 30), via="chat")
+        theirs, _ = self.turn(self.worker, "Worker, clean the list.", at(10, 30), via="chat")
         hidden, _ = self.turn(self.lead, "secret-code-4417", at(11), redacted=True)
         unread, _ = self.turn(self.lead, "Call the bank.", at(11, 30))
         self.archives[self.lead].records.pop()
@@ -291,16 +291,32 @@ class OwnerInputsTests(unittest.TestCase):
         self.stamp_thread("Did the supplier confirm?", at(12))
         with self.runtime.database.read() as uow:
             found = self.runtime.owner_inputs.addressed(self.runtime.coordinator, uow, since=at(9), until=at(13), ids=(early, "chat:" + "0" * 64))
+            # Another agent gets its own chat, never the coordinator's chat, not even by id, and no private thread.
+            own = self.runtime.owner_inputs.addressed(self.runtime.worker, uow, since=at(9), until=at(13), ids=(early,))
+            delegated = replace(self.runtime.worker, delegation_binding_id=new_id(), delegation_assignment_id=new_id(),
+                                delegation_generation=1)
             with self.assertRaises(DomainError) as refusal:
-                self.runtime.owner_inputs.addressed(self.runtime.worker, uow, since=at(9), until=at(13))
+                self.runtime.owner_inputs.addressed(delegated, uow, since=at(9), until=at(13))
+        self.assertEqual([(item["id"], item["channel"], item["text"]) for item in own], [(theirs, "chat", "Worker, clean the list.")])
         self.assertEqual(refusal.exception.code, "forbidden")
         # Its own chat only, a message named by id from before the period, and a message without text keeps its place.
         self.assertEqual([(item["id"], item["channel"], item["text"], item["redacted"]) for item in found[:4]], [
             (early, "chat", "Send the contract.", False), (mine, "chat", "Chase the invoice.", False),
             (hidden, "chat", None, True), (unread, "chat", None, False)])
         self.assertEqual((found[4]["channel"], found[4]["text"], found[4]["place"]),
-                         ("thread", "Did the supplier confirm?", {"type": "signoff", "id": chat["id"], "business_id": None, "title": "A side chat"}))
+                         ("thread", "Did the supplier confirm?", {"type": "signoff", "id": chat["id"], "project_id": None, "title": "A private thread"}))
         self.assertEqual(len(found), 5)
+
+    def test_a_carried_id_is_still_listed_for_the_coordinator_and_the_owner_whatever_its_channel_or_agent(self):
+        carried, _ = self.turn(self.lead, "Send the contract.", at(8))
+        theirs, _ = self.turn(self.worker, "Clean the list.", at(8, 30), via="chat")
+        create(self.runtime, "Earlier question?")
+        self.stamp_thread("Earlier question?", at(7))
+        with self.runtime.database.read() as uow:
+            thread = "thread:" + uow.connection.execute("SELECT id FROM owner_conversation_messages WHERE body=?", ("Earlier question?",)).fetchone()[0]
+            for ctx in (self.runtime.coordinator, self.runtime.owner):
+                found = self.runtime.owner_inputs.addressed(ctx, uow, since=at(9), until=at(13), ids=(carried, thread, theirs))
+                self.assertEqual([(item["id"], item["channel"]) for item in found], [(thread, "thread"), (carried, "chat"), (theirs, "chat")])
 
     def test_only_the_owner_and_the_coordinator_in_person_may_read(self):
         self.turn(self.lead, "Send the contract.", at(9))

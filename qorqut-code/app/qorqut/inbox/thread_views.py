@@ -16,14 +16,14 @@ def owner_context(service, ctx, uow):
 
 def project(service, ctx, source, uow):
     """Canonical source authorization precedes every label, including list previews."""
-    selected = service.select(ctx, source.get('business_id'), uow)
+    selected = service.select(ctx, source.get('project_id'), uow)
     if source['type'] == 'reference':
         service.source_check(selected, 'reference', source['id'], uow)
         row = uow.connection.execute('SELECT display_name,reference_json,reason FROM focus_cards WHERE id=?', (source['id'],)).fetchone()
         reference = json.loads(row['reference_json'] or '{}')
         return {**source, 'label': row['display_name'] or reference.get('title') or 'Reference',
                 'summary': row['reason'], 'url': (reference.get('target') or {}).get('url'),
-                'business_name': 'Global', 'business_slug': None}
+                'project_name': 'Global', 'project_slug': None}
     if source['type'] == 'project':
         # The one Project guard: identity, current reach, archive state and project_record_get policy including deny.
         from qorqut.domains.projects import access as project_access
@@ -32,7 +32,7 @@ def project(service, ctx, source, uow):
                                       operation='project_record_get')
         summary = (row.get('config_json') or {}).get('one_liner')
         return {**source, 'label': row['name'], 'summary': ' '.join(summary.split()) if isinstance(summary, str) else '',
-                'url': None, 'business_name': row['name'], 'business_slug': row['slug']}
+                'url': None, 'project_name': row['name'], 'project_slug': row['slug']}
     result = service.app.attention.legacy.resolve(selected, source, uow)
     if source['type'] == 'action':
         action = service.app.registry.get('actions_get').read(selected, {'action_id': source['id']}, InvocationOptions(), uow)['action']
@@ -45,15 +45,15 @@ def task_context(service, ctx, source, uow, audience=None):
 
     The one canonical ``tasks_get`` read in the source's own scope (the caller's read policy for it was already checked by
     ``service.resolve``), so field projection, note authors, dates and references are exactly the Task's own. Writes nothing."""
-    business = source['business_id']
-    selected = service.select(ctx, business, uow)
+    project_id = source['project_id']
+    selected = service.select(ctx, project_id, uow)
     task = service.app.registry.get('tasks_get').read(
         selected, {'task_id': source['id'], 'notes_limit': CONTEXT_NOTES, **({'audience': audience} if audience else {}),
-                   **({'scope': 'global'} if business is None else {})},
+                   **({'scope': 'global'} if project_id is None else {})},
         InvocationOptions(), uow)['task']
-    project = uow.repository('businesses').get(business) if business else None
+    project = uow.repository('projects').get(project_id) if project_id else None
     return {'title': task['title'], 'task_type': task['task_type'], 'status': task['status'], 'overview': task['overview'],
-            'revision': task['revision'], 'business_slug': project['slug'] if project else None,
+            'revision': task['revision'], 'project_slug': project['slug'] if project else None,
             **{key: task[key] for key in ('input_requests', 'input_needed', 'input_version', 'input_request_missing', 'work_status')},
             'notes': task['notes'], 'notes_next_cursor': task['notes_next_cursor'],
             # With ``notes_audience: owner`` the notes are what is for the owner; this is how many working notes were left out.
@@ -87,7 +87,7 @@ def directory(service, ctx, args, uow):
         (args.get('before', 9223372036854775807), limit + 1)).fetchall()
     items = []
     for row in rows[:limit]:
-        source = {'type': row['source_type'], 'id': row['source_id'], 'business_id': row['business_id']}
+        source = {'type': row['source_type'], 'id': row['source_id'], 'project_id': row['project_id']}
         try:
             service.resolve(ctx, {'source': source}, uow)
             resolved = project(service, ctx, source, uow)
@@ -115,48 +115,44 @@ def related(service, ctx, args, uow):
             raise DomainError('operation_unavailable', 'Project records are not installed')
         result = {**projects.related(ctx, source['id'], args, uow), 'input_requests': inputs}
         if not args.get('offset', 0):
-            result.update(timeline_part(service, ctx, {'type': 'project', 'id': source['id'], 'business_id': source['id']}, uow))
+            result.update(timeline_part(service, ctx, {'type': 'project', 'id': source['id'], 'project_id': source['id']}, uow))
         return result
-    kind, identity, business = source['type'], source['id'], source['business_id']
+    kind, identity, project_id = source['type'], source['id'], source['project_id']
     # All candidates come from stored links, never guessed from matching titles/text. Each candidate is independently
     # authorized below. UNION/GROUP BY collapse records linked in several ways; the earliest stored link places the row.
     rows = uow.connection.execute("""
-        WITH candidates(type,id,business_id,created_at) AS (
-          SELECT to_type,to_id,business_id,created_at FROM relationships
-            WHERE business_id IS :business AND from_type=:kind AND from_id=:id AND role='concerns'
-          UNION ALL SELECT 'signoff',s.id,s.review_business_id,l.created_at FROM signoff_source_links l
+        WITH candidates(type,id,project_id,created_at) AS (
+          SELECT to_type,to_id,project_id,created_at FROM relationships
+            WHERE project_id IS :project AND from_type=:kind AND from_id=:id AND role='concerns'
+          UNION ALL SELECT 'signoff',s.id,s.review_project_id,l.created_at FROM signoff_source_links l
             JOIN signoffs s ON s.id=l.signoff_id
-            WHERE l.source_type=:kind AND l.source_id=:id AND l.source_business_id IS :business
-          UNION ALL SELECT from_type,from_id,business_id,created_at FROM relationships
-            WHERE business_id IS :business AND to_type=:kind AND to_id=:id AND role='concerns'
-          UNION ALL SELECT 'task',id,business_id,created_at FROM tasks
-            WHERE :kind='task' AND business_id IS :business AND parent_id=:id
-          UNION ALL SELECT 'action',action_key,business_id,created_at FROM action_logs
-            WHERE business_id IS :business AND json_extract(refs_json,'$.' || :kind)=:id
-          UNION ALL SELECT 'signoff',s.id,s.review_business_id,s.created_at FROM signoffs s, json_each(s.expected_targets_json) t
-            WHERE s.review_business_id IS :business
+            WHERE l.source_type=:kind AND l.source_id=:id AND l.source_project_id IS :project
+          UNION ALL SELECT from_type,from_id,project_id,created_at FROM relationships
+            WHERE project_id IS :project AND to_type=:kind AND to_id=:id AND role='concerns'
+          UNION ALL SELECT 'task',id,project_id,created_at FROM tasks
+            WHERE :kind='task' AND project_id IS :project AND parent_id=:id
+          UNION ALL SELECT 'action',id,project_id,created_at FROM action_logs
+            WHERE project_id IS :project AND json_extract(refs_json,'$.' || :kind)=:id
+          UNION ALL SELECT 'signoff',s.id,s.review_project_id,s.created_at FROM signoffs s, json_each(s.expected_targets_json) t
+            WHERE s.review_project_id IS :project
               AND json_extract(t.value,'$.resource.resource_type')=CASE :kind WHEN 'task' THEN 'tasks' WHEN 'table' THEN 'data_tables' ELSE '' END
               AND json_extract(t.value,'$.resource.resource_id')=:id
-              AND json_extract(t.value,'$.resource.business_id') IS :business
+              AND json_extract(t.value,'$.resource.project_id') IS :project
           UNION ALL SELECT json_extract(r.value,'$.type'),json_extract(r.value,'$.id'),
-            json_extract(r.value,'$.business_id'),c.created_at FROM focus_cards c,json_each(c.references_json) r
+            json_extract(r.value,'$.project_id'),c.created_at FROM focus_cards c,json_each(c.references_json) r
             WHERE (json_extract(c.source_json,'$.type')=:kind AND json_extract(c.source_json,'$.id')=:id
-                   AND json_extract(c.source_json,'$.business_id') IS :business)
+                   AND json_extract(c.source_json,'$.project_id') IS :project)
                OR (json_extract(c.context_json,'$.type')=:kind AND json_extract(c.context_json,'$.id')=:id
-                   AND json_extract(c.context_json,'$.business_id') IS :business)
+                   AND json_extract(c.context_json,'$.project_id') IS :project)
                OR (:kind='reference' AND c.id=:id)
-        ), canonical AS (
-          SELECT type,CASE WHEN type='action' AND id NOT LIKE 'global/%' AND id NOT LIKE 'business/%'
-            THEN CASE WHEN business_id IS NULL THEN 'global/' ELSE 'business/' || business_id || '/' END || id
-            ELSE id END AS id,business_id,created_at FROM candidates
-        ) SELECT type,id,business_id,min(created_at) AS created_at FROM canonical
-          WHERE type IS NOT NULL AND id IS NOT NULL AND NOT(type=:kind AND id=:id AND business_id IS :business)
-          GROUP BY type,id,business_id ORDER BY created_at DESC,type,id,business_id LIMIT :limit OFFSET :offset
-        """, {'kind': kind, 'id': identity, 'business': business, 'limit': args.get('limit', 50) + 1,
+        ) SELECT type,id,project_id,min(created_at) AS created_at FROM candidates
+          WHERE type IS NOT NULL AND id IS NOT NULL AND NOT(type=:kind AND id=:id AND project_id IS :project)
+          GROUP BY type,id,project_id ORDER BY created_at DESC,type,id,project_id LIMIT :limit OFFSET :offset
+        """, {'kind': kind, 'id': identity, 'project': project_id, 'limit': args.get('limit', 50) + 1,
               'offset': args.get('offset', 0)}).fetchall()
     limit, items = args.get('limit', 50), []
     for row in rows[:limit]:
-        binding = {key: row[key] for key in ('type', 'id', 'business_id')}
+        binding = {key: row[key] for key in ('type', 'id', 'project_id')}
         try:
             view = project(service, ctx, binding, uow)
         except DomainError as error:
@@ -168,5 +164,5 @@ def related(service, ctx, args, uow):
               'input_requests': inputs}
     if kind == 'task' and not args.get('offset', 0):
         result['context'] = task_context(service, ctx, source, uow, args.get('notes_audience'))
-        result.update(timeline_part(service, ctx, {'type': 'task', 'id': source['id'], 'business_id': business}, uow))
+        result.update(timeline_part(service, ctx, {'type': 'task', 'id': source['id'], 'project_id': project_id}, uow))
     return result

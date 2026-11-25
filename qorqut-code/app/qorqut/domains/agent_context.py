@@ -4,6 +4,7 @@ from qorqut_agentic.behavior.tool_help import text as instruction_text
 import json
 
 from qorqut.agents import roles
+from qorqut.agents.global_scope import effective_project_ids, reaches_project
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, Principal, canonical_hash
 from qorqut_operations.application.plans import schema, UUID, timestamp, utc_clock
@@ -22,17 +23,17 @@ class AgentContext:
                 'inventory_limit': {'type': 'integer', 'minimum': 1, 'maximum': 50},
                 'inventory_after': {'type': 'string', 'minLength': 1, 'maxLength': 24000,
                     'description': instruction_text('agent-context-pass-next-cursor-exactly-new-cursors-are')},
-                'business_after': {'type': 'string', 'maxLength': 36}}
+                'project_after': {'type': 'string', 'maxLength': 36}}
         registry.register(OperationDescriptor('agent_context_get', schema(arguments), effect_kind='read',
-            scope_kinds={'business', 'global'}, global_capability='read_global_context', supports_signoff=False,
-            resolve_namespace=lambda ctx, args: 'business:' + ctx.business_id if ctx.business_id else 'global',
+            scope_kinds={'project', 'global'}, global_capability='read_global_context', supports_signoff=False,
+            resolve_namespace=lambda ctx, args: 'project:' + ctx.project_id if ctx.project_id else 'global',
             read=lambda ctx, args, opts, uow: self.read(ctx, args, uow),
             description=instruction_text('agent-context-read-compact-live-attention-inventory-true-returns')))
 
     def authorize(self, ctx, operation, uow):
         """The caller's own permission check for a source operation: a pure visibility read, never a change."""
         descriptor = self.app.registry.get(operation)
-        args = {'scope': 'global'} if ctx.business_id is None and operation.startswith('signoffs_') else {}
+        args = {'scope': 'global'} if ctx.project_id is None and operation.startswith('signoffs_') else {}
         self.app.authorize(ctx, descriptor, (), uow, namespace=self.app.namespace(ctx, descriptor, args))
         if operation.startswith('tasks_'):
             from qorqut_operations.tasks.scope import task_context
@@ -55,19 +56,15 @@ class AgentContext:
             if not installation or installation['owner_principal_id'] != ctx.principal_id:
                 raise DomainError('forbidden', 'Agent context inspection requires the installation owner')
             target = uow.connection.execute('SELECT agent_id FROM agent_profiles WHERE agent_id=?', (identity,)).fetchone()
-            if not target or ctx.business_id is not None and ctx.business_id not in ctx.allowed_business_ids:
+            if not target or ctx.project_id is not None and ctx.project_id not in ctx.allowed_project_ids:
                 raise DomainError('forbidden', 'Select a registered agent and an authorized scope')
             return identity
         profile, _ = self.resolver.profile(Principal(identity, 'agent'), connection=uow.connection)
         if profile.data['status'] != 'active':
             raise DomainError('forbidden', 'Agent context requires an active agent')
-        if ctx.business_id is None:
-            if profile.scope.kind != 'ecosystem':
-                raise DomainError('forbidden', 'Project agents have no Global context')
-        else:
-            # The resolver's profile carries the derived scope (every active business); no membership row.
-            if ctx.business_id not in profile.scope.businesses or ctx.business_id not in ctx.allowed_business_ids:
-                raise DomainError('forbidden', 'Agent context is outside current project scope')
+        if ctx.project_id is not None and (ctx.project_id not in ctx.allowed_project_ids
+                                           or not reaches_project(uow.connection, identity, ctx.project_id)):
+            raise DomainError('forbidden', 'Agent context is outside current project scope')
         return identity
 
     def read(self, ctx, args, uow):
@@ -81,7 +78,7 @@ class AgentContext:
 
     def context(self, ctx, identity, uow, args=None):
         args = args or {}
-        result = {'agent_id': identity, 'business_id': ctx.business_id,
+        result = {'agent_id': identity, 'project_id': ctx.project_id,
                   'attention': [], 'notices': [], 'read_only': True}
         task_attention, decision_attention = [], []
         try:
@@ -93,13 +90,13 @@ class AgentContext:
             role = ctx.role_artifact_ref.id if ctx.role_artifact_ref else None
             # The coordinator's own context lists all active work; a worker's context it inspects lists that worker's.
             manager = role == roles.ORDUBASHY_ROLE and identity == ctx.agent_id
-            query = "SELECT t.id,t.title,t.status,t.revision FROM tasks t WHERE t.business_id IS ? AND t.archived=0 AND " + ACTIVE_SQL
-            params = [ctx.business_id, timestamp(self.clock)]
+            query = "SELECT t.id,t.title,t.status,t.revision FROM tasks t WHERE t.project_id IS ? AND t.archived=0 AND " + ACTIVE_SQL
+            params = [ctx.project_id, timestamp(self.clock)]
             if closed:
                 query += ' AND t.status NOT IN (' + ','.join('?' for _ in closed) + ')'
                 params += closed
             if not manager:
-                query += " AND EXISTS (SELECT 1 FROM relationships r WHERE r.business_id IS t.business_id AND r.from_type='task' AND r.from_id=t.id AND r.role='assigned_to' AND r.to_id=?)"
+                query += " AND EXISTS (SELECT 1 FROM relationships r WHERE r.project_id IS t.project_id AND r.from_type='task' AND r.from_id=t.id AND r.role='assigned_to' AND r.to_id=?)"
                 params.append(identity)
             candidates = uow.connection.execute(query + ' ORDER BY t.updated_at DESC,t.id LIMIT 11', params).fetchall()
             for task in candidates[:10]:
@@ -113,8 +110,8 @@ class AgentContext:
             self.authorize(ctx, 'signoffs_list', uow)
             clause, params = self.app.signoffs._visibility(self.app.signoffs._context(ctx, uow),uow)
             decisions = uow.connection.execute('SELECT s.id,s.state,s.status_revision FROM signoffs s WHERE s.proposer_principal_id=? '
-                'AND s.review_business_id IS ? AND ' + clause + ' ORDER BY s.updated_sequence DESC LIMIT 11',
-                (identity, ctx.business_id, *params)).fetchall()
+                'AND s.review_project_id IS ? AND ' + clause + ' ORDER BY s.updated_sequence DESC LIMIT 11',
+                (identity, ctx.project_id, *params)).fetchall()
             for decision in decisions[:10]:
                 decision_attention.append({'type': 'signoff', 'id': decision['id'], 'state': decision['state'],
                                            'revision': decision['status_revision'], 'reason': 'recent_outcome_or_proposal'})
@@ -136,24 +133,22 @@ class AgentContext:
         omitted = {(item['type'], item['id']) for group in groups for item in group} - seen
         if omitted:
             result['notices'].append(f'{len(omitted)} additional attention items omitted; read source tools for full queues.')
-        if ctx.business_id is None:
-            profile, _ = self.resolver.profile(Principal(identity, 'agent'), connection=uow.connection)
-            from qorqut_operations.business_lifecycle import active_business_ids
-            allowed = sorted(profile.scope.businesses & active_business_ids(uow.connection))
-            after = args.get('business_after', '')
+        if ctx.project_id is None:
+            allowed = sorted(effective_project_ids(uow.connection, identity))
+            after = args.get('project_after', '')
             selected = [i for i in allowed if i > after][:21]
             directory = []
-            for business_id in selected[:20]:
-                biz = uow.repository('businesses').get(business_id)
-                directory.append({'business_id': business_id, 'name': biz['name'][:80]})
-            result['businesses'] = directory
-            result['business_after'] = selected[19] if len(selected) > 20 else None
+            for project_id in selected[:20]:
+                project = uow.repository('projects').get(project_id)
+                directory.append({'project_id': project_id, 'name': project['name'][:80]})
+            result['projects'] = directory
+            result['project_after'] = selected[19] if len(selected) > 20 else None
         result['notices'].append('Not a full work inventory. Read scoped tasks, signoffs and your current inbox; nothing was acknowledged.')
         result['omitted_for_budget'] = 0
         while len(json.dumps(result, ensure_ascii=False)) > 4000:
-            if result.get('businesses'):
-                result['businesses'].pop()
-                result['business_after'] = result['businesses'][-1]['business_id'] if result['businesses'] else args.get('business_after', '')
+            if result.get('projects'):
+                result['projects'].pop()
+                result['project_after'] = result['projects'][-1]['project_id'] if result['projects'] else args.get('project_after', '')
             elif result['attention']:
                 result['attention'].pop()
             else:
@@ -163,14 +158,14 @@ class AgentContext:
         return result
 
     def bootstrap(self, principal, config):
-        ctx = self.resolver.invocation_context(principal, business_id=config.get('business_id'))
+        ctx = self.resolver.invocation_context(principal, project_id=config.get('project_id'))
         with self.app.database.read() as uow:
             ctx = self.app.current_context(ctx, uow)
             try:
                 self.authorize(ctx, 'agent_context_get', uow)
                 identity = self.access(ctx, {}, uow)
                 from .startup_inventory import StartupInventory
-                context = {'agent_id': identity, 'business_id': ctx.business_id,
+                context = {'agent_id': identity, 'project_id': ctx.project_id,
                            'startup_inventory': StartupInventory(self, ctx, identity, uow).page(limit=5)}
                 context['context_hash'] = canonical_hash(context)
             except DomainError as error:

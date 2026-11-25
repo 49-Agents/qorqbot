@@ -196,11 +196,25 @@ class ClientTable(base.Fixture):
                          "Codex takes both, always together, plus its permission mode, through its driver")
 
     def test_the_clients_own_compaction_is_switched_off_only_when_asked_and_only_where_there_is_a_switch(self):
-        self.assertEqual(clients.launch_environment(clients.CLAUDE), {})
-        self.assertEqual(clients.launch_environment(clients.CLAUDE, own_compaction=True), {"DISABLE_AUTO_COMPACT": "1"})
+        memory_off = {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+        self.assertEqual(clients.launch_environment(clients.CLAUDE), memory_off)
+        self.assertEqual(clients.launch_environment(clients.CLAUDE, own_compaction=True), {**memory_off, "DISABLE_AUTO_COMPACT": "1"})
         self.assertEqual(clients.launch_environment(clients.CODEX, own_compaction=True), {})
         clients.launch_environment(clients.CLAUDE, own_compaction=True)["DISABLE_AUTO_COMPACT"] = "0"      # a copy each time
         self.assertEqual(clients.TABLE[clients.CLAUDE]["own_compaction"], {"DISABLE_AUTO_COMPACT": "1"})
+
+    def test_claude_codes_own_memory_is_off_in_every_session_and_codex_gets_nothing(self):
+        self.assertEqual(clients.launch_environment(clients.CLAUDE)["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
+        self.assertEqual(clients.launch_environment(clients.CODEX), {})
+        clients.launch_environment(clients.CLAUDE)["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "0"                # a copy each time
+        self.assertEqual(clients.TABLE[clients.CLAUDE]["always"], {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"})
+        self.assertEqual(clients.CLAUDE_MEMORY_SETTING, {"autoMemoryEnabled": False})
+
+    def test_codexs_own_memory_is_off_in_every_session_on_its_command_line(self):
+        self.assertEqual(clients.always_arguments(clients.CODEX), ["-c", "features.memories=false"])
+        self.assertEqual(clients.always_arguments(clients.CLAUDE), [])
+        clients.always_arguments(clients.CODEX).append("x")                                                  # a copy each time
+        self.assertEqual(clients.TABLE[clients.CODEX]["always_arguments"], ["-c", "features.memories=false"])
 
     def test_permission_mode_fails_closed(self):
         workspace = self.base / "ws"
@@ -320,7 +334,7 @@ class ManagerLaunch(base.ManagerFixture):
         self.assertEqual((spec["client"], spec["driver"], spec["send_role"], spec["model"], spec["effort"]),
                          ("codex", "qorqut.managed_runtime.codex_driver:CodexSession", "$role", "gpt-x", "high"))
         self.assertEqual(spec["permission_mode"], "deny")
-        self.assertEqual(spec["args"], ["--model", "gpt-x", "--effort", "high", "--scoped-permissions"])
+        self.assertEqual(spec["args"], ["-c", "features.memories=false", "--model", "gpt-x", "--effort", "high", "--scoped-permissions"])
         self.assertEqual(spec["ready_seconds"], 0)
         self.assertEqual(resume.call_args.args[-1], "codex")
 
@@ -386,8 +400,8 @@ class ManagerLaunch(base.ManagerFixture):
         self.assertEqual((env["CLAUDE_CONFIG_DIR"], env["HOME"], env["TMPDIR"]), ("/Volumes/work/claude", "/Users/owner", "/from/settings"))
 
     def test_every_supported_role_opens_alike(self):
-        # Ordubashy, a global worker, the learning applier: the manager no longer asks the role. What differs is the prepared
-        # workspace: an ecosystem scope is prepared to bypass, any other scope to deny (and the allowed tools on the command line).
+        # Ordubashy, a global worker, the learning applier: the manager does not ask the role. What differs is what the prepared
+        # workspace says: bypass, or deny (and the allowed tools on the command line).
         for role, mode_text, expected in (("ordubashy", "bypassPermissions", "bypass"), ("global-worker", "dontAsk", "deny"),
                                           ("learning-applier", "dontAsk", "deny")):
             with self.subTest(role=role):
@@ -489,8 +503,6 @@ class Routes(base.Fixture):
         api.origins = SimpleNamespace(validate=lambda request, mutation=False: None)
         api.statuses, api.owner_routes = {}, {}
         api.route_counters = SimpleNamespace(record=lambda *args, **options_: None)
-        api._report_transport_success = lambda *args: None
-        api._report_transport_failure = lambda *args: None
         api.context = lambda actor, slug=None, owner=False: (SimpleNamespace(principal_kind="human", principal_id=self.principal), None)
 
         async def handler(request):

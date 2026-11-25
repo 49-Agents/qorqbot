@@ -1,0 +1,86 @@
+/* ============================================================ settings tab */
+.settingspane .mono { font-family: var(--mono); }
+
+.set-switch { position: relative; display: inline-flex; align-items: center; gap: 10px; flex: none; cursor: pointer; user-select: none; }
+.set-switch input {
+  position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; opacity: 0; pointer-events: none;
+}
+.set-switch-track {
+  position: relative; width: 38px; height: 22px; border: 1px solid var(--line-2); border-radius: var(--r-full);
+  background: var(--wash); transition: background .14s ease, border-color .14s ease;
+}
+.set-switch-track::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--fg-2); transition: transform .14s ease, background .14s ease;
+}
+.set-switch input:checked + .set-switch-track { background: var(--fg); border-color: var(--fg); }
+.set-switch input:checked + .set-switch-track::after { background: var(--bg); transform: translateX(16px); }
+.set-switch input:focus-visible + .set-switch-track { outline: 2px solid var(--fg-2); outline-offset: 3px; }
+.set-switch input:disabled + .set-switch-track { opacity: .4; cursor: default; }
+.set-switch-label { min-width: 36px; color: var(--fg-2); font-size: 12px; }
+.set-testing-note { display: block; margin-top: 4px; }
+.set-testing-note:empty { display: none; }
+.set-testing-note:not(:empty) { color: var(--fg-2); }
+.set-testing-note.error:not(:empty) { color: var(--danger); }
+.set-testing-retry { height: 26px; margin-left: 6px; padding: 0 10px; font-size: 11px; }
+@media (max-width: 600px) {
+  .set-switch { align-self: flex-start; }
+}
+.envrows { display: flex; flex-direction: column; gap: 8px; }
+.envrow { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(100px, 2fr) auto; gap: 8px; align-items: center; }
+.envrow input { font-family: var(--mono); font-size: 13px; }
+.envrow .ek.bad { border-color: var(--danger); }
+.envdel {
+  border: 1px solid transparent; background: none; color: var(--fg-3); cursor: pointer;
+  padding: 4px 8px; border-radius: var(--r-sm); font-size: 15px; line-height: 1;
+}
+.envdel:hover { border-color: var(--line-2); background: var(--hover); color: var(--danger); }
+.envadd { margin: 12px 0 0; font-size: 12px; }
+.set-note { margin-top: 10px; min-height: 1.2em; }
+.set-note:not(:empty) { color: var(--danger); }
+
+.envkey { min-width: 0; }
+.envkey input { width: 100%; }
+.envsource { display: block; color: var(--fg-3); font-size: 11px; margin-top: 4px; }
+.envrow .envdel { font-size: 12px; white-space: nowrap; }
+.envrow > .ev { align-self: start; min-width: 0; }
+@media (max-width: 600px) { .envrow { grid-template-columns: minmax(0, 1fr) auto; } .envrow > .ev { grid-column: 1 / -1; grid-row: 2; } .envrow { padding-bottom: 12px; } }
+
+/* ---- Settings layout (js/settings.js): the Explorer's split (css/agent-files.css) with the sections on the left and one section on the right.
+   Headings, fields, search, buttons, status dots and link buttons are the app's own classes; only the row grid and spacing are here. ---- */
+.settingspane { display: flex; flex-direction: column; overflow: hidden; padding: 0; --st-pad: 28px; }
+.settingspane .agfiles-head { padding: 18px var(--st-pad) 14px; border-bottom: 1px solid var(--line); }
+.settingspane .search-field { flex: 0 1 280px; }
+.settingspane .agfiles-layout { --agfiles-list-w: 230px; }
+.settingspane:not(.st-global) .agfiles-layout { grid-template-columns: minmax(0, 1fr); }
+.settingspane .agfiles-detail { padding: 22px var(--st-pad) 48px; }
+.st-column { width: 100%; max-width: 720px; }
+.st-section .record-section { margin: 0 0 28px; }
+.st-section .record-section-head { margin: 0 0 4px; }
+.record-section-head + .st-help { margin: 0 0 8px; }
+.st-miss { display: none !important; }
+/* A setting: text on the left, its control on the right. The Claude Code / Codex and per-agent rows share it. */
+.settingspane :is(.st-row, .ac-row, .ao-row) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.settingspane :is(.st-rows, .ac-rows, .ao-list) > :last-child { border-bottom: 1px solid var(--line); }
+.settingspane :is(.st-row-text, .ac-main, .ao-main) { min-width: 0; }
+.settingspane :is(.st-label, .ac-name, .ao-name) { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 400; color: var(--fg); }
+.settingspane :is(.st-help, .ac-detail) { margin: 2px 0 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.st-help code { font: 11.5px var(--mono); padding: 1px 5px; border-radius: 4px; background: var(--hover); color: var(--fg); word-break: break-all; }
+ul.st-help { padding-left: 18px; }
+.st-control { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.st-chapters { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 420px; }
+.settingspane :is(button.quiet, .ac-actions button) { height: auto; min-height: 28px; padding: 4px 12px; border-radius: var(--r-sm); font: 500 12px/18px var(--sans); }
+.settingspane :is(.ac-pill, .ac-note) { font-size: 12px; color: var(--fg-2); }
+.settingspane :is(.ao-empty, .ao-foot, .ac-load) { padding: 12px 0; }
+/* Segmented choice: the pressed one takes the explorer's selected-row wash. */
+.st-choice { display: flex; gap: 2px; }
+.st-choice button { height: 28px; padding: 0 10px; border-radius: var(--r-sm); background: none; color: var(--fg-2); font: 400 12px var(--sans); letter-spacing: normal; }
+.st-choice button:hover { background: var(--hover); color: var(--fg); transform: none; }
+.st-choice button[aria-checked="true"] { background: var(--nav-selected); color: var(--fg); }
+@media (max-width: 860px) {
+  .settingspane .agfiles-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settingspane .agfiles-tree { flex-direction: row; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .settingspane .agfiles-split { display: none; }
+  .settingspane :is(.st-row, .ac-row, .ao-row) { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .st-control, .st-chapters { justify-content: flex-start; }
+}

@@ -1,9 +1,9 @@
 # Credential discovery and capability handoffs
 
 `environment_list` lists the selected workspace's effective Settings variable
-names, `configured` (nonempty) status, and `origin` (`global` or `business`).
+names, `configured` (nonempty) status, and `origin` (`global` or `project`).
 An optional `names` array checks up to 100 specific bindings; absent names return
-`configured: false, origin: null`. Empty values retain their origin. Business
+`configured: false, origin: null`. Empty values retain their origin. Project
 overrides, including empty overrides, take precedence over Global defaults.
 Global reads include only Global settings. Identity variables are excluded.
 Use `limit`/`cursor` and follow `next_cursor` before concluding a name is absent.
@@ -11,8 +11,8 @@ Use `limit`/`cursor` and follow `next_cursor` before concluding a name is absent
 The operation returns no values, hashes, lengths, or previews of secrets. A
 configured value is not proof of valid credentials, provider readiness, or an
 agent's authority to use a service. File errors remain errors, not empty lists.
-Global access requires `read_global_context`; selected businesses retain normal
-membership and agent-scope checks. Core enables metadata discovery by default,
+Global access requires `read_global_context`; selected projects retain normal
+project-reach and agent-scope checks. Core enables metadata discovery by default,
 including existing pinned roles, while explicit role/profile denial wins.
 
 Supported operations already accept variable-name references: a daily JSON
@@ -28,8 +28,8 @@ check its tools and suitable teammates, then create or update an ordinary task
 assigned to the human owner if no available agent can perform the work.
 `assignees_list` includes `is_owner` so agents can distinguish the human owner
 from agent assignees. Existing task policy and signoff requirements apply.
-The task stays in the originating business and appears in the human's personal
-taskbox. Agents without task access or a business destination report the limitation to
+The task stays in the originating project and appears in the human's personal
+taskbox. Agents without task access or a project destination report the limitation to
 the owner or an authorized coordinator rather than guessing an assignee/scope.
 
 Include the requested outcome, specific blocker, attempts, and completion

@@ -29,12 +29,12 @@ def request_view(runtime, context, signoff_id):
                 or association['conversation_id'] != session['conversation_id']):
             raise DomainError('not_found', 'The workflow request is unavailable')
         saved = json.loads(association['association_json'])
-        ctx = replace(ctx, business_id=None, review_business_id=None)
+        ctx = replace(ctx, project_id=None, review_project_id=None)
         runtime.application.authorize(ctx, runtime.registry.get('signoffs_get'), (), uow, namespace='global')
         row = runtime.signoffs._row(ctx, signoff_id, uow)
         if (row['proposal_revision'] != association['proposal_revision'] or row['payload_hash'] != association['payload_hash']
                 or row['request_key'] != association['request_key'] or row['proposer_principal_id'] != ctx.principal_id
-                or row['review_business_id'] is not None or row['category'] != 'input_request'
+                or row['review_project_id'] is not None or row['category'] != 'input_request'
                 or row['preview_json'].get('input', {}).get('response_policy') != 'owner_only'):
             raise DomainError('evidence_unavailable', 'The canonical workflow request is inconsistent')
         response_ref, response = None, None
@@ -161,7 +161,7 @@ def create_request(runtime, context, request_key, kind, arguments, question, ope
         'choices': [{'id': 'start', 'label': 'Start workflow', 'explanation': explanation},
                     {'id': 'later', 'label': 'Later', 'explanation': 'Do not start this workflow now.'}]})
     fixed = {'id': identity, 'request_key': request_key, 'agent_id': agent, 'conversation_id': conversation,
-             'namespace': {'kind': 'global', 'business_id': None}, 'kind': kind, 'arguments': arguments,
+             'namespace': {'kind': 'global', 'project_id': None}, 'kind': kind, 'arguments': arguments,
              'question': question, 'source_ref': source_ref, 'selected_application': selected}
     fingerprint = _digest(fixed)
     with runtime.database.transaction(operation='overseer.workflow-request-reserve') as uow:
@@ -182,12 +182,12 @@ def create_request(runtime, context, request_key, kind, arguments, question, ope
     if existing is not None:
         view = request_view(runtime, context, by_key['signoff_id'])
         return {'schema_version': 1, 'request': existing, 'response_reference': view['response_reference']}
-    ctx = replace(ctx, business_id=None, review_business_id=None)
+    ctx = replace(ctx, project_id=None, review_project_id=None)
     with runtime.database.read() as uow:
         ctx, _ = current_overseer(runtime, context, uow, capability='manage_agentic_layer')
-        ctx = replace(ctx, business_id=None, review_business_id=None)
+        ctx = replace(ctx, project_id=None, review_project_id=None)
         runtime.application.authorize(ctx, runtime.registry.get('signoffs_get'), (), uow, namespace='global')
-        rows = uow.connection.execute('SELECT id FROM signoffs WHERE proposer_principal_id=? AND review_business_id IS NULL AND request_key=? LIMIT 2',
+        rows = uow.connection.execute('SELECT id FROM signoffs WHERE proposer_principal_id=? AND review_project_id IS NULL AND request_key=? LIMIT 2',
                                       (agent, request_key)).fetchall()
         if len(rows) > 1: raise DomainError('operation_conflict', 'The request key has multiple canonical Signoffs')
         row = runtime.signoffs._row(ctx, rows[0]['id'], uow) if rows else None
@@ -205,23 +205,23 @@ def create_request(runtime, context, request_key, kind, arguments, question, ope
         signoff_id = row['id']
     with runtime.database.read() as uow:
         ctx, _ = current_overseer(runtime, context, uow, capability='manage_agentic_layer')
-        ctx = replace(ctx, business_id=None, review_business_id=None)
+        ctx = replace(ctx, project_id=None, review_project_id=None)
         runtime.application.authorize(ctx, runtime.registry.get('signoffs_get'), (), uow, namespace='global')
         row = runtime.signoffs._row(ctx, signoff_id, uow)
-        if (row['proposer_principal_id'] != agent or row['request_key'] != request_key or row['review_business_id'] is not None
+        if (row['proposer_principal_id'] != agent or row['request_key'] != request_key or row['review_project_id'] is not None
                 or row['category'] != 'input_request' or row['preview_json'].get('input') != form):
             raise DomainError('operation_conflict', 'The canonical Signoff does not match this request')
         request_ref = {'provider': 'qorqut_signoff', 'signoff_id': signoff_id,
                        'proposal_revision': row['proposal_revision'], 'payload_hash': row['payload_hash']}
-    source = {'provider': 'operations', 'kind': 'signoff', 'namespace': {'kind': 'global', 'business_id': None},
+    source = {'provider': 'operations', 'kind': 'signoff', 'namespace': {'kind': 'global', 'project_id': None},
               'record_id': signoff_id, 'locator': {'signoff_id': signoff_id}}
     run_ref = {'provider': 'qorqut_overseer', 'agent_id': agent, 'conversation_id': conversation, 'run_id': None,
-               'namespace': {'kind': 'global', 'business_id': None}}
+               'namespace': {'kind': 'global', 'project_id': None}}
     def allow_source(ref):
         if ref != source: raise DomainError('forbidden', 'The Signoff is not the requested presentation')
         with runtime.database.read() as uow:
             current, _ = current_overseer(runtime, context, uow, capability='manage_agentic_layer')
-            current = replace(current, business_id=None, review_business_id=None)
+            current = replace(current, project_id=None, review_project_id=None)
             runtime.application.authorize(current, runtime.registry.get('signoffs_get'), (), uow, namespace='global')
             exact = runtime.signoffs._row(current, signoff_id, uow)
             if (exact['proposal_revision'], exact['payload_hash']) != (request_ref['proposal_revision'], request_ref['payload_hash']):
@@ -234,7 +234,7 @@ def create_request(runtime, context, request_key, kind, arguments, question, ope
     with runtime.database.transaction(operation='overseer.workflow-request-association') as uow:
         runtime.application.ensure_writes_open(uow)
         current, _ = current_overseer(runtime, context, uow, capability='manage_agentic_layer')
-        current = replace(current, business_id=None, review_business_id=None)
+        current = replace(current, project_id=None, review_project_id=None)
         runtime.application.authorize(current, runtime.registry.get('signoffs_get'), (), uow, namespace='global')
         exact = runtime.signoffs._row(current, signoff_id, uow)
         latest = store.latest_session(uow.connection, agent)

@@ -59,8 +59,8 @@ class PlanFixture(Fixture):
         with self.db.transaction() as uow:
             uow.repository('principals').insert(dict(id=self.other, kind='agent', display_name='Other', active=1,
                                                      created_at=STAMP, updated_at=STAMP))
-            uow.connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,namespace,name,workspace,profile_json,'
-                                   "created_at,updated_at) VALUES(?,?,'ecosystem',?,?,?,?,?)",
+            uow.connection.execute('INSERT INTO agent_profiles(agent_id,principal_id,name,workspace,profile_json,'
+                                   "created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                                    (self.other, self.other, 'other-worker', '/' + self.other, profile('global-worker'), STAMP, STAMP))
 
     def delegate(self, task, worker=None, **extra):
@@ -87,7 +87,7 @@ class PlanFixture(Fixture):
 
     def stored(self, task):
         with self.db.read() as uow:
-            return uow.repository('tasks', business_id=None).get(task['id'])
+            return uow.repository('tasks', project_id=None).get(task['id'])
 
     def told(self, task):
         """The plan step events of a Task, oldest first: their type, summary and who they were delivered to."""
@@ -310,9 +310,9 @@ class QueueTests(PlanFixture):
 class ThreadTests(PlanFixture):
     def context(self, task):
         from qorqut.inbox.thread_views import task_context
-        service = NS(select=lambda ctx, business, uow: ctx, app=self.app)
+        service = NS(select=lambda ctx, project, uow: ctx, app=self.app)
         with self.db.read() as uow:
-            return task_context(service, self.ctx(self.lead), {'type': 'task', 'id': task['id'], 'business_id': None}, uow)
+            return task_context(service, self.ctx(self.lead), {'type': 'task', 'id': task['id'], 'project_id': None}, uow)
 
     def test_the_thread_shows_where_the_plan_stands(self):
         task = self.planned()
@@ -409,7 +409,7 @@ class StepShapeTests(PlanFixture):
         task = self.planned()
         row = self.stored(task)
         self.assertEqual(attributes(row)['plan'], PLAN)
-        material = json.dumps([row.get('business_id'), row['id'], row['created_at'], PLAN], ensure_ascii=False, separators=(',', ':'))
+        material = json.dumps([row.get('project_id'), row['id'], row['created_at'], PLAN], ensure_ascii=False, separators=(',', ':'))
         self.assertEqual(plan_key(row), 'plan-' + hashlib.sha256(material.encode()).hexdigest()[:48])
         self.assertEqual(self.read(self.worker, task)['plan_steps'][0], {'id': 's1', 'text': PLAN[0], 'state': 'pending', 'current': True})
 
@@ -834,22 +834,6 @@ class CheckTests(PlanFixture):
                      'was replaced by a newer one')
         self.ok(self.step(self.worker, 'done', task, step_id='s1', evidence={'signoff_id': second['id']}))
 
-    def test_a_side_chat_decides_nothing(self):
-        from qorqut.inbox.private_conversations import PrivateConversations
-        from qorqut.inbox.side_chats import SideChats
-        conversations = PrivateConversations(NS(app=self.app, domains=NS(tasks=self.tasks)), references=self.signoffs.notes).register()
-        SideChats(NS(application=self.app, signoffs=self.signoffs, private_conversations=conversations)).register()
-        chat = plain(self.ok(self.app.invoke(self.deciding_owner(), 'side_chats_create', {'scope': 'global', 'text': 'A private word'},
-                                             {'idempotency_key': str(uuid4())})))['signoff']
-        self.assertEqual(self.signoff_state(chat)[2], 'side_chat')
-        task = self.checked({'kind': 'signoff'})
-        self.refused(self.step(self.worker, 'done', task, step_id='s1', evidence={'signoff_id': chat['id']}), 'is a side chat')
-        # Whatever state the chat's shell is in, it is not a response to anything.
-        with self.db.transaction() as uow:
-            uow.connection.execute("UPDATE signoffs SET state='answered' WHERE id=?", (chat['id'],))
-        self.refused(self.step(self.worker, 'done', task, step_id='s1', evidence={'signoff_id': chat['id']}), 'is a side chat')
-        self.assertEqual(self.first(task), ('s1', 'pending'))
-
     def test_a_signoff_the_caller_may_not_read_is_refused_like_one_that_does_not_exist(self):
         answered = self.question()
         self.answer(answered)
@@ -870,12 +854,11 @@ class CheckTests(PlanFixture):
         alpha, beta = str(uuid4()), str(uuid4())
         with self.db.transaction() as uow:
             for identity, slug in ((alpha, 'alpha'), (beta, 'beta')):
-                uow.repository('businesses').insert({'id': identity, 'name': slug, 'slug': slug, 'workspace': slug,
-                                                     'hq_path': slug + '/hq'})
+                uow.repository('projects').insert({'id': identity, 'name': slug, 'slug': slug, 'workspace': slug})
 
-        def call(who, business, operation, arguments, task=None):
-            ctx = replace(self.ctx(who), business_id=business, review_business_id=business,
-                          allowed_business_ids=frozenset({alpha, beta}))
+        def call(who, project, operation, arguments, task=None):
+            ctx = replace(self.ctx(who), project_id=project, review_project_id=project,
+                          allowed_project_ids=frozenset({alpha, beta}))
             options = {'idempotency_key': str(uuid4())}
             if task:
                 options['expected_revision'] = self.rows('SELECT revision FROM tasks WHERE id=?', task['id'])[0][0]
@@ -888,14 +871,11 @@ class CheckTests(PlanFixture):
         task = plain(self.ok(call(self.lead, alpha, 'tasks_create', {'title': 'In alpha'})))['task']
         self.ok(call(self.lead, alpha, 'tasks_delegate', {'worker_id': self.worker, 'plan': [
             {'text': 'Wait for the owner', 'check': {'kind': 'signoff'}}, 'Report']}, task))
-        ctx = lambda business: replace(self.ctx(self.worker), business_id=business, review_business_id=business,
-                                       allowed_business_ids=frozenset({alpha, beta}))
+        ctx = lambda project: replace(self.ctx(self.worker), project_id=project, review_project_id=project,
+                                       allowed_project_ids=frozenset({alpha, beta}))
         there, here = self.question(ctx=ctx(beta)), self.question(ctx=ctx(alpha))
-        owner = lambda business: replace(self.deciding_owner(), business_id=business, review_business_id=business,
-                                         allowed_business_ids=frozenset({alpha, beta}))
-        with self.db.transaction() as uow:
-            for business in (alpha, beta):
-                uow.repository('business_memberships', business_id=business).insert({'principal_id': self.owner, 'is_owner': True})
+        owner = lambda project: replace(self.deciding_owner(), project_id=project, review_project_id=project,
+                                         allowed_project_ids=frozenset({alpha, beta}))
         self.answer(there, owner(beta))
         self.assertEqual(self.signoff_state(there)[0], 'answered')
         refused = call(self.worker, alpha, 'tasks_step_done', {'step_id': 's1', 'evidence': {'signoff_id': there['id']}}, task)
@@ -968,7 +948,7 @@ class CheckTests(PlanFixture):
         # Elsewhere under the operations root the answer is the same whether or not a file is there.
         answers = set()
         for path in (f'agents/{self.other}/theirs.txt', f'agents/{self.other}/missing.txt', 'notes.txt', 'missing.txt',
-                     'projects/alpha/hq/plan.md', own):
+                     'projects/alpha/plan.md', own):
             message = self.refused(self.step(self.worker, 'done', task, step_id='s1', evidence={'path': path}),
                                    'is not in either')['message']
             answers.add(message.replace(path, '<path>'))
@@ -984,14 +964,14 @@ class CheckTests(PlanFixture):
     def test_a_file_of_the_tasks_project_counts(self):
         alpha, beta, call = self.projects()
         for slug in ('alpha', 'beta'):
-            (self.files / 'projects' / slug / 'hq').mkdir(parents=True)
-            (self.files / 'projects' / slug / 'hq' / 'offer.md').write_text('The offer.')
+            (self.files / 'projects' / slug).mkdir(parents=True)
+            (self.files / 'projects' / slug / 'offer.md').write_text('The offer.')
         task = plain(self.ok(call(self.lead, alpha, 'tasks_create', {'title': 'In alpha'})))['task']
         self.ok(call(self.lead, alpha, 'tasks_delegate', {'worker_id': self.worker, 'plan': [
             {'text': 'Write the offer', 'check': {'kind': 'file'}}, 'Report']}, task))
         done = lambda path: call(self.worker, alpha, 'tasks_step_done', {'step_id': 's1', 'evidence': {'path': path}}, task)
-        self.refused(done('projects/beta/hq/offer.md'), 'is not in either')
-        self.ok(done('projects/alpha/hq/offer.md'))
+        self.refused(done('projects/beta/offer.md'), 'is not in either')
+        self.ok(done('projects/alpha/offer.md'))
 
     def test_a_checked_step_keeps_the_order_and_can_be_skipped(self):
         asked = self.question()

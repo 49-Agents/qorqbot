@@ -2,7 +2,7 @@
 
 Four insert-only (or one-way) tables, all owned here and none of them a document table:
 
-* ``context_source_bindings``: every Context source belongs to exactly one operational scope (one business, or the
+* ``context_source_bindings``: every Context source belongs to exactly one operational scope (one project, or the
   explicit Global namespace). Keyed by the canonical source identity (a GENERAL source's Context path, or an accepted
   Action's key) and created by the backend driver, from the stored queue input, before any Context work for that source
   starts. It is never updated or deleted.
@@ -37,17 +37,17 @@ SCHEMA = (
     """CREATE TABLE context_source_bindings (
     source_kind TEXT NOT NULL CHECK (source_kind IN ('general','action')),
     source_key TEXT NOT NULL CHECK (length(source_key) BETWEEN 1 AND 500),
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     bound_by_input TEXT NOT NULL REFERENCES context_inputs(id),
     bound_at TEXT NOT NULL,
     PRIMARY KEY (source_kind, source_key)
 )""",
-    """CREATE INDEX context_source_bindings_by_scope ON context_source_bindings(business_id, source_kind, source_key)""",
+    """CREATE INDEX context_source_bindings_by_scope ON context_source_bindings(project_id, source_kind, source_key)""",
     # A binding records the admitting input's own kind and namespace: nothing else can name a different owner.
     """CREATE TRIGGER context_source_bindings_admitting_input
 BEFORE INSERT ON context_source_bindings
 WHEN NOT EXISTS (SELECT 1 FROM context_inputs i WHERE i.id = NEW.bound_by_input AND i.input_kind = NEW.source_kind
-    AND i.business_id IS NEW.business_id)
+    AND i.project_id IS NEW.project_id)
 BEGIN
     SELECT RAISE(ABORT, 'A Context source binding records its admitting input''s kind and namespace');
 END""",
@@ -64,7 +64,7 @@ END""",
     # -- accepted source versions ---------------------------------------------------------------------------------
     f"""CREATE TABLE context_source_versions (
     id TEXT PRIMARY KEY CHECK (length(id) = 36),
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     source_kind TEXT NOT NULL CHECK (source_kind IN ('document','instruction')),
     source_id TEXT NOT NULL CHECK (length(source_id) = 36),
     source_revision INTEGER NOT NULL CHECK (source_revision >= 1),
@@ -80,7 +80,7 @@ END""",
     CHECK (source_path = CASE source_kind WHEN 'document' THEN 'foundation/documents/' ELSE 'foundation/instructions/' END
                          || source_id || '.txt')
 )""",
-    """CREATE INDEX context_source_versions_by_scope ON context_source_versions(business_id, source_kind, source_id, source_revision)""",
+    """CREATE INDEX context_source_versions_by_scope ON context_source_versions(project_id, source_kind, source_id, source_revision)""",
     # Revisions are consecutive in one scope, and the operation follows the accepted lineage. The first version is an
     # add; after a retraction the source is added again; otherwise a content version is an edit. A removal needs a
     # prior version to retract. An earlier discarded add never turns a later edit into an add.
@@ -89,7 +89,7 @@ BEFORE INSERT ON context_source_versions
 WHEN NEW.source_revision IS NOT COALESCE((SELECT MAX(v.source_revision) FROM context_source_versions v
         WHERE v.source_kind = NEW.source_kind AND v.source_id = NEW.source_id), 0) + 1
   OR EXISTS (SELECT 1 FROM context_source_versions v WHERE v.source_kind = NEW.source_kind AND v.source_id = NEW.source_id
-        AND v.business_id IS NOT NEW.business_id)
+        AND v.project_id IS NOT NEW.project_id)
   OR NEW.operation IS NOT (CASE
         WHEN NEW.operation = 'remove' THEN 'remove'
         WHEN NOT EXISTS (SELECT 1 FROM context_source_versions v WHERE v.source_kind = NEW.source_kind
@@ -125,7 +125,7 @@ END""",
     # -- filings ------------------------------------------------------------------------------------------------------
     """CREATE TABLE context_filings (
     id TEXT PRIMARY KEY CHECK (length(id) = 36),
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     source_version_id TEXT NOT NULL UNIQUE REFERENCES context_source_versions(id),
     request_id TEXT NOT NULL CHECK (length(request_id) BETWEEN 1 AND 200),
     job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id),
@@ -137,15 +137,15 @@ END""",
     input_id TEXT NOT NULL UNIQUE REFERENCES context_inputs(id) DEFERRABLE INITIALLY DEFERRED,
     created_at TEXT NOT NULL
 )""",
-    """CREATE INDEX context_filings_by_scope ON context_filings(business_id, created_at)""",
+    """CREATE INDEX context_filings_by_scope ON context_filings(project_id, created_at)""",
     # The filing's job is the real registered job prepared for exactly this filing, in the same scope and with the same
     # program and worker; an instruction's source is its job. The input is inserted later in the same transaction.
     """CREATE TRIGGER context_filings_bound_job
 BEFORE INSERT ON context_filings
-WHEN NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = NEW.job_id AND j.business_id IS NEW.business_id AND j.kind = NEW.program_id
+WHEN NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = NEW.job_id AND j.project_id IS NEW.project_id AND j.kind = NEW.program_id
         AND j.principal_id = NEW.worker_id AND j.initiated_by_principal_id IS NEW.initiated_by
         AND json_extract(j.arguments_json, '$.filing_id') = NEW.id AND j.state = 'queued')
-  OR NOT EXISTS (SELECT 1 FROM context_source_versions v WHERE v.id = NEW.source_version_id AND v.business_id IS NEW.business_id
+  OR NOT EXISTS (SELECT 1 FROM context_source_versions v WHERE v.id = NEW.source_version_id AND v.project_id IS NEW.project_id
         AND ((v.source_kind = 'document' AND NEW.program_id = 'context.file')
           OR (v.source_kind = 'instruction' AND NEW.program_id = 'context.instruct' AND v.source_id = NEW.job_id)))
 BEGIN
@@ -168,7 +168,7 @@ BEFORE INSERT ON context_inputs
 WHEN NEW.input_kind = 'general' AND (json_extract(NEW.payload_json, '$.path') LIKE 'foundation/documents/%'
         OR json_extract(NEW.payload_json, '$.path') LIKE 'foundation/instructions/%')
   AND NOT EXISTS (SELECT 1 FROM context_filings f JOIN context_source_versions v ON v.id = f.source_version_id
-        WHERE f.input_id = NEW.id AND f.business_id IS NEW.business_id AND v.source_path = json_extract(NEW.payload_json, '$.path')
+        WHERE f.input_id = NEW.id AND f.project_id IS NEW.project_id AND v.source_path = json_extract(NEW.payload_json, '$.path')
           AND v.operation = NEW.operation)
 BEGIN
     SELECT RAISE(ABORT, 'Controlled Context paths hold only the input of their own filing');
@@ -176,7 +176,7 @@ END""",
     # -- completions (the terminal outbox) ------------------------------------------------------------------------
     f"""CREATE TABLE context_completions (
     id TEXT PRIMARY KEY CHECK (length(id) = 36),
-    business_id TEXT REFERENCES businesses(id),
+    project_id TEXT REFERENCES projects(id),
     filing_id TEXT NOT NULL UNIQUE REFERENCES context_filings(id),
     job_id TEXT NOT NULL REFERENCES jobs(id),
     input_id TEXT NOT NULL UNIQUE REFERENCES context_inputs(id),
@@ -201,13 +201,13 @@ END""",
 BEFORE INSERT ON context_completions
 WHEN NOT EXISTS (SELECT 1 FROM context_filings f JOIN context_inputs i ON i.id = f.input_id
         WHERE f.id = NEW.filing_id AND f.job_id = NEW.job_id AND f.input_id = NEW.input_id
-          AND f.source_version_id = NEW.source_version_id AND f.business_id IS NEW.business_id
+          AND f.source_version_id = NEW.source_version_id AND f.project_id IS NEW.project_id
           AND i.state = NEW.outcome AND i.context_event_id IS NEW.context_event_id)
 BEGIN
     SELECT RAISE(ABORT, 'A completion binds its filing, job, input and source version to the input''s terminal outcome');
 END""",
     """CREATE TRIGGER context_completions_immutable
-BEFORE UPDATE OF id, business_id, filing_id, job_id, input_id, source_version_id, outcome, context_event_id, published_commit,
+BEFORE UPDATE OF id, project_id, filing_id, job_id, input_id, source_version_id, outcome, context_event_id, published_commit,
     reason_json, outcome_digest, created_at ON context_completions
 BEGIN
     SELECT RAISE(ABORT, 'A completion''s outcome is immutable');
@@ -226,13 +226,13 @@ END""",
 )
 
 TABLES = {
-    "context_source_bindings": TableSpec(("source_kind", "source_key"), "business_id", False, None),
-    "context_source_versions": TableSpec(("id",), "business_id", False, None),
-    "context_filings": TableSpec(("id",), "business_id", False, None),
-    "context_completions": TableSpec(("id",), "business_id", True, "revision"),
+    "context_source_bindings": TableSpec(("source_kind", "source_key"), "project_id", False, None),
+    "context_source_versions": TableSpec(("id",), "project_id", False, None),
+    "context_filings": TableSpec(("id",), "project_id", False, None),
+    "context_completions": TableSpec(("id",), "project_id", True, "revision"),
 }
 IMMUTABLE_FIELDS = {
-    "context_completions": frozenset({"business_id", "filing_id", "job_id", "input_id", "source_version_id", "outcome",
+    "context_completions": frozenset({"project_id", "filing_id", "job_id", "input_id", "source_version_id", "outcome",
                                       "context_event_id", "published_commit", "reason_json", "outcome_digest", "created_at"}),
 }
 # The binding, the filing and the completion reference the input that carries them; a filing binds one registered job.

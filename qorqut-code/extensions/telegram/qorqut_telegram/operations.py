@@ -363,10 +363,15 @@ class TelegramOperations:
             hook = bridge.sent_hooks.get(outbox["source_kind"])
             if hook is not None:
                 hook(uow, store.outbox(uow, outbox["id"]), provider)
+            # A cleanup that stopped on this uncertain send now has a known message to delete.
+            if store.requeue_cleanup(uow, outbox, now=now) is not None:
+                bridge.wake()
         else:
             # The frozen target and binding stay as saved: dispatch rechecks them and fails closed if they changed.
             store.set_outbox(uow, outbox, state="queued", attempts=0, next_attempt_at=now, error_code=None, error_message=None,
                              resolved_by=ctx.principal_id, resolved_at=now)
+            # The same message is sent again, so a cleanup that stopped on the uncertain send waits for this one instead.
+            store.requeue_cleanup(uow, outbox, now=now)
             bridge.wake()
         return self.view(uow, store.message(uow, message["id"]), owner=True)
 
@@ -387,7 +392,7 @@ class TelegramOperations:
 
     def _still_allowed(self, uow, principal_id, operation):
         policy = self.app.policy
-        context = policy.context_for(principal_id, business_id=None, review_business_id=None, uow=uow)
+        context = policy.context_for(principal_id, project_id=None, review_project_id=None, uow=uow)
         return policy.resolve(context, self.runtime.registry.get(operation), (), uow).mode == "allow"
 
     def admit_agent(self, uow, row):

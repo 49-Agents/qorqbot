@@ -7,7 +7,7 @@ two sets are independent: an optional follower who has unfollowed never receives
 state ever removes a required one. The acting principal is never woken by its own change, exactly as in v1.
 
 Recipient eligibility: only an active global agent is addressed, in Global when it holds a global capability and in
-every active business without a membership row. Business-home profiles are never addressed.
+every active project.
 The writer runs inside the caller's write transaction; a failure rolls the record and its notifications back
 together."""
 
@@ -16,34 +16,33 @@ from __future__ import annotations
 from collections.abc import Iterable
 import json
 
-from qorqut_operations.business_lifecycle import active_business_ids
+from qorqut_operations.project_lifecycle import active_project_ids
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut_operations.global_agents import global_profile
 
 SUMMARY_LIMIT = 500
 
 
-def eligible_agents(uow, business_id, agents: Iterable[str]) -> set[str]:
+def eligible_agents(uow, project_id, agents: Iterable[str]) -> set[str]:
     """The registered agents that may currently be addressed about a record of this namespace.
 
-    Only an active global agent is addressable: in Global with a global capability, and in every active business without
-    a membership row. A business-home or non-ecosystem profile is never addressable, whatever its membership rows say."""
-    active, businesses = set(), None
+    Only an active global agent is addressable: in Global with a global capability, and in every active project."""
+    active, projects = set(), None
     for agent in sorted({a for a in agents if a}):
         found = global_profile(uow.connection, agent)
         if found is None:
             continue
-        if business_id is None:
+        if project_id is None:
             allowed = bool(found["profile"]["scope"].get("global_capabilities"))
         else:
-            businesses = active_business_ids(uow.connection) if businesses is None else businesses
-            allowed = business_id in businesses
+            projects = active_project_ids(uow.connection) if projects is None else projects
+            allowed = project_id in projects
         if allowed:
             active.add(agent)
     return active
 
 
-def emit_event(uow, *, business_id, source_type: str, source_id: str, source_revision, actor_id, event_type: str,
+def emit_event(uow, *, project_id, source_type: str, source_id: str, source_revision, actor_id, event_type: str,
                summary: str, required: Iterable[str] = (), optional: Iterable[str] = (), visibility=None) -> int | None:
     """Write one event and its deliveries; returns the event id, or None when nobody is eligible to receive it.
 
@@ -55,13 +54,13 @@ def emit_event(uow, *, business_id, source_type: str, source_id: str, source_rev
         raise DomainError("validation_error", "An event has a type")
     mandatory = set(required) - {actor_id}
     discretionary = set(optional) - {actor_id} - mandatory
-    recipients = eligible_agents(uow, business_id, mandatory | discretionary)
+    recipients = eligible_agents(uow, project_id, mandatory | discretionary)
     if not recipients:
         return None
     cursor = uow.connection.execute(
-        "INSERT INTO inbox_events(business_id,source_type,source_id,source_revision,actor_id,event_type,summary,"
+        "INSERT INTO inbox_events(project_id,source_type,source_id,source_revision,actor_id,event_type,summary,"
         "visibility_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-        (business_id, source_type, source_id, source_revision, actor_id, event_type,
+        (project_id, source_type, source_id, source_revision, actor_id, event_type,
          " ".join(str(summary).split())[:SUMMARY_LIMIT] or source_type, json.dumps(visibility or {}, sort_keys=True), utc_now()))
     uow.connection.executemany(
         "INSERT INTO inbox_deliveries(agent_id,event_id,required) VALUES(?,?,?)",

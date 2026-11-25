@@ -47,7 +47,7 @@ def parse_history_query(items, roots):
             selected.append((key, value))
     selector = parse_selector(selected, roots)
     if not selector.is_document or selector.version is not None:
-        raise DomainError("validation_error", "History is read for a document_id (with business_id unless Global)")
+        raise DomainError("validation_error", "History is read for a document_id (with project_id unless Global)")
     diff = {"from_version", "to_version"} & arguments.keys()
     if diff and (len(diff) != 2 or {"before_version", "limit"} & arguments.keys()):
         raise DomainError("validation_error", "A comparison needs from_version and to_version only")
@@ -66,7 +66,7 @@ def version_name(name, version):
 
 
 class FileViewer:
-    """Bound to one ``runtime``; ``scope`` maps a business ID (or None for Global) to the owner's invocation context."""
+    """Bound to one ``runtime``; ``scope`` maps a project ID (or None for Global) to the owner's invocation context."""
 
     def __init__(self, runtime, scope):
         self.runtime, self.scope = runtime, scope
@@ -93,20 +93,20 @@ class FileViewer:
 
     def location(self, row, uow):
         """The registered document's present root-relative location."""
-        if row["business_id"] is None:
+        if row["project_id"] is None:
             return normalize_path(document_location(self._paths(), None, row["path"]), ())
-        business = uow.connection.execute("SELECT slug FROM businesses WHERE id=?", (row["business_id"],)).fetchone()
-        if business is None:
+        project = uow.connection.execute("SELECT slug FROM projects WHERE id=?", (row["project_id"],)).fetchone()
+        if project is None:
             raise DomainError("forbidden", "The registered document is outside the operations root")
-        return normalize_path(document_location(self._paths(), business, row["path"]), ())
+        return normalize_path(document_location(self._paths(), project, row["path"]), ())
 
     def document(self, selector):
         """``(row, scope context, location)`` for a document selector, through the existing document rules."""
-        ctx = self.scope(selector.business_id)
+        ctx = self.scope(selector.project_id)
         with self.runtime.database.read() as uow:
             row = self._store().get(ctx, selector.document_id, uow)
-            if row["business_id"] != selector.business_id:
-                # A link never re-scopes a document: a business ID must be the owner's, and Global means Global.
+            if row["project_id"] != selector.project_id:
+                # A link never re-scopes a document: a project ID must be the owner's, and Global means Global.
                 raise DomainError("not_found", "Document not found")
             return row, ctx, self.location(row, uow)
 
@@ -116,11 +116,11 @@ class FileViewer:
         with self.runtime.database.read() as uow:
             connection = uow.connection
             candidates = [(None, document_path_at_global(paths, relative))]
-            for business in connection.execute("SELECT id, slug FROM businesses"):
-                candidates.append((business["id"], document_path_at(paths, business, relative)))
-            found = [row for business_id, path in candidates if path is not None for row in connection.execute(
-                "SELECT id, business_id, kind, revision FROM documents WHERE business_id IS ? AND path = ?",
-                (business_id, path))]
+            for project in connection.execute("SELECT * FROM projects"):
+                candidates.append((project["id"], document_path_at(paths, project, relative)))
+            found = [row for project_id, path in candidates if path is not None for row in connection.execute(
+                "SELECT id, project_id, kind, revision FROM documents WHERE project_id IS ? AND path = ?",
+                (project_id, path))]
         return dict(found[0]) if len(found) == 1 else None
 
     # History through the existing owner-only operation
@@ -156,7 +156,7 @@ class FileViewer:
         """Saved versions (a page of metadata) or a unified diff of two, for one registered document."""
         row, ctx, location = self.document(selector)
         data = self.read_history(ctx, row["id"], **arguments)
-        result = {"document_id": row["id"], "business_id": row["business_id"], "current_revision": data["current_revision"]}
+        result = {"document_id": row["id"], "project_id": row["project_id"], "current_revision": data["current_revision"]}
         if "diff" in data:
             diff = data["diff"]
             return {**result, "from_version": data["from_version"], "to_version": data["to_version"],
@@ -194,16 +194,16 @@ class FileViewer:
     def metadata(self, selector):
         if selector.is_document:
             row, ctx, location = self.document(selector)
-            managed = self._managed(row, ctx, selector.business_id)
+            managed = self._managed(row, ctx, selector.project_id)
         else:
             row, ctx, location = None, None, selector.path
             found = self.managed_for_path(location)
             managed = None
             if found:
                 try:
-                    managed = self._managed(found, self.scope(found["business_id"]), found["business_id"])
+                    managed = self._managed(found, self.scope(found["project_id"]), found["project_id"])
                 except DomainError:
-                    managed = None  # An archived or unavailable business: show the plain current file.
+                    managed = None  # An archived or unavailable project: show the plain current file.
         name = location.rsplit("/", 1)[-1]
         base = {"name": name, "path": location, "managed": managed}
         if selector.version is not None:
@@ -221,16 +221,16 @@ class FileViewer:
         finally:
             opened.close()
 
-    def _managed(self, row, ctx, business_id):
+    def _managed(self, row, ctx, project_id):
         available = self._history_available(ctx, row["id"])
-        business = None
-        if business_id:
+        project = None
+        if project_id:
             with self.runtime.database.read() as uow:
-                business = uow.connection.execute("SELECT slug, name FROM businesses WHERE id=?", (business_id,)).fetchone()
-        return {"document_id": row["id"], "business_id": business_id, "scope": "business" if business_id else "global",
-                "business_name": business["name"] if business else None, "kind": row["kind"],
+                project = uow.connection.execute("SELECT slug, name FROM projects WHERE id=?", (project_id,)).fetchone()
+        return {"document_id": row["id"], "project_id": project_id, "scope": "project" if project_id else "global",
+                "project_name": project["name"] if project else None, "kind": row["kind"],
                 "revision": row["revision"], "history_available": available,
-                "stable_url": viewer_url(document_id=row["id"], business_id=business_id) if available else None}
+                "stable_url": viewer_url(document_id=row["id"], project_id=project_id) if available else None}
 
     def _urls(self, selector, managed, name):
         query = urlsplit(selector.url()).query
@@ -239,7 +239,7 @@ class FileViewer:
         if managed and managed["history_available"] and not selector.is_document:
             result["copy"] = managed["stable_url"]
         if selector.version is not None:
-            result["current"] = viewer_url(document_id=selector.document_id, business_id=selector.business_id)
+            result["current"] = viewer_url(document_id=selector.document_id, project_id=selector.project_id)
         return result
 
     def base_dir(self, location):

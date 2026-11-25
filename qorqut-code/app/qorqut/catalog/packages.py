@@ -48,16 +48,13 @@ VERSION = {"type": "string", "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$"}
 SKILL = {"type": "object", "additionalProperties": False, "required": ["id", "path"],
          "properties": {"id": ID, "path": {"type": "string"}}}
 BASE = {"schema_version": {"const": 1}, "id": ID, "version": VERSION,
-        "scope_kinds": {"type": "array", "items": {"enum": ["business", "ecosystem"]},
+        "scope_kinds": {"type": "array", "items": {"enum": ["project", "ecosystem"]},
                         "uniqueItems": True, "minItems": 1},
         "skills": {"type": "array", "items": SKILL, "maxItems": 32}}
 ROLE_SCHEMA = {"type": "object", "additionalProperties": False,
     "required": [*BASE, "brief", "scope_brief", "default_tool_policy"],
     "properties": {**BASE, "brief": {"type": "string"},
-        # Immutable historical format: Catalog.get reads stored business-scoped packages through this schema. It is not
-        # active business-agent support: publishing refuses business-scoped roles, and registration accepts
-        # only the supported global roles.
-        "scope_brief": {"enum": ["business-agent", "ecosystem-agent"]},
+        "scope_brief": {"const": "ecosystem-agent"},
         "external_connections": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
                                  "uniqueItems": True, "maxItems": 4},
         "default_tool_policy": {"type": "object", "additionalProperties": {"enum": ["allow", "signoff", "deny"]}}}}
@@ -156,9 +153,8 @@ def load_package(source: Path, manifest_path: str, kind: str, registry: Any) -> 
         brief = decoded(manifest["brief"]).strip()
         if not brief or len(brief) > 10000:
             _error("Mandatory role brief must contain 1 to 10000 characters")
-        scope = "business" if manifest["scope_brief"] == "business-agent" else "ecosystem"
-        if manifest["scope_kinds"] != [scope]:
-            _error("Role scope_brief must agree with its scope_kinds")
+        if manifest["scope_kinds"] != ["ecosystem"]:
+            _error("A role's scope_kinds must be [ecosystem]")
         validate_policy(manifest["default_tool_policy"], registry)
     else:
         schema = parse_yaml(decoded(manifest["config_schema"]))
@@ -193,12 +189,17 @@ def load_package(source: Path, manifest_path: str, kind: str, registry: Any) -> 
             _error(f"Skill requires YAML frontmatter: {path}")
         metadata = parse_yaml(frontmatter[1])
         name = f"qorqut-{kind}-{entry['id']}"
-        if not isinstance(metadata, dict) or set(metadata) - {"name", "description", "user-invocable", "disable-model-invocation"}:
+        if not isinstance(metadata, dict) or set(metadata) - {"name", "description", "read_for", "user-invocable", "disable-model-invocation"}:
             _error(f"Procedure-only skill has unsupported frontmatter: {path}")
         # Published artifacts are immutable; a host rename does not rewrite their bytes or pins.
         accepted_names = {name, f"bazarlyk-{kind}-{entry['id']}"}
         if metadata.get("name") not in accepted_names or not isinstance(metadata.get("description"), str) or not 1 <= len(metadata["description"]) <= 600:
             _error(f"Skill metadata must name {name} and contain a bounded description")
+        if "read_for" in metadata:
+            # The kind of work the skill is for: the start instructions list it so the skill gets read before that work.
+            read_for = metadata["read_for"]
+            if not isinstance(read_for, str) or "\n" in read_for.strip() or not 1 <= len(read_for.strip()) <= 160:
+                _error("Skill read_for must be one line of 1 to 160 characters")
         for option in ("user-invocable", "disable-model-invocation"):
             if option in metadata and not isinstance(metadata[option], bool):
                 _error(f"Skill option {option} must be boolean")

@@ -20,6 +20,11 @@ from qorqut_operations.contracts import DomainError, new_id
 from qorqut_operations.background.schedule import next_slot, zone
 from .broadcasts import _stamp
 
+# The next occurrence to claim: a manual request first, then the earliest due schedule.
+DUE = ("SELECT * FROM broadcasts WHERE status!='cancelled' AND "
+       "(manual_count>0 OR (status='active' AND next_due_at IS NOT NULL AND next_due_at<=?)) "
+       "ORDER BY CASE WHEN manual_count>0 THEN 0 ELSE 1 END,next_due_at,id LIMIT 1")
+
 
 class BroadcastDispatch:
     def __init__(self, application, database, broadcasts, *, require_authority, require_protected_control, input_existing,
@@ -57,11 +62,16 @@ class BroadcastDispatch:
             self._deliver(pending["broadcast_id"], pending["occurrence"])
             return pending["broadcast_id"]
         now = self.clock()
+        # The check runs every few seconds and usually finds nothing due: look first, under the same maintenance check,
+        # so that an idle check opens no write unit. The write unit selects again; nothing found there is the ordinary
+        # empty result, and a broadcast that becomes due after this look is claimed by the next check.
+        with self.database.read() as uow:
+            self.application.ensure_writes_open(uow)
+            if not uow.connection.execute(DUE, (_stamp(now),)).fetchone():
+                return None
         with self.database.transaction() as uow:
             self.application.ensure_writes_open(uow)
-            found = uow.connection.execute("SELECT * FROM broadcasts WHERE status!='cancelled' AND "
-                "(manual_count>0 OR (status='active' AND next_due_at IS NOT NULL AND next_due_at<=?)) "
-                "ORDER BY CASE WHEN manual_count>0 THEN 0 ELSE 1 END,next_due_at,id LIMIT 1", (_stamp(now),)).fetchone()
+            found = uow.connection.execute(DUE, (_stamp(now),)).fetchone()
             if not found:
                 return None
             row = dict(found)
@@ -73,12 +83,12 @@ class BroadcastDispatch:
             occurrence = uow.connection.execute("SELECT coalesce(max(occurrence),0)+1 FROM broadcast_deliveries "
                                                 "WHERE broadcast_id=?", (row['id'],)).fetchone()[0]
             payload = json.dumps({"sender_id": row['sender_id'], "delivery": row['delivery'], "message": row['message'],
-                                  "scope_business_id": row['business_id'], "trigger": 'manual' if manual else 'schedule',
+                                  "scope_project_id": row['project_id'], "trigger": 'manual' if manual else 'schedule',
                                   "scheduled_at": _stamp(now) if manual else row['next_due_at']}, sort_keys=True)
             for recipient in json.loads(row['recipients_json']):
-                uow.connection.execute("INSERT INTO broadcast_deliveries(broadcast_id,occurrence,recipient_id,business_id,"
+                uow.connection.execute("INSERT INTO broadcast_deliveries(broadcast_id,occurrence,recipient_id,project_id,"
                     "state,payload_json,created_at) VALUES(?,?,?,?,?,?,?)", (row['id'], occurrence, recipient['agent_id'],
-                    recipient['business_id'], 'pending', payload, _stamp(now)))
+                    recipient['project_id'], 'pending', payload, _stamp(now)))
             if manual:
                 uow.connection.execute("UPDATE broadcasts SET manual_count=manual_count-1,revision=revision+1,updated_at=? WHERE id=?",
                                        (_stamp(now), row['id']))
@@ -93,15 +103,15 @@ class BroadcastDispatch:
 
     def _delivery_context(self, payload, delivery, uow):
         app = self.application
-        ctx = app.policy.context_for(payload['sender_id'], business_id=payload['scope_business_id'],
-                                     review_business_id=None, uow=uow)
+        ctx = app.policy.context_for(payload['sender_id'], project_id=payload['scope_project_id'],
+                                     review_project_id=None, uow=uow)
         descriptor = app.registry.get('broadcasts_create')
-        namespace = 'global' if payload['scope_business_id'] is None else 'business:' + payload['scope_business_id']
+        namespace = 'global' if payload['scope_project_id'] is None else 'project:' + payload['scope_project_id']
         decision = app.authorize(ctx, descriptor, [], uow, namespace=namespace)
         if decision.mode != 'allow':
             raise DomainError('forbidden', 'Sender no longer has permission to deliver this broadcast')
         self.broadcasts._current_sender(ctx, uow)
-        self.broadcasts._authorized_recipient(ctx, delivery['recipient_id'], delivery['business_id'], uow)
+        self.broadcasts._authorized_recipient(ctx, delivery['recipient_id'], delivery['project_id'], uow)
         if payload['delivery'] == 'input' and not self.broadcasts._input_allowed(ctx, uow):
             raise DomainError('forbidden', 'Sender no longer has Input permission')
         if payload['delivery'] == 'input':
@@ -147,7 +157,7 @@ class BroadcastDispatch:
                     input_reserved = True
             if input_reserved:
                 try:
-                    # A global's native session is its Global one; the delivery's business stays its authorization and history scope.
+                    # A global's native session is its Global one; the delivery's project stays its authorization and history scope.
                     result = self.input_existing(None, delivery['recipient_id'], payload['message'],
                         key=f"broadcast:{delivery['broadcast_id']}:{delivery['occurrence']}:{delivery['recipient_id']}")
                     state = result.get('state', 'uncertain')
@@ -162,11 +172,11 @@ class BroadcastDispatch:
     def _inbox(self, payload, delivery, uow):
         identity, now = new_id(), _stamp(self.clock())
         uow.actor_id = payload['sender_id']
-        event = uow.connection.execute("INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) "
-            "VALUES(?,?,?,?,?,?,?)", (delivery['business_id'], 'agent_messages', identity, payload['sender_id'],
+        event = uow.connection.execute("INSERT INTO inbox_events(project_id,source_type,source_id,actor_id,event_type,summary,created_at) "
+            "VALUES(?,?,?,?,?,?,?)", (delivery['project_id'], 'agent_messages', identity, payload['sender_id'],
             'direct_message', payload['message'][:160], now)).lastrowid
-        uow.connection.execute("INSERT INTO agent_messages(id,event_id,business_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,current_sender_id,current_recipient_id) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?)", (identity, event, delivery['business_id'], payload['sender_id'], delivery['recipient_id'],
+        uow.connection.execute("INSERT INTO agent_messages(id,event_id,project_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,current_sender_id,current_recipient_id) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?)", (identity, event, delivery['project_id'], payload['sender_id'], delivery['recipient_id'],
             None, identity, payload['message'], now, payload['sender_id'], delivery['recipient_id']))
         uow.connection.execute("INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)", (delivery['recipient_id'], event))
         self._finish(uow, delivery, 'delivered', now, message_id=identity)

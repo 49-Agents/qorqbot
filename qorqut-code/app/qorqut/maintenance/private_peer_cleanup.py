@@ -31,7 +31,7 @@ The deletion set is exact and derived, never matched by text:
 Canonical Task activity, Signoff decisions, authored sources, email, native Chat, raw archives and the Ordubashy channel are
 never touched. Backend nudge attempts that merely list a deleted event number are append-only Operations records and stay;
 they hold no text and are inert once the event is gone (reported as retained references). A retained authored source that
-names a removed message (for example a business-setup source) is not deleted: its reader then reports the message as
+names a removed message (for example a project-setup source) is not deleted: its reader then reports the message as
 unavailable.
 
 Hard foreign-key dependents of a candidate row that are not themselves in the set (an authored reply to a notice, a delegated
@@ -275,15 +275,15 @@ def forwarded_notices(connection, owner, ordubashy_id, owner_messages):
                   for message in owner_messages for recipient in recipients}
     notices, events, mismatched = [], [], []
     for part in chunks(sorted(candidates)):
-        for row in rows(connection, f"SELECT id,event_id,business_id,sender_id,recipient_id,reply_to,thread_id,current_sender_id,"
+        for row in rows(connection, f"SELECT id,event_id,project_id,sender_id,recipient_id,reply_to,thread_id,current_sender_id,"
                         f"current_recipient_id FROM agent_messages WHERE id IN {in_clause(part)}", part):
-            identity, event, business, sender, recipient, reply, thread, current_sender, current_recipient = tuple(row)
+            identity, event, project, sender, recipient, reply, thread, current_sender, current_recipient = tuple(row)
             message, expected = candidates[identity]
             headed = connection.execute("SELECT instr(body,?)>0 FROM agent_messages WHERE id=?",
                                         (f"{ORIGINAL}{message}, accepted ", identity)).fetchone()[0]
-            announced = rows(connection, "SELECT business_id,source_type,source_id,actor_id,event_type,summary FROM inbox_events WHERE id=?", (event,))
+            announced = rows(connection, "SELECT project_id,source_type,source_id,actor_id,event_type,summary FROM inbox_events WHERE id=?", (event,))
             delivered = rows(connection, "SELECT agent_id FROM inbox_deliveries WHERE event_id=?", (event,))
-            exact = (headed == 1 and business is None and sender == owner and recipient == expected and current_sender == owner
+            exact = (headed == 1 and project is None and sender == owner and recipient == expected and current_sender == owner
                      and current_recipient == expected and reply is None and thread == identity
                      and bool(announced) and tuple(announced[0]) == (None, "agent_messages", identity, owner, "direct_message", NOTICE_SUMMARY)
                      and [d[0] for d in delivered] == [expected])

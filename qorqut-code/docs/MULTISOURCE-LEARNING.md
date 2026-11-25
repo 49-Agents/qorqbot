@@ -1,13 +1,13 @@
 # Learning from human contributions
 
-> **Historical context (v1.3).** The standalone learning engine and its issue bridge are retired by
-> `v1.3-legacy-learning-removal-1`. A v1.3 target no longer contains the seven engine tables or accepts preparation that
+> **Historical context (v1.3).** The standalone learning engine and its issue bridge are retired in v1.3.
+> A v1.3 target no longer contains the seven engine tables or accepts preparation that
 > writes/reads them; the engine program, issue package/action and enrollment/state operations are predecessor-only.
 > The five shared learning tables (candidates, decisions, history, runs and scan state) remain, and this document's
 > candidate/contribution history is retained as historical data. Current installation no longer selects the
 > `learning-engine` extra or the learning-library source. See `LEARNING-ISSUE-BRIDGE.md` for the retirement boundary.
 
-The nightly business extractor now reads saved business Claude transcripts and
+The nightly project extractor now reads saved project Claude transcripts and
 submitted human contributions from the authoritative database:
 
 - Owner notes on Signoff approvals/rejections, and input-request notes and choices.
@@ -16,15 +16,15 @@ submitted human contributions from the authoritative database:
 In v1.2 (G022/G023) extraction is one Global stream: a root `learnings.extract`
 routine runs one Global job. It reads registered Global agent transcripts,
 excluding Learning Applier chats, and the owner contributions of Global and every
-active (unarchived) business. Each contribution keeps its original business,
+active (unarchived) project. Each contribution keeps its original project,
 author, kind, ids, time and hash, and its new candidate, run and scan rows are
-Global ones. A business contribution's Global scan key is
-`business:<business id>:<kind>:<id>`. Businesses' earlier candidates, decisions,
+Global ones. A project contribution's Global scan key is
+`project:<project id>:<kind>:<id>`. Projects' earlier candidates, decisions,
 runs and scan state stay readable history; they are not copied or reset. Global
 has its own Learning page, owner decisions, work history and scan state. Accepted Global context enters the same filer in the
 Global workspace. The Learning Applier's authorized agenda includes Global deltas.
 See [Global chat learning](GLOBAL-CHAT-LEARNING.md) for intake and rollout details.
-No business or role membership is inferred from where source code is checked out.
+No project or role is inferred from where source code is checked out.
 
 ## Evidence and repeated work
 
@@ -41,9 +41,9 @@ The existing three sequential passes apply to each contribution. New/changed
 transcripts and new contributions alternate under the same per-job soft budget
 and timeout. Up to 50 database contributions and 100 total completed sources are
 processed in a run. Agent-filtered manual extraction remains transcript-only.
-Contributions of every scope are ordered together by time, business and ID under
+Contributions of every scope are ordered together by time, project and ID under
 that one bound. A contribution is skipped when its current hash completed in
-Global scan state or in its own business's earlier scan state (retry and paused
+Global scan state or in its own project's earlier scan state (retry and paused
 states keep their meaning); its context is built only when it is selected. A note
 migrated from v1 is also matched to its v1 progress through its exact migration
 provenance. A Story note whose v1 progress cannot be proven to match is paused for
@@ -70,21 +70,21 @@ crawler is involved.
 Apply migrations 032 through 034 using the reviewed maintenance workflow, then
 register background workers and deploy matching core/dashboard releases.
 Drain existing learning jobs before updating: the main program definition now
-supports both business and Global scopes. The `learnings.extract_global` alias
-remains registered for historical jobs and explicitly configured old routines. Migration preserves business candidates, decisions,
+supports both project and Global scopes. The `learnings.extract_global` alias
+remains registered for historical jobs and explicitly configured old routines. Migration preserves project candidates, decisions,
 work history and scan hashes, and enforces Global uniqueness/foreign references.
 Migration 032 originally created a separate Global routine. Migration 033 retires
 that generated routine when the main `global/evolution-extraction` exists,
 copying its Global scheduling cursor into the main routine. Migration 034 then
 removes the obsolete definition and its routine run history, as requested by the
 owner. It also removes the paused legacy repository-status example, the Global
-learn-apply placeholder, and paused per-business email schedules where an active
-shared email routine has successful runs for that business. Unreplaced email
+learn-apply placeholder, and paused per-project email schedules where an active
+shared email routine has successful runs for that project. Unreplaced email
 schedules and in-flight jobs are protected. Independent job receipts remain. The main
-routine's schedule, timezone, pause state and business cursors stay unchanged.
-In v1.2 this each-business-plus-Global target is removed: a learning routine
-targets Global only, and a saved each-business one is refused until it is changed
-to root. A business extraction is refused.
+routine's schedule, timezone, pause state and project cursors stay unchanged.
+In v1.2 this each-project-plus-Global target is removed: a learning routine
+targets Global only, and a saved each-project one is refused until it is changed
+to root. A project extraction is refused.
 
 Source changes do not migrate, publish roles, repin profiles or restart the live
 service. Global model calls use the explicitly configured Global provider. SQL
@@ -115,9 +115,9 @@ QORQUT_TEST_LEARNING_LIVE=1 QORQUT_LEARNING_ENV_FILE=/path/to/provider.env \
   .venv/bin/python -m pytest -q -s tests/test_learning_provider.py
 ```
 
-The environment file supplies provider configuration only; no business records
+The environment file supplies provider configuration only; no project records
 or personal transcripts are loaded. Tests cover three-pass extraction and dedup
-for transcripts, task/Story notes, business and Global Signoff answers, Global
+for transcripts, task/Story notes, project and Global Signoff answers, Global
 selected choices, unchanged-source replay, and accepted-rule duplicates/conflicts.
 The executor-observation provider case starts at the normalized contribution
 boundary and checks that it cannot become an owner rule, even with a misleading
@@ -135,7 +135,7 @@ validate synthetic cases, not extraction quality across a production corpus.
 
 Learning approvals, rejections, reopens, edits and review notes are saved in
 `learning_decisions` (current decision) and `learning_history` (attributed,
-timestamped before/after snapshots) for both business and Global candidates.
+timestamped before/after snapshots) for both project and Global candidates.
 Backups and scoped exports preserve those records. Work outcomes also retain
 history. Reviews are not Signoffs and are never scanned as new extraction
 sources; accepted lessons remain comparison inputs for duplicates/conflicts.

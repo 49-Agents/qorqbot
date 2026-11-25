@@ -13,7 +13,7 @@ see the [native distribution guide](../distribution/README.md) for the downloada
 - An instance keeps source, configuration and data apart: reusable source and roles
   are code; `config/` holds private configuration; `operations/` holds the operational
   database (`operations/.runtime/operations.sqlite3`), project working areas
-  (`operations/projects/<project>/hq/`, `code/`, and registered agents' folders), the
+  (`operations/projects/<project>/`, which may hold a `code/` folder), the
   published shared Context (`operations/context-graph/`) and its runtime
   (`operations/.runtime/context/`). `operations/context/` contains authored inputs,
   not the published graph. Runtime files are not source code.

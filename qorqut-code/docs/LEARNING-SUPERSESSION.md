@@ -36,7 +36,7 @@ resolved replacement state, with exact quote snippets from both findings.
 Partial, pending and uncertain replacements cannot trigger automatic rejection.
 Questions and uncertainty tagged as facts can both be resolved. Explicit complete
 replacements of old plans/rules also qualify. Matching a name alone is not enough:
-business, contract, time period and conditions must agree. Scope and observed
+project, contract, time period and conditions must agree. Scope and observed
 agent/role boundaries are checked in code.
 
 Semantic assessments remain fallible model judgments; the gates are not proof
@@ -55,7 +55,7 @@ from further automatic reconciliation. No migration or agent role grants change.
 
 Focused tests cover cross-day uncertainties, preview/apply, replaying a pending
 queue without new extraction, protected decisions, source chronology, scope,
-partial assessments, persistence and restoration in Global and business scopes.
+partial assessments, persistence and restoration in Global and project scopes.
 `tests/test_learning_supersession_provider.py` is opt-in real DeepSeek execution
 with synthetic contract examples and no live queue writes.
 

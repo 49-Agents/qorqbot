@@ -9,18 +9,18 @@ from qorqut_operations.contracts import DomainError, new_id, utc_now
 from qorqut.domains.learnings import analysis, sources, verification
 from qorqut.domains.learnings.scope import require_global
 from qorqut_operations.application.plans import rows
-from qorqut.composition.locations import business_hq
+from qorqut.composition.locations import project_root
 from qorqut_operations.background.programs import ProgramResult
 from .providers import ProviderError
 
-MAX_PASS_BYTES = 64 * 1024 * 1024    # The most saved-session content one pass over a business's transcript adapter selects.
+MAX_PASS_BYTES = 64 * 1024 * 1024    # The most saved-session content one pass over a project's transcript adapter selects.
 
 
 @dataclass
-class BusinessBrief:
+class ProjectBrief:
     row: dict
     profiles: list
-    root: str = ""  # the business's registered HQ, which transcript-relative paths are shown against
+    root: str = ""  # the project's registered folder, which transcript-relative paths are shown against
 
     @property
     def id(self): return self.row["id"]
@@ -29,7 +29,7 @@ class BusinessBrief:
 
     def header(self):
         config = self.row["config_json"]
-        return {"id": self.id, "name": self.row["name"], "stage": self.row["stage"],
+        return {"id": self.id, "name": self.row["name"],
                 **{key: config[key] for key in ("one_liner", "owner") if key in config}}
 
     def agents(self):
@@ -71,9 +71,9 @@ class LearningProgram:
         it always was, so no caller silently misses an unread source.
         """
         if self.transcripts is None:
-            raise DomainError("operation_unavailable", "Business transcript adapter is not configured")
+            raise DomainError("operation_unavailable", "Project transcript adapter is not configured")
         count, total, sessions = 0, 0, set()
-        for source in self.transcripts(control.business_id, agent_id):
+        for source in self.transcripts(agent_id):
             control.check()
             if not isinstance(source, dict):
                 raise DomainError("invalid_transcript", "Transcript adapter must return registered snapshots")
@@ -91,15 +91,15 @@ class LearningProgram:
             if value["agent_id"] in exclude:
                 continue
             with control.service.database.read() as uow:
-                profile = uow.repository("agent_profiles", business_id=control.business_id).get(value["agent_id"])
+                profile = uow.repository("agent_profiles").get(value["agent_id"])
                 if profile is None:
                     raise DomainError("forbidden", "Transcript agent is outside the selected workspace")
                 role = profile['profile_json'].get('role', {}).get('id')
-                if control.business_id is None and role == 'learning-applier':
+                if role == 'learning-applier':
                     if agent_id:
                         raise DomainError('forbidden', 'Learning Applier chats are excluded from automatic learning')
                     continue
-                if control.business_id is None:
+                if control.project_id is None:
                     value['agent_kind'] = role
             failure = None
             if "source_failure" in value:
@@ -146,20 +146,20 @@ class LearningProgram:
             yield value
 
     def run(self, control, args):
-        # A directly invoked or old persisted business job stops here: no transcript read, model call, cursor, reconciliation
-        # or supersession touches the business's historical learning.
-        require_global(control.business_id)
+        # A directly invoked or old persisted project job stops here: no transcript read, model call, cursor, reconciliation
+        # or supersession touches the project's historical learning.
+        require_global(control.project_id)
         with control.service.database.read() as uow:
-            business = (uow.repository("businesses").get(control.business_id, required=True) if control.business_id else
-                {"id": None, "slug": "Global", "name": "Global", "stage": "", "config_json": {}})
-            biz = BusinessBrief(business, rows(uow, "agent_profiles", control.business_id),
-                                str(business_hq(control.service.paths, business)) if control.business_id else "")
-            scan = {row['session_id']: row for row in rows(uow, 'learning_scan_state', control.business_id)}
+            project_row = (uow.repository("projects").get(control.project_id, required=True) if control.project_id else
+                {"id": None, "slug": "Global", "name": "Global", "config_json": {}})
+            project = ProjectBrief(project_row, uow.repository("agent_profiles").list(limit=200),
+                                str(project_root(control.service.paths, project_row)) if control.project_id else "")
+            scan = {row['session_id']: row for row in rows(uow, 'learning_scan_state', control.project_id)}
             seen = {key: row['transcript_hash'] for key, row in scan.items() if sources.counted(row['state_json'], args.get('retry_failed'))}
             decisions = {row["candidate_id"]: row for row in
-                rows(uow, "learning_decisions", control.business_id)}
+                rows(uow, "learning_decisions", control.project_id)}
             existing = []
-            for row in rows(uow, "learning_candidates", control.business_id):
+            for row in rows(uow, "learning_candidates", control.project_id):
                 decision = decisions.get(row["id"])
                 if row["candidate_json"].get("engine"):
                     continue  # Engine review items carry typed evidence this program cannot compare or supersede.
@@ -169,7 +169,7 @@ class LearningProgram:
                     existing.append({**row["candidate_json"], **(decision["changes_json"] if decision else {}),
                         "state": row.get("work_state") or (decision["state"] if decision else "open"),
                         "reviewed": decision is not None or bool(row.get("filing_json")), "revision": row["revision"]})
-            # Owner contributions of Global and every active business, under one bound (v1.2 G023).
+            # Owner contributions of Global and every active project, under one bound (v1.2 G023).
             packets = sources.snapshots(uow, seen, retry_failed=bool(args.get('retry_failed')), limit=50) if not args.get('agent_id') else []
         run_id, cores, processed, fresh, errors = new_id(), {}, [], [], []
         recorded, diagnostics, unread = [], [], []
@@ -181,7 +181,7 @@ class LearningProgram:
                              "agent_id": None, "source_kind": packet['source']['kind'], "status": "needs_attention",
                              "last_error": f"{sources.UNRESOLVED}: {origin['source_table']} {origin['source_id']}"})
             diagnostics.append({"source": packet['key'], "stage": "source_identity", "reason": sources.UNRESOLVED,
-                                "business_id": packet['source']['business_id'], **origin})
+                                "project_id": packet['source']['project_id'], **origin})
         packets = [packet for packet in packets if not packet.get('unresolved')]
         budget = args.get("max_usd", 1.0)
 
@@ -200,7 +200,7 @@ class LearningProgram:
         def contributions():
             for packet in packets:
                 try:
-                    yield sources.core(packet, biz), {"session_id": packet['key'], "transcript_hash": packet['hash'],
+                    yield sources.core(packet, project), {"session_id": packet['key'], "transcript_hash": packet['hash'],
                         "source_id": packet['source']['resource_id'], "agent_id": None,
                         "source_kind": packet['source']['kind']}
                 except DomainError as exc:
@@ -209,7 +209,7 @@ class LearningProgram:
             # The retired engine no longer owns any session: its enrollment rows are history and must not suppress
             # authorized Context input on the factual route.
             for source in self.snapshots(control, args.get("agent_id"), args.get("max_sessions", 100), seen, source_errors=unread):
-                core = analysis.build_core(source, biz, source["agent_id"], source["agent_kind"], source.get("subagents", []))
+                core = analysis.build_core(source, project, source["agent_id"], source["agent_kind"], source.get("subagents", []))
                 core["header"]["session"] = source["session_id"]
                 core["source"] = {key: source[key] for key in ("session_id", "source_id", "transcript_hash", "agent_id")}
                 yield core, core['source']
@@ -228,7 +228,7 @@ class LearningProgram:
                 break
             identity = record['session_id']
             items = []
-            guarded = control.business_id is None and record.get('agent_id') is not None
+            guarded = control.project_id is None and record.get('agent_id') is not None
             prior = scan.get(identity)
             if guarded:
                 record = {**record, 'expected_scan_revision': prior['revision'] if prior else 0}
@@ -252,12 +252,12 @@ class LearningProgram:
                 continue
             if model is None and self.models.factory:
                 try:
-                    model = self.models.factory(control.business_id).config.model
+                    model = self.models.factory(control.project_id).config.model
                 except ProviderError as exc:
                     raise DomainError(exc.code, str(exc)) from exc
             try:
                 rejected = []
-                items, _, issues = analysis.extract(core, biz, run_id, model=model, passes=args.get("passes", 3), chat=chat,
+                items, _, issues = analysis.extract(core, project, run_id, model=model, passes=args.get("passes", 3), chat=chat,
                     diagnostics=rejected)
                 diagnostics.extend({'source': identity, **entry} for entry in rejected)
                 if rejected and not guarded:
@@ -291,7 +291,7 @@ class LearningProgram:
         evidence, stats = [], {"merged": 0, "duplicates": 0, "contradictions": 0, "ignored": 0}
         if fresh or args.get('supersession_mode'):
             try:
-                fresh, evidence, stats, _ = analysis.dedup(fresh, existing, biz, run_id, model=model, chat=chat,
+                fresh, evidence, stats, _ = analysis.dedup(fresh, existing, project, run_id, model=model, chat=chat,
                     supersession_mode=args.get('supersession_mode'))
             except analysis.LearnError as exc:
                 errors.append({"error": "Dedup skipped: " + str(exc)})

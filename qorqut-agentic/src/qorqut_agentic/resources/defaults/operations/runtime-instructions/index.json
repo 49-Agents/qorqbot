@@ -141,6 +141,17 @@
       "previous_source": "agents/attention_prompt.py"
     },
     {
+      "id": "attention-focus-held",
+      "path": "messages/attention-focus-held.md",
+      "parameters": [
+        "AGE"
+      ],
+      "status": "conditional",
+      "trigger": "attention prompt",
+      "audience": "the configured coordinator; role/runtime conditions retained by the caller",
+      "previous_source": "agents/attention_prompt.py"
+    },
+    {
       "id": "attention-step-returned",
       "path": "messages/attention-step-returned.md",
       "parameters": [],
@@ -621,43 +632,9 @@
       "path": "messages/project-briefing-evidence.md",
       "parameters": [],
       "status": "conditional",
-      "trigger": "domains/business_briefing.py",
+      "trigger": "domains/project_briefing.py",
       "audience": "registered agent",
-      "previous_source": "qorqut-code/app/qorqut/domains/business_briefing.py:118"
-    },
-    {
-      "id": "retirement-inbox-history",
-      "path": "messages/retirement-inbox-history.md",
-      "parameters": [
-        "VALUE0",
-        "VALUE1"
-      ],
-      "status": "conditional",
-      "trigger": "inbox/retirement_contract.py",
-      "audience": "registered agent",
-      "previous_source": "qorqut-code/app/qorqut/inbox/retirement_contract.py:77"
-    },
-    {
-      "id": "retirement-inbox-reading",
-      "path": "messages/retirement-inbox-reading.md",
-      "parameters": [],
-      "status": "conditional",
-      "trigger": "inbox/retirement_contract.py",
-      "audience": "registered agent",
-      "previous_source": "qorqut-code/app/qorqut/inbox/retirement_contract.py:81"
-    },
-    {
-      "id": "retirement-review-history",
-      "path": "messages/retirement-review-history.md",
-      "parameters": [
-        "VALUE0",
-        "VALUE1",
-        "VALUE2"
-      ],
-      "status": "conditional",
-      "trigger": "inbox/retirement_contract.py",
-      "audience": "registered agent",
-      "previous_source": "qorqut-code/app/qorqut/inbox/retirement_contract.py:87"
+      "previous_source": "qorqut-code/app/qorqut/domains/project_briefing.py:118"
     },
     {
       "id": "runtime-diagnostic-guidance",
@@ -667,6 +644,49 @@
       "trigger": "agents/diagnostics.py",
       "audience": "registered agent",
       "previous_source": "qorqut-code/app/qorqut/agents/diagnostics.py:128"
+    },
+    {
+      "id": "skill-discovery-header-claude-code",
+      "path": "messages/skill-discovery-header-claude-code.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "skill discovery",
+      "audience": "registered agents; every fresh start",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "skill-discovery-header-codex",
+      "path": "messages/skill-discovery-header-codex.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "skill discovery",
+      "audience": "registered agents; every fresh start",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "skill-discovery-line-claude-code",
+      "path": "messages/skill-discovery-line-claude-code.md",
+      "parameters": [
+        "NAME",
+        "WORK"
+      ],
+      "status": "conditional",
+      "trigger": "skill discovery",
+      "audience": "registered agents; every fresh start",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "skill-discovery-line-codex",
+      "path": "messages/skill-discovery-line-codex.md",
+      "parameters": [
+        "NAME",
+        "PATH",
+        "WORK"
+      ],
+      "status": "conditional",
+      "trigger": "skill discovery",
+      "audience": "registered agents; every fresh start",
+      "previous_source": "bootstrap/claude_session.py"
     },
     {
       "id": "skills-header",

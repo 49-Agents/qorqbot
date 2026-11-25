@@ -1,4 +1,4 @@
-"""Installation-managed, target-local lifetime probe; no model or business API."""
+"""Installation-managed, target-local lifetime probe; no model or project API."""
 import json
 from pathlib import Path
 import sys

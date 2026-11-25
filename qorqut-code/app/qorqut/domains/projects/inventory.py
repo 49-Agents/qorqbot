@@ -3,8 +3,7 @@
 Every family is read through its own canonical reader (or its domain's authorized neutral item read), never through
 an arbitrary content reader: Tasks through ``tasks_get``/``tasks_list``, Signoffs through ``signoffs_get``, Actions
 through ``actions_get``, documents/people/topics through the neutral resolver, tables through ``tables_get``, routines
-through ``routines_get`` (Global included), System Dev reports through the owner queue or the scoped agent reader, and
-stored reminders through ``owner_reminders_list``.
+through ``routines_get`` (Global included), and stored reminders through ``owner_reminders_list``.
 
 The page is a real bounded keyset window over one SQL union of *identities and sort metadata only*: each family
 selects ``(updated_at, type, true owning scope, canonical id)``, owned and explicitly linked rows are merged by that
@@ -44,13 +43,13 @@ SKIPPED_DOCUMENTS = frozenset({"context_upload", "context_map", "context_index",
                                "shared_instruction", "shared_instructions", "legacy_request", "email_message",
                                *JOURNAL_KINDS})
 SECTION_OF = {"task": "work", "signoff": "signoffs", "action": "actions", "table": "tables", "routine": "automation",
-              "project": "other", "dev_ticket": "other", "reminder": "other", "entity": "other"}
+              "project": "other", "reminder": "other", "entity": "other"}
 LINK_SECTION_TYPES = {"work": ("task",), "signoffs": ("signoff",), "actions": ("action",),
                       "documents": (*DOCUMENT_TYPES, "entity"), "tables": ("table",), "automation": ("routine",),
-                      "other": ("project", "dev_ticket", "reminder")}
+                      "other": ("project", "reminder")}
 KNOWN_TYPES = frozenset(SECTION_OF) | DOCUMENT_TYPES
 # Project link targets are the neutral kinds plus the host's own canonical record readers.
-TARGET_TYPES = frozenset({"task", "signoff", "action", "routine", "reminder", "dev_ticket", "table", "project",
+TARGET_TYPES = frozenset({"task", "signoff", "action", "routine", "reminder", "table", "project",
                           "material", "person", "topic", "entity"})
 DEFAULT_LIMIT, MAX_LIMIT = 25, 100
 # A page may examine more identities than it returns (denied/closed/filtered rows); the window keeps advancing
@@ -61,14 +60,14 @@ PAGE_EXAMINE = 4
 # continues at the same reader frontier.
 AUTHORIZATION_BUDGET = 500
 # The reason a candidate cannot be shown is never disclosed: only these mean "skip it silently".
-SKIP = frozenset(access.UNAVAILABLE) | ITEM_UNAVAILABLE | {"business_archived"}
+SKIP = frozenset(access.UNAVAILABLE) | ITEM_UNAVAILABLE | {"project_archived"}
 # A whole family the caller may not read is omitted, never disclosed and never fatal to the rest of the page.
 FAMILY_SKIP = SKIP | {"forbidden", "scope_required"}
 
 
 def normalized(**values) -> dict:
     """One normalized item with exactly the documented fields (absent optional fields are omitted)."""
-    return {key: value for key, value in values.items() if value is not None or key in {"business_id"}}
+    return {key: value for key, value in values.items() if value is not None or key in {"project_id"}}
 
 
 def association(owned, link=None) -> dict:
@@ -79,24 +78,24 @@ def association(owned, link=None) -> dict:
 
 
 def owned(uow, item, project_id):
-    """Derived ownership: the record's own scope, or an Action's existing business membership. Never a label."""
+    """Derived ownership: the record's own scope, or an Action's existing project membership. Never a label."""
     if item["type"] == access.PROJECT_TYPE:
         return False
     if item["type"] == "action":
         from qorqut_operations.actions import links as action_links
         return project_id in action_links(uow, item["id"])
-    return item.get("business_id") == project_id
+    return item.get("project_id") == project_id
 
 
 def target_key(item) -> tuple:
     """Deduplication identity: the target's own scope is part of its identity, never its bare ID."""
-    return item["type"], item["id"], item.get("business_id")
+    return item["type"], item["id"], item.get("project_id")
 
 
 def item_key(item) -> tuple:
     """The total inventory order key: timestamp desc, then type, true owning scope and canonical id ascending."""
     ts = item.get("updated_at") or item.get("created_at") or ""
-    return ts, item["type"], "" if item.get("business_id") is None else item["business_id"], item["id"]
+    return ts, item["type"], "" if item.get("project_id") is None else item["project_id"], item["id"]
 
 
 def _instant(ts):
@@ -148,18 +147,18 @@ class Inventory:
 
     @staticmethod
     def scope_context(ctx, scope):
-        return replace(ctx, business_id=scope, review_business_id=scope)
+        return replace(ctx, project_id=scope, review_project_id=scope)
 
     # -- normalized items -------------------------------------------------------------------------------------------
 
     @staticmethod
-    def scope_names(uow, business_id):
-        return access.scope_name(uow, business_id)
+    def scope_names(uow, project_id):
+        return access.scope_name(uow, project_id)
 
-    def base(self, uow, *, type, id, business_id, label, revision, resource_type, state=None, summary=None,
+    def base(self, uow, *, type, id, project_id, label, revision, resource_type, state=None, summary=None,
              task_type=None, parent_id=None, created_at=None, updated_at=None, at=None, archived=False):
-        slug, name = self.scope_names(uow, business_id)
-        item = normalized(type=type, id=id, business_id=business_id, business_slug=slug, business_name=name,
+        slug, name = self.scope_names(uow, project_id)
+        item = normalized(type=type, id=id, project_id=project_id, project_slug=slug, project_name=name,
                           label=label, revision=revision, state=state, task_type=task_type, parent_id=parent_id,
                           summary=summary, resource_type=resource_type, can_thread=type in access.THREAD_KINDS,
                           created_at=created_at, updated_at=updated_at, at=at)
@@ -167,7 +166,7 @@ class Inventory:
         return item
 
     def from_neutral(self, ctx, item, view, uow):
-        return self.base(uow, type=item["type"], id=item["id"], business_id=view.get("business_id", ctx.business_id),
+        return self.base(uow, type=item["type"], id=item["id"], project_id=view.get("project_id", ctx.project_id),
                          label=view.get("label") or item["id"], revision=view.get("revision") or 1,
                          resource_type=view.get("resource_type") or item["type"], state=view.get("state"),
                          summary=view.get("summary"), task_type=view.get("task_type"),
@@ -176,49 +175,42 @@ class Inventory:
 
     def from_task(self, uow, row):
         """One ``tasks_get`` row, keeping its Task type, place in that Task hierarchy and archive state."""
-        return self.base(uow, type="task", id=row["id"], business_id=row["business_id"], label=row["title"],
+        return self.base(uow, type="task", id=row["id"], project_id=row["project_id"], label=row["title"],
                          revision=row["revision"], resource_type="tasks", state=row.get("status"),
                          summary=row.get("overview"), task_type=row.get("task_type") or "task",
                          parent_id=row.get("parent_id"), created_at=row.get("created_at"),
                          updated_at=row.get("updated_at"), archived=row.get("archived"))
 
     def from_signoff(self, uow, row):
-        return self.base(uow, type="signoff", id=row["id"], business_id=row.get("review_business_id"),
+        return self.base(uow, type="signoff", id=row["id"], project_id=row.get("review_project_id"),
                          label=row.get("title") or "Signoff", revision=row.get("status_revision") or 1,
                          resource_type="signoffs", state=row.get("state"), summary=row.get("category"),
                          created_at=row.get("created_at"), updated_at=row.get("updated_at"))
 
     def from_action(self, uow, row):
-        legacy = row.get("legacy") or {}
-        return self.base(uow, type="action", id=row["action_id"], business_id=legacy.get("business_id"),
+        return self.base(uow, type="action", id=row["action_id"], project_id=row.get("project_id"),
                          label=row.get("summary") or row.get("text") or row["action_id"],
                          revision=row.get("revision") or 1, resource_type="action_logs",
                          state="withdrawn" if row.get("withdrawn") else None, summary=row.get("text"),
                          created_at=row.get("recorded_at"), updated_at=row.get("updated_at"))
 
     def from_routine(self, uow, row):
-        return self.base(uow, type="routine", id=row["id"], business_id=row.get("business_id"),
+        return self.base(uow, type="routine", id=row["id"], project_id=row.get("project_id"),
                          label=row.get("name") or row["id"], revision=row.get("revision") or 1,
                          resource_type="routines", state=row.get("status"), summary=row.get("schedule"),
                          created_at=row.get("created_at"), updated_at=row.get("updated_at"),
                          archived=bool((row.get("metadata_json") or {}).get("retired")))
 
-    def from_ticket(self, uow, row, business_id):
-        return self.base(uow, type="dev_ticket", id=row["id"], business_id=business_id,
-                         label=row.get("title") or row["id"], revision=row.get("revision") or 1,
-                         resource_type="dev_tickets", state=row.get("status"), summary=row.get("kind"),
-                         created_at=row.get("created_at"), updated_at=row.get("updated_at"))
-
-    def from_reminder(self, uow, row, business_id):
-        return self.base(uow, type="reminder", id=row["reminder_id"], business_id=business_id,
+    def from_reminder(self, uow, row, project_id):
+        return self.base(uow, type="reminder", id=row["reminder_id"], project_id=project_id,
                          label=row.get("text") or "Reminder", revision=row.get("revision") or 1,
                          resource_type="owner_reminders", state=row.get("state"), summary=row.get("text"),
                          at=row.get("at"))
 
     def from_project(self, row, uow):
         view = access.project_view(row)
-        return self.base(uow, type="project", id=row["id"], business_id=row["id"], label=row["name"],
-                         revision=row["revision"], resource_type="businesses", state=None, summary=view["summary"],
+        return self.base(uow, type="project", id=row["id"], project_id=row["id"], label=row["name"],
+                         revision=row["revision"], resource_type="projects", state=None, summary=view["summary"],
                          created_at=row.get("created_at"), updated_at=row.get("updated_at"),
                          archived=row.get("archived_at") is not None)
 
@@ -240,47 +232,44 @@ class Inventory:
             return section == "all" or section == name
 
         if enabled("work") and (not wanted or wanted == "task"):
-            add("SELECT updated_at ts,'task' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
-                "NULL link_revision FROM tasks WHERE business_id IS ?" + self._task_narrowing(args), (scan,))
+            add("SELECT updated_at ts,'task' type,COALESCE(project_id,'') scope,id,1 owned,0 linked,NULL link_id,"
+                "NULL link_revision FROM tasks WHERE project_id IS ?" + self._task_narrowing(args), (scan,))
         if enabled("signoffs") and (not wanted or wanted == "signoff"):
-            scope_kind = "business" if scan is not None else "global"
-            add("SELECT updated_at ts,'signoff' type,COALESCE(review_business_id,'') scope,id,1 owned,0 linked,"
-                "NULL link_id,NULL link_revision FROM signoffs WHERE review_business_id IS ? AND review_scope_kind=?",
+            scope_kind = "project" if scan is not None else "global"
+            add("SELECT updated_at ts,'signoff' type,COALESCE(review_project_id,'') scope,id,1 owned,0 linked,"
+                "NULL link_id,NULL link_revision FROM signoffs WHERE review_project_id IS ? AND review_scope_kind=?",
                 (scan, scope_kind))
         if enabled("actions") and (not wanted or wanted == "action"):
             if scan is None:
-                add("SELECT updated_at ts,'action' type,COALESCE(business_id,'') scope,action_key id,1 owned,0 linked,"
-                    "NULL link_id,NULL link_revision FROM action_logs WHERE business_id IS NULL")
+                add("SELECT updated_at ts,'action' type,COALESCE(project_id,'') scope,id,1 owned,0 linked,"
+                    "NULL link_id,NULL link_revision FROM action_logs WHERE project_id IS NULL")
             else:
-                add("SELECT a.updated_at ts,'action' type,COALESCE(a.business_id,'') scope,a.action_key id,1 owned,0 linked,"
+                add("SELECT a.updated_at ts,'action' type,COALESCE(a.project_id,'') scope,a.id id,1 owned,0 linked,"
                     "NULL link_id,NULL link_revision FROM action_logs a WHERE EXISTS "
-                    "(SELECT 1 FROM action_businesses ab WHERE ab.action_key=a.action_key AND ab.business_id=?)", (scan,))
+                    "(SELECT 1 FROM action_projects ab WHERE ab.action_id=a.id AND ab.project_id=?)", (scan,))
         if enabled("documents") and (not wanted or wanted in DOCUMENT_TYPES | {"entity"}):
             placeholders = ",".join("?" for _ in SKIPPED_DOCUMENTS)
             add("SELECT updated_at ts,CASE kind WHEN 'context_topic' THEN 'topic' WHEN 'context_person' THEN 'person' "
-                "ELSE 'material' END type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
-                f"NULL link_revision FROM documents WHERE business_id IS ? AND kind NOT IN ({placeholders})",
+                "ELSE 'material' END type,COALESCE(project_id,'') scope,id,1 owned,0 linked,NULL link_id,"
+                f"NULL link_revision FROM documents WHERE project_id IS ? AND kind NOT IN ({placeholders})",
                 (scan, *sorted(SKIPPED_DOCUMENTS)))
-            add("SELECT updated_at ts,'entity' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
-                "NULL link_revision FROM context_entities WHERE business_id IS ?", (scan,))
+            add("SELECT updated_at ts,'entity' type,COALESCE(project_id,'') scope,id,1 owned,0 linked,NULL link_id,"
+                "NULL link_revision FROM context_entities WHERE project_id IS ?", (scan,))
         if enabled("tables") and (not wanted or wanted == "table"):
-            add("SELECT updated_at ts,'table' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
-                "NULL link_revision FROM data_tables WHERE business_id IS ?", (scan,))
+            add("SELECT updated_at ts,'table' type,COALESCE(project_id,'') scope,id,1 owned,0 linked,NULL link_id,"
+                "NULL link_revision FROM data_tables WHERE project_id IS ?", (scan,))
         if enabled("automation") and (not wanted or wanted == "routine"):
-            add("SELECT updated_at ts,'routine' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
-                "NULL link_revision FROM routines WHERE business_id IS ?", (scan,))
+            add("SELECT updated_at ts,'routine' type,COALESCE(project_id,'') scope,id,1 owned,0 linked,NULL link_id,"
+                "NULL link_revision FROM routines WHERE project_id IS ?", (scan,))
         if enabled("other"):
-            if not wanted or wanted == "dev_ticket":
-                add("SELECT updated_at ts,'dev_ticket' type,COALESCE(business_id,'') scope,id,1 owned,0 linked,NULL link_id,"
-                    "NULL link_revision FROM dev_tickets WHERE business_id IS ?", (scan,))
             if not wanted or wanted == "reminder":
                 # The owner's reminders in this one scope; the caller's identity gate (owner or configured Ordubashy) already ran.
                 add("SELECT created_at ts,'reminder' type,? scope,id,1 owned,0 linked,NULL link_id,NULL link_revision "
-                    "FROM reminders WHERE business_id IS ? AND recipient_id=(SELECT owner_principal_id FROM installation WHERE id='service')",
+                    "FROM reminders WHERE project_id IS ? AND recipient_id=(SELECT owner_principal_id FROM installation WHERE id='service')",
                     [_scope(scan), scan])
         if projects and (not wanted or wanted == access.PROJECT_TYPE):
             add("SELECT updated_at ts,'project' type,id scope,id,0 owned,0 linked,NULL link_id,NULL link_revision "
-                "FROM businesses WHERE archived_at IS NULL")
+                "FROM projects WHERE archived_at IS NULL")
         if include_links and (section == "all" or section in LINK_SECTION_TYPES):
             clause, values = "", []
             if section != "all":
@@ -295,8 +284,8 @@ class Inventory:
             clause += " AND l.target_type IN (" + ",".join("?" for _ in core) + ")"
             values += list(core)
             add("SELECT COALESCE((" + self._link_ts_sql() + "),l.updated_at) ts,l.target_type type,"
-                "COALESCE(l.target_business_id,'') scope,l.target_id id,0 owned,1 linked,l.id link_id,l.revision "
-                "link_revision FROM project_item_links l WHERE l.business_id=?" + clause,
+                "COALESCE(l.target_project_id,'') scope,l.target_id id,0 owned,1 linked,l.id link_id,l.revision "
+                "link_revision FROM project_item_links l WHERE l.project_id=?" + clause,
                 [scan, *values])
         return selects, params
 
@@ -327,27 +316,25 @@ class Inventory:
         """
         return """CASE l.target_type
             WHEN 'task' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM tasks x
-                              WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+                              WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'signoff' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM signoffs x
-                                 WHERE x.review_business_id IS l.target_business_id AND x.id=l.target_id)
+                                 WHERE x.review_project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'action' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM action_logs x
-                                WHERE x.action_key=l.target_id)
+                                WHERE x.id=l.target_id)
             WHEN 'material' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM documents x
-                                  WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+                                  WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'person' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM documents x
-                                WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+                                WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'topic' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM documents x
-                               WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+                               WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'entity' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM context_entities x
-                                WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+                                WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'table' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM data_tables x
-                               WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+                               WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'routine' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM routines x
-                                 WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
-            WHEN 'dev_ticket' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM dev_tickets x
-                                    WHERE x.business_id IS l.target_business_id AND x.id=l.target_id)
+                                 WHERE x.project_id IS l.target_project_id AND x.id=l.target_id)
             WHEN 'reminder' THEN (SELECT x.created_at FROM reminders x WHERE x.id=l.target_id)
-            WHEN 'project' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM businesses x WHERE x.id=l.target_id)
+            WHEN 'project' THEN (SELECT COALESCE(x.updated_at,x.created_at) FROM projects x WHERE x.id=l.target_id)
             ELSE NULL END"""
 
     @staticmethod
@@ -380,7 +367,7 @@ class Inventory:
         """
         reader_ctx = reader_ctx or ctx
         if kind == access.PROJECT_TYPE:
-            access.validate_public_reference({"type": kind, "id": identity, "business_id": identity})
+            access.validate_public_reference({"type": kind, "id": identity, "project_id": identity})
             _, row = access.guard(reader_ctx, self.application, uow, project_id=identity)
             if identity == project_id and not allow_self:
                 raise DomainError("validation_error", "A project cannot be linked to itself")
@@ -391,7 +378,7 @@ class Inventory:
             if scope is None:
                 arguments["scope"] = "global"
             row = self.read(owned_ctx, "tasks_get", arguments, uow)["task"]
-            if row["business_id"] != scope:
+            if row["project_id"] != scope:
                 raise DomainError("not_found", "Task does not exist in this scope")
             return self.from_task(uow, row)
         if kind == "signoff":
@@ -399,20 +386,19 @@ class Inventory:
             if scope is None:
                 arguments["scope"] = "global"
             row = self.read(owned_ctx, "signoffs_get", arguments, uow)["signoff"]
-            if row["review_business_id"] != scope:
+            if row["review_project_id"] != scope:
                 raise DomainError("not_found", "Signoff does not exist in this scope")
             return self.from_signoff(uow, row)
         if kind == "action":
             # Resolve in the Action's true source scope, not the destination Project. The neutral action resolver
-            # accepts the canonical action_id or its legacy bare row id and authorizes that source read; a caller who
-            # can read a Global/shared Action may then explicitly link it without gaining membership in the target.
+            # takes the action_id and authorizes that source read; a caller who can read a Global/shared Action may
+            # then explicitly link it without gaining membership in the target.
             source_ctx, stored = self.action_storage(reader_ctx, identity, uow)
-            canonical, own_scope = stored["action_key"], stored["business_id"]
+            own_scope = stored["project_id"]
             if scope != own_scope:
                 raise DomainError("not_found", "Action does not exist in this scope")
-            row = self.read(source_ctx, "actions_get", {"action_id": canonical}, uow)["action"]
-            legacy = row.get("legacy") or {}
-            if legacy.get("business_id") != own_scope:
+            row = self.read(source_ctx, "actions_get", {"action_id": stored["id"]}, uow)["action"]
+            if row.get("project_id") != own_scope:
                 raise DomainError("not_found", "Action does not exist in this scope")
             return self.from_action(uow, row)
         if kind == "routine":
@@ -420,12 +406,9 @@ class Inventory:
             if scope is None:
                 arguments["scope"] = "global"
             row = self.read(owned_ctx, "routines_get", arguments, uow)["routine"]
-            if row.get("business_id") != scope or row.get("namespace") != ("global" if scope is None else scope):
+            if row.get("project_id") != scope or row.get("namespace") != ("global" if scope is None else scope):
                 raise DomainError("not_found", "Routine does not exist in this scope")
             return self.from_routine(uow, row)
-        if kind == "dev_ticket":
-            row = self._ticket(reader_ctx, identity, scope, uow)
-            return self.from_ticket(uow, row, scope)
         if kind == "reminder":
             row = self._reminder(owned_ctx, identity, scope, uow)
             return self.from_reminder(uow, row, scope)
@@ -434,9 +417,9 @@ class Inventory:
             if scope is None:
                 arguments["scope"] = "global"
             view = self.read(owned_ctx, "tables_get", arguments, uow)["table"]
-            if view.get("business_id") != scope:
+            if view.get("project_id") != scope:
                 raise DomainError("not_found", "Table does not exist in this scope")
-            return self.base(uow, type="table", id=view["id"], business_id=scope, label=view.get("title") or view["id"],
+            return self.base(uow, type="table", id=view["id"], project_id=scope, label=view.get("title") or view["id"],
                              revision=view.get("revision") or 1, resource_type="data_tables", state=None,
                              summary=view.get("description"), created_at=view.get("created_at"),
                              updated_at=view.get("updated_at"), archived=view.get("archived", False))
@@ -444,35 +427,29 @@ class Inventory:
             table, stored = self.items.resource(owned_ctx, {"type": kind, "id": identity}, uow)
             if table == "documents" and stored.get("kind") in JOURNAL_KINDS:
                 # The owner may read the private journal directly, but it is never promoted into generic Project
-                # inventory or an explicit link. Genuine agent notes and business_owned_note stay available.
+                # inventory or an explicit link. Genuine agent notes and project_owned_note stay available.
                 raise DomainError("not_found", "Item does not exist in this scope")
             view = self.items.resolve(owned_ctx, {"type": kind, "id": identity}, uow, allow_busy=True)
-            canonical = view.get("business_id", scope)
+            canonical = view.get("project_id", scope)
             if canonical != scope:
                 raise DomainError("not_found", "Item does not exist in this scope")
             return self.from_neutral(owned_ctx, {"type": kind, "id": identity}, view, uow)
         # An installed extension's typed item: its own authorized neutral read is the canonical reader.
         view = self.items.resolve(owned_ctx, {"type": kind, "id": identity}, uow, allow_busy=True)
-        canonical = view.get("business_id", scope)
+        canonical = view.get("project_id", scope)
         if canonical != scope:
             raise DomainError("not_found", "Item does not exist in this scope")
         return self.from_neutral(owned_ctx, {"type": kind, "id": identity}, view, uow)
 
     def action_context(self, ctx, identity, uow):
-        """The caller refreshed into the Action's canonical source scope (Global or its stored business)."""
-        if identity.startswith("global/"):
-            scope = None
-        elif identity.startswith("business/"):
-            parts = identity.split("/")
-            if len(parts) != 3 or not parts[1]:
-                raise DomainError("not_found", "Action does not exist")
-            scope = parts[1]
-        else:
-            # A legacy bare row ID exists only inside the caller's own selected business.
-            scope = ctx.business_id
+        """The caller refreshed into the Action's source scope (Global or its stored project)."""
+        stored = uow.connection.execute("SELECT project_id FROM action_logs WHERE id=?", (identity,)).fetchone()
+        if stored is None:
+            raise DomainError("not_found", "Action does not exist")
+        scope = stored["project_id"]
         source = self.scope_context(ctx, scope)
         current = self.application.current_context(source, uow)
-        if scope is not None and scope not in current.allowed_business_ids:
+        if scope is not None and scope not in current.allowed_project_ids:
             raise DomainError("not_found", "Action does not exist in this scope")
         return current
 
@@ -484,26 +461,9 @@ class Inventory:
             raise DomainError("not_found", "Action does not exist")
         return source_ctx, stored
 
-    def _ticket(self, ctx, identity, scope, uow):
-        if ctx.principal_kind == "human":
-            listing = self.read(self.scope_context(ctx, None), "dev_tickets_list",
-                                {"status": "all", "details": True, "ticket_id": identity}, uow)["items"]
-            row = next((value for value in listing if value["id"] == identity), None)
-            if row is None or row.get("business_id") != scope:
-                raise DomainError("not_found", "System Dev report does not exist in this scope")
-            return row
-        arguments = {"ticket_id": identity}
-        if scope is None:
-            arguments["scope"] = "global"
-        source_ctx = self.application.current_context(self.scope_context(ctx, scope), uow)
-        row = self.read(source_ctx, "dev_tickets_get", arguments, uow)["ticket"]
-        if row.get("business_id") != scope:
-            raise DomainError("not_found", "System Dev report does not exist in this scope")
-        return row
-
     def _reminder(self, ctx, identity, scope, uow):
         result = self.read(ctx, "owner_reminders_list",
-                           {"scope": "business" if scope else "global", "reminder_id": identity}, uow)
+                           {"scope": "project" if scope else "global", "reminder_id": identity}, uow)
         row = next((value for value in result.get("reminders", []) if value["reminder_id"] == identity), None)
         if row is None:
             raise DomainError("not_found", "Reminder does not exist in this scope")
@@ -524,8 +484,6 @@ class Inventory:
             return item.get("state") in {"pending", "answered"}
         if item["type"] == "action" and not args.get("include_closed", False) and item.get("state") == "withdrawn":
             return False
-        if item["type"] == "dev_ticket" and not args.get("include_closed", False) and item.get("state") != "open":
-            return False
         return True
 
     def represented_parent(self, ctx, project_id, item, args, uow):
@@ -533,7 +491,7 @@ class Inventory:
         parent_id = item.get("parent_id")
         if not parent_id:
             return False
-        parent_scope = item.get("business_id")
+        parent_scope = item.get("project_id")
         if parent_scope != project_id:
             target = ProjectTarget("task", parent_id, parent_scope)
             if self.store(ctx, project_id, uow).find(ctx, project_id, target, uow) is None:
@@ -574,14 +532,14 @@ class Inventory:
 
     @staticmethod
     def _metadata_key(row):
-        return (row["updated_at"], row["type"], _scope(row.get("business_id")), row["id"])
+        return (row["updated_at"], row["type"], _scope(row.get("project_id")), row["id"])
 
     def metadata_window(self, ctx, uow, sources, project_id, scan, include_links, after, limit):
         """A bounded merged metadata window from every selected extension contributor."""
         rows, has_more = [], False
         for kind, lookup in sources:
             result = lookup.project_inventory_window(
-                ctx, uow, kind=kind, project_id=project_id, source_business_id=scan,
+                ctx, uow, kind=kind, project_id=project_id, source_project_id=scan,
                 include_links=include_links, after=after, limit=limit)
             if not isinstance(result, dict) or not isinstance(result.get("rows"), list):
                 raise DomainError("operation_unavailable", f"Project inventory metadata is invalid for {kind}")
@@ -590,7 +548,7 @@ class Inventory:
                 if row.get("type") != kind or not isinstance(row.get("id"), str) \
                         or not isinstance(row.get("updated_at"), str):
                     raise DomainError("operation_unavailable", f"Project inventory metadata is invalid for {kind}")
-                rows.append({"type": kind, "id": row["id"], "business_id": row.get("business_id"),
+                rows.append({"type": kind, "id": row["id"], "project_id": row.get("project_id"),
                              "updated_at": row["updated_at"]})
         rows.sort(key=lambda row: order_key(self._metadata_key(row)))
         return rows, has_more
@@ -669,7 +627,7 @@ class Inventory:
                 resolver_scope = _unscope(row["scope"])
             else:
                 provider_rows[kind].pop(0)
-                resolver_scope = row.get("business_id")
+                resolver_scope = row.get("project_id")
             try:
                 item = self.resolve_target(ctx, project_id, row["type"], row["id"], resolver_scope, uow,
                                            allow_self=True)
@@ -723,14 +681,14 @@ class Inventory:
 
     def association_for(self, ctx, uow, item, project_id):
         store = self.store(ctx, project_id, uow)
-        link = store.find(ctx, project_id, ProjectTarget(item["type"], item["id"], item.get("business_id")), uow)
+        link = store.find(ctx, project_id, ProjectTarget(item["type"], item["id"], item.get("project_id")), uow)
         return association(owned(uow, item, project_id), link)
 
     @staticmethod
     def _matches(item, query):
         needle = query.casefold()
         return needle in (str(item.get("label")) + " " + str(item.get("id")) + " " +
-                          str(item.get("business_name"))).casefold()
+                          str(item.get("project_name"))).casefold()
 
     @staticmethod
     def _clean(item):
@@ -769,11 +727,11 @@ class Inventory:
         spec = access.validate_public_reference(dict(spec))
         if spec["type"] not in TARGET_TYPES and spec["type"] not in self.items.kinds:
             raise DomainError("validation_error", "This item kind does not exist")
-        item = self.resolve_target(ctx, project_id, spec["type"], spec["id"], spec.get("business_id"), uow,
+        item = self.resolve_target(ctx, project_id, spec["type"], spec["id"], spec.get("project_id"), uow,
                                    allow_self=allow_self)
         if spec["type"] == access.PROJECT_TYPE:
             return item
-        if item.get("business_id") != spec.get("business_id"):
+        if item.get("project_id") != spec.get("project_id"):
             raise DomainError("not_found", "Choose the item's actual scope")
         return item
 
@@ -781,7 +739,7 @@ class Inventory:
 
     def record(self, ctx, item_row, uow):
         """The appropriate existing domain read of one authorized item, never a raw database dump."""
-        kind, identity, scope = item_row["type"], item_row["id"], item_row["business_id"]
+        kind, identity, scope = item_row["type"], item_row["id"], item_row["project_id"]
         own = self.scope_context(ctx, scope)
         if kind == "task":
             return self.read(own, "tasks_get", {"task_id": identity, **({"scope": "global"} if scope is None else {})}, uow)
@@ -796,18 +754,14 @@ class Inventory:
             return self.read(own, "routines_get", {"routine_id": identity, **({"scope": "global"} if scope is None else {})}, uow)
         if kind == "reminder":
             result = self.read(own, "owner_reminders_list",
-                               {"scope": "business" if scope else "global", "reminder_id": identity}, uow)
+                               {"scope": "project" if scope else "global", "reminder_id": identity}, uow)
             stored = next((value for value in result.get("reminders", []) if value["reminder_id"] == identity), None)
             if stored is None:
                 raise DomainError("not_found", "Reminder does not exist in this scope")
             return {"reminder": stored}
-        if kind == "dev_ticket":
-            if ctx.principal_kind == "human":
-                return {"ticket": self._ticket(ctx, identity, scope, uow)}
-            return self.read(self.scope_context(ctx, scope), "dev_tickets_get", {"ticket_id": identity}, uow)
         if kind == access.PROJECT_TYPE:
             _, row = access.guard(ctx, self.application, uow, project_id=identity)
-            return {"project": access.project_view(row)}
+            return {"project": access.project_view(row, uow)}
         if kind in DOCUMENT_TYPES or kind == "entity":
             return self.document_record(own, {"type": kind, "id": identity}, uow)
         # An installed extension's typed item: its authorized neutral read is the existing domain read.
@@ -838,8 +792,8 @@ class Inventory:
             # complete/next_cursor plus the chunk's character_offset/content_hash are what the in-pane document reader
             # continues with. A dashboard-shaped one-shot read would return the whole body with no cursor to continue.
             return self.read(ctx, "context_get", {"document_id": item["id"],
-                                                  "scope": "business" if ctx.business_id else "shared"}, uow)
-        if kind in {"business_note", "agent_note", "journal", "global_note", "business_owned_note", "legacy_agent_document"}:
+                                                  "scope": "project" if ctx.project_id else "shared"}, uow)
+        if kind in {"project_note", "agent_note", "journal", "global_note", "project_owned_note", "legacy_agent_document"}:
             return self.read(ctx, "notes_get", {"document_id": item["id"]}, uow)
         if kind == "content":
             return self.read(ctx, "content_get", {"document_id": item["id"]}, uow)
@@ -849,7 +803,7 @@ class Inventory:
 
 def list_schema():
     return schema({"project_id": {"type": "string", "format": "uuid"},
-                   "scope": {"enum": ["business", "global"]},
+                   "scope": {"enum": ["project", "global"]},
                    "section": {"enum": list(SECTIONS)}, "root_tasks_only": {"type": "boolean"},
                    "include_closed": {"type": "boolean"}, "include_archived": {"type": "boolean"},
                    "cursor": {"type": "string", "maxLength": 2000},

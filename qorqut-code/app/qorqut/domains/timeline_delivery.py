@@ -1,6 +1,7 @@
 """What an agent conversation is told of the timelines above a Task, once per conversation.
 
-A Task read through the agent tools carries the state of the Project, each parent Task and the Task itself. A level
+A Task read through the agent tools carries the state of each Project level (the root Project down to the Task's own
+Project, for a Task in a subproject), each parent Task and the Task itself. A level
 this conversation already received at the same revision is replaced by one line that says since when. The record
 (``timeline_deliveries``) is kept per agent and conversation; the conversation's start hook empties it when its context is
 sent again (startup, clear, compact, fork) or the session is recovering, and a resume keeps it. A conversation that cannot be
@@ -14,6 +15,7 @@ from datetime import datetime, timedelta
 
 from qorqut_operations.application import Application
 from qorqut_operations.application.plans import timestamp
+from qorqut_operations.projects.hierarchy import lineage
 from qorqut_operations.timeline import state as timeline_state
 
 from qorqut.domains.timeline import Timeline
@@ -48,23 +50,24 @@ class TimelineDelivery:
 
     @staticmethod
     def levels(task, uow):
-        """``[(item, title)]`` from the top down to the Task: the Project (none for a Global Task), each parent Task root first,
-        the Task."""
-        connection, business = uow.connection, task["business_id"]
+        """``[(item, title)]`` from the top down to the Task: each Project level from the root Project down to the Task's own
+        (none for a Global Task), each parent Task root first, the Task."""
+        connection, project = uow.connection, task["project_id"]
         chain, seen, parent = [], {task["id"]}, task.get("parent_id")
         while parent and parent not in seen and len(seen) <= MAX_DEPTH:
-            row = connection.execute("SELECT title, parent_id FROM tasks WHERE business_id IS ? AND id=?",
-                                     (business, parent)).fetchone()
+            row = connection.execute("SELECT title, parent_id FROM tasks WHERE project_id IS ? AND id=?",
+                                     (project, parent)).fetchone()
             if row is None:
                 break
             seen.add(parent)
-            chain.append(({"type": "task", "id": parent, "business_id": business}, row["title"]))
+            chain.append(({"type": "task", "id": parent, "project_id": project}, row["title"]))
             parent = row["parent_id"]
         levels = []
-        if business:
-            row = connection.execute("SELECT name FROM businesses WHERE id=?", (business,)).fetchone()
-            levels.append(({"type": "project", "id": business, "business_id": business}, row["name"] if row else None))
-        return levels + chain[::-1] + [({"type": "task", "id": task["id"], "business_id": business}, task["title"])]
+        if project:
+            # Every Project level from the root Project down to the Task's own: each is its own level.
+            rows = lineage(connection, project) or [{"id": project, "name": None}]
+            levels.extend(({"type": "project", "id": row["id"], "project_id": row["id"]}, row["name"]) for row in rows)
+        return levels + chain[::-1] + [({"type": "task", "id": task["id"], "project_id": project}, task["title"])]
 
     @staticmethod
     def level(uow, agent, conversation, item, title):
@@ -76,7 +79,7 @@ class TimelineDelivery:
             return timeline_state.heading(held, title), None
         row = connection.execute(
             "SELECT revision, delivered_at FROM timeline_deliveries WHERE agent_id=? AND conversation_id=? AND item_type=? "
-            "AND item_id=? AND business_id=?", (agent, conversation, item["type"], item["id"], item["business_id"] or "")
+            "AND item_id=? AND project_id=?", (agent, conversation, item["type"], item["id"], item["project_id"] or "")
         ).fetchone() if conversation else None
         if row is not None and row["revision"] == revision:
             return (f'{timeline_state.heading(held, title)}: unchanged since {row["delivered_at"][11:16]}; '
@@ -94,10 +97,10 @@ class TimelineDelivery:
             Application.ensure_writes_open(uow)
             for item, revision in sent:
                 uow.connection.execute(
-                    "INSERT INTO timeline_deliveries(agent_id,conversation_id,item_type,item_id,business_id,revision,delivered_at) "
-                    "VALUES(?,?,?,?,?,?,?) ON CONFLICT(agent_id,conversation_id,item_type,item_id,business_id) "
+                    "INSERT INTO timeline_deliveries(agent_id,conversation_id,item_type,item_id,project_id,revision,delivered_at) "
+                    "VALUES(?,?,?,?,?,?,?) ON CONFLICT(agent_id,conversation_id,item_type,item_id,project_id) "
                     "DO UPDATE SET revision=excluded.revision, delivered_at=excluded.delivered_at",
-                    (agent, conversation, item["type"], item["id"], item["business_id"] or "", revision, now))
+                    (agent, conversation, item["type"], item["id"], item["project_id"] or "", revision, now))
 
     def build(self, agent, conversation, task):
         """``(lines, sent)``: the text of each level above and including ``task`` and the ``(item, revision)`` pairs sent in
@@ -121,7 +124,7 @@ class TimelineDelivery:
         return "\n\n".join(lines)
 
     def chain(self, agent, conversation, task):
-        """The text of the levels above and including ``task`` (a Task read's ``{id, business_id, parent_id, title}``)."""
+        """The text of the levels above and including ``task`` (a Task read's ``{id, project_id, parent_id, title}``)."""
         lines, sent = self.build(agent, conversation, task)
         return self.deliver(agent, conversation, lines, sent)
 

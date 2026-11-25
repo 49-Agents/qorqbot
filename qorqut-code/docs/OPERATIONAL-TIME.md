@@ -1,10 +1,17 @@
 # Operational timezone
 
-Set `QORQUT_TIMEZONE` to an IANA zone such as `Europe/Berlin` before starting the
-application. If it is absent, the default is `UTC`. Invalid or empty values stop
-startup with a configuration error. The setting is read once per process; restart
-after changing it. Each installation runs its own process and may select a
-different zone. Required timezone data must be available in the runtime.
+The owner's timezone setting (Settings > Timezone, or Ordubashy's `settings_set` `timezone`) is the one clock of the
+installation: calendar, Focus chips, the reminders form, operational time labels and agent-facing time text. Precedence:
+the owner's setting, then `QORQUT_TIMEZONE` (an IANA zone such as `Europe/Berlin`), then `UTC`. The owner's value is
+stored in `dashboard-preferences/operational-timezone.json` under the runtime folder, applied at startup and at the
+moment it is saved, with no restart; code reads it through `local_time.current_zone()`, `current_timezone()` and
+`current_label()`. `QORQUT_TIMEZONE` is still read once per process and an invalid value stops startup; an invalid owner
+value is refused when saved. Required timezone data must be available in the runtime. The experience workflows use
+`QORQUT_EXPERIENCE_TIMEZONE`, then the owner's setting, then `QORQUT_TIMEZONE`, `TZ` and the system zone.
+
+The owner session reports `operational_timezone` and `operational_timezone_source` (`owner`, `environment` or
+`default`). When the source is not `owner`, the dashboard saves the browser's zone once, through
+`POST /api/root/operational-timezone`, and never again overrides a later choice.
 
 The native launcher records the installation's chosen setting separately from
 its replaceable application runtime. A fresh installation may use the system
@@ -12,7 +19,7 @@ zone, with UTC as the fallback. Upgrading a legacy installation must preserve it
 previous operational zone (`America/Puerto_Rico`) unless a new zone is explicitly
 chosen. Do not infer a new timezone from the build machine during an update.
 
-The owner session returns `operational_timezone`. `actions_config_get` returns
+`actions_config_get` returns
 the timezone, current local date/hour, UTC server instant and current offset.
 Progress APIs also report their timezone. The dashboard consumes these values;
 its browser's local zone does not replace the operational setting.

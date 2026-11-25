@@ -5,7 +5,7 @@ coordinator, or deployment.
 
 ## Management without impersonation
 
-Business agents use `management_message_send` for durable management requests.
+Agents other than Ordubashy use `management_message_send` for durable management requests.
 An owner explicitly selects the installation's active Ordubashy with
 `management_coordinator_set`. The service routes to this exact principal; it
 never chooses a similarly named agent or gives it the owner's identity.
@@ -13,11 +13,11 @@ never chooses a similarly named agent or gives it the owner's identity.
 `management_list/get` read canonical message/input sources. `management_route`
 changes attention destination with a revision check and an escalation reason;
 `management_resolve` resolves message intake only. Signoffs retain their own
-lifecycle. Current business membership, scope and operation policy remain
+lifecycle. Current project reach, scope and operation policy remain
 authoritative. Scope revocation removes access to the corresponding records.
 
 New ordinary question forms default to `response_policy=management_allowed`.
-An eligible business-agent question automatically enters management intake when
+An eligible agent question automatically enters management intake when
 the exact coordinator is configured and in scope. An offline but configured
 coordinator can receive durable requests; the UI reports observed availability
 separately. Missing/inactive configuration is explicit and never implies a reply.
@@ -70,7 +70,7 @@ response can lose a reminder; it cannot gain another automatic continuation.
 Unknown lineage or unavailable storage allows stopping.
 
 The work-review text asks the agent to bring its existing current-work entry,
-and relevant task or business notes in line with completed work,
+and relevant task or project notes in line with completed work,
 decisions received and remaining blockers, changing only what changed and never
 recording a proposal as an approved decision. Saves made in response
 (`agent_work_update`, own `notes_create`/`notes_update`,
@@ -117,46 +117,6 @@ cadence is unchanged. Watcher version 3 replaces an older helper on normal
 re-preparation without requiring a session restart. Native hook configuration
 changes may still require the CLI's normal reload/restart behavior.
 
-## Model-free incident reporting
-
-The application dispatcher, authenticated context/preparation paths, checkpoint
-and inbox service boundaries, and background job outcomes observe typed faults.
-The reporter neither calls a model nor retries a business/provider action.
-Unexpected software faults and missing registered internal workers are actionable
-immediately. Repeated technical transients need three failed attempts spanning
-ten minutes; successful probes reset that transient run. Ordinary permission,
-validation, login/setup, approval, hold and revision outcomes are not bug tickets.
-Unknown error codes are not promoted to software faults by guessing from prose.
-
-Failures append sanitized codes and trusted IDs to a private durable spool;
-raw error text, arguments, credentials and transcripts are discarded. The service
-drains at most 100 observations per minute into one System Dev ticket per stable
-fault signature and business scope. Repeated faults update counts and bounded
-evidence. Different businesses are intentionally separate privacy boundaries.
-Context failures before scope resolution record the authenticated agent without
-inventing a business or task association.
-
-A successful operation is an availability probe, not proof of repair. Recovery
-is tracked per affected agent/episode; one healthy agent cannot clear another's
-failure. Recovery notifications reuse Inbox and recheck recipient access. Task
-associations arise from an explicit `tasks_comment` reference of
-`{"type":"dev_ticket","id":"…"}`; the service never guesses a task from a
-multi-item work list. Existing dependencies and subscriptions carry normal
-handoffs. Recovery does not finish tasks, remove owner holds or authorize sends.
-
-Closing an automatic incident through the canonical ticket requires resolution
-and verification evidence. An optional deployment reference is retained with
-the outcome. Closure notifies affected agents and currently linked task assignees
-once. A later genuine recurrence reopens the same ticket while preserving repair
-history and gives the coordinator one new notice. Repeated failures while it is
-open do not repeat that notice. An ordinary success probe cannot reopen a verified closure.
-
-The reporter is an attributed system principal, registered lazily by the service
-worker, with no human approval or business-send powers. Assembly starts no worker,
-performs no migration and writes no live configuration. Observer failure preserves
-the original operation result. Ingestion failure retains its spool for retry and
-does not report itself recursively. Reporting health is visible in System Dev.
-
 ## Bounds and UI
 
 No new dependency, message broker, database, model supervisor or per-action HTTP
@@ -164,15 +124,10 @@ request is introduced. Existing activity sampling and visible Fleet refresh stay
 at one minute; manual refresh remains available. Startup summaries are bounded
 and include cursors for further inspection.
 
-The spool is capped at 16 MiB, each observation at 4 KiB, and each incident's
-recent history at 100 entries. Overflow increments an observable durable dropped
-count. Active fault/probe indexes are capped at 4,096 entries. Delivery receipts
-and ingestion deduplication receipts retain seven days; resolved checkpoint
-findings expire after seven days, while open findings keep their suppression.
-An already initialized empty reporter consumes no periodic SQLite writer slot.
+Delivery receipts retain seven days; resolved checkpoint findings expire after seven days, while open findings
+keep their suppression.
 
-Management and System Dev use paginated compact lists. Incident evidence loads
-on Inspect, not once per list row. Fleet separates runtime presence, work review
+Management uses paginated compact lists. Fleet separates runtime presence, work review
 age and unresolved completion findings. UI components/styles/icons are reused.
 No capacity guarantee for hundreds of concurrently finishing agents follows from
 these bounds alone; full production load measurement remains a rollout check.
@@ -181,36 +136,25 @@ these bounds alone; full production load measurement remains a rollout check.
 
 Ordubashy runs on Codex or Claude Code. Every prepared workspace carries both
 clients' hooks and instructions, so the owner chooses the CLI Ordubashy runs in
-Settings > Agents, and management intake, delegated answers and the Focus
+Settings > Model/Provider, and management intake, delegated answers and the Focus
 board and automatic durable workers follow that session. The profile `runtime` is only the
 default: the CLI used until a client is chosen there, which Chat names first. Change it
 with `agents_update` and `changes={"runtime":"codex"}` or `{"runtime":"claude-code"}`;
 the agent identity and records stay the same in both directions.
 
 Focused isolated coverage exercises authoritative migrations, management delivery
-and delegated answers through real HTTP/MCP, policy/membership revocation, exact
-inbox receipts, native no-loop durability, concurrent finding claims, task links,
-verified closure, per-agent recovery, spool commit failure and fault storms.
-The native fixture uses the installed CLI with only loopback fake providers.
-The dashboard browser fixture opens canonical sources and incident detail,
-checks blank closure evidence, and submits populated evidence with the canonical
-ticket revision. Role policy regressions preserve protected approvals.
+and delegated answers through real HTTP/MCP, policy revocation, exact
+inbox receipts, native no-loop durability, concurrent finding claims
+and per-agent recovery. The native fixture uses the installed CLI with only loopback fake providers.
+Role policy regressions preserve protected approvals.
 
 Rollout is a separate authorized release: back up using the existing release process,
-apply the additive migrations (management routing, checkpoint metadata, incidents,
+apply the additive migrations (management routing, checkpoint metadata,
 notice receipts), deploy matching core and dashboard, publish and adopt the intended
 role pins preserving explicit overrides and scopes, then configure the exact Codex
 Ordubashy through `management_coordinator_set` and run supported profile preparation.
-Verify coordinator identity, role/runtime, current memberships, protocol version and
-system reporter health by readback, and check one agent's management/current-work/inbox
+Verify coordinator identity, role/runtime, current project reach and protocol version by readback, and check one agent's management/current-work/inbox
 workflow before broader adoption. A source merge alone is not evidence of adoption.
-
-Observable technical failures are the detection boundary. Absence, idle sessions,
-or a stale heartbeat cannot distinguish a native crash from normal exit, so this
-release does not auto-file native-crash tickets. Failures before authentication,
-host loss and simultaneous database/spool unavailability cannot guarantee durable
-reports. No silent wrong-answer detector or automatic code-repair agent is added.
-
 
 Focus-only completion mode: prepared Focus curators use protocol 2 when the exact
 native executable has the required correction evidence. This mode supplies the

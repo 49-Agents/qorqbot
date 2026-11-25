@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-calendar
 description: Use the owner's native Qorqut Calendar - list calendars, read, create, change or delete events, respond to invitations - and get an owner Signoff before any change that notifies guests.
+read_for: The owner's calendar, reading or changing events (`calendar_*`)
 ---
 
 # Calendar

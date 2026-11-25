@@ -216,6 +216,13 @@ class HostAgenticView:
             raise DomainError("agentic_unavailable", "Managed instruction recovery is required")
         return result["catalog_revision"]
 
+    def change_marker(self):
+        """The layer's marker of authored changes (see ``CatalogReader.change_marker``); ``None`` means changed."""
+        return self.layer.catalog.change_marker()
+
+    def snapshot_active(self) -> bool:
+        return self.layer.catalog.snapshot_active()
+
     @contextmanager
     def read_snapshot(self):
         """Bind a request to one catalogue and validate it before returning."""

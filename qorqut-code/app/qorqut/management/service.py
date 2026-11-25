@@ -8,7 +8,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, new_id, plain
 from qorqut_operations.application.plans import PlanBuilder, schema, timestamp, utc_clock, ref, require_revision
 from qorqut_operations.tasks.scope import task_namespace
-from qorqut.agents.global_scope import reaches_business
+from qorqut.agents.global_scope import active_project_participant, reaches_project
 from .identity import configured_ordubashy, installation_owner, ordubashy_profile, owner_messages, require_coordinator
 from qorqut_operations.storage.repositories import decode_row
 from dataclasses import replace
@@ -16,7 +16,7 @@ from datetime import datetime
 import uuid
 
 UUID = {'type': 'string', 'format': 'uuid'}
-SCOPE = {'scope': {'enum': ['business', 'global']}}
+SCOPE = {'scope': {'enum': ['project', 'global']}}
 
 # Shared owner-attention predicate. Immutable eligibility and the canonical
 # Signoff lifecycle prevent a routing row from hiding protected approvals.
@@ -27,12 +27,12 @@ MANAGED_INPUT_SQL = """s.category='input_request' AND s.state='pending'
  AND r.source_id=s.id AND r.attention_destination='management' AND r.management_allowed=1)"""
 
 # Given to Ordubashy at startup and with each prompt while the owner has never written to him, then while the owner has
-# written to him once; ordubashy-core's "Getting set up" describes the welcome and the set-up start.
+# written to him once; the get-set-up skill describes the welcome and the set-up start.
 FIRST_CONVERSATION = ("FIRST CONVERSATION: the owner has just installed Qorqbot and has never written to you. Unless you "
-                      "have already welcomed them in this conversation, make your next reply the welcome that Getting set "
-                      "up describes, not a status report.")
+                      "have already welcomed them in this conversation, make your next reply the welcome that the get-set-up "
+                      "skill describes, not a status report.")
 FIRST_MESSAGE = ("FIRST MESSAGE: the owner has now sent you their first message. Unless a get-set-up run already exists, "
-                 "start the get-set-up workflow now as Getting set up describes, without asking whether they want it.")
+                 "start the get-set-up workflow now as the get-set-up skill describes, without asking whether they want it.")
 
 
 class ManagementService:
@@ -43,7 +43,7 @@ class ManagementService:
 
     def register(self, registry=None):
         registry = registry or self.app.registry
-        common = dict(scope_kinds=frozenset({'business', 'global'}), global_capability='read_global_context',
+        common = dict(scope_kinds=frozenset({'project', 'global'}), global_capability='read_global_context',
             resolve_namespace=task_namespace)
         registry.register(OperationDescriptor('management_list', schema({**SCOPE,
             'all_items': {'type': 'boolean'}, 'attention_destination': {'enum': ['management', 'owner']},
@@ -77,25 +77,22 @@ class ManagementService:
     def _coordinator(uow):
         return require_coordinator(uow)
 
-    def _scope(self, ctx, business_id, uow):
-        if business_id is None:
-            if ctx.business_id is not None:
+    def _scope(self, ctx, project_id, uow):
+        if project_id is None:
+            if ctx.project_id is not None:
                 raise DomainError('forbidden','Global management items require Global scope')
             if 'read_global_context' not in ctx.global_capabilities and ctx.principal_id != self._owner(uow):
                 raise DomainError('forbidden', 'Global management scope is unavailable')
-        elif business_id not in ctx.allowed_business_ids:
+        elif project_id not in ctx.allowed_project_ids:
             raise DomainError('forbidden', 'Management item is outside the selected scope')
-        elif ctx.business_id is not None and business_id != ctx.business_id:
-            raise DomainError('forbidden','Management source membership is unavailable')
+        elif ctx.project_id is not None and project_id != ctx.project_id:
+            raise DomainError('forbidden','Management source project is unavailable')
         elif ctx.principal_kind == 'agent':
-            # An agent reaches a business only as a current supported global; agent membership rows are not consulted.
-            if not reaches_business(uow.connection, ctx.principal_id, business_id):
+            # An agent reaches a project only as a current supported global.
+            if not reaches_project(uow.connection, ctx.principal_id, project_id):
                 raise DomainError('forbidden', 'Management source project is unavailable')
-        elif not uow.connection.execute(
-                'SELECT 1 FROM business_memberships m JOIN businesses b ON b.id=m.business_id '
-                'WHERE m.principal_id=? AND m.business_id=? AND m.active=1 AND b.archived_at IS NULL',
-                (ctx.principal_id,business_id)).fetchone():
-            raise DomainError('forbidden','Management source membership is unavailable')
+        elif not active_project_participant(uow.connection, project_id, ctx.principal_id):
+            raise DomainError('forbidden','Management source project is unavailable')
 
     @staticmethod
     def _owner(uow):
@@ -129,20 +126,20 @@ class ManagementService:
     def _source(self, source_type, source_id, ctx, uow):
         if source_type == 'signoffs':
             row = uow.connection.execute('SELECT * FROM signoffs WHERE id=?', (source_id,)).fetchone()
-            business_id = row['review_business_id'] if row else None
+            project_id = row['review_project_id'] if row else None
         else:
             row = uow.connection.execute('SELECT * FROM agent_messages WHERE id=?', (source_id,)).fetchone()
-            business_id = row['business_id'] if row else None
+            project_id = row['project_id'] if row else None
         if not row:
             raise DomainError('not_found', 'Management source does not exist')
-        self._scope(ctx, business_id, uow)
+        self._scope(ctx, project_id, uow)
         if source_type == 'signoffs':
             if row['category'] != 'input_request' or row['state'] != 'pending' or row['superseded_by_id']:
                 raise DomainError('invalid_transition', 'Only pending input requests can enter management intake')
-        return decode_row(row), business_id
+        return decode_row(row), project_id
 
     def prepare_route(self, ctx, args, options, uow):
-        source, business_id = self._source(args['source_type'], args['source_id'], ctx, uow)
+        source, project_id = self._source(args['source_type'], args['source_id'], ctx, uow)
         coordinator = self._coordinator(uow)
         existing = uow.connection.execute('SELECT * FROM management_routing WHERE source_type=? AND source_id=?', (args['source_type'], args['source_id'])).fetchone()
         requester = source['proposer_principal_id'] if args['source_type'] == 'signoffs' else source['current_sender_id']
@@ -159,43 +156,16 @@ class ManagementService:
             if form and (form.get('kind') == 'request' or form.get('response_policy', 'owner_only') == 'owner_only') and args['attention_destination'] == 'management':
                 raise DomainError('forbidden', 'Human-only input requests must remain owner attention')
         builder = PlanBuilder(ctx, 'management_route', args, 'Route canonical management intake',
-            namespace=task_namespace(ctx,args), affected_scope={'kind': 'business', 'business_id': business_id})
-        builder.expect(ref(args['source_type'], args['source_id'], business_id), source)
+            namespace=task_namespace(ctx,args), affected_scope={'kind': 'project', 'project_id': project_id})
+        builder.expect(ref(args['source_type'], args['source_id'], project_id), source)
         if existing:
             builder.expect(ref('management_routing',existing['id'],None),dict(existing))
         return builder.build()
 
-    def auto_route_input(self, ctx, row, uow):
-        form = row['preview_json'].get('input', {})
-        if (ctx.principal_kind!='agent' or not ctx.home_business_id or form.get('kind') != 'question'
-                or form.get('response_policy','owner_only') != 'management_allowed' or not row.get('review_business_id')):
-            return
-        try:
-            coordinator = self._coordinator(uow)
-        except DomainError:
-            return
-        if ctx.principal_id==coordinator:
-            return
-        # Binding must include the requester's business; offline presence is fine.
-        if self.inbox is not None:
-            try: self.inbox.messages.peer(ctx,coordinator,uow)
-            except DomainError: return
-        now = timestamp(self.clock)
-        inserted = uow.connection.execute('''INSERT OR IGNORE INTO management_routing
-            (id,source_type,source_id,business_id,coordinator_id,attention_destination,
-             management_allowed,created_by,created_at,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)''', (new_id(), 'signoffs', row['id'], row['review_business_id'], coordinator,
-             'management', 1, row['proposer_principal_id'], now, now)).rowcount
-        if inserted and self.inbox is not None:
-            event = uow.connection.execute('INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) '
-                'VALUES(?,?,?,?,?,?,?)',(row['review_business_id'],'signoffs',row['id'],ctx.principal_id,
-                'management_requested','Management input requested',now)).lastrowid
-            uow.connection.execute('INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)',(coordinator,event))
-
     def apply_route(self, ctx, plan, uow):
         args = plain(plan.arguments)
         self.prepare_route(ctx,args,None,uow)  # Recheck actor, response policy and routing CAS at apply.
-        source, business_id = self._source(args['source_type'], args['source_id'], ctx, uow)
+        source, project_id = self._source(args['source_type'], args['source_id'], ctx, uow)
         expected = next((item for item in plan.expected_targets if item.resource.resource_type == args['source_type']), None)
         if args['source_type'] == 'signoffs' and expected and source['status_revision'] != expected.revision:
             raise DomainError('revision_conflict', 'Input request changed; route it again from the current record')
@@ -205,17 +175,17 @@ class ManagementService:
         existing = uow.connection.execute('SELECT * FROM management_routing WHERE source_type=? AND source_id=?', (args['source_type'], args['source_id'])).fetchone()
         now = timestamp(self.clock)
         identity = existing['id'] if existing else new_id()
-        values = (identity, args['source_type'], args['source_id'], business_id, coordinator, args['attention_destination'], args.get('escalation_reason', ''), args.get('recommendation', ''), args.get('deadline'), int(args.get('management_allowed', args['attention_destination'] == 'management')), ctx.principal_id, now)
+        values = (identity, args['source_type'], args['source_id'], project_id, coordinator, args['attention_destination'], args.get('escalation_reason', ''), args.get('recommendation', ''), args.get('deadline'), int(args.get('management_allowed', args['attention_destination'] == 'management')), ctx.principal_id, now)
         if existing:
             uow.connection.execute('''UPDATE management_routing SET coordinator_id=?,attention_destination=?,escalation_reason=?,recommendation=?,deadline=?,management_allowed=?,updated_at=?,updated_by=?,revision=revision+1 WHERE id=?''', values[4:10] + (now,ctx.principal_id,identity))
         else:
-            uow.connection.execute('''INSERT INTO management_routing(id,source_type,source_id,business_id,coordinator_id,attention_destination,escalation_reason,recommendation,deadline,management_allowed,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''', values[:10] + (values[10], now, now))
+            uow.connection.execute('''INSERT INTO management_routing(id,source_type,source_id,project_id,coordinator_id,attention_destination,escalation_reason,recommendation,deadline,management_allowed,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''', values[:10] + (values[10], now, now))
         return {'routing': self._view(uow.connection.execute('SELECT * FROM management_routing WHERE id=?', (identity,)).fetchone(), uow)}
 
     def prepare_message(self, ctx, args, options, uow):
         normalize_summary(args.get('summary'))
         if ctx.principal_kind != 'agent':
-            raise DomainError('forbidden', 'Management intake is for project agents')
+            raise DomainError('forbidden', 'Management intake is for agents')
         coordinator = self._coordinator(uow)
         if coordinator == ctx.principal_id:
             raise DomainError('validation_error', 'Coordinator cannot send management messages to itself')
@@ -223,14 +193,14 @@ class ManagementService:
             raise DomainError('operation_unavailable', 'Inbox message service is not installed')
         self.inbox.messages.peer(ctx, coordinator, uow)
         return PlanBuilder(ctx, 'management_message_send', args, 'Send management message',
-            namespace=task_namespace(ctx,args), affected_scope={'kind': 'business', 'business_id': ctx.business_id}).build()
+            namespace=task_namespace(ctx,args), affected_scope={'kind': 'project', 'project_id': ctx.project_id}).build()
 
     def _validate_coordinator(self, identity, uow):
         if not ordubashy_profile(uow, identity):
             raise DomainError('validation_error', 'Coordinator must be an active Ordubashy profile')
 
     def prepare_coordinator(self, ctx, args, options, uow):
-        if ctx.principal_kind != 'human' or self._owner(uow) != ctx.principal_id or ctx.business_id is not None:
+        if ctx.principal_kind != 'human' or self._owner(uow) != ctx.principal_id or ctx.project_id is not None:
             raise DomainError('forbidden', 'Only the installation owner can configure the global coordinator')
         self._validate_coordinator(args['coordinator_id'], uow)
         return PlanBuilder(ctx, 'management_coordinator_set', args, 'Configure management coordinator', namespace='global', affected_scope={'kind': 'global'}).build()
@@ -250,7 +220,7 @@ class ManagementService:
         if row['source_type']!='agent_messages' or ctx.principal_id not in {row['coordinator_id'],configured_ordubashy(uow),self._owner(uow)}:
             raise DomainError('forbidden','Only management or the owner can resolve a message; Signoffs retain their own lifecycle')
         require_revision(dict(row), options.expected_revision)
-        builder = PlanBuilder(ctx, 'management_resolve', args, 'Resolve management intake', namespace=task_namespace(ctx,args), affected_scope={'kind': 'business', 'business_id': row['business_id']})
+        builder = PlanBuilder(ctx, 'management_resolve', args, 'Resolve management intake', namespace=task_namespace(ctx,args), affected_scope={'kind': 'project', 'project_id': row['project_id']})
         builder.record('management_routing', row['id'], decode_row(row), {'disposition': args['disposition'], 'updated_by':ctx.principal_id,'updated_at': timestamp(self.clock)}, action='update')
         return builder.build()
 
@@ -271,28 +241,28 @@ class ManagementService:
         coordinator = self._coordinator(uow)
         peer = self.inbox.messages.peer(ctx, coordinator, uow)
         now, identity = timestamp(self.clock), new_id()
-        event = uow.connection.execute('INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)', (ctx.business_id, 'agent_messages', identity, ctx.principal_id, 'direct_message', args['message'][:160], now)).lastrowid
-        uow.connection.execute('INSERT INTO agent_messages(id,event_id,business_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,summary,current_sender_id,current_recipient_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', (identity, event, ctx.business_id, ctx.principal_id, peer.principal_id, None, identity, args['message'], now, normalize_summary(args.get('summary')), ctx.principal_id, peer.principal_id))
+        event = uow.connection.execute('INSERT INTO inbox_events(project_id,source_type,source_id,actor_id,event_type,summary,created_at) VALUES(?,?,?,?,?,?,?)', (ctx.project_id, 'agent_messages', identity, ctx.principal_id, 'direct_message', args['message'][:160], now)).lastrowid
+        uow.connection.execute('INSERT INTO agent_messages(id,event_id,project_id,sender_id,recipient_id,reply_to,thread_id,body,created_at,summary,current_sender_id,current_recipient_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', (identity, event, ctx.project_id, ctx.principal_id, peer.principal_id, None, identity, args['message'], now, normalize_summary(args.get('summary')), ctx.principal_id, peer.principal_id))
         uow.connection.execute('INSERT INTO inbox_deliveries(agent_id,event_id) VALUES(?,?)', (coordinator, event))
-        self._insert_route(uow, identity, ctx.business_id, coordinator, ctx.principal_id, args, now)
+        self._insert_route(uow, identity, ctx.project_id, coordinator, ctx.principal_id, args, now)
         return {'message_id': identity, 'thread_id': identity,
                 'routing': self._view(uow.connection.execute('SELECT * FROM management_routing WHERE source_id=?', (identity,)).fetchone(), uow)}
 
-    def _insert_route(self, uow, source_id, business_id, coordinator, actor, args, now):
-        uow.connection.execute('''INSERT INTO management_routing(id,source_type,source_id,business_id,coordinator_id,attention_destination,escalation_reason,recommendation,management_allowed,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''', (new_id(), 'agent_messages', source_id, business_id, coordinator, 'management', args.get('escalation_reason', ''), args.get('recommendation', ''), 1, actor, now, now))
+    def _insert_route(self, uow, source_id, project_id, coordinator, actor, args, now):
+        uow.connection.execute('''INSERT INTO management_routing(id,source_type,source_id,project_id,coordinator_id,attention_destination,escalation_reason,recommendation,management_allowed,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''', (new_id(), 'agent_messages', source_id, project_id, coordinator, 'management', args.get('escalation_reason', ''), args.get('recommendation', ''), 1, actor, now, now))
 
     def _view(self, row, uow):
         if row is None:
             raise DomainError('not_found', 'Management intake does not exist')
         result = dict(row)
-        business = uow.repository('businesses').get(row['business_id']) if row['business_id'] else None
-        result.update(business_slug=business['slug'] if business else None,
-                      business_name=business['name'] if business else 'Global')
+        project = uow.repository('projects').get(row['project_id']) if row['project_id'] else None
+        result.update(project_slug=project['slug'] if project else None,
+                      project_name=project['name'] if project else 'Global')
         for key in ('created_by', 'coordinator_id','updated_by'):
             principal = uow.repository('principals').get(row[key])
             result[key + '_display_name'] = principal['display_name'] if principal else None
-        result['source'] = {'type': row['source_type'], 'id': row['source_id'], 'business_id': row['business_id'],
-                            'business_slug': result['business_slug']}
+        result['source'] = {'type': row['source_type'], 'id': row['source_id'], 'project_id': row['project_id'],
+                            'project_slug': result['project_slug']}
         if row['source_type'] == 'signoffs':
             source = decode_row(uow.connection.execute('SELECT * FROM signoffs WHERE id=?', (row['source_id'],)).fetchone())
             if source:
@@ -314,16 +284,16 @@ class ManagementService:
         return result
 
     def _authorized(self, ctx, row, args, uow):
-        self._scope(ctx, row['business_id'], uow)
+        self._scope(ctx, row['project_id'], uow)
         if row['source_type']=='signoffs':
-            selected = replace(ctx,business_id=row['business_id'],review_business_id=row['business_id'])
+            selected = replace(ctx,project_id=row['project_id'],review_project_id=row['project_id'])
             descriptor = self.app.registry.get('signoffs_get')
             self.app.authorize(selected,descriptor,(),uow,
-                namespace='business:'+row['business_id'] if row['business_id'] else 'global')
+                namespace='project:'+row['project_id'] if row['project_id'] else 'global')
         # The row keeps the coordinator that routed it; the coordinator configured now reads and settles it all the same.
         if ctx.principal_id in {row['coordinator_id'], configured_ordubashy(uow)}:
             return True
-        if ctx.principal_kind == 'human' and (ctx.principal_id == self._owner(uow) or row['business_id'] and uow.connection.execute('SELECT 1 FROM business_memberships WHERE business_id=? AND principal_id=? AND active=1 AND is_owner=1', (row['business_id'], ctx.principal_id)).fetchone()):
+        if ctx.principal_kind == 'human' and ctx.principal_id == self._owner(uow):
             return True
         if row['source_type'] == 'signoffs':
             source = uow.connection.execute('SELECT proposer_principal_id FROM signoffs WHERE id=?', (row['source_id'],)).fetchone()
@@ -335,12 +305,12 @@ class ManagementService:
         ctx = self.app.current_context(ctx, uow)
         rows, params, clauses = [], [], []
         disposition = args.get('disposition','pending')
-        if ctx.business_id:
-            clauses.append('r.business_id=?'); params.append(ctx.business_id)
+        if ctx.project_id:
+            clauses.append('r.project_id=?'); params.append(ctx.project_id)
         else:
-            scopes = list(ctx.allowed_business_ids)
-            business_clause = 'r.business_id IN ('+','.join('?' for _ in scopes)+')' if scopes else '0'
-            clauses.append('(r.business_id IS NULL OR '+business_clause+')'); params.extend(scopes)
+            scopes = list(ctx.allowed_project_ids)
+            project_clause = 'r.project_id IN ('+','.join('?' for _ in scopes)+')' if scopes else '0'
+            clauses.append('(r.project_id IS NULL OR '+project_clause+')'); params.extend(scopes)
         if ctx.principal_kind=='agent' and ctx.principal_id != configured_ordubashy(uow):
             clauses.append('(r.coordinator_id=? OR s.proposer_principal_id=? OR m.current_sender_id=?)')
             params.extend([ctx.principal_id]*3)
@@ -385,12 +355,12 @@ class ManagementService:
         return {'routing': self._view(row, uow), 'coordinator': self.coordinator_dto(uow)}
 
     def startup(self, principal, config):
-        ctx = self.app.policy.agent_resolver.invocation_context(principal,business_id=config.get('business_id'))
+        ctx = self.app.policy.agent_resolver.invocation_context(principal,project_id=config.get('project_id'))
         try:
             with self.app.database.read() as uow:
                 ctx=self.app.current_context(ctx,uow)
                 descriptor=self.app.registry.get('management_list')
-                args={'limit':10,**({'scope':'global'} if not ctx.business_id else {})}
+                args={'limit':10,**({'scope':'global'} if not ctx.project_id else {})}
                 self.app.authorize(ctx,descriptor,(),uow,namespace=task_namespace(ctx,args))
                 result=self.list(ctx,args,None,uow)
                 health=result['coordinator']

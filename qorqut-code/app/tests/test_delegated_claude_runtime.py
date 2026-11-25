@@ -84,15 +84,25 @@ class CommandTests(unittest.TestCase):
         with self.assertRaises(DomainError):
             DelegatedRuntime({}, str(uuid.uuid4()), alive=lambda: True, runtime="gemini", client=object())
 
+    def test_a_codex_worker_runs_with_codexs_own_memory_off(self):
+        for thread in (None, SESSION):
+            command = worker_command(ASSIGNMENT, REGISTRATION, Path("/r.json"), thread_id=thread)
+            features = [command[index + 1] for index, item in enumerate(command) if item == "-c"
+                        and command[index + 1].startswith("features=")]
+            self.assertEqual(len(features), 1)
+            self.assertIn("memories=false", features[0])
+
     def test_claude_worker_keeps_the_real_home_and_codex_keeps_its_private_one(self):
         claude = DelegatedRuntime({}, str(uuid.uuid4()), alive=lambda: True, runtime="claude-code", client=object(),
                                   executable="/bin/true").environment("/tmp/worker")
         self.assertEqual(claude["HOME"], os.environ.get("HOME", str(Path.home())))
         self.assertNotIn("CODEX_HOME", claude)
+        self.assertEqual(claude["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
         codex = DelegatedRuntime({}, str(uuid.uuid4()), alive=lambda: True, runtime="codex", client=object(),
                                  executable="/bin/true").environment("/tmp/worker")
         self.assertEqual(codex["HOME"], "/tmp/worker")
         self.assertIn("CODEX_HOME", codex)
+        self.assertNotIn("CLAUDE_CODE_DISABLE_AUTO_MEMORY", codex)
 
 
 class EventTests(unittest.TestCase):

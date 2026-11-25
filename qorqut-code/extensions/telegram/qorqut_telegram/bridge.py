@@ -174,6 +174,19 @@ class TelegramBridge:
         with self.database.read() as uow:
             yield uow
 
+    def has_work(self, probe):
+        """Whether a write step has anything to do: ``probe(uow)`` in a read unit, before the step opens its write unit.
+
+        The control pass runs every second and usually finds nothing, and each step used to open a write unit to learn that.
+        The look runs under the same admission and maintenance gate as ``write``, so an idle pass that would have been refused
+        still is. It only decides whether to open the write unit; that unit selects again, and finding nothing there is an
+        ordinary empty result."""
+        admission = getattr(self.application, "writer_admission", None)
+        with (admission.writer() if admission is not None else nullcontext()):
+            with self.read() as uow:
+                self.application.ensure_writes_open(uow)
+                return bool(probe(uow))
+
     def backoff(self, attempts):
         ceiling = min(self.timings["backoff_cap"], self.timings["backoff_base"] * 2 ** max(0, attempts - 1))
         return ceiling * (0.5 + self.rng.random() * 0.5)

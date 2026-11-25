@@ -6,7 +6,7 @@
 
 ``--source-root`` is the output of ``export-unified.py`` (it must carry ``SOURCE-MANIFEST.json``) with this layout:
 
-    qorqut-code/ (app/, with qorqut-operations/, qorqut-context/, biz-dashboard/ filled by their own components;
+    qorqut-code/ (app/, with qorqut-operations/, qorqut-context/, dashboard/ filled by their own components;
                   extensions/google-calendar/ is part of this component and is built only with --with-google-calendar;
                   extensions/treg/ likewise, only with --with-treg; extensions/openrouter/ only with --with-openrouter)
     qorqut-agentic/src/qorqut_agentic/resources/defaults/   dependencies/{document-history,email-management}/
@@ -96,7 +96,7 @@ PAPER_BRIDGE = ("qorqut-paper", "extensions/qorqut-paper")
 CONTENT = [("content-library", "extensions/content-library"), ("qorqut-content", "extensions/qorqut-content")]
 
 REQUIRED = ["qorqut-agentic/pyproject.toml", "qorqut-code/app/pyproject.toml", "qorqut-code/app/service-constraints.txt", "qorqut-code/app/package-sources.json",
-            "qorqut-code/qorqut-operations/pyproject.toml", "qorqut-code/qorqut-context/pyproject.toml", "qorqut-code/biz-dashboard/index.html",
+            "qorqut-code/qorqut-operations/pyproject.toml", "qorqut-code/qorqut-context/pyproject.toml", "qorqut-code/dashboard/index.html",
             "qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/imported-roles", "dependencies/document-history/pyproject.toml",
             "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml"]
 REQUIRED_PAPER = ["extensions/qorqut-paper/pyproject.toml", "services/paper-service/pyproject.toml", "services/paper-service/requirements/runtime.lock"]
@@ -174,7 +174,7 @@ class Preparer:
                     + (REQUIRED_TREG if self.treg else []) + (REQUIRED_OPENROUTER if self.openrouter else []))
         missing = [name for name in required if not (self.source / name).exists()]
         if missing:
-            empty = [name for name in ("qorqut-operations", "qorqut-context", "biz-dashboard")
+            empty = [name for name in ("qorqut-operations", "qorqut-context", "dashboard")
                      if (self.source / "qorqut-code" / name).is_dir() and not any((self.source / "qorqut-code" / name).iterdir())]
             hint = f"; empty gitlink locations that need their own source component: {', '.join(empty)}" if empty else ""
             raise PrepareError("the source export is incomplete, missing: " + ", ".join(missing) + hint)

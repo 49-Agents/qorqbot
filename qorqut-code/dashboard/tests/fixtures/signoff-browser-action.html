@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../app.css">
+<link rel="stylesheet" href="../../css/agent-focus.css">
+<link rel="stylesheet" href="../../css/signoffs.css">
+<link rel="stylesheet" href="../../css/attention-review.css">
+<link rel="stylesheet" href="../../css/chat-view.css">
+<link rel="stylesheet" href="../../css/theme-light.css">
+<style>body{margin:0;padding:16px;width:560px;background:var(--bg)}.ref{margin-bottom:14px}</style>
+<div class="agpad"><div class="tbody"><div class="agfocus agfocus-surface-open" style="height:500px;width:560px;display:flex;flex-direction:column"><section class="agfocus-surface"><div class="agfocus-surface-bar"><button class="agfocus-close" aria-label="Close">× Close</button><span class="agfocus-surface-title">Signoffs</span></div><div class="agfocus-surface-body"><div class="agfocus-expansion-content"></div></div></section></div></div></div>
+<pre id="out" hidden></pre>
+<script src="../../js/safe-links.js"></script>
+<script>
+// Stubs for the dashboard globals the real Signoff renderer expects; signoffs.js and fastmail.js are the real files.
+const state = {agents: [], project: 'demo', projects: [{id: 'b1', slug: 'demo', name: 'Demo'}], session: null};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sjDateTime = d => String(d), aicon = () => '', newRequestId = () => 'req';
+const coreData = r => r.data;
+const calls=[]; let resolveWrite, resolveRead, holdRead=false;
+const post = (url,body) => { if(url==='/root/attention-queue')return Promise.resolve({data:{items:[]}}); calls.push({url,body}); return new Promise(resolve=>{resolveWrite=()=>{const parts=url.split('/'), id=parts.at(-2), action=parts.at(-1); const signoff={...items[id], state:action==='approve'?'approved':action==='respond'?'answered':'rejected',status_revision:2,decision:{at:new Date().toISOString(),feedback:body.feedback,notes:body.notes,selected_choices:body.selected_choices}};items[id]=signoff; resolve({status:'ok',data:{signoff}});};}); };
+const longBody = Array.from({length: 12}, (_, i) => `Line ${i + 1} of the proposed email body.`).join('\n');
+const email = (id, body) => ({id, state: 'pending', category: 'operation', operation_name: 'fastmail_send', review_project_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Send email to Ada', editable_fields: ['subject', 'body'], created_at: new Date(Date.now()-86400000).toISOString(), updated_at: new Date(Date.now()-300000).toISOString(),
+  attention: {blocking:true, reason:'You requested to edit this message before it is sent.', priority_updated_by_name:'Ordubashy'},
+  preview: {rationale: 'Because.', effects: ['Sends 1 message to ada@example.com', 'Records the send'], changes: [{kind: 'structured', resource: {resource_type: 'fastmail_account'}, fields: [
+    {path: 'from_address', after: 'me@example.com'}, {path: 'to', after: ['ada@example.com']}, {path: 'subject', after: 'Quarterly plan'}, {path: 'body', after: body},
+    {path: 'attachments', after: [{filename: 'plan.pdf'}]}]}]}});
+const action = id => ({id, state: 'pending', category: 'operation', operation_name: 'generic_change', review_project_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Archive the old project', rejection_requires_message: true, created_at: new Date().toISOString(),
+  preview: {rationale: 'Cleanup.', effects: ['Archives the project'], changes: [{kind: 'text', resource: 'Project', diff: '-old\n+new', before: 'old', after: 'new'}]}});
+const question = id => ({id, state: 'pending', category: 'input', operation_name: 'input_request', review_project_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Which launch date?', created_at: new Date().toISOString(),
+  input: {explanation: 'Pick one.', selection_mode: 'none', notes_required: true, choices: []}, preview: {changes: []}});
+const AGENT = '3f6c1b9e-2a47-4d1e-9b0c-5e8a7d2c4f10', TAB = 'A1B2C3D4E5F60718293A4B5C6D7E8F90';
+const browser = (id, tab) => ({id, state: 'pending', category: 'input_request', operation_name: 'input_request', review_project_id: 'b1', status_revision: 1, proposal_revision: 1,
+  payload_hash: 'h' + id, actionable: true, title: 'Sign in to Mercury', input_kind: 'browser_action', created_at: new Date().toISOString(), preview: {changes: []},
+  input: {title: 'Sign in to Mercury', explanation: 'Open the tab and sign in with your Mercury account.', kind: 'browser_action', tab: `${AGENT}:${TAB}`, selection_mode: 'single', selection_required: true,
+    notes_required: false, response_policy: 'owner_only', choices: [{id: 'done', label: 'Done', explanation: 'I did it.'}, {id: 'not_done', label: 'Could not do it', explanation: 'I could not.'}]},
+  __tab: tab});
+const tabs = {available: {id: `${AGENT}:${TAB}`, agent_id: AGENT, tab_id: TAB, available: true, label: '<img src=x onerror=window.pwned=1>Log in | Mercury', agent_label: 'Ordubashy <b>'},
+  closed: {id: `${AGENT}:${TAB}`, agent_id: AGENT, tab_id: TAB, available: false, label: null, agent_label: null}, none: undefined};
+const liveMounts = [];
+async function agliveMount(agentId, body, o) {
+  const rec = {agentId, tab: o.tab, disposed: false, body, current: o.current}; liveMounts.push(rec);
+  o.onDispose(() => { rec.disposed = true; });
+  body.innerHTML = '<section class="agfocus-desktop-view aglive"><img class="aglive-screen" alt=""></section>';
+}
+const opened = []; window.agentBrowserOpenTab = (agentId, tabId) => { opened.push([agentId, tabId]); };
+const items = {browser: browser('browser', tabs.available), browsergone: browser('browsergone', tabs.closed), browserbare: browser('browserbare', tabs.none), long: email('long', longBody), short: email('short', 'Hi Ada,\nThanks.'), action: action('action'), small: action('small'), question: question('question')};
+const api = async url => { if(url==='/session')return {status:'ok',data:{principal_kind:'human',is_owner:true,principal_id:'o1'}}; if(url==='/root/attention-queue')return {data:{items:[]}}; if(url.startsWith('/root/signoffs?'))return {data:{items:Object.values(items).filter(s=>s.state==='pending').map(({__tab,...row})=>row)}}; if(holdRead)await new Promise(resolve=>resolveRead=resolve); const found=items[decodeURIComponent(url.split('/').pop())]; if(!found)return {status:'ok',data:{signoff:found}}; const {__tab,...row}=found; return {status:'ok',data:{signoff:__tab?{...row,tab:__tab}:row}}; };
+const globalAgentProfile = () => null, globalAgentProfiles = [1], identityAvatar = () => '', RW_CHAT_ICON = '', SVG_X = '', SVG_CHECK = '', T_VIEW_ICON = {signoffs: ''};
+const taskProjectLabel = () => 'Demo', projectPortraitHtml = () => '';
+</script>
+<script src="../../js/relative-time.js"></script>
+<script src="../../js/chat-view.js"></script>
+<script src="../../js/signoffs.js"></script>
+<script src="../../../../extensions/qorqut-fastmail/qorqut_fastmail/assets/fastmail.js"></script>
+<script>
+const embeddedAgentPane=true;
+let leave, dispose;
+let currentSession;
+window.focusExpansion={async open({title,mount}){
+  if(leave && !await leave())return null;
+  if(currentSession)await currentSession.close();
+  const host=document.querySelector('.agfocus-expansion-content');host.replaceChildren();
+  const shell=host.closest('.agfocus-surface');shell.setAttribute('aria-label',title);shell.querySelector('.agfocus-surface-title').textContent=title;
+  const listeners=[];
+  const session={host,isCurrent:()=>currentSession===session,setTitle(value){shell.querySelector('.agfocus-surface-title').textContent=value},setBeforeLeave(fn){leave=fn},onDispose(fn){listeners.push(fn)},async close(){if(!this.isCurrent() || leave && !await leave())return false;dispose?.();dispose=null;leave=null;currentSession=null;listeners.forEach(fn=>fn());host.replaceChildren();return true}};
+  currentSession=session;dispose=mount(host,session);return session;
+}};
+document.querySelector('.agfocus-close').onclick=()=>currentSession?.close();
+const workRelatedChips=()=>{}, toast=()=>{}, accessLost=()=>false, remAttempts=new Map(), remVerifiedOwner=async()=> 'o1';
+</script><script src="../../js/signoff-attention.js"></script><script>
+items.long.preview.changes[0].fields.find(f=>f.path==='body').after=Array.from({length:80},(_,i)=>'Long synthetic email '+i).join('\n');
+items.action.preview.rationale='Long synthetic text '.repeat(500);
+window.openItem=id=>{return sgFocusOpen('Signoffs',{workspace:()=> 'demo',global:true,execution:true,item:()=>({id,projectId:'b1'})});};
+</script><script>
+window.testHarness={calls,holdRead(){holdRead=true},releaseRead(){holdRead=false;resolveRead?.()},releaseWrite(){resolveWrite?.()},openGeneric(){dispose?.();dispose=null;leave=null;const shell=document.querySelector('.agfocus-surface');shell.setAttribute('aria-label','Reminder');shell.querySelector('.agfocus-surface-title').textContent='Reminder';document.querySelector('.agfocus-expansion-content').replaceChildren(document.createTextNode('Reminder'));}};
+</script>

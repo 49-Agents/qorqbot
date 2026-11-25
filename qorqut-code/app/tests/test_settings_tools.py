@@ -13,7 +13,7 @@ from qorqut.dashboard_preferences import display, testing_mode
 from qorqut.domains.settings_tools import SETTINGS, SHAPES, SettingsTools, check_value
 from qorqut.service.changes import GLOBAL_ONLY_KINDS, _coarse_kinds_for_operation
 
-from test_side_chat_rename import build_runtime, invoke
+from private_thread_runtime import build_runtime, invoke
 
 
 class Keyed:
@@ -198,6 +198,19 @@ class SettingsToolsTests(unittest.TestCase):
         self.assertEqual(self.refused(self.runtime.coordinator, "settings_set", {"setting": "testing_mode", "value": {"on": True}}),
                          "validation_error")
         self.assertEqual(self.switch.calls, [])
+
+    def test_timezone_is_set_through_the_owners_function_and_read_back(self):
+        from qorqut_operations import local_time
+        self.addCleanup(local_time.set_owner_timezone, None)
+        self.assertIn("timezone", SETTINGS)
+        self.assertEqual(self.change("timezone", {"timezone": "America/Puerto_Rico"})["result"],
+                         {"timezone": "America/Puerto_Rico", "source": "owner"})
+        self.assertEqual(local_time.current_timezone(), "America/Puerto_Rico")
+        read = invoke(self.runtime, "settings_get", {"sections": ["display"]}, ctx=self.runtime.coordinator)
+        self.assertEqual(read["display"]["timezone"], {"timezone": "America/Puerto_Rico", "source": "owner"})
+        with self.assertRaises(Exception):
+            self.change("timezone", {"timezone": "Mars/Base"})
+        self.assertEqual(local_time.current_timezone(), "America/Puerto_Rico")
 
     def test_a_change_tells_the_dashboard_to_reread_the_owners_settings(self):
         self.assertEqual(_coarse_kinds_for_operation("settings_set"), {"owner_settings"})

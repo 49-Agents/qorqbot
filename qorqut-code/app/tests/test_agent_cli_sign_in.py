@@ -15,7 +15,9 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from qorqut import agent_cli_sign_in as sign_in
+from qorqut import account_state, agent_cli_sign_in as sign_in
+
+REAL_DEFAULT_METHOD = sign_in.default_method        # the tests below replace ``default_method`` (Linux would pick the device code)
 
 
 def done(code=0, out="", err=""):
@@ -332,6 +334,10 @@ class SignInBase(Base):
         patch.start(); self.addCleanup(patch.stop)
         patch = mock.patch.object(sign_in, "_signal_tree", side_effect=self.signal_tree)
         patch.start(); self.addCleanup(patch.stop)
+        patch = mock.patch.object(sign_in, "default_method", return_value="browser")      # Linux would pick the device code
+        patch.start(); self.addCleanup(patch.stop)
+        sign_in.set_completion_handler(None); account_state.reset_for_tests()
+        self.addCleanup(sign_in.set_completion_handler, None)
         self.commands, self.factory = [], FakeProcess
         self.addCleanup(sign_in.stop_all)        # runs while the fakes are still in place
 
@@ -352,7 +358,7 @@ class ClaudeSignInTest(SignInBase):
         self.assertEqual(state, {"state": "connecting", "reason": None})
         command, options = self.commands[0]
         self.assertEqual(command, ["/fake/claude", "auth", "login", "--claudeai"])
-        self.assertEqual((options["stdin"], options["stderr"]), (subprocess.DEVNULL, subprocess.STDOUT))
+        self.assertEqual((options["stdin"], options["stderr"]), (subprocess.PIPE, subprocess.STDOUT))   # stdin carries the pasted code
         self.assertTrue(hasattr(options["stdout"], "fileno"))        # an unlinked temporary file, not a pipe
         self.assertTrue(options["start_new_session"])
         sign_in._cli_status_cache["old"] = (0, {})
@@ -651,6 +657,239 @@ class CodexSignInTest(SignInBase):
         wait_for(self, lambda: self.opened)
         server.stdout.put({"id": 77, "method": "item/commandExecution/requestApproval", "params": {}})
         wait_for(self, lambda: any(value.get("id") == 77 and "error" in value for value in server.received))
+
+
+class FakeInput:
+    """The standard input of a fake Claude CLI: collects what is written, can fail like a closed pipe."""
+
+    def __init__(self, broken=False):
+        self.data, self.closed, self.broken = b"", False, broken
+
+    def write(self, data):
+        if self.broken:
+            raise BrokenPipeError
+        self.data += data
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+class SwitchSignInTest(SignInBase):
+    """Signing in again on a signed-in product (a switch), the page and code a machine without a browser needs, and what a
+    completed sign-in tells the rest of Qorqbot."""
+
+    def claude(self, **options):
+        stdin = FakeInput(**options)
+        self.factory = lambda: self.with_input(stdin)
+        return stdin
+
+    def with_input(self, stdin):
+        process = FakeProcess()
+        process.stdin = stdin
+        return process
+
+    def say(self, text):
+        os.write(self.commands[0][1]["stdout"].fileno(), text.encode())
+
+    def test_a_signed_in_product_can_sign_in_again_and_the_stored_sign_in_is_left_alone(self):
+        self.credential(); self.account("old@x.y")
+        before = (self.home / ".claude/.credentials.json").read_text()
+        self.claude()
+        sign_in.start_sign_in("claude", environ=self.env)
+        details = sign_in.sign_in_details("claude")
+        self.assertEqual((details["switching"], details["previous_account"]), (True, {"email": "old@x.y", "plan": "max"}))
+        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder())["account"]["email"], "old@x.y")
+        sign_in.cancel_sign_in("claude")                          # cancelling changes nothing
+        self.assertEqual((self.home / ".claude/.credentials.json").read_text(), before)
+        self.assertEqual(sign_in.sign_in_state("claude")["state"], "idle")
+        self.assertEqual(sign_in.sign_in_details("claude")["previous_account"], None)
+
+    def test_a_first_sign_in_is_not_a_switch(self):
+        self.claude()
+        sign_in.start_sign_in("claude", environ=self.env)
+        details = sign_in.sign_in_details("claude")
+        self.assertEqual((details["switching"], details["previous_account"], details["method"]), (False, None, "browser"))
+
+    def test_the_page_the_cli_prints_is_in_the_details_and_only_when_it_is_a_claude_page(self):
+        self.claude()
+        sign_in.start_sign_in("claude", environ=self.env, opener=lambda url: True)
+        self.say("Opening browser to sign in...\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&state=abc\n"
+                 "Paste code here if prompted > ")
+        wait_for(self, lambda: sign_in.sign_in_details("claude")["page_url"])
+        details = sign_in.sign_in_details("claude")
+        self.assertEqual(details["page_url"], "https://claude.com/cai/oauth/authorize?code=true&state=abc")
+        self.assertTrue(details["accepts_code"])
+        self.assertTrue(details["expires_at"] > details["started_at"])
+
+    def test_a_page_of_another_site_is_never_exposed(self):
+        self.claude()
+        sign_in.start_sign_in("claude", environ=self.env)
+        self.say("visit https://evil.example/claude.ai or http://claude.ai/x\n")
+        time.sleep(sign_in.OUTPUT_POLL * 3)
+        self.assertIsNone(sign_in.sign_in_details("claude")["page_url"])
+
+    def test_the_code_is_written_to_the_cli_with_one_newline(self):
+        stdin = self.claude()
+        sign_in.start_sign_in("claude", environ=self.env)
+        sign_in.submit_code("claude", "  abc123#state-xyz \n")
+        self.assertEqual(stdin.data, b"abc123#state-xyz\n")
+        self.assertTrue(sign_in.sign_in_details("claude")["code_submitted"])
+
+    def test_bad_codes_are_refused_and_nothing_is_written(self):
+        stdin = self.claude()
+        sign_in.start_sign_in("claude", environ=self.env)
+        for bad in ("", "   ", "two words", "line\nbreak", "tab\there", "x" * (sign_in.CODE_LIMIT + 1), "bell\x07", None, 12):
+            with self.assertRaises(sign_in.SignInError, msg=repr(bad)[:20]):
+                sign_in.submit_code("claude", bad)
+        self.assertEqual(stdin.data, b"")
+
+    def test_a_code_needs_a_waiting_sign_in_that_takes_one(self):
+        with self.assertRaises(sign_in.SignInError):
+            sign_in.submit_code("claude", "abc")
+        self.factory = lambda: FakeAppServer({"account/login/start": {"loginId": "L", "authUrl": "https://a/b"}})
+        sign_in.start_sign_in("codex", environ=self.env, opener=lambda url: True)
+        with self.assertRaises(sign_in.SignInError):
+            sign_in.submit_code("codex", "abc")
+
+    def test_a_closed_pipe_is_a_plain_error(self):
+        self.claude(broken=True)
+        sign_in.start_sign_in("claude", environ=self.env)
+        with self.assertRaises(sign_in.SignInError) as caught:
+            sign_in.submit_code("claude", "abc")
+        self.assertIn("Start the sign-in again", caught.exception.message)
+
+    def test_the_input_is_closed_when_the_sign_in_ends(self):
+        stdin = self.claude()
+        sign_in.start_sign_in("claude", environ=self.env)
+        self.processes[0].exit(1)
+        wait_for(self, lambda: sign_in.sign_in_state("claude")["state"] == "failed")
+        self.assertTrue(stdin.closed)
+
+    def test_a_failed_switch_keeps_the_old_account_and_records_no_switch(self):
+        self.credential(); self.account("old@x.y")
+        self.claude()
+        sign_in.start_sign_in("claude", environ=self.env)
+        self.processes[0].exit(1)
+        wait_for(self, lambda: sign_in.sign_in_state("claude")["state"] == "failed")
+        self.assertIsNone(account_state.switch("claude"))
+        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder())["account"]["email"], "old@x.y")
+
+    def test_a_completed_switch_records_before_and_after_and_tells_the_handler(self):
+        self.credential(); self.account("old@x.y")
+        told = []
+        sign_in.set_completion_handler(lambda provider, entry: told.append((provider, entry)))
+        self.claude()
+        sign_in.start_sign_in("claude", environ=self.env)
+        self.account("new@x.y")                                   # what the CLI writes when the new sign-in completes
+        self.processes[0].exit(0)
+        wait_for(self, lambda: told)
+        provider, entry = told[0]
+        self.assertEqual((provider, entry["previous_account"]["email"], entry["account"]["email"], entry["changed"], entry["state"]),
+                         ("claude", "old@x.y", "new@x.y", True, "restarting"))
+        self.assertEqual(account_state.switch("claude")["account"]["email"], "new@x.y")
+
+    def test_the_same_account_again_is_not_a_change(self):
+        self.credential(); self.account("same@x.y")
+        sign_in.start_sign_in("claude", environ=self.env)
+        self.processes[0].exit(0)
+        wait_for(self, lambda: account_state.switch("claude"))
+        entry = account_state.switch("claude")
+        self.assertEqual((entry["changed"], entry["state"]), (False, "done"))         # no handler set: nothing is restarting
+
+    def test_a_handler_that_raises_ends_the_switch_as_done(self):
+        def broken(provider, entry):
+            raise RuntimeError("boom")
+        sign_in.set_completion_handler(broken)
+        sign_in.start_sign_in("claude", environ=self.env)
+        self.processes[0].exit(0)
+        wait_for(self, lambda: (account_state.switch("claude") or {}).get("state") == "done")
+
+    def test_a_completed_sign_in_ends_the_limit_of_the_product(self):
+        account_state.observe_turn("claude", "usage_limit", None, "later", "2026-11-24T10:00:00Z", "error")
+        self.assertTrue(account_state.limit("claude")["reached"])
+        sign_in.start_sign_in("claude", environ=self.env)
+        self.processes[0].exit(0)
+        wait_for(self, lambda: account_state.switch("claude"))
+        self.assertFalse(account_state.limit("claude")["reached"])
+
+    def test_the_method_must_suit_the_product(self):
+        with self.assertRaises(sign_in.SignInError):
+            sign_in.start_sign_in("claude", environ=self.env, method="device_code")
+        with self.assertRaises(sign_in.SignInError):
+            sign_in.start_sign_in("codex", environ=self.env, method="carrier_pigeon")
+
+    def test_the_default_way_is_the_device_code_on_linux_only_for_codex(self):
+        self.assertEqual(REAL_DEFAULT_METHOD("codex", "Linux"), "device_code")
+        self.assertEqual(REAL_DEFAULT_METHOD("codex", "Darwin"), "browser")
+        self.assertEqual(REAL_DEFAULT_METHOD("claude", "Linux"), "browser")
+
+
+class CodexDeviceCodeTest(SignInBase):
+    """Codex on a computer without a browser: ``account/login/start`` with ``chatgptDeviceCode`` gives a page and a short code."""
+
+    def start(self, script, **options):
+        self.factory = lambda: FakeAppServer(script)
+        self.opened = []
+        return sign_in.start_sign_in("codex", environ=self.env, method="device_code",
+                                     opener=lambda url: self.opened.append(url) or True, **options)
+
+    DEVICE = {"type": "chatgptDeviceCode", "loginId": "L9", "userCode": "AB1C-DEFGH", "verificationUrl": "https://auth.openai.com/codex/device"}
+
+    def test_the_page_and_the_code_are_shown_and_no_browser_is_opened(self):
+        self.start({"account/login/start": self.DEVICE})
+        wait_for(self, lambda: sign_in.sign_in_details("codex")["user_code"])
+        details = sign_in.sign_in_details("codex")
+        self.assertEqual((details["method"], details["page_url"], details["user_code"], details["accepts_code"]),
+                         ("device_code", "https://auth.openai.com/codex/device", "AB1C-DEFGH", False))
+        self.assertEqual(self.processes[0].received[-1]["params"], {"type": "chatgptDeviceCode"})
+        self.assertEqual(self.opened, [])
+        with self.assertRaises(sign_in.SignInError):
+            sign_in.submit_code("codex", "AB1C-DEFGH")
+
+    def test_completion_confirms_the_account_and_records_it(self):
+        self.start({"account/login/start": self.DEVICE, "account/read": {"account": {"type": "chatgpt", "email": "n@x.y", "planType": "plus"}},
+                    "_complete": {"loginId": "L9", "success": True, "error": None}})
+        wait_for(self, lambda: account_state.switch("codex"))
+        entry = account_state.switch("codex")
+        self.assertEqual((entry["account"], entry["previous_account"], entry["changed"]),
+                         ({"email": "n@x.y", "plan": "plus"}, None, True))
+        self.assertEqual(sign_in.sign_in_state("codex")["state"], "idle")
+
+    def test_a_switch_reads_the_account_it_replaces_first(self):
+        script = {"account/login/start": self.DEVICE, "account/read": {"account": {"type": "chatgpt", "email": "o@x.y", "planType": "pro"}},
+                  "_complete": {"loginId": "L9", "success": True, "error": None}}
+        with mock.patch.object(sign_in, "codex_status", return_value={"signed_in": True, "account": {}}):
+            self.start(script)
+            wait_for(self, lambda: account_state.switch("codex"))
+        server = self.processes[0]
+        self.assertEqual(server.methods()[:4], ["initialize", "initialized", "account/read", "account/login/start"])
+        self.assertEqual(account_state.switch("codex")["previous_account"], {"email": "o@x.y", "plan": "pro"})
+        self.assertEqual(server.received[2]["params"], {"refreshToken": False})
+
+    def test_a_cancelled_device_login_is_cancelled_at_codex_and_changes_nothing(self):
+        self.start({"account/login/start": self.DEVICE})
+        wait_for(self, lambda: sign_in.sign_in_details("codex")["user_code"])
+        sign_in.cancel_sign_in("codex")
+        server = self.processes[0]
+        wait_for(self, lambda: "account/login/cancel" in server.methods())
+        self.assertIsNone(account_state.switch("codex"))
+
+    def test_a_code_that_is_missing_or_odd_fails_the_sign_in(self):
+        for bad in ({**self.DEVICE, "userCode": ""}, {**self.DEVICE, "userCode": "x" * 100}, {**self.DEVICE, "verificationUrl": "http://a/b"}):
+            self.start({"account/login/start": bad})
+            wait_for(self, lambda: sign_in.sign_in_state("codex")["state"] == "failed")
+            self.assertIsNone(sign_in.sign_in_details("codex")["user_code"])
+            sign_in.cancel_sign_in("codex")
+
+    def test_the_browser_way_still_shows_its_page(self):
+        self.factory = lambda: FakeAppServer({"account/login/start": {"type": "chatgpt", "loginId": "L1", "authUrl": "https://auth.example/login"}})
+        sign_in.start_sign_in("codex", environ=self.env, method="browser", opener=lambda url: True)
+        wait_for(self, lambda: sign_in.sign_in_details("codex")["page_url"])
+        self.assertEqual(sign_in.sign_in_details("codex")["method"], "browser")
+        self.assertIsNone(sign_in.sign_in_details("codex")["user_code"])
 
 
 class WebbrowserTest(unittest.TestCase):

@@ -32,7 +32,7 @@ class QorqbotGuideTest(unittest.TestCase):
 
     def test_it_describes_both_ways_agents_run_and_no_terminal_start_by_the_owner(self):
         text = qorqbot_guide.SKILL
-        for phrase in ("Qorqbot downloads Claude Code and Codex itself", "**Settings > Agents**", "closes after 15 idle minutes",
+        for phrase in ("Qorqbot downloads Claude Code and Codex itself", "**Settings > Model/Provider**", "closes after 15 idle minutes",
                        "**End session**", "stays off until the owner", "**How agents run**", "**Managed sessions (recommended)**",
                        "**Terminals (legacy)**", "the default", "Only the owner can switch", "tmux", "Claude Code agents only",
                        "conversations carry over", "`managed: true`", "nothing starts it by itself",

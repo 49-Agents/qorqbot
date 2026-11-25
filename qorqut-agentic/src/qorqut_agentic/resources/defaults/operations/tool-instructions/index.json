@@ -69,12 +69,12 @@
     {
       "id": "operations-legacy-callers-only-omit-when-using-handle",
       "source": "qorqut-code/app/qorqut/browser/operations.py",
-      "line": 27
+      "line": 29
     },
     {
       "id": "operations-legacy-callers-only-omit-when-using-handle",
       "source": "qorqut-code/app/qorqut/browser/operations.py",
-      "line": 28
+      "line": 29
     },
     {
       "id": "operations-legacy-callers-only-omit-when-using-handle",
@@ -147,18 +147,18 @@
       "line": 28
     },
     {
-      "id": "business-briefing-one-bounded-snapshot-of-a-project-the",
-      "source": "qorqut-code/app/qorqut/domains/business_briefing.py",
+      "id": "project-briefing-one-bounded-snapshot-of-a-project-the",
+      "source": "qorqut-code/app/qorqut/domains/project_briefing.py",
       "line": 18
     },
     {
-      "id": "business-progress-owner-read-all-time-recorded-totals-and",
-      "source": "qorqut-code/app/qorqut/domains/business_progress.py",
+      "id": "project-progress-owner-read-all-time-recorded-totals-and",
+      "source": "qorqut-code/app/qorqut/domains/project_progress.py",
       "line": 29
     },
     {
-      "id": "business-progress-owner-daily-installation-local-counts-across-authorized",
-      "source": "qorqut-code/app/qorqut/domains/business_progress.py",
+      "id": "project-progress-owner-daily-installation-local-counts-across-authorized",
+      "source": "qorqut-code/app/qorqut/domains/project_progress.py",
       "line": 34
     },
     {
@@ -180,21 +180,6 @@
       "id": "dashboard-summary-owner-project-counts-and-fourteen-daily-installation",
       "source": "qorqut-code/app/qorqut/domains/dashboard_summary.py",
       "line": 46
-    },
-    {
-      "id": "dev-tickets-owner-list-system-dev-reports-open-by",
-      "source": "qorqut-code/app/qorqut/domains/dev_tickets.py",
-      "line": 30
-    },
-    {
-      "id": "dev-tickets-owner-close-or-reopen-a-system-dev",
-      "source": "qorqut-code/app/qorqut/domains/dev_tickets.py",
-      "line": 35
-    },
-    {
-      "id": "dev-tickets-read-one-system-dev-report-and-its",
-      "source": "qorqut-code/app/qorqut/domains/dev_tickets.py",
-      "line": 47
     },
     {
       "id": "file-links-build-an-ordinary-link-the-owner-can",
@@ -272,12 +257,12 @@
       "line": 37
     },
     {
-      "id": "compose-the-actual-project-uuid-on-a-business-route",
+      "id": "compose-the-actual-project-uuid-on-a-project-route",
       "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 35
     },
     {
-      "id": "compose-business-on-the-project-route-global-from-the",
+      "id": "compose-project-on-the-project-route-global-from-the",
       "source": "qorqut-code/app/qorqut/domains/projects/compose.py",
       "line": 37
     },
@@ -462,16 +447,6 @@
       "line": 156
     },
     {
-      "id": "incidents-owner-list-bounded-system-dev-incident-summaries",
-      "source": "qorqut-code/app/qorqut/incidents.py",
-      "line": 704
-    },
-    {
-      "id": "incidents-owner-inspect-one-system-dev-incident-and-bounded",
-      "source": "qorqut-code/app/qorqut/incidents.py",
-      "line": 710
-    },
-    {
       "id": "service-list-authorized-management-intake-with-source-links-and",
       "source": "qorqut-code/app/qorqut/management/service.py",
       "line": 41
@@ -507,16 +482,6 @@
       "line": 35
     },
     {
-      "id": "direct-explicit-owner-instruction-in-the-submitting-agent-s",
-      "source": "qorqut-code/app/qorqut/overseer/direct.py",
-      "line": 140
-    },
-    {
-      "id": "operations-read-your-submitted-instruction-exact-review-signoff-and",
-      "source": "qorqut-code/app/qorqut/overseer/operations.py",
-      "line": 111
-    },
-    {
       "id": "operations-read-authorized-overseer-records-and-current-source-availability",
       "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 112
@@ -525,16 +490,6 @@
       "id": "operations-worker-only-output-of-the-scheduled-extraction-program",
       "source": "qorqut-code/app/qorqut/overseer/operations.py",
       "line": 120
-    },
-    {
-      "id": "operations-submit-an-explicit-owner-chat-instruction-as-a",
-      "source": "qorqut-code/app/qorqut/overseer/operations.py",
-      "line": 130
-    },
-    {
-      "id": "operations-read-the-actual-owner-answer-to-your-exact",
-      "source": "qorqut-code/app/qorqut/overseer/operations.py",
-      "line": 131
     },
     {
       "id": "operations-run-an-authorized-overseer-bridge-operation-with-its",
@@ -637,24 +592,24 @@
       "line": 122
     },
     {
-      "id": "full-recovery-registered-hq-git-metadata",
+      "id": "full-recovery-registered-project-git-metadata",
       "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
-      "line": 135
+      "line": 137
     },
     {
-      "id": "full-recovery-registered-hq-git-directory",
+      "id": "full-recovery-registered-project-git-directory",
       "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
-      "line": 139
+      "line": 141
     },
     {
-      "id": "full-recovery-registered-hq-git-common-directory",
+      "id": "full-recovery-registered-project-git-common-directory",
       "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
-      "line": 143
+      "line": 146
     },
     {
-      "id": "full-recovery-registered-hq-git-common-directory",
+      "id": "full-recovery-registered-project-git-common-directory",
       "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
-      "line": 144
+      "line": 146
     },
     {
       "id": "recovery-admin-local-encrypted-recovery-administration-client",
@@ -789,7 +744,7 @@
     {
       "id": "media-operations-optional-local-message-id-from-telegram-history",
       "source": "qorqut-code/extensions/telegram/qorqut_telegram/media_operations.py",
-      "line": 65
+      "line": 33
     },
     {
       "id": "media-operations-send-one-file-or-photo-to-the",
@@ -1022,16 +977,6 @@
       "line": 32
     },
     {
-      "id": "broadcasts-accepted-for-existing-callers-it-adds-no-per",
-      "source": "qorqut-code/qorqut-operations/qorqut_operations/inbox/broadcasts.py",
-      "line": 256
-    },
-    {
-      "id": "messages-default-inbox-terminal-targeted-retired-project-dev-agents",
-      "source": "qorqut-code/qorqut-operations/qorqut_operations/inbox/messages.py",
-      "line": 69
-    },
-    {
       "id": "messages-send-a-durable-internal-message-to-a-scoped",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/inbox/messages.py",
       "line": 71
@@ -1075,6 +1020,26 @@
       "id": "operations-create-a-new-project-an-empty-container-for",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/projects/creation/operations.py",
       "line": 29
+    },
+    {
+      "id": "operations-the-active-parent-project-of-a-new-subproject",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/projects/creation/operations.py",
+      "line": 54
+    },
+    {
+      "id": "move-the-project-to-move-with-its-subprojects",
+      "source": "qorqut-code/app/qorqut/domains/projects/move.py",
+      "line": 36
+    },
+    {
+      "id": "move-the-new-parent-project-or-null-for-the-top",
+      "source": "qorqut-code/app/qorqut/domains/projects/move.py",
+      "line": 38
+    },
+    {
+      "id": "move-owner-and-configured-ordubashy-place-a-project-under-another",
+      "source": "qorqut-code/app/qorqut/domains/projects/move.py",
+      "line": 41
     },
     {
       "id": "associations-existing-tasks-in-this-project-to-relate-the",
@@ -1165,6 +1130,11 @@
       "id": "operations-add-a-label-to-the-shared-tag-catalog",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/tags/operations.py",
       "line": 48
+    },
+    {
+      "id": "operations-pass-a-record-id-alone-its-project-is-found",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/records/locate.py",
+      "line": 32
     },
     {
       "id": "operations-pass-task-id-alone-its-project-is-found",
@@ -1737,7 +1707,7 @@
       "line": 90
     },
     {
-      "id": "operations-list-your-own-notes-with-target-business-id",
+      "id": "operations-list-your-own-notes-with-target-project-id",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
       "line": 91
     },
@@ -1747,7 +1717,7 @@
       "line": 92
     },
     {
-      "id": "operations-create-your-private-note-with-target-business-id",
+      "id": "operations-create-your-private-note-with-target-project-id",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/documents/operations.py",
       "line": 93
     },

@@ -1,7 +1,7 @@
 """Typed authored-area selections, their validation and the representation of a resolved area.
 
 A trusted area provider reads the current registrations inside the history export's own read unit and returns values of
-exactly these four kinds. Values carry exact registered IDs and business slugs, never absolute paths; the host resolves
+exactly these three kinds. Values carry exact registered IDs and project slugs, never absolute paths; the host resolves
 them to folders below the operations root through its own ``resolve_areas`` callable after the read unit has closed.
 Nothing here scans folders, reads tags or guesses a registration, and a duplicate, unsafe or overlapping selection fails
 the snapshot before any file is captured.
@@ -22,7 +22,8 @@ from typing import Any, Union
 from qorqut_operations.contracts import DomainError
 
 MAXIMUM_AREAS = 5_000
-MAXIMUM_EXCLUDED = 64
+# A Project's area also excludes the system folders of the subprojects nested in its folder.
+MAXIMUM_EXCLUDED = 1024
 MAXIMUM_SUBTREE = 512
 
 
@@ -54,34 +55,20 @@ class GlobalAgentFiles:
 
 
 @dataclass(frozen=True)
-class BusinessAgentFiles:
-    """One registered business agent's authored files (``operations/projects/{project}/agents/{agent_id}/files``)."""
+class ProjectFolder:
+    """One registered project's folder: its notes and documents (``operations/projects/{project}``)."""
 
-    business: str
-    agent_id: str
+    project: str
     excluded: tuple[str, ...] = ()
-    kind = "business_agent_files"
+    kind = "project_folder"
 
     @property
     def identifiers(self):
-        return (self.business, self.agent_id)
+        return (self.project,)
 
 
-@dataclass(frozen=True)
-class BusinessHeadquarters:
-    """One registered business's headquarters notes and documents (``operations/projects/{project}/hq``)."""
-
-    business: str
-    excluded: tuple[str, ...] = ()
-    kind = "business_hq"
-
-    @property
-    def identifiers(self):
-        return (self.business,)
-
-
-Area = Union[GlobalFiles, GlobalAgentFiles, BusinessAgentFiles, BusinessHeadquarters]
-AREA_TYPES = (GlobalFiles, GlobalAgentFiles, BusinessAgentFiles, BusinessHeadquarters)
+Area = Union[GlobalFiles, GlobalAgentFiles, ProjectFolder]
+AREA_TYPES = (GlobalFiles, GlobalAgentFiles, ProjectFolder)
 AreaProvider = Callable[[Any], Iterable[Area]]
 
 
@@ -137,7 +124,7 @@ def validate(raw: Iterable[Any], safe_segment: Callable[[str], object]) -> tuple
     seen: dict[str, str] = {}
     for area in areas:
         if type(area) not in AREA_TYPES:
-            raise invalid("Areas are GlobalFiles, GlobalAgentFiles, BusinessAgentFiles or BusinessHeadquarters values")
+            raise invalid("Areas are GlobalFiles, GlobalAgentFiles or ProjectFolder values")
         for identifier in area.identifiers:
             if not isinstance(identifier, str) or not safe_segment(identifier):
                 raise invalid("An area names a registered ID or slug that is not one safe path segment", kind=area.kind)

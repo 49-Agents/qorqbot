@@ -6,10 +6,6 @@ For the downloadable Linux application, use the [native distribution guide](dist
 For a single publication repository, export the exact commit with `tools/export-unified.py`; its output uses the same
 source manifest and preparation contract below.
 
-
-Existing installations retiring the procedural learning engine use the separately reviewed
-[offline learning-removal transition](LEGACY-LEARNING-REMOVAL.md); fresh initialization is not a migration path.
-
 This guide prepares a Qorqbot v1.3 **source tree and Python environments** on one machine and creates one fresh
 instance from them. It has four separate stages; the first two build the code, the third is the owner's
 configuration, and the fourth is one initialization command followed by a start that only the owner performs.
@@ -217,8 +213,7 @@ so; remove it yourself and start again.
 with its operations history and database (every directory 0700, every file 0600; nothing group- or world-readable), one human owner principal and the installation row,
 the packaged shared instructions, the `ordubashy`, `global-worker` and `learning-applier` role sources published
 through the catalog, exactly two registered agents, Ordubashy and the Learning Applier, with Ordubashy as the
-management coordinator, and the system worker principals for the registered background programs. No business
-worker membership, project, conversation, routine, job, provider connection or native product agent is created,
+management coordinator, and the system worker principals for the registered background programs. No project, conversation, routine, job, provider connection or native product agent is created,
 and nothing is contacted.
 
 **The operations-root Git repository** is created last, and only here. The table-history and nightly-history
@@ -274,7 +269,7 @@ due requests retain their own explicit authorization and target-conversation rul
 ### Scheduled Overseer extraction (owner-selected, offline setup)
 
 Initialization registers the system worker identities for every program, including
-`overseer.extraction_due`; it creates no routine, business, conversation, job or schedule slot. A scheduled
+`overseer.extraction_due`; it creates no routine, project, conversation, job or schedule slot. A scheduled
 extraction exists only after the owner selects a saved conversation, a schedule and a timezone and creates one
 Global/root routine through the existing routine operations. No startup or read path creates one.
 
@@ -332,9 +327,8 @@ configuration update. It also retains the exact retired binding under
 original supplier provenance stays readable after the active binding names the new distribution.
 
 An installation whose agents still run in tmux terminals moves to managed sessions with the explicit offline
-`python -m qorqut.migration.managed_cutover <inspect|apply> --instance-root <path>`, run with the service stopped after the
-normal upgrade; see [managed agent sessions](MANAGED-RUNTIME.md#cutover-of-an-older-installation). It refuses on an
-installation set to Terminals (legacy); there, Settings > Agents is the way back to managed sessions.
+`python -m qorqut.migration.managed_cutover <inspect|apply> --instance-root <path>`, run with the service stopped; see [managed agent sessions](MANAGED-RUNTIME.md#cutover-of-an-older-installation). It refuses on an
+installation set to Terminals (legacy); there, Settings > Model/Provider is the way back to managed sessions.
 
 **Private files**, all mode 0600 in `<instance>/config/` (mode 0700):
 

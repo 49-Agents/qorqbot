@@ -118,23 +118,21 @@ class ProjectBadgesTests(unittest.TestCase):
         self.addCleanup(self.db.close)
         self.owner, self.project, self.archived, self.denied = [new_id() for _ in range(4)]
         self.context = InvocationContext(Principal(self.owner, 'human'), source='dashboard',
-            allowed_business_ids=frozenset({self.project, self.archived}), global_capabilities=frozenset({'read_global_context'}))
+            allowed_project_ids=frozenset({self.project, self.archived}), global_capabilities=frozenset({'read_global_context'}))
         with self.db.transaction() as uow:
             uow.repository('principals').insert({'id':self.owner, 'kind':'human', 'display_name':'Example owner'})
             uow.repository('installation').insert({'id':'service', 'installation_id':new_id(), 'owner_principal_id':self.owner})
             for identity, slug in [(self.project, 'example'), (self.archived, 'archived'), (self.denied, 'denied')]:
-                (self.root / 'projects' / slug / 'hq').mkdir(parents=True)
-                uow.repository('businesses').insert({'id':identity, 'slug':slug, 'name':slug.title(), 'workspace':slug,
-                    'hq_path':slug + '/hq', 'config_json':{'one_liner':'Current project description'},
+                (self.root / 'projects' / slug / 'notes').mkdir(parents=True)
+                uow.repository('projects').insert({'id':identity, 'slug':slug, 'name':slug.title(), 'workspace':slug, 'config_json':{'one_liner':'Current project description'},
                     'archived_at':'2026-01-01T00:00:00Z' if identity == self.archived else None})
-                uow.repository('business_memberships', business_id=identity).insert({'principal_id':self.owner, 'is_owner':True})
             for i, (status, archived, kind, snoozed) in enumerate([
                 ('open', False, 'task', None), ('working', False, 'task', None),
                 ('needs_input', False, 'task', '2099-01-01T00:00:00Z'),
                 ('done', False, 'task', None), ('cancelled', False, 'task', None),
                 ('open', True, 'task', None), ('open', False, 'story', None), ('open', False, 'email', None),
             ]):
-                uow.repository('tasks', business_id=self.project).insert({'id':f't{i}', 'title':'Example task',
+                uow.repository('tasks', project_id=self.project).insert({'id':f't{i}', 'title':'Example task',
                     'created_by':self.owner, 'status':status, 'archived':archived, 'snoozed_until':snoozed,
                     'fields_json':{'$task':{'task_type':kind}}})
         ports = SignoffPorts(execution=HostExecution(), peers=HostPeers(), tasks=HostTasks(), references=HostReferences(),
@@ -147,10 +145,10 @@ class ProjectBadgesTests(unittest.TestCase):
 
     def signoff(self, **fields):
         self.sequence += 1
-        values = dict(id=new_id(), review_business_id=self.project, review_scope_kind='business',
+        values = dict(id=new_id(), review_project_id=self.project, review_scope_kind='project',
             proposer_principal_id=self.owner, operation_name='example', operation_version=1, proposal_revision=1,
             payload_hash='hash', change_set=b'{}', preview_json='{}', expected_targets_json='[]', policy_binding_json='{}',
-            affected_scope_json='{"kind":"business"}', state='pending', updated_sequence=self.sequence,
+            affected_scope_json='{"kind":"project"}', state='pending', updated_sequence=self.sequence,
             created_at='2026-01-01T00:00:00Z', updated_at='2026-01-01T00:00:00Z')
         values.update(fields)
         with self.db.transaction() as uow:
@@ -160,16 +158,16 @@ class ProjectBadgesTests(unittest.TestCase):
     def test_live_counts_use_task_type_lifecycle_scope_and_signoff_visibility(self):
         self.signoff()
         # The fixture helper takes overrides without relying on any production write path.
-        for overrides in [dict(state='answered'), dict(category='side_chat'), dict(review_business_id=self.denied),
-                          dict(expected_targets_json=json.dumps([{'resource':{'business_id':self.denied}}]))]:
+        for overrides in [dict(state='answered'), dict(review_project_id=self.denied),
+                          dict(expected_targets_json=json.dumps([{'resource':{'project_id':self.denied}}]))]:
             self.signoff(**overrides)
         result = explorer.directory(self.viewer, [('path', 'projects')])
         projects = {row['name']:row['project'] for row in result['entries']}
         self.assertEqual(projects['example'], {'id':self.project, 'name':'Example', 'description':'Current project description',
-            'open_tasks':3, 'signoffs':1, 'subprojects':None})
+            'open_tasks':3, 'signoffs':1, 'subprojects':0})
         self.assertIsNone(projects['archived'])
         self.assertIsNone(projects['denied'])
-        nested = explorer.directory(self.viewer, [('path', 'projects/example/hq')])
+        nested = explorer.directory(self.viewer, [('path', 'projects/example/notes')])
         self.assertEqual(nested['project'], projects['example'])
         with self.db.transaction() as uow:
             uow.connection.execute("UPDATE tasks SET status='done' WHERE id='t0'")
@@ -180,7 +178,7 @@ class ProjectBadgesTests(unittest.TestCase):
         self.signoff(superseded_by_id=replacement)
         managed = self.signoff(category='input_request')
         self.signoffs.ports = replace(self.signoffs.ports, management=NS(
-            coordinator=lambda *_:None, auto_route_input=lambda *_:None, routing_for=lambda *_:None,
+            coordinator=lambda *_:None, routing_for=lambda *_:None,
             managed_input_sql=f"s.id='{managed}'"))
         self.assertEqual(explorer.project_metadata(self.runtime, lambda _:self.context, {'example'})['example']['signoffs'], 1)
 

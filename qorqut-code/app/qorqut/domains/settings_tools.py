@@ -25,6 +25,7 @@ from dataclasses import replace
 
 from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.application.plans import PlanBuilder, schema
+from qorqut_operations import local_time
 from qorqut_operations.contracts import DomainError, plain
 
 from qorqut.management.identity import configured_ordubashy, installation_owner
@@ -32,7 +33,7 @@ from qorqut.management.identity import configured_ordubashy, installation_owner
 SECTIONS = ("connections", "agents", "display", "about")
 NOTIFY = ("replies", "signoffs", "reminders", "routines")
 SETTINGS = ("extension_key", "agent_options", "agent_client", "agent_run_mode", "agent_folder_trust", "testing_mode",
-            "website_sign_out", "agent_browser", "appearance", "notifications", "account")
+            "website_sign_out", "agent_browser", "appearance", "notifications", "timezone", "account")
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,199}")
 
 GET_DESCRIPTION = (
@@ -46,10 +47,11 @@ SET_DESCRIPTION = (
     "- agent_options: {agent_id, client?: claude or codex, model?, effort?}; null clears a field.\n"
     "- agent_client: {provider: claude or codex, action: download, cancel_download, connect or cancel_connect}.\n"
     "- agent_run_mode: {mode: managed or terminal, force?, trust?}. Ends every session, yours too; needs force true.\n"
-    "- agent_folder_trust: {granted}. testing_mode: {enabled}. Both true or false.\n"
+    "- agent_folder_trust: {granted}. testing_mode: {enabled}. Both true or false. Testing mode off switches the Learning Applier off and sends him nothing.\n"
     "- website_sign_out: {site}. agent_browser: {action: retry}.\n"
     "- appearance: {theme?: dark, light or system, text_size?: small, default or large}.\n"
     "- notifications: {replies?, signoffs?, reminders?, routines?}, each true or false.\n"
+    "- timezone: {timezone: an IANA zone such as America/Puerto_Rico}. The one clock of the whole installation; applies at once.\n"
     "- account: {action: start, email}, {action: verify, email, code, use: personal or work, company?} or {action: sign_out}.\n"
     "Returns setting and result, the new state of what changed.")
 
@@ -78,6 +80,7 @@ SHAPES = {
     "agent_browser": (({"action": _ONE_OF("retry")}, {}),),
     "appearance": (({}, {"theme": _ONE_OF("dark", "light", "system"), "text_size": _ONE_OF("small", "default", "large")}),),
     "notifications": (({}, {kind: _BOOL for kind in NOTIFY}),),
+    "timezone": (({"timezone": _TEXT(64)}, {}),),
     "account": (({"action": _ONE_OF("start"), "email": _TEXT(320)}, {}),
                 ({"action": _ONE_OF("verify"), "email": _TEXT(320), "code": _TEXT(20), "use": _ONE_OF("personal", "work")},
                  {"company": _TEXT(200), "marketing_ok": _BOOL}),
@@ -122,7 +125,7 @@ class SettingsTools:
     def caller(self, ctx, uow) -> str:
         """The installation owner's principal id, after proving the caller is the configured coordinator in person, at Global.
         A delegated identity acts for its parent on one assignment and never touches the owner's settings."""
-        ctx = self.app.current_context(replace(ctx, business_id=None, review_business_id=None), uow)
+        ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         owner, coordinator = installation_owner(uow), configured_ordubashy(uow)
         if (ctx.delegation_assignment_id is not None or not owner or not coordinator or ctx.principal_kind != "agent"
                 or ctx.principal_id != coordinator):
@@ -177,7 +180,7 @@ class SettingsTools:
         from qorqut.agents.global_scope import active_global
         with self.runtime.database.read() as uow:
             rows = uow.connection.execute(
-                "SELECT agent_id,name FROM agent_profiles WHERE home_business_id IS NULL AND status='active' ORDER BY name").fetchall()
+                "SELECT agent_id,name FROM agent_profiles WHERE status='active' ORDER BY name").fetchall()
             return [(row["agent_id"], row["name"]) for row in rows if active_global(uow.connection, row["agent_id"]) is not None]
 
     def _agents(self, owner):
@@ -187,7 +190,7 @@ class SettingsTools:
 
         def clients():
             from qorqut import owner_settings
-            return owner_settings.agent_clients_view()
+            return owner_settings.for_agents(owner_settings.agent_clients_view())
 
         def trust():
             from qorqut import agent_trust
@@ -217,6 +220,7 @@ class SettingsTools:
             fields = display(self._directory(), owner)["fields"]
             return {"appearance": {name: fields[name]["value"] for name in ("theme", "text_size") if name in fields},
                     "notifications": {kind: fields["notify_" + kind]["value"] for kind in NOTIFY if "notify_" + kind in fields},
+                    "timezone": {"timezone": local_time.current_timezone(), "source": local_time.timezone_source()},
                     "note": "Only what you set is listed. Each of the owner's browsers keeps its own choice after applying yours."}
         return self._try(chosen)
 
@@ -294,7 +298,7 @@ class SettingsTools:
 
     def _set_agent_client(self, owner, value):
         from qorqut import owner_settings
-        return owner_settings.agent_clients_action(value["provider"], value["action"])
+        return owner_settings.for_agents(owner_settings.agent_clients_action(value["provider"], value["action"]))
 
     def _set_agent_run_mode(self, owner, value):
         switch = self._part("runtime_switch", "Switching how agents run is not available")
@@ -331,6 +335,10 @@ class SettingsTools:
         from qorqut.dashboard_preferences import display
         display(self._directory(), owner, {"notify_" + kind: on for kind, on in value.items()})
         return self._display(owner)
+
+    def _set_timezone(self, owner, value):
+        from qorqut.dashboard_preferences import operational_timezone
+        return operational_timezone(self._directory(), {"timezone": value["timezone"]})
 
     def _set_account(self, owner, value):
         from qorqut import account as service

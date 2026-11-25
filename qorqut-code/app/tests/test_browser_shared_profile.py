@@ -265,7 +265,7 @@ class AuthorizationTest(SharedProfileTest):
         super().setUp()
         del self.manager._authorize
         names = {ATLAS: "Zed", SCOUT: "Scout", LATER: "Able"}                       # the lead agent is first whatever its name
-        rows = [{"agent_id": agent, "display_name": names[agent], "home_business_id": None, "slug": None}
+        rows = [{"agent_id": agent, "display_name": names[agent], "slug": None}
                 for agent in (ATLAS, SCOUT, LATER)]
         self.runtime.database = SimpleNamespace(read=lambda: nullcontext(SimpleNamespace(connection=SimpleNamespace(
             execute=lambda *_a: SimpleNamespace(fetchall=lambda: rows)))))
@@ -400,7 +400,6 @@ class RoutingTest(SharedProfileTest):
         owner = SimpleNamespace(paths=self.paths, browser_manager=self.manager, browser_access=SimpleNamespace(runtime_directory=lambda: RUNTIME_DIR))
         listed = [{"agent_id": agent, "name": NAMES[agent], "role": "x"} for agent in (ATLAS, SCOUT)]
         with mock.patch.object(setup, "targets", return_value=("owner", listed)), \
-                mock.patch.object(sign_in, "active", return_value=False), \
                 mock.patch.object(setup.managed_chrome, "start"), \
                 mock.patch.object(setup.managed_chrome, "view", return_value={"state": "ready"}):
             view = setup.view(owner)
@@ -520,7 +519,7 @@ class CommandTest(SharedProfileTest):
 
 
 class SignInTest(SharedProfileTest):
-    """The owner's sign-in window opens the Shared browser's profile, whose sites list is the one every agent has."""
+    """The owner's sign-in uses the Shared browser's profile, whose sites list is the one every agent has."""
 
     def setUp(self):
         super().setUp()

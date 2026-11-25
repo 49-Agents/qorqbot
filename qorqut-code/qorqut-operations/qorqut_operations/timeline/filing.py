@@ -101,14 +101,14 @@ def write(connection, item, changes, sources, *, created_by, at):
     kinds = {row['id']: row['kind'] for row in pins['entries']}
     made = {'entries': [], 'questions': [], 'closed': [], 'skipped': []}
     standing = _standing(connection, item)
-    attributes = (item['type'], item['id'], item['business_id'])
+    attributes = (item['type'], item['id'], item['project_id'])
     quotes = json.dumps(sources)
 
     def entry(action, kind, text, **more):
         identity = _short_id(connection, ENTRIES)
         sequence = next_sequence(connection)
         connection.execute(
-            f'INSERT INTO {ENTRIES}(id,item_type,item_id,business_id,sequence,action,kind,text,removes_id,question_id,sources_json,'
+            f'INSERT INTO {ENTRIES}(id,item_type,item_id,project_id,sequence,action,kind,text,removes_id,question_id,sources_json,'
             'refs_json,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             (identity, *attributes, sequence, action, kind, text, more.get('removes_id'), more.get('question_id'), quotes,
              json.dumps(more.get('refs', [])), created_by, at))
@@ -132,7 +132,7 @@ def write(connection, item, changes, sources, *, created_by, at):
         elif action == 'ask':
             identity = _short_id(connection, QUESTIONS)
             connection.execute(
-                f'INSERT INTO {QUESTIONS}(id,item_type,item_id,business_id,text,blocking,raised_by,sources_json,sequence,created_by,created_at) '
+                f'INSERT INTO {QUESTIONS}(id,item_type,item_id,project_id,text,blocking,raised_by,sources_json,sequence,created_by,created_at) '
                 'VALUES(?,?,?,?,?,?,?,?,?,?,?)', (identity, *attributes, change['text'], int(change['blocking']),
                  change.get('raised_by', 'coordinator'), quotes, next_sequence(connection), created_by, at))
             made['questions'].append(identity)

@@ -5,9 +5,10 @@ and from where? It names no bytes and sends nothing. A source is one of two clos
 
 ``{"type": "workspace", "path": "exports/report.pdf"}``
     a relative POSIX path below the caller's own registered workspace, in ``exports/`` or ``downloads/`` only;
-``{"type": "document", "document_id": "<uuid>", "business_id": "<uuid>" | null}``
-    one registered document in an explicit scope (``null`` is Global), of a kind with a canonical reader:
-    ``asset`` (``assets_get``), ``data_upload`` (``data_uploads_get``), ``agent_note`` and the business-owned note
+``{"type": "document", "document_id": "<uuid>"}``
+    one registered document, of a kind with a canonical reader. Its project is found from its id; a ``project_id`` (a project
+    id, or ``null`` for Global) may be given and then has to be the document's own. The kinds and readers are:
+    ``asset`` (``assets_get``), ``data_upload`` (``data_uploads_get``), ``agent_note`` and the project-owned note
     (``notes_get``), and ``content`` and ``context_note`` (``content_get``). Every other kind is refused.
 
 ``authorize`` derives the current principal and scope, applies the canonical reader's own operation authorization and the
@@ -46,10 +47,11 @@ import unicodedata
 
 from qorqut_operations.application.plans import schema
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.records.references import Kind, Ref, References
 
-from qorqut.agents.global_scope import reaches_business
+from qorqut.agents.global_scope import reaches_project
 from qorqut.composition import locations
-from qorqut_operations.documents.business_notes import KIND as BUSINESS_NOTE
+from qorqut_operations.documents.project_notes import KIND as PROJECT_NOTE
 from qorqut.file_viewer import files
 from .media_validation import BIDI_CONTROLS, invalid, validate_filename, validate_sha256
 
@@ -69,14 +71,14 @@ SOURCE_SCHEMA = {
         schema({"type": {"const": "workspace"}, "path": {"type": "string", "minLength": 1, "maxLength": MAX_PATH_CHARS}},
                ("type", "path")),
         schema({"type": {"const": "document"}, "document_id": _UUID_SCHEMA,
-                "business_id": {"anyOf": [_UUID_SCHEMA, {"type": "null"}]}}, ("type", "document_id", "business_id")),
+                "project_id": {"anyOf": [_UUID_SCHEMA, {"type": "null"}]}}, ("type", "document_id")),
     ],
 }
 EXPECTED_SHA256_SCHEMA = {"type": "string", "pattern": "^[0-9a-f]{64}$", "minLength": 64, "maxLength": 64,
                           "description": instruction_text('media-sources-the-lowercase-hexadecimal-sha-256-of-the')}
 
 # Registered kind -> its canonical reader. A kind outside this table is never sent, whatever else may read it.
-READERS = {"asset": "assets_get", "data_upload": "data_uploads_get", "agent_note": "notes_get", BUSINESS_NOTE: "notes_get",
+READERS = {"asset": "assets_get", "data_upload": "data_uploads_get", "agent_note": "notes_get", PROJECT_NOTE: "notes_get",
            "content": "content_get", "context_note": "content_get"}
 _READER_ARGUMENT = {"assets_get": "asset_id", "data_uploads_get": "upload_id", "notes_get": "document_id",
                     "content_get": "document_id"}
@@ -84,6 +86,25 @@ _READER_ARGUMENT = {"assets_get": "asset_id", "data_uploads_get": "upload_id", "
 _HIDDEN_PATH_CATEGORIES = {"Cc", "Cs", "Zl", "Zp"}
 _WORKSPACE_KEYS = {"version", "type", "principal_id", "scope", "workspace", "workspace_root", "path"}
 _DOCUMENT_KEYS = {"version", "type", "principal_id", "scope", "document_id", "document_kind", "reader"}
+
+
+def complete_document_source(application, ctx, arguments, uow):
+    """The arguments with a document source that names no project completed with the project that holds the document.
+
+    This is the ``complete_references`` step of the send operation. The document's id is unique across the installation, and
+    the reader of its kind (``READERS``) decides where the caller may read it. A document that is in Global, that is unknown,
+    or whose project the caller cannot read through that reader stays as given: a source without ``project_id`` names Global."""
+    source = arguments.get("source") if isinstance(arguments, Mapping) else None
+    if not isinstance(source, Mapping) or source.get("type") != "document" or "project_id" in source:
+        return arguments
+    identity = source.get("document_id")
+    row = uow.connection.execute("SELECT kind FROM documents WHERE id=?", (identity,)).fetchone() if isinstance(identity, str) else None
+    reader = READERS.get(row["kind"]) if row is not None else None
+    if reader is None:
+        return arguments
+    shapes = References(Ref(("source",), kind="document", id_key="document_id", absent="keep"),
+                        kinds={"document": Kind("documents", reader, scope_stated=False)})
+    return shapes(application, ctx, arguments, uow)
 
 
 def _changed(message="The authorized source no longer matches its binding"):
@@ -155,7 +176,8 @@ def normalize_workspace_path(path):
 
 
 def parse_source(value):
-    """The normalized, closed source: ``{"type": "workspace", "path"}`` or ``{"type": "document", "document_id", "business_id"}``.
+    """The normalized, closed source: ``{"type": "workspace", "path"}`` or ``{"type": "document", "document_id", "project_id"}``
+    (``project_id`` is ``null`` for Global and when the source names none).
 
     Unknown or missing keys, other types, non-canonical (non lowercase) UUIDs and unsafe paths are ``validation_error``."""
     if not isinstance(value, Mapping):
@@ -165,13 +187,13 @@ def parse_source(value):
         _closed(value, {"type", "path"}, "source")
         return {"type": "workspace", "path": normalize_workspace_path(value["path"])}
     if kind == "document":
-        _closed(value, {"type", "document_id", "business_id"}, "source")
-        document_id, business_id = value["document_id"], value["business_id"]
+        _closed(value, {"type", "document_id"} | ({"project_id"} & set(value)), "source")
+        document_id, project_id = value["document_id"], value.get("project_id")
         if not isinstance(document_id, str) or not _UUID.fullmatch(document_id):
             raise invalid("document_id must be a lowercase UUID", "source.document_id")
-        if business_id is not None and (not isinstance(business_id, str) or not _UUID.fullmatch(business_id)):
-            raise invalid("business_id must be a lowercase UUID, or null for Global", "source.business_id")
-        return {"type": "document", "document_id": document_id, "business_id": business_id}
+        if project_id is not None and (not isinstance(project_id, str) or not _UUID.fullmatch(project_id)):
+            raise invalid("project_id must be a lowercase UUID, or null for Global", "source.project_id")
+        return {"type": "document", "document_id": document_id, "project_id": project_id}
     raise invalid("source.type must be workspace or document", "source.type")
 
 
@@ -394,7 +416,7 @@ class FileSources:
             fresh = self._workspace(ctx, binding["path"], uow)
         else:
             fresh = self._document(ctx, {"type": "document", "document_id": binding["document_id"],
-                                         "business_id": binding["scope"].get("business_id")}, uow)
+                                         "project_id": binding["scope"].get("project_id")}, uow)
         if fresh.binding != binding:
             raise _changed()
         return fresh
@@ -443,10 +465,10 @@ class FileSources:
         binding = {key: (dict(item) if isinstance(item, Mapping) else item) for key, item in value.items()}
         scope = binding["scope"]
         if (not isinstance(binding["principal_id"], str) or not isinstance(scope, dict)
-                or scope.get("kind") not in {"global", "business"}
-                or set(scope) != ({"kind"} if scope.get("kind") == "global" else {"kind", "business_id"})
-                or (scope["kind"] == "business"
-                    and not (isinstance(scope["business_id"], str) and _UUID.fullmatch(scope["business_id"])))):
+                or scope.get("kind") not in {"global", "project"}
+                or set(scope) != ({"kind"} if scope.get("kind") == "global" else {"kind", "project_id"})
+                or (scope["kind"] == "project"
+                    and not (isinstance(scope["project_id"], str) and _UUID.fullmatch(scope["project_id"])))):
             raise invalid("The source binding is not recognized", "binding")
         if kind == "workspace":
             normalize_workspace_path(binding["path"])
@@ -474,41 +496,41 @@ class FileSources:
         paths, connection = self.paths, uow.connection
         candidates = [(None, locations.document_path_at_global(paths, location))]
         candidates += [(row["id"], locations.document_path_at(paths, row, location))
-                       for row in connection.execute("SELECT id, slug FROM businesses")]
-        for business_id, path in candidates:
+                       for row in connection.execute("SELECT id, slug FROM projects")]
+        for project_id, path in candidates:
             if path is not None and connection.execute(
-                    "SELECT 1 FROM documents WHERE business_id IS ? AND path = ?", (business_id, path)).fetchone():
+                    "SELECT 1 FROM documents WHERE project_id IS ? AND path = ?", (project_id, path)).fetchone():
                 raise DomainError("forbidden", "This file is a registered document; send it by its document_id so its "
                                   "read rules apply")
 
     # Document sources
 
-    def _scope(self, ctx, business_id, uow):
-        """``ctx`` selected on one explicit scope, as the engine selects it for a read: Global, or one reachable active business."""
-        if business_id is None:
-            return replace(ctx, business_id=None, review_business_id=None)
-        if business_id not in ctx.allowed_business_ids or not reaches_business(uow.connection, ctx.agent_id, business_id):
-            raise DomainError("not_found", "The business is unavailable")
-        return replace(ctx.select_business(business_id), review_business_id=business_id)
+    def _scope(self, ctx, project_id, uow):
+        """``ctx`` selected on one explicit scope, as the engine selects it for a read: Global, or one reachable active project."""
+        if project_id is None:
+            return replace(ctx, project_id=None, review_project_id=None)
+        if project_id not in ctx.allowed_project_ids or not reaches_project(uow.connection, ctx.agent_id, project_id):
+            raise DomainError("not_found", "The project is unavailable")
+        return replace(ctx.select_project(project_id), review_project_id=project_id)
 
-    def _reader(self, name, business_id):
+    def _reader(self, name, project_id):
         """The canonical reader's descriptor, refused when it is absent or has no such scope."""
         try:
             descriptor = self.app.registry.get(name)
         except DomainError:
             raise DomainError("source_unsupported", f"The {name} reader is not available") from None
         kinds = descriptor.scope_kinds
-        if (business_id is None and not kinds & {"global", "agent_workspace"}) or (
-                business_id is not None and "business" not in kinds):
+        if (project_id is None and not kinds & {"global", "agent_workspace"}) or (
+                project_id is not None and "project" not in kinds):
             raise DomainError("source_unsupported", f"The {name} reader is not available in this scope")
         return descriptor
 
     def _document(self, ctx, source, uow):
-        document_id, business_id = source["document_id"], source["business_id"]
-        scoped = self._scope(ctx, business_id, uow)
+        document_id, project_id = source["document_id"], source["project_id"]
+        scoped = self._scope(ctx, project_id, uow)
         row = self.store.get(scoped, document_id, uow)
-        if row["business_id"] != business_id:
-            # A reference never re-scopes a document: the business must be the document's own, and null means Global.
+        if row["project_id"] != project_id:
+            # A reference never re-scopes a document: the project must be the document's own, and null means Global.
             raise DomainError("not_found", "Document not found")
         kind = row["kind"]
         reader = READERS.get(kind)
@@ -516,14 +538,14 @@ class FileSources:
             raise DomainError("source_unsupported", f"A {kind} document cannot be sent as a Telegram file")
         if row["archived"]:
             raise DomainError("source_archived", "The document is archived")
-        descriptor = self._reader(reader, business_id)
+        descriptor = self._reader(reader, project_id)
         arguments = {_READER_ARGUMENT[reader]: document_id}
         self.app.authorize(scoped, descriptor, (), uow, namespace=self.app.namespace(scoped, descriptor, arguments))
-        business = None if business_id is None else uow.repository("businesses").get(business_id, required=True)
-        root = locations.document_root(self.paths, business, row["path"])
+        project = None if project_id is None else uow.repository("projects").get(project_id, required=True)
+        root = locations.document_root(self.paths, project, row["path"])
         _registered_segments(row["path"])
         binding = {"version": BINDING_VERSION, "type": "document", "principal_id": ctx.principal_id,
-                   "scope": {"kind": "global"} if business_id is None else {"kind": "business", "business_id": business_id},
+                   "scope": {"kind": "global"} if project_id is None else {"kind": "project", "project_id": project_id},
                    "document_id": document_id, "document_kind": kind, "reader": reader}
         return AuthorizedSource("document", str(root), row["path"], self._document_filename(row), binding)
 

@@ -62,15 +62,15 @@ def _is_complete_group(groups, operation_name, targets, namespace) -> bool:
     """Whether the whole expected-target list of this operation is exactly one matching creation group.
 
     Every target is a typed ``ExpectedTarget`` for a distinct declared type and no other, expected absent, with no revision or
-    hash, the same canonical new UUID, and the admission's own business (or Global) scope. A resource namespace is absent or
+    hash, the same canonical new UUID, and the admission's own project (or Global) scope. A resource namespace is absent or
     exactly the canonical admission namespace. Anything else keeps the assignment's record boundary."""
     group = next((item for item in groups if item.operation_name == operation_name), None)
     if group is None or not isinstance(namespace, str):
         return False
     if namespace == "global":
-        business_id = None
-    elif namespace.startswith("business:"):
-        business_id = namespace.removeprefix("business:")
+        project_id = None
+    elif namespace.startswith("project:"):
+        project_id = namespace.removeprefix("project:")
     else:
         return False
     targets = tuple(targets)
@@ -81,7 +81,7 @@ def _is_complete_group(groups, operation_name, targets, namespace) -> bool:
     if len(identities) != 1 or not _canonical_uuid(next(iter(identities))):
         return False
     return all(not target.exists and target.revision is None and target.content_hash is None
-               and target.resource.business_id == business_id and target.resource.namespace in (None, namespace)
+               and target.resource.project_id == project_id and target.resource.namespace in (None, namespace)
                for target in targets)
 
 
@@ -118,27 +118,27 @@ def authorize_delegation(provider, context, descriptor, targets, uow, *, namespa
             or getattr(descriptor, "signoff_category", "internal_change") == "platform_action"):
         raise DomainError("forbidden", "Delegated workers cannot execute owner-only or externally consequential operations")
     scope = assignment["scope_json"]
-    if assignment["business_id"] is not None:
+    if assignment["project_id"] is not None:
         if worker_control:
-            if (assignment["business_id"] not in context.allowed_business_ids
-                    or namespace not in {"global", "business:" + assignment["business_id"]}):
+            if (assignment["project_id"] not in context.allowed_project_ids
+                    or namespace not in {"global", "project:" + assignment["project_id"]}):
                 raise DomainError("forbidden", "Worker control operation is outside its assigned project")
-        elif namespace != "business:" + assignment["business_id"] or context.business_id != assignment["business_id"]:
+        elif namespace != "project:" + assignment["project_id"] or context.project_id != assignment["project_id"]:
             raise DomainError("forbidden", "Delegated operation is outside its exact project scope")
     elif namespace != "global":
-        business_id = namespace.removeprefix("business:") if isinstance(namespace, str) else None
+        project_id = namespace.removeprefix("project:") if isinstance(namespace, str) else None
         agent_config_scope = (operation_name == "agent_config_get"
                               and namespace == "agent:" + (context.agent_id or ""))
         if not agent_config_scope and (not isinstance(namespace, str)
-                or not namespace.startswith("business:")
-                or business_id not in scope.get("allowed_business_ids", ())
-                or business_id not in context.allowed_business_ids):
+                or not namespace.startswith("project:")
+                or project_id not in scope.get("allowed_project_ids", ())
+                or project_id not in context.allowed_project_ids):
             raise DomainError("forbidden", "Delegated operation is outside its approved global project scope")
     if namespace == "global" and scope["kind"] != "global" and not worker_control:
         raise DomainError("forbidden", "Project assignments cannot access global operations")
     record_ids = scope.get("record_ids", {})
     # Only a complete creation group of the trusted assembly skips the record-ID membership below; every check above and the
-    # business boundary of each target still apply to it.
+    # project boundary of each target still apply to it.
     new_group = not worker_control and _is_complete_group(creation_groups, operation_name, targets, namespace)
     for target in targets:
         resource = getattr(target, "resource", target)
@@ -147,10 +147,10 @@ def authorize_delegation(provider, context, descriptor, targets, uow, *, namespa
                     or resource.resource_id != assignment["id"]):
                 raise DomainError("forbidden", "Worker control operations are bound to their own assignment")
             continue
-        if resource.business_id is not None:
-            allowed_businesses = ({assignment["business_id"]} if assignment["business_id"] else
-                set(scope.get("allowed_business_ids", ())) & set(context.allowed_business_ids))
-            if resource.business_id not in allowed_businesses:
+        if resource.project_id is not None:
+            allowed_projects = ({assignment["project_id"]} if assignment["project_id"] else
+                set(scope.get("allowed_project_ids", ())) & set(context.allowed_project_ids))
+            if resource.project_id not in allowed_projects:
                 raise DomainError("forbidden", "Prepared target is outside the assignment project scope")
         if new_group:
             continue
@@ -170,15 +170,15 @@ def authorize_delegation(provider, context, descriptor, targets, uow, *, namespa
                       if key in selectors and isinstance(value, str)]
         scoped_context_reads = provider.context_scoped_reads
         if operation_name == "agent_config_get":
-            requested_business = arguments.get("business_id")
-            if requested_business is not None:
-                if assignment["business_id"] is not None:
-                    in_scope = requested_business == assignment["business_id"]
+            requested_project = arguments.get("project_id")
+            if requested_project is not None:
+                if assignment["project_id"] is not None:
+                    in_scope = requested_project == assignment["project_id"]
                 else:
-                    in_scope = (requested_business in scope.get("allowed_business_ids", ())
-                                and requested_business in context.allowed_business_ids)
-                if (not in_scope or (isinstance(namespace, str) and namespace.startswith("business:")
-                                     and namespace != "business:" + requested_business)):
+                    in_scope = (requested_project in scope.get("allowed_project_ids", ())
+                                and requested_project in context.allowed_project_ids)
+                if (not in_scope or (isinstance(namespace, str) and namespace.startswith("project:")
+                                     and namespace != "project:" + requested_project)):
                     raise DomainError("forbidden", "Agent configuration project is outside the assignment scope")
         links = assignment["links_json"]
         linked_threads = set(links.get("message_threads", ()))

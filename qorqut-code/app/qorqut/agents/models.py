@@ -12,25 +12,19 @@ from qorqut_operations.contracts import ArtifactRef, DomainError, freeze, plain
 from qorqut.catalog.packages import ID, VERSION, validate_policy
 
 
-GLOBAL_CAPABILITIES = frozenset({"coordinate_businesses", "read_global_context", "read_agent_experience", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments", "manage_agentic_layer"})
+GLOBAL_CAPABILITIES = frozenset({"coordinate_projects", "read_global_context", "read_agent_experience", "manage_calendar", "manage_shared_instructions", "publish_roles", "publish_plugins", "manage_global_routines", "manage_ecosystem_agents", "manage_delegated_assignments", "manage_agentic_layer"})
 # Historical grant names that a saved profile may still carry. They authorize nothing, can never be granted, and a stored
 # or inactive record that holds one still parses unchanged.
-RETIRED_GLOBAL_CAPABILITIES = frozenset({"manage_ideas", "manage_business_setup", "read_personal_context", "manage_personal_context", "write_business_strategy"})
+RETIRED_GLOBAL_CAPABILITIES = frozenset({"manage_ideas", "manage_project_setup", "read_personal_context", "manage_personal_context", "write_project_strategy"})
 REFERENCE_SCHEMA = {"type": "object", "additionalProperties": False,
     "required": ["id", "version", "digest"], "properties": {
         "id": ID, "version": VERSION, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}
 
 
 def scope_schema(capabilities):
-    return {"oneOf": [
-        {"type": "object", "additionalProperties": False, "required": ["kind", "business_id"],
-         "properties": {"kind": {"const": "business"}, "business_id": {"type": "string", "format": "uuid"}}},
-        {"type": "object", "additionalProperties": False,
-         "required": ["kind", "allowed_business_ids", "global_capabilities"], "properties": {
-            "kind": {"const": "ecosystem"},
-            "allowed_business_ids": {"type": "array", "items": {"type": "string", "format": "uuid"}, "uniqueItems": True},
-            "global_capabilities": {"type": "array", "items": {"enum": sorted(capabilities)}, "uniqueItems": True}}}
-    ]}
+    return {"type": "object", "additionalProperties": False, "required": ["kind", "global_capabilities"],
+            "properties": {"kind": {"const": "ecosystem"},
+                           "global_capabilities": {"type": "array", "items": {"enum": sorted(capabilities)}, "uniqueItems": True}}}
 
 
 # What a caller may write, and what a saved profile may still hold.
@@ -64,24 +58,14 @@ STORED_PROFILE_SCHEMA = {**PROFILE_SCHEMA, "properties": {**PROFILE_SCHEMA["prop
 @dataclass(frozen=True)
 class AgentScope:
     kind: str
-    business_id: str | None = None
-    allowed_business_ids: tuple[str, ...] = ()
     global_capabilities: tuple[str, ...] = ()
-
-    @property
-    def businesses(self) -> frozenset[str]:
-        return frozenset((self.business_id,)) if self.kind == "business" else frozenset(self.allowed_business_ids)
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> AgentScope:
-        return cls(value["kind"], value.get("business_id"), tuple(value.get("allowed_business_ids", ())),
-                   tuple(value.get("global_capabilities", ())))
+        return cls(value["kind"], tuple(value.get("global_capabilities", ())))
 
     def to_dict(self) -> dict:
-        if self.kind == "business":
-            return {"kind": self.kind, "business_id": self.business_id}
-        return {"kind": self.kind, "allowed_business_ids": list(self.allowed_business_ids),
-                "global_capabilities": list(self.global_capabilities)}
+        return {"kind": self.kind, "global_capabilities": list(self.global_capabilities)}
 
 
 @dataclass(frozen=True)
@@ -104,8 +88,7 @@ class AgentProfile:
         if errors:
             raise DomainError("invalid_profile", errors[0].message)
         data.pop("generated", None)
-        ids = [data["agent_id"], *AgentScope.from_dict(data["scope"]).businesses]
-        if any(str(UUID(item)) != item for item in ids):
+        if str(UUID(data["agent_id"])) != data["agent_id"]:
             raise DomainError("invalid_profile", "Profile IDs must be canonical UUIDs")
         if not data["assignment_brief"].strip() or not data["display_name"].strip():
             raise DomainError("invalid_profile", "Display name and assignment cannot be blank")
@@ -117,9 +100,7 @@ class AgentProfile:
             if registry.metadata(name).owner_only and mode != "deny":
                 raise DomainError("invalid_profile", f"Owner-only operation cannot be granted: {name}")
         data["plugins"] = sorted(data["plugins"], key=lambda item: item["id"])
-        if data["scope"]["kind"] == "ecosystem":
-            data["scope"]["allowed_business_ids"].sort()
-            data["scope"]["global_capabilities"].sort()
+        data["scope"]["global_capabilities"].sort()
         return cls(freeze(data))
 
     @property

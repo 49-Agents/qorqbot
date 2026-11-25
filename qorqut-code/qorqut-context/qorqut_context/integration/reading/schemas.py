@@ -14,6 +14,10 @@ TEXT_LIMIT = (1, 64000, 16000)
 FIND_LIMIT = (1, 100, 20)
 EXPAND_LIMIT = (1, 200, 50)
 CHANGES_LIMIT = (1, 100, 20)
+# The owner's whole-graph overview carries at most this many nodes (most connected first) and edges; past either it
+# reports ``truncated: true`` instead of growing.
+OVERVIEW_NODES = 20000
+OVERVIEW_EDGES = 50000
 # The pinned engine's index returns at most this many hits per query, so a search can be paged this deep.
 MAX_SEARCH_WINDOW = 1000
 
@@ -59,6 +63,7 @@ EXPAND_INPUT = {
     "direction": {"enum": ["out", "in", "both"], "default": "both"},
     "limit": _limit(EXPAND_LIMIT), "cursor": CURSOR,
 }
+OVERVIEW_INPUT = {}
 CHANGES_INPUT = {"ref": RECORD_REF, "limit": _limit(CHANGES_LIMIT), "cursor": CURSOR}
 PERSONAL_INPUT = {"fields": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 200},
                              "maxItems": PERSONAL_FIELDS, "description": instruction_text('schemas-only-these-fields-of-the-owner-s-record')}}
@@ -160,7 +165,10 @@ DEFINITIONS = {
         "handoff_disposition": {"enum": ["prepared", "empty", None]},
         "action": {"oneOf": [{"type": "null"}, object_schema({
             "action_ref": _STRING, "revision_ref": _NULLABLE,
-            "tags": {"type": "array", "items": object_schema({"id": _STRING, "name": _STRING, "business_id": _NULLABLE})}})]}}),
+            "tags": {"type": "array", "items": object_schema({"id": _STRING, "name": _STRING, "project_id": _NULLABLE})}})]}}),
+    "overview_node": object_schema({"id": _ID, "name": _STRING, "type": _STRING,
+                                    "degree": {"type": "integer", "minimum": 0}}),
+    "overview_edge": object_schema({"id": _ID, "from": _ID, "to": _ID, "name": _STRING, "tag": _STRING}),
     "unavailable": object_schema({
         "status": {"enum": ["not_initialized", "unavailable"]}, "revision": {"type": "null"},
         "reason": object_schema({"code": _STRING, "message": _STRING})}),
@@ -195,6 +203,11 @@ FIND_OUTPUT = _output({"query": _STRING, "match": {"enum": ["all_words", "any_wo
 EXPAND_OUTPUT = _output({"origin": _ref("node"), "depth": {"type": "integer", "minimum": 1, "maximum": 3},
                          "direction": {"enum": ["out", "in", "both"]}, "total": {"type": "integer", "minimum": 0},
                          "relationships": {"type": "array", "items": _ref("relationship")}, "page": _ref("page")})
+OVERVIEW_OUTPUT = _output({
+    "totals": object_schema({"nodes": {"type": "integer", "minimum": 0}, "edges": {"type": "integer", "minimum": 0}}),
+    "truncated": {"type": "boolean"},
+    "nodes": {"type": "array", "maxItems": OVERVIEW_NODES, "items": _ref("overview_node")},
+    "edges": {"type": "array", "maxItems": OVERVIEW_EDGES, "items": _ref("overview_edge")}})
 CHANGES_OUTPUT = _output({"total": {"type": "integer", "minimum": 0},
                           "items": {"type": "array", "items": _ref("change_event")}, "page": _ref("page")})
 

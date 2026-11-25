@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-action-recording
 description: Record each atomic completed result once in the canonical action log with actions_record, in at most 20 words, with the correct scope and installation timezone.
+read_for: Recording a completed result in the action log (`actions_record`)
 ---
 
 # Action recording
@@ -23,7 +24,7 @@ optional; the larger task may still be open.
   shorten it rather than splitting one result into several entries.
 - Add evidence when available (`url`, `commit`, `pull_request`, record IDs) and
   `task_id` when the result belongs to a Task. Pass `task_id` alone: the Task is
-  found in any project you can reach, and a `category` and `business_ids` you
+  found in any project you can reach, and a `category` and `project_ids` you
   leave out are taken from it.
 - Ordubashy keeps the books of completed work: every real completed result appears
   once as an Action. The service records a worker's `done` Task closure itself,
@@ -50,7 +51,7 @@ Scope:
 
 - Always choose `category`. Use `global-operational` for shared
   operations not attributed to particular projects, or
-  `business-operational` with `business_ids` naming every currently authorized
+  `project-operational` with `project_ids` naming every currently authorized
   project the work was for. One inaccessible project rejects the whole call.
   `global-systems` and Unclassified are owner-only.
 - A multi-project action's text is shared with each selected project. Keep it

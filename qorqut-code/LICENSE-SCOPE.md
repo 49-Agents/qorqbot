@@ -38,8 +38,10 @@ Third-party packages, vendored assets and separately licensed components retain
 their own copyrights and licenses. Qorqbot's noncommercial condition does not
 apply to those components independently. In particular:
 
-- `biz-dashboard/js/xterm.js` and `biz-dashboard/css/xterm.css` retain their MIT
-  terms; see `biz-dashboard/THIRD-PARTY-NOTICES.md`.
+- `dashboard/js/xterm.js` and `dashboard/css/xterm.css` retain their MIT
+  terms; see `dashboard/THIRD-PARTY-NOTICES.md`.
+- `dashboard/js/vendor/force-graph.min.js` retains its MIT terms (its bundled d3
+  modules are ISC); see `dashboard/THIRD-PARTY-NOTICES.md`.
 - Python dependencies carry their own license files in their wheel metadata.
   Certifi is MPL-2.0; its Python and certificate source files are included in its
   wheel. Preserve their MPL rights and notices.

@@ -8,7 +8,7 @@ from qorqut_operations.history_exports import Integer, TableExport, Text
 
 EXPORTS = (
     TableExport('context_entities', {
-        'business_id': Text(),
+        'project_id': Text(),
         'id': Text(),
         'label': Text(),
         'url': Text(),
@@ -16,5 +16,5 @@ EXPORTS = (
         'revision': Integer(),
         'created_at': Text(),
         'updated_at': Text(),
-    }, ('business_id', 'id')),
+    }, ('project_id', 'id')),
 )

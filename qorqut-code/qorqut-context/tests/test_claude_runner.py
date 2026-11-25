@@ -12,11 +12,13 @@ import unittest
 
 from qorqut_context.claude_runner import ClaudeRunner, runner_for
 from qorqut_context.runner import AppServerRunner, RunnerConfig, RunnerError
+from qorqut_context.usage import AttemptCalls
 
 FIXTURE = r'''
-import json, subprocess, sys
+import json, os, subprocess, sys
 argv = sys.argv[1:]
 open(ARGS, "w").write(json.dumps(argv))
+open(ARGS + ".memory", "w").write(os.environ.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "unset"))
 value = lambda flag: argv[argv.index(flag) + 1] if flag in argv else None
 prompt = sys.stdin.read()
 tools, results = [], []
@@ -90,6 +92,23 @@ class ClaudeRunnerTests(unittest.TestCase):
         log = (root / "run" / "protocol.jsonl").read_text()
         self.assertIn('"tool_call"', log)
 
+    def test_usage_reaches_the_call_receipt_as_native_evidence(self):
+        _, root, _ = self.run_fixture(tools=Tools(), schema={"type": "object"})
+        runner = ClaudeRunner(RunnerConfig(executable=str(root / "bin" / "claude"), model="sonnet", effort="max",
+                                           propagation_timeout=20, bootstrap_timeout=20))
+        (root / "attempt").mkdir()
+        attempt = {"attempt_id": "attempt-1", "event_id": "event-1", "sequence": 1}
+        AttemptCalls(runner, root / "attempt", attempt, {}).run(
+            stage="propagation", instructions="Instructions", payload={"q": 1}, directory=root / "run",
+            tools=Tools(), output_schema={"type": "object"})
+        receipt = json.loads((root / "attempt" / "calls" / "propagation.json").read_text())
+        usage = receipt["usage"]
+        self.assertEqual((usage["input_tokens"], usage["cached_input_tokens"], usage["output_tokens"],
+                          usage["total_tokens"], usage["cost_usd"]), (100, 90, 5, 105, 0.01))
+        self.assertEqual((receipt["evidence"]["usage_scope"], receipt["evidence"]["usage_observed"],
+                          receipt["evidence"]["ignored_updates"]), ("native", True, 0))
+        self.assertEqual((receipt["observed"]["thread_id"], receipt["observed"]["turn_id"]), ("session-1", "session-1"))
+
     def test_cli_gets_no_builtin_tools_settings_or_sessions(self):
         run, root, _ = self.run_fixture(tools=Tools(), schema={"type": "object"})
         run()
@@ -103,6 +122,7 @@ class ClaudeRunnerTests(unittest.TestCase):
         self.assertEqual(flag("--allowedTools"), "mcp__context__lookup")
         for name in ("--strict-mcp-config", "--no-session-persistence", "-p"):
             self.assertIn(name, argv)
+        self.assertEqual((root / "args.json.memory").read_text(), "1", "Claude Code's own memory is off in a filing run")
 
     def test_bootstrap_without_tools_returns_plain_text(self):
         run, root, _ = self.run_fixture(stage="bootstrap")

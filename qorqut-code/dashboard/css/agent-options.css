@@ -1,0 +1,14 @@
+/* One row per agent in Settings > Model/Provider: client, model and effort (js/agent-options.js). The row is Settings' own (css/settings.css) and the fields are the shared editable-field ones. */
+.ao-list { display: grid; }
+.ao-main { min-width: 0; }
+.ao-name { overflow-wrap: anywhere; }
+.ao-note { margin: 3px 0 0; font-size: 12px; line-height: 1.45; color: var(--fg-3); }
+.ao-note:empty { display: none; }
+.ao-note.is-error { color: var(--warn); }
+.ao-fields { display: flex; align-items: flex-end; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.ao-field { width: 150px; }
+.ao-field:first-child { width: 170px; }
+.ao-field:last-child { width: 100px; }
+.ao-empty, .ao-foot { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.ao-foot { color: var(--fg-3); }
+@media (max-width: 1100px) { .ao-fields { justify-content: flex-start; } }

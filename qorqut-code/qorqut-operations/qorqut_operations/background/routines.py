@@ -25,20 +25,20 @@ class RoutineScheduler:
 
     def tick(self, now):
         now = now.replace(second=0, microsecond=0)
-        queued = []
         self.errors = []
-        # No operation of its own otherwise; the host change feed's coarse
-        # "jobs_routines" kind is the only signal a queued routine run exists
-        # at all, since routine_runs/jobs have no capture trigger.
-        with self.database.transaction(operation="jobs_routines_tick") as uow:
+
+        def body(uow):
+            # A tick refused the writer at its first write runs again from here, so its report starts afresh.
+            queued = []
+            self.errors = []
             Application.ensure_writes_open(uow)
             definitions = [decode_row(row) for row in uow.connection.execute(
                 "SELECT * FROM routines WHERE status='active' ORDER BY created_at,id LIMIT 2001")]
             if len(definitions) > 2000:
                 raise DomainError("result_too_large", "Routine scheduler exceeds its configured definition bound")
-            businesses = frozenset(row[0] for row in uow.connection.execute("SELECT id FROM businesses WHERE archived_at IS NULL"))
+            projects = frozenset(row[0] for row in uow.connection.execute("SELECT id FROM projects WHERE archived_at IS NULL"))
             for row in definitions:
-                if row["business_id"] is not None and row["business_id"] not in businesses:
+                if row["project_id"] is not None and row["project_id"] not in projects:
                     continue
                 if row["metadata_json"].get("retired"):
                     continue
@@ -49,19 +49,17 @@ class RoutineScheduler:
                     program.validate(row["arguments_json"])
                     worker_id = self.operations.authority.worker_id(row["job_kind"], uow)
                     self.operations.authority.require_worker(worker_id, None, uow)
-                    memberships = frozenset(item[0] for item in uow.connection.execute(
-                        "SELECT business_id FROM business_memberships WHERE principal_id=? AND active=1", (worker_id,)))
                     context = InvocationContext(Principal(worker_id, "system", "Routine program"), source="worker",
-                        business_id=row["business_id"], allowed_business_ids=businesses & memberships)
+                        project_id=row["project_id"], allowed_project_ids=projects)
                     targets = [target for target in self.operations.targets(context, row, uow)
-                        if target is None or target in context.allowed_business_ids]
-                    # The saved target itself must suit the program, even when no business is currently reachable.
-                    kinds = {"global" if row["target"] == "root" else "business", *("business" if target else "global" for target in targets)}
+                        if target is None or target in context.allowed_project_ids]
+                    # The saved target itself must suit the program, even when no project is currently reachable.
+                    kinds = {"global" if row["target"] == "root" else "project", *("project" if target else "global" for target in targets)}
                     if not kinds <= set(program.scope_kinds):
                         raise DomainError("forbidden", "Routine program does not support its registered target")
                     slot = self.due(row, now)
                 except (DomainError, RoutineError) as exc:
-                    self.errors.append({"business_id": row["business_id"], "namespace": row["namespace"],
+                    self.errors.append({"project_id": row["project_id"], "namespace": row["namespace"],
                         "routine_id": row["id"], "error": str(exc)})
                     continue
                 slot_text = stamp(slot)
@@ -74,7 +72,7 @@ class RoutineScheduler:
                     prior = repo.get(key)
                     job_id = (prior or {}).get("state_json", {}).get("job_id")
                     if job_id:
-                        job = uow.repository("jobs", business_id=target).get(job_id)
+                        job = uow.repository("jobs", project_id=target).get(job_id)
                         if job and job["state"] in {"queued", "running", "applying", "waiting_signoff", "cancel_requested"}:
                             pending = True
                     if prior and prior["schedule_revision"] == version and prior["state_json"].get("done") is False and not job_id:
@@ -116,4 +114,14 @@ class RoutineScheduler:
                     repo.update(key, {"slot": fire, "wall_slot": fire_wall,
                         "state_json": {"job_id": job_id, "done": False, "missed": missed, "missed_capped": capped}}, expected_revision=prior["revision"])
                     queued.append(job_id)
-        return queued
+            return queued
+
+        # No operation of its own otherwise; the host change feed's coarse
+        # "jobs_routines" kind is the only signal a queued routine run exists
+        # at all, since routine_runs/jobs have no capture trigger.
+        # The tick runs every few seconds and usually finds nothing due, so it
+        # takes SQLite's writer only from its first real change; until then it
+        # holds no other writer up. Everything before that change is a read (and
+        # this object's report), so a tick refused the writer there can simply
+        # run again in an ordinary write unit.
+        return self.database.write_if_needed(body, operation="jobs_routines_tick")

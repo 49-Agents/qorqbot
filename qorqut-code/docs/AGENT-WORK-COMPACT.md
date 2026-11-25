@@ -14,7 +14,7 @@ the current-work list into a progress history. Review and update timing is uncha
 for an agent's own session. It returns the current `work_revision`, canonical
 visible work items and parallel `item_keys`. The exact-read `items` use the
 same fields accepted by the legacy full-list write. The read still filters
-items whose business or task is no longer readable. In that case, `items_complete` and
+items whose project or task is no longer readable. In that case, `items_complete` and
 `items_replacement_safe` are false; do not use the returned items as a full-list
 replacement. A focused read does not expose another agent's session, and it
 does not change the normal team activity listing.
@@ -28,10 +28,9 @@ accepts a small `patch` array when only some items changed:
   "expected_work_revision": 4,
   "patch": [
     {"action": "replace", "item_key": "<key from the focused read>",
-     "item": {"business_id": "<business UUID>", "task_id": "<task ID>",
+     "item": {"task_id": "<task ID>",
               "summary": "Verify the handoff"}},
-    {"action": "add", "item": {"business_id": null,
-                                  "summary": "Review the Global handoff"}}
+    {"action": "add", "item": {"summary": "Review the Global handoff"}}
   ]
 }
 ```

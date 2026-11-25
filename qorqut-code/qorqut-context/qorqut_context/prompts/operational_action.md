@@ -15,19 +15,19 @@ cannot fill gaps in the official record.
 
 The host binds one stable action reference, its context source, its revision,
 its immutable revision tag snapshots, and its add/edit/remove operation. Tags
-contain id, name and a nullable business_id. They group operational records;
+contain id, name and a nullable project_id. They group operational records;
 they are not graph subjects or evidence of relationships. Never create graph
 nodes from tags. These linking fields are not evidence hashes.
 When present, private_context.action_metadata contains the exact
-Action revision's occurred, refs, business_ids, recorded_at and withdrawn fields.
+Action revision's occurred, refs, project_ids, recorded_at and withdrawn fields.
 Use these alongside the short text before deciding that evidence is missing.
 private_context is given to you for interpretation only; it is not published
 with this event or its source. Record what it supports about identity, timing
 and effects, and do not copy excerpt passages into graph records, notes,
 questions or the handoff note.
-business_ids associate the operational record with projects; they do not establish
+project_ids associate the operational record with projects; they do not establish
 ownership, employment, a graph relationship, or permission. Match existing graph
-identities from supported evidence; an opaque business ID alone is not a new entity.
+identities from supported evidence; an opaque project ID alone is not a new entity.
 refs preserve supplied URLs, commits, pull requests, signoffs and other evidence
 identifiers. Keep their exact values and do not request a link already supplied.
 A reference alone does not prove the contents or outcome of its target.
@@ -62,8 +62,8 @@ without being recreated in the current graph.
 
 If no suitable subject is identifiable, stage an explicit empty association list.
 The Action remains retrievable through published action history and its tags;
-global history selects revisions with no linked business tag. There is no
-mandatory business subject. Do not invent a task, asset, anonymous person, or
+global history selects revisions with no linked project tag. There is no
+mandatory project subject. Do not invent a task, asset, anonymous person, or
 deliverable merely to give the action a subject.
 History-only association needs no dummy graph put or artificial support update.
 

@@ -2,7 +2,7 @@
 
 An Action is one completed result in one owning namespace. ``actions_record`` keeps its v1 arguments (and adds tags and
 Context pointers); an owner or the original recorder corrects or withdraws it as the next immutable revision, and every
-accepted revision is queued for Context in the same transaction (see ``writer``). Reads follow business links, never
+accepted revision is queued for Context in the same transaction (see ``writer``). Reads follow project links, never
 the storage namespace, exactly as in v1, and a withdrawn Action stays readable with its history.
 
 ``actions_record`` may link one Task by ``task_id``. The owner and global agents record in Global whatever project the
@@ -10,7 +10,7 @@ work was for, so their Task is found by its id anywhere in their reach (``linked
 leave out are taken from it (``classified``); a caller recording in its own project links a Task of that project.
 
 An Action's discussion is the canonical item discussion (``qorqut_operations.discussion``). ``actions_thread_get`` is
-authorized exactly like ``actions_get``, retained business read links included. ``actions_comment`` is a separate
+authorized exactly like ``actions_get``, retained project read links included. ``actions_comment`` is a separate
 mutation that needs its own policy and participation in the Action's owning namespace (an active human member, or the
 owner for Global, or an active global agent invoking in that namespace): a read link is never a write.
 A comment writes one ``thread_messages`` row, the commenter's (and a relay's represented speaker's) default follow and
@@ -26,6 +26,7 @@ import uuid
 
 from qorqut_operations import local_time
 from qorqut_operations.actions import models
+from qorqut_operations.actions.lookup import ActionLookup
 from qorqut_operations.actions.ports import require_on_revision
 from qorqut_operations.actions.schema import CATEGORIES
 from qorqut_operations.actions.scope import (action_namespace, change_namespace, classification_from_task, classify, evidence_visible,
@@ -35,7 +36,7 @@ from qorqut_operations.application.catalog import CatalogContribution
 from qorqut_operations.application.plans import (DATE, IDENTITY, PAGE, TEXT, UNSET, UUID, PlanBuilder, apply_records,
                                                  page_position, ref, require_revision, schema, utc_clock)
 from qorqut_operations.application.registry import CatalogEntry, OperationDescriptor
-from qorqut_operations.business_lifecycle import active_business_ids
+from qorqut_operations.project_lifecycle import active_project_ids
 from qorqut_operations.contracts import DomainError, canonical_bytes, plain
 from qorqut_operations.global_agents import is_coordinator
 from qorqut_operations.conversations import SUMMARY, participants
@@ -57,8 +58,8 @@ ACTION_ENTRIES = (
     *(CatalogEntry(name, True, "records") for name in ACTION_MUTATIONS),
     CatalogEntry(ACTION_FOLLOW, False, "records"),
 )
-ACTION_ID = {"type": "string", "minLength": 1, "maxLength": 300}
-BUSINESS_IDS = {"type": "array", "items": UUID, "maxItems": 50, "uniqueItems": True}
+ACTION_ID = IDENTITY
+PROJECT_IDS = {"type": "array", "items": UUID, "maxItems": 50, "uniqueItems": True}
 RECORD_DESCRIPTION = (
     instruction_text('operations-record-one-atomic-completed-result-not-a-task') + models.SHARING)
 DELEGATION_DESCRIPTION = (
@@ -74,8 +75,6 @@ COMMENT_DESCRIPTION = (
     instruction_text('operations-add-a-comment-to-an-action-s-discussion'))
 FOLLOW = schema({"action_id": ACTION_ID, "following": {"type": "boolean"}}, ("action_id", "following"))
 COMMENT_EVENT = "note_added"
-# The most scopes named when a linked Task's id is held in several (an id reused before ids were unique).
-CANDIDATES = 20
 
 
 class ActionOperations:
@@ -97,9 +96,9 @@ class ActionOperations:
         return CatalogContribution("actions", ACTION_ENTRIES, self.descriptors())
 
     def descriptors(self):
-        common = dict(scope_kinds=frozenset({"business", "global"}), global_capability="read_global_context",
+        common = dict(scope_kinds=frozenset({"project", "global"}), global_capability="read_global_context",
                       resolve_namespace=action_namespace)
-        filters = {**PAGE, "since": DATE, "until": DATE, "business": UUID, "performer": UUID, "tags": LABELS_SCHEMA,
+        filters = {**PAGE, "since": DATE, "until": DATE, "project": UUID, "performer": UUID, "tags": LABELS_SCHEMA,
                    "categories": {"type": "array", "items": {"enum": [*CATEGORIES, "unclassified"]}, "uniqueItems": True, "maxItems": 4},
                    "origins": {"type": "array", "items": {"enum": list(models.ORIGINS)}, "uniqueItems": True, "maxItems": 4},
                    "include_withdrawn": {"type": "boolean"}}
@@ -116,15 +115,15 @@ class ActionOperations:
                        for name, properties, required, description in reads]
         optional = {"tags": LABELS_SCHEMA, "related_objects": models.RELATED_OBJECTS, "evidence": models.EVIDENCE}
         descriptors.append(OperationDescriptor("actions_record", schema({
-            "text": models.ACTION_TEXT, "category": {"enum": list(CATEGORIES)}, "business_ids": BUSINESS_IDS,
+            "text": models.ACTION_TEXT, "category": {"enum": list(CATEGORIES)}, "project_ids": PROJECT_IDS,
             "real_time": local_time.REAL_TIME_SCHEMA, "task_id": IDENTITY, "performed_by": UUID, "relay": RELAY, **optional,
             "delegation_assignment_id": {**UUID, "description": DELEGATION_DESCRIPTION}, "rationale": TEXT}, ("text",)),
             **common, description=RECORD_DESCRIPTION, prepare=self.prepare_record, apply=self.apply,
             validate_targets=self.validate_record))
-        changing = {**common, "resolve_namespace": change_namespace}
+        changing = {**common, "resolve_namespace": change_namespace, "locate_scope": ActionLookup()}
         descriptors.append(OperationDescriptor("actions_correct", schema({
             "action_id": ACTION_ID, "text": models.ACTION_TEXT, "category": {"anyOf": [{"enum": list(CATEGORIES)}, {"type": "null"}]},
-            "business_ids": BUSINESS_IDS, "real_time": {"anyOf": [local_time.REAL_TIME_SCHEMA, {"type": "null"}]}, **optional,
+            "project_ids": PROJECT_IDS, "real_time": {"anyOf": [local_time.REAL_TIME_SCHEMA, {"type": "null"}]}, **optional,
             "rationale": TEXT}, ("action_id",)), **changing, description=CORRECT_DESCRIPTION, prepare=self.prepare_correct,
             apply=self.apply, validate_targets=self.validate_change))
         descriptors.append(OperationDescriptor("actions_withdraw", schema({"action_id": ACTION_ID, "rationale": TEXT}, ("action_id",)),
@@ -146,7 +145,7 @@ class ActionOperations:
             return local_time.recorded_time(builder.at)
         return local_time.parse_real_time(real_time, self.clock)
 
-    def delegation(self, ctx, uow, args, category, businesses):
+    def delegation(self, ctx, uow, args, category, projects):
         """The verified assignment whose result this records, or None for the caller's own work."""
         requested = args.get("delegation_assignment_id")
         worker = ctx.delegation_assignment_id
@@ -170,14 +169,14 @@ class ActionOperations:
             if recorded:
                 raise DomainError("conflict", "This assignment's result is already recorded")
         scope = assignment["scope_json"]
-        allowed = {assignment["business_id"]} if scope.get("kind") == "business" else set(scope.get("allowed_business_ids", []))
-        if (scope.get("kind") == "business" and category != "business-operational") or not set(businesses) <= allowed:
+        allowed = {assignment["project_id"]} if scope.get("kind") == "project" else set(scope.get("allowed_project_ids", []))
+        if (scope.get("kind") == "project" and category != "project-operational") or not set(projects) <= allowed:
             raise DomainError("forbidden", "The action is outside the delegated assignment's project scope")
         return assignment
 
     @staticmethod
     def find(uow, action_id):
-        return decode_row(uow.connection.execute("SELECT * FROM action_logs WHERE action_key=?", (action_id,)).fetchone())
+        return decode_row(uow.connection.execute("SELECT * FROM action_logs WHERE id=?", (action_id,)).fetchone())
 
     def linked_task(self, ctx, uow, args):
         """The stored Task that ``task_id`` names, or ``None`` when the record links none.
@@ -185,45 +184,32 @@ class ActionOperations:
         A caller that records in its own project links a Task of that project, and a delegated worker one of the Action's
         own scope, as before. The owner and a global agent record in Global whatever project the work was for, so their
         Task is looked for in their whole reach (``TaskLookup.find``: Global, and every allowed project where they may read
-        Tasks). An id held in several of those scopes means the one the call names, a project in ``business_ids`` or
-        Global by ``category`` global-operational, when it names exactly one; nothing outside the reach is disclosed."""
+        Tasks); nothing outside the reach is disclosed."""
         task_id = args.get("task_id")
         if not task_id:
             return None
         if action_namespace(ctx, {}) != "global" or ctx.delegation_assignment_id is not None:
-            task = uow.repository("tasks", business_id=ctx.business_id).get(task_id)
+            task = uow.repository("tasks", project_id=ctx.project_id).get(task_id)
             if task is None:
                 raise DomainError("validation_error", "Linked task does not exist in this action's workspace",
                                   field_errors={"task_id": "not found"})
             return task
         task_id, places = self.tasks.lookup.find(ctx, uow, task_id)
-        if len(places) > 1:
-            named = set(args.get("business_ids") or ())
-            if args.get("category") == "global-operational":
-                named.add(None)
-            chosen = [place for place in places if place["business_id"] in named]
-            if len(chosen) != 1:
-                raise DomainError(
-                    "validation_error", "This task id is in more than one project; name the project of the one you mean in "
-                    "business_ids (category global-operational for the Global one)",
-                    field_errors={"business_ids": "required: the task id is in more than one project"},
-                    details={"task_id": task_id, "candidates": places[:CANDIDATES]})
-            places = chosen
         if not places:
             raise DomainError("validation_error", "Linked task does not exist, or is in a project outside your reach",
                               field_errors={"task_id": "not found"})
-        return uow.repository("tasks", business_id=places[0]["business_id"]).get(task_id, required=True)
+        return uow.repository("tasks", project_id=places[0]["project_id"]).get(task_id, required=True)
 
     def classified(self, ctx, uow, args):
-        """``(category, businesses, task)`` of a record, when it is prepared and again when its prepared plan is validated.
+        """``(category, projects, task)`` of a record, when it is prepared and again when its prepared plan is validated.
 
         The linked Task is found first, because what a Global recorder left out of the classification is taken from it
         (``classification_from_task``). ``classify`` then authorizes the result exactly as if the caller had passed it."""
         task = self.linked_task(ctx, uow, args)
-        category, business_ids = args.get("category"), args.get("business_ids")
+        category, project_ids = args.get("category"), args.get("project_ids")
         if task is not None and action_namespace(ctx, {}) == "global":
-            category, business_ids = classification_from_task(category, business_ids, task["business_id"])
-        return (*classify(ctx, uow, category, business_ids), task)
+            category, project_ids = classification_from_task(category, project_ids, task["project_id"])
+        return (*classify(ctx, uow, category, project_ids), task)
 
     # -- writes ----------------------------------------------------------------------------------------------------
 
@@ -233,13 +219,13 @@ class ActionOperations:
         if origin not in ("agent", "manual"):
             raise DomainError("forbidden", "Only the owner and registered agents record actions directly")
         text = models.validate_text(args["text"], origin)
-        category, businesses, task = self.classified(ctx, uow, args)
+        category, projects, task = self.classified(ctx, uow, args)
         builder = PlanBuilder(ctx, "actions_record", args, "Record action", clock=self.clock)
         refs = dict(args.get("evidence", {}))
         if task is not None:
-            builder.expect(ref("tasks", task["id"], task["business_id"]), task)
+            builder.expect(ref("tasks", task["id"], task["project_id"]), task)
             refs["task"] = task["id"]
-        assignment = self.delegation(ctx, uow, args, category, businesses)
+        assignment = self.delegation(ctx, uow, args, category, projects)
         performer, identity, provenance = UNSET, None, {"via": "actions_record"}
         if args.get("relay") is not None or args.get("performed_by") not in (None, ctx.principal_id):
             performer, reported = self.reported_performer(ctx, args, uow)
@@ -254,17 +240,17 @@ class ActionOperations:
             provenance["delegation_assignment"] = assignment["id"]
             if ctx.delegation_assignment_id is None:
                 identity = str(uuid.uuid5(models.SOURCE_NAMESPACE, "delegation:" + assignment["id"]))
-        new_action(builder, uow, text=text, category=category, businesses=businesses, origin=origin, refs=refs, performer=performer,
+        new_action(builder, uow, text=text, category=category, projects=projects, origin=origin, refs=refs, performer=performer,
                    occurrence=self.occurrence(builder, args.get("real_time")), tags=args.get("tags", ()),
                    related=args.get("related_objects", ()), identity=identity, provenance=provenance)
         builder.effects.append("Records the action and queues the accepted revision for Context in the same transaction.")
         return builder.build()
 
     def validate_record(self, ctx, plan, uow):
-        # Grants, business authorization, the linked Task's place and delegated provenance are rechecked at apply.
+        # Grants, project authorization, the linked Task's place and delegated provenance are rechecked at apply.
         reader_scope(ctx, uow)
-        category, businesses, _ = self.classified(ctx, uow, plan.arguments)
-        self.delegation(ctx, uow, plan.arguments, category, businesses)
+        category, projects, _ = self.classified(ctx, uow, plan.arguments)
+        self.delegation(ctx, uow, plan.arguments, category, projects)
         if plan.arguments.get("relay") is not None or plan.arguments.get("performed_by") not in (None, ctx.principal_id):
             self.reported_performer(ctx, plan.arguments, uow)
 
@@ -284,7 +270,7 @@ class ActionOperations:
         """The Action a correction or withdrawal changes, checked for visibility, authority and the expected revision."""
         scope = reader_scope(ctx, uow)
         row = self.find(uow, args["action_id"])
-        if row is None or not visible(scope, row, links(uow, row["action_key"])):
+        if row is None or not visible(scope, row, links(uow, row["id"])):
             raise DomainError("not_found", "Action does not exist")
         if not may_change(ctx, uow, row):
             raise DomainError("forbidden", "Only the original recorder, owner or configured coordinator can change an accessible Action in its owning scope")
@@ -296,9 +282,9 @@ class ActionOperations:
     def prepare_correct(self, ctx, args, options, uow):
         row = self.target(ctx, uow, args, options)
         builder = PlanBuilder(ctx, "actions_correct", args, "Correct action", clock=self.clock)
-        current_links = links(uow, row["action_key"])
+        current_links = links(uow, row["id"])
         category = args["category"] if "category" in args else row["category"]
-        category, businesses = classify(ctx, uow, category, args.get("business_ids", current_links if category == "business-operational" else []))
+        category, projects = classify(ctx, uow, category, args.get("project_ids", current_links if category == "project-operational" else []))
         changes = {"category": category}
         if "text" in args:
             changes["action_text"] = models.validate_text(args["text"], models.origin_for(ctx))
@@ -313,7 +299,7 @@ class ActionOperations:
                                     **args["evidence"]}
         if "related_objects" in args:
             changes["related_objects_json"] = models.related_objects(args["related_objects"])
-        change_action(builder, uow, row, operation="edit", changes=changes, businesses=businesses,
+        change_action(builder, uow, row, operation="edit", changes=changes, projects=projects,
                       tags=args.get("tags"), provenance={"via": "actions_correct"})
         builder.effects.append("Corrects the action as its next immutable revision and queues it for Context in the same transaction.")
         return builder.build()
@@ -328,23 +314,22 @@ class ActionOperations:
     def validate_change(self, ctx, plan, uow):
         scope = reader_scope(ctx, uow)
         row = self.find(uow, plan.arguments["action_id"])
-        if row is None or not visible(scope, row, links(uow, row["action_key"])) or not may_change(ctx, uow, row) or row["withdrawn"]:
+        if row is None or not visible(scope, row, links(uow, row["id"])) or not may_change(ctx, uow, row) or row["withdrawn"]:
             raise DomainError("forbidden", "The action can no longer be changed by this caller")
         if plan.operation_name == "actions_correct":
             change = next(change for change in plan.changes if change.resource.resource_type == "action_logs")
             category = plain(change.values).get("category", row["category"])
-            linked = set(links(uow, row["action_key"]))
+            linked = set(links(uow, row["id"]))
             for item in plan.changes:
-                if item.resource.resource_type == "action_businesses":
-                    business = json.loads(item.resource.resource_id)["business_id"]
-                    linked = linked - {business} if item.action == "delete" else linked | {business}
+                if item.resource.resource_type == "action_projects":
+                    project = json.loads(item.resource.resource_id)["project_id"]
+                    linked = linked - {project} if item.action == "delete" else linked | {project}
             classify(ctx, uow, category, sorted(linked))
 
     def apply(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
         settled = settle(ctx, plan, uow, on_revision=self.on_revision)
-        key = settled[0]["action_key"]
-        row = self.find(uow, key)
+        row = self.find(uow, settled[0]["action_id"])
         scope = reader_scope(ctx, uow)
         return {"action": self.view(ctx, uow, row, scope), "revision": settled[0]["revision"], "context_input_id": settled[0]["input_id"],
                 **self.time_view()}
@@ -354,20 +339,20 @@ class ActionOperations:
     def commentable(self, ctx, uow, args):
         """The Action and its discussion item for a comment: readable by the caller AND in the caller's own namespace.
 
-        A business that merely reads a shared Global Action through a retained link cannot write to it."""
+        A project that merely reads a shared Global Action through a retained link cannot write to it."""
         scope = reader_scope(ctx, uow)
         row = self.find(uow, args["action_id"])
-        if row is None or not visible(scope, row, links(uow, row["action_key"])):
+        if row is None or not visible(scope, row, links(uow, row["id"])):
             raise DomainError("not_found", "Action does not exist")
-        item = ThreadItem(row["business_id"], "action", row["id"])
-        if row["business_id"] != ctx.business_id or not can_follow(uow, item, ctx.principal_id):
+        item = ThreadItem(row["project_id"], "action", row["id"])
+        if row["project_id"] != ctx.project_id or not can_follow(uow, item, ctx.principal_id):
             raise DomainError("forbidden", "Only an active participant of an action's owning namespace can discuss it")
         return row, item
 
     def prepare_comment(self, ctx, args, options, uow):
         row, item = self.commentable(ctx, uow, args)
         builder = PlanBuilder(ctx, ACTION_COMMENT, args, "Comment on action", clock=self.clock)
-        builder.expect(ref("action_logs", row["id"], row["business_id"]), row)
+        builder.expect(ref("action_logs", row["id"], row["project_id"]), row)
         plan_comment(ctx, uow, builder, item, note=args["text"], summary=args.get("summary"), refs=args.get("note_refs", []),
                      relay=args.get("relay"), resolve=lambda refs: self.references.resolve(ctx, refs, uow, builder),
                      guard=lambda: reject_owner_team_write(ctx, uow, ACTION_COMMENT))
@@ -382,19 +367,19 @@ class ActionOperations:
         comments = [plain(change.values) for change in plan.changes if change.resource.resource_type == "thread_messages"]
         apply_records(ctx, plan, uow)
         row = self.find(uow, plan.arguments["action_id"])
-        item = ThreadItem(row["business_id"], "action", row["id"])
+        item = ThreadItem(row["project_id"], "action", row["id"])
         for comment in comments:
             auto_follow(uow, item, [comment["recorder_id"]], "commenter")
             if comment["author_id"] != comment["recorder_id"]:
                 auto_follow(uow, item, [comment["author_id"]], "represented")
-        event = emit_event(uow, business_id=row["business_id"], source_type=SOURCE_TYPE, source_id=row["action_key"],
+        event = emit_event(uow, project_id=row["project_id"], source_type=SOURCE_TYPE, source_id=row["id"],
                            source_revision=row["revision"], actor_id=ctx.principal_id, event_type=COMMENT_EVENT,
                            summary=models.one_line(row["action_text"]), optional=followers(uow, item))
         if event is not None:
             attach_event(uow, item, [comment["id"] for comment in comments], event)
-        stored = uow.connection.execute("SELECT * FROM thread_messages WHERE business_id IS ? AND id=?",
-                                        (row["business_id"], comments[0]["id"])).fetchone()
-        return {"action_id": row["action_key"], "thread_id": item.thread_id,
+        stored = uow.connection.execute("SELECT * FROM thread_messages WHERE project_id IS ? AND id=?",
+                                        (row["project_id"], comments[0]["id"])).fetchone()
+        return {"action_id": row["id"], "thread_id": item.thread_id,
                 "message": message_view(dict(stored), uow, self.references.message(ctx, uow))}
 
     # -- follows ---------------------------------------------------------------------------------------------------
@@ -402,15 +387,15 @@ class ActionOperations:
     def prepare_follow(self, ctx, arguments, options, uow):
         scope = reader_scope(ctx, uow)
         row = self.find(uow, arguments["action_id"])
-        if row is None or not visible(scope, row, links(uow, row["action_key"])):
+        if row is None or not visible(scope, row, links(uow, row["id"])):
             raise DomainError("not_found", "Action does not exist")
-        item = ThreadItem(row["business_id"], "action", row["id"])
-        if row["business_id"] != ctx.business_id or not can_follow(uow, item, ctx.principal_id):
+        item = ThreadItem(row["project_id"], "action", row["id"])
+        if row["project_id"] != ctx.project_id or not can_follow(uow, item, ctx.principal_id):
             raise DomainError("forbidden", "Only an active participant of an action's owning namespace can follow it")
         builder = PlanBuilder(ctx, ACTION_FOLLOW, arguments, "Follow action" if arguments["following"] else "Unfollow action", clock=self.clock)
-        builder.expect(ref("action_logs", row["id"], row["business_id"]), row)
+        builder.expect(ref("action_logs", row["id"], row["project_id"]), row)
         key = {"item_type": "action", "item_id": row["id"], "principal_id": ctx.principal_id}
-        existing = uow.repository("thread_follows", business_id=ctx.business_id).get(key)
+        existing = uow.repository("thread_follows", project_id=ctx.project_id).get(key)
         values = {"following": int(arguments["following"]), "explicit": 1, "reason": "explicit", "updated_at": builder.at}
         if existing:
             builder.record("thread_follows", key, existing, values, label="follow")
@@ -422,25 +407,25 @@ class ActionOperations:
     def apply_follow(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
         row = self.find(uow, plan.arguments["action_id"])
-        return {"action_id": row["action_key"], **follow_state(uow, ThreadItem(row["business_id"], "action", row["id"]), ctx.principal_id)}
+        return {"action_id": row["id"], **follow_state(uow, ThreadItem(row["project_id"], "action", row["id"]), ctx.principal_id)}
 
     # -- reads -----------------------------------------------------------------------------------------------------
 
     def time_view(self):
-        return {"timezone": local_time.TIMEZONE, "now": local_time.now_view(self.clock)}
+        return {"timezone": local_time.current_timezone(), "now": local_time.now_view(self.clock)}
 
     # Newest occurrence first. Day-only entries have unknown intra-day order: they sort after that day's timed entries,
     # by identity, never by their midnight anchor.
     ORDER_COLUMNS = ("COALESCE(a.occurred_date,'')", "CASE WHEN a.time_precision='day' THEN 0 ELSE 1 END",
-                     "CASE WHEN a.time_precision='day' THEN '' ELSE COALESCE(a.occurred_at,'') END", "a.action_key")
+                     "CASE WHEN a.time_precision='day' THEN '' ELSE COALESCE(a.occurred_at,'') END", "a.id")
 
     def query_page(self, uow, scope, args, after, limit):
         """Authorized, filtered, cursor-positioned rows in SQL, fetching at most limit+1."""
         clause, parameters = scope_clause(scope)
         where = [clause]
-        if args.get("business") is not None:
-            where.append("EXISTS (SELECT 1 FROM action_businesses f WHERE f.action_key=a.action_key AND f.business_id=?)")
-            parameters.append(args["business"])
+        if args.get("project") is not None:
+            where.append("EXISTS (SELECT 1 FROM action_projects f WHERE f.action_id=a.id AND f.project_id=?)")
+            parameters.append(args["project"])
         if args.get("since"):
             where.append("COALESCE(a.occurred_date,'') >= ?")
             parameters.append(args["since"])
@@ -462,7 +447,7 @@ class ActionOperations:
         if not args.get("include_withdrawn"):
             where.append("a.withdrawn=0")
         for label in distinct_labels(args.get("tags", ())):
-            where.append("EXISTS (SELECT 1 FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.business_id IS a.business_id "
+            where.append("EXISTS (SELECT 1 FROM item_tags i JOIN tags t ON t.id=i.tag_id WHERE i.project_id IS a.project_id "
                          "AND i.item_type='action' AND i.item_id=a.id AND t.label_key=?)")
             parameters.append(label_key(label))
         columns = ", ".join(self.ORDER_COLUMNS)
@@ -491,48 +476,48 @@ class ActionOperations:
             f"SELECT id, kind, display_name FROM principals WHERE id IN ({marks})", identities)}
 
     @staticmethod
-    def businesses(uow, identities):
+    def projects(uow, identities):
         identities = sorted(set(identities))
         if not identities:
             return {}
         marks = ",".join("?" for _ in identities)
         return {row["id"]: {"id": row["id"], "slug": row["slug"], "name": row["name"]} for row in uow.connection.execute(
-            f"SELECT id, slug, name FROM businesses WHERE id IN ({marks})", identities)}
+            f"SELECT id, slug, name FROM projects WHERE id IN ({marks})", identities)}
 
     def view(self, ctx, uow, row, scope, *, row_links=None, people=None, names=None):
-        row_links = links(uow, row["action_key"]) if row_links is None else row_links
-        shown = [business for business in row_links if scope["kind"] == "owner" or business in scope["businesses"]]
+        row_links = links(uow, row["id"]) if row_links is None else row_links
+        shown = [project for project in row_links if scope["kind"] == "owner" or project in scope["projects"]]
         people = people if people is not None else self.principals(uow, (row["performed_by"], row["recorded_by"]))
-        names = names if names is not None else self.businesses(uow, shown)
+        names = names if names is not None else self.projects(uow, shown)
         disclosed = evidence_visible(scope, row, row_links)
         occurred = {"date": row["occurred_date"], "hour": row["occurred_hour"] if row["time_precision"] != "day" else None,
                     "precision": row["time_precision"], "time_zone": row["time_zone"]}
         if row["time_precision"] == "instant":
             occurred["instant"] = row["occurred_at"]
-        return {"action_id": row["action_key"], "text": row["action_text"], "summary": models.one_line(row["action_text"]),
-                "category": row["category"], "businesses": [names.get(business, {"id": business}) for business in shown],
+        return {"action_id": row["id"], "text": row["action_text"], "summary": models.one_line(row["action_text"]),
+                "category": row["category"], "projects": [names.get(project, {"id": project}) for project in shown],
                 "performed_by": people.get(row["performed_by"]), "recorded_by": people.get(row["recorded_by"]),
                 # Without a known performer the recorder is shown as recorded attribution only.
                 "attribution": "performed" if row["performed_by"] else "recorded",
                 "origin": row["origin"], "occurred": occurred, "recorded_at": row["created_at"], "updated_at": row["updated_at"],
                 "revision": row["revision"], "withdrawn": bool(row["withdrawn"]),
                 "can_change": bool(not row["withdrawn"] and may_change(ctx, uow, row) and visible(scope, row, row_links)),
-                "tags": item_labels(uow, row["business_id"], "action", row["id"]) if disclosed else [],
+                "tags": item_labels(uow, row["project_id"], "action", row["id"]) if disclosed else [],
                 "related_objects": row["related_objects_json"] if disclosed else [],
                 "refs": row["refs_json"] if disclosed else {},
-                "legacy": {"business_id": row["business_id"], "id": row["id"]} if disclosed else None}
+                "project_id": row["project_id"] if disclosed else None}
 
     def revision_view(self, ctx, uow, row, scope, revision):
-        stored = uow.repository("action_revisions", business_id=row["business_id"]).get({"action_key": row["action_key"], "revision": revision})
+        stored = uow.repository("action_revisions", project_id=row["project_id"]).get({"action_id": row["id"], "revision": revision})
         if stored is None:
             raise DomainError("not_found", "Action revision does not exist")
-        row_links = links(uow, row["action_key"])
+        row_links = links(uow, row["id"])
         disclosed = evidence_visible(scope, row, row_links)
         snapshot = stored["snapshot_json"]
-        shown = [business for business in snapshot["business_ids"] if scope["kind"] == "owner" or business in scope["businesses"]]
+        shown = [project for project in snapshot["project_ids"] if scope["kind"] == "owner" or project in scope["projects"]]
         people = self.principals(uow, (stored["performed_by"], stored["recorded_by"]))
-        return {"action_id": row["action_key"], "revision": stored["revision"], "operation": stored["operation"],
-                "text": snapshot["text"], "category": snapshot["category"], "origin": snapshot["origin"], "business_ids": shown,
+        return {"action_id": row["id"], "revision": stored["revision"], "operation": stored["operation"],
+                "text": snapshot["text"], "category": snapshot["category"], "origin": snapshot["origin"], "project_ids": shown,
                 "tags": [tag["name"] for tag in snapshot["tag_snapshots"]] if disclosed else [],
                 "related_objects": snapshot["related_objects"] if disclosed else [],
                 "refs": snapshot["refs"] if disclosed else {}, "occurred": snapshot["occurred"], "withdrawn": snapshot["withdrawn"],
@@ -545,47 +530,47 @@ class ActionOperations:
             return self.config_view(ctx, uow, scope)
         if operation == "actions_thread_get":
             row = self.find(uow, args["action_id"])
-            if row is None or not visible(scope, row, links(uow, row["action_key"])):
+            if row is None or not visible(scope, row, links(uow, row["id"])):
                 raise DomainError("not_found", "Action does not exist")
-            item = ThreadItem(row["business_id"], "action", row["id"])
+            item = ThreadItem(row["project_id"], "action", row["id"])
             history = read_messages(uow, item, args, operation, ctx.principal_id, resolve_refs=self.references.message(ctx, uow))
             people = {row["recorded_by"], row["performed_by"], *(message["created_by"] for message in history["messages"])}
-            return {"thread_id": history["thread_id"], "action_id": row["action_key"], "participants": participants(uow, people),
+            return {"thread_id": history["thread_id"], "action_id": row["id"], "participants": participants(uow, people),
                     "messages": history["messages"], "next_cursor": history["next_cursor"]}
         if operation == "actions_get":
             row = self.find(uow, args["action_id"])
-            if row is None or not visible(scope, row, links(uow, row["action_key"])):
+            if row is None or not visible(scope, row, links(uow, row["id"])):
                 raise DomainError("not_found", "Action does not exist")
             if "revision" in args:
                 return {"action": self.revision_view(ctx, uow, row, scope, args["revision"]), **self.time_view()}
             return {"action": self.view(ctx, uow, row, scope), **self.time_view()}
-        business = args.get("business")
-        if business is not None and scope["kind"] != "owner" and business not in scope["businesses"]:
+        project = args.get("project")
+        if project is not None and scope["kind"] != "owner" and project not in scope["projects"]:
             raise DomainError("forbidden", "Project is outside your action scope")
-        binding = ctx.principal_id + ":" + scope["kind"] + ":" + ",".join(sorted(scope["businesses"]))
+        binding = ctx.principal_id + ":" + scope["kind"] + ":" + ",".join(sorted(scope["projects"]))
         binding, after = page_position(args, binding, operation)
         limit = args.get("limit", 50)
         found = self.query_page(uow, scope, args, after, limit)
         selected = [row for row, _ in found[:limit]]
         cursor = (base64.urlsafe_b64encode(canonical_bytes({"binding": binding, "after": found[limit - 1][1]})).decode("ascii")
                   if len(found) > limit else None)
-        keys = [row["action_key"] for row in selected]
+        keys = [row["id"] for row in selected]
         all_links = {key: [] for key in keys}
         if keys:
             marks = ",".join("?" for _ in keys)
-            for row in uow.connection.execute(f"SELECT action_key, business_id FROM action_businesses WHERE action_key IN ({marks}) "
-                                              "ORDER BY business_id", keys):
+            for row in uow.connection.execute(f"SELECT action_id, project_id FROM action_projects WHERE action_id IN ({marks}) "
+                                              "ORDER BY project_id", keys):
                 all_links[row[0]].append(row[1])
         people = self.principals(uow, [value for row in selected for value in (row["performed_by"], row["recorded_by"])])
-        names = self.businesses(uow, [business for row_links in all_links.values() for business in row_links])
-        return {"actions": [self.view(ctx, uow, row, scope, row_links=all_links[row["action_key"]], people=people, names=names)
+        names = self.projects(uow, [project for row_links in all_links.values() for project in row_links])
+        return {"actions": [self.view(ctx, uow, row, scope, row_links=all_links[row["id"]], people=people, names=names)
                             for row in selected], "next_cursor": cursor, **self.time_view()}
 
     def config_view(self, ctx, uow, scope):
-        directory = self.businesses(uow, [business for business in scope["businesses"] if business in active_business_ids(uow.connection)])
-        if scope["kind"] == "business":
-            allowed, default, required = ["business-operational"], "business-operational", False
-            defaults = sorted(scope["businesses"])
+        directory = self.projects(uow, [project for project in scope["projects"] if project in active_project_ids(uow.connection)])
+        if scope["kind"] == "project":
+            allowed, default, required = ["project-operational"], "project-operational", False
+            defaults = sorted(scope["projects"])
         elif scope["kind"] == "ecosystem":
             allowed, default, required, defaults = list(models.GLOBAL_AGENT_CATEGORIES), None, True, []
         else:
@@ -593,13 +578,13 @@ class ActionOperations:
         return {"categories": [{"id": category, "label": category} for category in CATEGORIES],
                 "unclassified": "Unclassified (no category) is available for owner capture only",
                 "agent_word_limit": models.AGENT_WORD_LIMIT, "text_max_characters": models.TEXT_LIMIT,
-                "real_time": {"formats": ["YYYY-MM-DD", "YYYY-MM-DDTHH"], "zone": local_time.TIMEZONE,
+                "real_time": {"formats": ["YYYY-MM-DD", "YYYY-MM-DDTHH"], "zone": local_time.current_timezone(),
                               "omitted": "now (server clock)", "future": "rejected",
                               "nonexistent_hour": "rejected", "repeated_hour": "first occurrence"},
                 "sharing": models.SHARING, "tags": {"source": "catalog", "operation": "tags_list"},
                 "scope": {"kind": scope["kind"], "allowed_categories": allowed, "default_category": default,
-                          "category_required": required, "default_business_ids": defaults,
-                          "businesses": sorted(directory.values(), key=lambda item: (item["name"] or "", item["id"])),
+                          "category_required": required, "default_project_ids": defaults,
+                          "projects": sorted(directory.values(), key=lambda item: (item["name"] or "", item["id"])),
                           "can_change_own": True, "owner": scope["kind"] == "owner" and is_owner(ctx, uow)},
                 **self.time_view()}
 

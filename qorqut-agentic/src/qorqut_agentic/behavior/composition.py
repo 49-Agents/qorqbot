@@ -14,11 +14,8 @@ LEADING_ORIENTATION = ("software-ownership", "startup")
 COMMON_ORIENTATION = ("completion-report", "thread-replies", "owner-decisions", "trusted-handoffs")
 CAPABILITIES = (
     (('viewbox_place',), 'viewbox-guidance'),
-    (('environment_set',), 'environment-set'),
-    (('environment_get',), 'environment-get'),
     (('operations_batch',), 'operation-batches'),
     (('tasks_overview',), 'task-overview'),
-    (('environment_list',), 'environment-list'),
     (('files_link',), 'files-link-guidance'),
     (('agents_list', 'tasks_list'), 'team-queue'),
     (('tasks_list', 'tasks_update'), 'backlog'),
@@ -33,7 +30,7 @@ CAPABILITIES = (
 
 def orientation_tail(available_operations):
     paths = list(COMMON_ORIENTATION)
-    if "business_briefing" in available_operations:
+    if "project_briefing" in available_operations:
         paths.append("project-briefing")
     return (*paths, "capability-handoffs")
 

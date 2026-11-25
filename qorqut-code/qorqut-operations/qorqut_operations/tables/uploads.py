@@ -1,4 +1,4 @@
-"""Original business data files, separate from context filing and marketing assets."""
+"""Original project data files, separate from context filing and marketing assets."""
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
@@ -35,11 +35,11 @@ class DataUploadOperations:
 
     def view(self, row, uow):
         result = self.store.view(row, uow, include_body=False)
-        resource = self.store.file_ref(row["id"], row["path"], row["business_id"])
+        resource = self.store.file_ref(row["id"], row["path"], row["project_id"])
         result["local_path"] = str(self.store._file_target(resource, uow).resolve())
         result["tables"] = [dict(item) for item in uow.connection.execute(
-            "SELECT DISTINCT t.id,t.title FROM data_tables t JOIN data_rows r ON r.business_id=t.business_id AND r.table_id=t.id "
-            "WHERE r.business_id=? AND r.source_upload_id=? ORDER BY t.title,t.id", (row["business_id"], row["id"]))]
+            "SELECT DISTINCT t.id,t.title FROM data_tables t JOIN data_rows r ON r.project_id=t.project_id AND r.table_id=t.id "
+            "WHERE r.project_id=? AND r.source_upload_id=? ORDER BY t.title,t.id", (row["project_id"], row["id"]))]
         return result
 
     def read(self, operation, ctx, args, uow):
@@ -48,7 +48,7 @@ class DataUploadOperations:
         found = self.store.collection(ctx, uow, kinds={"data_upload"})
         query = args.get("query", "").casefold()
         found = [row for row in found if query in (row["metadata_json"].get("filename", "") + " " + row["metadata_json"].get("notes", "")).casefold()]
-        selected, cursor = page(found, args, ctx.business_id, operation)
+        selected, cursor = page(found, args, ctx.project_id, operation)
         return {"items": [self.view(row, uow) for row in selected], "next_cursor": cursor}
 
     def prepare(self, ctx, args, options, uow):
@@ -60,7 +60,7 @@ class DataUploadOperations:
             raise DomainError("validation_error", "Data uploads must contain 1 byte to 20 MiB")
         builder = PlanBuilder(ctx, "data_uploads_upload", args, "Upload project data", clock=self.clock)
         name = filename(args["filename"])
-        path = self.store.free_path(uow, ctx.business_id, "data-uploads", PurePosixPath(name).stem,
+        path = self.store.free_path(uow, ctx.project_id, "data-uploads", PurePosixPath(name).stem,
             suffix=PurePosixPath(name).suffix, builder=builder)
         metadata = {"filename": str(args["filename"]).replace("\\", "/").split("/")[-1],
             "media_type": mimetypes.guess_type(name)[0] or "application/octet-stream", "size": len(data),
@@ -72,7 +72,7 @@ class DataUploadOperations:
     def apply(self, ctx, plan, uow):
         apply_records(ctx, plan, uow)
         identity = next(change.resource.resource_id for change in plan.changes if change.resource.resource_type == "documents")
-        row = uow.repository("documents", business_id=ctx.business_id).get(identity, required=True)
+        row = uow.repository("documents", project_id=ctx.project_id).get(identity, required=True)
         return {"upload": self.view({**row, "availability": "ready"}, uow)}
 
     def download(self, ctx, identity, uow):

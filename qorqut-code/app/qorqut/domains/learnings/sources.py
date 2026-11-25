@@ -5,11 +5,11 @@ Legacy session_id/transcript_hash scan columns also hold namespaced source keys
 and contribution hashes; existing transcript cursors remain untouched.
 
 One Global stream (v1.2 G022/G023): the Global pass reads Global and every active
-business, keeping each contribution's original business attribution and hash. Its
+project, keeping each contribution's original project attribution and hash. Its
 Global scan key is ``kind:id`` for a Global contribution and
-``business:<business id>:kind:id`` for a business one, so equal ids in two
-workspaces never collapse. A business's own earlier scan state is read where it
-is, by that business and ``kind:id``; it is never copied or reset.
+``project:<project id>:kind:id`` for a project one, so equal ids in two
+workspaces never collapse. A project's own earlier scan state is read where it
+is, by that project and ``kind:id``; it is never copied or reset.
 
 A Task note migrated from a v1 Task or Story note has a new ID. When its migration provenance is
 exact, its v1 progress under the original ``task_note``/``story_note`` key and scope
@@ -29,16 +29,12 @@ SHA256 = re.compile(r'[a-f0-9]{64}')  # matched against the whole value (fullmat
 UNRESOLVED = 'Unresolved historical source identity'
 
 
-def human(uow, identity, business_id, *, owner_only=False):
+def human(uow, identity, project_id, *, owner_only=False):
     actor = uow.repository('principals').get(identity) if identity else None
     if not actor or actor['kind'] != 'human':
         return None
-    if business_id is None:
-        installation = uow.repository('installation').get('service')
-        owner = bool(installation and installation['owner_principal_id'] == identity)
-    else:
-        member = uow.repository('business_memberships', business_id=business_id).get(identity)
-        owner = bool(member and member['is_owner'])
+    installation = uow.repository('installation').get('service')
+    owner = bool(installation and installation['owner_principal_id'] == identity)
     if owner_only and not owner:
         return None
     return {'id': identity, 'name': actor['display_name'], 'role': 'owner' if owner else 'human'}
@@ -50,24 +46,24 @@ def counted(state, retry_failed=False):
     return status != 'retry' and not (retry_failed and status == 'needs_attention')
 
 
-def scan_key(business_id, kind, identity):
+def scan_key(project_id, kind, identity):
     """The Global scan key of one contribution."""
     key = kind + ':' + identity
-    return key if business_id is None else 'business:' + business_id + ':' + key
+    return key if project_id is None else 'project:' + project_id + ':' + key
 
 
-def digest(kind, identity, business_id, actor, at, blocks):
+def digest(kind, identity, project_id, actor, at, blocks):
     # Parent task edits and reminder activity must not replay a contribution.
-    return canonical_hash({'kind': kind, 'id': identity, 'business_id': business_id,
+    return canonical_hash({'kind': kind, 'id': identity, 'project_id': project_id,
                            'actor_id': actor['id'], 'at': at, 'blocks': blocks})
 
 
-def contribution(kind, identity, business_id, actor, at, blocks, context, *, resource_id=None):
+def contribution(kind, identity, project_id, actor, at, blocks, context, *, resource_id=None):
     source = {'kind': kind, 'id': identity, 'resource_id': resource_id or identity,
-              'business_id': business_id, 'actor_id': actor['id'], 'actor_name': actor['name'],
+              'project_id': project_id, 'actor_id': actor['id'], 'actor_name': actor['name'],
               'actor_role': actor['role'], 'at': at}
-    source['hash'] = digest(kind, identity, business_id, actor, at, blocks)
-    return {'key': scan_key(business_id, kind, identity), 'hash': source['hash'], 'source': source,
+    source['hash'] = digest(kind, identity, project_id, actor, at, blocks)
+    return {'key': scan_key(project_id, kind, identity), 'hash': source['hash'], 'source': source,
             'blocks': blocks, 'context': context}
 
 
@@ -82,9 +78,9 @@ def _blocks(text, actor):
     return [{'role': actor['role'], 'text': text}] if text and text.strip() else []
 
 
-def migration_identity(table, business_id, source_id):
+def migration_identity(table, project_id, source_id):
     """The deterministic thread message ID the v1.2 migration gave a v1 note."""
-    parts = json.dumps([table, business_id, source_id], sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+    parts = json.dumps([table, project_id, source_id], sort_keys=True, ensure_ascii=False, separators=(',', ':'))
     return str(uuid5(NAMESPACE_URL, 'qorqut-v1.2/migration/' + parts))
 
 
@@ -101,7 +97,7 @@ def provenance(note):
     table, source_id, sha = origin['source_table'], origin['source_id'], origin['source_sha256']
     if (not isinstance(table, str) or table not in MIGRATED or not isinstance(source_id, str) or not source_id
             or not isinstance(sha, str) or not SHA256.fullmatch(sha)
-            or note['id'] != migration_identity(table, note['business_id'], source_id)):
+            or note['id'] != migration_identity(table, note['project_id'], source_id)):
         return None
     return {'source_table': table, 'source_id': source_id, 'source_sha256': sha}
 
@@ -118,47 +114,47 @@ def historical(uow, note, actor, at, blocks, retry_failed):
     if origin is None:
         return None
     kind = MIGRATED[origin['source_table']]
-    prior = uow.repository('learning_scan_state', business_id=note['business_id']).get(kind + ':' + origin['source_id'])
+    prior = uow.repository('learning_scan_state', project_id=note['project_id']).get(kind + ':' + origin['source_id'])
     if prior is None:
         return None                                  # no v1 progress: not known to have been processed
-    if prior['transcript_hash'] == digest(kind, origin['source_id'], note['business_id'], actor, at, blocks):
+    if prior['transcript_hash'] == digest(kind, origin['source_id'], note['project_id'], actor, at, blocks):
         return 'processed' if counted(prior['state_json'], retry_failed) else None
     return 'unresolved' if kind == 'story_note' else None
 
 
-def done(uow, business_id, kind, identity, value, seen, retry_failed):
-    """This exact contribution hash already completed, in Global scan state or (for a business one) its business's own."""
-    if seen.get(scan_key(business_id, kind, identity)) == value:
+def done(uow, project_id, kind, identity, value, seen, retry_failed):
+    """This exact contribution hash already completed, in Global scan state or (for a project one) its project's own."""
+    if seen.get(scan_key(project_id, kind, identity)) == value:
         return True
-    prior = uow.repository('learning_scan_state', business_id=business_id).get(kind + ':' + identity) if business_id else None
+    prior = uow.repository('learning_scan_state', project_id=project_id).get(kind + ':' + identity) if project_id else None
     return bool(prior and prior['transcript_hash'] == value and counted(prior['state_json'], retry_failed))
 
 
 def snapshots(uow, seen, *, retry_failed=False, limit=50):
-    """The Global pass's bounded selection over Global and every active business.
+    """The Global pass's bounded selection over Global and every active project.
 
     ``seen`` is the Global scan state's counted hashes. A contribution whose current hash completed there or in its own
-    business is skipped; a changed one is eligible again. Only the decision or note an earlier contribution's hash needs
-    is read for it; context is built for selected contributions only. Archived businesses are history, not intake.
+    project is skipped; a changed one is eligible again. Only the decision or note an earlier contribution's hash needs
+    is read for it; context is built for selected contributions only. Archived projects are history, not intake.
     """
     selected = []
-    # SQL unions order all kinds and workspaces together by contribution time, so one prolific source or business cannot
+    # SQL unions order all kinds and workspaces together by contribution time, so one prolific source or project cannot
     # consume every slot ahead of older unprocessed contributions of another.
-    active = "IN (SELECT id FROM businesses WHERE archived_at IS NULL)"
-    sql = f'''SELECT COALESCE(s.review_business_id, '') scope, 'signoff_response' kind, s.id, json_extract(s.decision_json,'$.at') at
-        FROM signoffs s WHERE (s.review_business_id IS NULL OR s.review_business_id {active}) AND s.decision_json IS NOT NULL
+    active = "IN (SELECT id FROM projects WHERE archived_at IS NULL)"
+    sql = f'''SELECT COALESCE(s.review_project_id, '') scope, 'signoff_response' kind, s.id, json_extract(s.decision_json,'$.at') at
+        FROM signoffs s WHERE (s.review_project_id IS NULL OR s.review_project_id {active}) AND s.decision_json IS NOT NULL
         AND s.legacy_evidence_json IS NULL AND s.operation_name <> 'whatsapp_send'
-        UNION ALL SELECT COALESCE(n.business_id, ''), 'task_note', n.id, n.created_at FROM thread_messages n
-        WHERE (n.business_id IS NULL OR n.business_id {active}) AND n.item_type='task' AND n.kind='comment'
+        UNION ALL SELECT COALESCE(n.project_id, ''), 'task_note', n.id, n.created_at FROM thread_messages n
+        WHERE (n.project_id IS NULL OR n.project_id {active}) AND n.item_type='task' AND n.kind='comment'
         ORDER BY at, scope, kind, id'''
     for entry in uow.connection.execute(sql):
         scope, kind, identity, at = entry
-        business_id = scope or None
+        project_id = scope or None
         packet = None
         if kind == 'signoff_response':
-            row = uow.repository('signoffs', business_id=business_id).get(identity, required=True)
+            row = uow.repository('signoffs', project_id=project_id).get(identity, required=True)
             decision = row['decision_json']
-            actor = human(uow, decision.get('by'), business_id, owner_only=True)
+            actor = human(uow, decision.get('by'), project_id, owner_only=True)
             if not actor or decision.get('kind') not in {'approve', 'reject', 'respond'}:
                 continue
             blocks = _blocks(decision.get('notes') if decision['kind'] == 'respond' else decision.get('feedback'), actor)
@@ -172,18 +168,18 @@ def snapshots(uow, seen, *, retry_failed=False, limit=50):
                                'text': choice['label'] + ': ' + choice['explanation']})
             if not blocks:
                 continue  # Bare approval/rejection supplies no general lesson.
-            if done(uow, business_id, kind, identity, digest(kind, identity, business_id, actor, at, blocks), seen, retry_failed):
+            if done(uow, project_id, kind, identity, digest(kind, identity, project_id, actor, at, blocks), seen, retry_failed):
                 continue
             context = {**_signoff_context(row), 'decision': decision['kind']}
-            packet = contribution(kind, identity, business_id, actor, at, blocks, context)
+            packet = contribution(kind, identity, project_id, actor, at, blocks, context)
         else:
-            note = uow.repository('thread_messages', business_id=business_id).get(identity, required=True)
-            actor = human(uow, note.get('author_id'), business_id, owner_only=True)
+            note = uow.repository('thread_messages', project_id=project_id).get(identity, required=True)
+            actor = human(uow, note.get('author_id'), project_id, owner_only=True)
             if not actor or not note['body'].strip():
                 continue
             blocks = _blocks(note['body'], actor)
-            value = digest(kind, identity, business_id, actor, at, blocks)
-            if done(uow, business_id, kind, identity, value, seen, retry_failed):
+            value = digest(kind, identity, project_id, actor, at, blocks)
+            if done(uow, project_id, kind, identity, value, seen, retry_failed):
                 continue
             history = historical(uow, note, actor, at, blocks, retry_failed)
             if history == 'processed':
@@ -191,30 +187,30 @@ def snapshots(uow, seen, *, retry_failed=False, limit=50):
             if history == 'unresolved':
                 # Possibly processed already, unprovably: never sent to the model or completed, and once its paused state is
                 # recorded it is left there, retry_failed or not, until the later migration reconciles it.
-                prior = uow.repository('learning_scan_state', business_id=None).get(scan_key(business_id, kind, identity))
+                prior = uow.repository('learning_scan_state', project_id=None).get(scan_key(project_id, kind, identity))
                 if not (prior and prior['transcript_hash'] == value and prior['state_json'].get('status') == 'needs_attention'):
                     origin = provenance(note)
-                    packet = contribution(kind, identity, business_id, actor, at, blocks, {}, resource_id=note['item_id'])
+                    packet = contribution(kind, identity, project_id, actor, at, blocks, {}, resource_id=note['item_id'])
                     selected.append({**packet, 'unresolved': {**origin, 'legacy_key': 'story_note:' + origin['source_id']}})
                     if len(selected) >= limit:
                         break
                 continue
-            parent = uow.repository('tasks', business_id=business_id).get(note['item_id'], required=True)
+            parent = uow.repository('tasks', project_id=project_id).get(note['item_id'], required=True)
             context = {k: parent[k] for k in ('id', 'title', 'description', 'status') if k in parent}
             if parent.get('parent_id'):
-                group = uow.repository('tasks', business_id=business_id).get(parent['parent_id'])
+                group = uow.repository('tasks', project_id=project_id).get(parent['parent_id'])
                 if group:
                     context['group'] = {k: group[k] for k in ('id', 'title', 'status')}
             context['preceding_notes'] = [dict(r) for r in uow.connection.execute(
-                "SELECT id,body,author_id created_by,created_at FROM thread_messages WHERE business_id IS ? AND item_type='task' "
+                "SELECT id,body,author_id created_by,created_at FROM thread_messages WHERE project_id IS ? AND item_type='task' "
                 "AND item_id=? AND kind='comment' "
                 'AND (created_at < ? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT 3',
-                (business_id, parent['id'], note['created_at'], note['created_at'], identity))]
-            packet = contribution(kind, identity, business_id, actor, at, blocks, context, resource_id=note['item_id'])
-        if business_id:
-            # Context only: the original business, so neither the model nor a reviewer reads it as a Global record.
-            business = uow.repository('businesses').get(business_id, required=True)
-            packet['context']['business'] = {k: business[k] for k in ('id', 'slug', 'name')}
+                (project_id, parent['id'], note['created_at'], note['created_at'], identity))]
+            packet = contribution(kind, identity, project_id, actor, at, blocks, context, resource_id=note['item_id'])
+        if project_id:
+            # Context only: the original project, so neither the model nor a reviewer reads it as a Global record.
+            project = uow.repository('projects').get(project_id, required=True)
+            packet['context']['project'] = {k: project[k] for k in ('id', 'slug', 'name')}
         selected.append(packet)
         if len(selected) >= limit:
             break
@@ -229,7 +225,7 @@ def core(packet, brief):
     markdown = json.dumps(data, ensure_ascii=False, indent=2)
     if len(markdown) > MAX_SOURCE_CHARS:
         raise DomainError('learning_source_too_large', 'Contribution and its context exceed the extraction limit')
-    return {'header': {'biz': brief.id, 'slug': brief.slug, 'session': packet['key'], 'agent': None, 'agent_kind': None},
+    return {'header': {'project': brief.id, 'slug': brief.slug, 'session': packet['key'], 'agent': None, 'agent_kind': None},
             'source': source, 'source_key': packet['key'], 'evidence_blocks': blocks,
             'context': packet['context'], 'markdown': markdown,
             'stats': {'owner_messages': len(blocks), 'turns': len(blocks), 'core_bytes': len(markdown.encode())}}
@@ -249,11 +245,11 @@ are not durable preferences. An unknown outcome remains unknown. A completed tas
 prove execution. Extract durable facts/decisions or actionable corrections, not redundant
 operational status.
 CURRENT WORKSPACE: Global. Contributions are reviewed only in the Global queue: EVERY item must
-use scope=global, including context and delta, overriding the transcript rule that context uses biz.
-source.business_id and context_only.business name the ORIGINAL business a contribution was made
-in, when it has one; otherwise it was made in Global itself and has no business, so never invent
-one. With an original business, name that business explicitly in each item's text: Global is the
-review queue, not proof that a lesson applies to every business, so never generalize a fact or
-rule of that business beyond it. These sources have no observed agent: never use agent or
+use scope=global, including context and delta, overriding the transcript rule that context uses project.
+source.project_id and context_only.project name the ORIGINAL project a contribution was made
+in, when it has one; otherwise it was made in Global itself and has no project, so never invent
+one. With an original project, name that project explicitly in each item's text: Global is the
+review queue, not proof that a lesson applies to every project, so never generalize a fact or
+rule of that project beyond it. These sources have no observed agent: never use agent or
 agent_kind, and preserve any named role/audience explicitly in the lesson text. All other
 extraction rules apply. An empty items list is appropriate when nothing merits learning.\n'''

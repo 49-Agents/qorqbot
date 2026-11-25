@@ -35,15 +35,26 @@ release does not end a running turn.
 - The host gets a small allow-listed environment. The agent's own environment,
   with its secrets, travels only in a private `launch.json` that the host reads
   and deletes at once. It never appears in a command line.
-- The client runs as the owner's own command line would. On a folder or Mac
-  installation the service has a private `HOME` and an explicit
-  `CLAUDE_CONFIG_DIR`; the launcher records what the owner had
+- The client runs with the owner's own `HOME` and `PATH`, and with the client
+  folders the launcher chose (`native_launch.client_homes`), the same way for
+  Claude Code (`CLAUDE_CONFIG_DIR`) and Codex (`CODEX_HOME`). An installation
+  set up from this version on has its own two folders, `instance/home/claude`
+  and `instance/home/codex`: its own sign-in for each client, and none of the
+  instructions, skills, commands, hooks, MCP servers, memory or settings the
+  owner keeps for their own use of the client. An installation set up earlier
+  has no `instance/config/own-client-homes` marker and keeps the owner's own
+  folders. A folder named in the environment Qorqbot is started from wins in
+  both cases. On a folder or Mac installation the service itself has a private
+  `HOME`; the launcher records what the client must get
   (`QORQUT_NATIVE_USER_ENV`), and the manager gives the client those values,
   unset ones included (`agent_cli_launch.owner_variables`). The setup screen's
   sign-in check and the sign-in button use the same environment, so all three
   read one sign-in. This matters on macOS, where Claude Code names its Keychain
-  item after an explicit `CLAUDE_CONFIG_DIR`. What the owner set in Settings
-  still wins.
+  item after an explicit `CLAUDE_CONFIG_DIR`, so Qorqbot's own folder is also a
+  Keychain item of its own. What the owner set in Settings still wins.
+- Each client's own memory is off in every session: Claude Code by environment
+  variable and launch setting, Codex by `-c features.memories=false`
+  (`clients.launch_environment`, `clients.always_arguments`).
 - The client's `PATH` is the programs a self-contained installation ships
   (`runtime/native/bin`: git and the browser tool), then the folders the
   session names, then the owner's own search path
@@ -144,7 +155,7 @@ agent at a time. Non-owner wakes are paced, and a failing open backs off. When
 opens keep failing with `cli_unavailable`, `resume_failed`, `resume_unavailable`
 or `driver_unavailable`, `agents/unreachable.py` tells Ordubashy.
 
-Qorqbot's own compaction replaces Ordubashy's conversation through the same
+Qorqbot's own compaction replaces an agent's conversation through the same
 opener (`replace`): close, then a fresh conversation, as one open. It is not an
 input source and is not paced or counted. See [Compaction](COMPACTION.md).
 
@@ -160,7 +171,7 @@ silently starts a new conversation.
 
 `<state folder>/options.json` holds `client` (`claude` or `codex`), `model` and
 `effort` (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`), each optional.
-The owner sets them in Settings > Agents, or with the model pill at the bottom left
+The owner sets them in Settings > Model/Provider, or with the model pill at the bottom left
 of the agent's chat composer. The routes are
 `GET/POST /api/root/agents/<id>/chat/options` (owner only).
 `GET /api/root/agents/<id>/chat/models` lists the models the agent's client
@@ -198,10 +209,11 @@ Codex `default_permissions` `:danger-full-access`) and denies otherwise. Claude
 Code also gets the prepared `permissions.allow` rules as `--allowedTools`,
 because an untrusted folder would otherwise ignore them.
 
-Questions an agent asks on purpose (Claude Code `AskUserQuestion`, Codex
-`item/tool/requestUserInput`) still reach the owner as question cards. MCP
-elicitation requests are declined. The pending list in the host status holds
-questions only.
+Questions an agent asks on purpose (Codex `item/tool/requestUserInput`; Claude
+Code `AskUserQuestion` when a session has that tool) still reach the owner as
+question cards. Prepared agents are denied `AskUserQuestion` in their launch
+settings and ask through a question Signoff instead. MCP elicitation requests
+are declined. The pending list in the host status holds questions only.
 
 ## Chat routes
 
@@ -251,17 +263,19 @@ and never ends it; it can be left running. Run it
 with the same `CLAUDE_CONFIG_DIR`, `HOME` and `CODEX_HOME` the old clients had,
 or the conversations are not found. It only touches the installation's own tmux
 socket. It refuses on an installation set to Terminals (legacy); there, the
-setting in Settings > Agents is the way back to managed sessions.
+setting in Settings > Model/Provider is the way back to managed sessions.
 
-### Packages and a start command carried over
+### Role and plugin packages of a release
 
 After the instruction update and `python -m qorqut.migration.upgrade apply`, and before the service starts, run
 `python -m qorqut.migration.package_adoption apply` with the service's own `--workspace`, `--instance-root`, `--component` and
-`--extensions-config` arguments (`inspect` first shows the plan). An installation made by an earlier release holds the old role and
-plugin packages in its catalog and pinned in its agent profiles; the instruction update replaces the authored text, which agents read
-by package id, but not those pins. Without this step Ordubashy has no agent-control tools (`agent_terminal_status`, `_start`,
-`_restart`, `_kill`, `_ping`, `_execute_command`) and the role version in an agent's identity is the old one. The step publishes what
-the installation lacks, moves each pin forward only, and gives Ordubashy the control plugin; running it again changes nothing.
+`--extensions-config` arguments (`inspect` first shows the plan). An existing installation holds role and plugin packages in its
+catalog and pins them in its agent profiles; the instruction update replaces the authored text, which agents read by package id,
+but not those pins. Without this step the pinned manifest decides which tools and skills an agent has and the role version in an
+agent's identity is the pinned one. The step publishes what the installation lacks, moves each pin forward only, and gives
+Ordubashy the agent-control plugin when his profile has none; running it a second time changes nothing.
+
+### A start command carried over
 
 A start command written for an earlier version may still pass `--terminal-workspace` (or set `QORQUT_TERMINAL_WORKSPACE`). It
 sets the root of the owner's Workspace shell, which exists in Terminals mode only; in managed mode it has no effect.
@@ -283,7 +297,7 @@ sets the root of the owner's Workspace shell, which exists in Terminals mode onl
 
 An installation can run its agents in tmux terminals instead of managed sessions. It is one setting for the whole
 installation, never per agent. Managed sessions are the default and the recommended choice, for new installations and for
-every upgrade. The owner chooses under Settings > Agents > "How agents run": "Managed sessions (recommended)" or
+every upgrade. The owner chooses under Settings > Model/Provider > "How agents run": "Managed sessions (recommended)" or
 "Terminals (legacy)". Only the owner can change it; no agent tool, operation or extension operation does.
 
 - **The setting** is the file `<runtime>/managed-agents/runtime.json` (`qorqut/managed_runtime/mode.py`). A missing,

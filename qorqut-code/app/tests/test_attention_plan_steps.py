@@ -15,9 +15,9 @@ from qorqut_operations.discussion import emit_event
 from test_task_plans import PLAN, REVIEWED, PlanFixture
 
 CATALOG = Path(qorqut_agentic.__file__).parent / 'resources/defaults/operations/runtime-instructions'
-TASK = {'id': 'task-1', 'business_id': None, 'title': 'Make the offer', 'status': 'working', 'workers': [],
+TASK = {'id': 'task-1', 'project_id': None, 'title': 'Make the offer', 'status': 'working', 'workers': [],
         'workers_omitted': 0, 'user_needed': False}
-FOCUS = {'type': 'task', 'id': 'task-1', 'business_id': None}
+FOCUS = {'type': 'task', 'id': 'task-1', 'project_id': None}
 LATER = '2099-01-01T00:00:00.000000Z'
 
 
@@ -78,13 +78,13 @@ class PlanStepTextTests(unittest.TestCase):
 
     def test_the_coordinator_is_shown_the_steps_that_wait_for_him(self):
         team = {'available': [], 'stalled': [], 'stalled_count': 0, 'blocked': [], 'blocked_count': 0, 'awaiting_count': 12,
-                'plans_unread': 2, 'awaiting': [{'id': 'offer', 'business_id': None, 'title': 'Make the offer', 'workers': ['Scout'],
+                'plans_unread': 2, 'awaiting': [{'id': 'offer', 'project_id': None, 'title': 'Make the offer', 'workers': ['Scout'],
                                                  'step': 's2', 'position': 'step 2 of 3', 'text': 'Agree the price',
                                                  'note': 'They accept 400.'}]}
         text = self.text(team=team)
         self.assertIn('whose current plan step waits for your confirmation', text)
         self.assertIn('tasks_step_confirm', text)
-        self.assertIn('- {"id":"offer","business_id":null,"title":"Make the offer","workers":["Scout"],"step":"s2",'
+        self.assertIn('- {"id":"offer","project_id":null,"title":"Make the offer","workers":["Scout"],"step":"s2",'
                       '"position":"step 2 of 3","text":"Agree the price","note":"They accept 400."}', text)
         self.assertIn('- more Tasks wait for your confirmation', text)
         self.assertIn('- the plans of 2 more delegated Tasks were not read', text)
@@ -111,7 +111,7 @@ class PlanSnapshotTests(PlanFixture):
         self.addCleanup(patch.stopall)
 
     def ref(self, task):
-        return {'type': 'task', 'id': task['id'], 'business_id': None}
+        return {'type': 'task', 'id': task['id'], 'project_id': None}
 
     def snapshot(self, agent, task):
         state = {'work_task_json': self.ref(task), 'focus_started_at': None, 'intent': ''}
@@ -190,7 +190,7 @@ class PlanSnapshotTests(PlanFixture):
         self.delegate(quick)
         self.ok(self.step(self.worker, 'done', waiting, step_id='s2', note='They accept 400.'))
         team = self.team()
-        self.assertEqual(team['awaiting'], [{'id': waiting['id'], 'business_id': None, 'title': 'Make the offer',
+        self.assertEqual(team['awaiting'], [{'id': waiting['id'], 'project_id': None, 'title': 'Make the offer',
                                              'workers': ['Worker'], 'step': 's2', 'position': 'step 2 of 3',
                                              'text': 'Agree the price', 'note': 'They accept 400.'}])
         self.assertEqual((team['awaiting_count'], team['plans_unread']), (1, 0))
@@ -248,7 +248,7 @@ class PlanStepDeliveryTests(PlanFixture):
     """A plan step event reaches the agent it is addressed to, whatever that agent is focused on."""
 
     def focus(self, agent, task):
-        ref = {'type': 'task', 'id': task['id'], 'business_id': None}
+        ref = {'type': 'task', 'id': task['id'], 'project_id': None}
         with self.db.transaction() as uow:
             self.attention.ensure(uow, agent)
             uow.connection.execute('UPDATE agent_attention SET focus_json=?,work_task_json=? WHERE agent_id=?',
@@ -266,7 +266,7 @@ class PlanStepDeliveryTests(PlanFixture):
         """An ordinary event about the Task as it now stands, addressed to the agent."""
         with self.db.transaction() as uow:
             revision = uow.connection.execute('SELECT revision FROM tasks WHERE id=?', (task['id'],)).fetchone()[0]
-            emit_event(uow, business_id=None, source_type='tasks', source_id=task['id'], source_revision=revision,
+            emit_event(uow, project_id=None, source_type='tasks', source_id=task['id'], source_revision=revision,
                        actor_id=self.lead, event_type='updated', summary='Due set.', required={agent})
 
     def acknowledge(self, agent):

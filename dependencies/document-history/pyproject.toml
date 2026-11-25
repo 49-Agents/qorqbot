@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 license = "PolyForm-Noncommercial-1.0.0"
 license-files = ["LICENSE", "LICENSES/Apache-2.0.txt", "RELEASE-LICENSES.json"]
-name = "qorqut-business-docs-versioning"
+name = "qorqut-docs-versioning"
 version = "0.2.0"
-description = "Immutable text document versions and an append-only business activity log on a caller-owned SQLite connection."
+description = "Immutable text document versions and an append-only project activity log on a caller-owned SQLite connection."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []

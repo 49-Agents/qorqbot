@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from qorqut_operations.business_lifecycle import is_archived_business
+from qorqut_operations.project_lifecycle import is_archived_project
 from qorqut_operations.contracts import (ChangeSet, DomainError, ExpectedTarget, PreparedChange, ResourceRef,
                                          canonical_bytes, new_id, plain, utc_now)
 
@@ -66,22 +66,22 @@ def _bounded_text(value, name, limit, *, optional=False):
     return value.strip()
 
 
-def _scope(value, business_id):
+def _scope(value, project_id):
     value = _json_value(value, "scope", kind=dict, max_bytes=16_000)
-    if value.get("kind") not in {"business", "global"}:
-        raise DomainError("validation_error", "scope.kind must be business or global")
-    if value["kind"] == "business":
-        bound = _canonical_id(value.get("business_id"), "scope.business_id")
-        if business_id != bound:
+    if value.get("kind") not in {"project", "global"}:
+        raise DomainError("validation_error", "scope.kind must be project or global")
+    if value["kind"] == "project":
+        bound = _canonical_id(value.get("project_id"), "scope.project_id")
+        if project_id != bound:
             raise DomainError("validation_error", "Project scope and assignment project must match exactly")
     else:
-        if business_id is not None or value.get("business_id") is not None:
+        if project_id is not None or value.get("project_id") is not None:
             raise DomainError("validation_error", "Global scope cannot also select a project")
-        allowed = value.get("allowed_business_ids", [])
+        allowed = value.get("allowed_project_ids", [])
         if not isinstance(allowed, list) or len(allowed) > 100:
-            raise DomainError("validation_error", "Global scope requires a bounded allowed_business_ids list")
-        value["allowed_business_ids"] = [_canonical_id(item, "scope.allowed_business_ids") for item in allowed]
-        if len(set(value["allowed_business_ids"])) != len(value["allowed_business_ids"]):
+            raise DomainError("validation_error", "Global scope requires a bounded allowed_project_ids list")
+        value["allowed_project_ids"] = [_canonical_id(item, "scope.allowed_project_ids") for item in allowed]
+        if len(set(value["allowed_project_ids"])) != len(value["allowed_project_ids"]):
             raise DomainError("validation_error", "Global scope project IDs must be unique")
     for boundary in ("record_ids", "source_ids"):
         entries = value.get(boundary, {})
@@ -246,18 +246,18 @@ class OperationalDelegation:
             "event_type": event_type, "payload_json": payload,
         })
 
-    def create(self, uow, *, parent_principal_id, business_id, scope, objective, plan,
+    def create(self, uow, *, parent_principal_id, project_id, scope, objective, plan,
                allowed_operations, links=None, constraints=None, internal_recipients=None,
                completion_evidence=None, escalation_rules=None, resource_bounds=None,
                max_attempts=4, assignment_id=None):
         uow.require_write()
         parent_principal_id = _canonical_id(parent_principal_id, "parent_principal_id")
-        if business_id is not None:
-            business_id = _canonical_id(business_id, "business_id")
+        if project_id is not None:
+            project_id = _canonical_id(project_id, "project_id")
         parent = uow.repository("principals").get(parent_principal_id)
         if parent is None or not parent["active"] or parent["kind"] != "agent":
             raise DomainError("forbidden", "Only an active registered agent can own a delegated assignment")
-        scope = _scope(scope, business_id)
+        scope = _scope(scope, project_id)
         objective = _bounded_text(objective, "objective", 10_000)
         plan = _json_value(plan, "plan", kind=dict, max_bytes=50_000)
         if not plan:
@@ -277,7 +277,7 @@ class OperationalDelegation:
         now = self.clock()
         assignment_id = _canonical_id(assignment_id, "assignment_id") if assignment_id is not None else new_id()
         created = uow.repository("operational_assignments").insert({
-            "id": assignment_id, "parent_principal_id": parent_principal_id, "business_id": business_id,
+            "id": assignment_id, "parent_principal_id": parent_principal_id, "project_id": project_id,
             "scope_json": scope, "objective": objective, "plan_json": plan, "plan_revision": 1,
             "links_json": links, "allowed_operations_json": allowed_operations,
             "constraints_json": constraints, "internal_recipients_json": recipients,
@@ -310,7 +310,7 @@ class OperationalDelegation:
     def routed_assignments(uow, parent_principal_id, event):
         """Return only exact, unambiguous assignment bindings for a parent event.
 
-        Business scope alone is deliberately not a routing rule. Explicit
+        Project scope alone is deliberately not a routing rule. Explicit
         worker attribution wins; otherwise a message thread or a linked
         canonical task/document must match exactly.
         """
@@ -323,11 +323,11 @@ class OperationalDelegation:
                         and message["sender_id"] != message["recipient_id"])):  # collapsed history
                 return []
         base = ("parent_principal_id=? AND state IN ('queued','running','waiting') AND "
-                "(business_id IS ? OR (business_id IS NULL AND "
-                "(? IS NULL OR EXISTS (SELECT 1 FROM json_each(scope_json,'$.allowed_business_ids') "
+                "(project_id IS ? OR (project_id IS NULL AND "
+                "(? IS NULL OR EXISTS (SELECT 1 FROM json_each(scope_json,'$.allowed_project_ids') "
                 "WHERE value=?))))")
-        business = event["business_id"]
-        parameters = (parent_principal_id, business, business, business)
+        project = event["project_id"]
+        parameters = (parent_principal_id, project, project, project)
         if message is not None and message["delegation_assignment_id"]:
             attributed = uow.connection.execute(
                 "SELECT id FROM operational_assignments WHERE id=? AND " + base,
@@ -1175,15 +1175,15 @@ class OperationalDelegationOperations:
         if context.delegation_assignment_id is None:
             raise DomainError("forbidden", "This operation is available only to a bound assignment worker")
 
-    def _change_set(self, context, operation, arguments, *, assignment_id, business_id,
+    def _change_set(self, context, operation, arguments, *, assignment_id, project_id,
                     expected_revision=None, exists=True, action, values):
         # Orchestration rows are global control-plane state even when they bind
-        # to a business. Never make them business-owned document/task content.
+        # to a project. Never make them project-owned document/task content.
         target = ResourceRef("operational_assignments", assignment_id, None, "global")
         expected = ExpectedTarget(target, revision=expected_revision if exists else None, exists=exists)
         return ChangeSet(operation, 1, context.principal_id, "global", arguments,
             {"kind": "operational_assignment", "assignment_id": assignment_id,
-             "business_id": business_id}, (expected,),
+             "project_id": project_id}, (expected,),
             (PreparedChange("record", target, action, values),),
             {"title": operation.replace("_", " ").title(), "rationale": "Approved delegated-work control"})
 
@@ -1210,7 +1210,7 @@ class OperationalDelegationOperations:
                 read=lambda ctx, args, options, uow, operation=name: self.read(operation, ctx, args, uow)))
 
         create_properties = {
-            "business_id": {"type": ["string", "null"], "format": "uuid"},
+            "project_id": {"type": ["string", "null"], "format": "uuid"},
             "scope": object_schema, "objective": text, "plan": object_schema,
             "allowed_operations": {"type": "array", "items": {"type": "string"}, "minItems": 0, "maxItems": 100},
             "links": object_schema, "constraints": object_schema,
@@ -1268,7 +1268,8 @@ class OperationalDelegationOperations:
             raise DomainError("operation_unavailable", "Durable worker dispatch is not installed")
         self._require_parent(context)
         registration_id = _canonical_id(registration_id, "registration_id")
-        with self.application.database.transaction(operation="delegation.dispatch.claim") as uow:
+
+        def body(uow):
             current_context = self.application.current_context(context, uow)
             self._require_parent(current_context)
             if current_context.session_registration_id != registration_id:
@@ -1340,6 +1341,12 @@ class OperationalDelegationOperations:
                     "worker_token": binding_data["worker_token"],
                     "events": [self.inbox.event_item(current_context, event, uow) for event in event_rows]}
             return {"assignment": None, "reason": None}
+
+        # A waiting parent asks every few seconds, and usually nothing can run yet (no assignment, a live lease, a wait
+        # not due), which a separate cheaper look could not tell exactly. So the claim takes SQLite's writer only from
+        # its first real change; until then it holds no other writer up. Everything before that change is a read, so a
+        # claim refused the writer there simply runs again in an ordinary write unit.
+        return self.application.database.write_if_needed(body, operation="delegation.dispatch.claim")
 
     def poll_worker(self, context, registration_id, consumer_id, assignment_id, generation,
                     runtime_thread_id=None, turn_number=None, turn_usage=None,
@@ -1509,8 +1516,8 @@ class OperationalDelegationOperations:
             summary += " — " + detail.strip()[:250]
         now = assignment["updated_at"]
         event_id = uow.connection.execute(
-            "INSERT INTO inbox_events(business_id,source_type,source_id,actor_id,event_type,summary,created_at) "
-            "VALUES(?,?,?,?,?,?,?)", (assignment["business_id"], "operational_assignments",
+            "INSERT INTO inbox_events(project_id,source_type,source_id,actor_id,event_type,summary,created_at) "
+            "VALUES(?,?,?,?,?,?,?)", (assignment["project_id"], "operational_assignments",
                 assignment["id"], assignment["parent_principal_id"], state, summary[:500], now)).lastrowid
         recipients = {assignment["parent_principal_id"]}
         if state in ("blocked", "recovery"):
@@ -1568,13 +1575,13 @@ class OperationalDelegationOperations:
                 limit=200, order_by=("updated_at", "id"), descending=True)
         else:
             rows = self.store.list_for_parent(uow, context.principal_id, limit=200)
-        rows = [row for row in rows if not is_archived_business(uow.connection, row["business_id"])]
+        rows = [row for row in rows if not is_archived_project(uow.connection, row["project_id"])]
         return {"assignments": [self._compact(row, uow) for row in rows[:arguments.get("limit", 50)]]}
 
     @staticmethod
     def _compact(record, uow=None):
         compact = {key: record[key] for key in (
-            "id", "parent_principal_id", "business_id", "scope_json", "objective", "plan_json", "plan_revision",
+            "id", "parent_principal_id", "project_id", "scope_json", "objective", "plan_json", "plan_revision",
             "links_json", "allowed_operations_json", "constraints_json", "internal_recipients_json",
             "completion_evidence_json", "escalation_rules_json", "resource_bounds_json",
             "state", "dispatch_reason", "checkpoint_json", "next_step", "wake_at", "wake_condition_json",
@@ -1603,28 +1610,28 @@ class OperationalDelegationOperations:
         self._require_parent(context)
         self._validate_operations(arguments["allowed_operations"])
         assignment_id = new_id()
-        business_id = arguments.get("business_id")
+        project_id = arguments.get("project_id")
         return self._change_set(context, "delegated_assignments_create", arguments,
-            assignment_id=assignment_id, business_id=business_id, exists=False,
-            action="create_assignment", values={**arguments, "business_id": business_id, "assignment_id": assignment_id})
+            assignment_id=assignment_id, project_id=project_id, exists=False,
+            action="create_assignment", values={**arguments, "project_id": project_id, "assignment_id": assignment_id})
 
     def prepare_control(self, context, arguments, options, uow):
         record = self._current_parent_record(context, arguments["assignment_id"], options, uow)
         return self._change_set(context, "delegated_assignments_control", arguments,
-            assignment_id=record["id"], business_id=record["business_id"],
+            assignment_id=record["id"], project_id=record["project_id"],
             expected_revision=record["revision"], action="control_assignment", values=arguments)
 
     def prepare_revise(self, context, arguments, options, uow):
         record = self._current_parent_record(context, arguments["assignment_id"], options, uow)
         self._validate_operations(arguments["allowed_operations"])
         return self._change_set(context, "delegated_assignments_revise", arguments,
-            assignment_id=record["id"], business_id=record["business_id"],
+            assignment_id=record["id"], project_id=record["project_id"],
             expected_revision=record["revision"], action="revise_assignment", values=arguments)
 
     def prepare_checkpoint(self, context, arguments, options, uow):
         record = self._current_worker_record(context, options, uow)
         return self._change_set(context, "delegated_assignment_checkpoint", arguments,
-            assignment_id=record["id"], business_id=record["business_id"],
+            assignment_id=record["id"], project_id=record["project_id"],
             expected_revision=record["revision"], action="checkpoint_assignment", values=arguments)
 
     def prepare_event_claim(self, context, arguments, options, uow):
@@ -1632,13 +1639,13 @@ class OperationalDelegationOperations:
         if self.inbox is None:
             raise DomainError("operation_unavailable", "Assignment-scoped inbox delivery is not installed")
         return self._change_set(context, "delegated_assignment_events_claim", arguments,
-            assignment_id=record["id"], business_id=record["business_id"],
+            assignment_id=record["id"], project_id=record["project_id"],
             expected_revision=record["revision"], action="claim_assignment_events", values=arguments)
 
     def prepare_event_settle(self, context, arguments, options, uow):
         record = self._current_worker_record(context, options, uow)
         return self._change_set(context, "delegated_assignment_event_settle", arguments,
-            assignment_id=record["id"], business_id=record["business_id"],
+            assignment_id=record["id"], project_id=record["project_id"],
             expected_revision=record["revision"], action="settle_assignment_event", values=arguments)
 
     def apply(self, context, plan, uow):

@@ -1,4 +1,4 @@
-"""On a computer without a screen the owner signs in through the live view: the sign-in page opens in a tab of the Shared browser."""
+"""The owner signs in through the live view, on every computer: the sign-in page opens in a tab of the Shared browser."""
 
 from importlib.resources import files
 import json
@@ -55,18 +55,14 @@ class LiveViewSignInTest(unittest.TestCase):
         for patcher in (
                 mock.patch.object(setup, "targets", return_value=("owner", agents)),
                 mock.patch("qorqut.management.identity.configured_ordubashy", return_value=ORDUBASHY),
-                mock.patch.object(sign_in, "has_screen", return_value=False),
                 mock.patch.object(sign_in, "_open_tab", open_tab),
                 mock.patch.object(agent_browsers, "meta_valid", return_value=True),
                 mock.patch.object(agent_browsers, "supervisor_state", lambda *_args: self.ready),
                 # The tab is the only thing done to the browser: no window, no page command, no other DevTools call.
-                mock.patch.object(sign_in.subprocess, "Popen", side_effect=AssertionError("a window was opened")),
                 mock.patch.object(sign_in, "_cdp", side_effect=AssertionError("a page was driven")),
-                mock.patch.object(sign_in, "_get_json", side_effect=AssertionError("a browser was asked")),
-                mock.patch.object(sign_in, "_window_cookies", side_effect=AssertionError("a window's cookies were read"))):
+                mock.patch.object(sign_in, "_get_json", side_effect=AssertionError("a browser was asked"))):
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.addCleanup(sign_in._window.clear)
 
     def open(self, site="slack.com", caller=ORDUBASHY, **more):
         return sign_in.agent_call(self.runtime, caller, {"action": "open", "site": site, **more})
@@ -103,11 +99,39 @@ class LiveViewSignInTest(unittest.TestCase):
         self.assertEqual(shared_port.call_args_list, [mock.call(self.runtime)] * 3)
         self.assertEqual(self.opened, [(PORTS[SHARED_ID], "https://slack.com")] * 3)
 
+    def test_a_tab_that_can_be_named_comes_back_as_a_reference_for_a_browser_action_signoff(self):
+        caller = "4f6c1a2e-8d35-4b97-a1c0-2e9d7f3b5a64"
+        agents = [{"agent_id": caller, "name": "Ordubashy", "role": "ordubashy"}]
+        page = [{"id": TAB, "title": "Slack sign in", "url": "https://slack.com/signin"}]
+        with mock.patch.object(setup, "targets", return_value=("owner", agents)), \
+                mock.patch.object(live, "tabs", return_value=page) as listed:
+            reply = sign_in.open_in_live_view(self.runtime, caller, "slack.com", "https://slack.com")
+        listed.assert_called_once_with(PORTS[SHARED_ID])
+        self.assertEqual(self.opened, [(PORTS[SHARED_ID], "https://slack.com")])
+        self.assertEqual({key: reply[key] for key in ("opened", "where", "agent", "reference", "title", "url")},
+                         {"opened": "slack.com", "where": "live_view", "agent": "Ordubashy",
+                          "reference": {"type": "tab", "id": f"{caller}:{TAB}"}, "title": "Slack sign in",
+                          "url": "https://slack.com/signin"})
+        flat = " ".join(reply["next"].split())
+        for words in ("signoffs_input_create", "browser_action", "selection_mode none", "tab set to this reference's id",
+                      "source naming the Task that waits", "answers Done", "check that the account is signed in", "password or code"):
+            self.assertIn(words, flat)
+        self.assertNotIn("Browser tab in the dashboard", flat)
+
+    def test_a_tab_that_cannot_be_named_keeps_the_reply_as_it_was(self):
+        caller = "4f6c1a2e-8d35-4b97-a1c0-2e9d7f3b5a64"
+        # The caller is not one of the browser's agents, so the tab is not one of its tabs; and a tab id Chrome never gives.
+        for agents, tab in (([], TAB), ([{"agent_id": caller, "name": "Ordubashy", "role": "ordubashy"}], "not-a-tab")):
+            with self.subTest(tab=tab), mock.patch.object(setup, "targets", return_value=("owner", agents)), \
+                    mock.patch.object(sign_in, "_open_tab", return_value=tab), \
+                    mock.patch.object(live, "tabs", side_effect=AssertionError("the tab was looked up")):
+                reply = sign_in.open_in_live_view(self.runtime, caller, "slack.com", "https://slack.com")
+            self.assertEqual(set(reply), {"opened", "where", "agent", "next"})
+            self.assertIn("Browser tab in the dashboard", reply["next"])
+
     def test_the_browser_is_neither_stopped_nor_paused(self):
         self.open()
         self.assertEqual(self.managed, [])                 # not stopped, restarted or ensured
-        self.assertFalse(sign_in.active())                 # setup goes on looking after this browser
-        self.assertEqual(sign_in._window, {})
 
     def test_the_address_the_agent_gives_is_the_address_that_opens(self):
         reply = self.open("https://app.Slack.com/signin?team=1")
@@ -157,8 +181,7 @@ class LiveViewSignInTest(unittest.TestCase):
         self.open()
         with mock.patch.object(sign_in, "_cookies", return_value=[]):
             status = sign_in.agent_call(self.runtime, ORDUBASHY, {"action": "status"})
-        self.assertEqual(set(status), {"signing_in", "sites"})           # one browser, so no list of agents
-        self.assertIsNone(status["signing_in"])                          # no window is open, and none will be
+        self.assertEqual(set(status), {"sites"})                         # one browser, so no list of agents and no window
         self.assertEqual([(item["site"], item["session_saved"]) for item in status["sites"]], [("slack.com", False)])
         with mock.patch.object(sign_in, "_cookies", return_value=[{"domain": ".slack.com"}]) as cookies:
             sites = sign_in.agent_call(self.runtime, ORDUBASHY, {"action": "status"})["sites"]
@@ -189,32 +212,20 @@ class InstructionTextTest(unittest.TestCase):
         onboarding = defaults.joinpath("agentic-management/instructions/onboarding-connect-tools.md").read_text()
         return {"tool description": description, "managed browser skill": skill, "connect-tools step": onboarding}
 
-    def test_each_says_live_view_and_the_browser_tab_and_none_still_names_the_old_error(self):
+    def test_each_names_the_browser_tab_and_none_still_mentions_a_window_or_the_old_error(self):
         for name, text in self.texts().items():
             with self.subTest(name):
                 flat = " ".join(text.split())
-                self.assertIn("live_view", flat)
+                self.assertNotIn("Chrome window", flat)
+                self.assertNotIn("no screen", flat)
                 self.assertIn("Browser tab", flat)
                 self.assertNotIn("browser_no_screen", flat)
                 self.assertIn("password or code", flat)               # still the fallback, and only that
 
     def test_the_guide_for_the_owner_says_the_owner_signs_in_in_the_browser_tab(self):
         flat = " ".join(qorqbot_guide.SKILL.split())
-        self.assertIn("the owner signs in there through that agent's **Browser** tab", flat)
+        self.assertIn("The owner signs in there themselves through that agent's **Browser** tab", flat)
         self.assertNotIn("Ordubashy signs in on the site's own page", flat)
-
-
-class ScreenTest(unittest.TestCase):
-    def check(self, platform, environment):
-        with mock.patch.object(sign_in.sys, "platform", platform), mock.patch.dict(sign_in.os.environ, environment, clear=True):
-            return sign_in.has_screen()
-
-    def test_only_a_linux_computer_without_a_display_has_no_screen(self):
-        self.assertFalse(self.check("linux", {}))
-        self.assertTrue(self.check("linux", {"DISPLAY": ":0"}))
-        self.assertTrue(self.check("linux", {"WAYLAND_DISPLAY": "wayland-0"}))
-        self.assertFalse(self.check("linux", {"DISPLAY": ""}))
-        self.assertTrue(self.check("darwin", {}))
 
 
 class DevToolsTest(unittest.TestCase):
@@ -256,10 +267,6 @@ class DevToolsTest(unittest.TestCase):
         with self.assertRaises(OSError):
             self.call([{"id": 1, "error": {"message": "no"}}], sign_in._open_tab, "https://slack.com")
 
-    def test_the_window_cookies_are_still_read_at_browser_level(self):
-        cookies, sent = self.call([{"id": 1, "result": {"cookies": [{"name": "s"}]}}], sign_in._window_cookies)
-        self.assertEqual(cookies, [{"name": "s"}])
-        self.assertEqual(sent, [{"id": 1, "method": "Storage.getCookies", "params": {}}])
 
 
 if __name__ == "__main__":

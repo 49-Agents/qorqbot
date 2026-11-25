@@ -7,9 +7,9 @@ session. No task is created automatically when a delivery arrives.
 
 ## Operations
 
-Use `broadcast_recipients` to discover active recipient UUIDs. With business
-scope it returns that business; with authorized Global scope,
-`all_businesses: true` includes authorized businesses and Global recipients.
+Use `broadcast_recipients` to discover active recipient UUIDs. With project
+scope it returns that project's recipients; with authorized Global scope it returns
+the Global recipients.
 Set `role_id` to filter by role. Select the returned IDs; names are not stable
 identifiers and discovery does not expand scope.
 All agents can set self-reminders. Learning Applier remains
@@ -60,8 +60,8 @@ for an indefinite reminder. A delayed recurring reminder catches up once; it
 does not replay every missed interval.
 
 Use `broadcasts_list` and `broadcasts_get` for saved definitions and per
-recipient delivery results. The sender, an authorized business owner, or
-Ordubashy, or the owning business's business agent may use `broadcasts_update`, `broadcasts_pause`,
+recipient delivery results. The sender, an authorized project owner, or
+Ordubashy, or the owning project's agent may use `broadcasts_update`, `broadcasts_pause`,
 `broadcasts_resume`, and `broadcasts_cancel` within current scope. Mutations
 against an existing record require its current `revision` as
 `expected_revision`; stale revisions fail rather than overwrite newer work.

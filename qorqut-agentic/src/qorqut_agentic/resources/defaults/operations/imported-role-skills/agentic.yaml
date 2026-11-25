@@ -12,7 +12,7 @@ entries:
     with actions_record, in at most 20 words, with the correct scope and installation
     timezone.
   path: native/skills/action-recording/SKILL.md
-- id: asset-580b179fb8f7f2085bdb
+- id: asset-2223b612d21e4d40539d
   kind: skill
   description: Authorized project technical operations, configuration and release
     verification. Software, site/UI design, landing-page, script, test, CI and IaC
@@ -22,14 +22,14 @@ entries:
     verification. Software, site/UI design, landing-page, script, test, CI and IaC
     development is the owner's by default; an agent builds only on the owner's direct
     instruction.
-  path: native/skills/business-operations/SKILL.md
-- id: asset-4ce12da680f2bb107eda
+  path: native/skills/project-operations/SKILL.md
+- id: asset-3008532c3190c91f6813
   kind: skill
   description: Create and maintain project-shared tables, and transform original CSV
     or spreadsheet uploads into structured records.
   when_to_use: Create and maintain project-shared tables, and transform original CSV
     or spreadsheet uploads into structured records.
-  path: native/skills/business-tables/SKILL.md
+  path: native/skills/project-tables/SKILL.md
 - id: asset-cf11f76cb7384beadca4
   kind: skill
   description: Use the owner's native Qorqut Calendar - list calendars, read, create,
@@ -113,7 +113,7 @@ entries:
   when_to_use: Review visible daily journal entries when the owner asks, outlining
     possible tasks, progress updates and context additions without applying them.
   path: native/skills/owner-journal/SKILL.md
-- id: asset-30b92b906dba622ac1c2
+- id: asset-8629f31c889defe00fa5
   kind: skill
   description: Create, change, snooze, dismiss or cancel a one-off or recurring reminder
     for yourself or, for Ordubashy, the owner or another agent; also handle a due
@@ -123,19 +123,19 @@ entries:
     for yourself or, for Ordubashy, the owner or another agent; also handle a due
     reminder notice. Use when the owner says "remind me", "remind me to", "remind
     me about", or asks to be reminded later, and when a reminder notice reaches you.
-  path: native/skills/owner-reminders/SKILL.md
+  path: native/skills/reminders/SKILL.md
 - id: asset-99bf41d25a6be7f04e67
   kind: skill
   description: Create a Project, the container for Tasks, assets, documents, tables,
-    code and routines, with business_create when the owner asks you for or agrees
+    code and routines, with project_create when the owner asks you for or agrees
     to a new one. Only the configured Ordubashy creates projects. It takes a name,
-    an optional Description and a folder slug and makes only the record and empty
-    hq/ and code/ folders, with no agents, setup, services or documents.
+    an optional Description and a folder slug and makes only the record and a
+    project folder with an empty code folder, with no agents, setup, services or documents.
   when_to_use: Create a Project, the container for Tasks, assets, documents, tables,
-    code and routines, with business_create when the owner asks you for or agrees
+    code and routines, with project_create when the owner asks you for or agrees
     to a new one. Only the configured Ordubashy creates projects. It takes a name,
-    an optional Description and a folder slug and makes only the record and empty
-    hq/ and code/ folders, with no agents, setup, services or documents.
+    an optional Description and a folder slug and makes only the record and a
+    project folder with an empty code folder, with no agents, setup, services or documents.
   path: native/skills/project-creation/SKILL.md
 - id: asset-d604a5d406a4deaa0e2c
   kind: skill
@@ -167,3 +167,39 @@ entries:
     the agent browser, theme, text size, desktop alerts or the Qorqbot
     account. Do it yourself instead of sending the owner to Settings.
   path: native/skills/owner-settings/SKILL.md
+- id: asset-d93fbfd34422c8e6ffa9
+  kind: skill
+  description: "Read or save Settings variables and credentials with environment_list, environment_get and environment_set: see which names exist, read a value a task needs, or save a key the owner gave you. Load it before using any of the three."
+  when_to_use: "Read or save Settings variables and credentials with environment_list, environment_get and environment_set: see which names exist, read a value a task needs, or save a key the owner gave you. Load it before using any of the three."
+  path: native/skills/environment/SKILL.md
+- id: asset-97db9c0803a6e4ae8d78
+  kind: skill
+  description: "The first conversation with a new owner: the welcome, then the agentic-management/get-set-up workflow (the basics about the owner, the tools they want connected, an offer of voice input). Load it when your startup context says FIRST CONVERSATION or FIRST MESSAGE, and when the owner asks to get set up or to redo it."
+  when_to_use: "The first conversation with a new owner: the welcome, then the agentic-management/get-set-up workflow (the basics about the owner, the tools they want connected, an offer of voice input). Load it when your startup context says FIRST CONVERSATION or FIRST MESSAGE, and when the owner asks to get set up or to redo it."
+  path: native/skills/get-set-up/SKILL.md
+- id: asset-3e9a10c8c53c6a7ca327
+  kind: skill
+  description: Run the daily experience extraction. Read the report of everything
+    the owner wrote and decided in the period, the failed tool calls and the
+    repeated tool-call patterns, and file observations (issues, complaints,
+    problems, never changes) under clusters. Use when a qorqut-workflow message
+    starts an experience extraction run.
+  when_to_use: Run the daily experience extraction. Read the report of everything
+    the owner wrote and decided in the period, the failed tool calls and the
+    repeated tool-call patterns, and file observations (issues, complaints,
+    problems, never changes) under clusters. Use when a qorqut-workflow message
+    starts an experience extraction run.
+  path: native/skills/experience-extraction/SKILL.md
+- id: asset-489d4705d6256f9b7721
+  kind: skill
+  description: Run the weekly review and application. Read the filed observations
+    and their clusters, decide which are ready for a solution, and file agentic
+    layer delta proposals that the owner approves or rejects; revise one when the
+    owner asks. Use when a qorqut-workflow message starts a review and application
+    run, and when the owner answers or discusses a delta proposal.
+  when_to_use: Run the weekly review and application. Read the filed observations
+    and their clusters, decide which are ready for a solution, and file agentic
+    layer delta proposals that the owner approves or rejects; revise one when the
+    owner asks. Use when a qorqut-workflow message starts a review and application
+    run, and when the owner answers or discusses a delta proposal.
+  path: native/skills/delta-proposals/SKILL.md
