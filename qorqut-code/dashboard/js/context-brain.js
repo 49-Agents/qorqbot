@@ -2,9 +2,8 @@
 // record as a dot coloured by family; Focus shows one record and the records linked to it, all named; the card under
 // the graph names the record, quotes it and lists its connections. Drawn with the vendored force-graph (js/vendor).
 //
-// MOCKUP: the overview is read by walking every context_home page (about 18 reads of 60, one after another because the
-// cursor is opaque) and then context_expand around every record Home cut short. A real build wants one compact overview
-// read (ids, names, families, edge pairs) from the Context reader instead of walking Home.
+// The whole graph comes from one owner read, context_overview: every record as {id, name, type, degree}, most linked
+// first, and every link as {id, from, to, name}. A record's text is read with context_object when it is opened.
 const CBRAIN_FAMILIES = [
   ['people', 'People', ['person']],
   ['orgs', 'Organizations', ['organization', 'company']],
@@ -39,25 +38,21 @@ function cbrainExcerpt(text, max = 300) {
 }
 
 // The graph read once per page session: reopening the tab, or switching agents and back, draws at once; a copy older
-// than a minute is read again in the background and used from the next opening.
+// than a minute is read again in the background and replaces it from the next opening only if Context changed.
 let cbrainCache = null, cbrainRefreshing = null;
 
 function cbrainStore() {
-  const nodes = new Map(), edges = new Map(), adjacency = new Map(), expanded = new Set();
+  const nodes = new Map(), edges = new Map(), adjacency = new Map(), details = new Map();
   const addNode = item => {
-    if (!item || item.kind !== 'node' || nodes.has(item.id)) return;
-    const a = item.attributes || {}, type = cbrainFirst(a, 'basic_entity_type');
-    const name = cbrainFirst(a, 'name') || cbrainShort(cbrainPlain(item.summary), 60) || 'Untitled';
-    nodes.set(item.id, {id: item.id, ref: item.ref, name, label: cbrainShort(name), type, family: cbrainFamily(type),
-      aliases: (a.aliases || []).map(String), text: cbrainPlain(cbrainFirst(a, 'definition') || item.summary || cbrainFirst(a, 'body')),
-      count: item.relationship_count || 0});
+    if (!item || typeof item.id !== 'string' || nodes.has(item.id)) return;
+    const type = String(item.type || ''), name = String(item.name || '').trim() || `Unnamed ${cbrainTypeLabel(type)}`;
+    nodes.set(item.id, {id: item.id, ref: `node:${item.id}`, name, label: cbrainShort(name), type, family: cbrainFamily(type),
+      text: null, count: Number(item.degree) || 0, order: nodes.size});
   };
-  const addEdge = rel => {
-    if (!rel || rel.kind !== 'edge' || edges.has(rel.id)) return false;
-    const name = cbrainFirst(rel.attributes, 'name'), tag = cbrainFirst(rel.attributes, 'tags');
-    edges.set(rel.id, {id: rel.id, source: rel.from.id, target: rel.to.id, name: name || tag.replace(/_/g, ' ') || 'related',
-      kind: (tag || name || 'related').replace(/_/g, ' ')});
-    return true;
+  const addEdge = item => {
+    if (!item || typeof item.id !== 'string' || edges.has(item.id)) return;
+    const name = String(item.name || '').replace(/_/g, ' ').trim() || 'related';
+    edges.set(item.id, {id: item.id, source: item.from, target: item.to, name, kind: String(item.tag || '').replace(/_/g, ' ').trim() || name});
   };
   const rebuild = () => {
     adjacency.clear();
@@ -68,62 +63,43 @@ function cbrainStore() {
       if (edge.target !== edge.source) adjacency.get(edge.target).push({edge, other: edge.source});
     }
     for (const node of nodes.values()) node.degree = Math.max(adjacency.get(node.id).length, node.count);
-    [...nodes.values()].sort((a, b) => b.degree - a.degree).forEach((node, rank) => { node.rank = rank; });
+    [...nodes.values()].sort((a, b) => b.degree - a.degree || a.order - b.order).forEach((node, rank) => { node.rank = rank; });
   };
-  return {nodes, edges, adjacency, expanded, addNode, addEdge, rebuild, totals: null, at: 0};
+  return {nodes, edges, adjacency, details, addNode, addEdge, rebuild, totals: null, revision: null, at: 0, reads: 0};
 }
 
-// Reads the whole graph into a fresh store. `progress(text)` reports plain status lines.
-async function cbrainLoad(signal, progress = () => {}) {
+// Reads the whole graph into a fresh store with one request.
+async function cbrainLoad(signal) {
+  const data = coreData(await pageReadPost('/root/operations/context_overview', {}, signal));
+  if (data?.status !== 'ready') {
+    const error = new Error(data?.status === 'not_initialized' ? 'Context is not set up yet.' : 'Context can’t be read right now.');
+    error.plain = true; throw error;
+  }
   const store = cbrainStore();
-  const op = (operation, args) => pageReadPost(`/root/operations/${operation}`, args, signal).then(coreData);
-  let cursor = null, pages = 0;
-  do {
-    const data = await op('context_home', {limit: 60, ...(cursor ? {cursor} : {})});
-    if (data.status !== 'ready') {
-      const error = new Error(data.status === 'not_initialized' ? 'Context is not set up yet.' : 'Context can’t be read right now.');
-      error.plain = true; throw error;
-    }
-    store.totals = data.totals;
-    for (const item of data.nodes || []) { store.addNode(item); for (const rel of item.relationships || []) store.addEdge(rel); }
-    pages++;
-    progress(`Loading context… ${store.nodes.size.toLocaleString()} of ${data.totals.nodes.toLocaleString()}`);
-    cursor = data.page?.has_more ? data.page.next_cursor : null;
-  } while (cursor && pages < 60);
-  // Home pages carry at most five relationships per record; read the rest around every record that has more.
-  const cut = [...store.nodes.values()].filter(node => node.count > 5).sort((a, b) => b.count - a.count);
-  let done = 0, next = 0;
-  const worker = async () => {
-    while (next < cut.length) {
-      const node = cut[next++];
-      await cbrainExpand(store, node.id, signal);
-      progress(`Loading links… ${++done} of ${cut.length}`);
-    }
-  };
-  await Promise.all(Array.from({length: Math.min(6, cut.length)}, worker));
+  store.totals = data.totals; store.revision = data.revision; store.truncated = !!data.truncated;
+  for (const item of data.nodes || []) store.addNode(item);
+  for (const item of data.edges || []) store.addEdge(item);
   store.rebuild();
   store.at = Date.now();
-  store.reads = pages + cut.length;
+  store.reads = 1;
   return store;
 }
-// Every relationship of one record, following pages. True when something new was added.
-async function cbrainExpand(store, id, signal) {
-  if (store.expanded.has(id)) return false;
-  const node = store.nodes.get(id);
-  let cursor = null, added = false, guard = 0;
-  do {
-    const data = await pageReadPost('/root/operations/context_expand',
-      {ref: node.ref, depth: 1, direction: 'both', limit: 200, ...(cursor ? {cursor} : {})}, signal).then(coreData);
-    if (data.status !== 'ready') return added;
-    for (const rel of data.relationships || []) added = store.addEdge(rel) || added;
-    cursor = data.page?.has_more ? data.page.next_cursor : null;
-  } while (cursor && ++guard < 10);
-  store.expanded.add(id);
-  return added;
+// One record's text (definition, else summary, else body), read once per revision. Null when it can't be read.
+async function cbrainDetail(store, id, signal) {
+  if (store.details.has(id)) return store.details.get(id);
+  const pending = pageReadPost('/root/operations/context_object', {ref: `node:${id}`, history_limit: 1}, signal).then(coreData)
+    .then(data => {
+      if (data?.status !== 'ready' || !data.object) return null;
+      const a = data.object.attributes || {};
+      return cbrainPlain(cbrainFirst(a, 'definition') || data.object.summary || cbrainFirst(a, 'body'));
+    })
+    .catch(error => { store.details.delete(id); throw error; });
+  store.details.set(id, pending);
+  return pending;
 }
 
 function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
-  const reads = new AbortController();
+  const reads = new AbortController(), mountedAt = performance.now();
   const disposers = [];
   let prefs = {mode: 'map', hidden: [], unlinked: true, card: true, last: null};
   try { prefs = {...prefs, ...JSON.parse(ls(CBRAIN_PREFS) || '{}')}; } catch (_) { /* defaults */ }
@@ -133,8 +109,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   host.innerHTML = `<section class="cbrain" aria-label="Context graph" data-mode="map">
     <header class="cbrain-head">
       <button type="button" class="cbrain-icon cbrain-back" aria-label="Back to the previous record" title="Back" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
-      <div class="cbrain-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input type="search" placeholder="Search context" aria-label="Search context" autocomplete="off" spellcheck="false"><div class="cbrain-results" role="listbox" hidden></div></div>
+      <div class="cbrain-search">${searchField({placeholder: "Search context", label: "Search context"})}<div class="cbrain-results" role="listbox" hidden></div></div>
       <div class="cbrain-seg" role="group" aria-label="View"><button type="button" class="cbrain-segb" data-mode="map" aria-pressed="true">Map</button><button type="button" class="cbrain-segb" data-mode="focus" aria-pressed="false">Focus</button></div>
     </header>
     <div class="cbrain-filters" role="group" aria-label="Families"></div>
@@ -420,10 +395,11 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       if (key === lastSize) return;
       lastSize = key;
       graph.width(box.width).height(box.height);
-      if (prefs.mode === 'focus' && selected) paintFocus({ease: false});
+      // The new size reaches the renderer on its next update, which rescales the view; lay Focus out after that.
+      if (prefs.mode === 'focus' && selected) { clearTimeout(refocus); refocus = setTimeout(() => { if (graph && prefs.mode === 'focus' && selected) paintFocus({ease: false}); }, 40); }
       else { clearTimeout(refit); refit = setTimeout(() => { if (graph && prefs.mode === 'map' && !userMoved) fitMap(200); }, 120); }
     };
-    let refit = 0;
+    let refit = 0, refocus = 0;
     // A Map the owner has zoomed or dragged keeps its view when the pane is resized.
     const moved = () => { if (prefs.mode === 'map') userMoved = true; };
     canvasHost.addEventListener('wheel', moved, {passive: true});
@@ -435,22 +411,56 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     fitButton.hidden = false;
     showMap();
   }
+  // The first Map of a session grows in: the most linked records first, a batch per frame, each new record placed beside
+  // a record it links to, so the structure shows at once and fills in while the layout settles.
+  const CBRAIN_BATCH = 150;
+  let growFrame = 0;
+  const endOf = end => end?.id ?? end;
   function showMap() {
-    cancelAnimationFrame(tweenFrame);
+    cancelAnimationFrame(tweenFrame); cancelAnimationFrame(growFrame);
     prefs.mode = 'map'; trail = []; syncControls();
     graph.d3Force('radial', gravity);
     graph.d3Force('charge').strength(-26).distanceMax(260);
-    graph.d3Force('link').distance(26).strength(link => 1 / Math.min(linksOf(link.source.id ?? link.source).length || 1, linksOf(link.target.id ?? link.target).length || 1));
+    graph.d3Force('link').distance(26).strength(link => 1 / Math.min(linksOf(endOf(link.source)).length || 1, linksOf(endOf(link.target)).length || 1));
     const data = buildMap();
-    const fresh = data.nodes.some(node => node.x === undefined);
-    // A layout already settled (this session) is drawn as it was; a new one is settled before the first frame.
     for (const node of data.nodes) { delete node.fx; delete node.fy; }
-    fitPending = true;
-    graph.cooldownTicks(fresh ? Infinity : 0).warmupTicks(fresh ? 160 : 0).graphData(data);
-    if (!fresh) { fitPending = false; fitMap(0); }
     setHover(null);
     paintCard();
     status.hidden = data.nodes.length > 0; status.textContent = 'No records match these filters.';
+    // A layout already settled this session is drawn as it was.
+    if (!data.nodes.some(node => node.x === undefined)) {
+      fitPending = false;
+      graph.cooldownTicks(0).warmupTicks(0).graphData(data);
+      fitMap(0);
+      return;
+    }
+    const order = [...data.nodes].sort((a, b) => a.base.rank - b.base.rank), shown = [], placed = new Set();
+    let next = 0;
+    const grow = () => {
+      if (!graph || prefs.mode !== 'map') return;
+      const batch = order.slice(next, next + CBRAIN_BATCH), first = next === 0;
+      next += batch.length;
+      for (const node of batch) {
+        if (node.x === undefined) {
+          const anchor = linksOf(node.id).map(({other}) => store.nodes.get(other)?.map).find(other => other && placed.has(other.id) && other.x !== undefined);
+          const angle = Math.random() * 2 * Math.PI, spread = anchor ? 14 + Math.random() * 18 : 30 + Math.sqrt(shown.length) * 9;
+          node.x = (anchor?.x || 0) + Math.cos(angle) * spread; node.y = (anchor?.y || 0) + Math.sin(angle) * spread;
+          node.vx = node.vy = 0;
+        }
+        placed.add(node.id); shown.push(node);
+      }
+      const links = data.links.filter(link => placed.has(endOf(link.source)) && placed.has(endOf(link.target)));
+      graph.cooldownTicks(Infinity).warmupTicks(first ? 40 : 6).graphData({nodes: shown.slice(), links});
+      root.dataset.drawn = String(shown.length);
+      if (first) {
+        root.dataset.firstDrawMs = String(Math.round(performance.now() - mountedAt));
+        // The rest grows outward from the hubs: start a little wider than the hubs alone need.
+        graph.zoomToFit(0, 28); graph.zoom(graph.zoom() * 0.6, 0);
+      }
+      if (next < order.length) { if (!first) graph.zoomToFit(220, 28); growFrame = requestAnimationFrame(grow); }
+      else { fitPending = true; graph.zoomToFit(260, 28); root.dataset.fullDrawMs = String(Math.round(performance.now() - mountedAt)); }
+    };
+    grow();
   }
   async function focusOn(id, {push = true} = {}) {
     if (!store.nodes.has(id)) return;
@@ -461,9 +471,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     status.hidden = true;
     paintFocus({ease: true});
     paintCard();
-    // Records Home already read whole need no second read; the others are read once and redrawn if anything was new.
-    const added = await cbrainExpand(store, id, reads.signal).catch(() => false);
-    if (added && live() && selected === id) { store.rebuild(); paintFocus({ease: true}); paintCard(); }
+    loadText(id);
   }
   // Focus is laid out, not simulated. Records ease from where they were drawn (on the Map or the previous Focus) to their
   // new places; new ones grow out of the record that was clicked.
@@ -551,7 +559,6 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       if (name.startsWith(q)) return 1;
       if (name.split(/\s+/).some(word => word.startsWith(q))) return 2;
       if (name.includes(q)) return 3;
-      if (node.aliases.some(alias => alias.toLocaleLowerCase().includes(q))) return 4;
       return 9;
     };
     return [...store.nodes.values()].map(node => [score(node), node]).filter(([s]) => s < 9)
@@ -577,7 +584,20 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   results.onmousedown = event => { const row = event.target.closest('[data-id]'); event.preventDefault(); if (row) pick(row.dataset.id); };
   search.onblur = () => setTimeout(() => { if (live()) paintResults(); }, 100);
 
-  // ---- the card
+  // ---- the card. Header and connections come from the overview at once; the text is read when the record is opened.
+  function loadText(id) {
+    const node = store.nodes.get(id);
+    if (!node || node.text !== null) return;
+    node.textFailed = false;
+    cbrainDetail(store, id, reads.signal).then(text => {
+      node.text = text ?? null; node.textFailed = text == null;
+      if (live() && selected === id) paintCard();
+    }).catch(error => {
+      if (error?.name === 'AbortError') return;
+      node.textFailed = true;
+      if (live() && selected === id) paintCard();
+    });
+  }
   function paintCard() {
     const node = selected && prefs.mode === 'focus' && store.nodes.get(selected);
     card.hidden = !node;
@@ -590,7 +610,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       if (!groups.get(edge.kind).includes(other)) groups.get(edge.kind).push(other);
     }
     const sorted = [...groups].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
-    const links = new Set(linksOf(node.id).map(({other}) => other).filter(id => id !== node.id)).size, excerpt = cbrainExcerpt(node.text);
+    const links = new Set(linksOf(node.id).map(({other}) => other).filter(id => id !== node.id)).size, excerpt = cbrainExcerpt(node.text || '');
     const shownNote = focusInfo.shown < focusInfo.total ? `<span class="cbrain-note">${focusInfo.shown} drawn · ${focusInfo.total - focusInfo.shown} more</span>` : '';
     card.classList.toggle('collapsed', !prefs.card);
     card.innerHTML = `<header class="cbrain-card-head">
@@ -600,7 +620,8 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
         <button type="button" class="cbrain-icon cbrain-card-toggle" aria-expanded="${prefs.card}" aria-label="${prefs.card ? 'Collapse details' : 'Expand details'}" title="${prefs.card ? 'Collapse' : 'Expand'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
       </header>
       <div class="cbrain-card-body">
-        ${node.text ? `<p class="cbrain-text${cardMore ? ' open' : ''}">${esc(cardMore ? node.text : excerpt.text)}${excerpt.cut ? ` <button type="button" class="cbrain-more-text">${cardMore ? 'Less' : 'More'}</button>` : ''}</p>`
+        ${node.text === null ? `<p class="cbrain-text muted cbrain-text-wait">${node.textFailed ? 'Description couldn’t be read.' : 'Reading description…'}</p>`
+          : node.text ? `<p class="cbrain-text${cardMore ? ' open' : ''}">${esc(cardMore ? node.text : excerpt.text)}${excerpt.cut ? ` <button type="button" class="cbrain-more-text">${cardMore ? 'Less' : 'More'}</button>` : ''}</p>`
           : '<p class="cbrain-text muted">No description yet.</p>'}
         ${shownNote ? `<p class="cbrain-meta">${shownNote}</p>` : ''}
         ${sorted.length ? `<div class="cbrain-groups">${sorted.map(([label, ids]) => {
@@ -626,17 +647,21 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     status.hidden = true;
     start();
   };
+  const refresh = () => {
+    if (cbrainRefreshing) return cbrainRefreshing;
+    cbrainRefreshing = cbrainLoad(new AbortController().signal)
+      // Context unchanged: keep the copy (and its settled layout), only mark it fresh.
+      .then(next => { if (!cbrainCache || next.revision !== cbrainCache.revision) cbrainCache = next; else cbrainCache.at = next.at; return cbrainCache; })
+      .finally(() => { cbrainRefreshing = null; });
+    return cbrainRefreshing;
+  };
   if (cbrainCache) {
     begin(cbrainCache);
-    if (Date.now() - cbrainCache.at > CBRAIN_REFRESH_MS && !cbrainRefreshing) {
-      cbrainRefreshing = cbrainLoad(new AbortController().signal).then(next => { cbrainCache = next; }).catch(() => {}).finally(() => { cbrainRefreshing = null; });
-    }
+    if (Date.now() - cbrainCache.at > CBRAIN_REFRESH_MS) refresh().catch(() => {});
   } else {
-    const started = performance.now();
-    (cbrainRefreshing || cbrainLoad(reads.signal, text => { if (live()) status.textContent = text; }))
+    (cbrainRefreshing || refresh())
       .then(loaded => {
-        cbrainCache = loaded;
-        root.dataset.loadMs = String(Math.round(performance.now() - started));
+        root.dataset.loadMs = String(Math.round(performance.now() - mountedAt));
         begin(loaded);
       })
       .catch(error => {
@@ -647,7 +672,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   }
   return () => {
     dead = true;
-    cancelAnimationFrame(tweenFrame);
+    cancelAnimationFrame(tweenFrame); cancelAnimationFrame(growFrame);
     reads.abort();
     for (const dispose of disposers) dispose();
     if (graph) { graph.pauseAnimation(); graph._destructor?.(); }

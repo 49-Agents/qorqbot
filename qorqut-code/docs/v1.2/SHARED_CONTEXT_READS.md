@@ -62,6 +62,8 @@ Node, edge, note and source IDs are the engine's native five-character IDs; `ref
 - `context_expand`: node only; depth 1-3, `direction` out/in/both; nearest edges first, each edge once, with `total` and a pinned page.
 - `context_changes` (owner feed): events newest first with `submitted_by`, source path, operation, up to 25 attributed changes (`change_count`, `changes_truncated`), `handoff_disposition` and the parsed Action envelope (`action_ref`, `revision_ref`, `tags` with their project IDs) when an operational Action produced the event.
 
+- `context_overview` (owner graph view): `{status, revision, totals{nodes, edges}, truncated, nodes[], edges[]}` for the whole graph at one revision. Nodes in `context_home` order as `{id, name, type, degree}` (first `name` cut at 120 characters, first `basic_entity_type`, incident-edge count); edges by ID as `{id, from, to, name, tag}` (`name`: first `name`, else first `tags`; `tag`: first `tags` or empty; both cut at 80), only between listed nodes. At most 20,000 nodes and 50,000 edges; past either `truncated` is true and `totals` still count everything. Its description is plain text, not a tool-instruction message, since no agent receives it.
+
 **Notes.** A note is a separate record of the published Context (`notes/<id>.json`: exact text and zero or more node/edge subject links), never a graph vertex: it is not in `home` totals or ordering, adjacency, `context_expand` (a note reference is a validation error there) or `count_nodes`, and notes without subjects are ordinary notes.
 
 - Compact note (in `context_find` and a source's `supports`): `{kind: "note", id, ref, text (600 characters), truncated, subject_count}`.
@@ -82,6 +84,7 @@ The schemas in `schemas.py` close every object (`additionalProperties: false`), 
 | `context_find` | mcp, dashboard, worker | no | `query` (at most 2000), `kind`, `attributes`, `limit` 1-100 (20), `cursor` |
 | `context_expand` | mcp, dashboard, worker | no | `ref`, `depth` 1-3, `direction`, `limit` 1-200 (50), `cursor` |
 | `context_changes` | dashboard, worker | yes | `ref`, `limit` 1-100 (20), `cursor` |
+| `context_overview` | dashboard | yes | none |
 
 All five are `effect_kind="read"`, no Signoff, scope kinds `project` and `global`, `global_capability="read_global_context"`, and v1's namespace resolver (`project:<id>` when a project is selected, otherwise `global`). The handler arguments are only the DTO fields: nothing takes an agent, principal, project or revision from the arguments (unknown fields, including `agent_id`, `project_id`, `principal_id`, `scope` and `revision`, fail input validation). `context_changes` additionally refuses any non-human principal in its handler, as v1 did.
 

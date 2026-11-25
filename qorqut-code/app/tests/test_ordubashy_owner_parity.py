@@ -22,7 +22,7 @@ OWNER_ONLY = frozenset({
     'owner_conversations_list', 'owner_conversation_peers', 'owner_conversation_related', 'owner_conversation_mark_read',
     # The Learning Applier's review and the owner's own Context filing controls.
     'learnings_review', 'learnings_edit', 'learnings_intake_status',
-    'context_changes', 'context_filings', 'context_retract', 'context_upload_map', 'journal_upload_to_filer',
+    'context_changes', 'context_overview', 'context_filings', 'context_retract', 'context_upload_map', 'journal_upload_to_filer',
     # Archived projects and document history: owner views today.
     'project_archived_list', 'project_restore', 'document_history_get', 'project_history_list',
 })

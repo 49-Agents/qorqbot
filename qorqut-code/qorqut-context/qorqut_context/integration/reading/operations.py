@@ -2,7 +2,8 @@
 
 The authority metadata is the retained v1 one for the existing names: ``context_home``, ``context_object``,
 ``context_expand`` and ``context_find`` are agent-facing reads of every registered agent (the host policy resolver's
-core default, unchanged), and ``context_changes`` stays an owner view. ``personal_get`` is the owner's own record as plain
+core default, unchanged), and ``context_changes`` stays an owner view. ``context_overview`` is a second owner view: the
+whole published graph in compact form for the dashboard's graph view, never an agent tool. ``personal_get`` is the owner's own record as plain
 facts, under the same authority as the other agent reads: every registered agent reads the whole record. Scope resolution is also v1's: a caller reads
 under its selected project, or under Global with the ``read_global_context`` capability. Because the one published
 graph is shared, the scope only selects *who may ask*; the content returned never depends on it. Handlers use the
@@ -30,6 +31,7 @@ INPUTS = {
     "context_find": (schemas.FIND_INPUT, ()),
     "context_expand": (schemas.EXPAND_INPUT, ("ref",)),
     "context_changes": (schemas.CHANGES_INPUT, ()),
+    "context_overview": (schemas.OVERVIEW_INPUT, ()),
     "personal_get": (schemas.PERSONAL_INPUT, ()),
 }
 OUTPUTS = {
@@ -38,6 +40,7 @@ OUTPUTS = {
     "context_find": schemas.FIND_OUTPUT,
     "context_expand": schemas.EXPAND_OUTPUT,
     "context_changes": schemas.CHANGES_OUTPUT,
+    "context_overview": schemas.OVERVIEW_OUTPUT,
     "personal_get": schemas.PERSONAL_OUTPUT,
 }
 DESCRIPTIONS = {
@@ -47,10 +50,15 @@ DESCRIPTIONS = {
     "context_expand": instruction_text('operations-the-relationships-around-a-published-node-out-to'),
     "context_changes": instruction_text('operations-owner-view-published-change-events-newest-first-with'),
     "personal_get": instruction_text('operations-the-owner-s-personal-record-as-plain-facts'),
+    # Plain text, not a tool-instruction message: no agent is ever sent this operation, and a new message key would
+    # change the instruction library every installation retains.
+    "context_overview": ("Owner view: the whole published Context graph at one revision, nodes most connected first as "
+                         "{id, name, type, degree} and edges as {id, from, to, name, tag}, for the dashboard's graph view."),
 }
 ENTRIES = (
     *(CatalogEntry(name, False, "read") for name in AGENT_READS),
     CatalogEntry("context_changes", False, "read", frozenset({"dashboard", "worker"}), True),
+    CatalogEntry("context_overview", False, "read", frozenset({"dashboard"}), True),
 )
 
 
@@ -71,7 +79,8 @@ class SharedContextOperations:
 
     def descriptors(self) -> tuple[OperationDescriptor, ...]:
         handlers = {"context_home": self._home, "context_object": self._object, "context_find": self._find,
-                    "context_expand": self._expand, "context_changes": self._changes, "personal_get": self._personal}
+                    "context_expand": self._expand, "context_changes": self._changes, "personal_get": self._personal,
+                    "context_overview": self._overview}
         descriptors = []
         for entry in ENTRIES:
             properties, required = INPUTS[entry.name]
@@ -111,6 +120,11 @@ class SharedContextOperations:
         if ctx.principal_kind != "human":
             raise DomainError("forbidden", "Change attribution is an owner view")
         return self.reader.changes(ref=args.get("ref"), limit=args.get("limit"), cursor=args.get("cursor"))
+
+    def _overview(self, ctx, args):
+        if ctx.principal_kind != "human":
+            raise DomainError("forbidden", "The whole-graph overview is an owner view")
+        return self.reader.overview()
 
 
 def shared_context_contribution(reader: SharedContextReader) -> CatalogContribution:

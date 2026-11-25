@@ -13,7 +13,7 @@
   --cb-link-hi: rgba(255,255,255,.5);
   --cb-link-faint: rgba(255,255,255,.16);
   --cb-ring: rgba(255,255,255,.1);
-  --cb-control: 28px;
+  --cb-control: 36px;
   flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; color: var(--fg); font-size: 12px;
 }
 :root[data-theme="light"] .cbrain {
@@ -36,17 +36,11 @@
 .cbrain button:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 1px; }
 
 /* Header: back, search, Map | Focus, all one control height. */
-.cbrain-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px; }
+.cbrain-head { display: flex; align-items: center; gap: 8px; padding: 8px 18px 8px; }
 .cbrain .cbrain-icon { width: var(--cb-control); height: var(--cb-control); flex: none; display: grid; place-items: center; border: 1px solid var(--line-2); }
 .cbrain .cbrain-icon svg { width: 15px; height: 15px; }
 .cbrain .cbrain-icon:hover { background: var(--hover); color: var(--fg); }
-.cbrain-search { position: relative; flex: 1 1 auto; min-width: 0; }
-.cbrain-search > svg { position: absolute; left: 9px; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); color: var(--fg-3); pointer-events: none; }
-.cbrain-search input { width: 100%; height: var(--cb-control); padding: 0 10px 0 29px; border: 1px solid var(--line-2); border-radius: var(--r-sm);
-  background: var(--wash); color: var(--fg); font: inherit; font-size: 12px; outline: none; transition: border-color .14s ease; }
-.cbrain-search input:focus { border-color: var(--fg-3); }
-.cbrain-search input::placeholder { color: var(--fg-3); }
-.cbrain-search input::-webkit-search-cancel-button { display: none; }
+.cbrain-search { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
 .cbrain-results { position: absolute; z-index: 6; left: 0; right: 0; top: calc(var(--cb-control) + 4px); padding: 4px; border: 1px solid var(--line-2); border-radius: var(--r);
   background: var(--elevated); box-shadow: var(--shadow-float); display: flex; flex-direction: column; gap: 1px; }
 .cbrain-results[hidden] { display: none; }
