@@ -13,7 +13,7 @@ const agentExplorerGlobe = () => `<svg viewBox="0 0 24 24" fill="none" stroke="c
 
 const AGEXPLORER_SPLIT_KEY = 'qorqut.explorer.listWidth', AGEXPLORER_LIST_MIN = 200, AGEXPLORER_READER_MIN = 320, AGEXPLORER_SPLIT_STEP = 16;
 // A draggable divider between the list and the reader of a `.agfiles-layout`. Width is kept in localStorage; double-click resets it.
-function agentSplitMount(layout) {
+function agentSplitMount(layout, key = AGEXPLORER_SPLIT_KEY) {
   const list = layout.firstElementChild;
   if (!list) return () => {};
   const handle = document.createElement('div');
@@ -24,7 +24,7 @@ function agentSplitMount(layout) {
   handle.tabIndex = 0;
   layout.appendChild(handle);
   let width = null;
-  try { const n = Number.parseFloat(localStorage.getItem(AGEXPLORER_SPLIT_KEY)); if (Number.isFinite(n) && n > 0) width = n; } catch (_) { /* Works without storage. */ }
+  try { const n = Number.parseFloat(localStorage.getItem(key)); if (Number.isFinite(n) && n > 0) width = n; } catch (_) { /* Works without storage. */ }
   const bounds = () => { const total = layout.clientWidth, min = AGEXPLORER_LIST_MIN; return {min, max: Math.max(min, total - AGEXPLORER_READER_MIN), total}; };
   const clamp = value => { const b = bounds(); return Math.min(b.max, Math.max(b.min, Math.round(value))); };
   const sync = () => {
@@ -33,7 +33,7 @@ function agentSplitMount(layout) {
     handle.style.left = (now - 3) + 'px';
     handle.setAttribute('aria-valuemin', String(b.min)); handle.setAttribute('aria-valuemax', String(b.max)); handle.setAttribute('aria-valuenow', String(now));
   };
-  const save = () => { try { if (width === null) localStorage.removeItem(AGEXPLORER_SPLIT_KEY); else localStorage.setItem(AGEXPLORER_SPLIT_KEY, String(width)); } catch (_) { /* Works without storage. */ } };
+  const save = () => { try { if (width === null) localStorage.removeItem(key); else localStorage.setItem(key, String(width)); } catch (_) { /* Works without storage. */ } };
   const set = value => { width = value === null ? null : clamp(value); sync(); save(); };
   let drag = null;
   handle.addEventListener('pointerdown', event => {

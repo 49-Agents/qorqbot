@@ -1,42 +1,27 @@
 /* Connectors panel (js/connectors.js): Settings and the walkthrough's "connect your tools" chapter. */
 .cx-panel { display: flex; flex-direction: column; gap: 14px; margin-bottom: 30px; padding-bottom: 28px; border-bottom: 1px solid var(--line-2); }
-/* The agent browser card and its signed-in websites, shown (and pointed at by the walkthrough) as one area. */
-.cx-browser-area { display: flex; flex-direction: column; gap: 14px; }
-.cx-browser { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px;
-  border: 1px solid rgba(107,170,130,.38); border-radius: var(--r-lg);
-  background: linear-gradient(125deg, rgba(107,170,130,.14), var(--elevated)); }
+/* The agent browser and its signed-in websites, shown (and pointed at by the walkthrough) as one area: record-panel section heads over plain rows. */
+.cx-browser-area { display: flex; flex-direction: column; gap: 4px; }
+.cx-browser { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 12px 0; border-block: 1px solid var(--line); }
 .cx-browser-copy { min-width: 0; }
-.cx-eyebrow { display: block; margin-bottom: 7px; font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ok); }
-.cx-panel .cx-browser h3 { display: flex; align-items: center; gap: 12px; margin: 0 0 7px; font-size: 17px; font-weight: 600; text-transform: none; color: var(--fg); }
-.cx-browser p { margin: 0; max-width: 640px; color: var(--fg-2); font-size: 12.5px; line-height: 1.55; }
-.cx-browser .cx-browser-detail { margin-top: 9px; color: var(--fg); }
+.cx-panel .cx-browser h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 13px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.cx-browser p { margin: 2px 0 0; max-width: 640px; color: var(--fg-2); font-size: 12px; line-height: 1.5; }
+.cx-browser .cx-browser-detail { color: var(--fg); }
 .cx-browser button { flex: none; }
-@media (max-width: 620px) { .cx-browser { align-items: flex-start; flex-direction: column; padding: 17px; }
+@media (max-width: 620px) { .cx-browser { align-items: flex-start; flex-direction: column; }
   .cx-browser button { align-self: stretch; } }
-.cx-accounts { display: grid; gap: 10px; padding: 18px 22px; border: 1px solid var(--line-2); border-radius: var(--r-lg); background: var(--wash); }
+.cx-accounts { display: grid; gap: 4px; margin-top: 24px; }
 .cx-accounts[hidden], .cx-accounts [hidden] { display: none; }
-.cx-panel .cx-accounts > h3 { margin: 0; font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
-.cx-accounts > p { margin: 0; max-width: 640px; font-size: 12.5px; line-height: 1.55; color: var(--fg-2); }
+.cx-accounts > p { margin: 0 0 8px; max-width: 640px; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
 .cx-accounts .cx-accounts-empty { color: var(--fg-3); }
 .cx-row.cx-account-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .cx-row-action select { height: 30px; padding: 0 10px; font-size: 12px; border: 1px solid var(--line-2); background: var(--elevated); color: var(--fg); }
 .cx-accounts .cx-accounts-limit { font-size: 11.5px; color: var(--fg-3); }
-.cx-extensions { display: grid; gap: 10px; margin-top: 18px; }
+.cx-extensions { display: grid; gap: 4px; }
 .cx-panel .cx-extensions > h2, .cx-panel .cx-extensions > h3 { margin: 0; font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
-.cx-extensions > p { margin: 0; max-width: 640px; font-size: 12.5px; line-height: 1.55; color: var(--fg-2); }
+.cx-extensions > p { margin: 0 0 8px; max-width: 640px; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
 button.cx-link { height: auto; padding: 0; border: 0; background: none; color: var(--fg); font-weight: 500; font-size: inherit; text-decoration: underline; text-underline-offset: 3px; }
 button.cx-link:hover { background: none; color: var(--fg); transform: none; }
-.cx-privacy { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 16px; padding: 20px 22px; border-radius: var(--r-lg);
-  background: linear-gradient(135deg, rgba(107,170,130,.13), rgba(107,170,130,.035)); border: 1px solid rgba(107,170,130,.32); }
-.cx-privacy-mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: rgba(107,170,130,.16); color: var(--ok); }
-.cx-privacy-mark svg { width: 26px; height: 26px; }
-.cx-panel .cx-privacy h2 { margin: 2px 0 6px; font-size: 17px; font-weight: 600; text-transform: none; letter-spacing: -.01em; color: var(--fg); }
-.cx-privacy p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--fg); opacity: .86; }
-.cx-privacy ul { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
-.cx-privacy li { position: relative; padding-left: 20px; font-size: 12.5px; line-height: 1.5; color: var(--fg-2); }
-.cx-privacy li::before { content: ""; position: absolute; left: 3px; top: 5px; width: 8px; height: 4px; border: solid var(--ok); border-width: 0 0 1.6px 1.6px; transform: rotate(-45deg); }
-.cx-privacy li:last-child { color: var(--fg-3); }
-.cx-privacy li:last-child::before { border-color: var(--fg-3); }
 
 .cx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
 .cx-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 15px; border-radius: var(--r); background: var(--wash);
@@ -47,10 +32,10 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-icon svg { width: 19px; height: 19px; }
 .cx-card-title { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .cx-panel .cx-card h3 { margin: 0; font-size: 13.5px; font-weight: 600; text-transform: none; color: var(--fg); }
-.cx-status { font-size: 11px; color: var(--fg-2); display: inline-flex; align-items: center; gap: 6px; }
+.cx-status { font-size: 12px; font-weight: 400; color: var(--fg-2); display: inline-flex; align-items: center; gap: 6px; }
 .cx-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); }
-.cx-status[data-tone="ok"] { color: var(--ok); } .cx-status[data-tone="ok"]::before { background: var(--ok); }
-.cx-status[data-tone="warn"] { color: var(--warn); } .cx-status[data-tone="warn"]::before { background: var(--warn); }
+.cx-status[data-tone="ok"]::before { background: var(--ok); }
+.cx-status[data-tone="warn"]::before { background: var(--warn); }
 .cx-card-head button { flex: none; height: 30px; padding: 0 13px; font-size: 11px; }
 .cx-command { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 11px; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--line-2); }
 .cx-command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 11.5px var(--mono); color: var(--fg); }
@@ -88,14 +73,13 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-trust p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); max-width: 560px; }
 .cx-trust button { flex: none; }
 /* Settings: one compact row per connector. */
-.cx-panel-rows { margin: 0; padding: 0; border: 0; gap: 12px; }
-.cx-rows { display: grid; border: 1px solid var(--line-2); border-radius: var(--r-lg); overflow: hidden; background: var(--wash); }
-.cx-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 14px 18px; border-top: 1px solid var(--line-2); }
-.cx-row:first-child { border-top: 0; }
+.cx-panel-rows { margin: 0; padding: 0; border: 0; gap: 28px; }
+.cx-rows { display: grid; border-bottom: 1px solid var(--line); }
+.cx-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line); }
 .cx-row-main { min-width: 0; display: grid; gap: 4px; }
 .cx-row-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.cx-panel .cx-row h3 { margin: 0; font-size: 13.5px; font-weight: 600; text-transform: none; color: var(--fg); }
-.cx-row-does { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--fg-2); }
+.cx-panel .cx-row h3 { margin: 0; font-size: 13px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.cx-row-does { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
 .cx-row .cx-more { margin-top: 2px; padding-top: 0; border-top: 0; }
 .cx-row-action { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 2px; }
 .cx-row-action button { height: 30px; padding: 0 13px; font-size: 12px; }
@@ -104,9 +88,7 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
   .cx-row-action { grid-column: 2; }
   .cx-row.cx-account-row { grid-template-columns: minmax(0, 1fr) auto; }
   .cx-account-row .cx-row-action { grid-column: auto; }
-  .cx-accounts { padding: 16px; }
   .cx-trust { flex-direction: column; align-items: flex-start; }
-  .cx-privacy { grid-template-columns: 1fr; padding: 18px; }
   .cx-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .cx-card { transition: none; } }
