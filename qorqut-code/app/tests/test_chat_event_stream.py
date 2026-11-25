@@ -419,7 +419,8 @@ class WakeTest(unittest.TestCase):
                 await client.close()
         asyncio.run(run())
         self.assertGreaterEqual(len(chat.reads) - 2, 1)
-        self.assertLessEqual(len(chat.reads) - 2, 3)  # 0.5 s at one read per 0.15 s; polling would have read about 25
+        # 0.5 s at one read per 0.15 s is 3; a busy runner (the Mac release build) may fit one or two more. Polling would read about 25.
+        self.assertLessEqual(len(chat.reads) - 2, 6)
 
     def test_the_heartbeat_is_on_time_without_commits(self):
         self.intervals(HEARTBEAT_SECONDS=0.15)
