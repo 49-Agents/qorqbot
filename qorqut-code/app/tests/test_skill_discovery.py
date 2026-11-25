@@ -310,5 +310,59 @@ class StartDeliveryTests(unittest.TestCase):
         self.assertIn(FACTS, text)
 
 
+class Registry:
+    """Every operation exists and supports a Signoff: only the package's own front matter is under test here."""
+    def metadata(self, name):
+        return SimpleNamespace(name=name, supports_signoff=True)
+
+
+class PackageLoadingTests(unittest.TestCase):
+    """The catalog validator an installation runs on every package must accept the discovery phrase."""
+
+    def test_every_default_package_loads_as_an_installation_loads_it(self):
+        from qorqut.catalog.packages import load_package
+        sources = json.loads((ROOT / "qorqut-code/app/package-sources.json").read_text())
+        self.assertGreaterEqual(len(sources), 5)
+        for name, entry in sources.items():
+            with self.subTest(package=name):
+                package = load_package(ROOT / entry["path"], entry["manifest"], entry["kind"], Registry())
+                self.assertTrue(package.skills)
+
+    def fixture(self, directory, front):
+        root = Path(directory)
+        manifest = {"schema_version": 1, "id": "fixture", "version": "1.0.0", "scope_kinds": ["ecosystem"],
+                    "scope_brief": "ecosystem-agent", "brief": "BRIEF.md", "default_tool_policy": {},
+                    "skills": [{"id": "fixture", "path": "skill/SKILL.md"}]}
+        (root / "role.yaml").write_text(json.dumps(manifest))
+        (root / "BRIEF.md").write_text("Fixture")
+        (root / "skill").mkdir()
+        (root / "skill/SKILL.md").write_text(f"---\nname: qorqut-role-fixture\ndescription: Fixture\n{front}---\nRead this.")
+        return root
+
+    def test_a_valid_read_for_is_accepted_and_the_package_still_loads(self):
+        from qorqut.catalog.packages import load_package
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.fixture(directory, "read_for: Fixture work (`fixture_*`)\n")
+            package = load_package(root, "role.yaml", "role", Registry())
+            self.assertEqual(package.skills[0]["name"], "qorqut-role-fixture")
+
+    def test_a_read_for_that_is_too_long_empty_or_not_one_line_is_refused(self):
+        from qorqut.catalog.packages import load_package
+        from qorqut_operations.contracts import DomainError
+        for front in ("read_for: " + "A" * 161 + "\n", "read_for: ''\n", "read_for: 5\n", "read_for: |\n  One\n  Two\n"):
+            with self.subTest(front=front[:30]), tempfile.TemporaryDirectory() as directory:
+                root = self.fixture(directory, front)
+                with self.assertRaises(DomainError) as caught:
+                    load_package(root, "role.yaml", "role", Registry())
+                self.assertIn("read_for", caught.exception.message)
+
+    def test_other_unknown_front_matter_keys_are_still_refused(self):
+        from qorqut.catalog.packages import load_package
+        from qorqut_operations.contracts import DomainError
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(DomainError):
+                load_package(self.fixture(directory, "other: x\n"), "role.yaml", "role", Registry())
+
+
 if __name__ == "__main__":
     unittest.main()
