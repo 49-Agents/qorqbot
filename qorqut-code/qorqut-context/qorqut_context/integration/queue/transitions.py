@@ -15,7 +15,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from qorqut_operations.contracts import DomainError, utc_now
+from qorqut_operations.contracts import DomainError, new_id, utc_now
 from qorqut_operations.discussion.events import emit_event
 from qorqut_context.integration.queue.outcomes import TerminalOutcomes, require_outcomes
 from qorqut_context.integration.queue.queue import TERMINAL_STATES, detail, encode, invalid
@@ -279,6 +279,53 @@ def record_discarded(uow, *, driver_id: str, input_id: str, result: Mapping[str,
     final = _row(uow, input_id)
     outcomes.record(uow, final)
     return detail(uow, final)
+
+
+def record_refusal_discarded(uow, *, driver_id: str, input_id: str, error: Mapping[str, Any], ordubashy_id: str,
+                             caller_id: str | None, outcomes: TerminalOutcomes) -> dict:
+    """End the head at once for a preflight refusal that no retry can clear (a graph edit refused as ``stale_base``).
+
+    Everything happens in this one transaction and through the ordinary transitions: the refused attempt is saved finished
+    and blocked exactly as ``record_preflight_failure`` saves it (consuming a pending retry control), the driver itself
+    records a discard request (an ordinary ``discard`` control requested by the system principal, carrying the refusal as
+    its ``request_evidence``), the input moves blocked -> discard_requested, and ``record_discarded`` closes it with the
+    terminal-outcome contribution. No Context work exists to undo. Instead of the blocked notice, one required
+    ``context.input_discarded`` notice goes to the coordinator and, when it is another addressable agent, to the original
+    caller, with the refusal reason; later inputs proceed."""
+    _system(uow, driver_id)
+    outcomes = require_outcomes(outcomes)
+    row = _row(uow, input_id)
+    control = _attempt_control(uow, row)
+    summary = {**_concise(error), "retryable": False}
+    saved = {**{key: value for key, value in error.items() if isinstance(key, str)}, **summary}
+    attempt, event_id, now = row["attempt"] + 1, row["context_event_id"], utc_now()
+    _cas(uow, row, "blocked", attempt=attempt, error_json=encode(saved))
+    uow.connection.execute(
+        "INSERT INTO context_input_attempts(input_id,attempt,context_event_id,cause,control_id,started_at,outcome,finished_at,"
+        "error_json) VALUES (?,?,?,?,?,?,?,?,?)",
+        (input_id, attempt, event_id, "retry" if control else "queue", control["id"] if control else None, now, "blocked",
+         now, encode(saved)))
+    _resolve_control(uow, control, {"outcome": "preflight_failed", "attempt": attempt})
+    uow.connection.execute(
+        "INSERT INTO context_input_controls(id,project_id,input_id,intent,expected_state,requested_by,requested_at,status,"
+        "result_json) VALUES (?,?,?,?,?,?,?,?,?)",
+        (new_id(), row["project_id"], input_id, "discard", "blocked", driver_id, now, "pending",
+         encode({"request_evidence": {"reason": "refused_unretryable", "error": summary}})))
+    _cas(uow, _row(uow, input_id), "discard_requested")
+    text = (f"Context input {input_id} was refused and discarded on attempt {attempt}; nothing was published and Context "
+            f"continues. A retry cannot fix this: read the Context again and submit a new change if it is still wanted. "
+            f"Error: {summary['code']}: {summary['message'][:BLOCKED_ERROR_LIMIT]}")
+    recipient = uow.connection.execute(
+        "SELECT 1 FROM principals p JOIN agent_profiles a ON a.agent_id=p.id WHERE p.id=? AND p.kind='agent' AND p.active=1 "
+        "AND a.status='active'", (ordubashy_id,)).fetchone()
+    notice = emit_event(uow, project_id=None, source_type=SOURCE_TYPE, source_id=input_id, source_revision=attempt,
+                        actor_id=driver_id, event_type="context.input_discarded", summary=text,
+                        required=tuple(dict.fromkeys(p for p in (ordubashy_id, caller_id) if p))) if recipient else None
+    if notice is None:
+        raise DomainError("validation_error", "The Context handoff recipient must be an active agent that can receive Global notices")
+    return record_discarded(uow, driver_id=driver_id, input_id=input_id, outcomes=outcomes,
+                            result={"context_event_id": event_id, "context": "no_event" if event_id is None else "no_draft",
+                                    "mechanical": True, "refusal": summary, "notice_event_id": notice})
 
 
 def record_discard_failure(uow, *, driver_id: str, input_id: str, error: Mapping[str, Any]) -> dict:

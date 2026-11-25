@@ -33,9 +33,11 @@ supplied ``Pipeline``'s existing runner. ``ContextDriverLoop`` (``loop.py``) sup
   row, found by input ID and never by path or JSON shape. Before any fresh execution or explicit retry the driver rechecks, through
   the typed ``graph_authority`` port, that nothing the plan depends on changed since its base, that the frozen targets still hold
   and that the *original caller's* current registration still allows it (the driver's system identity is never that permission);
-  a refusal blocks the head with the reason and starts no attempt. The edit runs on the published head: the frozen plan with only
-  its ``expected_revision`` set to the revision the gate checked (``execution_base``). If the exact event is already published or
-  pending, that real result is reconciled first whatever the caller's authority now is, on the base it was staged on. The edit
+  a refusal blocks the head with the reason and starts no attempt, except ``stale_base``, which no retry can clear: that input is
+  discarded at once through the queue's discard transition, with a notice to the coordinator and the original caller. The edit
+  runs on the published head as ``graph_edit.plan_on(stored plan, attribution, revision)`` (``execution_plan``), rebuilt the same
+  way from the base an existing event was staged on. If the exact event is already published or pending, that real result is
+  reconciled first whatever the caller's authority now is. The edit
   runs through ``Context.begin_edit``/``Pipeline.submit_edit`` with that plan, original submitter, reserved event ID and
   controlled record context; it never reaches a model, a runner or a usage receipt, and a collision or mismatch of the reserved
   ID blocks instead of reallocating.
@@ -64,7 +66,7 @@ from qorqut_context import input_modes as modes
 from qorqut_context.integration import filing as context_filing
 from qorqut_context.integration import graph_edits as context_graph_edits
 from qorqut_context.integration.filing import completion
-from qorqut_context.integration.graph_edits.graph_edit import GraphEditRefused
+from qorqut_context.integration.graph_edits.graph_edit import GraphEditRefused, MergeConflict, plan_on
 from qorqut_context.integration.queue import transitions
 from qorqut_context.integration.queue.queue import ACTION_METADATA
 from qorqut_context.integration.queue.outcomes import require_outcomes
@@ -143,15 +145,15 @@ def edit_plan(row: dict) -> dict:
     the revision the driver runs it on.
 
     The library normalizes the plan once more and its canonical encoding must be the stored payload content and the digest
-    the binding names. What is dispatched is that plan with only ``expected_revision`` set to ``row['edit']['execution_base']``
-    (the head the gate checked, or the base an existing event of this edit was staged on); without one it is the frozen base."""
+    the binding names. What is dispatched is ``row['edit']['execution_plan']`` when the driver has built it (the plan the gate
+    checked on the head, or the one rebuilt for the base an existing event of this edit was staged on); without one it is the
+    frozen plan."""
     binding = row["edit"]
     plan = library.normalize(binding["plan"])
     content = library.canonical(plan)
     if content != binding["content"].encode("utf-8") or hashlib.sha256(content).hexdigest() != binding["plan_digest"]:
         raise ContextError("The stored graph-edit plan is not its frozen canonical source")
-    base = binding.get("execution_base") or plan["expected_revision"]
-    return library.normalize({**plan, "expected_revision": base})
+    return binding.get("execution_plan") or plan
 
 
 class ContextQueueDriver:
@@ -300,6 +302,7 @@ class ContextQueueDriver:
         if coordinator is None:
             return {"status": "not_ready", "reason": "no_coordinator", "input_id": head["id"]}
         persisted = self._read(transitions.used_event_ids) | self._reserved_ids()
+        pending = None
         try:
             snapshot, pending = self.context.snapshot(), self.context.pending()
             self._refuse_broken_edit(head)
@@ -309,6 +312,8 @@ class ContextQueueDriver:
         except Exception as error:
             if writer_busy(error):
                 return {"status": "busy", "reason": "context_busy", "input_id": head["id"]}   # no attempt is invented
+            if self._unretryable(head, error, pending):
+                return self._discard_refused(head, {**describe(error), "phase": "preflight"}, coordinator)
             return self._refuse(head, {**describe(error), "phase": "preflight"}, coordinator)
         started, refusal = self._start(head, event_id, exists, coordinator)
         if refusal is not None:
@@ -361,7 +366,7 @@ class ContextQueueDriver:
             raise GraphEditRefused("authority_unwired", "Graph-edit authority is not wired into the Context driver, so this "
                                    "edit cannot run", "authority")
         with self.database.read() as uow:
-            head["edit"]["execution_base"] = self.graph_authority.recheck(uow, head["edit"], snapshot)
+            head["edit"]["execution_plan"] = self.graph_authority.recheck(uow, head["edit"], snapshot)
 
     def _event_id_for(self, head: dict, persisted: set[str], snapshot, pending) -> str:
         edit = head.get("edit")
@@ -394,7 +399,10 @@ class ContextQueueDriver:
         if event_id in snapshot.events or (pending and pending["id"] == event_id):
             if head.get("edit") is not None:
                 existing = snapshot.events.get(event_id) or pending
-                head["edit"]["execution_base"] = existing["base_revision"]
+                try:
+                    self._rebuild(head, existing["base_revision"], snapshot)
+                except (ContextError, MergeConflict):
+                    return "collision"
             try:
                 self._begin(head, event_id)         # Context verifies the exact digest of an existing event
             except Conflict as error:
@@ -419,6 +427,14 @@ class ContextQueueDriver:
 
     # ------------------------------------------------------------------ outcomes
 
+    def _rebuild(self, row: dict, base: str, snapshot) -> None:
+        """Set the plan a graph edit runs on ``base``, the base an existing event of it was staged on: its own base or a later
+        published revision, rebuilt exactly as the gate built it (``plan_on``)."""
+        edit = row["edit"]
+        if base != edit["expected_revision"]:
+            self.context.git.run("merge-base", "--is-ancestor", edit["expected_revision"], base)
+        edit["execution_plan"] = plan_on(edit_plan({"edit": {**edit, "execution_plan": None}}), edit["attribution"], base, snapshot)
+
     def _published(self, event_id: str):
         """The published ``(event, commit)`` of an exact event ID, or None. A pure lookup: no runner, no staging."""
         snapshot = self.context.snapshot()
@@ -427,17 +443,17 @@ class ContextQueueDriver:
 
     def _verified(self, row: dict, event_id: str):
         """The published event and commit if, and only if, they are exactly this frozen input."""
-        found = self._published(event_id)
-        if found is None:
+        snapshot = self.context.snapshot()
+        event = snapshot.events.get(event_id)
+        if event is None:
             raise Conflict("The Context event is not published")
-        event, commit = found
+        commit = snapshot.event_commits[event_id]
         if row.get("edit") is not None:
-            # A graph edit is compared on the base it published on, which is its own base or a later published head.
+            # A graph edit is compared as the plan rebuilt for the base it published on: its own base or a later head.
             try:
-                self.context.git.run("merge-base", "--is-ancestor", row["edit"]["expected_revision"], event["base_revision"])
-            except ContextError:
+                self._rebuild(row, event["base_revision"], snapshot)
+            except (ContextError, MergeConflict):
                 raise Conflict("The published Context event is not this exact input") from None
-            row["edit"]["execution_base"] = event["base_revision"]
         self._begin(row, event_id)                  # Context's own exact submission-digest check (text, tags, evidence)
         payload, limit = row["payload"], self.pipeline.config.source_bytes
         if row.get("edit") is not None:
@@ -572,6 +588,24 @@ class ContextQueueDriver:
         blocked = self._write(transitions.record_preflight_failure, input_id=head["id"], error=problem, ordubashy_id=coordinator)
         return {"status": "input_blocked", "input_id": head["id"], "attempt": blocked["attempt"],
                 "context_event_id": blocked["context_event_id"], "error": problem}
+
+    @staticmethod
+    def _unretryable(head: dict, error: Exception, pending) -> bool:
+        """A graph edit refused as ``stale_base`` with no draft of it in Context: what changed stays changed, so no retry can
+        publish it and it is discarded instead of blocking every later input."""
+        return (isinstance(error, GraphEditRefused) and error.code == "stale_base" and head.get("edit") is not None
+                and not (pending and pending["id"] == head["edit"]["reserved_event_id"]))
+
+    def _discard_refused(self, head: dict, problem: dict, coordinator: str) -> dict:
+        """End an unretryable refusal at once through the queue's discard transition (``record_refusal_discarded``): the
+        refused attempt, the driver's own discard request and the discarded input with its terminal outcome, in one
+        transaction, with a notice to the coordinator and the original caller. No Context work exists to undo."""
+        problem = {**problem, "message": self._scrub(problem.get("message") or "preflight refused"), "retryable": False}
+        caller = head["edit"]["attribution"].get("principal_id")
+        done = self._write(transitions.record_refusal_discarded, input_id=head["id"], error=problem, ordubashy_id=coordinator,
+                           caller_id=caller if caller != coordinator else None, outcomes=self.outcomes)
+        return {"status": "discarded", "input_id": head["id"], "attempt": done["attempt"], "reason": "refused",
+                "context": "no_event" if done["context_event_id"] is None else "no_draft", "error": problem}
 
     def _scrub(self, message: str) -> str:
         for path in (self.context.runtime, self.context.root):

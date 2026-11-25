@@ -41,8 +41,9 @@ source and date they come from. It builds the `qorqut-graph-edit-v1` plan from
 the published record (same node, every other attribute and the present support
 kept, the edit cited as `self`) and admits it exactly as `context_edit` does. A
 queued edit runs on the published head when its turn comes if nothing it depends on
-changed since its base, and is refused as `stale_base` otherwise; for `personal_set`
-that means anything ahead of it in the queue that changed the owner's record.
+changed since its base, and is refused as `stale_base` and discarded otherwise. A
+`personal_set` behind a change to the owner's record is merged field by field onto
+the current record; only a change to the same field refuses it.
 The host permits only its currently configured Ordubashy to edit the profile or
 its incident relationships, through `personal_set` or `context_edit`, rechecking
 queued edits before publication. Other agents relay facts through the existing inbox. The ordinary

@@ -93,12 +93,13 @@ What comes back:
 
 - `status: queued`: accepted. It publishes when its turn in the Context queue
   comes, within seconds when nothing is ahead of it, and `personal_get` shows the
-  new values once it has. Until then take the value from where the owner gave it
+  new values once it has. Saves of different facts may follow each other at once:
+  each is merged onto the record as it is when its turn comes. Until then take the value from where the owner gave it
   (the answered form with `signoffs_get`, or the thread) and never ask for it again.
-- `stale_base` on the queued input (`context_queue_get`): something ahead of it in
-  the queue changed the owner's record first, and nothing was saved. A retry cannot
-  fix it: handle it as a blocked input (the context-relationships skill), then read
-  `personal_get` and call `personal_set` again with the facts that still change.
+- `stale_base` (a `context.input_discarded` notice, or `context_queue_get` on the
+  input): something ahead of it changed the same field of the owner's record first,
+  so nothing was saved and the input was discarded by itself. Read `personal_get`
+  and call `personal_set` again with the facts that still change.
 - `no_change`: the record already holds exactly this.
 - Never say a fact was saved before `personal_set` accepted it.
 

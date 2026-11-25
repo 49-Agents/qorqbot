@@ -11,9 +11,10 @@ Nothing else is new. The plan is admitted by ``GraphEdits.prepare`` exactly as a
 personal-record authority (the configured Ordubashy only), the same binding and queue input, the same driver and the same
 published event. The record's relationships to other nodes stay with ``context_edit``.
 
-The edit waits its turn in the shared queue like any other input. When its turn comes it is published on the head if
-nothing ahead of it changed the owner's record (or anything else the plan depends on); if something did, it is refused as
-``stale_base`` and nothing is saved, so the caller reads the record again and sends the facts again.
+The edit waits its turn in the shared queue like any other input. When its turn comes it is published on the head. If
+something ahead of it changed the owner's record, its change is merged onto the current record field by field
+(``graph_edit.merged_put``); only a change to a field (or support entry) it also changes refuses it as ``stale_base``, and the
+driver then discards it with a notice, nothing saved, so the caller reads the record again and sends the facts again.
 """
 
 from __future__ import annotations

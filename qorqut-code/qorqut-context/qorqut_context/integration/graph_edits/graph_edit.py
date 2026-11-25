@@ -23,8 +23,12 @@ admission of the Operations ``context_graph_edits`` binding with its queue input
   driver's system identity, and re-derives the frozen targets from the stored plan and the head snapshot. When other inputs
   published after the edit's base, the edit runs on the head only if nothing it depends on changed in between
   (``rebase_conflict``: its targets, the IDs it creates, its edges' endpoints, the incident edges of nodes it removes, the
-  sources it cites or keeps as support, the configuration); otherwise it is refused as ``stale_base``. On the head the plan
-  differs only in its ``expected_revision``; its operations, records, citations, support and IDs are never changed.
+  sources it cites or keeps as support, the configuration); otherwise it is refused as ``stale_base``. A ``personal_set``
+  (told by the operation its attribution names) is the one exception: a change to the owner's record in between is merged
+  field by field (``merged_put``), and only a change to the same field or support entry refuses it. The plan run on the head
+  is ``plan_on(stored plan, attribution, head)``: the stored plan with ``expected_revision`` set to the head, and for a merged
+  ``personal_set`` the merged record and support; IDs, explanations, citations and the rationale are never changed, and the
+  stored binding, plan and digest are never rewritten.
 * A delegated worker may queue an edit exactly as v1 let it run one. The attribution freezes the closed delegation of the
   authenticated caller (``null``, or exactly its binding ID, assignment ID and generation; never a credential or a decision);
   ``apply`` requires it to equal the invoking context's, and ``recheck`` rebuilds the parent's current context, attaches precisely
@@ -49,6 +53,7 @@ from typing import Any, Callable, Protocol
 
 from qorqut_context import Conflict, ContextError, graph_edits as library
 from qorqut_context.git_store import CONFIG_PATH
+from qorqut_context.schema import encode, record_path
 from qorqut_context.integration import graph_edits as bindings
 from qorqut_operations.application.plans import PlanBuilder, apply_records, schema
 from qorqut_context.integration.queue import queue as queue_module
@@ -257,10 +262,20 @@ CONFLICTS = {
     "endpoint_removed": "a node an edge of this edit points at was removed",
     "incident_edge": "an edge now points at a node this edit removes",
     "source_removed": "a source this edit cites or keeps as support was removed",
+    "field_changed": "a field or the support of the owner's record that this edit changes was also changed",
 }
+PERSONAL_OPERATION = "personal_set"
 
 
-def rebase_conflict(plan: dict, targets: list[dict], snapshot) -> str | None:
+class MergeConflict(Exception):
+    """A personal_set whose change overlaps a change made to the owner's record after its base."""
+
+    def __init__(self, code: str):
+        super().__init__(CONFLICTS[code])
+        self.code = code
+
+
+def rebase_conflict(plan: dict, targets: list[dict], snapshot, *, merge: tuple | None = None) -> str | None:
     """Why ``plan`` (validated at its ``expected_revision`` with the frozen ``targets``) cannot be applied on the head
     ``snapshot``, as a key of ``CONFLICTS``, or ``None`` when nothing it depends on changed in between.
 
@@ -268,7 +283,10 @@ def rebase_conflict(plan: dict, targets: list[dict], snapshot) -> str | None:
     ID it creates, the presence of every node its edges point at, the incident edges of every node it removes, the sources
     its citations and support name, and the configuration (which names the personal record). What changed is read from
     the events published after the base: each records every node, edge and note it changed, so a record with no change in
-    them is exactly as it was at the base."""
+    them is exactly as it was at the base.
+
+    ``merge`` is the key of a record whose change in between is not a conflict by itself: the owner's record of a
+    ``personal_set``, which ``plan_on`` merges field by field instead."""
     base, head = plan["expected_revision"], snapshot.revision
     if base == head:
         return None
@@ -288,7 +306,7 @@ def rebase_conflict(plan: dict, targets: list[dict], snapshot) -> str | None:
         if key in created:
             if key[1] in snapshot.used_ids or key in changed:
                 return "id_taken"
-        elif key in changed:
+        elif key in changed and key != merge:
             return "record_changed"
     for item in targets:
         key = (item["kind"], item["id"])
@@ -307,9 +325,97 @@ def rebase_conflict(plan: dict, targets: list[dict], snapshot) -> str | None:
     return None
 
 
-def on_head(plan: dict, snapshot) -> dict:
-    """The same plan for the head ``snapshot``: only ``expected_revision`` differs."""
-    return {**plan, "expected_revision": snapshot.revision}
+def mergeable(plan: dict, attribution: dict) -> dict | None:
+    """The one ``put_node`` of a ``personal_set`` plan, which is merged field by field; ``None`` for any other edit.
+
+    A ``personal_set`` is told from a ``context_edit`` by the operation its stored attribution names (``GraphEdits.prepare``
+    freezes it with the plan); the plan of a ``personal_set`` is always one ``put_node`` of the owner's record."""
+    operations = plan["operations"]
+    if (isinstance(attribution, dict) and attribution.get("operation") == PERSONAL_OPERATION and len(operations) == 1
+            and operations[0]["op"] == "put_node"):
+        return operations[0]
+    return None
+
+
+def _between(snapshot, base: str, revision: str) -> list[tuple[dict, str]]:
+    """The events (with their commits, in publication order) published after ``base`` up to and including ``revision``.
+    ``snapshot`` is any published snapshot whose history contains ``revision``."""
+    earlier = snapshot.git.event_commits(base)
+    return [(snapshot.events[event_id], commit) for event_id, commit in snapshot.git.event_commits(revision).items()
+            if event_id not in earlier]
+
+
+def _state(snapshot, revision: str, key: tuple) -> tuple[dict | None, list]:
+    """The record and resolved support of ``key`` as published at ``revision``, read from that revision's own files and
+    the last event up to it that changed the record."""
+    content = snapshot.git.read(revision, [record_path(*key)])[record_path(*key)]
+    support = []
+    for event_id, commit in snapshot.git.event_commits(revision).items():
+        for change in snapshot.events[event_id]["changes"]:
+            if (change["kind"], change["id"]) == key:
+                support = snapshot.resolve_refs(change["support_after"], commit)
+    return (None if content is None else json.loads(content)), support
+
+
+def merged_put(operation: dict, base: tuple, head: tuple) -> dict:
+    """``operation`` (a put planned on the ``base`` record and support) applied to the ``head`` record and support.
+
+    Every attribute and the summary the operation changes relative to the base must be unchanged between base and head;
+    the result is the head record with those changes. Support is merged the same way: the head's support, plus what the
+    operation adds relative to the base and minus what it removes, provided the head did not add or remove those same
+    entries. Anything else raises ``MergeConflict``."""
+    (before, before_support), (after, after_support) = base, head
+    if before is None or after is None:
+        raise MergeConflict("record_changed")
+    planned, same = operation["record"], lambda left, right: encode(left) == encode(right)
+    record = {"id": after["id"], "summary": after["summary"], "attributes": dict(after["attributes"])}
+    if not same(planned["summary"], before["summary"]):
+        if not same(after["summary"], before["summary"]):
+            raise MergeConflict("field_changed")
+        record["summary"] = planned["summary"]
+    for name in sorted(set(before["attributes"]) | set(planned["attributes"])):
+        mine, theirs, was = (planned["attributes"].get(name), after["attributes"].get(name), before["attributes"].get(name))
+        if same(mine, was):
+            continue
+        if not same(theirs, was):
+            raise MergeConflict("field_changed")
+        if mine is None:
+            record["attributes"].pop(name, None)
+        else:
+            record["attributes"][name] = mine
+    wanted = operation["support_after"]
+    added = [ref for ref in wanted if ref not in before_support]
+    dropped = [ref for ref in before_support if ref not in wanted]
+    touched = set(after_support) ^ set(before_support)
+    if touched & {*added, *dropped}:
+        raise MergeConflict("field_changed")
+    support = [ref for ref in after_support if ref not in dropped] + [ref for ref in added if ref not in after_support]
+    return {**operation, "record": record, "support_after": support}
+
+
+def plan_on(plan: dict, attribution: dict, revision: str, snapshot) -> dict:
+    """The plan a queued edit runs on ``revision`` (its base or a later published revision): a deterministic function of
+    the stored ``plan``, its base and ``revision``, so the driver's gate, a recovery and the check of a published event all
+    build the same plan. ``snapshot`` is any published snapshot whose history contains ``revision``.
+
+    For a ``context_edit``, and for a ``personal_set`` whose record no event in between changed, it is the stored plan with
+    only ``expected_revision`` set to ``revision``. A ``personal_set`` whose record was changed in between has its one
+    ``put_node`` merged onto the record at ``revision`` (``merged_put``); its explanation, citations and rationale are kept.
+    Raises ``MergeConflict`` when that merge is not possible."""
+    if revision == plan["expected_revision"]:
+        return plan
+    operations, operation = plan["operations"], mergeable(plan, attribution)
+    if operation is not None:
+        key = ("node", operation["record"]["id"])
+        if any((change["kind"], change["id"]) == key for event, _ in _between(snapshot, plan["expected_revision"], revision)
+               for change in event["changes"]):
+            operations = [merged_put(operation, _state(snapshot, plan["expected_revision"], key), _state(snapshot, revision, key))]
+    return library.normalize({**plan, "expected_revision": revision, "operations": operations})
+
+
+def on_head(plan: dict, snapshot, attribution: dict | None = None) -> dict:
+    """The plan a queued edit runs on the head ``snapshot`` (see ``plan_on``)."""
+    return plan_on(plan, attribution or {}, snapshot.revision, snapshot)
 
 
 def namespaces(targets: list[dict], admission: str | None) -> set:
@@ -412,22 +518,30 @@ class GraphEditAuthority:
                 raise DomainError("forbidden", "The agent's registration has no authority in the namespace of an object this edit changes")
             self._namespace(self.with_delegation(other, delegation), uow, arguments)
 
-    def recheck(self, uow, binding: dict, snapshot) -> str:
+    def recheck(self, uow, binding: dict, snapshot) -> dict:
         """The driver's gate before any fresh execution or explicit retry. Raises ``GraphEditRefused`` and changes nothing.
 
-        Returns the revision the edit runs on: the head ``snapshot``. When the head has moved past the edit's base, the edit
-        runs there only if nothing it depends on changed in between (``rebase_conflict``); every check below then runs
-        against the head, exactly as for a plan prepared on it."""
+        Returns the plan the edit runs on the head ``snapshot`` (``plan_on``). When the head has moved past the edit's base,
+        the edit runs there only if nothing it depends on changed in between (``rebase_conflict``), or, for a
+        ``personal_set`` whose only such change is to the owner's record, if its change merges onto that record field by
+        field; every check below then runs against the head, exactly as for a plan prepared on it."""
         try:
             stored = library.normalize(binding["plan"])
         except ContextError as error:
             raise GraphEditRefused("edit_invalid", f"The stored edit is not a valid plan: {error}", "integrity") from None
-        conflict = rebase_conflict(stored, binding["targets"], snapshot)
+        personal = mergeable(stored, binding["attribution"])
+        merge = (("node", personal["record"]["id"]) if personal is not None
+                 and personal["record"]["id"] == snapshot.personal_context_node else None)
+        conflict = rebase_conflict(stored, binding["targets"], snapshot, merge=merge)
+        if conflict is None:
+            try:
+                plan = plan_on(stored, binding["attribution"], snapshot.revision, snapshot)
+            except MergeConflict as refused:
+                conflict = refused.code
         if conflict is not None:
             raise GraphEditRefused("stale_base", f"The published Context moved from the edit's base {binding['expected_revision']} to "
                                    f"{snapshot.revision} and {CONFLICTS[conflict]} since. Read the Context again and submit a "
                                    "newly reviewed plan")
-        plan = on_head(stored, snapshot)
         try:
             fresh = analyze(plan, snapshot, binding["project_id"], lambda project: uow.repository("projects").get(project) is not None)
         except (ContextError, DomainError) as error:
@@ -443,7 +557,7 @@ class GraphEditAuthority:
         except DomainError as error:
             raise GraphEditRefused("authority_revoked", "The original caller no longer holds the authority this edit needs: "
                                    f"{error.message}") from None
-        return snapshot.revision
+        return plan
 
 
 # -- admission -----------------------------------------------------------------------------------------------------------

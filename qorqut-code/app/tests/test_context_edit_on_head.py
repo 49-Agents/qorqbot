@@ -20,10 +20,12 @@ from qorqut_context.git_store import CONFIG_PATH
 from qorqut_context.integration.driver import ContextQueueDriver
 from qorqut_context.integration.filing.outcomes import FilingOutcomes
 from qorqut_context.integration.filing.source_operations import ContextSourceOperations
-from qorqut_context.integration.graph_edits.graph_edit import GraphEditPorts, GraphEdits, on_head, rebase_conflict
+from qorqut_context.integration.graph_edits.graph_edit import (GraphEditPorts, GraphEdits, MergeConflict, merged_put, on_head,
+                                                               plan_on, rebase_conflict)
+from qorqut_context.integration.queue import transitions
 from qorqut_context.integration.reading import SharedContextReader, shared_context_contribution
 from qorqut_operations.application.plans import utc_clock
-from qorqut_operations.contracts import ArtifactRef, InvocationOptions, new_id, plain
+from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationOptions, new_id, plain
 
 from qorqut.composition.catalog import install_contribution
 
@@ -154,7 +156,7 @@ class RunsOnTheHeadTests(unittest.TestCase):
 
     def refused(self, *, why):
         result = self.one.drive()
-        self.assertEqual(result["status"], "input_blocked", result)
+        self.assertEqual(result["status"], "discarded", result)
         self.assertEqual(result["error"]["code"], "stale_base")
         self.assertIn(why, result["error"]["message"])
         return result
@@ -233,6 +235,79 @@ class SameResultAsPlannedOnTheHeadTests(unittest.TestCase):
         self.assertEqual(source(rebased, moved_event)["expected_revision"], moved_event["base_revision"])
 
 
+class StaleRefusalEndsTheInputTests(unittest.TestCase):
+    """A stale_base refusal cannot succeed on retry, so the driver discards the input itself and the queue moves on."""
+
+    def setUp(self):
+        self.one = Instance(self, ids=["evaaa", "evbbb"])
+        self.one.direct("seed1", put("put_node", node("nodea")))
+
+    def rows(self, sql, *args):
+        with self.one.runtime.database.read() as uow:
+            return [dict(row) for row in uow.connection.execute(sql, args)]
+
+    def test_the_refused_edit_is_discarded_with_its_reason_and_the_next_input_runs(self):
+        stale = self.one.queue(put("put_node", node("nodea", "Queued first.")))
+        self.one.queue(put("put_node", node("nnew2")))
+        self.one.direct("ahead", put("put_node", node("nodea", "Changed ahead.")))
+        result = self.one.drive()
+        self.assertEqual((result["status"], result["error"]["code"], result["error"]["retryable"]), ("discarded", "stale_base", False))
+        row, = self.rows("SELECT state, attempt, error_json, result_json FROM context_inputs WHERE id=?", stale["input"]["id"])
+        saved = json.loads(row["result_json"])
+        self.assertEqual((row["state"], row["attempt"], row["error_json"]), ("discarded", 1, None))
+        self.assertEqual((saved["outcome"], saved["refusal"]["code"], saved["context"]), ("discarded", "stale_base", "no_event"))
+        self.assertEqual(saved["request_evidence"]["reason"], "refused_unretryable")
+        attempt, = self.rows("SELECT outcome, error_json FROM context_input_attempts WHERE input_id=?", stale["input"]["id"])
+        self.assertEqual((attempt["outcome"], json.loads(attempt["error_json"])["code"]), ("blocked", "stale_base"))
+        control, = self.rows("SELECT intent, status, requested_by FROM context_input_controls WHERE input_id=?", stale["input"]["id"])
+        self.assertEqual((control["intent"], control["status"], control["requested_by"]), ("discard", "applied", self.one.driver.driver_id))
+        notice, = self.rows("SELECT id, event_type, summary FROM inbox_events WHERE source_id=?", stale["input"]["id"])
+        self.assertEqual((notice["event_type"], notice["id"]), ("context.input_discarded", saved["notice_event_id"]))
+        self.assertIn("stale_base", notice["summary"])
+        delivered = self.rows("SELECT agent_id, required FROM inbox_deliveries WHERE event_id=?", notice["id"])
+        self.assertEqual(delivered, [{"agent_id": self.one.lead.principal_id, "required": 1}])
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM inbox_events WHERE event_type='context.input_blocked'"), [{"n": 0}])
+        # Nothing waits behind it: the next input publishes on the following step.
+        self.assertEqual(self.one.drive()["status"], "published")
+        self.assertIn("nnew2", self.one.head().nodes)
+
+    def test_a_stale_retry_of_a_blocked_edit_is_discarded_too(self):
+        stale = self.one.queue(put("put_node", node("nodea", "Queued first.")))
+        policy = self.one.runtime.application.policy
+        allow = policy.context_for
+        policy.context_for = lambda *args, **kwargs: (_ for _ in ()).throw(DomainError("forbidden", "Revoked for this test"))
+        blocked = self.one.drive()
+        self.assertEqual((blocked["status"], blocked["error"]["code"]), ("input_blocked", "authority_revoked"))
+        policy.context_for = allow
+        self.one.direct("ahead", put("put_node", node("nodea", "Changed meanwhile.")))
+        # The row context_queue_retry records (the queue operations are not installed in this fixture).
+        with self.one.runtime.database.transaction() as uow:
+            uow.connection.execute(
+                "INSERT INTO context_input_controls(id,project_id,input_id,intent,expected_state,requested_by,requested_at,status) "
+                "VALUES (?,?,?,?,?,?,?,?)", (new_id(), None, stale["input"]["id"], "retry", "blocked", self.one.lead.principal_id,
+                                             "2026-11-25T00:00:00Z", "pending"))
+        result = self.one.drive()
+        self.assertEqual((result["status"], result["error"]["code"]), ("discarded", "stale_base"))
+        controls = self.rows("SELECT intent, status FROM context_input_controls WHERE input_id=? ORDER BY sequence", stale["input"]["id"])
+        self.assertEqual(controls, [{"intent": "retry", "status": "applied"}, {"intent": "discard", "status": "applied"}])
+
+    def test_other_refusals_still_block(self):
+        self.one.queue(put("put_node", node("nodea", "Queued first.")))
+        self.one.runtime.application.policy.context_for = lambda *args, **kwargs: (_ for _ in ()).throw(
+            DomainError("forbidden", "Revoked for this test"))
+        result = self.one.drive()
+        self.assertEqual((result["status"], result["error"]["code"]), ("input_blocked", "authority_revoked"))
+        self.assertEqual(self.one.drive()["status"], "blocked")
+
+
+def personal(instance, *facts, **more):
+    return instance.ok("personal_set", {"facts": list(facts), **SAID, **more})
+
+
+def owner(snapshot):
+    return snapshot.nodes[snapshot.personal_context_node]
+
+
 class PersonalSetBehindTheQueueTests(unittest.TestCase):
     def setUp(self):
         self.one = Instance(self)
@@ -249,14 +324,84 @@ class PersonalSetBehindTheQueueTests(unittest.TestCase):
         self.assertEqual(head.nodes[head.personal_context_node]["attributes"]["phone"], ["+1 555 0199"])
         self.assertEqual(self.one.drive()["status"], "idle")
 
-    def test_a_second_save_of_the_same_record_queued_behind_the_first_is_refused_as_stale(self):
-        self.one.ok("personal_set", {"facts": [{"field": "phone", "values": ["+1 555 0199"]}], **SAID})
-        self.one.ok("personal_set", {"facts": [{"field": "email", "values": ["sam@example.com"]}], **SAID})
+    def test_two_saves_of_different_facts_back_to_back_both_publish(self):
+        personal(self.one, {"field": "phone", "values": ["+1 555 0199"]})
+        second = personal(self.one, {"field": "email", "values": ["sam@example.com"]}, summary="Sam Example, founder.")
+        self.assertEqual(self.one.drive()["status"], "published")
+        middle = self.one.head()
+        self.assertEqual(self.one.drive()["status"], "published")
+        head = self.one.head()
+        record = owner(head)
+        self.assertEqual((record["attributes"]["phone"], record["attributes"]["email"], record["summary"]),
+                         (["+1 555 0199"], ["sam@example.com"], "Sam Example, founder."))
+        self.assertEqual(record["attributes"]["basic_entity_type"], ["person"])
+        # Support: what the record had after the first save, plus this save's own event.
+        event = head.events[second["execution"]["reserved_event_id"]]
+        self.assertEqual(head.support[("node", head.personal_context_node)],
+                         [*middle.support[("node", head.personal_context_node)], head.event_commits[event["id"]]])
+
+    def test_the_same_fact_changed_twice_refuses_the_second(self):
+        personal(self.one, {"field": "phone", "values": ["+1 555 0199"]})
+        personal(self.one, {"field": "phone", "values": ["+1 555 0142"], "mode": "replace"})
         self.assertEqual(self.one.drive()["status"], "published")
         result = self.one.drive()
-        self.assertEqual((result["status"], result["error"]["code"]), ("input_blocked", "stale_base"))
+        self.assertEqual((result["status"], result["error"]["code"]), ("discarded", "stale_base"))
+        self.assertIn("a field or the support of the owner's record", result["error"]["message"])
+        self.assertEqual(owner(self.one.head())["attributes"]["phone"], ["+1 555 0199"])
+
+    def filing_style_change(self, **attributes):
+        """What a filing ahead does to the owner's node: another field changed, the present support kept plus its own."""
         head = self.one.head()
-        self.assertNotIn("email", head.nodes[head.personal_context_node]["attributes"])
+        key = head.personal_context_node
+        record = owner(head)
+        change = {**put("put_node", {**record, "attributes": {**record["attributes"], **attributes}}),
+                  "support_after": [*head.support[("node", key)], "self"]}
+        return self.one.direct("filed", change)
+
+    def test_a_change_to_another_field_of_the_owner_in_between_is_merged(self):
+        queued = personal(self.one, {"field": "phone", "values": ["+1 555 0199"]})
+        filed = self.filing_style_change(employer=["Example Ltd"])
+        self.assertEqual(self.one.drive()["status"], "published")
+        head = self.one.head()
+        record = owner(head)
+        self.assertEqual((record["attributes"]["phone"], record["attributes"]["employer"]), (["+1 555 0199"], ["Example Ltd"]))
+        event = head.events[queued["execution"]["reserved_event_id"]]
+        self.assertEqual(event["base_revision"], filed.revision)
+        self.assertEqual(head.support[("node", head.personal_context_node)],
+                         [*filed.support[("node", head.personal_context_node)], head.event_commits[event["id"]]])
+
+    def test_a_change_to_the_same_field_in_between_refuses_it(self):
+        personal(self.one, {"field": "phone", "values": ["+1 555 0199"]})
+        self.filing_style_change(phone=["+1 555 0000"])
+        result = self.one.drive()
+        self.assertEqual((result["status"], result["error"]["code"]), ("discarded", "stale_base"))
+        self.assertEqual(owner(self.one.head())["attributes"]["phone"], ["+1 555 0000"])
+
+    def test_recovery_rebuilds_the_same_merged_plan(self):
+        queued = personal(self.one, {"field": "phone", "values": ["+1 555 0199"]})
+        self.filing_style_change(employer=["Example Ltd"])
+        driver, real = self.one.driver, self.one.driver._write
+
+        def failing(function, **arguments):
+            if function is transitions.record_published:
+                raise OSError("recording failed for this test")
+            return real(function, **arguments)
+
+        driver._write = failing
+        self.assertEqual(driver.process_next()["status"], "unrecorded")
+        driver._write = real
+        # A later input moves the head past the published edit before recovery runs.
+        self.one.direct("after", put("put_node", node("later")))
+        head = self.one.head()
+        event = head.events[queued["execution"]["reserved_event_id"]]
+        published = library.load(head.files[event["source"]["path"]])
+        stored = self.one.stored_plan(queued)
+        attribution = {"operation": "personal_set"}
+        self.assertEqual(published, plan_on(stored, attribution, event["base_revision"], head))
+        self.assertEqual(driver.recover()["status"], "published")
+        with self.one.runtime.database.read() as uow:
+            state = uow.connection.execute("SELECT state FROM context_inputs WHERE id=?", (queued["input"]["id"],)).fetchone()[0]
+        self.assertEqual(state, "published")
 
 
 class ConflictRulesTests(unittest.TestCase):
@@ -306,6 +451,35 @@ class ConflictRulesTests(unittest.TestCase):
     def test_the_same_revision_is_never_a_conflict(self):
         edit = {**self.edit(), "expected_revision": self.HEAD}
         self.assertIsNone(rebase_conflict(edit, self.TARGETS, SimpleNamespace(revision=self.HEAD)))
+
+
+class MergeRulesTests(unittest.TestCase):
+    BASE = ({"id": "own3r", "summary": "Owner.", "attributes": {"basic_entity_type": ["person"], "phone": ["1"]}}, ["c" * 40])
+
+    def operation(self, attributes, support=("c" * 40, "self"), summary="Owner."):
+        return {"op": "put_node", "record": {"id": "own3r", "summary": summary, "attributes": attributes},
+                "explanation": "x", "citations": ["self"], "support_after": list(support)}
+
+    def test_unrelated_fields_and_support_merge_deterministically(self):
+        head = ({"id": "own3r", "summary": "Owner.", "attributes": {"basic_entity_type": ["person"], "phone": ["1"], "city": ["X"]}},
+                ["c" * 40, "d" * 40])
+        mine = self.operation({"basic_entity_type": ["person"], "phone": ["1"], "email": ["e"]})
+        first, again = merged_put(mine, self.BASE, head), merged_put(mine, self.BASE, head)
+        self.assertEqual(first, again)
+        self.assertEqual(first["record"]["attributes"], {"basic_entity_type": ["person"], "phone": ["1"], "city": ["X"], "email": ["e"]})
+        self.assertEqual(first["support_after"], ["c" * 40, "d" * 40, "self"])
+
+    def test_a_removed_field_stays_removed_and_overlaps_conflict(self):
+        head = ({"id": "own3r", "summary": "Owner.", "attributes": {"basic_entity_type": ["person"], "phone": ["1"], "city": ["X"]}},
+                ["c" * 40])
+        dropped = merged_put(self.operation({"basic_entity_type": ["person"]}), self.BASE, head)
+        self.assertEqual(dropped["record"]["attributes"], {"basic_entity_type": ["person"], "city": ["X"]})
+        changed = ({**head[0], "attributes": {**head[0]["attributes"], "phone": ["2"]}}, head[1])
+        for operation, state in ((self.operation({"basic_entity_type": ["person"], "phone": ["3"]}), changed),
+                                 (self.operation(self.BASE[0]["attributes"], summary="New."), ({**head[0], "summary": "Other."}, head[1])),
+                                 (self.operation(self.BASE[0]["attributes"], support=("self",)), (head[0], ["d" * 40]))):
+            with self.assertRaises(MergeConflict):
+                merged_put(operation, self.BASE, state)
 
 
 if __name__ == "__main__":
