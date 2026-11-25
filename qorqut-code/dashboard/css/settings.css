@@ -50,7 +50,7 @@
    Headings, fields, search, buttons, status dots and link buttons are the app's own classes; only the row grid and spacing are here. ---- */
 .settingspane { display: flex; flex-direction: column; overflow: hidden; padding: 0; --st-pad: 28px; }
 .settingspane .agfiles-head { padding: 18px var(--st-pad) 14px; border-bottom: 1px solid var(--line); }
-.settingspane .tsearch { flex: 0 1 280px; margin: 0; }
+.settingspane .search-field { flex: 0 1 280px; }
 .settingspane .agfiles-layout { --agfiles-list-w: 230px; }
 .settingspane:not(.st-global) .agfiles-layout { grid-template-columns: minmax(0, 1fr); }
 .settingspane .agfiles-detail { padding: 22px var(--st-pad) 48px; }

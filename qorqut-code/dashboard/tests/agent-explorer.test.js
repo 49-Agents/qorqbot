@@ -44,7 +44,7 @@ async function fixture(browser, {paired = false, nested = false} = {}) {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setContent('<body style="margin:0"><aside class="tasks agpad" id="agpad" style="display:flex;flex-direction:column;height:700px;width:1100px"><div class="tbody" id="agpad-body" style="flex:1;min-height:0"></div></aside></body>');
-  for (const file of ['app.css', 'css/tasks.css', 'css/agent-files.css', 'css/agent-explorer.css', 'css/status-ball.css', 'css/record-workspace.css', 'css/agent-timeline.css'])
+  for (const file of ['app.css', 'css/search-field.css', 'css/tasks.css', 'css/agent-files.css', 'css/agent-explorer.css', 'css/status-ball.css', 'css/record-workspace.css', 'css/agent-timeline.css'])
     await page.addStyleTag({path: path.join(root, file)});
   await page.evaluate(({paired, nested}) => {
     window.esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -98,7 +98,7 @@ async function fixture(browser, {paired = false, nested = false} = {}) {
       window.agfocusPairedSource = (record, parent) => { pairedCalls.push(record ? record.source : null); return true; };
     }
   }, {paired, nested});
-  for (const file of ['agent-files', 'agent-explorer', 'timeline-panel', 'record-workspace']) {
+  for (const file of ['search-field', 'agent-files', 'agent-explorer', 'timeline-panel', 'record-workspace']) {
     // The Files script registers its tab on load; only its icon helper is used here.
     await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
   }
@@ -121,7 +121,7 @@ test('Global is the root with the Projects, then its own Tasks; a level is read 
     assert.deepEqual(await listCalls(page), [['/root/operations/tasks_list', null, false, '']]);
     // The top is the search field and one finished switch: no title, no refresh, no footer.
     assert.equal(await page.locator('.agfiles-head, .agfiles-footer, .agfiles-crumbs, [data-refresh]').count(), 0);
-    assert.equal(await page.locator('.agexplorer-top .agfiles-search input').getAttribute('placeholder'), 'Find a project or task');
+    assert.equal(await page.locator('.agexplorer-top .search-field input').getAttribute('placeholder'), 'Find a project or task');
     await page.click('[data-toggle="p:alpha"]');
     await page.locator('[data-row="t:alpha:a1"]').waitFor();
     // The finished Task is hidden; a parent whose Tasks are all finished has nothing to open.

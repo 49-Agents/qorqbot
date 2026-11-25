@@ -87,7 +87,7 @@ async function renderSettings(c) {
   pane.innerHTML = `
     <header class="agfiles-head"><div><strong>${global ? 'Settings' : 'Project settings'}</strong>
       ${global ? '<span>Private by design: your work stays on this computer. <button type="button" class="cx-link" data-show-section="about">Details</button></span>' : ''}</div>
-      ${global ? `<label class="tsearch"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search settings" aria-label="Search settings" data-settings-search autocomplete="off" spellcheck="false"></label>` : ''}</header>
+      ${global ? `${searchField({placeholder: "Search settings", attrs: {"data-settings-search": true}})}` : ''}</header>
     <div class="agfiles-layout">
       ${global ? `<nav class="agfiles agfiles-tree" aria-label="Settings sections">${sections.map(section =>
         `<div class="agfiles-row" style="--depth:0"><button type="button" class="agfiles-name" data-section-link="${section.id}">${icon(section.icon)}<span>${section.title}</span></button></div>`).join('')}</nav>` : ''}
