@@ -40,9 +40,9 @@ recording. The browser records up to 15 minutes and posts the recording to `tran
 OpenRouter's `/api/v1/audio/transcriptions` with the owner's key and the configured model, and returns the text and what
 OpenRouter charged. The text is inserted at the cursor for the owner to check; nothing is sent as a message.
 
-The default model is `openai/whisper-large-v3-turbo`, and OpenRouter is asked to run it on DeepInfra first, the cheapest
-provider for that model; it uses another provider when DeepInfra cannot serve the request. To change either, set it in
-the selection entry (an empty `transcription_provider` leaves the choice to OpenRouter):
+The default model is `openai/whisper-large-v3-turbo`, and OpenRouter is asked to run it on Groq first, chosen for speed
+(DeepInfra is the cheapest provider for that model); it uses another provider when Groq cannot serve the request. To
+change either, set it in the selection entry (an empty `transcription_provider` leaves the choice to OpenRouter):
 
     {"factory": "qorqut_openrouter.extension:create",
      "config": {"transcription_model": "openai/gpt-4o-mini-transcribe", "transcription_provider": "openai"}}

@@ -6,8 +6,8 @@ The selection entry in the installation configuration is::
 
 Both settings are optional. ``transcription_model`` is the OpenRouter model that turns the owner's recorded speech into
 text (default ``openai/whisper-large-v3-turbo``). ``transcription_provider`` is the OpenRouter provider asked first to
-run it (default ``deepinfra``, the cheapest for the default model); OpenRouter uses another provider when that one
-cannot serve the request. An empty string leaves the choice to OpenRouter.
+run it (default ``groq``, chosen for speed; ``deepinfra`` is the cheapest for the default model); OpenRouter uses
+another provider when that one cannot serve the request. An empty string leaves the choice to OpenRouter.
 
 The key is never part of this configuration. The owner signs in with OpenRouter from the dashboard, or pastes a key
 there, and it is kept in the private file ``config/openrouter-key`` of the instance (mode 0600). It is read when a call
@@ -27,7 +27,7 @@ from qorqut.private_files import fsync_directory, read_private_file, write_priva
 
 KEYS = frozenset({"transcription_model", "transcription_provider"})
 DEFAULT_TRANSCRIPTION_MODEL = "openai/whisper-large-v3-turbo"
-DEFAULT_TRANSCRIPTION_PROVIDER = "deepinfra"
+DEFAULT_TRANSCRIPTION_PROVIDER = "groq"
 # An OpenRouter provider slug, optionally with a "/variant" such as a region.
 PROVIDER = re.compile(r"[a-z0-9][a-z0-9-]{0,60}(/[a-z0-9][a-z0-9.-]{0,40})?")
 # An OpenRouter model id is "<provider>/<model>", optionally with a ":variant".

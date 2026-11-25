@@ -152,6 +152,19 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 .gchat-composer .gchat-mic[data-state="working"] { opacity:.7; cursor:progress; }
 @keyframes gchat-mic-pulse { 0%, 100% { box-shadow:0 0 0 0 rgba(255,69,58,.35); } 50% { box-shadow:0 0 0 5px rgba(255,69,58,0); } }
 @media (prefers-reduced-motion:reduce) { .gchat-composer .gchat-mic[data-state="recording"] { animation:none; } }
+/* The recording waveform (js/voice-input.js) is a grid item only while recording; it always comes with the microphone,
+   so it adds one column to the microphone's rules. In the compact composer it is placed by document order (after the text
+   field and any model pill, before the buttons); the expanded composer places it left of the buttons in their row. */
+.gchat-composer .gchat-wave[hidden] { display:none; }
+.gchat-composer:has(> .gchat-wave:not([hidden])) { grid-template-columns:minmax(0,1fr) auto auto auto; }
+.gchat-composer:has(.gchat-attach):has(> .gchat-wave:not([hidden])) { grid-template-columns:minmax(0,1fr) auto auto auto auto; }
+.gchat-composer-expanded .gchat-wave { grid-column:-4; }
+.gchat-composer-expanded:has(.gchat-attach) .gchat-wave { grid-column:-5; }
+.gchat-wave { display:flex; align-items:center; gap:8px; height:36px; padding-left:2px; color:var(--fg-2); pointer-events:none; }
+.gchat-wave-bars { display:flex; align-items:center; gap:3px; height:24px; overflow:hidden; }
+.gchat-wave-bars > span { flex:none; width:2px; height:2px; border-radius:1px; background:currentColor; }
+.gchat-wave-time { min-width:28px; font-size:12px; line-height:1; font-variant-numeric:tabular-nums; }
+.gchat-wave[data-state="working"] { opacity:.45; }
 .chat-view.gchat-file-drop::after { content:'Drop files'; display:flex; align-items:center; justify-content:center; position:absolute; inset:5px; z-index:6; border:1px dashed var(--fg-2); border-radius:8px; background:color-mix(in srgb, var(--bg) 90%, transparent); pointer-events:none; font-size:14px; }
 .gchat-composer textarea:disabled { opacity: .6; cursor: not-allowed; }
 .gchat-composer textarea { min-width:0; width:100%; height:36px; min-height:36px; max-height:200px; box-sizing:border-box; resize:none; overflow-y:auto; padding:6px 8px; font:inherit; font-size:calc(13.25px * .935 * 1.1); line-height:24px; border:0; border-radius:0; background:none; box-shadow:none; }

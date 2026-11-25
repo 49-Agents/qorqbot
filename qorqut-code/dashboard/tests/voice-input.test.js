@@ -52,11 +52,51 @@ test('a microphone problem is explained in the owner’s words', () => {
   assert.match(model.microphoneProblem(new Error('other')), /could not be started/);
 });
 
+test('the waveform reads silence as a dot and speech as a clearly taller bar', () => {
+  assert.strictEqual(model.level([]), 0);
+  assert.strictEqual(model.level(undefined), 0);
+  assert.strictEqual(model.level(new Uint8Array(256).fill(128)), 0);
+  assert.strictEqual(model.level(Uint8Array.from({length: 256}, (_, i) => 128 + (i % 2 ? 1 : -1))), 0, 'room noise stays a dot');
+  const tone = amplitude => Uint8Array.from({length: 512}, (_, i) => Math.round(128 + 127 * amplitude * Math.sin(i / 8)));
+  const quiet = model.level(tone(0.07)), loud = model.level(tone(0.5));
+  assert.ok(quiet > 0.3 && quiet < loud, `ordinary speech is visible: ${quiet}`);
+  assert.ok(loud <= 1 && model.level(tone(1)) === 1);
+  assert.strictEqual(model.barHeight(0), model.BAR_MIN);
+  assert.strictEqual(model.barHeight(1), model.BAR_MAX);
+  assert.strictEqual(model.barHeight(0.5), 13);
+  assert.strictEqual(model.barHeight(-1), model.BAR_MIN);
+  assert.strictEqual(model.barHeight(7), model.BAR_MAX);
+  assert.strictEqual(model.barHeight(NaN), model.BAR_MIN);
+});
+
+test('the waveform history scrolls: the newest level enters at the end and the oldest leaves', () => {
+  assert.deepStrictEqual(model.pushLevel([], 0.5, 4), [0, 0, 0, 0.5]);
+  assert.deepStrictEqual(model.pushLevel([1, 2, 3, 4], 5, 4), [2, 3, 4, 5]);
+  assert.deepStrictEqual(model.pushLevel([3, 4], 5, 4), [0, 3, 4, 5]);
+  assert.deepStrictEqual(model.pushLevel([1, 2], 3, 1), [3]);
+  const start = model.pushLevel(null, 0);
+  assert.strictEqual(start.length, model.WAVE_BARS);
+  assert.ok(start.every(value => value === 0));
+  assert.strictEqual(model.WAVE_TICK_MS, 80);
+});
+
+test('the recording clock reads m:ss', () => {
+  assert.strictEqual(model.elapsedLabel(0), '0:00');
+  assert.strictEqual(model.elapsedLabel(7999), '0:07');
+  assert.strictEqual(model.elapsedLabel(65000), '1:05');
+  assert.strictEqual(model.elapsedLabel(model.MAX_SECONDS * 1000), '15:00');
+  assert.strictEqual(model.elapsedLabel(-5), '0:00');
+  assert.strictEqual(model.elapsedLabel(undefined), '0:00');
+});
+
 test('the dashboard loads voice input and the composer offers the microphone', () => {
   const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
   assert.match(read('index.html'), /<script src="\/js\/voice-input\.js"><\/script>/);
   assert.match(read('js/chat-view.js'), /voiceInput\.attach\(\{form, input, before: send/);
   assert.match(read('css/chat-view.css'), /\.gchat-mic\[data-state="recording"\]/);
+  // The waveform is a grid column only while it is shown, and the model pill goes before it.
+  assert.match(read('css/chat-view.css'), /\.gchat-composer:has\(\.gchat-attach\):has\(> \.gchat-wave:not\(\[hidden\]\)\) \{ grid-template-columns:minmax\(0,1fr\) auto auto auto auto; \}/);
+  assert.match(read('js/global-chat.js'), /form\.querySelector\('\.gchat-wave, \.gchat-attach, \.gchat-mic, \.gchat-send'\)/);
 });
 
 test('a blocking Signoff has a bordeaux wash in the queue and a bordeaux frame in the list', () => {

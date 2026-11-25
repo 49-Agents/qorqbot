@@ -116,9 +116,9 @@ class DeclarationTest(Base):
         self.assertEqual(sorted(item.id for item in chosen.extensions), ["openrouter", "treg"])
 
     def test_configuration_allows_only_a_model_id_and_a_provider(self):
-        self.assertEqual(settings.from_config(None).transcription_provider, "deepinfra")
+        self.assertEqual(settings.from_config(None).transcription_provider, "groq")
         self.assertEqual(settings.from_config({"transcription_provider": ""}).transcription_provider, "")
-        self.assertEqual(settings.from_config({"transcription_provider": "groq"}).transcription_provider, "groq")
+        self.assertEqual(settings.from_config({"transcription_provider": "deepinfra"}).transcription_provider, "deepinfra")
         for wrong in ({"transcription_provider": "Deep Infra"}, {"transcription_provider": None}):
             self.refused("invalid_installation", settings.from_config, wrong)
         self.assertEqual(settings.from_config(None).transcription_model, "openai/whisper-large-v3-turbo")
@@ -236,7 +236,7 @@ class VoiceInputTest(Base):
         self.assertEqual(answer, {"text": "hello there", "cost_usd": 0.0004})
         sent, = self.client.recordings
         self.assertEqual((sent.key, sent.audio, sent.media_type, sent.model, sent.language, sent.provider),
-                         (KEY, b"audio-bytes", "audio/webm", "openai/whisper-large-v3-turbo", "en", "deepinfra"))
+                         (KEY, b"audio-bytes", "audio/webm", "openai/whisper-large-v3-turbo", "en", "groq"))
 
     def test_without_a_key_nothing_is_sent_and_the_owner_is_told_where_to_connect(self):
         problem = self.refused("operation_unavailable", self.extension.transcribe, b"audio-bytes", "audio/webm")
@@ -287,7 +287,7 @@ class ClientTest(unittest.TestCase):
     def test_a_recording_is_uploaded_as_a_form_with_the_model_and_its_text_and_cost_come_back(self):
         self.answers.append(Answer(200, {"text": " hello there ", "usage": {"seconds": 3.2, "cost": 0.0004}}))
         answer = self.client.transcribe(KEY, b"\x00\x01audio", media_type="audio/mp4", model="openai/whisper-1", language="en",
-                                        provider="deepinfra")
+                                        provider="groq")
         self.assertEqual(answer, {"text": "hello there", "cost_usd": 0.0004, "seconds": 3.2})
         request, = self.sent
         self.assertEqual((request.method, request.path, request.key), ("POST", "/api/v1/audio/transcriptions", KEY))
@@ -295,7 +295,7 @@ class ClientTest(unittest.TestCase):
         self.assertTrue(request.content_type.startswith("multipart/form-data;"))
         self.assertIn(b'name="model"\r\n\r\nopenai/whisper-1\r\n', request.data)
         self.assertIn(b'name="language"\r\n\r\nen\r\n', request.data)
-        self.assertIn(b'name="provider"\r\n\r\n{"order":["deepinfra"]}\r\n', request.data)
+        self.assertIn(b'name="provider"\r\n\r\n{"order":["groq"]}\r\n', request.data)
         self.assertIn(b'name="file"; filename="recording.m4a"\r\nContent-Type: audio/mp4\r\n\r\n\x00\x01audio\r\n', request.data)
         self.assertTrue(request.data.endswith(f"--{boundary}--\r\n".encode()))
 

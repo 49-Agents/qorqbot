@@ -3,6 +3,8 @@
 // sign-in and finishes it when OpenRouter sends the browser back. `voiceInput.attach` adds the microphone button to one
 // composer; the recording goes to the OpenRouter extension's own route and its text is inserted where the cursor is.
 // The hotkey is Ctrl+Shift+Space: it starts and stops a recording in the composer being typed in, or the one on screen.
+// While recording, a small waveform (a loudness history read from the same microphone stream) and the elapsed time sit
+// between the text field and the buttons; they freeze and dim while the words are turned into text.
 const voiceInputModel = (() => {
   // What a browser can record, most compatible first; the service accepts each by its plain media type.
   const RECORDINGS = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
@@ -36,7 +38,30 @@ const voiceInputModel = (() => {
     if (name === 'NotReadableError') return 'The microphone is in use by another app.';
     return 'The microphone could not be started.';
   }
-  return {RECORDINGS, MAX_SECONDS, BITS_PER_SECOND, isHotkey, hotkeyLabel, mediaType, pickRecording, insert, microphoneProblem};
+  // The recording waveform: WAVE_BARS bars, one new loudness bar every WAVE_TICK_MS, BAR_MIN px (a dot) to BAR_MAX px.
+  const WAVE_BARS = 20, WAVE_TICK_MS = 80, BAR_MIN = 2, BAR_MAX = 24;
+  // Loudness 0..1 from byte time-domain samples (128 is silence). The floor hides room noise; the square root lifts
+  // ordinary speech, which is far quieter than full scale, into clearly visible bars.
+  function level(samples) {
+    const count = samples?.length || 0;
+    if (!count) return 0;
+    let sum = 0;
+    for (let i = 0; i < count; i++) { const v = (samples[i] - 128) / 128; sum += v * v; }
+    return Math.min(1, Math.sqrt(Math.max(0, Math.sqrt(sum / count) - 0.01) * 5));
+  }
+  const barHeight = value => Math.round(BAR_MIN + (BAR_MAX - BAR_MIN) * Math.max(0, Math.min(1, Number(value) || 0)));
+  // Elapsed recording time as m:ss.
+  function elapsedLabel(ms) {
+    const seconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  }
+  // The loudness history after one tick: the newest value enters at the end, the oldest leaves the start, silence pads.
+  function pushLevel(history, value, size = WAVE_BARS) {
+    const kept = (history || []).slice(-(size - 1));
+    return [...Array(Math.max(0, size - 1 - kept.length)).fill(0), ...kept, value].slice(-size);
+  }
+  return {RECORDINGS, MAX_SECONDS, BITS_PER_SECOND, WAVE_BARS, WAVE_TICK_MS, BAR_MIN, BAR_MAX, isHotkey, hotkeyLabel, mediaType,
+    pickRecording, insert, microphoneProblem, level, barHeight, elapsedLabel, pushLevel};
 })();
 if (typeof module !== 'undefined') module.exports = voiceInputModel;
 
@@ -95,7 +120,15 @@ const voiceInput = (() => {
     const button = document.createElement('button');
     button.type = 'button'; button.className = 'gchat-mic quiet'; button.hidden = true; button.innerHTML = ICON;
     form.insertBefore(button, options.before || null);
+    // The waveform is its own grid item between the text field and the first button, in the grid only while it is shown.
+    const model = voiceInputModel;
+    const wave = document.createElement('div');
+    wave.className = 'gchat-wave'; wave.hidden = true; wave.setAttribute('aria-hidden', 'true');
+    wave.innerHTML = `<span class="gchat-wave-bars">${'<span></span>'.repeat(model.WAVE_BARS)}</span><span class="gchat-wave-time">0:00</span>`;
+    form.insertBefore(wave, form.querySelector(':scope > .gchat-attach') || button);
+    const bars = [...wave.querySelector('.gchat-wave-bars').children], clock = wave.querySelector('.gchat-wave-time');
     let state = 'idle', recorder = null, stream = null, chunks = [], timer = 0, locked = false, lockedWhy = '', cancelled = false, disposed = false;
+    let waving = false, audio = null, analyser = null, samples = null, ticker = 0, history = [], startedAt = 0;
     const label = () => state === 'recording' ? 'Stop and insert what you said' : state === 'working' ? 'Turning your words into text…'
       : locked && state === 'idle' && lockedWhy ? `Voice input is off. ${lockedWhy}` : `Voice input (${voiceInputModel.hotkeyLabel(navigator.platform)})`;
     function paint() {
@@ -105,9 +138,43 @@ const voiceInput = (() => {
       button.disabled = state === 'working' || (state === 'idle' && (locked || input.disabled));
       button.setAttribute('aria-pressed', state === 'recording' ? 'true' : 'false');
       button.setAttribute('aria-label', label()); button.title = label();
+      // Shown from the first recorded moment until the text is in (frozen and dim while `working`), gone once idle.
+      if (state === 'recording') waving = true; else if (state === 'idle') waving = false;
+      wave.hidden = !waving; wave.dataset.state = state;
+    }
+    // Writes bar heights and the clock only; nothing here reads layout.
+    function drawWave() {
+      history.forEach((value, i) => { bars[i].style.height = model.barHeight(value) + 'px'; });
+      const text = model.elapsedLabel(Date.now() - startedAt);
+      if (clock.textContent !== text) clock.textContent = text;
+    }
+    function tick() {
+      if (analyser) { try { analyser.getByteTimeDomainData(samples); history = model.pushLevel(history, model.level(samples)); } catch (_) { analyser = null; } }
+      drawWave();
+    }
+    // Loudness comes from the recorder's own stream. Without Web Audio, or with reduced motion, the bars stay dots and
+    // only the clock runs; recording works the same either way. The analyser is never connected to the speakers.
+    function startWave() {
+      history = model.pushLevel([], 0); startedAt = Date.now();
+      const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const Context = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
+      if (!still && Context) {
+        try {
+          audio = new Context();
+          analyser = audio.createAnalyser(); analyser.fftSize = 512;
+          audio.createMediaStreamSource(stream).connect(analyser);
+          samples = new Uint8Array(analyser.fftSize);
+          audio.resume?.().catch(() => {});
+        } catch (_) { try { audio?.close(); } catch (_) { /* Already closed. */ } audio = analyser = samples = null; }
+      }
+      drawWave();
+      ticker = setInterval(tick, still ? 250 : model.WAVE_TICK_MS);
     }
     function release() {
       clearTimeout(timer); timer = 0;
+      clearInterval(ticker); ticker = 0;
+      try { audio?.close().catch(() => {}); } catch (_) { /* Already closed. */ }
+      audio = analyser = samples = null;
       stream?.getTracks().forEach(track => track.stop());
       stream = recorder = null; chunks = [];
     }
@@ -153,6 +220,7 @@ const voiceInput = (() => {
       active.addEventListener('stop', () => { void finish(active.mimeType || wanted || 'audio/webm'); });
       active.addEventListener('error', () => { cancelled = true; say('The recording stopped unexpectedly.'); });
       active.start();
+      startWave();
       timer = setTimeout(() => stop(), voiceInputModel.MAX_SECONDS * 1000);
       state = 'recording'; paint();
     }
@@ -177,14 +245,14 @@ const voiceInput = (() => {
     controllers.add(controller);
     if (status) paint(); else void readStatus();
     return {
-      button,
+      button, wave,
       // The composer's own lock (no session to send to, a send in flight) also locks the microphone.
       setLocked(value, why = '') { locked = !!value; lockedWhy = locked ? String(why || '') : ''; paint(); },
       dispose() {
         disposed = true; controllers.delete(controller);
         stop(true); release();
         button.removeEventListener('click', onClick); form.removeEventListener('keydown', onKey);
-        button.remove();
+        button.remove(); wave.remove();
       },
     };
   }
