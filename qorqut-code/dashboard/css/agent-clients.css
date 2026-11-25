@@ -1,4 +1,4 @@
-/* Claude Code and Codex set-up rows (js/agent-clients.js): Settings > Agents, and the screen before the walkthrough. */
+/* Claude Code and Codex set-up rows (js/agent-clients.js): Settings > Model/Provider, and the screen before the walkthrough. */
 .ac-list { display: grid; }
 .ac-rows { display: grid; }
 .ac-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 18px; border-top: 1px solid var(--line-2); }
@@ -33,6 +33,38 @@
 @media (max-width: 620px) { .ac-row { flex-direction: column; align-items: stretch; } .ac-actions button { flex: 1; } }
 @media (prefers-reduced-motion: reduce) { .ac-progress i { transition: none; } .ac-progress.is-indeterminate i { animation: none; width: 100%; opacity: .5; } }
 
+/* The product's mark before its name. */
+.ac-logo { display: inline-flex; flex: none; width: 16px; height: 16px; color: var(--fg); }
+.ac-logo svg { width: 16px; height: 16px; fill: currentColor; }
+.ac-logo[data-provider="claude"] { color: #D97757; }
+/* The sign-in part (js/agent-clients.js `signIn*`), in a row and in the Chat notice: the page to open, the code the page shows (Claude)
+   or the code to type on it (Codex device code). The field and its text stay in place while the row repaints. */
+.ac-code { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 10px; }
+/* The field is the Signoff's editable area (css/signoffs.css `.sg-message-editor`): a wash with a rule on its left, no box. */
+.ac-code input { flex: 1 1 100%; min-width: 0; box-sizing: border-box; padding: 4px 10px; font: inherit; font-size: 12px; line-height: 1.55; color: var(--fg);
+  border: 0; border-left: 2px solid var(--fg-3); border-radius: 0; background: var(--wash); }
+.ac-code input:focus { outline: none; box-shadow: none; }
+.ac-code input:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
+.ac-code input:disabled { opacity: .6; }
+/* The step's buttons are the Signoff's (css/signoffs.css `.sg-chat .sg .sg-actions`): at the bottom right, the quiet one before the
+   filled one; the page link keeps to the left. */
+.ac-signin-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; flex: 1 1 100%; min-width: 0; }
+.ac-signin-gap { flex: 1 1 0; }
+.ac-signin-actions button, .ac-signin-actions .ac-open, .ac-code .ac-copy { display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: auto;
+  min-height: 28px; padding: 4px 12px; border-radius: var(--r-full); font: 500 12px/18px var(--sans); text-decoration: none; cursor: pointer; transform: none; }
+.ac-signin-actions button.quiet { background: none; border: 1px solid transparent; color: var(--fg-2); }
+.ac-signin-actions .ac-open, .ac-code .ac-copy { background: var(--wash); border: 1px solid var(--line-2); color: var(--fg); }
+.ac-signin-actions .ac-connect { background: var(--accent); border: 1px solid var(--accent); color: var(--accent-fg); }
+.ac-signin-actions button:hover, .ac-signin-actions .ac-open:hover, .ac-code .ac-copy:hover { filter: brightness(.92); transform: none; }
+.ac-signin-actions button:disabled, .ac-code .ac-copy:disabled { cursor: default; opacity: .45; }
+.ac-signin-actions button:focus-visible, .ac-signin-actions .ac-open:focus-visible, .ac-code .ac-copy:focus-visible { outline: 2px solid var(--fg-2); outline-offset: 2px; }
+.ac-usercode { display: inline-flex; flex-direction: column; gap: 2px; }
+.ac-usercode-label { font-size: 11px; color: var(--fg-3); }
+.ac-usercode code { padding: 5px 12px; font: 600 16px var(--mono); letter-spacing: .12em; color: var(--fg); user-select: all;
+  border: 1px solid var(--line-2); border-radius: var(--r-sm); background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.ac-checking { flex: 1 1 100%; margin: 0; font-size: 12px; color: var(--fg-2); }
+.ac-checking[hidden] { display: none; }
+
 /* The screen before the walkthrough. The card is the walkthrough's (dark in both themes, tokens restored in theme-light.css). */
 .ac-gate { position: fixed; inset: 0; z-index: 10040; display: grid; place-items: center; padding: 16px;
   background: rgba(0,0,0,.72); backdrop-filter: blur(6px); }
@@ -41,6 +73,7 @@
 .ac-gate-rows { margin-top: 18px; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; overflow: hidden; background: rgba(255,255,255,.025); }
 .ac-gate .ac-detail { color: #a8a8a8; }
 .ac-gate .ac-note { color: #909090; }
+.ac-gate .ac-usercode-label { color: #909090; }
 .ac-gate .ac-pill[data-tone="info"] { color: var(--fg); }
 .ac-gate-hint { margin-top: 12px !important; font-size: 12px !important; color: #909090 !important; }
 .ac-gate-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }

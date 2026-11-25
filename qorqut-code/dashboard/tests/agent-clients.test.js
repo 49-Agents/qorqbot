@@ -116,6 +116,7 @@ function freshPage(...siblings) {
   doc.created = 0; return page;
 }
 const click = el => el.dispatchEvent({type: 'click', target: el, bubbles: true});
+const press = (el, key) => { const event = {type: 'keydown', key, target: el, bubbles: true, preventDefault() {}}; el.dispatchEvent(event); return event; };
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 // Timers collected and fired by hand; `delays` is what each was scheduled for.
 function clock() {
@@ -175,13 +176,13 @@ test('a failed sign-in gives its reason and the one next action', () => {
   assert.match(row('claude', {...installed, sign_in: {state: 'failed', reason: null}}).detail, /^Signing in did not finish\. Press Connect/);
 });
 
-test('signed in: Ready with the account and no button', () => {
+test('signed in: Ready with the account and a quiet Switch account button', () => {
   const state = row('claude', {...installed, signed_in: true, account: {email: 'sam@example.com', plan: 'Max'}});
   assert.equal(state.key, 'ready');
   assert.equal(state.tone, 'ok');
   assert.equal(state.pill, 'Ready');
   assert.equal(state.detail, 'Signed in as sam@example.com (Max). Version 2.1.3.');
-  assert.deepEqual(state.actions, []);
+  assert.deepEqual(state.actions.map(a => [a.id, a.label, a.kind, a.aria]), [['switch', 'Switch account', 'quiet', 'Switch the Claude Code account']]);
   assert.equal(row('codex', {...installed, signed_in: true, version: null}).detail, 'Signed in.');
 });
 
@@ -691,7 +692,7 @@ test('the screen is also dismissed only once: a second press does not resolve ag
 
 // ---- where the component is mounted (the real lines of settings.js and main.js, run with stand-ins)
 
-test('Settings mounts the rows into the Agents section and tells the search filter when they paint', () => {
+test('Settings mounts the rows into the Model/Provider section and tells the search filter when they paint', () => {
   const settings = read('js/settings.js');
   const start = settings.indexOf('function paintAgentClients(pane)');
   const body = settings.slice(start, settings.indexOf('\n}\n', start) + 3);
@@ -749,4 +750,309 @@ test('the styles cover the light theme, reduced motion and the narrow layout', (
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /max-width: 620px/);
   assert.match(css, /\.ac-actions button:focus-visible/);
+});
+
+
+// ---- switch account: limit, sign-in part, failure and result notes, the shared notice, and the rows as the owner uses them
+const NOW = Date.parse('2026-11-24T12:00:00Z');
+const signedIn = (over = {}) => ({...installed, source: 'system', signed_in: true, account: {email: 'owner@example.com', plan: 'Max'}, ...over});
+const switching = (over = {}) => signedIn({sign_in: {state: 'connecting', method: 'browser', page_url: 'https://claude.ai/oauth/authorize?code=true&state=a"b', accepts_code: true,
+  code_submitted: false, switching: true, previous_account: {email: 'owner@example.com', plan: 'Max'}, ...over}});
+const actionIds = state => state.actions.map(a => a.id);
+
+test('limit reached: its own pill, the client’s words for the reset, and the Switch button filled', () => {
+  const limit = {reached: true, resets_at: '2026-11-29T00:00:00Z', resets_text: 'Nov 28, 7pm (America/New_York)'};
+  const state = clients.rowState('claude', client(signedIn({limit})), {now: NOW});
+  assert.equal(state.key, 'limit');
+  assert.equal(state.pill, 'Limit reached');
+  assert.equal(state.tone, 'warn');
+  assert.equal(state.detail, 'Signed in as owner@example.com (Max). Usage limit reached, resets Nov 28, 7pm (America/New_York).');
+  assert.equal(state.note, 'Agents on Claude Code wait until then, or until you switch.');
+  assert.deepEqual(state.actions.map(a => [a.id, a.kind]), [['switch', 'primary']]);
+  assert.equal(clients.rowState('codex', client(signedIn({limit: {...limit, resets_text: 'at 3pm'}})), {now: NOW}).detail, 'Signed in as owner@example.com (Max). Usage limit reached, resets at 3pm.');
+  assert.match(clients.rowState('codex', client(signedIn({limit})), {now: NOW}).note, /^Agents on Codex wait/);
+});
+
+test('limit reached without the client’s words: the time is formatted, today as a clock time; without any time there is none', () => {
+  const at = iso => clients.rowState('claude', client(signedIn({limit: {reached: true, resets_at: iso, resets_text: null}})), {now: NOW}).detail;
+  const today = new Date(NOW + 3600e3);
+  assert.equal(at(today.toISOString()), `Signed in as owner@example.com (Max). Usage limit reached, resets at ${today.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}.`);
+  assert.match(at('2026-12-05T10:00:00Z'), /resets \w+ \d+, /);
+  assert.equal(at(null), 'Signed in as owner@example.com (Max). Usage limit reached.');
+  assert.equal(at('not a time'), 'Signed in as owner@example.com (Max). Usage limit reached.');
+  assert.equal(clients.rowState('claude', client(signedIn({limit: {reached: false}}))).key, 'ready');
+});
+
+test('a switch under way: the page link, the code field for Claude, the old account stays, Cancel is the one button', () => {
+  const state = clients.rowState('claude', client(switching()));
+  assert.equal(state.key, 'connecting');
+  assert.equal(state.pill, 'Signing in');
+  assert.deepEqual(actionIds(state), ['cancel_connect']);
+  assert.deepEqual({...state.signin}, {provider: 'claude', name: 'Claude Code', pageUrl: 'https://claude.ai/oauth/authorize?code=true&state=a"b', userCode: '',
+    acceptsCode: true, codeSubmitted: false, busy: false, switching: true, previous: 'owner@example.com (Max)'});
+  assert.deepEqual(state.notes, ['No window, or Qorqbot runs on another computer? Open the page yourself and paste the code it shows.',
+    'Still signed in as owner@example.com (Max) until you finish.']);
+  // A first sign-in (nothing to keep) does not say it.
+  const first = clients.rowState('claude', client({...installed, sign_in: {state: 'connecting', method: 'browser', page_url: null, accepts_code: true, switching: false}}));
+  assert.equal(first.signin.pageUrl, '');
+  assert.ok(!first.notes.some(note => /Still signed in/.test(note)));
+  // A link that is not a web address is never given to the page.
+  assert.equal(clients.rowState('claude', client(switching({page_url: 'javascript:alert(1)'}))).signin.pageUrl, '');
+});
+
+test('Codex: a browser sign-in has a link and no field; a device code shows the code and no field', () => {
+  const browser = clients.rowState('codex', client(switching({method: 'browser', page_url: 'https://auth.openai.com/x', accepts_code: false})));
+  assert.equal(browser.signin.acceptsCode, false);
+  assert.equal(browser.signin.userCode, '');
+  assert.deepEqual(browser.notes, ['No window? Open the sign-in page yourself.', 'Still signed in as owner@example.com (Max) until you finish.']);
+  const device = clients.rowState('codex', client(switching({method: 'device_code', page_url: 'https://auth.openai.com/codex/device', user_code: 'ABCD-EFGH', accepts_code: false})));
+  assert.equal(device.signin.userCode, 'ABCD-EFGH');
+  assert.equal(device.signin.acceptsCode, false);
+  assert.match(device.detail, /^Open the sign-in page on any device and type the code below\./);
+  assert.deepEqual(device.notes, ['Still signed in as owner@example.com (Max) until you finish.']);
+  // A device code method with no code yet shows neither a code nor a field.
+  assert.equal(clients.rowState('codex', client(switching({method: 'device_code', user_code: null, accepts_code: false}))).signin.userCode, '');
+});
+
+test('the code being sent changes only the sign-in part: the row’s buttons and shape stay', () => {
+  const state = clients.rowState('claude', client(switching()), {pending: 'submit_code'});
+  assert.equal(state.signin.busy, true);
+  assert.deepEqual(state.actions.map(a => [a.id, !!a.disabled]), [['cancel_connect', false]]);
+  assert.equal(clients.signInShape(state.signin), clients.signInShape(clients.rowState('claude', client(switching({code_submitted: true}))).signin));
+  assert.equal(clients.rowState('claude', client(switching({code_submitted: true}))).signin.codeSubmitted, true);
+  // Another action on its way still disables the buttons and says what it does.
+  const busy = clients.rowState('claude', client(signedIn()), {pending: 'switch'});
+  assert.deepEqual(busy.actions.map(a => [a.id, a.label, a.disabled]), [['switch', 'Opening sign-in…', true]]);
+});
+
+test('a switch that failed leaves the row Ready with a note, and the server’s reason when there is one', () => {
+  const state = clients.rowState('claude', client(signedIn({sign_in: {state: 'failed', reason: 'The sign-in window was closed.'}})));
+  assert.equal(state.key, 'ready');
+  assert.equal(state.pill, 'Ready');
+  assert.equal(state.note, 'Signing in to another account did not finish (The sign-in window was closed). Nothing changed.');
+  assert.equal(clients.rowState('claude', client(signedIn({sign_in: {state: 'failed', reason: null}}))).note, 'Signing in to another account did not finish. Nothing changed.');
+  assert.deepEqual(actionIds(clients.rowState('claude', client(signedIn({sign_in: {state: 'failed'}})))), ['switch']);
+});
+
+test('just switched: the counts, singular and zero, restarting, the same account again, failures, and only for ten minutes', () => {
+  const note = (switched, now = NOW + 1000) => clients.rowState('claude', client(signedIn({switched: {at: '2026-11-24T12:00:00Z', state: 'done', changed: true,
+    previous_account: null, account: null, restarted: 9, continued: 3, failed: 0, ...switched}})), {now}).note;
+  assert.equal(note({}), 'Switched just now. 9 agents restarted, 3 continued where the limit stopped them.');
+  assert.equal(note({restarted: 1, continued: 1}), 'Switched just now. 1 agent restarted, 1 continued where the limit stopped it.');
+  assert.equal(note({restarted: 2, continued: 0}), 'Switched just now. 2 agents restarted.');
+  assert.equal(note({restarted: 0, continued: 0}), 'Switched just now. No agents needed restarting.');
+  assert.equal(note({state: 'restarting', restarted: 1}), 'Switched just now. Restarting agents…');
+  assert.equal(note({changed: false, restarted: 0, continued: 0}), 'Signed in again as the same account.');
+  assert.equal(note({changed: false, restarted: 2, continued: 0}), 'Signed in again as the same account. 2 agents restarted.');
+  assert.equal(note({restarted: 3, continued: 1, failed: 2}), 'Switched just now. 3 agents restarted, 1 continued where the limit stopped it. 2 did not restart.');
+  assert.equal(note({}, NOW + 9 * 60e3), 'Switched just now. 9 agents restarted, 3 continued where the limit stopped them.');
+  assert.equal(note({}, NOW + 11 * 60e3), '', 'gone after about ten minutes');
+  assert.equal(note({at: 'garbage'}), '');
+  assert.equal(clients.rowState('claude', client(signedIn({switched: null}))).note, '');
+  assert.equal(clients.needsPoll(view(signedIn({switched: {at: '2026-11-24T12:00:00Z', state: 'restarting'}}))), true);
+  assert.equal(clients.needsPoll(view(signedIn({switched: {at: '2026-11-24T12:00:00Z', state: 'done'}}))), false);
+  assert.equal(clients.needsPoll(view(switching())), true);
+});
+
+test('every row has its product’s mark before the name, hidden from a screen reader', () => {
+  const [page] = freshPage('page');
+  const panel = clients.mount(page, {view: view(signedIn(), signedIn()), read: async () => view(), schedule: () => 1, cancel() {}});
+  for (const [provider, colour] of [['claude', 'coral'], ['codex', 'text']]) {
+    const el = page.querySelector(`[data-ac-row="${provider}"]`);
+    const logo = el.querySelector('.ac-logo');
+    assert.equal(logo.dataset.provider, provider, colour);
+    assert.equal(logo.getAttribute('aria-hidden'), 'true');
+    assert.ok(logo.querySelector('path').getAttribute('d').length > 200, 'a drawn mark');
+    assert.equal(el.querySelector('.ac-head').children[0], logo, 'the mark comes first');
+  }
+  assert.notEqual(page.querySelector('[data-ac-row="claude"] path').getAttribute('d'), page.querySelector('[data-ac-row="codex"] path').getAttribute('d'));
+  panel.stop();
+});
+
+// The rows as the owner uses them: a fake server holds the view; actions change it.
+function liveRows(first, extra = {}) {
+  const [page] = freshPage('page');
+  const server = {view: first, acts: [], reads: 0};
+  const panel = clients.mount(page, {view: first, read: async () => { server.reads++; return server.view; },
+    act: async (provider, action, body) => { server.acts.push({provider, action, ...(body || {})}); return server.view; }, schedule: () => 1, cancel() {}, ...extra});
+  const el = provider => page.querySelector(`[data-ac-row="${provider}"]`);
+  return {page, panel, server, el};
+}
+
+test('Switch account sends switch for that product, and the row waits with its own words', async () => {
+  const ui = liveRows(view(signedIn(), signedIn()));
+  const button = ui.el('codex').querySelector('[data-ac-action="switch"]');
+  assert.equal(button.getAttribute('aria-label'), 'Switch the Codex account');
+  assert.ok(button.className.includes('quiet'));
+  click(button);
+  assert.deepEqual(ui.server.acts, [{provider: 'codex', action: 'switch'}]);
+  await flush();
+  ui.panel.stop();
+});
+
+test('the sign-in link opens in a new tab without giving the page this window, and only when there is an address', () => {
+  const ui = liveRows(view(switching()));
+  const link = ui.el('claude').querySelector('a[data-ac-open]');
+  assert.equal(link.getAttribute('href'), 'https://claude.ai/oauth/authorize?code=true&state=a"b');
+  assert.equal(link.getAttribute('target'), '_blank');
+  assert.equal(link.getAttribute('rel'), 'noopener noreferrer');
+  assert.match(link.getAttribute('aria-label'), /Claude Code sign-in page in a new tab/);
+  const none = liveRows(view(switching({page_url: null})));
+  assert.equal(none.el('claude').querySelector('a[data-ac-open]'), null);
+  assert.ok(none.el('claude').querySelector('[data-ac-code]'), 'the field is there without the link');
+  ui.panel.stop(); none.panel.stop();
+});
+
+test('Claude: the typed code survives the 2-second re-reads, keeps focus, and Connect sends it; then the field waits', async () => {
+  const ui = liveRows(view(switching()));
+  const input = () => ui.el('claude').querySelector('[data-ac-code]');
+  const typed = input();
+  typed.value = 'abc-123'; typed.focus();
+  // A re-read with the same answer, and one that gives the page address later: the field is the same element or has the same text and focus.
+  await ui.panel.refresh({quiet: true});
+  assert.equal(input(), typed, 'the same element');
+  assert.equal(doc.activeElement, typed);
+  ui.server.view = view(switching({page_url: 'https://claude.ai/other'}));
+  await ui.panel.refresh({quiet: true});
+  assert.equal(input().value, 'abc-123', 'text kept even when the part is rebuilt');
+  assert.equal(doc.activeElement, input(), 'focus kept');
+  assert.equal(ui.el('claude').querySelector('a[data-ac-open]').getAttribute('href'), 'https://claude.ai/other');
+  // Enter sends it; the field and Connect wait while the server checks.
+  ui.server.view = view(switching({page_url: 'https://claude.ai/other', code_submitted: true}));
+  press(input(), 'Enter');
+  assert.deepEqual(ui.server.acts, [{provider: 'claude', action: 'submit_code', code: 'abc-123'}]);
+  await flush();
+  assert.equal(input().disabled, true);
+  assert.equal(ui.el('claude').querySelector('[data-ac-finish]').disabled, true);
+  assert.equal(ui.el('claude').querySelector('[data-ac-checking]').hidden, false);
+  assert.match(ui.el('claude').querySelector('[data-ac-checking]').textContent, /^Checking the code…$/);
+  ui.panel.stop();
+});
+
+test('Connect with an empty field sends nothing and puts the cursor in the field; spaces around the code are dropped', async () => {
+  const ui = liveRows(view(switching()));
+  const input = ui.el('claude').querySelector('[data-ac-code]');
+  click(ui.el('claude').querySelector('[data-ac-finish]'));
+  assert.deepEqual(ui.server.acts, []);
+  assert.equal(doc.activeElement, input);
+  input.value = '  xyz  ';
+  click(ui.el('claude').querySelector('[data-ac-finish]'));
+  assert.deepEqual(ui.server.acts, [{provider: 'claude', action: 'submit_code', code: 'xyz'}]);
+  await flush(); ui.panel.stop();
+});
+
+test('a refused code shows the server’s words and leaves the field usable', async () => {
+  const ui = liveRows(view(switching()), {act: async () => { throw new Error('That code does not look right.'); }});
+  ui.el('claude').querySelector('[data-ac-code]').value = 'nope';
+  click(ui.el('claude').querySelector('[data-ac-finish]'));
+  await flush();
+  assert.match(ui.el('claude').querySelector('.ac-error').textContent, /That code does not look right\./);
+  const input = ui.el('claude').querySelector('[data-ac-code]');
+  assert.equal(input.value, 'nope');
+  assert.equal(input.disabled, false);
+  ui.panel.stop();
+});
+
+test('Codex device code: the code is shown in the code element with a Copy button, there is no field, and Cancel sends cancel_connect', async () => {
+  const ui = liveRows(view({}, switching({method: 'device_code', page_url: 'https://auth.openai.com/codex/device', user_code: 'ABCD-EFGH', accepts_code: false})));
+  const el = ui.el('codex');
+  assert.equal(el.querySelector('[data-ac-user-code]').textContent, 'ABCD-EFGH');
+  assert.equal(el.querySelector('[data-ac-code]'), null);
+  assert.equal(el.querySelector('[data-ac-finish]'), null);
+  const written = [];
+  Object.defineProperty(globalThis, 'navigator', {value: {clipboard: {writeText: async text => { written.push(text); }}}, configurable: true});
+  try { click(el.querySelector('[data-ac-copy]')); } finally { delete globalThis.navigator; }
+  assert.deepEqual(written, ['ABCD-EFGH']);
+  assert.equal(el.querySelector('[data-ac-copy]').textContent, 'Copied');
+  click(el.querySelector('[data-ac-action="cancel_connect"]'));
+  assert.deepEqual(ui.server.acts, [{provider: 'codex', action: 'cancel_connect'}]);
+  await flush(); ui.panel.stop();
+});
+
+test('the whole row text and the pieces from the server are escaped', () => {
+  const ui = liveRows(view(switching({page_url: 'https://x.test/?a="><img src=x>', previous_account: {email: '<b>me</b>@x.test', plan: '<i>'}})));
+  const html = ui.el('claude').querySelector('a[data-ac-open]');
+  assert.equal(html.getAttribute('href'), 'https://x.test/?a="><img src=x>');
+  assert.equal(ui.el('claude').querySelector('img'), null);
+  assert.equal(ui.el('claude').querySelector('b'), null);
+  assert.match(ui.el('claude').textContent, /Still signed in as <b>me<\/b>@x\.test \(<i>\) until you finish\./);
+  ui.panel.stop();
+});
+
+test('the row repaints when the limit ends or a switch completes, and the sign-in part goes with the sign-in', async () => {
+  const ui = liveRows(view(signedIn({limit: {reached: true, resets_text: 'at 3pm'}})));
+  assert.equal(ui.el('claude').dataset.state, 'limit');
+  ui.server.view = view(switching());
+  await ui.panel.refresh({quiet: true});
+  assert.equal(ui.el('claude').dataset.state, 'connecting');
+  assert.ok(ui.el('claude').querySelector('[data-ac-signin]'));
+  ui.server.view = view(signedIn({switched: {at: new Date().toISOString(), state: 'done', changed: true, restarted: 2, continued: 1, failed: 0}}));
+  await ui.panel.refresh({quiet: true});
+  assert.equal(ui.el('claude').dataset.state, 'ready');
+  assert.equal(ui.el('claude').querySelector('[data-ac-signin]'), null);
+  assert.match(ui.el('claude').textContent, /Switched just now\. 2 agents restarted, 1 continued where the limit stopped it\./);
+  ui.panel.stop();
+});
+
+test('the gate before the walkthrough shows the marks too', async () => {
+  const [app] = freshPage('app');
+  const result = clients.preflight({read: async () => view(installed, installed), schedule: () => 1, cancel() {}});
+  await flush();
+  const gate = doc.body.children.find(el => el.className === 'ac-gate');
+  assert.equal(gate.querySelectorAll('.ac-logo').length, 2);
+  click(gate.querySelector('[data-ac-later]'));
+  await result;
+});
+
+test('the notice for an account problem: a limit, a lost sign-in, signing in, a failed attempt, a switch in progress', () => {
+  const problem = (over = {}) => ({kind: 'usage_limit', provider: 'claude', resetsAt: null, resetsText: 'Nov 28, 7pm (America/New_York)', account: {email: 'owner@example.com', plan: 'Max'},
+    other: {id: 'codex', ready: true}, ...over});
+  const notice = (p, it, ctx) => clients.accountNotice(p, it, {agent: 'Ordubashy', now: NOW, ...ctx});
+  const summary = n => [n.key, n.text, n.small, n.actions.map(a => `${a.id}:${a.label}:${a.kind}`)];
+  assert.deepEqual(summary(notice(problem(), undefined)), ['limit', 'Claude usage limit reached. It resets Nov 28, 7pm (America/New_York).',
+    'Signed in as owner@example.com (Max). Every agent on Claude Code is waiting.', ['switch:Switch Claude account:primary', 'use_other:Use Codex for Ordubashy:quiet']]);
+  assert.deepEqual(summary(notice(problem({provider: 'codex', resetsText: 'at 3pm', other: {id: 'claude', ready: true}}), undefined)),
+    ['limit', 'Codex usage limit reached. It resets at 3pm.', 'Signed in as owner@example.com (Max). Every agent on Codex is waiting.',
+      ['switch:Switch ChatGPT account:primary', 'use_other:Use Claude Code for Ordubashy:quiet']]);
+  assert.deepEqual(notice(problem({other: {id: 'codex', ready: false}}), {}).actions.map(a => a.id), ['switch'], 'the other product is offered only when it is Ready');
+  assert.deepEqual(notice(problem({other: null}), {}).actions.map(a => a.id), ['switch']);
+  assert.equal(notice(problem({resetsText: null, resetsAt: null, account: null}), {}).text, 'Claude usage limit reached.');
+  assert.equal(notice(problem({resetsText: null, resetsAt: null, account: null}), {}).small, 'Every agent on Claude Code is waiting.');
+  // Signed out.
+  assert.deepEqual(summary(notice(problem({kind: 'sign_in', other: {id: 'codex', ready: true}}), {})), ['signed_out', 'Claude Code is signed out.',
+    'The sign-in for owner@example.com (Max) is no longer accepted.', ['connect:Sign in again:primary']]);
+  // Signing in: the same sign-in part as Settings, the old account stays, Cancel only.
+  const signing = notice(problem(), switching());
+  assert.deepEqual(summary(signing), ['signing', 'Finish signing in in the browser window that opened.',
+    'No window, or Qorqbot runs on another computer? Open the page yourself and paste the code it shows. Still signed in as owner@example.com (Max) until you finish.', ['cancel_connect:Cancel:quiet']]);
+  assert.equal(signing.signin.acceptsCode, true);
+  assert.equal(notice(problem({provider: 'codex'}), switching({method: 'device_code', user_code: 'ABCD-EFGH', accepts_code: false})).text, 'Open the sign-in page and type the code shown here.');
+  // A failed attempt is shown only to someone who tried here.
+  const failed = {...signedIn(), sign_in: {state: 'failed', reason: 'The sign-in window was closed.'}};
+  assert.equal(notice(problem(), failed).key, 'limit');
+  assert.deepEqual(summary(notice(problem(), failed, {attempted: true})), ['failed', 'Signing in did not finish. Nothing changed.',
+    'Still signed in as owner@example.com (Max). The limit resets Nov 28, 7pm (America/New_York). The sign-in window was closed.', ['switch:Try again:primary', 'use_other:Use Codex for Ordubashy:quiet']]);
+  assert.deepEqual(notice(problem({kind: 'sign_in'}), failed, {attempted: true}).actions.map(a => a.id), ['connect']);
+  // The new sign-in is in and agents restart: no buttons.
+  const done = notice(problem(), signedIn({switched: {at: '2026-11-24T12:00:00Z', state: 'restarting', account: {email: 'second@example.com', plan: 'Max'}}}), {attempted: true});
+  assert.deepEqual([done.key, done.text, done.small, done.actions.length], ['switching', 'Signed in. Restarting agents…', 'Now signed in as second@example.com (Max).', 0]);
+  // A request on its way: every button waits.
+  const busy = notice(problem(), {}, {busy: 'use_other'});
+  assert.deepEqual(busy.actions.map(a => [a.id, a.label, a.disabled]), [['switch', 'Switch Claude account', true], ['use_other', 'Switching…', true]]);
+});
+
+test('the styles cover the new parts: marks, the code area, the device code, the notice, narrow and light', () => {
+  const css = read('css/agent-clients.css'), chat = read('css/managed-chat.css');
+  for (const rule of ['.ac-logo[data-provider="claude"]', '.ac-code input:focus-visible', '.ac-usercode code', '.ac-signin-actions .ac-open:focus-visible', '.ac-signin-actions .ac-connect', '.ac-signin-actions button.quiet']) assert.ok(css.includes(rule), rule);
+  for (const rule of ['.mchat-notice-actions', '.mchat-notice .ac-code', '.mchat-notice-actions button:focus-visible']) assert.ok(chat.includes(rule), rule);
+  assert.match(css, /\.ac-logo \{[^}]*color: var\(--fg\)/);
+  assert.ok(!/#[0-9a-f]{3,6}/i.test(css.slice(css.indexOf('.ac-usercode'), css.indexOf('.ac-checking'))), 'the device code uses the app’s colours, so the light theme reads');
+});
+
+test('Settings names the section Model/Provider, keeps its id and finds it by the new words', () => {
+  const settings = read('js/settings.js');
+  assert.match(settings, /\{id: 'agents', title: 'Model\/Provider',/);
+  assert.match(settings, /data-search="agents model provider account switch client effort claude codex"/);
+  assert.ok(!/title: 'Agents'/.test(settings));
+  assert.match(read('js/agent-clients.js'), /model provider install download sign in connect account switch limit usage ready/);
 });

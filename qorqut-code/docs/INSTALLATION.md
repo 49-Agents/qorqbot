@@ -328,7 +328,7 @@ original supplier provenance stays readable after the active binding names the n
 
 An installation whose agents still run in tmux terminals moves to managed sessions with the explicit offline
 `python -m qorqut.migration.managed_cutover <inspect|apply> --instance-root <path>`, run with the service stopped; see [managed agent sessions](MANAGED-RUNTIME.md#cutover-of-an-older-installation). It refuses on an
-installation set to Terminals (legacy); there, Settings > Agents is the way back to managed sessions.
+installation set to Terminals (legacy); there, Settings > Model/Provider is the way back to managed sessions.
 
 **Private files**, all mode 0600 in `<instance>/config/` (mode 0700):
 

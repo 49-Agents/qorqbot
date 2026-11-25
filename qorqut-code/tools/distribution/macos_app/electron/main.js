@@ -83,7 +83,7 @@ async function boot() {
     } else if (engine.updateAvailable()) {
       step('Update available');
       const answer = await ask({
-        message: `This app contains Qorqbot ${engine.bundledVersion}. The installed version is ${engine.installedVersion()}. Your records stay in place. Running agents are closed first and start again when you next message them. If agents run in terminals (Settings > Agents), close their terminals first.`,
+        message: `This app contains Qorqbot ${engine.bundledVersion}. The installed version is ${engine.installedVersion()}. Your records stay in place. Running agents are closed first and start again when you next message them. If agents run in terminals (Settings > Model/Provider), close their terminals first.`,
         buttons: [{ id: 'later', label: 'Later' }, { id: 'update', label: 'Update Now', primary: true }],
       });
       publish({ choice: null });

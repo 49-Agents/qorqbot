@@ -60,6 +60,7 @@ import time
 import tomllib
 import uuid
 
+from . import account_errors
 from .claude_driver import (
     ClaudeSessionError as _TransportError, _ProcessTransport, _bounded, _bounded_input, _clean, said_activity, scrub_diagnostic,
 )
@@ -317,6 +318,8 @@ class CodexSession:
         self._last_activity = None
         self._last_text = None
         self._usage = None
+        self._rate_limits = None             # the newest ``account/rateLimits/updated`` snapshot
+        self._last_failure = None            # the last ``error`` notification that was not going to be retried: (info name, message)
         self._problem_counts = collections.Counter()
         self._reported = collections.Counter()
         self._orphan_timer = None
@@ -875,6 +878,9 @@ class CodexSession:
             self._on_hook(params.get("run"))
         elif method == "thread/tokenUsage/updated":
             self._on_usage(params.get("tokenUsage"))
+        elif method == "account/rateLimits/updated":
+            limits = params.get("rateLimits")
+            self._rate_limits = limits if isinstance(limits, dict) else self._rate_limits
         elif method == "serverRequest/resolved":
             rpc_id = params.get("requestId")
             for request_id, pending in list(self._pending_requests.items()):
@@ -940,6 +946,8 @@ class CodexSession:
         info = error.get("codexErrorInfo")
         name = info if isinstance(info, str) else (next(iter(info)) if isinstance(info, dict) and info else "other")
         retrying = bool(params.get("willRetry"))
+        if not retrying:
+            self._last_failure = (name if isinstance(name, str) else None, error.get("message"))
         self._reported["codex_error"] += 1
         if self._reported["codex_error"] <= 10:
             self._emit("error", kind="codex_retry" if retrying else "codex_error", error_info=_ID_SAFE.sub("", str(name))[:60],
@@ -982,11 +990,22 @@ class CodexSession:
             error = turn.get("error") if isinstance(turn.get("error"), dict) else {}
             info = error.get("codexErrorInfo")
             name = info if isinstance(info, str) else (next(iter(info)) if isinstance(info, dict) and info else None)
-            event["error"] = forced_error or scrub_diagnostic(error.get("message") or raw or "error", 300)
+            message = error.get("message")
+            if not error and self._last_failure:       # a failed turn that carries no error takes the last one Codex announced
+                name, message = self._last_failure[0], self._last_failure[1]
+            event["error"] = forced_error or scrub_diagnostic(message or raw or "error", 300)
             if name:
                 event["reason"] = _ID_SAFE.sub("", str(name))[:60]
+            if not forced_error:
+                found = account_errors.classify_codex(name, message, self._rate_limits)
+                event["error_kind"] = found["kind"] if found else None
+                if found:
+                    for key in ("resets_at", "resets_text"):
+                        if found[key]:
+                            event[key] = found[key]
         elif self._last_text is not None and not (finished and set(finished) <= set(blocked)):
             event["result_text"] = self._last_text
+        self._last_failure = None
         if self._usage:
             event["usage"] = {key: (dict(value) if isinstance(value, dict) else value) for key, value in self._usage.items()}
         if self._dropped:

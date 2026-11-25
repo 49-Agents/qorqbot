@@ -459,7 +459,10 @@ function mountGlobalChat(pane, agent, options = {}) {
     if (session && !terminal && !managedBar && sessionLine.parentNode) {
       // Stop lives in the composer (Send turns into Stop while the agent works and nothing is typed), not on the activity line.
       managedBar = agentRuntime.createBar({label, send: runtimeSend, binding: () => liveBinding()?.binding_id || null,
-        onChange: () => { paintSession(); void load(); }, onError: showBanner, stopHere: false});
+        onChange: () => { paintSession(); void load(); }, onError: showBanner, stopHere: false,
+        // The notice for a usage limit or a lost sign-in (js/agent-clients.js reads the products' sign-in only while it is up).
+        clients: typeof agentClients !== 'undefined' ? agentClients : null,
+        useOther: async client => coreData(await post(`${base}/use-other-product`, {client}))});
       sessionLine.parentNode.insertBefore(managedBar.el, sessionLine);
       cleanups.push(() => managedBar?.dispose());
       // The model and effort pill sits at the bottom left of the composer (js/chat-model-picker.js).

@@ -234,16 +234,16 @@ test('the hello does not depend on Ordubashy’s session being open: an asleep o
 test('the last step says which client is missing or signed out, and where to fix it', () => {
   const none = plan.helloReadiness({claude: signedOut, codex: missing});
   assert.equal(plan.helloMissing({claude: signedOut, codex: missing}, none),
-    'Ordubashy needs Claude Code or Codex to answer, and neither is ready: Claude Code isn’t signed in, and Codex isn’t installed. Open Settings > Agents to fix one, then come back and say hello.');
+    'Ordubashy needs Claude Code or Codex to answer, and neither is ready: Claude Code isn’t signed in, and Codex isn’t installed. Open Settings > Model/Provider to fix one, then come back and say hello.');
   const chosen = plan.helloReadiness({claude: ready, codex: signedOut}, {effective_client: 'codex'});
   assert.equal(plan.helloMissing({claude: ready, codex: signedOut}, chosen),
-    'Ordubashy is set to use Codex, and Codex isn’t signed in. Open Settings > Agents to fix it, or switch Ordubashy to Claude Code there, then say hello.');
+    'Ordubashy is set to use Codex, and Codex isn’t signed in. Open Settings > Model/Provider to fix it, or switch Ordubashy to Claude Code there, then say hello.');
   assert.equal(plan.helloMissing({claude: ready, codex: missing}, plan.helloReadiness({claude: ready, codex: missing})), '', 'ready: nothing is missing');
   assert.equal(plan.helloMissing(null, {state: 'none'}), '');
 });
 
-test('the last step offers Settings > Agents, steps aside, and comes back to the same step', () => {
-  assert.match(source, /data-tour-settings hidden>open Settings &gt; Agents/);
+test('the last step offers Settings > Model/Provider, steps aside, and comes back to the same step', () => {
+  assert.match(source, /data-tour-settings hidden>open Settings &gt; Model\/Provider/);
   const aside = source.slice(source.indexOf('  async function openSettings()'), source.indexOf('  async function showStep(next)'));
   assert.match(aside, /dispose\(\);/, 'the tour is removed from the screen, so nothing of it blocks a click');
   assert.match(aside, /settingsShowSection\('agents'\)/);
