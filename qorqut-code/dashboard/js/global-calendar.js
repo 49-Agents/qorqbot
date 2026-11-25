@@ -323,7 +323,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       <div class="calendar-layout"><aside class="calendar-sidebar" aria-label="Calendar navigation">
         <div class="calendar-month-heading"><h2></h2><div><button type="button" class="calendar-icon" data-month-prev aria-label="Previous month">‹</button><button type="button" class="calendar-icon" data-month-next aria-label="Next month">›</button></div></div>
         <div class="calendar-month" aria-label="Choose a date"></div><div class="calendar-sources"><h2>Calendars</h2><div></div></div>
-      </aside><main class="calendar-main">
+      </aside><div class="calendar-rail-split" role="separator" aria-orientation="vertical" aria-label="Resize the calendar sidebar" tabindex="0" title="Drag to resize; double-click to reset"></div><main class="calendar-main">
         <div class="calendar-status" role="status">Loading calendars…</div><div class="calendar-dayheads"></div><div class="calendar-all-day" hidden></div><div class="calendar-week" aria-label="Hourly calendar grid"></div><div class="calendar-more"></div>
       </main></div></section>`;
     const page = $('.calendar-page',host);
@@ -332,6 +332,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       page.classList.toggle('calendar-compact',host.clientWidth <= 600);
     };
     sizePage();
+    calendarRailSplit(page);
     const current = () => active && page.isConnected && generation === calendarGeneration && isCurrent();
     const reviewButton = $('[data-calendar-unconfirmed]',page);
     let recoveryGeneration = 0;
@@ -373,6 +374,9 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     paintDates();
     let clockDay = calendarDateString(new Date()), clockTimer, observer, gridHours = null;
     const placeNow = () => { if (gridHours) calendarPlaceNow(page,gridHours.startHour,gridHours.endHour); };
+    // The whole day fits the grid's height: 24 hours share it, never below a readable floor (then the grid scrolls).
+    const fitHour = () => { const grid = $('.calendar-week',page); return grid ? Math.max(CALENDAR_MIN_HOUR,Math.floor((grid.clientHeight-CALENDAR_GRID_PAD)/24)) : 64; };
+    let paintedHour = 0;
     const syncScrollbar = () => { const grid = $('.calendar-week',page); page.style.setProperty('--calendar-scrollbar',(grid.offsetWidth-grid.clientWidth)+'px'); };
     const cleanup = () => { clearInterval(clockTimer); observer?.disconnect(); };
     const disposeReview = dispose;
@@ -385,8 +389,9 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       const day = calendarDateString(now); if (day !== clockDay) { clockDay = day; paintDates(); }
     };
     tick(); clockTimer = setInterval(tick,1000);
-    observer = new ResizeObserver(() => { if (!current()) cleanup(); else { sizePage(); syncScrollbar(); if (countForWidth() !== count) reload(); } });
+    observer = new ResizeObserver(() => { if (!current()) cleanup(); else { sizePage(); if (countForWidth() !== count) reload(); else { if (fitHour() !== paintedHour) repaint?.(); syncScrollbar(); } } });
     observer.observe(host);
+    observer.observe($('.calendar-week',page)); // The all-day row appearing changes the grid's height too.
 
     const status = $('.calendar-status',page), allEvents = [], failures = new Map();
     let calendars = [], loading = true, fixedMessage = '', unconnected = false;
@@ -396,12 +401,14 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       status.textContent = fixedMessage || [...failures.values(),calendarStatusNotice()].filter(Boolean).join(' · ') || (loading ? 'Loading events…' : '');
       // No calendar yet: say how one gets connected, since nothing in the app can do it.
       if (unconnected && fixedMessage) status.insertAdjacentHTML('beforeend', ` <a href="${CALENDAR_GUIDE_URL}" target="_blank" rel="noopener noreferrer">Calendar guide</a>`);
-      gridHours = calendarPaintGrid(page,dates,allEvents,eventButton);
+      paintedHour = fitHour();
+      gridHours = calendarPaintGrid(page,dates,allEvents,eventButton,paintedHour);
       placeNow(); syncScrollbar();
     };
     repaint = paint;
     paint();
-    // First render of a range: about 7 AM at the top, or the current time in view late in the day. Same range: keep the scroll.
+    // The day normally fits without scrolling. On a very short window (hour at its floor): about 7 AM at the top,
+    // or the current time in view late in the day, on a range's first render; the same range keeps its scroll.
     const grid = $('.calendar-week',page), key = first+'/'+count;
     if (key === scrollKey) grid.scrollTop = scrollTop;
     else {
@@ -459,23 +466,57 @@ function calendarEventButton(event, calendars, refresh, allDay = false) {
   button.onclick = () => calendarOpen(event,calendars,refresh,event,button); return button;
 }
 
+// The border between the sidebar and the days: drag (or arrow keys) to resize, double-click to reset; kept in this browser.
+const CALENDAR_RAIL = {key: 'qorqbot.calendarRail', base: 208, min: 180, max: 480};
+function calendarRailSplit(page) {
+  const layout = $('.calendar-layout',page), handle = $('.calendar-rail-split',page);
+  if (!layout || !handle) return;
+  const clamp = w => Math.round(Math.min(CALENDAR_RAIL.max,Math.max(CALENDAR_RAIL.min,w)));
+  const apply = w => { layout.style.setProperty('--calendar-rail',w+'px'); handle.setAttribute('aria-valuenow',String(w)); return w; };
+  const keep = w => { try { localStorage.setItem(CALENDAR_RAIL.key,String(w)); } catch (_) { /* memory only */ } };
+  let saved = CALENDAR_RAIL.base;
+  try { const n = Number(localStorage.getItem(CALENDAR_RAIL.key)); if (n) saved = clamp(n); } catch (_) { /* default */ }
+  let width = apply(saved);
+  handle.setAttribute('aria-valuemin',String(CALENDAR_RAIL.min)); handle.setAttribute('aria-valuemax',String(CALENDAR_RAIL.max));
+  handle.onpointerdown = event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX, startW = width;
+    handle.setPointerCapture(event.pointerId); page.classList.add('calendar-rail-resizing');
+    handle.onpointermove = move => { width = apply(clamp(startW + move.clientX - startX)); };
+    handle.onpointerup = handle.onpointercancel = () => {
+      handle.onpointermove = handle.onpointerup = handle.onpointercancel = null;
+      page.classList.remove('calendar-rail-resizing'); keep(width);
+    };
+  };
+  handle.ondblclick = () => { width = apply(CALENDAR_RAIL.base); keep(width); };
+  handle.onkeydown = event => {
+    const step = event.shiftKey ? 40 : 10, d = {ArrowLeft: -step, ArrowRight: step}[event.key];
+    if (!d) return;
+    event.preventDefault(); width = apply(clamp(width + d)); keep(width);
+  };
+}
+
+const CALENDAR_MIN_HOUR = 16, CALENDAR_GRID_PAD = 20, CALENDAR_MIN_EVENT = 15; // px: smallest hour row; grid padding plus the day's bottom border
 function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64) {
   page.style.setProperty('--calendar-hour',hourHeight+'px');
+  page.classList.toggle('calendar-tight-hours',hourHeight < 40); // No half-hour lines on small rows.
   const spans = dates.map(day => calendarEventLanes(allEvents.map(event => calendarDaySpan(event,day)).filter(Boolean)));
   const startHour = 0, endHour = 24; // The whole day, always.
   page.style.setProperty('--calendar-hours',endHour-startHour);
   const grid = $('.calendar-week',page);
   // Axis labels are wall-clock hours, including the skipped/repeated hour on DST transition days.
-  grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour},(_,i) => `<span class="calendar-tick" style="top:${i*hourHeight}px">${esc(calendarTime(new Date(Date.UTC(2000,0,1,startHour+i)),'UTC').replace(/:00(?=\s?[AP]M$)/i,''))}</span>`).join('')}</div>`;
+  grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour},(_,i) => (hourHeight < 22 && i % 2) ? '' : `<span class="calendar-tick" style="top:${i*hourHeight}px">${esc(calendarTime(new Date(Date.UTC(2000,0,1,startHour+i)),'UTC').replace(/:00(?=\s?[AP]M$)/i,''))}</span>`).join('')}</div>`;
   const allDayRow = $('.calendar-all-day',page); allDayRow.innerHTML = '<span class="calendar-all-day-label">All day</span>'; let hasAllDay = false;
   dates.forEach((date,index) => {
     const key = calendarDateString(date), column = document.createElement('section'); column.className = 'calendar-day'; column.dataset.calendarDay = key;
     column.setAttribute('aria-label',calendarDateFormat(date,{weekday:'long',day:'numeric',month:'long'}));
     for (const span of spans[index]) {
       const button = eventButton(span.event), height = (span.end-span.start)/60*hourHeight;
-      button.style.top = `${(span.start/60-startHour)*hourHeight}px`; button.style.height = `${height}px`;
+      button.style.top = `${(span.start/60-startHour)*hourHeight}px`; button.style.height = `${Math.max(height,CALENDAR_MIN_EVENT)}px`; // A short event stays readable.
       button.style.left = `calc(${span.lane/span.columns*100}% + 3px)`; button.style.width = `calc(${100/span.columns}% - 6px)`;
       if (height < 40) button.classList.add('calendar-short-event');
+      if (height < 20) button.classList.add('calendar-tiny-event'); // A single squeezed line.
       if (height >= 80) button.classList.add('calendar-tall-event'); // Room for a two-line title.
       // Title first; the time when a second line fits; the place when a third does.
       if (height >= 40) { const time = document.createElement('span'); time.className = 'calendar-event-time'; time.textContent = calendarTimeRange(new Date(span.event.start),new Date(span.event.end)); button.append(time); }
