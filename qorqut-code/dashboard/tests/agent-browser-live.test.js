@@ -139,7 +139,6 @@ test('Escape pressed twice quickly leaves the picture, so Tab is the dashboardâ€
   try {
     const page = await live(browser);
     const screen = page.locator('[data-live-screen]');
-    assert.match(await page.locator('.aglive-note').innerText(), /Esc twice/);
     await screen.focus();
     await page.keyboard.press('Tab');
     assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('[data-live-screen]')), true, 'Tab goes to the page');

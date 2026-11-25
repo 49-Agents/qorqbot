@@ -46,7 +46,6 @@
 .aglive-screen:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .aglive-tabs{height:30px;max-width:260px;padding:0 8px;font-size:12px;border:1px solid var(--line-2);background:var(--elevated);color:var(--fg);text-overflow:ellipsis}
 .aglive-tabs[hidden]{display:none}
-.aglive-note{font-size:12px}
 
 /* Row: status, scope, title, drag/details/snooze controls. Tasks rhythm comes from .trow
    (css/tasks.css) and the shared column classes; only Focus-specific sizing is here. */
