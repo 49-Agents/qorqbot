@@ -39,6 +39,12 @@ const browser = (id, tab) => ({id, state: 'pending', category: 'input_request', 
   __tab: tab});
 const tabs = {available: {id: `${AGENT}:${TAB}`, agent_id: AGENT, tab_id: TAB, available: true, label: '<img src=x onerror=window.pwned=1>Log in | Mercury', agent_label: 'Ordubashy <b>'},
   closed: {id: `${AGENT}:${TAB}`, agent_id: AGENT, tab_id: TAB, available: false, label: null, agent_label: null}, none: undefined};
+const liveMounts = [];
+async function agliveMount(agentId, body, o) {
+  const rec = {agentId, tab: o.tab, disposed: false, body, current: o.current}; liveMounts.push(rec);
+  o.onDispose(() => { rec.disposed = true; });
+  body.innerHTML = '<section class="agfocus-desktop-view aglive"><img class="aglive-screen" alt=""></section>';
+}
 const opened = []; window.agentBrowserOpenTab = (agentId, tabId) => { opened.push([agentId, tabId]); };
 const items = {browser: browser('browser', tabs.available), browsergone: browser('browsergone', tabs.closed), browserbare: browser('browserbare', tabs.none), long: email('long', longBody), short: email('short', 'Hi Ada,\nThanks.'), action: action('action'), small: action('small'), question: question('question')};
 const api = async url => { if(url==='/session')return {status:'ok',data:{principal_kind:'human',is_owner:true,principal_id:'o1'}}; if(url==='/root/attention-queue')return {data:{items:[]}}; if(url.startsWith('/root/signoffs?'))return {data:{items:Object.values(items).filter(s=>s.state==='pending').map(({__tab,...row})=>row)}}; if(holdRead)await new Promise(resolve=>resolveRead=resolve); const found=items[decodeURIComponent(url.split('/').pop())]; if(!found)return {status:'ok',data:{signoff:found}}; const {__tab,...row}=found; return {status:'ok',data:{signoff:__tab?{...row,tab:__tab}:row}}; };

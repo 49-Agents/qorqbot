@@ -46,7 +46,7 @@ test('a browser action chip wears the browser icon, says Browser and leaves othe
   assert.equal(q.askKind({input: {kind: 'draft_review'}}), null);
 });
 
-browserTest('the chip opens the browser action panel: heading, tab card, note and two answers, no radios', async () => {
+browserTest('the chip opens the browser action panel: heading, live view, note and two answers, no radios', async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable, args: ['--allow-file-access-from-files']});
   try {
     const page = await browser.newPage({viewport: {width: 800, height: 700}}), errors = [];
@@ -62,12 +62,11 @@ browserTest('the chip opens the browser action panel: heading, tab card, note an
     await chipEl.click();
     await page.waitForSelector('.sg-row[data-id="browser"] .sg-actions [data-answer]:not([disabled])');
     const panel = await page.evaluate(() => {
-      const row = document.querySelector('.sg-row[data-id="browser"]'), card = row.querySelector('.sg-browser-tab button');
+      const row = document.querySelector('.sg-row[data-id="browser"]'), live = row.querySelector('.sg-browser-tab .aglive');
       return {heading: row.querySelector('.sg-browser-heading').textContent, explanation: row.querySelector('.sg-rationale').textContent,
         radios: row.querySelectorAll('[role="radio"],[role="radiogroup"],[data-choice]').length,
-        card: {text: card.textContent, aria: card.getAttribute('aria-label'), cls: card.className, svg: !!card.querySelector('svg'), height: card.getBoundingClientRect().height,
-          agent: card.querySelector('.gchat-tab-agent').textContent, title: card.querySelector('.gchat-tab-title').textContent},
-        injected: row.querySelectorAll('.sg-browser-tab img, .sg-browser-tab b').length, pwned: !!window.pwned,
+        live: !!live, chip: row.querySelectorAll('.sg-browser-tab button.gchat-tab-reference').length, mounts: liveMounts.map(m => [m.agentId, m.tab, m.disposed]),
+        injected: row.querySelectorAll('.sg-browser-tab img:not(.aglive-screen), .sg-browser-tab b').length, pwned: !!window.pwned,
         buttons: [...row.querySelectorAll('.sg-actions button')].map(b => [b.textContent, b.dataset.sg, b.dataset.answer, b.classList.contains('sg-primary-action')]),
         submit: row.querySelectorAll('.sg-actions button').length, note: row.querySelector('textarea.sg-feedback').placeholder, noteLabel: row.querySelector('textarea.sg-feedback').getAttribute('aria-label'),
         asks: row.classList.contains('sg-asks'), overflow: document.documentElement.scrollWidth > innerWidth};
@@ -75,22 +74,16 @@ browserTest('the chip opens the browser action panel: heading, tab card, note an
     assert.equal(panel.heading, 'Browser action needed');
     assert.equal(panel.explanation, 'Open the tab and sign in with your Mercury account.');
     assert.equal(panel.radios, 0);
-    assert.match(panel.card.cls, /gchat-tab-reference/);
-    assert.equal(panel.card.svg, true);
-    assert.ok(panel.card.height < 40, 'a compact chip, as in Chat');
-    // The page label and the agent's name are untrusted text: shown as text only.
-    assert.equal(panel.card.title, '<img src=x onerror=window.pwned=1>Log in | Mercury');
-    assert.equal(panel.card.agent, 'Ordubashy <b>');
+    // The live view of the shared browser is mounted on that agent's tab, once; no chip.
+    assert.equal(panel.live, true); assert.equal(panel.chip, 0);
+    assert.deepEqual(panel.mounts, [[AGENT, TAB, false]]);
     assert.equal(panel.injected, 0); assert.equal(panel.pwned, false);
     assert.deepEqual(panel.buttons, [['Could not do it', 'respond', 'not_done', false], ['Done', 'respond', 'done', true]]);
     assert.equal(panel.note, 'Add a note (optional)'); assert.equal(panel.noteLabel, 'Note (optional)');
     assert.equal(panel.asks, true); assert.equal(panel.overflow, false);
-    // The card opens exactly that agent's tab.
-    await page.click('.sg-row[data-id="browser"] .sg-browser-tab button');
-    assert.deepEqual(await page.evaluate(() => opened), [[AGENT, TAB]]);
-    // A repaint keeps the same card node (and the typed note).
+    // A repaint keeps the same live view (no remount) and the typed note.
     await page.fill('.sg-row[data-id="browser"] textarea.sg-feedback', 'Captcha solved');
-    const same = await page.evaluate(() => { const card = document.querySelector('.sg-browser-tab button'); sgViews.forEach(v => v.render()); return card === document.querySelector('.sg-browser-tab button'); });
+    const same = await page.evaluate(() => { const el = document.querySelector('.sg-browser-tab .aglive'); sgViews.forEach(v => v.render()); return el === document.querySelector('.sg-browser-tab .aglive') && liveMounts.length === 1 && !liveMounts[0].disposed && liveMounts[0].current(); });
     assert.equal(same, true);
     // Done sends the choice and the note through the ordinary respond request, once.
     await page.click('.sg-row[data-id="browser"] [data-answer="done"]');
@@ -99,6 +92,11 @@ browserTest('the chip opens the browser action panel: heading, tab card, note an
     assert.match(calls[0].url, /\/respond$/);
     assert.deepEqual([calls[0].body.selected_choices, calls[0].body.notes], [['done'], 'Captcha solved']);
     assert.deepEqual(Object.keys(calls[0].body).sort(), ['expected_status_revision', 'idempotency_key', 'notes', 'payload_hash', 'proposal_revision', 'selected_choices']);
+    // Answered: the live view is closed and nothing is shown any more.
+    await page.evaluate(() => testHarness.releaseWrite());
+    // The row is repainted or replaced; the next check by the live view (every picture) closes the stream.
+    assert.equal(await page.evaluate(() => liveMounts[0].current()), false);
+    assert.equal(await page.evaluate(() => liveMounts[0].disposed), true);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
@@ -130,17 +128,18 @@ browserTest('Could not do it answers not_done with the note; a closed or missing
   } finally { await browser.close(); }
 });
 
-browserTest('a tab that closes while the panel is open swaps the card for the plain line', async () => {
+browserTest('a tab that closes while the panel is open swaps the live view for the plain line', async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable, args: ['--allow-file-access-from-files']});
   try {
     const page = await browser.newPage({viewport: {width: 800, height: 700}}), errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(fixture);
     await page.evaluate(() => openItem('browser'));
-    await page.waitForSelector('.sg-row[data-id="browser"] .sg-browser-tab button');
+    await page.waitForSelector('.sg-row[data-id="browser"] .sg-browser-tab .aglive');
     await page.evaluate(() => { items.browser.__tab = tabs.closed; return sgRefresh(); });
     await page.waitForFunction(() => document.querySelector('.sg-row[data-id="browser"] .sg-browser-tab')?.textContent === 'This tab is no longer open.');
-    assert.equal(await page.locator('.sg-browser-tab button').count(), 0);
+    assert.equal(await page.locator('.sg-browser-tab .aglive').count(), 0);
+    assert.equal(await page.evaluate(() => liveMounts[0].disposed), true);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

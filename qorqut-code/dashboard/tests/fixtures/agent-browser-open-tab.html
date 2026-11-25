@@ -9,7 +9,7 @@
 const esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
 const $ = (selector, root = document) => root.querySelector(selector);
 const coreData = value => value;
-const AGENT = '3f6c1b9e-2a47-4d1e-9b0c-5e8a7d2c4f10', A = 'A'.repeat(32), B = 'B'.repeat(32), C = 'C'.repeat(32), GONE = 'D'.repeat(32);
+const AGENT = '3f6c1b9e-2a47-4d1e-9b0c-5e8a7d2c4f10', OTHER = '9a8b7c6d-1111-4222-8333-444455556666', A = 'A'.repeat(32), B = 'B'.repeat(32), C = 'C'.repeat(32), GONE = 'D'.repeat(32);
 const storage = new Map(), ls = (key, value) => { if (value === undefined) return storage.get(key) ?? null; storage.set(key, value); };
 const state = {scope: 'global', globalTab: 'agents'};
 const toasts = [], toast = message => toasts.push(message);
@@ -40,9 +40,8 @@ let navigate = async (id, options) => {
   return true;
 };
 const globalAgentsNavigate = (id, options) => navigate(id, options);
-let roster = [{agent_id: AGENT, status: 'active'}];
-const loadGlobalAgentProfiles = async () => roster, globalRosterAgent = agent => agent.status === 'active';
-const selectGlobal = async () => { state.scope = 'global'; state.globalTab = 'agents'; };
+const selectGlobals = [];
+const selectGlobal = async tab => { selectGlobals.push(tab); state.scope = 'global'; state.globalTab = 'agents'; };
 </script>
 <script src="../../js/agent-browser-live.js"></script>
 <script src="../../js/agent-browser.js"></script>
@@ -56,14 +55,14 @@ const watched = () => {
 };
 const reset = () => {
   pane.workspaceDispose?.(); pane.workspaceDispose = null; pane.surfaces = null; pane.view = 'focus';
-  sources.length = 0; navigations.length = 0; toasts.length = 0; syncs.length = 0;
+  sources.length = 0; selectGlobals.length = 0; storage.clear(); navigations.length = 0; toasts.length = 0; syncs.length = 0;
   agbrowserTabWanted = null; configured = false; $('#agpad-body').replaceChildren();
 };
 const plain = async () => { pane.workspaceDispose?.(); pane.workspaceDispose = null; pane.view = 'browser'; agbrowserMount(pane); await settle(); return watched(); };
 (async () => {
   const out = {};
   // Cold: no live view yet. The navigation is asked for the agent's Browser mode; the live view opens on the requested tab, not the first.
-  out.cold = {result: await agentBrowserOpenTab(AGENT, B), ...(await settle(), watched()), navigations: [...navigations], consumed: agbrowserTabWanted === null, toasts: [...toasts]};
+  out.cold = {result: await agentBrowserOpenTab(OTHER, B), selection: storage.get('ag:scope:global') ?? null, selectGlobals: [...selectGlobals], ...(await settle(), watched()), navigations: [...navigations], consumed: agbrowserTabWanted === null, toasts: [...toasts]};
   // Already open on another tab: the same entry point switches the one live view; the old stream is closed.
   reset();
   out.baseline = await plain();
@@ -73,12 +72,11 @@ const plain = async () => { pane.workspaceDispose?.(); pane.workspaceDispose = n
   out.afterwards = await plain();
   // A tab that has gone by then leaves the live view's usual choice; nothing is shown as an error and nothing sticks.
   reset();
-  out.gone = {result: await agentBrowserOpenTab(AGENT, GONE), ...(await settle(), watched()), toasts: [...toasts]};
+  out.gone = {result: await agentBrowserOpenTab(OTHER, GONE), ...(await settle(), watched()), toasts: [...toasts]};
   // A request nobody served (the owner left the unsaved-changes prompt, or the mount came late) does not steer a later open.
   reset();
-  navigate = async id => { navigations.push([id, 'cancelled']); return false; };
-  _agpad = {agentId: 'someone-else', views: []};
-  out.cancelled = {result: await agentBrowserOpenTab(AGENT, B), spent: agbrowserTabWanted === null, toasts: [...toasts]};
+  navigate = async id => { navigations.push([id, 'cancelled']); _agpad = {agentId: 'someone-else', views: []}; return false; };
+  out.cancelled = {result: await agentBrowserOpenTab(OTHER, B), spent: agbrowserTabWanted === null, toasts: [...toasts]};
   _agpad = pane;
   reset();
   const realNow = Date.now;
@@ -90,11 +88,16 @@ const plain = async () => { pane.workspaceDispose?.(); pane.workspaceDispose = n
     if (id !== AGENT) return false;
     pane.workspaceDispose?.(); pane.workspaceDispose = null; pane.view = options.view; agbrowserMount(pane); return true;
   };
-  // The agent is not one this dashboard shows, or the ids are not well-formed: nothing is navigated; only the first says so.
+  // No agent pane is open, or the ids are not well-formed: nothing is navigated; only the first says so.
   reset();
-  roster = [];
-  out.unknownAgent = {result: await agentBrowserOpenTab(AGENT, B), navigations: [...navigations], toasts: [...toasts], wanted: agbrowserTabWanted};
-  roster = [{agent_id: AGENT, status: 'active'}];
+  _agpad = null;
+  out.noPane = {result: await agentBrowserOpenTab(OTHER, B), navigations: [...navigations], toasts: [...toasts], wanted: agbrowserTabWanted};
+  _agpad = pane;
+  // Elsewhere in the dashboard: the agents page is opened without touching the saved selection, then the pane that opens is used.
+  reset();
+  state.globalTab = 'tasks';
+  out.elsewhere = {result: await agentBrowserOpenTab(OTHER, B), selection: storage.get('ag:scope:global') ?? null, selectGlobals: [...selectGlobals], navigations: [...navigations]};
+  state.globalTab = 'agents';
   reset();
   out.badIds = [];
   for (const args of [[AGENT, 'b'.repeat(32)], [AGENT, B + 'B'], [AGENT, null], ['', B], [null, B], [[AGENT], B]]) out.badIds.push(await agentBrowserOpenTab(...args));

@@ -177,9 +177,10 @@ async function agbrowserMount(p, reconnect = false, ctx = null) {
   agbrowserShow(p, body, surfaces, surfaces.browsers.find(item => item.id === saved) || surfaces.browsers[0], ctx);
 }
 
-// ---- Chat's tab reference: this agent's built-in browser, live, on this tab.
-// The request waits here for the Browser mount it causes (agbrowserMount takes it), so the one live view does the selecting: a view
-// already open on another tab is mounted again on this one, and a tab that has gone meanwhile leaves the live view's usual pick (its
+// ---- Chat's tab reference: the shared browser, live, on this tab, in the agent pane the owner is already looking at.
+// There is one browser for all agents, so any agent's live view can show any tab; a tab reference never moves the owner to another
+// agent's chat. The request waits here for the Browser mount it causes (agbrowserMount takes it), so the one live view does the selecting:
+// a view already open on another tab is mounted again on this one, and a tab that has gone meanwhile leaves the live view's usual pick (its
 // first open page). It is dropped after a while so that a request nobody served cannot steer a later, ordinary Browser open.
 const AGBROWSER_TAB_ID = /^[0-9A-F]{32}$/, AGBROWSER_TAB_WAIT_MS = 10000, AGBROWSER_TAB_UNAVAILABLE = 'This agent’s browser can’t be opened here.';
 let agbrowserTabWanted = null;
@@ -189,23 +190,24 @@ function agbrowserTakeTab(p) {
   agbrowserTabWanted = null;
   return Date.now() - wanted.at <= AGBROWSER_TAB_WAIT_MS ? wanted.tab : null;
 }
-// Goes where the dashboard already goes for an agent (globalAgentsNavigate), in its Browser mode. Never rejects: a request that cannot
-// be served says so in a toast and returns false. A pane that has not offered the Browser view yet is told the agent has one.
+// Switches the open agent pane to its Browser view, on this tab, whoever owns the tab (the owner's id is only checked for shape). With no
+// agent pane open, goes to the agents page without changing the saved selection and uses the pane that opens there. Never rejects: a
+// request that cannot be served says so in a toast and returns false. A pane that has not offered the Browser view yet is told it has one.
 async function agentBrowserOpenTab(agentId, tabId) {
   if (typeof embeddedAgentPane !== 'undefined' && embeddedAgentPane) return (await window.parent.agentBrowserOpenTab?.(agentId, tabId)) === true;
   if (typeof agentId !== 'string' || !agentId || typeof tabId !== 'string' || !AGBROWSER_TAB_ID.test(tabId)) return false;
   let wanted = null;
   try {
-    const agents = await loadGlobalAgentProfiles();
-    if (!agents.some(agent => agent.agent_id === agentId && globalRosterAgent(agent))) throw new Error(AGBROWSER_TAB_UNAVAILABLE);
-    if (state.scope !== 'global' || state.globalTab !== 'agents') { ls('ag:scope:global', agentId); await selectGlobal('agents'); }
+    if (state.scope !== 'global' || state.globalTab !== 'agents') await selectGlobal('agents');
     const pane = _agpad;
-    if (pane?.agentId === agentId && !pane.views.includes('browser')) { pane.liveBrowser = true; agpadWorkspaceViewsSync(pane); pane.focusSurfaces?.paint?.(); }
-    agbrowserTabWanted = wanted = {agentId, tab: tabId, at: Date.now()};
+    if (!pane?.agentId) throw new Error(AGBROWSER_TAB_UNAVAILABLE);
+    const paneAgent = pane.agentId;
+    if (!pane.views.includes('browser')) { pane.liveBrowser = true; agpadWorkspaceViewsSync(pane); pane.focusSurfaces?.paint?.(); }
+    agbrowserTabWanted = wanted = {agentId: paneAgent, tab: tabId, at: Date.now()};
     // Its result is not the verdict: a Focus pane opens Browser a moment after this returns false. An owner who cancels the
     // unsaved-changes prompt stays where they were, silently.
-    await globalAgentsNavigate(agentId, {view: 'browser'});
-    if (_agpad?.agentId === agentId) return true;
+    await globalAgentsNavigate(paneAgent, {view: 'browser'});
+    if (_agpad?.agentId === paneAgent) return true;
     if (agbrowserTabWanted === wanted) agbrowserTabWanted = null;
     return false;
   } catch (_) {

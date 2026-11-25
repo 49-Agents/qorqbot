@@ -570,18 +570,33 @@ function sgCreateView(options) {
       fitFeedback(field);
     }
   }
-  // The tab card is Chat's own, so it looks and behaves the same: the page label and the agent's name come from outside and are set as text.
+  // The tab itself is shown live: the one shared browser's live view, on this Signoff's tab, so the owner acts right here. Without the
+  // live view (or for a tab with no usable reference) Chat's own tab chip stands in. The page label and the agent's name come from outside
+  // and are set as text. A repaint with the same tab keeps the mounted view; it is closed when the tab changes, the Signoff stops being
+  // pending, its row is closed or removed.
+  function disposeBrowserTab(host) { host?._sgCard?.dispose(); if (host) host._sgCard = null; }
   function paintBrowserTab(detail, s) {
     let host = detail.querySelector('.sg-browser-tab');
-    if (!sgIsBrowserAction(s) || s.state !== 'pending') { host?._sgCard?.dispose(); host?.remove(); return; }
-    const tab = s.tab, open = tab?.available === true && typeof chatViewTabButton === 'function' && typeof chatViewTabTarget === 'function' && !!chatViewTabTarget(tab);
-    const signature = open ? JSON.stringify([tab.agent_id, tab.tab_id, tab.label ?? '', tab.agent_label ?? '']) : 'closed';
+    if (!sgIsBrowserAction(s) || s.state !== 'pending') { disposeBrowserTab(host); host?.remove(); return; }
+    const tab = s.tab, available = tab?.available === true && typeof tab.agent_id === 'string' && typeof tab.tab_id === 'string';
+    const live = available && typeof agliveMount === 'function';
+    const open = available && !live && typeof chatViewTabButton === 'function' && typeof chatViewTabTarget === 'function' && !!chatViewTabTarget(tab);
+    const signature = live ? JSON.stringify(['live', tab.agent_id, tab.tab_id]) : open ? JSON.stringify([tab.agent_id, tab.tab_id, tab.label ?? '', tab.agent_label ?? '']) : 'closed';
     if (!host) { host = document.createElement('div'); host.className = 'sg-browser-tab'; detail.querySelector('.sg-preview').after(host); }
     if (host._sgTab === signature) return;
-    host._sgCard?.dispose();
+    disposeBrowserTab(host);
     host._sgTab = signature;
-    if (open) { const card = chatViewTabButton(tab); host.replaceChildren(card.el); host._sgCard = card; }
-    else { const note = document.createElement('p'); note.className = 'sg-notice'; note.textContent = 'This tab is no longer open.'; host.replaceChildren(note); host._sgCard = null; }
+    if (live) {
+      const stops = []; let disposed = false;
+      const dispose = () => { disposed = true; for (const stop of stops.splice(0)) stop(); };
+      host._sgCard = {dispose};
+      host.replaceChildren();
+      // A row that was replaced or removed leaves its host disconnected; the next check (every picture) then closes the stream.
+      const current = () => { if (!disposed && !(host.isConnected && host._sgTab === signature && !detail.hidden)) dispose(); return !disposed; };
+      void agliveMount(tab.agent_id, host, {current, onDispose: stop => { if (disposed) stop(); else stops.push(stop); }, tab: tab.tab_id});
+    }
+    else if (open) { const card = chatViewTabButton(tab); host.replaceChildren(card.el); host._sgCard = card; }
+    else { const note = document.createElement('p'); note.className = 'sg-notice'; note.textContent = 'This tab is no longer open.'; host.replaceChildren(note); }
   }
   function paintDraftReview(detail, s, canReview, busy) {
     let host = detail.querySelector('.sg-draft-review');
@@ -839,13 +854,13 @@ function sgCreateView(options) {
     const fullText = sgIsEmail(s) || !!SG_MESSAGE_RENDERERS.get(s.operation_name)?.message || /message/.test(s.operation_name || '') || sgIsDraftReview(s) || sgIsBrowserAction(s);
     row.classList.toggle('sg-compact', !!options.chatLayout && s.state === 'pending' && !fullText && !messageEdits.has(s.id) && !reviewEdits.has(s.id));
     row.querySelector(".sg-rowhead").setAttribute("aria-expanded", String(!detail.hidden));
-    if (detail.hidden) return;
+    if (detail.hidden) { const hostTab = detail.querySelector('.sg-browser-tab'); disposeBrowserTab(hostTab); if (hostTab) hostTab._sgTab = null; return; }
     const error = sg.detailErrors.get(s.id), busy = sg.busy.get(busyKey(sg.slug, s));
     const verified = sg.verified.get(s.id) === s.status_revision;
     const canReview = expected(s) && verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
     if (verified && !messageEdits.has(s.id) && !reviewEdits.has(s.id)) options.onSelectedItem?.(s);
     if (!detail.querySelector(".sg-preview")) {
-      detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div>${options.focusLayout ? '<div class="sg-focus-details"></div>' : ""}<div class="sg-work" aria-label="Related work"></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
+      detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-work" aria-label="Related work"></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
       if (!options.global && !options.inline) workRelatedChips(detail.querySelector('.sg-work'),sg.slug,'signoffs',s.id);
     }
     // A question once tied to an email conversation keeps a historical note; the conversation itself is never fetched.
@@ -865,10 +880,6 @@ function sgCreateView(options) {
       attention.snoozed_until && Date.parse(attention.snoozed_until) > Date.now() ? `Returns ${relativeDueTime(attention.snoozed_until)}` : ''].filter(Boolean).join(' · ');
     const shownAttention = options.chatLayout ? chatAttention : attentionText;
     html(detail.querySelector('.sg-attention-meta'), shownAttention ? `<p class="sg-notice">${esc(shownAttention)}</p>` : '');
-    if (options.focusLayout) {
-      const facts = [priorityText ? `<p class="sg-meta">${esc(priorityText)}</p>` : '', s.decision && !sgIsAcknowledge(s) ? `<p class="sg-meta">Submitted ${esc(stamp(s.decision.at))}</p>` : ''].join('');
-      html(detail.querySelector('.sg-focus-details'), facts ? `<details><summary>Details</summary>${facts}</details>` : '');
-    }
     if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + previewHtml(s));
     const reportTimeline = detail.querySelector('[data-report-timeline]');
     if (reportTimeline && !reportTimeline.dataset.mounted) void ownerTimelineReportMount(reportTimeline);
