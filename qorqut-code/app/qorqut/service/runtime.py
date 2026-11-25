@@ -593,7 +593,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # Its companion: what the records say was done over the same period.
     from qorqut.domains.work_review import WorkReview
     WorkReview(runtime).register()
-    # The coordinator's own compaction: the handoff it files before its conversation is closed, and what the next one starts with.
+    # Every agent's own compaction: the handoff it files before its conversation is closed, and what the next one starts with.
     from qorqut.domains.compaction_handoff import CompactionHandoff
     CompactionHandoff(runtime).register()
     # What asks for that handoff when the context fills, then closes the conversation and opens the next one. It runs on the

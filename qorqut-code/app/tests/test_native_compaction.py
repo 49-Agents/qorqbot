@@ -1,4 +1,4 @@
-"""Qorqut's own compaction of the coordinator's conversation: when the handoff is asked for, what happens when it is filed or
+"""Qorqut's own compaction of an agent's conversation: when the handoff is asked for, what happens when it is filed or
 not, how the conversation is replaced, and how a flow continues after the service or the session went away. The filing tool and
 its storage are real; the managed session and the opener are stand-ins."""
 import json
@@ -7,15 +7,17 @@ from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest import mock
+from uuid import uuid4
 
 from qorqut_operations.contracts import DomainError
 
 from qorqut.native_chat import compaction
 from qorqut.native_chat.compaction import CompactionController, limit, transcript_tail
 
-from test_compaction_handoff import HandoffCase
+from test_compaction_handoff import STOPPED, HandoffCase
 
 OLD, NEW = 'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002'
+WORKER_OLD, WORKER_NEW = 'cccccccc-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000004'
 
 
 class Session:
@@ -52,15 +54,30 @@ class Session:
 
 
 class Managed:
-    def __init__(self):
-        self.host, self.closed = None, []
+    """The running sessions by agent; ``host`` is the coordinator's."""
+
+    def __init__(self, lead):
+        self.hosts, self.lead, self.closed, self.listed, self.handled = {}, lead, [], 0, 0
+
+    @property
+    def host(self):
+        return self.hosts.get(self.lead)
+
+    @host.setter
+    def host(self, value):
+        self.hosts.pop(self.lead, None) if value is None else self.hosts.__setitem__(self.lead, value)
 
     def handle(self, agent_id):
-        return self.host
+        self.handled += 1
+        return self.hosts.get(agent_id)
+
+    def running_hosts(self):
+        self.listed += 1
+        return [{'agent_id': agent_id} for agent_id in self.hosts]
 
     def close(self, agent_id, mode='graceful'):
         self.closed.append(mode)
-        self.host = None
+        self.hosts.pop(agent_id, None)
         return True
 
 
@@ -70,30 +87,34 @@ class Opener:
     def __init__(self, managed):
         self.managed, self.replaced, self.texts = managed, [], []
         self.off, self.fail, self.session, self.on_close = False, None, NEW, None
+        self.fail_only, self.sessions = None, {}       # the agents whose open fails; the fresh conversation of an agent
 
     def replace(self, profile, closing, compose, key, *, close_seconds=45.0):
         if self.off:
             raise DomainError('agent_off', 'This agent is turned off')
+        agent_id = profile['agent_id']
         self.replaced.append((profile, closing, key))
-        if self.managed.host is not None and self.managed.host.record['session_id'] == closing:
-            self.managed.close(profile['agent_id'], 'graceful')
+        running = self.managed.hosts.get(agent_id)
+        if running is not None and running.record['session_id'] == closing:
+            self.managed.close(agent_id, 'graceful')
         if self.on_close:
             self.on_close()
         text = compose()
-        if self.fail:
+        if self.fail and agent_id in (self.fail_only or (agent_id,)):
             raise DomainError(self.fail, 'The session could not be started', retryable=True)
-        self.managed.host = Session(self.session)
-        if self.session == closing:
+        fresh = self.sessions.get(agent_id, self.session)
+        self.managed.hosts[agent_id] = Session(fresh)
+        if fresh == closing:
             raise DomainError('not_replaced', 'The closed conversation was opened again', retryable=True)
         self.texts.append(text)
-        return self.session
+        return fresh
 
 
 class NativeCompactionTests(HandoffCase):
     def setUp(self):
         super().setUp()
         self.clock = 1000.0
-        self.managed = Managed()
+        self.managed = Managed(self.lead)
         self.opener = Opener(self.managed)
         self.managed.host = self.session = Session(OLD)
         self.runtime = NS(database=self.db, application=self.app, compaction_handoff=self.tool, paths=None,
@@ -121,8 +142,22 @@ class NativeCompactionTests(HandoffCase):
         self.now += timedelta(seconds=seconds)
         (controller or self.controller).step()
 
-    def fill(self, tokens=310_000, window=1_000_000):
-        self.session.usage = {'tokens': tokens, 'window': window, 'at': 'now'}
+    def fill(self, tokens=310_000, window=1_000_000, session=None):
+        (session or self.session).usage = {'tokens': tokens, 'window': window, 'at': 'now'}
+
+    def join(self, agent_id=None, session=WORKER_OLD):
+        """A second agent with a running session."""
+        self.managed.hosts[agent_id or self.worker] = joined = Session(session)
+        return joined
+
+    def rows_of(self, agent_id):
+        return [row for row in self.rows() if row['agent_id'] == agent_id]
+
+    def file_for(self, agent_id, note='Paid.'):
+        """The handoff of one agent, with the paragraph on workers only for the coordinator."""
+        arguments = {'scope': 'global', 'messages': [{'id': 'm1', 'status': 'done', 'note': note}], 'stopped': STOPPED,
+                     **({'workers': 'Nobody holds anything from me.'} if agent_id == self.lead else {})}
+        return self.ok(self.app.invoke(self.ctx(agent_id), 'compaction_handoff_file', arguments, {'idempotency_key': str(uuid4())}))
 
     def file_handoff(self):
         return self.filed([{'id': 'm1', 'status': 'partly', 'note': 'Liam is paid; Sanzida is not.', 'task_id': self.pay,
@@ -185,6 +220,90 @@ class NativeCompactionTests(HandoffCase):
         self.step(1.0)
         self.assertEqual((len(self.session.sent), len(self.session.ledger), len(self.rows())), (1, 1, 1))
 
+    # -- every agent --------------------------------------------------------------------------------------------------
+
+    def test_an_agent_that_is_not_the_coordinator_is_asked_files_and_has_its_conversation_replaced(self):
+        worker = self.join()
+        self.say('Pay the creators today.', 10)
+        self.fill(session=worker)
+        self.step()
+        request, = worker.sent
+        self.assertTrue(request.startswith('<qorqut-handoff-request>\nYour context is nearly full.'))
+        row, = self.rows()
+        self.assertEqual((row['agent_id'], row['request_json']['session_id'], self.session.sent), (self.worker, WORKER_OLD, []))
+        self.file_for(self.worker)
+        worker.end_turn()
+        self.opener.sessions[self.worker] = WORKER_NEW
+        self.step(1.0)
+        (profile, closing, key), = self.opener.replaced
+        self.assertEqual((profile, closing, key), ({'agent_id': self.worker}, WORKER_OLD, 'compaction:' + row['id']))
+        self.assertTrue(self.opener.texts[0].startswith('<qorqut-handoff>\nThis conversation continues your work.'))
+        self.assertNotIn('YOUR WORKERS', self.opener.texts[0])
+        self.step(1.0)
+        row, = self.rows()
+        self.assertEqual(row['opened_json'], {'unanswered': [], 'closed': WORKER_OLD, 'session': WORKER_NEW})
+        self.assertEqual(self.managed.hosts[self.worker].record['session_id'], WORKER_NEW)
+        self.assertEqual((self.managed.hosts[self.lead], self.controller._flows), (self.session, {}))
+
+    def test_two_agents_in_a_flow_at_once_do_not_affect_each_other(self):
+        worker = self.join()
+        self.say('Pay the creators today.', 10)
+        self.fill()
+        self.fill(session=worker)
+        self.step()
+        self.assertEqual((len(self.session.sent), len(worker.sent), set(self.controller._flows)), (1, 1, {self.lead, self.worker}))
+        self.file_for(self.worker)                          # only the worker files
+        worker.end_turn()
+        self.opener.sessions[self.worker] = WORKER_NEW
+        self.step(1.0)
+        self.step(1.0)
+        self.assertEqual((len(self.opener.replaced), self.managed.closed, bool(self.rows_of(self.worker)[0]['opened_at'])), (1, ['graceful'], True))
+        self.assertEqual((self.managed.hosts[self.lead], bool(self.rows_of(self.lead)[0]['opened_at']), set(self.controller._flows)),
+                         (self.session, False, {self.lead}))
+        # The coordinator files later and its open fails; a second agent that fills meanwhile still opens.
+        other = self.join(self.worker, WORKER_NEW)
+        self.say('And book the car in.', 125)
+        self.now += timedelta(minutes=10)
+        self.fill(session=other)
+        self.step()
+        self.file_for(self.lead)
+        self.file_for(self.worker, 'Booked.')
+        self.session.end_turn()
+        other.end_turn()
+        self.opener.fail, self.opener.fail_only, self.opener.sessions[self.worker] = 'open_busy', {self.lead}, 'eeeeeeee-0000-4000-8000-000000000005'
+        self.step(1.0)
+        self.step(1.0)
+        self.assertEqual([bool(row['opened_at']) for row in (self.rows_of(self.lead)[0], self.rows_of(self.worker)[-1])], [False, True])
+        for _ in range(3):
+            self.step(compaction.RETRY_SECONDS)
+        self.assertEqual((bool(self.rows_of(self.lead)[0]['opened_at']), set(self.controller._flows)), (False, set()))
+
+    def test_one_agents_failure_does_not_stop_the_pass_for_another(self):
+        worker = self.join()
+        self.say('Pay the creators today.', 10)
+        self.fill()
+        self.fill(session=worker)
+        self.session.status = mock.Mock(side_effect=RuntimeError('host gone'))
+        self.step()
+        self.assertEqual((len(worker.sent), self.session.sent), (1, []))
+        self.file_for(self.worker)
+        worker.end_turn()
+        self.step(1.0)
+        self.assertEqual(len(self.opener.replaced), 1)
+
+    def test_an_idle_pass_lists_the_sessions_once_and_reads_each_agent_once_in_five_seconds(self):
+        self.join()
+        self.step()
+        self.assertEqual((self.managed.listed, self.managed.handled), (1, 2))
+        for _ in range(4):
+            self.step(1.0)
+        self.assertEqual((self.managed.listed, self.managed.handled), (1, 2))
+        self.step(1.0)
+        self.assertEqual((self.managed.listed, self.managed.handled), (2, 4))
+        self.managed.hosts.clear()                         # an agent with no running session is never read
+        self.step()
+        self.assertEqual((self.managed.listed, self.managed.handled), (3, 4))
+
     # -- filed --------------------------------------------------------------------------------------------------------
 
     def test_once_filed_and_the_turn_has_ended_the_conversation_is_closed_and_a_fresh_one_gets_the_opening(self):
@@ -219,7 +338,7 @@ class NativeCompactionTests(HandoffCase):
         with self.db.read() as uow:
             self.assertEqual(self.tool.continued(uow, self.lead, NEW), {'conversation_id': OLD, 'at': row['opened_at']})
             self.assertIsNone(self.tool.continued(uow, self.lead, OLD))
-        self.assertIs(self.controller._flow, None)
+        self.assertEqual(self.controller._flows, {})
         # The fresh conversation is small again: nothing more is asked of it.
         self.step()
         self.assertEqual((self.managed.host.sent, len(self.rows())), ([], 1))
@@ -319,7 +438,7 @@ class NativeCompactionTests(HandoffCase):
         self.step()
         self.managed.host = None                           # an idle close, a crash, the owner ending the session
         self.step(1.0)
-        self.assertIs(self.controller._flow, None)
+        self.assertEqual(self.controller._flows, {})
         self.step()
         self.assertEqual((self.opener.replaced, self.rows()[0]['opened_at']), ([], None))
         self.managed.host = self.session = Session(OLD)    # something opened the agent: the same conversation, resumed
@@ -364,7 +483,7 @@ class NativeCompactionTests(HandoffCase):
         self.step(compaction.RETRY_SECONDS)
         self.assertEqual(len(self.opener.replaced), 3)
         self.step(compaction.RETRY_SECONDS)
-        self.assertEqual((len(self.opener.replaced), self.controller._flow, self.rows()[0]['opened_at']), (3, None, None))
+        self.assertEqual((len(self.opener.replaced), self.controller._flows, self.rows()[0]['opened_at']), (3, {}, None))
         self.assertEqual(self.managed.closed, ['graceful'])         # the conversation was closed once; nothing ran after it
         # Nothing was opened, so no conversation is recorded as closed or as the fresh one.
         self.assertIsNone(self.rows()[0]['opened_json'])
@@ -395,7 +514,7 @@ class NativeCompactionTests(HandoffCase):
         self.opener.off = True
         self.step(1.0)
         self.step(compaction.RETRY_SECONDS)
-        self.assertEqual((self.opener.replaced, self.controller._flow, self.rows()[0]['opened_at']), ([], None, None))
+        self.assertEqual((self.opener.replaced, self.controller._flows, self.rows()[0]['opened_at']), ([], {}, None))
 
     def test_the_opening_is_written_after_the_close_so_a_message_that_reached_the_closing_conversation_is_in_it(self):
         self.say('Pay the creators today.', 10)
@@ -412,9 +531,15 @@ class NativeCompactionTests(HandoffCase):
 
     # -- the client's own compaction ----------------------------------------------------------------------------------
 
-    def test_only_in_the_only_mode_is_the_coordinators_session_started_without_the_clients_own_compaction(self):
+    def test_only_in_the_only_mode_is_an_agents_session_started_without_the_clients_own_compaction(self):
         self.assertTrue(self.make(mode='only').replaces_client(self.lead))
-        self.assertFalse(self.make(mode='only').replaces_client(self.worker))      # a worker keeps the client's
+        self.assertTrue(self.make(mode='only').replaces_client(self.worker))
+        self.assertFalse(self.make(mode='only').replaces_client(self.owner))       # not an agent
+        self.assertFalse(self.make(mode='only').replaces_client('nobody'))
+        self.assertFalse(self.make(mode='on').replaces_client(self.worker))
+        self.assertFalse(self.make(mode='off').replaces_client(self.worker))
+        with mock.patch.object(self.db, 'read', side_effect=RuntimeError('database gone')):
+            self.assertFalse(self.make(mode='only').replaces_client(self.worker))  # cannot tell: the client's stays on
         self.assertFalse(self.make(mode='on').replaces_client(self.lead))          # on: the client's stays behind this one
         self.assertFalse(self.make(mode='off').replaces_client(self.lead))
         self.assertTrue(self.make(mode='only').enabled)

@@ -155,7 +155,7 @@ agent at a time. Non-owner wakes are paced, and a failing open backs off. When
 opens keep failing with `cli_unavailable`, `resume_failed`, `resume_unavailable`
 or `driver_unavailable`, `agents/unreachable.py` tells Ordubashy.
 
-Qorqbot's own compaction replaces Ordubashy's conversation through the same
+Qorqbot's own compaction replaces an agent's conversation through the same
 opener (`replace`): close, then a fresh conversation, as one open. It is not an
 input source and is not paced or counted. See [Compaction](COMPACTION.md).
 
