@@ -59,7 +59,8 @@ function openTaskHref(taskId, projectId) {
 function safeLinkUrl(raw) {
   const input = String(raw ?? ""), text = input.startsWith('<') && input.endsWith('>') ? input.slice(1, -1) : input;
   if (!text || text.length > 4096 || /[\u0000-\u001f\u007f-\u009f\\]/u.test(text)) return null;
-  const file = safeFileReference(text);
+  // A viewer link is already routed; reading it as a path would wrap it in a second viewer link.
+  const file = /^\/(?:files|tables)\/view\?/.test(text) ? null : safeFileReference(text);
   if (file) return file;
   if (/\s/u.test(text)) return null;
   if (text.startsWith("/")) {

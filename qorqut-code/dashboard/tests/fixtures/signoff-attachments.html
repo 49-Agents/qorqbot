@@ -1,0 +1,146 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../app.css">
+<link rel="stylesheet" href="../../css/signoffs.css">
+<style>body{margin:0;padding:16px;background:var(--bg)}.ref{width:640px;max-width:100%;margin-bottom:24px}</style>
+<main id="refs"></main><pre id="out" hidden></pre>
+<script src="../../js/safe-links.js"></script>
+<script>
+window.IntersectionObserver = undefined;
+const PROJECT = '11111111-2222-4333-8444-555555555555', TABLE = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', CRM = 'cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const state = {agents:[],project:'demo',projects:[{id:PROJECT,slug:'demo',name:'Demo'}],session:null,scope:'global'};
+const esc = s => String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sjDateTime = d => String(d), aicon = () => '';
+const coreData = r => { if (!r || r.status === 'error') { const e = new Error('failed'); e.httpStatus = r && r.httpStatus; e.code = r && r.error && r.error.code; throw e; } return r.data; };
+let sequence=0;
+const newRequestId = () => 'request-'+(++sequence);
+const globalAgentProfile = () => null, globalAgentProfiles=[1], identityAvatar=()=>'', RW_CHAT_ICON='', SVG_X='', SVG_CHECK='', T_VIEW_ICON={signoffs:''};
+const taskProjectLabel=()=> 'Global', projectPortraitHtml=()=>'', workRelatedChips=()=>{}, toast=()=>{};
+const evil = '<img src=x onerror="window.__xss=1"><script>window.__xss=2<\/script>';
+const file = name => `/srv/projects/demo/${name}`, viewer = name => `/files/view?path=${encodeURIComponent(file(name))}`;
+const explanation = [
+  '## Summary', '',
+  `Read the [notes](${file('notes.md')}) and the [leads](/tables/view?table_id=${TABLE}).`,
+  `Customers are in [CRM](/tables/view?table_id=${CRM}&project_id=${PROJECT}); the main one is [Linden](/?open_task=abc12&scope=global#/global/agents).`,
+  `Also [notes again](${file('notes.md')}), [broken](${file('broken.md')}), [private](${file('private.md')}), [log](${file('log.txt')}) and [site](https://example.com/x).`,
+].join('\n');
+const base = (id,input,title) => ({id,state:'pending',category:'input_request',operation_name:'signoffs_input_create',review_project_id:null,status_revision:1,proposal_revision:1,
+  payload_hash:'hash-'+id,actionable:true,title,created_at:'2026-11-12T12:00:00Z',input,input_kind:input.kind,attention:{notify:1,urgent:0,blocking:0},preview:{changes:[]}});
+const report = id => base(id,{title:'Customer review',kind:'acknowledge',selection_mode:'none',choices:[],selection_required:false,notes_required:false,response_policy:'owner_only',explanation},'Customer review');
+const items={report:report('report'),card:report('card')};
+const api = async url => {
+  if(url === '/session') return {data:{principal_kind:'human',is_owner:true,principal_id:'owner'}};
+  if(url.startsWith('/root/signoffs?')) return {data:{items:['report'].map(id=>items[id]).filter(s=>s.state==='pending').map(s=>structuredClone(s)),
+    review_project_id:null,counts:{pending:1},to_read:1,next_cursor:null}};
+  return {data:{signoff:structuredClone(items[url.split('/').pop()])}};
+};
+const posts=[], ops=[];
+const post = async (url,body) => {
+  if (url.includes('/operations/')) {
+    const op = url.split('/').pop(); ops.push({url, op, body:structuredClone(body)});
+    if (op === 'tables_get' && body.table_id === TABLE) return {status:'ok',data:{table:{id:TABLE,title:'Leads',table_kind:'data',row_count:52,columns:[{id:'c1',name:'Name'},{id:'c2',name:'Note'}]}}};
+    if (op === 'tables_rows_list') return {status:'ok',data:{items:[{cells:{c1:'Acme',c2:evil}},{cells:{c1:'Bolt',c2:'ok'}}],next_cursor:'n1'}};
+    if (op === 'tables_get' && body.table_id === CRM) return {status:'ok',data:{table:{id:CRM,title:'Customers',table_kind:'crm',columns:[{id:'email',name:'Email'}],crm_config:{stages:[{id:'s1',name:'Lead'}]}}}};
+    if (op === 'crm_entries_list') return {status:'ok',data:{items:[{record:{title:'Linden Ltd',status:'open'},record_ref:{id:'abc12',project_id:null},cells:{email:'a@linden.test'},stage_id:'s1'}],next_cursor:null}};
+    if (op === 'tasks_get') return {status:'ok',data:{task:{id:'abc12',project_id:null,title:'Linden <b>Ltd</b>',task_type:'customer',status:'open',overview:'**Big** customer '+evil,
+      customer_profile:{company:'Linden Ltd',contact_name:'Ana',email:'ana@linden.test',phone:'+1 555',website:'https://linden.test'}}}};
+    return {status:'error',httpStatus:404,error:{code:'not_found'}};
+  }
+  const id=url.split('/').at(-2); posts.push({id,action:url.split('/').at(-1),body:structuredClone(body)});
+  const s=items[id]; s.state='answered'; s.actionable=false; s.status_revision++; s.decision_state='acknowledged';
+  s.decision={kind:'respond',by:'owner',at:'2026-11-12T12:15:00Z',message_id:null,selected_choices:[]};
+  return {data:{signoff:structuredClone(s)}};
+};
+const fetches=[];
+const json = (status, body) => new Response(JSON.stringify(body), {status, headers:{'Content-Type':'application/json'}});
+window.fetch = async (url) => {
+  fetches.push(String(url));
+  const u = new URL(url, 'http://local.invalid'), path = u.searchParams.get('path') || '', action = u.pathname.split('/').pop();
+  if (path.endsWith('broken.md')) return json(500, {status:'error',error:{code:'file_unreadable'}});
+  if (path.endsWith('private.md')) return json(403, {status:'error',error:{code:'forbidden'}});
+  if (action === 'metadata') return json(200, {status:'ok',data:{name:path.split('/').pop(),binary:false,preview_kind:path.endsWith('.md') ? 'markdown' : 'text'}});
+  if (path.endsWith('notes.md')) return json(200, {status:'ok',data:{kind:'markdown',truncated:false,
+    html:`<h2>Plan</h2><p>Step <strong>one</strong> <a href="javascript:window.__xss=4">bad</a> <a href="https://example.com/">good</a></p>${evil}<iframe src="about:blank"></iframe>`}});
+  return json(200, {status:'ok',data:{kind:'text',truncated:false,text:'line 1\n<b>line 2</b>'}});
+};
+const opened=[], previews=[], records=[];
+window.open = (...args) => { opened.push(args); return null; };
+const agentFilePreviewOpen = async ref => { previews.push(ref); return true; };
+const agentOpenRecordReference = async ref => { records.push(ref); return true; };
+function conversationMount(host) { return host._conversation ||= {expand(){},refresh(){},dispose(){}}; }
+</script>
+<script src="../../js/chat-view.js"></script>
+<script src="../../js/relative-time.js"></script>
+<script src="../../js/signoff-attachments.js"></script>
+<script src="../../js/signoffs.js"></script>
+<script>
+// Runs after the attachments' own window listener: records what it decided, then keeps the test page from navigating.
+const clicks=[];
+window.addEventListener('click', event => { if (event.target.closest?.('a')) { clicks.push(event.defaultPrevented); event.preventDefault(); } }, true);
+const refs=document.getElementById('refs'), hosts={}, views={};
+for(const id of ['list','card']) {hosts[id]=document.createElement('div');hosts[id].className='ref';refs.append(hosts[id]);}
+views.list=sgCreateView({active:()=>true,body:()=>hosts.list,global:true,workspace:()=> 'scope:global',prefix:'list-'});
+views.list.paint();
+views.card=sgChatMount({id:'card',project_id:null},hosts.card);
+const wait = ms => new Promise(r=>setTimeout(r,ms));
+const row=id=>[...hosts.list.querySelectorAll('.sg-row')].find(node=>node.dataset.id===id);
+(async()=>{
+  const out={};
+  try {
+    await wait(300);
+    row('report').querySelector('.sg-rowhead').click();await wait(400);
+    const card=row('report'), area=card.querySelector('.sg-attachments');
+    const sections=[...area.querySelectorAll('[data-sg-attachment]')];
+    const section=(kind,label)=>sections.find(s=>s.dataset.kind===kind && s.querySelector('.sg-attachment-title').textContent===label);
+    // Notes once (its repeat dropped), the two tables, the record, the failures and the text file; the web link stays a link.
+    out.order=sections.map(s=>s.querySelector('.sg-attachment-title').textContent);
+    out.placed=area.previousElementSibling===card.querySelector('.sg-preview') && !area.hidden && area.querySelector('h3').textContent==='Attachments';
+    const md=section('file','notes').querySelector('.sg-attachment-md');
+    out.markdown=!!md && md.querySelector('h2')?.textContent==='Plan' && md.querySelector('strong')?.textContent==='one';
+    out.mdSanitized=!md.querySelector('img,script,iframe') && [...md.querySelectorAll('a')].map(a=>a.getAttribute('href')).join(' ')==='https://example.com/';
+    out.text=section('file','log').querySelector('pre.sg-attachment-text')?.textContent==='line 1\n<b>line 2</b>';
+    const leads=section('table','leads');
+    out.table=[...leads.querySelectorAll('th')].map(t=>t.textContent).join('|')==='Name|Note' && leads.querySelectorAll('tbody tr').length===2
+      && leads.querySelector('tbody td').textContent==='Acme' && !leads.querySelector('tbody img') && /50 more rows/.test(leads.querySelector('.sg-attachment-more')?.textContent || '');
+    out.tableScope=ops.find(o=>o.op==='tables_get' && o.body.table_id===TABLE)?.url==='/root/operations/tables_get';
+    const crm=section('table','CRM');
+    out.crm=[...crm.querySelectorAll('th')].map(t=>t.textContent).join('|')==='Record|Email|Stage|Task state'
+      && [...crm.querySelectorAll('tbody td')].map(t=>t.textContent).join('|')==='Linden Ltd|a@linden.test|Lead|open'
+      && ops.find(o=>o.op==='crm_entries_list')?.url==='/project/demo/operations/crm_entries_list';
+    const task=section('task','Linden'), fields=[...task.querySelectorAll('dt')].map(d=>d.textContent+'='+d.nextElementSibling.textContent);
+    out.task=fields.includes('Title=Linden <b>Ltd</b>') && fields.includes('Company=Linden Ltd') && fields.includes('Email=ana@linden.test') && fields.includes('Task type=customer')
+      && task.querySelector('.sg-attachment-overview strong')?.textContent==='Big' && !task.querySelector('b,img,script')
+      && ops.find(o=>o.op==='tasks_get')?.body.scope==='global';
+    out.broken=section('file','broken').querySelector('.sg-attachment-error')?.textContent==='This file could not be loaded.';
+    out.denied=section('file','private').querySelector('.sg-attachment-error')?.textContent==='Only the owner can open this.';
+    out.noXss=window.__xss===undefined;
+    // A plain click on a reference scrolls to its section; a modified click keeps the browser's own behaviour.
+    const link=[...card.querySelectorAll('.sg-report a.safe-link')].find(a=>a.textContent==='leads');
+    link.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,button:0}));
+    out.linkScrolls=clicks.at(-1)===true && leads.classList.contains('sg-attachment-flash') && document.activeElement===leads && opened.length===0;
+    link.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,button:0,ctrlKey:true}));
+    out.modifiedClickOpens=clicks.at(-1)===false;
+    const site=[...card.querySelectorAll('.sg-report a.safe-link')].find(a=>a.textContent==='site');
+    site.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,button:0}));
+    out.webLinkUntouched=clicks.at(-1)===false;
+    // Open buttons use the in-app viewer and record workspace; a table opens its viewer page.
+    section('file','notes').querySelector('.sg-attachment-open').click();
+    task.querySelector('.sg-attachment-open').click();
+    leads.querySelector('.sg-attachment-open').click();
+    await wait(50);
+    out.open=previews[0]?.href===viewer('notes.md') && records[0]?.type==='task' && records[0].id==='abc12' && records[0].project_id===null
+      && opened[0]?.[0]===`/tables/view?table_id=${TABLE}`;
+    // A repaint with the same text keeps the loaded sections without reading again.
+    const before=fetches.length;
+    views.list.render?.(); await wait(100);
+    out.kept=fetches.length===before && card.querySelector('[data-sg-attachment]')===sections[0];
+    // The failures never block the decision.
+    card.querySelector('[data-sg="respond"]').click();await wait(200);
+    out.acknowledged=posts.length===1 && posts[0].action==='respond';
+    // A chat card stays compact: references stay links.
+    out.chatCard=!!hosts.card.querySelector('.sg-report a.safe-link') && !hosts.card.querySelector('[data-sg-attachment]');
+    views.list.dispose();
+  } catch(error) {out.error=error.stack;}
+  document.getElementById('out').textContent=JSON.stringify(out);
+})();
+</script>
