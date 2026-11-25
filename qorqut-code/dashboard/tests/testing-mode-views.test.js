@@ -1,5 +1,5 @@
 'use strict';
-// Testing mode also gates the agent pane's Journal and Files views and the record reader's Timeline tab (the latter is
+// Testing mode also gates the agent pane's Journal, Files and Context views and the record reader's Timeline tab (the latter is
 // checked in agent-work.test.js). A state that is still loading counts as off.
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
@@ -16,9 +16,9 @@ function pane() {
   return context;
 }
 
-test('Journal, Files and Timeline are Ordubashy’s only while Testing mode is on', () => {
+test('Journal, Files, Timeline and Context are Ordubashy’s only while Testing mode is on', () => {
   const context = pane();
-  const gated = ['journal', 'files', 'timeline'];
+  const gated = ['journal', 'files', 'timeline', 'context_graph'];
   // Still loading: off.
   for (const view of gated) assert.equal(context.agentPaneViewAllowed('ordubashy', view), false, view);
   context.testingModeSetState(false);
@@ -33,8 +33,8 @@ test('Journal, Files and Timeline are Ordubashy’s only while Testing mode is o
   assert.equal(context.agentPaneViewAllowed('ordubashy', 'work'), true);
 });
 
-test('a Journal route is dropped while Testing mode is off, and the help text names the three views', () => {
+test('a Journal route is dropped while Testing mode is off, and the help text names the four views', () => {
   assert.match(read('js/global-agents.js'), /request\?\.view === 'journal' && !testingModeEnabled\(\)\) \{ request = null; agentWorkspaceStore\(null\); \}/);
   assert.match(read('js/agent-workspace.js'), /!testingModeEnabled\(\)\) return;\s+await selectGlobal\('journal'\)/);
-  assert.match(read('js/settings.js'), /Also shows the Timeline, Journal and Files views in Ordubashy’s pane\./);
+  assert.match(read('js/settings.js'), /Also shows the Timeline, Journal, Files and Context views in Ordubashy’s pane\./);
 });

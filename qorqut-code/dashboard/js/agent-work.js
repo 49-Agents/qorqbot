@@ -52,7 +52,7 @@ function agentWorkMount(p, embed = null) {
   const shell = document.createElement('section');
   shell.className = 'agfiles agwork';
   shell.setAttribute('aria-label', embed ? 'Tasks' : 'Work');
-  shell.innerHTML = `<div class="agexplorer-top agwork-top"><div class="agfiles-search">${agentFilesIcon('search')}<input type="search" placeholder="Find a task" aria-label="Find a task"></div>
+  shell.innerHTML = `<div class="agexplorer-top agwork-top">${searchField({placeholder: "Find a task"})}
     ${embed ? '' : `<button type="button" class="agwork-scope" data-scope aria-haspopup="listbox"><span class="agwork-scope-name">All projects</span>${agentFilesIcon('chevron')}</button>`}
     <span class="agwork-layout" role="group" aria-label="Layout">
       <button type="button" class="agfiles-icon-btn" data-layout="list" aria-pressed="true" title="List" aria-label="List">${agentFilesIcon('tasks')}</button>

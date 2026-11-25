@@ -52,7 +52,7 @@ async function renderSettings(c) {
       <div class="record-section" data-search="agents model provider account switch client effort claude codex"><div class="record-section-head"><h4>Client, model and effort</h4></div>
         <p class="st-help">What each agent runs on. Leave a field empty to use the default.</p><div data-agent-options></div></div>
       ${global ? settingsGroup('Experimental', settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat workspace experimental',
-        help: 'Show Overseer in the Global agent roster and enable its chat and workspace. Also shows the Timeline, Journal and Files views in Ordubashy’s pane. Off by default.<span class="set-testing-note" id="set-testing-note" role="status"></span>',
+        help: 'Show Overseer in the Global agent roster and enable its chat and workspace. Also shows the Timeline, Journal, Files and Context views in Ordubashy’s pane. Off by default.<span class="set-testing-note" id="set-testing-note" role="status"></span>',
         control: `<label class="set-switch" for="set-testing-toggle"><input type="checkbox" id="set-testing-toggle" role="switch" aria-label="Testing mode" disabled><span class="set-switch-track" aria-hidden="true"></span><span class="set-switch-label" id="set-testing-state">Loading…</span></label>`,
         attrs: 'data-testing-mode'}), 'experimental testing mode') : ''}`,
     appearance: (global ? settingsGroup('Timezone', settingsRow({label: 'Timezone', keywords: 'time zone clock calendar reminders utc offset',
@@ -89,7 +89,7 @@ async function renderSettings(c) {
   pane.innerHTML = `
     <header class="agfiles-head"><div><strong>${global ? 'Settings' : 'Project settings'}</strong>
       ${global ? '<span>Private by design: your work stays on this computer. <button type="button" class="cx-link" data-show-section="about">Details</button></span>' : ''}</div>
-      ${global ? `<label class="tsearch"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search settings" aria-label="Search settings" data-settings-search autocomplete="off" spellcheck="false"></label>` : ''}</header>
+      ${global ? `${searchField({placeholder: "Search settings", attrs: {"data-settings-search": true}})}` : ''}</header>
     <div class="agfiles-layout">
       ${global ? `<nav class="agfiles agfiles-tree" aria-label="Settings sections">${sections.map(section =>
         `<div class="agfiles-row" style="--depth:0"><button type="button" class="agfiles-name" data-section-link="${section.id}">${icon(section.icon)}<span>${section.title}</span></button></div>`).join('')}</nav>` : ''}

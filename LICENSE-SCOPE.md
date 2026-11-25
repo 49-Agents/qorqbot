@@ -40,6 +40,8 @@ apply to those components independently. In particular:
 
 - `qorqut-code/dashboard/js/xterm.js` and `qorqut-code/dashboard/css/xterm.css` retain their MIT
   terms; see `qorqut-code/dashboard/THIRD-PARTY-NOTICES.md`.
+- `qorqut-code/dashboard/js/vendor/force-graph.min.js` retains its MIT terms (its bundled d3
+  modules are ISC); see `qorqut-code/dashboard/THIRD-PARTY-NOTICES.md`.
 - Python dependencies carry their own license files in their wheel metadata.
   Certifi is MPL-2.0; its Python and certificate source files are included in its
   wheel. Preserve their MPL rights and notices.

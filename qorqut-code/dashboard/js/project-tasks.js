@@ -9,7 +9,7 @@ function renderProjectTasks(c) {
   btSig = null;
   c.innerHTML = `<section class="pane tasks project-tasks" data-project-task-page aria-label="Tasks">
     <header class="project-tasks-head"><h1>Tasks</h1></header>
-    <div class="task-toolbar"><label class="tsearch">${SVG_TSEARCH}<input type="search" data-project-task-search aria-label="Search tasks" autocomplete="off" spellcheck="false" value="${esc(btSearch)}"></label><select data-project-task-visibility aria-label="Task visibility">${['active', 'snoozed', 'all'].map(v => `<option value="${v}" ${btVisibility === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select><button class="btn" type="button" data-project-task-new>${SVG_TPLUS}New task</button></div>
+    <div class="task-toolbar">${searchField({label: "Search tasks", value: btSearch, attrs: {"data-project-task-search": true}})}<select data-project-task-visibility aria-label="Task visibility">${['active', 'snoozed', 'all'].map(v => `<option value="${v}" ${btVisibility === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select><button class="btn" type="button" data-project-task-new>${SVG_TPLUS}New task</button></div>
     <div class="project-task-list" data-project-task-list></div></section>`;
   const page = btPage(), project=state.project, search = page.querySelector('[data-project-task-search]');
   let searchTimer;
