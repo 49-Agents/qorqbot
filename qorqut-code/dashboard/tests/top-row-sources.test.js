@@ -120,3 +120,117 @@ test('refreshSignoffs settles when its reads have settled', async () => {
   r.holds.clear(); r.release('signoffs'); await flush(); assert.equal(done, false, 'the calendar read is still open');
   r.release('calendar'); await flush(); assert.equal(done, true);
 });
+
+// ---------------------------------------------------------------- the sources do not wait for each other
+const second = {id:'s2',title:'Two',state:'pending',operation_name:'x',proposal_revision:1,payload_hash:'h'};
+
+test('a new Signoff is read and painted while the calendar read is still open', async () => {
+  const r = rig(), host = r.host();
+  r.holds.add('calendar');
+  r.context.queue.mountSignoffs(host); await flush();
+  assert.doesNotMatch(host.innerHTML, /data-signoff-key="s2"/);
+  r.data.signoffs.push(second);
+  r.changeSignoffs(); await flush();
+  assert.equal(r.reads.signoffs, 2);
+  assert.match(host.innerHTML, /data-signoff-key="s2"/, 'painted before the calendar is released');
+  assert.equal(r.reads.calendar, 1);
+  r.holds.clear(); r.release('calendar'); await flush();
+  assert.equal(r.reads.calendar, 1);
+});
+
+test('a new Signoff is read and painted while the reminders read is still open', async () => {
+  const r = rig(), host = r.host();
+  r.holds.add('reminders');
+  r.context.queue.mountSignoffs(host); await flush();
+  r.data.signoffs.push(second);
+  r.changeSignoffs(); await flush();
+  assert.equal(r.reads.signoffs, 2);
+  assert.match(host.innerHTML, /data-signoff-key="s2"/);
+  assert.equal(r.reads.reminders, 1);
+});
+
+test('the calendar listener reads the calendar only', async () => {
+  const r = rig();
+  r.context.queue.mountSignoffs(r.host()); await flush();
+  assert.equal(r.calendarChanges.size, 1);
+  r.calendarChanges.forEach(fn => fn()); await flush();
+  assert.deepEqual(counts(r), [1,1,2]);
+});
+
+test('a Signoff change reads Signoffs only', async () => {
+  const r = rig();
+  r.context.queue.mountSignoffs(r.host()); await flush();
+  r.changeSignoffs(); await flush();
+  assert.deepEqual(counts(r), [2,1,1]);
+});
+
+test('tab return and retry buttons read all three sources, each once', async () => {
+  const r = rig(), host = r.host();
+  r.context.queue.mountSignoffs(host); await flush();
+  r.tabBack(); await flush();
+  assert.deepEqual(counts(r), [2,2,2]);
+  r.listeners.click({target:r.button('[data-signoffs-retry]'), currentTarget:host}); await flush();
+  assert.deepEqual(counts(r), [3,3,3]);
+});
+
+test('a decision in the row re-reads Signoffs while the calendar is held, and the decided chip leaves at once', async () => {
+  const r = rig(), host = r.host();
+  r.data.signoffs.push(second);
+  let hooks;
+  const handle = {isCurrent:() => true, close:async () => {}, onDispose(){}};
+  r.holds.add('calendar');
+  r.context.queue.mountSignoffs(host, undefined, (item, h) => { hooks = h; return handle; }); await flush();
+  assert.match(host.innerHTML, /data-signoff-key="s1"/);
+  r.listeners.click({target:r.chip('s1'), currentTarget:host}); await flush();
+  assert.ok(hooks, 'the Signoff opened');
+  r.data.signoffs.splice(0, 1);                       // the server has decided it
+  hooks.onResolved();
+  assert.doesNotMatch(host.innerHTML, /data-signoff-key="s1"/, 'gone before any read ends');
+  await flush();
+  assert.equal(r.reads.signoffs, 2);
+  assert.match(host.innerHTML, /data-signoff-key="s2"/);
+  assert.doesNotMatch(host.innerHTML, /data-signoff-key="s1"/);
+  assert.equal(r.reads.calendar, 1, 'the calendar is still the first read');
+});
+
+test('a calendar read that never ends does not stop the Signoff and reminder reads every 60 seconds', async () => {
+  const r = rig();
+  r.holds.add('calendar');
+  r.context.queue.mountSignoffs(r.host()); await flush();
+  await r.advance(180000);
+  assert.deepEqual(counts(r), [4,4,1]);
+});
+
+test('over five minutes with nothing happening each source is read once per 60 seconds and timers do not pile up', async () => {
+  const r = rig();
+  r.context.queue.mountSignoffs(r.host()); await flush();
+  assert.deepEqual(counts(r), [1,1,1]);
+  await r.advance(300000);
+  assert.deepEqual(counts(r), [6,6,6]);
+  // The three source timers and the Focus queue's own timer; never one per trigger.
+  assert.ok(r.maxTimers <= 4, 'most timers pending at once: ' + r.maxTimers);
+  assert.ok(r.timers.size <= 4);
+  for (let i = 0; i < 20; i++) { r.changeSignoffs(); r.tabBack(); r.calendarChanges.forEach(fn => fn()); await flush(); r.tabBack(); }
+  assert.ok(r.timers.size <= 4, 'still at most four after many triggers: ' + r.timers.size);
+});
+
+test('no source has two reads at once, and a storm of triggers gives one trailing read per source', async () => {
+  const r = rig(), host = r.host();
+  NAMES.forEach(name => r.holds.add(name));
+  r.context.queue.mountSignoffs(host); await flush();
+  for (let i = 0; i < 5; i++) { r.changeSignoffs(); r.calendarChanges.forEach(fn => fn()); r.listeners.click({target:r.button('[data-calendar-retry]'), currentTarget:host}); }
+  await flush();
+  assert.deepEqual(counts(r), [1,1,1]);
+  r.holds.clear(); NAMES.forEach(name => r.release(name)); await flush();
+  assert.deepEqual(counts(r), [2,2,2]);
+  assert.deepEqual(NAMES.map(name => r.maxActive[name]), [1,1,1]);
+});
+
+test('unmounting stops every source timer and later triggers read nothing', async () => {
+  const r = rig();
+  const dispose = r.context.queue.mountSignoffs(r.host()); await flush();
+  dispose();
+  await r.advance(300000); r.changeSignoffs(); r.tabBack(); await flush();
+  assert.deepEqual(counts(r), [1,1,1]);
+  assert.equal(r.timers.size, 0);
+});
