@@ -160,7 +160,7 @@ board (`todo_get`) shows exactly those. A Task is assigned by naming that worker
 event tells the worker. It leaves the board when it is done, cancelled or given to someone else, so
 nothing is added or removed by hand. One todo_focus points at the Task being worked on through
 `attention_focus_set` (`attention_focus_clear` clears it), using the same Task reference `{type: "task", id}` for
-`focus` and `task`; setting the todo_focus on an open Task marks it working, and only the worker declares its own
+`focus` and `task`; only the worker declares its own
 todo_focus. What happens next is the Task's `next_step`. That todo_focus is its
 current work, so it keeps no second `agent_work_update` record; the list rules below are for other
 agents. Before its first Task a worker retains its one-item `agent_work_update` assignment.

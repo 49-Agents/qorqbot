@@ -42,7 +42,7 @@ A list of targets (people to contact, places to apply, programs to compare) is r
 one row each, and the row is the only record of that target. Add a row with `crm_entries_add` and
 `create`: it is stored as a Customer record, not as a piece of work, so it never appears in Todo or
 in the open work. Keep the work on the list as one Task (for example "Send the applications") and
-write each target's state in its row: the stage and the cells. Do not open a Task per target; the
+write each target's state in its row: the stage and the cells. The
 Task tools refuse more than 10 open Tasks under one parent unless the owner asked for separate
 Tasks (`owner_requested: true`), and an agent cannot add a piece of work as a row.
 
@@ -50,7 +50,7 @@ Each item of `crm_entries_list` carries `decisions`, computed from the Signoffs 
 record: `state` is `waiting_on_owner` (a question or approval is pending; `pending` counts them and
 they are the record's `input_requests`), `decided` (none pending; `last` is the owner's latest
 decision) or `none`. When the owner asks what is still open or what they already decided, read this
-and answer from it. A saved report, note or earlier summary is never the source for a list or a total.
+and answer from it.
 
 `crm_activity_list` shows one record's discussion, recorded observations and the activity of the
 Tasks, Signoffs, Actions and documents it is directly linked to, newest first; sources you cannot

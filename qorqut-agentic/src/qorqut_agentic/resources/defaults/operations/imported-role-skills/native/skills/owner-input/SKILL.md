@@ -122,8 +122,7 @@ Only the final decision is the response record. One response event covers the
 whole form. It grants no authority to execute a prepared action.
 
 Discover the installed `signoffs_input_create` schema before using this variant.
-Older deployments may only support the unversioned form. Existing draft reviews
-and single-question Signoffs continue to work unchanged.
+Existing draft reviews and single-question Signoffs continue to work unchanged.
 
 ## Editable draft review
 
