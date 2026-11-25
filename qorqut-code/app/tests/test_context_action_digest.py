@@ -372,6 +372,16 @@ class DigestTests(unittest.TestCase):
         self.assertIn(old_input, ledger)
 
 
+class DigestOrderTests(unittest.TestCase):
+    def test_every_digest_is_one_source_so_a_blocked_digest_holds_later_digests_only(self):
+        from qorqut_context.integration.queue.transitions import source_key
+        row = lambda path: {"input_kind": "general", "item_id": None, "path": path}
+        first = source_key(row("foundation/action-digests/2026-11-10.md"))
+        self.assertEqual(first, source_key(row("foundation/action-digests/2026-11-10-part-2.md")))
+        self.assertEqual(first, source_key(row("foundation/action-digests/2026-11-11.md")))
+        self.assertNotEqual(first, source_key(row("foundation/notes/other.md")))
+
+
 class CompositionTests(unittest.TestCase):
     def test_the_composed_revision_port_is_the_digest_backlog(self):
         from qorqut_context.integration.action_digest import admit_revision
