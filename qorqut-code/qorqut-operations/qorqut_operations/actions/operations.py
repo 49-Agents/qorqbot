@@ -2,7 +2,7 @@
 
 An Action is one completed result in one owning namespace. ``actions_record`` keeps its v1 arguments (and adds tags and
 Context pointers); an owner or the original recorder corrects or withdraws it as the next immutable revision, and every
-accepted revision is queued for Context in the same transaction (see ``writer``). Reads follow project links, never
+accepted revision is handed to the composition's ``on_revision`` port in the same transaction (see ``writer``). Reads follow project links, never
 the storage namespace, exactly as in v1, and a withdrawn Action stays readable with its history.
 
 ``actions_record`` may link one Task by ``task_id``. The owner and global agents record in Global whatever project the
@@ -243,7 +243,7 @@ class ActionOperations:
         new_action(builder, uow, text=text, category=category, projects=projects, origin=origin, refs=refs, performer=performer,
                    occurrence=self.occurrence(builder, args.get("real_time")), tags=args.get("tags", ()),
                    related=args.get("related_objects", ()), identity=identity, provenance=provenance)
-        builder.effects.append("Records the action and queues the accepted revision for Context in the same transaction.")
+        builder.effects.append("Records the action; it reaches Context with the day's other Actions in the daily Action digest.")
         return builder.build()
 
     def validate_record(self, ctx, plan, uow):
@@ -301,14 +301,14 @@ class ActionOperations:
             changes["related_objects_json"] = models.related_objects(args["related_objects"])
         change_action(builder, uow, row, operation="edit", changes=changes, projects=projects,
                       tags=args.get("tags"), provenance={"via": "actions_correct"})
-        builder.effects.append("Corrects the action as its next immutable revision and queues it for Context in the same transaction.")
+        builder.effects.append("Corrects the action as its next immutable revision; the next daily Action digest carries the correction.")
         return builder.build()
 
     def prepare_withdraw(self, ctx, args, options, uow):
         row = self.target(ctx, uow, args, options)
         builder = PlanBuilder(ctx, "actions_withdraw", args, "Withdraw action", clock=self.clock)
         change_action(builder, uow, row, operation="remove", changes={"withdrawn": 1}, provenance={"via": "actions_withdraw"})
-        builder.effects.append("Withdraws the action; its history stays and the removal is queued for Context in the same transaction.")
+        builder.effects.append("Withdraws the action; its history stays and the next daily Action digest carries the withdrawal.")
         return builder.build()
 
     def validate_change(self, ctx, plan, uow):
@@ -331,8 +331,9 @@ class ActionOperations:
         settled = settle(ctx, plan, uow, on_revision=self.on_revision)
         row = self.find(uow, settled[0]["action_id"])
         scope = reader_scope(ctx, uow)
-        return {"action": self.view(ctx, uow, row, scope), "revision": settled[0]["revision"], "context_input_id": settled[0]["input_id"],
-                **self.time_view()}
+        input_id = settled[0]["input_id"]
+        return {"action": self.view(ctx, uow, row, scope), "revision": settled[0]["revision"],
+                **({"context_input_id": input_id} if input_id is not None else {}), **self.time_view()}
 
     # -- discussion ------------------------------------------------------------------------------------------------
 

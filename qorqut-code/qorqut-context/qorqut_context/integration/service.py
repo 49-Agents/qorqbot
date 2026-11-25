@@ -5,7 +5,9 @@ root), the roles eligible to instruct and edit, and the coordinator lookup. ``co
 *before* its domains are registered, and builds every one of them once: the terminal-outcome and execution-fact contributions,
 the single ``ContextQueueOperations`` over them (which the filing ports, the domain factory and the driver all share), the
 controlled graph-edit handler with the supplied roles and the application's own authority, the ``on_revision`` admission the
-Action writers share, and one ``Context``/``Pipeline`` over the repository and runtime locations. Nothing here touches the disk
+Action writers share (it notes each revision for the daily Action digest and starts no Context work), the daily
+``ActionDigests`` job the host runs in its reconcile pass, and one ``Context``/``Pipeline`` over the repository and runtime
+locations. Nothing here touches the disk
 beyond naming those paths: no repository, runtime directory, principal, thread, provider or model is created or contacted by
 composition, by a read, or by ``Runtime`` construction. The external question store is only named there: its file is created
 by the first delivery or question mutation, never by composition or a read.
@@ -32,14 +34,13 @@ runner: the library's normal adapter by default, or the one an explicit construc
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import partial
 import logging
 from pathlib import Path
 import threading
 import uuid
 
 from qorqut_context import Context, Pipeline
-from qorqut_context.integration.action_evidence import ActionEvidence
+from qorqut_context.integration.action_digest import ActionDigests, admit_revision
 from qorqut_context.integration.driver import AUTOMATIC_RETRY_DELAYS, ContextQueueDriver
 from qorqut_context.integration.filing import FilingOutcomes
 from qorqut_context.integration.filing.filing import FilingPorts
@@ -47,7 +48,7 @@ from qorqut_context.integration.filing.programs import FILE, INSTRUCT
 from qorqut_context.integration.graph_edits import ExecutionFacts
 from qorqut_context.integration.graph_edits.graph_edit import GraphEditPorts, GraphEdits
 from qorqut_context.integration.loop import ContextDriverLoop
-from qorqut_context.integration.queue import ContextQueueOperations, admit_action_revision
+from qorqut_context.integration.queue import ContextQueueOperations
 from qorqut_context.integration.questions import QuestionOutbox, QuestionStore
 from qorqut_context.integration.usage.collector import ContextUsageCollector
 from qorqut_context.runner import RunnerConfig
@@ -125,6 +126,7 @@ class ContextComposition:
     coordinator: object
     locations: ContextLocations
     questions: QuestionStore | None = None
+    action_digests: ActionDigests | None = None
 
 
 def compose_context(application, locations: ContextLocations, settings: ContextSettings | None, *, instruct_roles,
@@ -148,8 +150,9 @@ def compose_context(application, locations: ContextLocations, settings: ContextS
     graph_edits = GraphEdits(application, GraphEditPorts(context, source_bytes=config.source_bytes, supervised_pipeline=pipeline),
                             roles=instruct_roles, coordinator=coordinator)
     questions = QuestionStore(locations.questions)
-    return ContextComposition(context, pipeline, outcomes, executions, queue, filing, graph_edits, settings,
-                              partial(admit_action_revision, evidence=ActionEvidence(application)), coordinator, locations, questions)
+    action_digests = ActionDigests(source_bytes=config.source_bytes, clock=settings.clock)
+    return ContextComposition(context, pipeline, outcomes, executions, queue, filing, graph_edits, settings, admit_revision,
+                              coordinator, locations, questions, action_digests)
 
 
 class _Steps:

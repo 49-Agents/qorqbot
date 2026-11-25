@@ -63,7 +63,7 @@ All [C], from `CTX/schema.py` and `qorqut-context/CORE_CONTRACTS.md`.
 | `context_instruct` (focused, attributed correction) | No. |
 | Accepted learning (owner accepts a Learning in the context bucket) | Automatic once the owner accepts. |
 | Project creation (founding brief) | Automatic [D]. |
-| Accepted Actions (`actions_record`, 20 words at most) | Agents are instructed to record completed work. |
+| Accepted Actions (`actions_record`, 20 words at most) | Agents are instructed to record completed work. Each local day's Actions are filed automatically as one daily digest after the day ends. |
 | `context_edit` (deterministic or owner-supervised graph edit) | No. |
 | Answers to Context questions | No answer operation exists. Needs a manual supervised edit [D]. |
 | **Ordinary chat** | **No filing path.** See below. |

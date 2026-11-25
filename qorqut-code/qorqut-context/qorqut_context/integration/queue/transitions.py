@@ -17,6 +17,7 @@ from typing import Any
 
 from qorqut_operations.contracts import DomainError, new_id, utc_now
 from qorqut_operations.discussion.events import emit_event
+from qorqut_context.input_modes import ACTION_DIGEST_PREFIX
 from qorqut_context.integration.queue.outcomes import TerminalOutcomes, require_outcomes
 from qorqut_context.integration.queue.queue import TERMINAL_STATES, detail, encode, invalid
 
@@ -81,10 +82,15 @@ def get(uow, *, driver_id: str, input_id: str) -> dict:
 
 def source_key(row) -> tuple[str, str]:
     """The source an input changes, the same identity ``context_filing.sources`` binds: an Action input's Action, a
-    GENERAL input's canonical Context path. ``row`` is a stored row or the lightweight row ``order`` reads."""
+    GENERAL input's canonical Context path. ``row`` is a stored row or the lightweight row ``order`` reads.
+
+    Every daily Action digest is one source here: a later digest may correct or withdraw what an earlier one carried, so
+    digests keep their order among themselves and a blocked one holds the later ones, while other inputs go on."""
     if row["input_kind"] == "action":
         return ("action", row["item_id"])
     path = row["path"] if "path" in row.keys() else json.loads(row["payload_json"])["path"]
+    if isinstance(path, str) and path.startswith(ACTION_DIGEST_PREFIX):
+        return ("general", ACTION_DIGEST_PREFIX)
     return ("general", path)
 
 

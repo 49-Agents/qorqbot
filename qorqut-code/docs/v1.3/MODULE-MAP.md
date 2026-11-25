@@ -31,9 +31,11 @@ source repositories. Its five authored areas are `roles/`, `operations/`,
 
 ## Shared boundaries and host adapters
 
-An Action revision and its Context input share one SQLite commit. Operations
-settles the Action; the host supplies `qorqut_context.integration.queue.admit_action_revision`
-as the required callback. A failed admission rolls back both. Context owns the
+An Action revision and its entry in the daily Action digest backlog share one
+SQLite commit. Operations settles the Action; the host supplies
+`qorqut_context.integration.action_digest.admit_revision` as the required
+callback, and a failed admission rolls back both. The inbox reconcile pass turns
+each finished local day into one GENERAL Context input. Context owns the
 queue and its driver; `app/qorqut/shared_context/service.py` binds host lifetime
 and configuration. There is no second queue or network hop.
 

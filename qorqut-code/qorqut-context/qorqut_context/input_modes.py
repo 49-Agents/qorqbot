@@ -8,6 +8,14 @@ from .schema import ContextError, encode, identifier, normalize_date, text
 GENERAL = "GENERAL"
 ACTION = "OPERATIONAL_ACTION"
 SOURCE_BYTES = 256 * 1024
+# GENERAL sources under this directory are daily digests of the operational action log. They are filed under their own
+# GENERAL policy (prompts/action_digest.md); only the host's digest admission creates them.
+ACTION_DIGEST_PREFIX = "foundation/action-digests/"
+
+
+def is_action_digest(input_mode, path):
+    """Whether a GENERAL source is a daily Action digest, which selects the digest policy instead of the general one."""
+    return input_mode == GENERAL and isinstance(path, str) and path.startswith(ACTION_DIGEST_PREFIX)
 
 
 def utf8(value, name, limit=SOURCE_BYTES):

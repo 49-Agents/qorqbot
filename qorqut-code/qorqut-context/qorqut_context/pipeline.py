@@ -15,12 +15,21 @@ from .runner import RunnerConfig
 from .claude_runner import runner_for
 from .schema import Conflict, ContextError, RECORD_KINDS, digest, encode, identifier
 from .tools import EventTools
-from .input_modes import GENERAL, ACTION
+from .input_modes import GENERAL, ACTION, is_action_digest
 
 
 INSTRUCTIONS = (Path(__file__).parent / "prompts/propagator.md").read_text()
 MODE_INSTRUCTIONS = {mode: (Path(__file__).parent / "prompts" / filename).read_text()
                      for mode, filename in ((GENERAL, "general_input.md"), (ACTION, "operational_action.md"))}
+# A daily Action digest is a GENERAL source with its own policy in place of the general one.
+DIGEST_INSTRUCTIONS = (Path(__file__).parent / "prompts/action_digest.md").read_text()
+
+
+def policy_for(draft):
+    """The one input policy appended to the propagator instructions for this draft."""
+    if is_action_digest(draft["input_mode"], draft["source"]["path"]):
+        return DIGEST_INSTRUCTIONS
+    return MODE_INSTRUCTIONS[draft["input_mode"]]
 
 
 class PropagationError(ContextError):
@@ -337,7 +346,7 @@ class Pipeline:
             event_runs = private_directory(runs / event_id)
             attempt_id = uuid.uuid4().hex
             directory = private_directory(event_runs / attempt_id)
-            instructions = INSTRUCTIONS + "\n\n" + MODE_INSTRUCTIONS[draft["input_mode"]]
+            instructions = INSTRUCTIONS + "\n\n" + policy_for(draft)
             prompts = {"bootstrap": hashlib.sha256(bootstrap.INSTRUCTIONS.encode()).hexdigest(),
                        "propagation": hashlib.sha256(instructions.encode()).hexdigest()}
             bootstrap_key = digest({"base": draft["base_revision"], "submission": draft["submission_digest"],
