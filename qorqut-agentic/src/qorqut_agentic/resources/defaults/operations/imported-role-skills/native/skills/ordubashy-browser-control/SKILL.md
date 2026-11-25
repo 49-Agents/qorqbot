@@ -2,6 +2,7 @@
 name: qorqut-role-browser-control
 description: >-
   Operate the configured Chrome browser when the owner explicitly asks to use Chrome or a browser, or when work assigned to you needs a browser. Ordinary research, a one-off web request, or a URL supplied as context does not activate this skill. Not for signing in to a website with the owner's account: Ordubashy does that.
+read_for: Browser work, such as opening a site, reading a page or acting on one (`browser_turn`)
 ---
 
 Use browser control when the owner explicitly asks for Chrome or a browser, or when work assigned to you needs one; the assignment is the request. Otherwise use search or HTTP tools. Permission for one task does not carry into others.

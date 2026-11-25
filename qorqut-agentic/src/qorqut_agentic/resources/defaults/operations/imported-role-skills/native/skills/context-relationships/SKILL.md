@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-context-relationships
 description: Relate project items, file and correct shared Context, and diagnose blocked Context inputs.
+read_for: Shared Context, filing or correcting it, or relating project items (`context_*`)
 ---
 
 # Relationships and Context Review
@@ -70,7 +71,13 @@ arguments; never guess JSON.
 - **Queued `qorqut-graph-edit-v1`**: an exact deterministic node and edge plan with the
   expected published revision, a rationale and valid citation or support evidence. It
   enters the ordered queue, so it is not published until the backend runs it. A queued
-  edit cannot skip a blocked input or change its recorded base. A delegated edit keeps its original
+  edit cannot skip a blocked input. When its turn comes it runs on the published head if
+  nothing it depends on changed since its expected revision (the records it puts or
+  removes, the IDs it creates, the nodes its edges point at, the edges of nodes it removes,
+  the sources it cites or keeps as support); otherwise it is refused as `stale_base`,
+  nothing is published and the input is discarded by itself (you receive a
+  `context.input_discarded` notice with the reason, and the queue moves on); read the
+  Context again and submit a new plan if it is still wanted. A delegated edit keeps its original
   assignment, binding and generation and is authorized again when it runs.
 - **Direct `qorqut-supervised-edit-v1`**: prefer this for an exact edit the owner
   directs. It supports nodes, edges, notes, full records, explanations, citations and

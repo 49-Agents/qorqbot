@@ -447,5 +447,14 @@ function ntLinesEditor(o) {
   render();
   resetHistory();
 
-  return { doc, render, sync, setEditable, focusLine, placeBalls, record, rememberSelection, undoRedo, destroy: () => resizeObserver.disconnect() };
+  // The caret while this text has it, and putting a remembered one back without scrolling the text.
+  const caret = () => document.activeElement === doc ? selection() : null;
+  function placeCaret(sel) {
+    if (!sel?.a || !sel?.f || !doc.children.length) return false;
+    doc.focus({ preventScroll: true });
+    setSelection(clampPoint(sel.a), clampPoint(sel.f));
+    return true;
+  }
+
+  return { doc, render, sync, setEditable, focusLine, placeBalls, record, rememberSelection, undoRedo, caret, placeCaret, destroy: () => resizeObserver.disconnect() };
 }

@@ -337,7 +337,7 @@ let sessionRequest = null;
 function loadSession(force = false) {
   if (!force && state.session) return Promise.resolve(state.session);
   if (!sessionRequest) sessionRequest = api("/session")
-    .then(body => { state.session = coreData(body); return state.session; })
+    .then(body => { state.session = coreData(body); if (typeof ownerTimezoneAdopt === 'function') ownerTimezoneAdopt(state.session); return state.session; })
     .catch(() => null)
     .finally(() => { sessionRequest = null; });
   return sessionRequest;

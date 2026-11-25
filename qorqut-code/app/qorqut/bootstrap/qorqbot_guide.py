@@ -11,6 +11,7 @@ SKILL_DIRECTORIES = (".claude/skills/" + SKILL_NAME, ".agents/skills/" + SKILL_N
 SKILL = """---
 name: qorqut-qorqbot-guide
 description: Answer the owner's questions about Qorqbot itself - what it is, privacy, how agents start and sleep, where things are in the dashboard (Chat, Focus, Todo, Signoffs, Calendar, Journal, Settings, extensions), projects, the walkthrough, the Mac app and the qorqbot command, and what to do when something does not work.
+read_for: Questions from the owner about how Qorqbot works, where something is or why it fails
 ---
 
 # Qorqbot guide

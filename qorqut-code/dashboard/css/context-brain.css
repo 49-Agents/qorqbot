@@ -1,0 +1,100 @@
+/* Context graph (mockup) in Ordubashy's right pane: js/context-brain.js. Family tints are muted so the graph reads as
+   part of the monochrome dashboard; the canvas reads every colour below at paint time, so both themes apply. */
+.cbrain-host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.cbrain {
+  --cb-people: #7d95b0;
+  --cb-orgs: #b39b74;
+  --cb-topics: #84a38d;
+  --cb-projects: #a688ad;
+  --cb-agents: var(--accent);
+  --cb-materials: #767676;
+  --cb-other: #505050;
+  --cb-link: rgba(255,255,255,.09);
+  --cb-link-hi: rgba(255,255,255,.5);
+  --cb-ring: rgba(255,255,255,.1);
+  --cb-control: 36px;
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; color: var(--fg); font-size: 12px;
+}
+:root[data-theme="light"] .cbrain {
+  --cb-people: #5b7a9c;
+  --cb-orgs: #a3854c;
+  --cb-topics: #5a8667;
+  --cb-projects: #876392;
+  --cb-materials: #9b9ba0;
+  --cb-other: #c4c4c8;
+  --cb-link: rgba(0,0,0,.08);
+  --cb-link-hi: rgba(0,0,0,.5);
+  --cb-ring: rgba(0,0,0,.08);
+}
+
+/* Every control here is quiet: the app's filled pill button is reset to a plain, bordered control. */
+.cbrain button { height: auto; padding: 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--fg-2);
+  font: inherit; font-weight: 500; font-size: 11.5px; transform: none; transition: background .14s ease, color .14s ease, opacity .14s ease, border-color .14s ease; }
+.cbrain button:hover { transform: none; }
+.cbrain button:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 1px; }
+
+/* Header: the search field, at the control height. */
+.cbrain-head { display: flex; align-items: center; gap: 8px; padding: 8px 18px 8px; }
+.cbrain .cbrain-icon { width: var(--cb-control); height: var(--cb-control); flex: none; display: grid; place-items: center; border: 1px solid var(--line-2); }
+.cbrain .cbrain-icon svg { width: 15px; height: 15px; }
+.cbrain .cbrain-icon:hover { background: var(--hover); color: var(--fg); }
+.cbrain-search { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+.cbrain-results { position: absolute; z-index: 6; left: 0; right: 0; top: calc(var(--cb-control) + 4px); padding: 4px; border: 1px solid var(--line-2); border-radius: var(--r);
+  background: var(--elevated); box-shadow: var(--shadow-float); display: flex; flex-direction: column; gap: 1px; }
+.cbrain-results[hidden] { display: none; }
+.cbrain .cbrain-result { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; text-align: left; color: var(--fg); font-weight: 450; font-size: 12px; justify-content: flex-start; }
+.cbrain .cbrain-result span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cbrain .cbrain-result small { flex: none; color: var(--fg-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cbrain .cbrain-result small::first-letter { text-transform: uppercase; }
+.cbrain .cbrain-result[aria-selected="true"], .cbrain .cbrain-result:hover { background: var(--hover); color: var(--fg); }
+.cbrain-noresult { margin: 0; padding: 8px; color: var(--fg-3); font-size: 12px; }
+.cbrain i[style*="--dot"], .cbrain-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; background: var(--dot); }
+
+/* Family chips: a pressed chip is shown, an unpressed one is hidden from the graph. */
+.cbrain-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px; border-bottom: 1px solid var(--line); }
+.cbrain-filters:empty { display: none; }
+.cbrain .cbrain-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-full); font-weight: 450; font-size: 11px; color: var(--fg); }
+.cbrain .cbrain-chip span { color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.cbrain .cbrain-chip:hover { background: var(--hover); }
+.cbrain .cbrain-chip[aria-pressed="false"] { color: var(--fg-3); border-color: var(--line); }
+.cbrain .cbrain-chip[aria-pressed="false"] i { background: transparent; box-shadow: inset 0 0 0 1px var(--fg-3); }
+.cbrain .cbrain-unlinked { border-style: dashed; }
+
+.cbrain-stage { position: relative; flex: 1 1 auto; min-height: 220px; overflow: hidden; }
+.cbrain-canvas { position: absolute; inset: 0; }
+.cbrain-status { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--fg-2); font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; }
+.cbrain-status[hidden] { display: none; }
+.cbrain .cbrain-fit { position: absolute; right: 12px; bottom: 12px; background: var(--bg); }
+.cbrain .cbrain-fit[hidden] { display: none; }
+.cbrain-tip { position: absolute; z-index: 4; max-width: 280px; padding: 6px 9px; border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  background: var(--elevated); box-shadow: var(--shadow-float); pointer-events: none; display: flex; flex-direction: column; gap: 2px; }
+.cbrain-tip[hidden] { display: none; }
+.cbrain-tip strong { font-size: 12px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.cbrain-tip span { color: var(--fg-3); font-size: 11px; }
+.cbrain-tip em { font-style: normal; text-transform: capitalize; }
+
+/* Detail card under the graph. It never takes more than ~42% of the pane, so the graph keeps the larger part. */
+.cbrain-card { flex: none; max-height: 42%; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--bg); }
+.cbrain-card[hidden] { display: none; }
+.cbrain-card-head { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 12px 10px 14px; }
+.cbrain-card-head h3 { margin: 0; font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cbrain-card-head .cbrain-dot { width: 8px; height: 8px; }
+.cbrain-pill { flex: none; height: 20px; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r-full); color: var(--fg-2); font-size: 11px; text-transform: capitalize; }
+.cbrain-count { flex: none; margin-left: auto; color: var(--fg-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cbrain .cbrain-card-toggle { width: 24px; height: 24px; border: 0; }
+.cbrain .cbrain-card-toggle svg { transition: transform .18s ease; }
+.cbrain-card.collapsed .cbrain-card-toggle svg { transform: rotate(180deg); }
+.cbrain-card-body { overflow-y: auto; padding: 0 14px 12px; min-height: 0; }
+.cbrain-card.collapsed .cbrain-card-body { display: none; }
+.cbrain-text { margin: 0 0 10px; color: var(--fg-2); font-size: 12px; line-height: 1.55; max-width: 72ch; }
+.cbrain-text.muted { color: var(--fg-3); }
+.cbrain .cbrain-more-text { display: inline; color: var(--fg); font-size: 12px; font-weight: 500; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.cbrain .cbrain-more-text:hover { text-decoration-color: var(--fg-3); }
+.cbrain-groups { display: grid; grid-template-columns: minmax(64px, max-content) minmax(0, 1fr); column-gap: 12px; row-gap: 6px; }
+.cbrain-group { display: contents; }
+.cbrain-rel { padding-top: 4px; color: var(--fg-3); font-size: 11px; max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cbrain-links { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.cbrain .cbrain-link { display: inline-flex; align-items: center; gap: 6px; height: 22px; max-width: 100%; padding: 0 9px 0 8px; border: 1px solid var(--line); border-radius: var(--r-full); color: var(--fg); font-weight: 450; font-size: 11px; }
+.cbrain .cbrain-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cbrain .cbrain-link:hover { background: var(--hover); border-color: var(--line-2); }
+.cbrain .cbrain-link-more { color: var(--fg-3); border-style: dashed; }

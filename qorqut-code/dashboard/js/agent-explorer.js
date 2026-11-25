@@ -73,7 +73,7 @@ function agentExplorerMount(p) {
   const shell = document.createElement('section');
   shell.className = 'agfiles agexplorer';
   shell.setAttribute('aria-label', 'Explorer');
-  shell.innerHTML = `<div class="agexplorer-top"><div class="agfiles-search">${agentFilesIcon('search')}<input type="search" placeholder="Find a project or task" aria-label="Find a project or task"></div>
+  shell.innerHTML = `<div class="agexplorer-top">${searchField({placeholder: "Find a project or task"})}
     <button type="button" class="agfiles-icon-btn" data-finished aria-pressed="${s.finished}" title="Show finished" aria-label="Show finished">${agentFilesIcon('tasks')}</button></div>
     <div class="agfiles-layout"><div class="agfiles-tree" role="tree" aria-label="Global, its projects and their tasks"></div><section class="agfiles-detail" aria-label="Selected record"></section></div>`;
   host.replaceChildren(shell);

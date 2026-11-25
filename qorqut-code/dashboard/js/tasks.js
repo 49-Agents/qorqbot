@@ -386,7 +386,7 @@ function tHead({ view = tView, views = T_VIEWS, bodyId = "tbody", title = "", ta
   return `<div class="thead nott">
     ${tTabs(bodyId === "tbody" ? (state.scope === "global" ? T_GLOBAL_VIEWS : ["globalNotes", "projectNotes", ...views.filter(v => !['globalTasks', 'globalNotes', 'notes', 'projectNotes'].includes(v))]) : views.filter(v => v !== 'globalTasks' || state.scope === 'global'), view, bodyId)}
     ${title ? `<div class="ttop"><h1>${esc(title)}</h1></div>` : ""}
-    ${tools ? `<div class="task-toolbar"><label class="tsearch">${SVG_TSEARCH}<input id="tsearch" type="search" aria-label="Search tasks" autocomplete="off" spellcheck="false"></label><select id="task-snooze-filter" aria-label="Task visibility">${['active','snoozed','all'].map(v=>`<option value="${v}" ${tSnoozeFilter===v?'selected':''}>${v[0].toUpperCase()+v.slice(1)}</option>`).join('')}</select><button class="btn" id="task-new" type="button"${state.project ? "" : " hidden"}>${SVG_TPLUS}New task</button></div>` : ""}
+    ${tools ? `<div class="task-toolbar">${searchField({label: "Search tasks", attrs: {id: "tsearch"}})}<select id="task-snooze-filter" aria-label="Task visibility">${['active','snoozed','all'].map(v=>`<option value="${v}" ${tSnoozeFilter===v?'selected':''}>${v[0].toUpperCase()+v.slice(1)}</option>`).join('')}</select><button class="btn" id="task-new" type="button"${state.project ? "" : " hidden"}>${SVG_TPLUS}New task</button></div>` : ""}
   </div><div class="tbody" id="${esc(bodyId)}" role="tabpanel" aria-labelledby="${esc(tTabId(view, bodyId))}"></div>`;
 }
 

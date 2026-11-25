@@ -93,13 +93,13 @@ async function fixture() {
     if (url.pathname === '/api/root/files/content') return route.fulfill({json:{status:'ok', data:{kind:'markdown', size:200, truncated:false,
       html:'<h1>Project notes</h1><p>Readable preview.</p><script>parent.alert(1)</script><img src=x onerror=parent.alert(1)><a href="javascript:alert(1)">unsafe</a>', text:'# Project notes\n\nReadable preview.'}}});
     if (url.pathname === '/') return route.fulfill({contentType:'text/html', body:`<!doctype html><html data-theme="dark"><head><meta charset="utf-8">
-      <link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/css/tasks.css"><link rel="stylesheet" href="/css/agent-workspace.css"><link rel="stylesheet" href="/css/agent-files.css">
+      <link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/css/search-field.css"><link rel="stylesheet" href="/css/tasks.css"><link rel="stylesheet" href="/css/agent-workspace.css"><link rel="stylesheet" href="/css/agent-files.css">
       <style>.agpad{width:100%;height:100vh;min-height:0} .agfiles-host{height:100%}</style></head><body class="agent-workspace-app">
       <div class="agpad tasks"><div class="tbody" id="agpad-body"></div></div><script>
       window.T_VIEW_LABEL={};window.T_VIEW_ICON={};window.$=(s,r=document)=>r.querySelector(s);
       window.esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       window.toast=()=>{};window.p={el:document.querySelector('.agpad'),workspaceRole:'ordubashy'};
-      </script><script src="/js/testing-mode.js"></script><script src="/js/agentpane.js"></script><script src="/js/agent-files.js"></script><script>testingModeSetState(true);agentFilesMount(p);</script></body></html>`});
+      </script><script src="/js/testing-mode.js"></script><script src="/js/agentpane.js"></script><script src="/js/search-field.js"></script><script src="/js/agent-files.js"></script><script>testingModeSetState(true);agentFilesMount(p);</script></body></html>`});
     const relative = url.pathname === '/files/view' ? 'file-viewer.html' : url.pathname.slice(1);
     const target = path.join(dashboard, relative);
     if (target.startsWith(dashboard + path.sep) && fs.existsSync(target)) return route.fulfill({path:target});

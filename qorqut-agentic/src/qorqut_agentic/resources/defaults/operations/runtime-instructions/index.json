@@ -646,6 +646,49 @@
       "previous_source": "qorqut-code/app/qorqut/agents/diagnostics.py:128"
     },
     {
+      "id": "skill-discovery-header-claude-code",
+      "path": "messages/skill-discovery-header-claude-code.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "skill discovery",
+      "audience": "registered agents; every fresh start",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "skill-discovery-header-codex",
+      "path": "messages/skill-discovery-header-codex.md",
+      "parameters": [],
+      "status": "conditional",
+      "trigger": "skill discovery",
+      "audience": "registered agents; every fresh start",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "skill-discovery-line-claude-code",
+      "path": "messages/skill-discovery-line-claude-code.md",
+      "parameters": [
+        "NAME",
+        "WORK"
+      ],
+      "status": "conditional",
+      "trigger": "skill discovery",
+      "audience": "registered agents; every fresh start",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
+      "id": "skill-discovery-line-codex",
+      "path": "messages/skill-discovery-line-codex.md",
+      "parameters": [
+        "NAME",
+        "PATH",
+        "WORK"
+      ],
+      "status": "conditional",
+      "trigger": "skill discovery",
+      "audience": "registered agents; every fresh start",
+      "previous_source": "bootstrap/claude_session.py"
+    },
+    {
       "id": "skills-header",
       "path": "messages/skills-header.md",
       "parameters": [],

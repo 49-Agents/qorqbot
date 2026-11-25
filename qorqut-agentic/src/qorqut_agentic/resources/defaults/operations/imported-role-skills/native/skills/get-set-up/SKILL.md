@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-get-set-up
 description: "The first conversation with a new owner: the welcome, then the agentic-management/get-set-up workflow (the basics about the owner, the tools they want connected, an offer of voice input). Load it when your startup context says FIRST CONVERSATION or FIRST MESSAGE, and when the owner asks to get set up or to redo it."
+read_for: The first conversation with a new owner, or redoing the set-up
 ---
 
 # Getting set up

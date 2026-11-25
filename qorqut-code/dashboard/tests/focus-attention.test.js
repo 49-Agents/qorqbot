@@ -40,7 +40,7 @@ test('reminder opening only reads and dismissal uses the exact due occurrence', 
     post:async (_url,args)=>{calls.push(args); if(args.occurrence_id) return await new Promise(resolve=>{finishDismiss=resolve;}); return {reminder};},
     coreData:x=>x, accessLost:()=>false,sourceGone:()=>false,uiFailure:()=>'',newRequestId:()=> 'key-1',Intl,Date};
   vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));
-  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/san-juan-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
   const host=new Node('div'), view=context.mount(host,reminder);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(calls.length,1); assert.equal(calls[0].reminder_id,'rem-1');
@@ -125,7 +125,7 @@ test('reminder Focus opening and disposal do not dismiss the reminder', async ()
   const context={document:{createElement:()=>new Node(),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{focusExpansion:{async open(s){spec=s;return {};}},addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
     state:{session:{principal_id:'owner'},projects:[]},post:async(_path,args)=>{calls.push(args);return {reminder};},coreData:x=>x,
     accessLost:()=>false,sourceGone:()=>false,uiFailure:()=>'',Intl,Date};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/relative-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.open=remindersOpenDetail;',context);
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/san-juan-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/relative-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.open=remindersOpenDetail;',context);
   await context.open(reminder);
   assert.equal(calls.length,0);
   const dispose=spec.mount(new Node(),{setTitle(){},setBeforeLeave(fn){guard=fn;}});
@@ -141,7 +141,7 @@ test('the Focus reminder is a Signoff card whose actions snooze or dismiss the d
   const context={document:{createElement:tag=>new Node(tag),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,
     state:{session:{principal_id:'owner'},projects:[]},post:async(path,args)=>{if(path.endsWith('reminders_get'))return {reminder:served};writes.push({path,args:{...args}});return {reminder:{...reminder,state:'scheduled',occurrence_id:null}};},coreData:x=>x,
     accessLost:()=>false,sourceGone:()=>false,uiFailure:()=>'',newRequestId:()=>'key-'+(++serial),Intl,Date};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/relative-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/san-juan-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/relative-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
   const all=(node,test,out=[])=>{if(test(node))out.push(node);node.children.forEach(child=>all(child,test,out));return out;};
   const flush=()=>new Promise(resolve=>setImmediate(resolve));
   let host=new Node('div'),view=context.mount(host,reminder,{reviewLayout:true});await flush();
@@ -197,7 +197,7 @@ test('uncertain reminder dismissal remains retryable after disposal with identic
   const context={document:{createElement:()=>new Node(),dispatchEvent(){},addEventListener(){},removeEventListener(){}},window:{addEventListener(){},removeEventListener(){}},Event:class{},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),embeddedAgentPane:true,state:{session:{principal_id:'owner'},projects:[{id:'b',slug:'project'}]},
     post:async(path,args)=>{if(path.endsWith('reminders_get'))return {reminder};writes.push({path,args:{...args}});if(!tries++)throw new Error('lost');return {reminder:{...reminder,state:'dismissed'}};},
     coreData:x=>x,accessLost:()=>false,sourceGone:()=>false,uiFailure:()=> 'unknown',newRequestId:()=> 'original-key',Intl,Date};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/san-juan-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
   const find=(node,text)=>node.textContent===text ? node : node.children.map(child=>find(child,text)).find(Boolean);
   let host=new Node(),view=context.mount(host,reminder);await new Promise(resolve=>setImmediate(resolve));
   find(host,'Dismiss').onclick();await new Promise(resolve=>setImmediate(resolve));view.dispose();
@@ -212,7 +212,7 @@ test('create and update uncertain requests retain scope and keys independently',
   const context={document:{dispatchEvent(){}},Event:class{},embeddedAgentPane:true,state:{session:{principal_id:'owner'},projects:[{id:'b',slug:'p'}]},
     post:async(path,args)=>{calls.push({path,args:{...args}});if(fail)throw new Error('lost');return {};},coreData:x=>x,newRequestId:()=>`key-${++serial}`,Intl,Date};
   context.loadSession=async()=>({principal_id:context.state.session.principal_id,principal_kind:'human',is_owner:true});
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.pending=remPending;',context);
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/san-juan-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.pending=remPending;',context);
   const create=await context.make(null,'p','editor','reminders_create',{text:'one',at:'time'});
   await assert.rejects(()=>context.submit(create));
   assert.equal(context.pending(context.state.session.principal_id,null,'p','editor').length,1);assert.equal(context.pending(context.state.session.principal_id,null,'q','editor').length,0);
@@ -240,7 +240,7 @@ test('reminder attempts require a fresh human owner and retain uncertain timeout
   const context={document:{dispatchEvent(){}},Event:class{},embeddedAgentPane:true,state:{session:{principal_id:'stale'},projects:[]},
     loadSession:async(force)=>{assert.equal(force,true);return session;},newRequestId:()=>String(++key),
     post:async()=>{writes++;throw failure;},coreData:x=>x,Intl,Date};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.pending=remPending;',context);
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/san-juan-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.pending=remPending;',context);
   await assert.rejects(()=>context.make(null,null,'editor','reminders_create',{text:'x'}));assert.equal(writes,0);
   session={principal_id:'owner',principal_kind:'human',is_owner:true};
   const a=await context.make(null,null,'editor','reminders_create',{text:'x'});
@@ -261,7 +261,7 @@ test('unconfirmed list recovers a disappeared reminder without writes on open', 
     window:{focusExpansion:{async open(s){spec=s;return {}; }},addEventListener(){},removeEventListener(){}},
     state:{session:{principal_id:'owner'},projects:[]},loadSession:async()=>session,newRequestId:()=> 'saved-key',
     post:async(path,args)=>{writes.push({path,args:{...args}});if(fail)throw new Error('lost');return {};},coreData:x=>x,Intl,Date};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.open=remindersOpenUnconfirmed;',context);
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/san-juan-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.make=remAttempt;this.submit=remSubmitAttempt;this.open=remindersOpenUnconfirmed;',context);
   const attempt=await context.make({reminder_id:'gone',occurrence_id:'occ',text:'Due'},null,'detail','reminders_dismiss',{reminder_id:'gone',revision:1,occurrence_id:'occ'});
   await assert.rejects(()=>context.submit(attempt));await context.open();
   let host=new Node(),dispose=spec.mount(host,{isCurrent:()=>true,setBeforeLeave(){}});await new Promise(resolve=>setImmediate(resolve));
@@ -341,7 +341,7 @@ test('ordinary reminder Create prompts for retry or deliberate separate creation
     loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`key-${++key}`,
     post:async(path,args)=>{writes.push({path,args:{...args}});if(fail)throw new Error('lost');return {reminder:{id:'created'}};},
     coreData:x=>x,esc:String,uiFailure:()=> 'retry',Intl,Date};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.editor=remindersEditor;',context);
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/san-juan-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.editor=remindersEditor;',context);
   const session={setTitle(){},setBeforeLeave(){},onDispose(){},isCurrent:()=>true};
   const flush=()=>new Promise(resolve=>setImmediate(resolve));
   let h=makeHost();context.editor(null,{host:h.host,session,onCancel(){},onSaved(){}});await flush();
@@ -372,7 +372,7 @@ test('ordinary dismissal of a different recurring occurrence uses a separate req
     state:{session:{principal_id:'owner'},projects:[]},loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`key-${++key}`,
     post:async(path,args)=>{if(path.endsWith('reminders_get'))return {reminder:current};writes.push({...args});throw new Error('lost');},
     coreData:x=>x,accessLost:()=>false,sourceGone:()=>false,uiFailure:()=> 'retry',Intl,Date};
-  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
+  vm.createContext(Object.assign(context,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/san-juan-time.js'),'utf8')+fs.readFileSync(path.join(__dirname,'../js/reminders.js'),'utf8')+'\nthis.mount=remindersDetailMount;',context);
   const find=(n,t)=>n.textContent===t?n:n.children.map(c=>find(c,t)).find(Boolean),flush=()=>new Promise(resolve=>setImmediate(resolve));
   let host=new Node(),view=context.mount(host,current);await flush();find(host,'Dismiss').onclick();await flush();view.dispose();
   current={...current,occurrence_id:'two'};host=new Node();view=context.mount(host,current);await flush();

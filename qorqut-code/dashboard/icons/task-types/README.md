@@ -1,6 +1,6 @@
 # Task type icons
 
-- `story.svg`: an open book, for a Story dashboard.
+- `story.svg`: four rings in a square, for a Story (a set of Tasks).
 - `customer.svg`: a handshake, for a Customer record.
 - `email.svg`: an envelope, for a whole email conversation represented as a Task.
 

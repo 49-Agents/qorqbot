@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-operations-delegation
 description: Create and supervise an explicitly selected legacy delegated assignment, a saved plan run by a durable Qorqut worker. Ordinary requests to hand work to a worker go to the permanent team; native Codex subagents require an explicit owner request for that runtime.
+read_for: Legacy delegated assignments, creating or supervising one (`delegated_assignments_*`)
 ---
 
 # Legacy delegated assignments

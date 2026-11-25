@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-owner-settings
 description: Read or change the owner's Qorqbot settings yourself with settings_get and settings_set whenever the owner asks to see or change one, such as extension keys (OpenRouter voice input, treg), an agent's client, model or effort, Claude Code and Codex, managed sessions or terminals, folder trust, Testing mode, the agent browser, theme, text size, desktop alerts or the Qorqbot account. Do it yourself instead of sending the owner to Settings.
+read_for: The owner's Qorqbot settings, reading or changing one (`settings_get`, `settings_set`)
 ---
 
 # Change settings

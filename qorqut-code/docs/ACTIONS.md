@@ -133,8 +133,8 @@ covers the membership rows its action creates.
 
 ## Operational timezone
 
-`QORQUT_TIMEZONE` selects an IANA timezone before the application process starts;
-the default is UTC. `actions_config_get` reports the zone and current local date
+The owner's timezone setting selects the IANA timezone, then `QORQUT_TIMEZONE`;
+the default is UTC (see OPERATIONAL-TIME.md). `actions_config_get` reports the zone and current local date
 and hour. The dashboard reads that setting from its session/API responses.
 `qorqut_operations.local_time` owns the conversion; wire instants stay UTC.
 

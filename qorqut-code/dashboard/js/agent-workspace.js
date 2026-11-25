@@ -31,10 +31,11 @@ const agentWorkspaceSectionIcon = key => ({overview: GLOBAL_ICONS.globe, costs: 
 // navigation or editor state. The child still uses native authenticated reads.
 function agentWorkspaceSnapshot() { return structuredClone({projects: state.projects, session: state.session}); }
 
-Object.assign(T_VIEW_LABEL, {project: 'Project management', global_context: 'Context', journal: 'Journal', calendar: 'Calendar'});
+Object.assign(T_VIEW_LABEL, {project: 'Project management', global_context: 'Context', journal: 'Journal', calendar: 'Calendar', context_graph: 'Context'});
 Object.assign(T_VIEW_ICON, {
   project: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12a24 24 0 0 0 18 0M10 13h4"/></svg>',
   global_context: SVG_BRAIN,
+  context_graph: SVG_BRAIN,
   journal: T_VIEW_ICON.notes,
 });
 
@@ -152,7 +153,7 @@ async function agentWorkspaceEscape({agent, project, table, signoffs}) {
 function agentWorkspaceViews(scope, role) {
   if (scope !== 'global') return [];
   if (role === 'learning-applier') return ['global_context'];
-  if (role === 'ordubashy') return ['calendar', 'journal'];
+  if (role === 'ordubashy') return ['calendar', 'context_graph', 'journal'];
   return [];
 }
 // Ordubashy opens Focus and Learning Applier Context; a general worker opens its first allowed view.
@@ -306,6 +307,15 @@ function agentWorkspaceMount(p, view) {
     host.className = 'agent-calendar-host';
     body.replaceChildren(host);
     const dispose = calendarMount(host, {embedded: true, isCurrent: () => _agpad === p && p.view === 'calendar' && host.isConnected});
+    p.workspaceDispose = () => { dispose(); host.remove(); };
+    return true;
+  }
+  if (view === 'context_graph') {
+    // Mockup: the Global Context graph, drawn natively in this pane (js/context-brain.js).
+    const host = document.createElement('div');
+    host.className = 'cbrain-host';
+    body.replaceChildren(host);
+    const dispose = contextBrainMount(host, {isCurrent: () => _agpad === p && p.view === 'context_graph' && host.isConnected});
     p.workspaceDispose = () => { dispose(); host.remove(); };
     return true;
   }

@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-ecosystem-review
 description: Review coordination, platform-request tracking and shared instruction proposals across explicitly permitted projects without widening their scope.
+read_for: Reviewing coordination, platform requests or shared instruction proposals across Projects
 ---
 
 # Ecosystem Review

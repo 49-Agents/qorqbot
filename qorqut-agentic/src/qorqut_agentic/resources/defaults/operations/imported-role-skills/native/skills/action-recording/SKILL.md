@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-action-recording
 description: Record each atomic completed result once in the canonical action log with actions_record, in at most 20 words, with the correct scope and installation timezone.
+read_for: Recording a completed result in the action log (`actions_record`)
 ---
 
 # Action recording

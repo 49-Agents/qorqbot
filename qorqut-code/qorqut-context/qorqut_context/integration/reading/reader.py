@@ -35,7 +35,7 @@ from qorqut_operations.contracts import DomainError, plain
 from . import cursor as cursors
 from .graph import KINDS, OBJECT_RELATIONSHIPS, PublishedGraph, ref as make_ref
 from .schemas import (CHANGES_LIMIT, EXPAND_LIMIT, FIND_LIMIT, HISTORY_LIMIT, HOME_LIMIT, MAX_SEARCH_WINDOW,
-                      PERSONAL_HIDDEN, TEXT_LIMIT)
+                      OVERVIEW_EDGES, OVERVIEW_NODES, PERSONAL_HIDDEN, TEXT_LIMIT)
 
 REF = re.compile(r"(?:(node|edge|note|source):)?([a-z0-9]{5})")
 UNSUPPORTED_FORMAT = "Unsupported context format"
@@ -276,6 +276,36 @@ class SharedContextReader:
                 "totals": totals, "nodes": [graph.home_node(node_id) for node_id in selected],
                 "page": _page(len(selected), limit, more,
                               cursors.encode("context_home", {}, graph.revision, offset + len(selected)) if more else None)}
+
+    def overview(self, *, revision=None) -> dict:
+        """The whole published graph in compact form for the owner's graph view, at one pinned revision.
+
+        Nodes come in ``context_home``'s order (most connected first) as ``{id, name, type, degree}``; edges, by ID, as
+        ``{id, from, to, name, tag}``, only between listed nodes: the same nodes and edges ``context_home`` pages through,
+        and nothing more. The owner's record is not repeated here (``context_home`` carries it). Past
+        ``OVERVIEW_NODES`` nodes or ``OVERVIEW_EDGES`` edges the lists stop and ``truncated`` is true; ``totals``
+        always count the whole graph."""
+        pinned, _ = self._pin("context_overview", {}, None, revision)
+        try:
+            graph = self._graph(pinned, "revision")
+        except _NotReady as error:
+            return error.dto()
+        order = graph.home_order()
+        selected = order[:OVERVIEW_NODES]
+        truncated = len(order) > len(selected)
+        listed = set(selected)
+        edges = []
+        for edge_id, edge in sorted(graph.snapshot.edges.items()):
+            if edge["from_id"] not in listed or edge["to_id"] not in listed:
+                continue
+            if len(edges) == OVERVIEW_EDGES:
+                truncated = True
+                break
+            edges.append(graph.overview_edge(edge_id))
+        totals = graph.totals()
+        return {"status": "ready", "revision": graph.revision,
+                "totals": {"nodes": totals["nodes"], "edges": totals["edges"]}, "truncated": truncated,
+                "nodes": [graph.overview_node(node_id) for node_id in selected], "edges": edges}
 
     def personal(self, *, fields=None, revision=None) -> dict:
         """The owner's record as plain facts: every field and its current values, or only the named ``fields``.

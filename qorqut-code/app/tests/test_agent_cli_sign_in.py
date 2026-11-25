@@ -701,7 +701,7 @@ class SwitchSignInTest(SignInBase):
         sign_in.start_sign_in("claude", environ=self.env)
         details = sign_in.sign_in_details("claude")
         self.assertEqual((details["switching"], details["previous_account"]), (True, {"email": "old@x.y", "plan": "max"}))
-        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder())["account"]["email"], "old@x.y")
+        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder(), system="Linux")["account"]["email"], "old@x.y")
         sign_in.cancel_sign_in("claude")                          # cancelling changes nothing
         self.assertEqual((self.home / ".claude/.credentials.json").read_text(), before)
         self.assertEqual(sign_in.sign_in_state("claude")["state"], "idle")
@@ -775,7 +775,7 @@ class SwitchSignInTest(SignInBase):
         self.processes[0].exit(1)
         wait_for(self, lambda: sign_in.sign_in_state("claude")["state"] == "failed")
         self.assertIsNone(account_state.switch("claude"))
-        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder())["account"]["email"], "old@x.y")
+        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder(), system="Linux")["account"]["email"], "old@x.y")
 
     def test_a_completed_switch_records_before_and_after_and_tells_the_handler(self):
         self.credential(); self.account("old@x.y")

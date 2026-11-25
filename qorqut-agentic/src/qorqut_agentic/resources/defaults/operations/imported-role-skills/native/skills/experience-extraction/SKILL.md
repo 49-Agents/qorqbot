@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-experience-extraction
 description: Run the daily experience extraction. Read the report of everything the owner wrote and decided in the period, the failed tool calls and the repeated tool-call patterns, and file observations (issues, complaints, problems, never changes) under clusters. Use when a qorqut-workflow message starts an experience extraction run.
+read_for: The daily experience extraction that a workflow message starts
 ---
 
 # Experience extraction

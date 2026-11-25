@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-personal-record
 description: Read or update what is known about the owner (names, contacts, dates, background, links, their choices for forms and applications) with personal_get and personal_set. Use before asking the owner anything about themselves, when filling or building a form, application, profile, bio or message in their name, and when the owner or a source gives a new fact about them.
+read_for: What is known about the owner, reading or updating it (`personal_get`, `personal_set`)
 ---
 
 # The owner's personal record
@@ -91,14 +92,15 @@ personal_set(
 
 What comes back:
 
-- `status: queued`: accepted. It publishes within seconds, and `personal_get` shows
-  the new values once it has.
-- `busy`: nothing was saved. Something else is waiting in the Context queue, and an
-  edit queued behind it would be refused later. Put saving that fact on your Todo
-  and call `personal_set` again when `context_queue_list` shows nothing queued,
-  processing or blocked. Until then take the value from where the owner gave it
-  (the answered form with `signoffs_get`, or the thread), never ask for it again,
-  and tell the owner once that saving it is delayed.
+- `status: queued`: accepted. It publishes when its turn in the Context queue
+  comes, within seconds when nothing is ahead of it, and `personal_get` shows the
+  new values once it has. Saves of different facts may follow each other at once:
+  each is merged onto the record as it is when its turn comes. Until then take the value from where the owner gave it
+  (the answered form with `signoffs_get`, or the thread) and never ask for it again.
+- `stale_base` (a `context.input_discarded` notice, or `context_queue_get` on the
+  input): something ahead of it changed the same field of the owner's record first,
+  so nothing was saved and the input was discarded by itself. Read `personal_get`
+  and call `personal_set` again with the facts that still change.
 - `no_change`: the record already holds exactly this.
 - Never say a fact was saved before `personal_set` accepted it.
 

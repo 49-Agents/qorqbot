@@ -208,3 +208,35 @@ browserTest('a plain click on the blank paper below the text puts the caret at t
     assert.deepEqual(await page.evaluate(() => { const s = getSelection(); return [s.isCollapsed, s.anchorNode.textContent, s.anchorOffset]; }), [true, 'Two', 3]);
   } finally { await browser.close(); }
 });
+
+browserTest('Notes reopens where the owner left off: same scroll and caret after hiding or remounting', async () => {
+  const text = Array.from({length: 80}, (_, i) => `Line ${i} of the notes`).join('\n');
+  const {browser, page, mount} = await fixture({revision: 1, card_ids: [], blocks: [{id: 'b', text}], statuses: {}});
+  try {
+    await page.evaluate(() => { document.querySelector('.tbody').style.height = '400px'; });
+    // First time: nothing remembered, the caret goes to the end as before.
+    await page.evaluate(() => focusText.focus(panel));
+    const first = await page.evaluate(() => getSelection().anchorNode.textContent);
+    assert.equal(first, 'Line 79 of the notes');
+    // The owner clicks into line 30 and leaves the text scrolled there.
+    await page.locator('.agfocus-notes .ntline').nth(30).click();
+    const scroll = await page.evaluate(() => { const p = document.querySelector('.agfocus-notes-input'); p.scrollTop = p.querySelectorAll('.ntline')[28].offsetTop; return p.scrollTop; });
+    await page.waitForTimeout(400);
+    assert.ok(scroll > 100);
+    const back = () => page.evaluate(() => [document.querySelector('.agfocus-notes-input').scrollTop, getSelection().anchorNode?.textContent]);
+    // A record or browser hides the notes (scroll resets to 0); Notes brings them back where they were.
+    await page.evaluate(() => { document.activeElement.blur(); const l = document.querySelector('.agfocus-layout'); l.style.display = 'none'; l.offsetHeight; l.style.display = ''; focusText.focus(panel); });
+    let [top, line] = await back();
+    assert.ok(Math.abs(top - scroll) <= 1, `scroll ${top} vs ${scroll}`);
+    assert.equal(line, 'Line 30 of the notes');
+    // The pane is rebuilt (another agent and back): still the same place.
+    await page.evaluate(() => dispose());
+    await mount();
+    await page.waitForFunction(() => !document.querySelector('.agfocus-notes-input').classList.contains('loading'));
+    await page.evaluate(() => focusText.focus(panel));
+    [top, line] = await back();
+    assert.ok(Math.abs(top - scroll) <= 1, `scroll ${top} vs ${scroll}`);
+    assert.equal(line, 'Line 30 of the notes');
+    assert.equal(await page.evaluate(() => focusText.state('agent').view.caret.f.i), 30);
+  } finally { await browser.close(); }
+});
