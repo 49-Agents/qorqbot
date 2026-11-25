@@ -44,7 +44,7 @@ def register(registry, clock):
                 "AND a.occurred_date<=? AND a.occurred_at<=? GROUP BY a.occurred_date", (bid, dates[0], dates[-1], timestamp(lambda: now))).fetchall())
             items.append({'project_id':bid,'slug':project['slug'],'tasks':count,'signoffs':signoffs[0]-signoffs[2],
                 'to_read':signoffs[2],'requests':signoffs[1],'activity':[{'date':date,'count':activity.get(date,0)} for date in dates]})
-        return {'items':items,'as_of':timestamp(lambda: now),'timezone':local_time.TIMEZONE}
+        return {'items':items,'as_of':timestamp(lambda: now),'timezone':local_time.current_timezone()}
     registry.register(OperationDescriptor('dashboard_summary_get', schema({}), scope_kinds=frozenset({'global'}),
         global_capability='read_global_context', effect_kind='read', supports_signoff=False,
         exposure=frozenset({'dashboard'}), description=instruction_text('dashboard-summary-owner-project-counts-and-fourteen-daily-installation'), read=read))

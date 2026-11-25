@@ -35,6 +35,7 @@ identity, so the same checks and refusals apply:
 | `testing_mode` | `/root/testing-mode` |
 | `website_sign_out` | `/root/browser-accounts` |
 | `agent_browser` | `/root/browser-setup` (retry) |
+| `timezone` | `/root/operational-timezone` |
 | `appearance`, `notifications` | the browser's own choice (see below) |
 | `account` | `/root/account/{start,verify,logout}` |
 

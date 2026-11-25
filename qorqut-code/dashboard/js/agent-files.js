@@ -66,7 +66,7 @@ function agentFilesMount(p) {
   shell.setAttribute('aria-label', 'Operations files');
   shell.innerHTML = `<header class="agfiles-head"><div><strong>Files</strong><span data-files-scope></span></div>
     <button type="button" class="agfiles-icon-btn" data-refresh title="Refresh folders and counts" aria-label="Refresh folders and counts">${agentFilesIcon('refresh')}</button></header>
-    <div class="agfiles-search">${agentFilesIcon('search')}<input type="search" placeholder="Find a project or folder" aria-label="Find a project or folder"></div>
+    <div class="agfiles-searchrow">${searchField({placeholder: "Find a project or folder"})}</div>
     <nav class="agfiles-crumbs" aria-label="File location"></nav>
     <div class="agfiles-layout"><div class="agfiles-tree" role="tree" aria-label="Operations folder tree"></div><section class="agfiles-detail" aria-label="Selected file or folder"></section></div>
     <footer class="agfiles-footer"><label class="agfiles-system"><input type="checkbox" role="switch" data-system ${s.system ? 'checked' : ''}><span>Show system files</span></label><span title="Open tasks · pending signoffs · subprojects">${agentFilesIcon('tasks')} Tasks ${agentFilesIcon('signoffs')} Signoffs ${agentFilesIcon('subprojects')} Subprojects</span></footer>`;

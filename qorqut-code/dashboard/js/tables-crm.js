@@ -412,7 +412,7 @@ function crmTableMount(host, {project, table, onTable, onOpenRecord, draftKey, d
     host.classList.add('crm-table');
     host.innerHTML = `<header class="crm-header"><div class="crm-heading"><h2 class="crm-title">${esc(current.title || '')}</h2><span class="crm-record-count" data-crm-count></span></div>
       ${current.description ? `<details class="crm-description"><summary>About this CRM</summary><p>${esc(current.description)}</p></details>` : ''}
-      <div class="crm-tools"><label class="tsearch crm-search-label">${SVG_TSEARCH}<input type="search" data-crm-query aria-label="Search records" placeholder="Search records"></label>
+      <div class="crm-tools">${searchField({placeholder: "Search records", className: "crm-search-label", attrs: {"data-crm-query": true}})}
       <details class="crm-options"><summary aria-label="CRM view options" title="View options">⋯</summary><div class="crm-options-body">
         <label><input type="checkbox" data-crm-archived>Show archived records</label>
         <label><input type="checkbox" data-crm-removed>Show removed entries</label>

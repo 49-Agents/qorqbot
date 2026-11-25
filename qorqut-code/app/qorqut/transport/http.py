@@ -248,7 +248,8 @@ class HTTPAPI:
             global_owner = bool(installation and installation["owner_principal_id"] == actor.principal.id)
         return {"principal_id": actor.principal.id, "principal_kind": "human", "display_name": actor.principal.display_name,
                 "is_owner": global_owner, "is_installation_owner": global_owner,
-                "operational_timezone": local_time.TIMEZONE}
+                "operational_timezone": local_time.current_timezone(),
+                "operational_timezone_source": local_time.timezone_source()}
 
     @staticmethod
     def _transport_operation(request):
@@ -590,6 +591,22 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts == ["root", "operational-timezone"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "The timezone is for the owner's dashboard")
+                from qorqut.dashboard_preferences import operational_timezone
+                body = await read_json(request, limit=65536) if request.method == "POST" else None
+                if body is not None and not isinstance(body, dict):
+                    raise DomainError("validation_error", "The timezone must be an object")
+                if body is not None:
+                    with self.runtime.database.read() as uow:
+                        installation = uow.repository("installation").get("service")
+                    if not installation or installation["owner_principal_id"] != actor.principal.id:
+                        raise DomainError("forbidden", "Only the installation owner sets the timezone")
+                data = await anyio.to_thread.run_sync(partial(operational_timezone, self.runtime.paths.runtime, body))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts == ["root", "display-preferences"] and request.method == "GET":
                 # Theme, text size and desktop alerts the coordinator set for the owner (``settings_set``). Read only: a
                 # browser applies them to its own stored choice; the owner's own changes stay in the browser.
@@ -727,7 +744,7 @@ class HTTPAPI:
                     "tasks_follow", "actions_thread_get", "actions_follow", "actions_comment", "tags_list", "tags_create",
                     "tasks_list", "tasks_get", "tasks_notes_list", "tasks_associated_records", "agents_activity_list", "agent_work_update", "tasks_create", "tasks_update", "tasks_assign", "tasks_comment", "tasks_complete", "tasks_config_get", "tasks_config_update", "assignees_list",
                     "project_create", "signoffs_input_create", "signoffs_input_cancel", "signoffs_source_link", "signoffs_source_unlink",
-                    "context_home", "context_object", "context_expand", "context_find", "context_changes", "context_upload_map", "context_filings", "context_filing_costs", "context_instruct", "context_edit",
+                    "context_home", "context_object", "context_expand", "context_find", "context_changes", "context_overview", "context_upload_map", "context_filings", "context_filing_costs", "context_instruct", "context_edit",
                     # Raw Global sources (scope=shared) and the exact-input and document commands of the source status UI: only these eight.
                     "context_list", "context_get", "context_search", "context_retry", "context_retract",
                     "context_queue_get", "context_queue_retry", "context_queue_discard",

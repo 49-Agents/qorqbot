@@ -66,7 +66,7 @@ class ProjectProgress:
             if row[0] in scopes: count('learnings_accepted', row[2])
         # Each canonical action once, on its recorded local occurrence day; never a sum of project counts.
         global_action_counts(uow, series)
-        return {'series':[{'date':date,**values} for date,values in series.items()], 'timezone':local_time.TIMEZONE, 'days':len(series)}
+        return {'series':[{'date':date,**values} for date,values in series.items()], 'timezone':local_time.current_timezone(), 'days':len(series)}
 
     def read(self, ctx, args, opts, uow):
         if ctx.principal_kind != "human" or not owner_may_act(uow.connection, ctx.principal_id, ctx.project_id):
@@ -88,5 +88,5 @@ class ProjectProgress:
         for row in uow.connection.execute("SELECT json_extract(decision_json,'$.at') FROM signoffs WHERE review_project_id=? AND json_extract(decision_json,'$.kind')='approve'", (ctx.project_id,)):
             count("signoffs_approved", row[0])
         return {"totals": totals, "undated": undated, "series": [{"date": date, **values} for date, values in series.items()],
-                "timezone": local_time.TIMEZONE, "days": days,
+                "timezone": local_time.current_timezone(), "days": days,
                 "coverage": "Recorded history only. Tasks count once on first entering done, excluding dropped tasks. Older completion dates may be unknown."}

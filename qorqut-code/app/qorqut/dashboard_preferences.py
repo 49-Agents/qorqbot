@@ -2,6 +2,7 @@
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -174,3 +175,46 @@ def display(runtime_directory, owner_id, change=None):
             if os.path.exists(temporary):
                 os.unlink(temporary)
     return answer(fields)
+
+
+def operational_timezone(runtime_directory, change=None):
+    """Read or set the owner's timezone for the whole installation (Settings > Timezone), and apply it to this process.
+
+    One file for the installation (it has exactly one owner), not one per owner id, so startup can apply it before any
+    session exists. ``change`` is ``{'timezone': name}`` (an installed IANA zone) and takes effect at once, without a
+    restart. Returns ``{'timezone', 'source'}`` where ``source`` is ``owner``, ``environment`` (QORQUT_TIMEZONE) or
+    ``default`` (UTC); the dashboard fills an unset zone from the browser once, so it needs the source.
+    """
+    from qorqut.atomic_write import atomic_write
+    from qorqut_operations import local_time
+    path = Path(runtime_directory) / 'dashboard-preferences' / 'operational-timezone.json'
+
+    def view():
+        return {'timezone': local_time.current_timezone(), 'source': local_time.timezone_source()}
+
+    if change is None:
+        return view()
+    if not isinstance(change, dict) or set(change) != {'timezone'}:
+        raise DomainError('validation_error', 'Supply exactly a timezone name')
+    name = local_time.valid_zone(change['timezone'])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix('.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        atomic_write(path, json.dumps({'timezone': name}).encode(), mode=0o600)
+        local_time.set_owner_timezone(name)
+    return view()
+
+
+def apply_operational_timezone(runtime_directory):
+    """At startup: apply the saved owner timezone, if any. An unreadable or no longer installed value is logged and ignored
+    (the environment or UTC applies) rather than stopping the service."""
+    from qorqut_operations import local_time
+    path = Path(runtime_directory) / 'dashboard-preferences' / 'operational-timezone.json'
+    try:
+        saved = json.loads(path.read_text())
+        local_time.set_owner_timezone(saved['timezone'])
+    except FileNotFoundError:
+        local_time.set_owner_timezone(None)
+    except (OSError, ValueError, UnicodeError, KeyError, TypeError, DomainError):
+        logging.getLogger(__name__).warning('The saved owner timezone is not usable; using the environment or UTC')
+        local_time.set_owner_timezone(None)

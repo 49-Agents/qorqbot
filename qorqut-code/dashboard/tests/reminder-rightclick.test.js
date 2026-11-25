@@ -95,7 +95,7 @@ test('a due reminder note offers In 1 hour, Tomorrow and Done wired to snooze an
     loadSession:async()=>({principal_id:'owner',principal_kind:'human',is_owner:true}),newRequestId:()=>`k${writes.length}`,coreData:x=>x,Date,Intl,Map,Set,JSON,Promise,
     setTimeout:()=>0,clearTimeout(){},notify:n=>notes.push(n),
     post:async(url,args)=>{if(url.endsWith('reminders_list'))return {reminders:[reminder]};writes.push({url,args:{...args}});return {reminder:{...reminder,state:'scheduled',occurrence_id:null}};}};
-  vm.createContext(Object.assign(ctx,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(source('relative-time.js')+source('reminders.js'),ctx);
+  vm.createContext(Object.assign(ctx,{tabHiddenFor:()=>false,onTabBack(){}}));vm.runInContext(source('san-juan-time.js')+source('relative-time.js')+source('reminders.js'),ctx);
   await tick();await tick();await tick();
   assert.equal(notes.length,1);assert.equal(notes[0].text,'Text Fares.');assert.equal(notes[0].sub,'Reminder · due now');
   assert.deepEqual(Array.from(notes[0].actions,a=>a.label),['In 1 hour','Tomorrow','Done']);

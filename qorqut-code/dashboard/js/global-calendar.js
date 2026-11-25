@@ -82,7 +82,8 @@ function calendarRangeTitle(first, last, today = calendarDateString(new Date()))
 // One colour per calendar, by its place in the list; the stylesheet holds the colours.
 const CALENDAR_TONES = 6;
 const calendarTone = index => index < 0 ? 'none' : String(index % CALENDAR_TONES);
-const calendarIcon = name => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AICONS[name] || ''}</svg>`;
+// Week view starts on Monday, like the mini month.
+const calendarWeekStart = date => calendarAddDays(date,-((new Date(calendarDateString(date)+'T12:00:00Z').getUTCDay()+6)%7));
 
 // Personal status is an owner preference over a provider event; it never writes to the provider.
 const calendarStatusLabels = {pending:'Pending',completed:'Completed',cancelled:'Cancelled',rescheduled:'Rescheduled'};
@@ -280,7 +281,7 @@ async function calendarSubmitAttempt(attempt, refresh, surface) {
   attempt.owner = owner;
   const previous = calendarOwnerAttempts(owner).find(old => old.operation === attempt.operation && old.occurrence === attempt.occurrence && JSON.stringify(old.args) === JSON.stringify(attempt.args));
   if (previous) {
-    const choice = await surface.chooseAttempt(attempt.operation === 'calendar_event_create');
+    const choice = await surface.chooseAttempt();
     if (choice === 'cancel') return false;
     if (choice === 'retry') { await calendarRunAttempt(previous,refresh); return true; }
   }
@@ -299,24 +300,25 @@ function calendarChanged(refresh) {
 
 // Each pane owns its navigation and lifecycle; embedding never changes the route.
 function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
-  let calendarDate = calendarDateString(new Date()), calendarViewDays = embedded ? 1 : 3, calendarGeneration = 0, active = true, repaint = () => {};
-  let calendarMonth = calendarMonthStart(calendarDate), dispose = () => {};
-  const render = async (force = false) => {
+  let calendarDate = calendarDateString(new Date()), calendarViewDays = embedded ? 1 : 7, calendarGeneration = 0, active = true, repaint = () => {};
+  let calendarMonth = calendarMonthStart(calendarDate), dispose = () => {}, scrollKey = '', scrollTop = 0;
+  const render = async () => {
+    // The hour grid element is rebuilt with the page; carry its scroll across refreshes of the same range.
+    const oldGrid = $('.calendar-week',host);
+    if (oldGrid) scrollTop = oldGrid.scrollTop;
     dispose();
     const generation = ++calendarGeneration;
     const countForWidth = () => host.clientWidth <= 600 ? 1 : calendarViewDays;
     const count = countForWidth();
-    const first = calendarDate, zone = calendarZone();
+    const first = count === 7 ? calendarWeekStart(calendarDate) : calendarDate, zone = calendarZone();
     const last = calendarAddDays(first,count), dates = Array.from({length:count},(_,i) => calendarAddDays(first,i));
-    const views = [[1,'Day'],[3,'3 days'],[7,'Week']];
+    const views = [[1,'Day'],[7,'Week']];
     host.innerHTML = `<section class="pane calendar-page${embedded ? ' calendar-embedded' : ''}" aria-label="Calendar" style="--calendar-columns:${count}">
       <header class="calendar-toolbar"><div class="calendar-title"><h1 class="calendar-range"></h1><time class="calendar-clock" aria-label="Current time"></time></div>
         <div class="calendar-controls">
-          <div class="calendar-nav"><button type="button" class="calendar-icon" data-calendar-prev aria-label="Previous days">‹</button><button type="button" class="calendar-today" data-calendar-today>Today</button><button type="button" class="calendar-icon" data-calendar-next aria-label="Next days">›</button></div>
+          <div class="calendar-nav"><button type="button" class="calendar-icon" data-calendar-prev aria-label="Previous days">‹</button><button type="button" class="calendar-icon" data-calendar-next aria-label="Next days">›</button></div>
           <div class="calendar-view" role="group" aria-label="Calendar view">${views.map(([days,label]) => `<button type="button" data-calendar-view="${days}" aria-pressed="${days === calendarViewDays}">${label}</button>`).join('')}</div>
           <button type="button" class="ghost" data-calendar-unconfirmed hidden>Unconfirmed changes</button>
-          <button type="button" class="calendar-icon" data-calendar-refresh aria-label="Refresh calendars">${calendarIcon('refresh-cw')}</button>
-          <button type="button" class="primary calendar-add" data-calendar-add disabled><span aria-hidden="true">＋</span> Add</button>
         </div></header>
       <div class="calendar-layout"><aside class="calendar-sidebar" aria-label="Calendar navigation">
         <div class="calendar-month-heading"><h2></h2><div><button type="button" class="calendar-icon" data-month-prev aria-label="Previous month">‹</button><button type="button" class="calendar-icon" data-month-next aria-label="Next month">›</button></div></div>
@@ -342,34 +344,36 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     calendarAttemptListeners.add(updateUnconfirmed);
     dispose = () => { calendarAttemptListeners.delete(updateUnconfirmed); };
     void updateUnconfirmed();
-    const reload = (force = false) => { if (current()) return render(force === true); };
+    const reload = () => { if (current()) return render(); };
     const chooseDate = date => { calendarDate = date; calendarMonth = calendarMonthStart(date); reload(); };
     const paintDates = () => {
       const today = calendarDateString(new Date());
       $('.calendar-range',page).textContent = calendarRangeTitle(first,calendarAddDays(last,-1),today);
-      $('[data-calendar-today]',page).setAttribute('aria-pressed',String(today >= first && today < last));
       $('.calendar-dayheads',page).innerHTML = '<span></span>'+dates.map(date => `<div class="calendar-dayhead${date === today ? ' is-today' : ''}"><span class="calendar-dayhead-name">${esc(calendarDateFormat(date,{weekday:'short'}))}</span><span class="calendar-dayhead-num">${Number(date.slice(8))}</span></div>`).join('');
       $('.calendar-month-heading h2',page).textContent = calendarDateFormat(calendarMonth,{month:'long'});
       const offset = (new Date(calendarMonth+'T12:00:00Z').getUTCDay()+6)%7, total = Number(calendarAddDays(calendarMonthShift(calendarMonth,1),-1).slice(8));
       const month = $('.calendar-month',page);
       month.innerHTML = ['M','T','W','T','F','S','S'].map(day => `<span class="calendar-weekday">${day}</span>`).join('') + (offset ? `<span style="grid-column:span ${offset}"></span>` : '') +
         Array.from({length:total},(_,i) => { const date = calendarAddDays(calendarMonth,i);
-          const kind = [date >= first && date < last ? 'in-range' : '', date === today ? 'is-today' : ''].filter(Boolean).join(' ');
-          return `<button type="button" class="calendar-monthday${kind ? ' '+kind : ''}" data-calendar-date="${date}" aria-label="${esc(calendarDateLabel(date))}" aria-pressed="${date === first}">${i+1}</button>`;
+          const inRange = day => day >= first && day < last, column = (offset+i)%7;
+          const kind = [date === today ? 'is-today' : '', ...(inRange(date) ? ['in-range',
+            ...(i === 0 || column === 0 || !inRange(calendarAddDays(date,-1)) ? ['range-start'] : []),
+            ...(i === total-1 || column === 6 || !inRange(calendarAddDays(date,1)) ? ['range-end'] : [])] : [])].join(' ');
+          return `<button type="button" class="calendar-monthday${kind ? ' '+kind : ''}" data-calendar-date="${date}" aria-label="${esc(calendarDateLabel(date))}" aria-pressed="${inRange(date)}">${i+1}</button>`;
         }).join('');
-      month.querySelectorAll('button').forEach(button => button.onclick = () => chooseDate(button.dataset.calendarDate));
+      // A day chosen here opens that day on its own.
+      month.querySelectorAll('button').forEach(button => button.onclick = () => { calendarViewDays = 1; chooseDate(button.dataset.calendarDate); });
     };
     page.querySelectorAll('[data-calendar-view]').forEach(button => button.onclick = () => { calendarViewDays = Number(button.dataset.calendarView); reload(); });
-    $('[data-calendar-today]',page).onclick = () => chooseDate(calendarDateString(new Date()));
     $('[data-calendar-prev]',page).onclick = () => chooseDate(calendarAddDays(first,-count));
     $('[data-calendar-next]',page).onclick = () => chooseDate(last);
-    $('[data-calendar-refresh]',page).onclick = () => reload(true);
     for (const [selector,offset] of [['[data-month-prev]',-1],['[data-month-next]',1]]) $(selector,page).onclick = () => {
       calendarMonth = calendarMonthShift(calendarMonth,offset); paintDates();
     };
     paintDates();
     let clockDay = calendarDateString(new Date()), clockTimer, observer, gridHours = null;
     const placeNow = () => { if (gridHours) calendarPlaceNow(page,gridHours.startHour,gridHours.endHour); };
+    const syncScrollbar = () => { const grid = $('.calendar-week',page); page.style.setProperty('--calendar-scrollbar',(grid.offsetWidth-grid.clientWidth)+'px'); };
     const cleanup = () => { clearInterval(clockTimer); observer?.disconnect(); };
     const disposeReview = dispose;
     dispose = () => { cleanup(); disposeReview(); };
@@ -381,7 +385,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       const day = calendarDateString(now); if (day !== clockDay) { clockDay = day; paintDates(); }
     };
     tick(); clockTimer = setInterval(tick,1000);
-    observer = new ResizeObserver(() => { if (!current()) cleanup(); else { sizePage(); if (countForWidth() !== count) reload(); } });
+    observer = new ResizeObserver(() => { if (!current()) cleanup(); else { sizePage(); syncScrollbar(); if (countForWidth() !== count) reload(); } });
     observer.observe(host);
 
     const status = $('.calendar-status',page), allEvents = [], failures = new Map();
@@ -393,20 +397,27 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       // No calendar yet: say how one gets connected, since nothing in the app can do it.
       if (unconnected && fixedMessage) status.insertAdjacentHTML('beforeend', ` <a href="${CALENDAR_GUIDE_URL}" target="_blank" rel="noopener noreferrer">Calendar guide</a>`);
       gridHours = calendarPaintGrid(page,dates,allEvents,eventButton);
-      placeNow();
+      placeNow(); syncScrollbar();
     };
     repaint = paint;
     paint();
+    // First render of a range: about 7 AM at the top, or the current time in view late in the day. Same range: keep the scroll.
+    const grid = $('.calendar-week',page), key = first+'/'+count;
+    if (key === scrollKey) grid.scrollTop = scrollTop;
+    else {
+      scrollKey = key;
+      const now = sjParts(new Date()), hour = parseFloat(page.style.getPropertyValue('--calendar-hour')) || 64;
+      const late = now && dates.includes(now.date) && now.hour >= 17;
+      grid.scrollTop = late ? Math.max(0,(now.hour*60+Number(now.time.slice(3)))/60*hour - grid.clientHeight/2) : 7*hour;
+    }
     void calendarStatuses.refresh();
     try {
-      const result = await calendarDirectoryLoad(force);
+      const result = await calendarDirectoryLoad();
       if (!current()) return;
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
       $('.calendar-sources > div',page).innerHTML = calendars.map((calendar,index) => `<div class="calendar-source" data-calendar-tone="${calendarTone(index)}"><span class="calendar-dot" aria-hidden="true"></span><span class="calendar-source-name">${esc(calendar.name)}</span><span class="calendar-source-provider">${esc(calendar.provider_name || calendar.provider || '')}</span></div>`).join('');
       if (!result.configured) { fixedMessage = 'No calendar connected yet. Connecting Google Calendar is a one-time technical setup for now.'; unconnected = true; paint(); return; }
-      $('[data-calendar-add]',page).disabled = !calendars.some(c => c.writable);
-      $('[data-calendar-add]',page).onclick = e => calendarEdit(null,calendars,reload,calendarDate,e.currentTarget);
       await Promise.all(calendars.map(async calendar => {
         let cursor, more;
         const failureKey = `${calendar.connection_id}:${calendar.id}`;
@@ -451,13 +462,11 @@ function calendarEventButton(event, calendars, refresh, allDay = false) {
 function calendarPaintGrid(page, dates, allEvents, eventButton, hourHeight = 64) {
   page.style.setProperty('--calendar-hour',hourHeight+'px');
   const spans = dates.map(day => calendarEventLanes(allEvents.map(event => calendarDaySpan(event,day)).filter(Boolean)));
-  const flat = spans.flat();
-  const startHour = Math.min(8,...flat.map(item => Math.floor(item.start/60)));
-  const endHour = Math.max(19,...flat.map(item => Math.ceil(item.end/60)));
+  const startHour = 0, endHour = 24; // The whole day, always.
   page.style.setProperty('--calendar-hours',endHour-startHour);
   const grid = $('.calendar-week',page);
   // Axis labels are wall-clock hours, including the skipped/repeated hour on DST transition days.
-  grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour+1},(_,i) => `<span class="calendar-tick" style="top:${i*hourHeight}px">${esc(calendarTime(new Date(Date.UTC(2000,0,1,startHour+i)),'UTC').replace(/:00(?=\s?[AP]M$)/i,''))}</span>`).join('')}</div>`;
+  grid.innerHTML = `<div class="calendar-axis">${Array.from({length:endHour-startHour},(_,i) => `<span class="calendar-tick" style="top:${i*hourHeight}px">${esc(calendarTime(new Date(Date.UTC(2000,0,1,startHour+i)),'UTC').replace(/:00(?=\s?[AP]M$)/i,''))}</span>`).join('')}</div>`;
   const allDayRow = $('.calendar-all-day',page); allDayRow.innerHTML = '<span class="calendar-all-day-label">All day</span>'; let hasAllDay = false;
   dates.forEach((date,index) => {
     const key = calendarDateString(date), column = document.createElement('section'); column.className = 'calendar-day'; column.dataset.calendarDay = key;
@@ -587,16 +596,15 @@ async function calendarSurface(title, origin, mount) {
         cleanup = spec.onOpen?.(el) || (() => {});
       },
       async back(callback) { if (await leave() && surface.current()) await callback(); },
-      async chooseAttempt(isCreate) {
+      async chooseAttempt() {
         return new Promise(resolve => {
           const content = host.firstElementChild, box = document.createElement('div'); box.className = 'calendar-leave-choice'; box.setAttribute('role','group'); box.setAttribute('aria-label','Unconfirmed matching calendar change');
           const text = document.createElement('p'); text.textContent = 'A matching calendar change is unconfirmed. Retry the original request or cancel.';
           const review = document.createElement('button'); review.type = 'button'; review.textContent = 'Retry same request';
-          const separate = document.createElement('button'); separate.type = 'button'; separate.textContent = 'Create separate event';
           const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
           const finish = value => { box.remove(); if (content) content.inert = false; resolve(value); };
-          review.onclick = () => finish('retry'); separate.onclick = () => finish('separate'); cancel.onclick = () => finish('cancel');
-          box.append(text,review); if (isCreate) box.append(separate); box.append(cancel); if (content) content.inert = true; host.append(box); review.focus();
+          review.onclick = () => finish('retry'); cancel.onclick = () => finish('cancel');
+          box.append(text,review,cancel); if (content) content.inert = true; host.append(box); review.focus();
         });
       },
       async review(onBack = null) {
@@ -763,7 +771,7 @@ async function calendarOpen(event, calendars, refresh, clicked = event, origin =
             on('data-card-respond', event2 => void respond(event2.currentTarget.dataset.cardRespond, el));
             on('data-card-series', () => void surface.back(() => detail({...event,id:event.series_id})));
             on('data-card-delete', () => void surface.back(() => calendarDelete(event,refresh,surface,() => detail(event),clicked,calendar)));
-            on('data-card-edit', () => void surface.back(() => calendarEdit(event,calendars,refresh,new Date(),null,surface,() => detail(event),clicked)));
+            on('data-card-edit', () => void surface.back(() => calendarEdit(event,calendars,refresh,null,surface,() => detail(event),clicked)));
             return () => { unsubscribe?.(); area?.classList.remove('agfocus-review-open'); };
           }});
           return;
@@ -773,7 +781,7 @@ async function calendarOpen(event, calendars, refresh, clicked = event, origin =
           ...responseActions,
           ...(event.series_id && event.series_id !== event.id ? [{label:'Open series', navigation:true, onClick:() => surface.back(() => detail({...event,id:event.series_id}))}] : []),
           ...(calendar?.writable ? [{label:'Delete', navigation:true, onClick:() => surface.back(() => calendarDelete(event,refresh,surface,() => detail(event),clicked,calendar))},
-            {label:'Edit', primary:true, navigation:true, onClick:() => surface.back(() => calendarEdit(event,calendars,refresh,new Date(),null,surface,() => detail(event),clicked))}] : [])]});
+            {label:'Edit', primary:true, navigation:true, onClick:() => surface.back(() => calendarEdit(event,calendars,refresh,null,surface,() => detail(event),clicked))}] : [])]});
       } catch (error) {
         if (surface.current() && generation === detailGeneration) await surface.show({title:'Event',body:`<p class="calendar-detail-error" role="alert">${esc(error.message)}</p>`,onBack:() => surface.close(),actions:[{label:'Retry',onClick:() => detail(requested)}]});
       }
@@ -849,63 +857,63 @@ function calendarDelete(event, refresh, surface, back, clicked = event, calendar
     }}]});
 }
 
-function calendarEdit(event, calendars, refresh, calendarDate = new Date(), origin = document.activeElement, surface = null, back = null, clicked = event) {
-  if (!surface) return calendarSurface(event ? 'Edit event' : 'Add event',origin, current => calendarEdit(event,calendars,refresh,calendarDate,origin,current,() => current.close()));
+// Edits an existing event; new events are made by chatting with Ordubashy.
+function calendarEdit(event, calendars, refresh, origin = document.activeElement, surface = null, back = null, clicked = event) {
+  if (!surface) return calendarSurface('Edit event',origin, current => calendarEdit(event,calendars,refresh,origin,current,() => current.close()));
   const writable = calendars.filter(c => c.writable);
-  const active = event ? calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id) : writable[0];
-  const start = event?.start || sjInstant(calendarDateString(calendarDate),10).toISOString();
-  const end = event?.end || new Date(new Date(start).getTime()+30*60000).toISOString();
+  const active = calendars.find(c => c.id === event.calendar_id && c.connection_id === event.connection_id);
+  const start = event.start, end = event.end;
   const repeatOptions = [['','Does not repeat'],['RRULE:FREQ=DAILY','Every day'],['RRULE:FREQ=WEEKLY','Every week'],['RRULE:FREQ=MONTHLY','Every month']];
-  const recurrence = event?.recurrence.join('\n') || '';
+  const recurrence = event.recurrence.join('\n');
   if (!repeatOptions.some(([value]) => value === recurrence)) repeatOptions.push([recurrence,'Current repeat pattern']);
-  const reminder = event?.default_reminders || !event ? 'default' : event.reminders.join(',');
+  const reminder = event.default_reminders ? 'default' : event.reminders.join(',');
   const reminderOptions = [['default','Calendar default'],['','None'],['5','5 minutes before'],['10','10 minutes before'],['30','30 minutes before'],['60','1 hour before'],['1440','1 day before']];
-  if (event && !event.default_reminders) reminderOptions.shift();
+  if (!event.default_reminders) reminderOptions.shift();
   if (!reminderOptions.some(([value]) => value === reminder)) reminderOptions.push([reminder,'Current reminders']);
   const selection = c => calendars.indexOf(c);
   let initial, lastPayload, key, attempt;
-  return surface.show({title:event ? 'Edit event' : 'Add event',onBack:() => surface.close(),body:`<form class="calendar-form">
-    <label>Calendar<select class="inp" aria-label="Calendar" name="calendar" ${event ? 'disabled' : ''}>${writable.map(c => `<option value="${selection(c)}" ${c === active ? 'selected' : ''}>${esc(c.name)} (${esc(c.provider)})</option>`).join('')}</select></label>
-    <label>Invitation from<select class="inp" aria-label="Invitation from" name="organizer" ${event ? 'disabled' : ''}></select></label>
-    <label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(event?.title || '')}"></label>
+  return surface.show({title:'Edit event',onBack:() => surface.close(),body:`<form class="calendar-form">
+    <label>Calendar<select class="inp" aria-label="Calendar" name="calendar" disabled>${writable.map(c => `<option value="${selection(c)}" ${c === active ? 'selected' : ''}>${esc(c.name)} (${esc(c.provider)})</option>`).join('')}</select></label>
+    <label>Invitation from<select class="inp" aria-label="Invitation from" name="organizer" disabled></select></label>
+    <label>Title<input class="inp" name="title" required maxlength="1000" value="${esc(event.title || '')}"></label>
     <label class="calendar-inline"><input type="checkbox" name="allDay" ${start.length === 10 ? 'checked' : ''}> All day</label>
     <div class="calendar-form-pair"><label>Start<input class="inp" name="start" required type="${start.length === 10 ? 'date' : 'datetime-local'}" value="${calendarLocalInput(start)}"></label>
     <label>End <small>(all-day end date excluded)</small><input class="inp" name="end" required type="${start.length === 10 ? 'date' : 'datetime-local'}" value="${calendarLocalInput(end)}"></label></div>
-    <label>Location or meeting link<input class="inp" name="location" value="${esc(event?.location || '')}"></label>
-    <label>Guests<input class="inp" name="attendees" placeholder="Email addresses, separated by commas" value="${esc(event?.attendees.map(a => a.email).join(', ') || '')}"></label>
+    <label>Location or meeting link<input class="inp" name="location" value="${esc(event.location || '')}"></label>
+    <label>Guests<input class="inp" name="attendees" placeholder="Email addresses, separated by commas" value="${esc(event.attendees.map(a => a.email).join(', '))}"></label>
     <div class="calendar-form-pair"><label>Repeat<select class="inp" aria-label="Repeat" name="recurrence">${repeatOptions.map(([value,label]) => `<option value="${esc(value)}" ${value === recurrence ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
     <label>Reminder<select class="inp" aria-label="Reminder" name="reminders">${reminderOptions.map(([value,label]) => `<option value="${esc(value)}" ${value === reminder ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>
     <label class="calendar-inline" data-meet-option><input type="checkbox" name="meet"> Add Google Meet link</label>
-    <label>Description<textarea class="inp" name="description">${esc(event?.description || '')}</textarea></label>
+    <label>Description<textarea class="inp" name="description">${esc(event.description || '')}</textarea></label>
     <p class="calendar-detail-error" role="alert"></p><button type="button" class="ghost" data-calendar-review>Review unconfirmed changes</button></form>`, actions:[
     {label:'Cancel',navigation:true,onClick:() => surface.back(back)}, {label:'Save',primary:true,onClick:async (close,el) => {
       const form = $('form',el), f = form.elements;
       if (!form.reportValidity()) return;
       const values = Object.fromEntries(new FormData(form));
-      const selected = event ? active : calendars[Number(f.calendar.value)];
+      const selected = active;
       const changes = {};
-      for (const name of ['title','location','description']) if (!event || values[name] !== initial[name]) changes[name] = values[name];
-      if (!event || values.start !== initial.start || values.end !== initial.end || values.allDay !== initial.allDay) {
+      for (const name of ['title','location','description']) if (values[name] !== initial[name]) changes[name] = values[name];
+      if (values.start !== initial.start || values.end !== initial.end || values.allDay !== initial.allDay) {
         try {
           for (const name of ['start','end']) {
             // Retain unchanged instants, including seconds and the second occurrence of a repeated DST minute.
-            changes[name] = f.allDay.checked ? values[name] : event && values[name] === initial[name] && values.allDay === initial.allDay ? event[name] : calendarInputInstant(values[name]);
+            changes[name] = f.allDay.checked ? values[name] : values[name] === initial[name] && values.allDay === initial.allDay ? event[name] : calendarInputInstant(values[name]);
           }
           if (new Date(changes.end) <= new Date(changes.start)) throw new Error('Event end must follow start.');
         } catch (error) { $('.calendar-detail-error',el).textContent = error.message; return; }
-        if (!f.allDay.checked) changes.timezone = event?.timezone || calendarZone();
+        if (!f.allDay.checked) changes.timezone = event.timezone || calendarZone();
       }
-      if (!event || values.attendees !== initial.attendees) changes.attendees = values.attendees.split(',').map(s => s.trim()).filter(Boolean);
-      if (!event || values.recurrence !== initial.recurrence) changes.recurrence = values.recurrence ? values.recurrence.split('\n') : [];
-      if (changes.recurrence?.length && !f.allDay.checked && !changes.timezone) changes.timezone = event?.timezone || calendarZone();
-      if ((!event || values.reminders !== initial.reminders) && values.reminders !== 'default') changes.reminders = values.reminders ? values.reminders.split(',').map(Number) : [];
+      if (values.attendees !== initial.attendees) changes.attendees = values.attendees.split(',').map(s => s.trim()).filter(Boolean);
+      if (values.recurrence !== initial.recurrence) changes.recurrence = values.recurrence ? values.recurrence.split('\n') : [];
+      if (changes.recurrence?.length && !f.allDay.checked && !changes.timezone) changes.timezone = event.timezone || calendarZone();
+      if (values.reminders !== initial.reminders && values.reminders !== 'default') changes.reminders = values.reminders ? values.reminders.split(',').map(Number) : [];
       if (f.meet.checked && selected.provider === 'google') changes.google_meet = true;
-      if (event && !Object.keys(changes).length) { surface.setDirty(() => false); close(); return; }
-      const args = event ? {...calendarTarget(event),changes} : {connection_id:selected.connection_id, calendar_id:selected.id, organizer:f.organizer.value,...changes};
+      if (!Object.keys(changes).length) { surface.setDirty(() => false); close(); return; }
+      const args = {...calendarTarget(event),changes};
       const payload = JSON.stringify(args);
       let owner;
       try { owner = await calendarOwner(); } catch (error) { $('.calendar-detail-error',el).textContent = error.message; return; }
-      if (!event || payload !== lastPayload) { key = newRequestId(); lastPayload = payload; attempt = calendarAttempt(event ? 'calendar_event_update' : 'calendar_event_create',args,key,clicked,selected); attempt.owner = owner; }
+      if (payload !== lastPayload) { key = newRequestId(); lastPayload = payload; attempt = calendarAttempt('calendar_event_update',args,key,clicked,selected); attempt.owner = owner; }
       const button = $('.mfoot .primary',el); button.disabled = true;
       try { if (await calendarSubmitAttempt(attempt,refresh,surface)) { surface.setDirty(() => false); close(); } else button.disabled = false; }
       catch (error) { $('.calendar-detail-error',el).textContent = error.message; button.disabled = false; }
@@ -913,9 +921,9 @@ function calendarEdit(event, calendars, refresh, calendarDate = new Date(), orig
       const form = $('form',el), f = form.elements;
       $('[data-calendar-review]',el).onclick = () => surface.review();
       const update = () => {
-        const selected = event ? active : calendars[Number(f.calendar.value)];
-        f.organizer.innerHTML = (event ? [event.organizer] : selected.organizers).map(address => `<option>${esc(address)}</option>`).join('');
-        $('[data-meet-option]',el).hidden = selected.provider !== 'google' || !!event?.meet_url;
+        const selected = active;
+        f.organizer.innerHTML = [event.organizer].map(address => `<option>${esc(address)}</option>`).join('');
+        $('[data-meet-option]',el).hidden = selected.provider !== 'google' || !!event.meet_url;
         f.meet.checked = false;
       };
       update(); f.calendar.onchange = update;

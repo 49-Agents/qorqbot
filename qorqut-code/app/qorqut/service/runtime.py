@@ -407,6 +407,8 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     exact composition (``build_runtime`` validates it against the selected target). Nothing here starts a service,
     takes ownership or admits a mutation."""
     root, workspace = paths.operations, Path(workspace).resolve()
+    from qorqut.dashboard_preferences import apply_operational_timezone
+    apply_operational_timezone(paths.runtime)      # the owner's saved timezone, before anything reads the clock
     from qorqut.agents.terminal_control import validate_package as validate_terminal_package
     from qorqut.bootstrap.email_guidance import validate_package as validate_email_guidance_package
     core_validators = {"agent-terminal-control": validate_terminal_package, "email-management": validate_email_guidance_package}

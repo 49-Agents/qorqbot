@@ -52,7 +52,7 @@ async function fixture(browser, {paired = false} = {}) {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setContent('<body style="margin:0"><aside class="tasks agpad" id="agpad" style="display:flex;flex-direction:column;height:700px;width:900px"><div class="tbody" id="agpad-body" style="flex:1;min-height:0"></div></aside></body>');
-  for (const file of ['app.css', 'css/tasks.css', 'css/agent-files.css', 'css/agent-explorer.css', 'css/agent-work.css', 'css/status-ball.css', 'css/record-workspace.css', 'css/agent-timeline.css'])
+  for (const file of ['app.css', 'css/search-field.css', 'css/tasks.css', 'css/agent-files.css', 'css/agent-explorer.css', 'css/agent-work.css', 'css/status-ball.css', 'css/record-workspace.css', 'css/agent-timeline.css'])
     await page.addStyleTag({path: path.join(root, file)});
   await page.evaluate(paired => {
     window.esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -131,7 +131,7 @@ async function fixture(browser, {paired = false} = {}) {
       window.agfocusPairedSource = () => true;
     }
   }, paired);
-  for (const file of ['agent-files', 'agent-work', 'timeline-panel', 'record-workspace']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
+  for (const file of ['search-field', 'agent-files', 'agent-work', 'timeline-panel', 'record-workspace']) await page.addScriptTag({path: path.join(root, 'js', file + '.js')});
   return {page, errors};
 }
 const mount = async (page, workState) => {

@@ -26,6 +26,8 @@ OBJECT_SUBJECTS = 50
 SUPPORT_ITEMS = 50
 SUPPORTS_ITEMS = 50
 CHANGE_ITEMS = 25
+OVERVIEW_NODE_NAME_CHARS = 120
+OVERVIEW_EDGE_NAME_CHARS = 80
 KINDS = ("node", "edge", "note", "source")
 
 
@@ -53,6 +55,17 @@ def compact_attributes(attributes):
         truncated = truncated or len(members) > ATTRIBUTE_MEMBERS
         result[name] = kept
     return result, truncated
+
+
+def first_label(attributes, names, limit) -> str:
+    """The first non-empty first member of the named attributes, as text cut to ``limit`` characters, else ``''``."""
+    for name in names:
+        members = attributes.get(name) or ()
+        if members:
+            value = members[0] if isinstance(members[0], str) else json.dumps(members[0])
+            if value:
+                return clip(value, limit)[0]
+    return ""
 
 
 def source_summary(event) -> dict:
@@ -223,6 +236,20 @@ class PublishedGraph:
         view["relationships"] = [self.relationship(edge_id, focus=node_id) for edge_id in incident[:HOME_RELATIONSHIPS]]
         view["relationships_truncated"] = len(incident) > HOME_RELATIONSHIPS
         return view
+
+    # ---- whole-graph overview (owner graph view)
+
+    def overview_node(self, node_id) -> dict:
+        attributes = self.snapshot.nodes[node_id]["attributes"]
+        return {"id": node_id, "name": first_label(attributes, ("name",), OVERVIEW_NODE_NAME_CHARS),
+                "type": first_label(attributes, ("basic_entity_type",), OVERVIEW_NODE_NAME_CHARS),
+                "degree": len(self.adjacency(node_id))}
+
+    def overview_edge(self, edge_id) -> dict:
+        edge = self.snapshot.edges[edge_id]
+        return {"id": edge_id, "from": edge["from_id"], "to": edge["to_id"],
+                "name": first_label(edge["attributes"], ("name", "tags"), OVERVIEW_EDGE_NAME_CHARS),
+                "tag": first_label(edge["attributes"], ("tags",), OVERVIEW_EDGE_NAME_CHARS)}
 
     # ---- full records and evidence
 

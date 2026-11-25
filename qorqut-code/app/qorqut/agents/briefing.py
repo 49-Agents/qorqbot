@@ -224,7 +224,7 @@ class _Briefing:
         guidance.append(instructions.render("briefing-tools"))
         as_of = utc_now()
         here = local_time.local(as_of)
-        header = ("# Live Work Briefing\nAs of " + as_of + " (" + local_time.TIMEZONE + ": "
+        header = ("# Live Work Briefing\nAs of " + as_of + " (" + local_time.current_timezone() + ": "
             + here.strftime("%Y-%m-%d %H:%M") + instructions.render("briefing-evidence")
             + "\n".join(guidance))
         budget = max(0, MAX_CONTEXT_CHARACTERS - len(self.config["mandatory_context"]["rendered"]) - 2)

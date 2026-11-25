@@ -118,8 +118,8 @@ const AGPAD_RETIRED_PANE_VIEWS = new Set(["project", "campaign_review", "status"
 // Desktop remains Ordubashy's alone (core also enforces this on the binding).
 // Viewbox is offered to registered agents except Learning Applier (the owner-only board is keyed by agent id).
 function agentPaneViewAllowed(roleId, view) {
-  // Testing mode only: Timeline, Journal and Files.
-  if (view === "files" || view === "timeline" || view === "journal") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
+  // Testing mode only: Timeline, Journal, Files and Context.
+  if (view === "files" || view === "timeline" || view === "journal" || view === "context_graph") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
   if (view === "explorer" || view === "work") return roleId === "ordubashy";
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
@@ -128,13 +128,13 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_RENDERERS.get(type.renderer)?.leading ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
-  leading.unshift(...personal.filter(view => !['journal', 'calendar'].includes(view)));
+  leading.unshift(...personal.filter(view => !['journal', 'calendar', 'context_graph'].includes(view)));
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (roleId === "ordubashy") leading.push("timeline");
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
-  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["work", "explorer", "files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
+  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'context_graph', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["work", "explorer", "files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
     .filter(view => agentPaneViewAllowed(roleId, view));
 }
 // The agent workspace app's compact header keeps Viewbox beside Focus; an embedded page has no header to arrange.
