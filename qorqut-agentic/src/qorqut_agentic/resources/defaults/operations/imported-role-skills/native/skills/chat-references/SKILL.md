@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-chat-references
 description: Show the owner a message in Chat with clickable cards for Projects, Tasks, pending Signoffs, configured browsers or browser tabs right below it (request_user_input), also whenever the owner asks to refer, link or open one, and select an exact browser with browser_turn action=list and browser_id.
+read_for: Showing the owner a Project, Task, Signoff or browser tab as a card in Chat (`request_user_input`)
 ---
 
 # Chat references

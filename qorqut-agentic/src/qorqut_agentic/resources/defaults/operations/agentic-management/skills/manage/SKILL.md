@@ -1,6 +1,7 @@
 ---
 name: manage-agentic-layer
 description: Maintain authored skills, instructions, preferences, custom tools and workflows through the shared agentic toolkit.
+read_for: Changing skills, instructions, preferences, custom tools or workflows
 ---
 
 # Maintain the agentic layer

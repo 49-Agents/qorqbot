@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-project-creation
 description: Create a Project, the container for Tasks, assets, documents, tables, code and routines, with project_create when the owner asks you for or agrees to a new one. Only the configured Ordubashy creates projects. It takes a name, an optional Description and a folder slug and makes only the record and a project folder with an empty code folder, with no agents, setup, services or documents.
+read_for: Creating a Project (`project_create`)
 ---
 
 # Create a project

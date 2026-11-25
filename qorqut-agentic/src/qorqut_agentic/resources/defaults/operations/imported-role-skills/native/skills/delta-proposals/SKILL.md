@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-delta-proposals
 description: Run the weekly review and application. Read the filed observations and their clusters, decide which are ready for a solution, and file agentic layer delta proposals that the owner approves or rejects; revise one when the owner asks. Use when a qorqut-workflow message starts a review and application run, and when the owner answers or discusses a delta proposal.
+read_for: Agentic layer delta proposals, filing or revising one (`agentic_delta_proposal_*`)
 ---
 
 # Review and application

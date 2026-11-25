@@ -267,6 +267,16 @@ instead of installing a second skills hook. While the owner is new, the composer
 also asks the hook for the get-set-up skill (`extra`), which stays out of the
 hook's digest. The combined limit preserves the
 previous mandatory-context and skill budgets (120,000 characters each).
+Every full delivery, for every agent, also carries the skill discovery section
+(`render_skill_discovery`, after the always-loaded skills): one line for each
+skill installed in the agent's `.claude/skills` or `.agents/skills` that this start
+does not load in full, saying "<kind of work>: read <skill>". The `role` skill
+and, for the configured Ordubashy, the always-loaded skills (and the get-set-up
+skill while the owner is new) are left out. The work phrase names the kind of work the skill is for. It is the `read_for`
+value in the skill's front matter, so a skill from an add-on brings its own; a
+skill without one gets a line built from its description. A cached prompt carries no
+discovery section. A prepared snapshot without the four `skill-discovery-*`
+messages delivers none.
 UserPromptSubmit uses the same composer, emits a replacement when changed, and
 blocks when unready. Ordubashy's operational-intake reminder is emitted on every
 prompt, including when configuration and skills are unchanged. Cached prompts can additionally emit a

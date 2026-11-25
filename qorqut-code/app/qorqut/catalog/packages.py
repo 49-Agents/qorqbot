@@ -189,12 +189,17 @@ def load_package(source: Path, manifest_path: str, kind: str, registry: Any) -> 
             _error(f"Skill requires YAML frontmatter: {path}")
         metadata = parse_yaml(frontmatter[1])
         name = f"qorqut-{kind}-{entry['id']}"
-        if not isinstance(metadata, dict) or set(metadata) - {"name", "description", "user-invocable", "disable-model-invocation"}:
+        if not isinstance(metadata, dict) or set(metadata) - {"name", "description", "read_for", "user-invocable", "disable-model-invocation"}:
             _error(f"Procedure-only skill has unsupported frontmatter: {path}")
         # Published artifacts are immutable; a host rename does not rewrite their bytes or pins.
         accepted_names = {name, f"bazarlyk-{kind}-{entry['id']}"}
         if metadata.get("name") not in accepted_names or not isinstance(metadata.get("description"), str) or not 1 <= len(metadata["description"]) <= 600:
             _error(f"Skill metadata must name {name} and contain a bounded description")
+        if "read_for" in metadata:
+            # The kind of work the skill is for: the start instructions list it so the skill gets read before that work.
+            read_for = metadata["read_for"]
+            if not isinstance(read_for, str) or "\n" in read_for.strip() or not 1 <= len(read_for.strip()) <= 160:
+                _error("Skill read_for must be one line of 1 to 160 characters")
         for option in ("user-invocable", "disable-model-invocation"):
             if option in metadata and not isinstance(metadata[option], bool):
                 _error(f"Skill option {option} must be boolean")

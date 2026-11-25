@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-environment
 description: "Read or save Settings variables and credentials with environment_list, environment_get and environment_set: see which names exist, read a value a task needs, or save a key the owner gave you. Load it before using any of the three."
+read_for: Settings variables and credentials, reading or saving one (`environment_*`)
 ---
 
 # Settings variables and credentials

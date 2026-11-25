@@ -71,6 +71,10 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [plugin-discovery](messages/plugin-discovery.md) | agents/preferences.py | conditional |
 | [project-briefing-evidence](messages/project-briefing-evidence.md) | domains/project_briefing.py | conditional |
 | [runtime-diagnostic-guidance](messages/runtime-diagnostic-guidance.md) | agents/diagnostics.py | conditional |
+| [skill-discovery-header-claude-code](messages/skill-discovery-header-claude-code.md) | bootstrap/claude_session.py | conditional |
+| [skill-discovery-header-codex](messages/skill-discovery-header-codex.md) | bootstrap/claude_session.py | conditional |
+| [skill-discovery-line-claude-code](messages/skill-discovery-line-claude-code.md) | bootstrap/claude_session.py | conditional |
+| [skill-discovery-line-codex](messages/skill-discovery-line-codex.md) | bootstrap/claude_session.py | conditional |
 | [skills-header](messages/skills-header.md) | always skills | conditional |
 | [skills-omitted](messages/skills-omitted.md) | always skills | conditional |
 | [startup-denied](messages/startup-denied.md) | claude session | conditional |
