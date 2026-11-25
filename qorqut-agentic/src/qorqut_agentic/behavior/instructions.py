@@ -106,6 +106,122 @@ def completion_wrapper(instructions, correction):
     return instructions.render("completion-wrapper") + correction
 
 
+DISCOVERY_SKIPPED = ("role",)  # /role is the first message of every conversation: it is loaded, not discovered.
+DISCOVERY_LINE_LIMIT = 220
+DISCOVERY_SECTION_LIMIT = 6000
+DISCOVERY_PHRASE_LIMIT = 160  # A skill's own phrase is under 120; a description's first sentence is cut to this.
+
+
+def skill_front_matter(text):
+    """The `name`, `description` and `read_for` values of a SKILL.md, read without a YAML library.
+
+    Plain, quoted and folded (``>``) or literal (``|``) one-key values are understood; anything else is ignored.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {}
+    block = []
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        block.append(line)
+    else:
+        return {}
+    found, index = {}, 0
+    while index < len(block):
+        match = re.match(r"([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", block[index])
+        index += 1
+        if not match:
+            continue
+        key, value = match.group(1), match.group(2).strip()
+        if value[:1] in ">|":
+            parts = []
+            while index < len(block) and (not block[index].strip() or block[index][:1] in " \t"):
+                parts.append(block[index].strip())
+                index += 1
+            value = " ".join(part for part in parts if part)
+        elif value[:1] in "\"'" and value[-1:] == value[:1] and len(value) > 1:
+            value = value[1:-1]
+        found[key] = value
+    return {key: found[key] for key in ("name", "description", "read_for") if found.get(key)}
+
+
+def _shorten(text, limit):
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    cut = text[:max(limit - 1, 1)].rsplit(" ", 1)[0] or text[:max(limit - 1, 1)]
+    return cut.rstrip(" ,;:.-") + "…"
+
+
+def _first_sentence(text):
+    text = " ".join(text.split())
+    match = re.search(r"[.!?](?:\s|$)", text)
+    return text[:match.start()] if match else text
+
+
+def installed_skills(workspace, runtime):
+    """``[(name, front matter)]`` for every skill folder installed for this agent, by name; unreadable ones are kept
+    with an empty front matter so that no installed skill goes unlisted."""
+    root = Path(workspace) / SKILL_ROOTS[runtime]
+    try:
+        if root.is_symlink() or any(parent.is_symlink() for parent in root.parents) or not root.is_dir():
+            return []
+        children = sorted(child for child in root.iterdir() if child.is_dir() and not child.is_symlink())
+    except OSError:
+        return []
+    found = []
+    for child in children:
+        path = child / "SKILL.md"
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            front = skill_front_matter(path.read_text(encoding="utf-8")[:20000])
+        except (OSError, UnicodeError):
+            front = {}
+        found.append((child.name, front))
+    return found
+
+
+def render_skill_discovery(instructions, workspace, runtime, loaded=()):
+    """The "for this kind of work, read this skill first" section: one line for each installed skill that is not loaded in full.
+
+    ``loaded`` names the skills this start already carries in full. The ``role`` skill is never listed. A skill
+    brings its own short phrase as `read_for` in its front matter; without one its line is built from the first
+    sentence of its description. Returns "" when nothing is left to list.
+    """
+    skipped = set(DISCOVERY_SKIPPED) | set(loaded)
+    entries = [(name, front) for name, front in installed_skills(workspace, runtime) if name not in skipped]
+    if not entries:
+        return ""
+    suffix = runtime  # Claude Code reads a skill by name; Codex opens the file, so its lines carry the path.
+    header = instructions.render("skill-discovery-header-" + suffix)
+
+    def build(phrase_limit):
+        lines = []
+        for name, front in entries:
+            path = f"{SKILL_ROOTS[runtime]}/{name}/SKILL.md"
+            work = front.get("read_for") or _first_sentence(front.get("description", "")) or "Work this skill covers"
+            room = phrase_limit
+            for _ in range(200):
+                where = {"PATH": path} if runtime == "codex" else {}
+                line = instructions.render("skill-discovery-line-" + suffix, WORK=_shorten(work, room),
+                                           NAME=name, **where)
+                over = len(line) - DISCOVERY_LINE_LIMIT
+                if over <= 0 or room <= 8:
+                    break
+                room = max(room - over, 8)  # Only this line gets shorter.
+            lines.append(line)
+        return header + "\n" + "\n".join(lines)
+
+    phrase_limit = DISCOVERY_PHRASE_LIMIT
+    section = build(phrase_limit)
+    while len(section) > DISCOVERY_SECTION_LIMIT and phrase_limit > 8:
+        phrase_limit = int(phrase_limit * 0.75)
+        section = build(phrase_limit)
+    return section
+
+
 def render_skills(instructions, workspace, runtime, limit=SKILL_BUDGET, extra=()):
     root = Path(workspace) / SKILL_ROOTS[runtime]
     header = instructions.render("skills-header")

@@ -1,6 +1,7 @@
 ---
 name: qorqut-plugin-agent-terminal-control
 description: Inspect, start, restart and stop the sessions of permanent global workers; for Ordubashy and the owner only.
+read_for: Global workers' sessions, inspecting, starting, restarting or stopping one (`agent_terminal_*`)
 ---
 
 Use agent_terminal_status with the registered target_agent_id first. Tools accept

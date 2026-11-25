@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-owner-input
 description: Ask the owner a question or request a missing decision, access, or input through Signoffs; retrieve the submitted response and manage notification urgency.
+read_for: Asking the owner a question, or for a decision, access or input (`signoffs_input_create`)
 ---
 
 # Owner input

@@ -502,6 +502,34 @@
       "when_to_use": "always skills; conditional; selected by the registered runtime policy."
     },
     {
+      "id": "skill-discovery-header-claude-code",
+      "kind": "instruction",
+      "path": "messages/skill-discovery-header-claude-code.md",
+      "description": "Skill discovery header, Claude Code",
+      "when_to_use": "bootstrap/claude_session.py; every fresh start; lists installed skills that are not loaded."
+    },
+    {
+      "id": "skill-discovery-header-codex",
+      "kind": "instruction",
+      "path": "messages/skill-discovery-header-codex.md",
+      "description": "Skill discovery header, Codex",
+      "when_to_use": "bootstrap/claude_session.py; every fresh start; lists installed skills that are not loaded."
+    },
+    {
+      "id": "skill-discovery-line-claude-code",
+      "kind": "instruction",
+      "path": "messages/skill-discovery-line-claude-code.md",
+      "description": "Skill discovery line, Claude Code",
+      "when_to_use": "bootstrap/claude_session.py; every fresh start; lists installed skills that are not loaded."
+    },
+    {
+      "id": "skill-discovery-line-codex",
+      "kind": "instruction",
+      "path": "messages/skill-discovery-line-codex.md",
+      "description": "Skill discovery line, Codex",
+      "when_to_use": "bootstrap/claude_session.py; every fresh start; lists installed skills that are not loaded."
+    },
+    {
       "id": "response-style-reminder",
       "path": "messages/response-style-reminder.md",
       "kind": "instruction",

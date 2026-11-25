@@ -1,6 +1,7 @@
 ---
 name: qorqut-plugin-example-procedure
 description: Execute the example procedure.
+read_for: The example procedure
 ---
 
 # example-procedure

@@ -1,6 +1,7 @@
 ---
 name: qorqut-cleanup
 description: Reconcile this prepared agent’s operational work when the user asks to clean up its inbox, commitments, tasks, subscriptions, or current activity. This does not clean files, caches, or Git state.
+read_for: Cleaning up your inbox, commitments, tasks, subscriptions or current activity
 ---
 
 # Clean up operational work

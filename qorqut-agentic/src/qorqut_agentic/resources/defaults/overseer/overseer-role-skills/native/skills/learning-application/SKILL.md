@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-learning-application
 description: Apply an accepted agentic change through the managed Overseer application workflow, only when the owner invokes it. Not for the scheduled experience extraction or the review and application, which have their own skills.
+read_for: Applying an agentic change the owner accepted and asked you to apply
 ---
 
 # Overseer application

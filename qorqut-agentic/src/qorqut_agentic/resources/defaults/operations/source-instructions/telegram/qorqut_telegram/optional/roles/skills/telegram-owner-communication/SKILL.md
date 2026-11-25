@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-telegram-owner-communication
 description: Talk with the owner in your own Telegram topic, ask for blocking input including secrets, send one authorized file or photo when your role grants telegram_send_file, read your recent topic history and check delivery; how this differs from Signoffs.
+read_for: Talking to the owner in Telegram, or sending a file there
 ---
 
 # Telegram owner communication

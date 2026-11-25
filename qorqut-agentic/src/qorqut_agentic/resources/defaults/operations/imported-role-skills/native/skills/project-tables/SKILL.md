@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-project-tables
 description: Create and maintain project-shared tables, and transform original CSV or spreadsheet uploads into structured records.
+read_for: Project tables, creating or changing one, or loading a spreadsheet into one (`tables_*`)
 ---
 
 # Project Tables

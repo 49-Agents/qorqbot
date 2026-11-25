@@ -1,6 +1,7 @@
 ---
 name: set-up-voice-input
 description: Turn on voice input (speech to text in Chat) for the owner with their own OpenRouter account, check it, or fix it.
+read_for: Turning on, checking or fixing voice input for the owner
 ---
 
 # Set up voice input

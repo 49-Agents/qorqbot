@@ -1,6 +1,7 @@
 ---
 name: qorqut-role-context-relationships
 description: Relate project items, file and correct shared Context, and diagnose blocked Context inputs.
+read_for: Shared Context, filing or correcting it, or relating project items (`context_*`)
 ---
 
 # Relationships and Context Review

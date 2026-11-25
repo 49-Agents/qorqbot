@@ -1,0 +1,2 @@
+# Skills to read first
+None of the skills below is loaded. When you are given a task of a kind listed here, or you want to work with something listed here, first read that skill in full with the Skill tool, by the name given. Do it before the first step of that work in a conversation. A tool's own description does not replace its skill.
