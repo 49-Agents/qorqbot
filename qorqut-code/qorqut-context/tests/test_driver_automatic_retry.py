@@ -262,6 +262,71 @@ class DriverRetryTests(unittest.TestCase):
         self.assertEqual(["published"] * 2, [self.get(i)["state"] for i in (other, unrelated)])
         self.assertEqual({"status": "idle"}, self.step())
 
+    def published_on(self, input_id):
+        """The base the input's event was published on and the commit it made."""
+        result = self.get(input_id)["result"]
+        return result["base_revision"], result["published_commit"]
+
+    def test_a_stepped_aside_model_input_retried_after_the_head_moved_publishes_on_the_new_head(self):
+        self.driver = self.make_driver(delays=())
+        first = self.submit("foundation/notes/a.md")
+        self.runner.failing.add("foundation/notes/a.md")
+        self.step("input_blocked")
+        other = self.submit("foundation/notes/c.md")
+        self.step("published")
+        _, moved = self.published_on(other)
+        self.runner.failing.clear()
+        self.control(first, "retry")
+        self.step("published")
+        base, commit = self.published_on(first)
+        self.assertEqual(moved, base)
+        self.assertEqual(commit, self.context.snapshot().revision)
+
+    def test_a_stepped_aside_input_whose_draft_was_ready_retries_afresh_on_the_new_head(self):
+        self.driver = self.make_driver(delays=())
+        first = self.submit("foundation/notes/a.md")
+        checkpoint, failing = self.pipeline._checkpoint, {"after_ready"}
+
+        def fail_once(phase):
+            if phase in failing:
+                failing.discard(phase)
+                raise OSError("publication failed after the draft was ready")
+            return checkpoint(phase)
+
+        self.pipeline._checkpoint = fail_once
+        blocked = self.step("input_blocked")
+        self.assertEqual(("ready", True), (blocked["error"]["phase"], blocked["error"]["retryable"]))
+        event_id = self.get(first)["context_event_id"]
+        self.assertTrue(list((self.root / "runtime" / "runs" / event_id).glob("*/ready.json")))
+        other = self.submit("foundation/notes/c.md")
+        self.step("published")                           # the ready draft is discarded and the head moves
+        runs = self.root / "runtime" / "runs" / event_id
+        self.assertEqual(([], 1), (list(runs.glob("*/ready.json")), len(list(runs.glob("*/ready.discarded.json")))))
+        _, moved = self.published_on(other)
+        self.control(first, "retry")
+        self.step("published")
+        base, _ = self.published_on(first)
+        self.assertEqual(moved, base)
+        self.assertEqual(event_id, self.get(first)["context_event_id"])
+        self.assertEqual(2, self.runner.calls.count("foundation/notes/a.md"))
+
+    def test_a_ready_draft_kept_in_place_is_published_by_its_automatic_retry_without_the_model(self):
+        self.driver = self.make_driver(delays=(0,))
+        first = self.submit("foundation/notes/a.md")
+        checkpoint, failing = self.pipeline._checkpoint, {"after_ready"}
+
+        def fail_once(phase):
+            if phase in failing:
+                failing.discard(phase)
+                raise OSError("publication failed after the draft was ready")
+            return checkpoint(phase)
+
+        self.pipeline._checkpoint = fail_once
+        self.assertEqual(1, self.step("input_blocked")["automatic_retry"]["retry"])
+        self.step("published")
+        self.assertEqual(1, self.runner.calls.count("foundation/notes/a.md"))
+        self.assertEqual("published", self.get(first)["state"])
+
     def test_a_manual_discard_of_a_stepped_aside_input_still_completes(self):
         self.driver = self.make_driver(delays=())
         first = self.submit("foundation/notes/a.md")
