@@ -303,11 +303,6 @@
 .sg-focus .sg-preview > * + * { margin-top: 20px; }
 .sg-focus .sg-text { max-height: none; }
 .sg-focus .sg-choices-title { margin: 0 0 8px; }
-.sg-focus .sg-focus-details details { border-top: 0; }
-.sg-focus .sg-focus-details summary { padding: 0; font-size: 12px; }
-.sg-focus .sg-focus-details summary::before { content: "▸ "; }
-.sg-focus .sg-focus-details details[open] summary::before { content: "▾ "; }
-.sg-focus .sg-focus-details .sg-meta { margin: 6px 0 0; }
 .sg-focus .sg-choices > div { display: flex; flex-direction: column; gap: 8px; }
 .sg-focus .sg .sg-choice { grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 2px 12px; height: auto; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: none; color: var(--fg); font: 400 14px/1.5 var(--sans); }
 .sg-focus .sg .sg-choice:hover { background: var(--wash); color: var(--fg); }
@@ -446,3 +441,5 @@
 .sg-browser-tab { margin:0 0 14px; min-width:0; max-width:100%; }
 .sg-browser-tab button.gchat-tab-reference { max-width:100%; padding:7px 10px; font-size:12px; }
 .sg-browser-tab .sg-notice { margin:0; }
+.sg-browser-tab .agfocus-desktop-view { min-height:0; padding:0; }
+.sg-browser-tab .aglive-screen { max-width:100%; }
