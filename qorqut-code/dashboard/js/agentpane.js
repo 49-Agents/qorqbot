@@ -128,13 +128,13 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
   const leading = [], trailing = [];
   for (const type of workspaceViewsFor(roleId)) (WORKSPACE_RENDERERS.get(type.renderer)?.leading ? leading : trailing).push(type.key);
   const personal = typeof agentWorkspaceViews === 'function' ? agentWorkspaceViews(scope, roleId) : [];
-  leading.unshift(...personal.filter(view => !['journal', 'calendar'].includes(view)));
+  leading.unshift(...personal.filter(view => !['journal', 'calendar', 'context_graph'].includes(view)));
   // Ordubashy has one Browser entry whose Browser/Desktop mode is chosen in the viewer.
   if (roleId === "ordubashy") leading.push("timeline");
   if (roleId === "learning-applier") leading.push("changes");
   if (browser || roleId === "ordubashy") leading.push("browser");
   if (roleId === "ordubashy") leading.push("desktop");
-  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["work", "explorer", "files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
+  return [...new Set([...leading, ...base, ...personal.filter(view => ['calendar', 'context_graph', 'journal'].includes(view)), ...(roleId === "ordubashy" ? ["work", "explorer", "files"] : []), ...(agentId ? ["viewbox"] : []), ...trailing])]
     .filter(view => agentPaneViewAllowed(roleId, view));
 }
 // The agent workspace app's compact header keeps Viewbox beside Focus; an embedded page has no header to arrange.
