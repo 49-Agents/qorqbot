@@ -73,6 +73,70 @@ def head(uow, *, driver_id: str) -> dict | None:
     return None if row is None else detail(uow, row)
 
 
+def get(uow, *, driver_id: str, input_id: str) -> dict:
+    """One input with its history, for the driver."""
+    _system(uow, driver_id, write=False)
+    return detail(uow, _row(uow, input_id))
+
+
+def source_key(row) -> tuple[str, str]:
+    """The source an input changes, the same identity ``context_filing.sources`` binds: an Action input's Action, a
+    GENERAL input's canonical Context path. ``row`` is a stored row or the lightweight row ``order`` reads."""
+    if row["input_kind"] == "action":
+        return ("action", row["item_id"])
+    path = row["path"] if "path" in row.keys() else json.loads(row["payload_json"])["path"]
+    return ("general", path)
+
+
+def automatic_retry(row) -> dict | None:
+    """The automatic retry a blocked input is waiting for (``{retry, of, due_at}``), or None once none is planned."""
+    if row["state"] != "blocked" or row["error_json"] is None:
+        return None
+    planned = json.loads(row["error_json"]).get("automatic_retry")
+    return planned if isinstance(planned, Mapping) and isinstance(planned.get("due_at"), str) else None
+
+
+def order(uow, *, driver_id: str) -> dict:
+    """What the driver may do next, read from stored state in one pass over the unfinished inputs in queue order.
+
+    * ``processing``: the one processing input (an interrupted attempt when no live driver holds the lock).
+    * ``discard``: the oldest input with a requested discard; a discard only resolves that input's own draft.
+    * ``retry``: the oldest blocked input with a pending retry control (an explicit retry, or a due automatic one).
+    * ``next``: the oldest input that may go forward in order: a queued input, or a blocked input still waiting for an
+      automatic retry, which holds every later input until it is retried.
+    * ``blocked``: every blocked input, in queue order.
+
+    A blocked input with no retry planned or requested steps aside: later inputs go on without it, except an input for the
+    same source (``source_key``), which waits behind every earlier unfinished input of that source whatever its state."""
+    _system(uow, driver_id, write=False)
+    pending = {row["input_id"]: row["intent"] for row in uow.connection.execute(
+        "SELECT input_id, intent FROM context_input_controls WHERE status='pending'")}
+    result = {"processing": None, "discard": None, "retry": None, "next": None, "blocked": []}
+    earlier = set()
+    for row in uow.connection.execute(
+            "SELECT sequence, id, project_id, input_kind, item_id, state, attempt, error_json, "
+            "json_extract(payload_json, '$.path') AS path FROM context_inputs WHERE state NOT IN (?,?) ORDER BY sequence",
+            TERMINAL_STATES):
+        key = source_key(row)
+        free = key not in earlier
+        earlier.add(key)
+        state = row["state"]
+        if state == "processing":
+            result["processing"] = result["processing"] or dict(row)
+        elif state == "discard_requested":
+            result["discard"] = result["discard"] or dict(row)
+        elif state == "blocked":
+            result["blocked"].append(dict(row))
+            if pending.get(row["id"]) == "retry":
+                if free and result["retry"] is None:
+                    result["retry"] = dict(row)
+            elif free and result["next"] is None and automatic_retry(row) is not None:
+                result["next"] = dict(row)
+        elif free and result["next"] is None:
+            result["next"] = dict(row)
+    return result
+
+
 def used_event_ids(uow, *, driver_id: str) -> set[str]:
     """Event IDs already persisted for any input or attempt, never to be reissued."""
     _system(uow, driver_id, write=False)
@@ -82,35 +146,66 @@ def used_event_ids(uow, *, driver_id: str) -> set[str]:
             "SELECT context_event_id FROM context_input_attempts WHERE context_event_id IS NOT NULL")})
 
 
-def _attempt_control(uow, row):
-    """The oldest-unfinished check and, for a blocked head, the explicit retry control a new attempt consumes."""
+def _attempt_control(uow, row, driver_id):
+    """The ordering check and, for a blocked input, the retry control a new attempt consumes.
+
+    A queued input starts only when it is ``order``'s next input; a blocked input restarts only on its pending retry
+    control (explicit, or automatic once due) and only when it is ``order``'s retry. Nothing starts while another input is
+    processing."""
     _expect(row, "queued", "blocked")
-    if uow.connection.execute("SELECT 1 FROM context_inputs WHERE sequence < ? AND state NOT IN (?,?)",
-                              (row["sequence"], *TERMINAL_STATES)).fetchone():
-        raise DomainError("invalid_transition", "Only the oldest unfinished input may start")
+    now = order(uow, driver_id=driver_id)
+    if now["processing"] is not None:
+        raise DomainError("invalid_transition", "Another Context input is processing")
     if row["state"] != "blocked":
+        if now["next"] is None or now["next"]["id"] != row["id"]:
+            raise DomainError("invalid_transition", "Only the next input in queue order may start")
         return None
     control = uow.connection.execute(
         "SELECT * FROM context_input_controls WHERE input_id=? AND intent='retry' AND status='pending'", (row["id"],)).fetchone()
     if control is None:
-        raise DomainError("invalid_transition", "A blocked input restarts only after an explicit retry request")
+        raise DomainError("invalid_transition", "A blocked input restarts only after a retry request")
+    if now["retry"] is None or now["retry"]["id"] != row["id"]:
+        raise DomainError("invalid_transition", "An earlier input for the same source or an earlier retry goes first")
     return control
 
 
 def _resolve_control(uow, control, result: Mapping[str, Any]) -> None:
     if control:
         uow.connection.execute("UPDATE context_input_controls SET status='applied',resolved_at=?,result_json=? WHERE id=?",
-                               (utc_now(), encode(result), control["id"]))
+                               (utc_now(), encode({**result, **_request_evidence(control)}), control["id"]))
+
+
+def request_automatic_retry(uow, *, driver_id: str, input_id: str, at: str) -> dict:
+    """Record the driver's own retry request for a blocked input whose planned automatic retry is due at ``at``.
+
+    It is an ordinary pending retry control, requested by the system principal, with ``request_evidence.automatic`` and
+    the retry's number, so the next attempt starts exactly as after an explicit retry and its history names it automatic.
+    A pending control of any kind, or a retry that is not planned or not yet due, refuses."""
+    _system(uow, driver_id)
+    row = _row(uow, input_id)
+    _expect(row, "blocked")
+    planned = automatic_retry(row)
+    if planned is None or planned["due_at"] > at:
+        raise DomainError("invalid_transition", "No automatic retry of this input is due")
+    if uow.connection.execute("SELECT 1 FROM context_input_controls WHERE input_id=? AND status='pending'", (input_id,)).fetchone():
+        raise DomainError("control_pending", "A control request for this input is already pending")
+    evidence = {"automatic": True, "retry": planned["retry"], "of": planned.get("of"), "after_attempt": row["attempt"],
+                "due_at": planned["due_at"]}
+    uow.connection.execute(
+        "INSERT INTO context_input_controls(id,project_id,input_id,intent,expected_state,requested_by,requested_at,status,"
+        "result_json) VALUES (?,?,?,'retry','blocked',?,?,'pending',?)",
+        (new_id(), row["project_id"], input_id, driver_id, at, encode({"request_evidence": evidence})))
+    return detail(uow, _row(uow, input_id))
 
 
 def start_attempt(uow, *, driver_id: str, input_id: str, context_event_id: str) -> dict:
-    """Move the queue head to processing with its persisted Context event ID.
+    """Move the next input to processing with its persisted Context event ID.
 
-    A queued head starts its first attempt. A blocked head restarts only after an explicit retry request, which this
-    transition consumes. The ID is saved before the driver submits anything to Context."""
+    A queued input starts its first attempt. A blocked input restarts only after a retry request (explicit, or the
+    driver's automatic one), which this transition consumes. The ID is saved before the driver submits anything to Context."""
     _system(uow, driver_id)
     row = _row(uow, input_id)
-    control = _attempt_control(uow, row)
+    control = _attempt_control(uow, row, driver_id)
     if uow.connection.execute(
             "SELECT 1 FROM context_inputs WHERE context_event_id=? AND id!=? UNION "
             "SELECT 1 FROM context_input_attempts WHERE context_event_id=? AND input_id!=?",
@@ -125,17 +220,28 @@ def start_attempt(uow, *, driver_id: str, input_id: str, context_event_id: str) 
     return detail(uow, _row(uow, input_id))
 
 
-def record_preflight_failure(uow, *, driver_id: str, input_id: str, error: Mapping[str, Any], ordubashy_id: str) -> dict:
-    """Block the head because Context could not be checked before an attempt could safely start.
+def _saved(error: Mapping[str, Any], summary: dict, automatic: Mapping[str, Any] | None) -> dict:
+    saved = {**{key: value for key, value in error.items() if isinstance(key, str) and key != "automatic_retry"}, **summary}
+    if automatic is not None:
+        if not summary["retryable"] or not isinstance(automatic.get("due_at"), str):
+            invalid("Only a retryable failure can plan an automatic retry, and it needs its due time")
+        saved["automatic_retry"] = dict(automatic)
+    return saved
 
-    The same oldest-unfinished and explicit-retry rules as ``start_attempt`` apply. One real attempt is saved already
-    finished and blocked, with the input's existing Context event ID or none (an ID is never manufactured); it consumes
-    only the retry control that requested it, and one ``context.input_blocked`` notice is emitted for it."""
+
+def record_preflight_failure(uow, *, driver_id: str, input_id: str, error: Mapping[str, Any], ordubashy_id: str,
+                             automatic_retry: Mapping[str, Any] | None = None) -> dict:
+    """Block an input because Context could not be checked before an attempt could safely start.
+
+    The same ordering and retry rules as ``start_attempt`` apply. One real attempt is saved already finished and blocked,
+    with the input's existing Context event ID or none (an ID is never manufactured); it consumes only the retry control
+    that requested it. ``automatic_retry`` (``{retry, of, due_at}``) plans the driver's own next retry of a retryable
+    failure; otherwise one ``context.input_blocked`` notice is emitted for the attempt."""
     _system(uow, driver_id)
     row = _row(uow, input_id)
-    control = _attempt_control(uow, row)
+    control = _attempt_control(uow, row, driver_id)
     summary = _concise(error)
-    saved = {**{key: value for key, value in error.items() if isinstance(key, str)}, **summary}
+    saved = _saved(error, summary, automatic_retry)
     attempt, event_id, now = row["attempt"] + 1, row["context_event_id"], utc_now()
     _cas(uow, row, "blocked", attempt=attempt, error_json=encode(saved))
     uow.connection.execute(
@@ -144,7 +250,8 @@ def record_preflight_failure(uow, *, driver_id: str, input_id: str, error: Mappi
         (input_id, attempt, event_id, "retry" if control else "queue", control["id"] if control else None, now, "blocked",
          now, encode(saved)))
     _resolve_control(uow, control, {"outcome": "preflight_failed", "attempt": attempt})
-    _notify_blocked(uow, driver_id, input_id, event_id, attempt, summary, ordubashy_id)
+    if automatic_retry is None:
+        _notify_blocked(uow, driver_id, input_id, event_id, attempt, summary, ordubashy_id)
     return detail(uow, _row(uow, input_id))
 
 
@@ -170,12 +277,13 @@ def _notify(uow, driver_id, ordubashy_id, input_id, attempt, event_type, text) -
 def _notify_blocked(uow, driver_id, input_id, context_event_id, attempt, error, ordubashy_id) -> int:
     """The single intervention notice of one attempt; ``context_event_id`` is null when none was ever allocated.
 
-    A blocked head stops Context for every scope, so the notice says whose it is and what follows: the coordinator
+    It is sent once the driver plans no automatic retry. The blocked input then steps aside: later inputs go on, and only
+    later inputs for the same source wait behind it. The notice says whose it is and what follows: the coordinator
     resolves it, and when one retry does not clear it the owner sees it as a blocking Signoff. The instruction comes
     before the error text, which is the part a length limit may cut."""
     return _notify(uow, driver_id, ordubashy_id, input_id, attempt, "context.input_blocked",
                    f"Context input {input_id} is blocked on attempt {attempt}"
-                   f"{f' (event {context_event_id})' if context_event_id else ''}; Context is stopped for every project. "
+                   f"{f' (event {context_event_id})' if context_event_id else ''}; later inputs for the same source wait. "
                    f"{BLOCKED_NEXT_STEP} Error: {error['code']}: {error['message'][:BLOCKED_ERROR_LIMIT]}")
 
 
@@ -244,17 +352,21 @@ def record_published(uow, *, driver_id: str, input_id: str, result: Mapping[str,
     return detail(uow, final)
 
 
-def record_blocked(uow, *, driver_id: str, input_id: str, error: Mapping[str, Any], ordubashy_id: str) -> dict:
-    """Block the head after a failed or interrupted attempt; later inputs wait.
+def record_blocked(uow, *, driver_id: str, input_id: str, error: Mapping[str, Any], ordubashy_id: str,
+                   automatic_retry: Mapping[str, Any] | None = None) -> dict:
+    """Block the processing input after a failed or interrupted attempt.
 
-    Exactly one intervention notice exists per attempt: the processing state is left only once. The draft note, if any,
-    is deliberately not in the notice."""
+    ``automatic_retry`` (``{retry, of, due_at}``) plans the driver's own next retry of a retryable failure: the input
+    waits for it, holding every later input, and no notice is sent. Without it the input steps aside (only later inputs
+    for the same source wait) and exactly one intervention notice exists for the attempt: the processing state is left
+    only once. The draft note, if any, is deliberately not in the notice."""
     _system(uow, driver_id)
     row = _row(uow, input_id)
     _expect(row, "processing")
     summary = _concise(error)
-    saved = {**{key: value for key, value in error.items() if isinstance(key, str)}, **summary}
-    _notify_blocked(uow, driver_id, input_id, row["context_event_id"], row["attempt"], summary, ordubashy_id)
+    saved = _saved(error, summary, automatic_retry)
+    if automatic_retry is None:
+        _notify_blocked(uow, driver_id, input_id, row["context_event_id"], row["attempt"], summary, ordubashy_id)
     cursor = uow.connection.execute(
         "UPDATE context_input_attempts SET outcome='blocked',finished_at=?,error_json=? WHERE input_id=? AND attempt=? "
         "AND outcome IS NULL", (utc_now(), encode(saved), input_id, row["attempt"]))
@@ -283,7 +395,7 @@ def record_discarded(uow, *, driver_id: str, input_id: str, result: Mapping[str,
 
 def record_refusal_discarded(uow, *, driver_id: str, input_id: str, error: Mapping[str, Any], ordubashy_id: str,
                              caller_id: str | None, outcomes: TerminalOutcomes) -> dict:
-    """End the head at once for a preflight refusal that no retry can clear (a graph edit refused as ``stale_base``).
+    """End the input at once for a preflight refusal that no retry can clear (a graph edit refused as ``stale_base``).
 
     Everything happens in this one transaction and through the ordinary transitions: the refused attempt is saved finished
     and blocked exactly as ``record_preflight_failure`` saves it (consuming a pending retry control), the driver itself
@@ -295,7 +407,7 @@ def record_refusal_discarded(uow, *, driver_id: str, input_id: str, error: Mappi
     _system(uow, driver_id)
     outcomes = require_outcomes(outcomes)
     row = _row(uow, input_id)
-    control = _attempt_control(uow, row)
+    control = _attempt_control(uow, row, driver_id)
     summary = {**_concise(error), "retryable": False}
     saved = {**{key: value for key, value in error.items() if isinstance(key, str)}, **summary}
     attempt, event_id, now = row["attempt"] + 1, row["context_event_id"], utc_now()

@@ -301,7 +301,9 @@ Persist a ready record only after successful finish and a completed model turn.
 It binds the exact draft digest. If interrupted afterward, explicit retry may
 publish that unchanged ready draft without another model call. If no completed
 ready record exists, retain the draft and start a new explicitly requested
-attempt; provide the existing staged IDs/changes to avoid duplicates. Reuse a
+attempt; provide the existing staged IDs/changes to avoid duplicates. Discarding
+the draft retires its ready records (`ready.discarded.json`), so a draft staged
+again later for the same event starts a fresh attempt. Reuse a
 completed bootstrap only when its base/input/prompt/model configuration matches.
 Do not resume an arbitrary previous Codex thread or silently reset a draft.
 

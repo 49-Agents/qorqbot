@@ -18,10 +18,10 @@ class BlockedNoticeTest(unittest.TestCase):
                          ("uow", "driver", "ordubashy", INPUT, 3, "context.input_blocked"))
         return text
 
-    def test_it_names_the_input_the_stopped_queue_and_the_coordinators_next_steps(self):
+    def test_it_names_the_input_what_waits_behind_it_and_the_coordinators_next_steps(self):
         text = self.notice(EVENT, {"code": "model_failed", "message": "The model command is not signed in"})
         self.assertIn(f"Context input {INPUT} is blocked on attempt 3 (event {EVENT})", text)
-        self.assertIn("Context is stopped for every project", text)
+        self.assertIn("later inputs for the same source wait", text)
         for step in ("context_queue_get", "one context_queue_retry", "a blocking Signoff for the owner"):
             self.assertIn(step, text)
         self.assertTrue(text.endswith("Error: model_failed: The model command is not signed in"))
@@ -34,7 +34,7 @@ class BlockedNoticeTest(unittest.TestCase):
 
     def test_an_input_that_never_got_an_event_names_none(self):
         text = self.notice(None, {"code": "preflight_failed", "message": "Context could not be checked"})
-        self.assertIn(f"Context input {INPUT} is blocked on attempt 3; Context is stopped", text)
+        self.assertIn(f"Context input {INPUT} is blocked on attempt 3; later inputs", text)
         self.assertNotIn("event", text.split(";")[0])
 
 

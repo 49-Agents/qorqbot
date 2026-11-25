@@ -221,7 +221,8 @@ and no action nodes. Indexes remain rebuildable, never authoritative.
 - A successful finish and completed model turn are both still required.
   An already published event recovers without another model invocation. A
   ready draft includes the exact mode outputs. Failed drafts retain them for
-  explicit retry; no automatic retries or outbox implementation.
+  retry; the library has no automatic retries or outbox implementation (the
+  host's queue driver retries a retryable failure itself, see INTEGRATION.md).
 - A low-level caller can stage controlled changes, but cannot publish the new
   event shape with missing/inconsistent mode outputs. Meaning is assessed by
   the propagator/caller, not by string matching in the validator.

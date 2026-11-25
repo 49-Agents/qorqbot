@@ -43,7 +43,8 @@ Public surface = five registered operations (policy allow/signoff/deny and idemp
 caller's own namespace only):
 
 * `context_queue_list` `{limit?, cursor?, state?}` -> `{items:[input], next_cursor, queue_blocked, blocked_input_id}`.
-  `queue_blocked` is the only cross-namespace fact; `blocked_input_id` is non-null only for the caller's own input.
+  `queue_blocked` (some input is blocked) is the only cross-namespace fact; `blocked_input_id` is the caller's own oldest
+  blocked input, or null.
 * `context_queue_get` `{input_id}` -> `{input: input + payload + attempts[] + controls[]}`. Another namespace's id is
   `not_found`.
 * `context_queue_submit` `{operation: add|edit|remove, path, content?, metadata?{kind,title,origin,origin_ref?,created_at?}, rationale?}`
@@ -51,9 +52,9 @@ caller's own namespace only):
   `controlled_caller` markers are refused; `remove` carries no content or metadata; `content` is bounded by
   `max_content_bytes`. Admission never waits for Context or a model.
 * `context_queue_retry` / `context_queue_discard` `{input_id, expected_state, rationale?}` -> `{result:{input_id,
-  control_id, intent, status: pending|applied, state}}`. Retry applies to a blocked head. Discard of a blocked head
-  becomes `discard_requested` (pending, the driver completes the mechanical discard); a never-started queued input is
-  discarded at once. One pending control per input.
+  control_id, intent, status: pending|applied, state}}`. Retry applies to any blocked input, which the driver then
+  runs next. Discard of a blocked input becomes `discard_requested` (pending, the driver completes the mechanical
+  discard); a never-started queued input is discarded at once. One pending control per input.
 
 `input` = `{id, sequence, input_kind: general|action, operation, item_id, revision, submitted_by, created_at, state,
 context_event_id, attempt, scope:{kind:global}|{kind:project,project_id}, result, error, summary}`; `summary` is
@@ -95,11 +96,28 @@ same bytes, and existing queued or published filings are not rewritten. An input
 existed has none and submits exactly as before.
 
 The driver uses `transitions` with the active `system` principal
-only: `head`, `used_event_ids`, `start_attempt(context_event_id)`, `record_preflight_failure`, `record_published`,
-`record_blocked`, `record_discarded`, `record_discard_failure`. They are compare-and-set, keep the single open head,
-append the attempt/control histories, enforce the exact 5-lowercase-alphanumeric Context event id (unique, never
+only: `order`, `get`, `head`, `used_event_ids`, `request_automatic_retry`, `start_attempt(context_event_id)`,
+`record_preflight_failure`, `record_published`, `record_blocked`, `record_discarded`, `record_discard_failure`. They are
+compare-and-set, keep at most one input `processing`, append the attempt/control histories, enforce the exact 5-lowercase-alphanumeric Context event id (unique, never
 reissued) and emit required coordinator notices (Global, source `context_inputs`) for blocked/preflight/published
-hand-offs. `record_preflight_failure` blocks the oldest input directly when Context cannot be checked or an ownership check refuses it before any Context work: a queued head goes `queued -> blocked` (the legal transitions include it) and a blocked head restarting on an explicit retry stays blocked; it records one blocked attempt and one notice, with a null event ID for an input that never had one and the original ID for one that did. One `sequence` orders GENERAL and Action inputs together. Source/job completion fields belong to `context_filing` (below); the queue stores only the queue facts above and calls the required
+hand-offs. `record_preflight_failure` blocks the next input directly when Context cannot be checked or an ownership check refuses it before any Context work: a queued input goes `queued -> blocked` (the legal transitions include it) and a blocked input restarting on a retry stays blocked; it records one blocked attempt, with a null event ID for an input that never had one and the original ID for one that did. One `sequence` orders GENERAL and Action inputs together.
+
+**Order, automatic retry and step aside.** `order` reads what may go next: an interrupted `processing` input, then a
+requested discard, then the oldest blocked input with a pending retry control, then the next input in sequence. A failure
+whose stored error is `retryable` (a propagation failure such as a model error, a dropped connection or a time limit; a
+storage or unexpected error; an interrupted attempt) is retried by the driver itself: `record_blocked` /
+`record_preflight_failure` take `automatic_retry {retry, of, due_at}` and store it with the input's error, send no notice,
+and the input holds every later input until it is due; then `request_automatic_retry` records an ordinary pending retry
+control requested by the driver's system principal with `request_evidence.automatic: true` (and the retry's number), which
+`start_attempt` consumes like an explicit one. The driver allows three automatic retries per input, after 1, 5 and 15
+minutes (`AUTOMATIC_RETRY_DELAYS`, `ContextSettings.retry_delays`). A refusal (Context's validation of the input such as its
+size, a missing prior source or an identical edit; an ownership refusal; a graph-edit refusal; a published event that is not
+this input) is never retried automatically. Once no automatic retry is left the input stays `blocked`, the coordinator gets
+its one `context.input_blocked` notice, and the input steps aside: later inputs go on, except one for the same source (the
+same `path` for a GENERAL input, the same Action for an Action input, as `context_filing.sources` binds them), which waits
+behind every earlier unfinished input of that source. Context keeps one unpublished draft at a time, so before another input
+begins the driver mechanically discards a draft a blocked input left behind (its retry stages it again from the frozen
+input); a pending draft that is no blocked input's is never touched and the step reports `busy`. Source/job completion fields belong to `context_filing` (below); the queue stores only the queue facts above and calls the required
 `TerminalOutcomes` contribution when an input becomes final.
 
 ### Context source ownership (`context_filing`)
@@ -175,14 +193,14 @@ is gone or its frozen program definition is no longer registered, and returns it
 `completion.reconcile_stopped(uow, driver_id=, outcomes=)` is the cancellation seam: for unfinished bound inputs whose job is
 `cancel_requested`/`cancelled` it uses the queue's own controls with a system-principal request and the job, its state and
 its recorded error as the stored reason evidence (an unstarted input is discarded at once and its receipt recorded; a blocked
-head becomes `discard_requested` for the driver's publication check first; a `processing` input and published work are never
+input becomes `discard_requested` for the driver's publication check first; a `processing` input and published work are never
 touched). The driver is the recorded requester; the human who cancelled is not on the job row and is never invented. The pending
 discard freezes the evidence (`reason: job_cancelled`, job ID, job state and recorded error, `requested_by`) in its own
 `result_json.request_evidence` when it is created. `transitions.record_discarded` keeps that object and the control ID in the
 final control result, the discarded input's result and therefore the terminal receipt's `reason_json`; `record_published`
 keeps them on the rejected discard control when publication wins the race (the input stays honestly `published`, with no
 request evidence). A control requested without `request_evidence` (an ordinary explicit discard) is unchanged. A retry request
-still pending on the cancelled blocked head is rejected in the same reconciliation transaction (`outcome:
+still pending on the cancelled blocked input is rejected in the same reconciliation transaction (`outcome:
 superseded_by_cancellation`, the evidence, and the new control's ID) and the discard request is created, so no attempt can start;
 both controls keep their own requester. `verify_pending` marks the unapplied receipt of a cancelled job `conflict` (`job_cancelled`): a cancelled job is not a
 completion worker and is never revived. No cancellation API or generic executor change is added.
@@ -239,8 +257,8 @@ is the selected owning namespace; nothing is authority here (not the path, the m
   `executions=` contribution of `ContextQueueOperations` (`context_graph_edits.ExecutionFacts()`); without it a stored graph-edit
   input is refused (`composition_error`) rather than shown as ordinary. `transitions` return the unchanged internal view.
 * The input's `context_event_id` stays null and `attempt` 0 until its first real attempt, so an unstarted edit discards immediately
-  with no Context event. The first attempt carries exactly the reserved ID. Existing retry/discard controls, sequence order and head
-  blocking are the only controls; the filing outcome port records nothing for an edit (no filing, job or completion).
+  with no Context event. The first attempt carries exactly the reserved ID. Existing retry/discard controls, sequence order and the
+  queue's blocking rules are the only controls; the filing outcome port records nothing for an edit (no filing, job or completion).
 
 ## Context model-call usage ledger
 
