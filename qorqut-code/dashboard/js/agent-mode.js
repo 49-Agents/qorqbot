@@ -241,8 +241,8 @@ const agentMode = (() => {
     const bar = row.progress ? `<div class="ac-progress am-progress${row.progress.indeterminate ? ' is-indeterminate' : ''}" role="progressbar" aria-label="Switching" aria-valuemin="0" aria-valuemax="${row.progress.total || 100}"${row.progress.indeterminate ? '' : ` aria-valuenow="${row.progress.done}"`}><i${row.progress.indeterminate ? '' : ` style="width:${Math.round(100 * Math.min(row.progress.done, row.progress.total) / row.progress.total)}%"`}></i></div>` : '';
     return `<div class="st-row-text"><div class="st-label">${esc(row.label)}</div><div class="st-help" data-am-help>${esc(row.help)}</div>
       ${row.progress ? `<p class="am-progress-text" data-am-progress-text>${esc(row.progress.text)}</p>${bar}` : ''}
-      ${row.notice ? `<p class="am-notice" id="am-notice" data-am-notice>${esc(row.notice)}</p>` : ''}
-      ${row.done ? `<p class="am-done" data-am-done role="status">${esc(row.done)}</p>` : ''}
+      ${row.notice ? `<p class="am-notice" id="am-notice" data-am-notice><i class="dot warn"></i>${esc(row.notice)}</p>` : ''}
+      ${row.done ? `<p class="am-done" data-am-done role="status"><i class="dot ok"></i>${esc(row.done)}</p>` : ''}
       ${row.error ? `<p class="ac-error am-error" role="alert" data-am-error>${esc(row.error)}</p>` : ''}</div>
       <div class="st-control"><div class="st-choice am-choice" role="radiogroup" aria-label="${esc(row.label)}">${buttons}</div></div>`;
   }

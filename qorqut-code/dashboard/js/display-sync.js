@@ -45,7 +45,7 @@ const displaySync = (() => {
         for (const [kind, on] of Object.entries(next.alerts)) {
           const now = desktopNotify.set(kind, on);
           if (on && !now[kind]) blocked.push(kind);
-          document.querySelectorAll(`[data-switch="${kind}"]`).forEach(button => button.setAttribute('aria-checked', String(now[kind])));
+          document.querySelectorAll(`[data-switch="${kind}"]`).forEach(box => { box.checked = !!now[kind]; });
         }
         if (blocked.length && typeof toast === 'function') toast(blockedNote(blocked));
         if (next.revision > applied()) { try { localStorage.setItem(KEY, String(next.revision)); } catch (_) { /* Applied again next time. */ } }

@@ -102,10 +102,10 @@ const agentOptions = (() => {
     return `<div class="ao-main"><div class="ao-name">${label}</div>
       <p class="ao-note${row.error ? ' is-error' : ''}" data-ao-note ${row.error ? 'role="alert"' : 'role="status"'}>${esc(row.error || (row.saved ? 'Saved.' : m.notice))}</p></div>
       <div class="ao-fields">
-        <label class="ao-field"><span>Client</span><select data-ao-field="client" ${row.saving ? 'disabled' : ''}>${m.choices.map(c => optionHtml(c.value, c.label, c.value === m.client)).join('')}</select></label>
-        <label class="ao-field"><span>Model</span><input type="text" data-ao-field="model" list="${id}-models" value="${esc(m.model)}" placeholder="default" maxlength="${MODEL_MAX}" autocomplete="off" spellcheck="false" ${row.saving ? 'disabled' : ''}>
+        <label class="ef-label ao-field">Client<select class="ef-control" data-ao-field="client" ${row.saving ? 'disabled' : ''}>${m.choices.map(c => optionHtml(c.value, c.label, c.value === m.client)).join('')}</select></label>
+        <label class="ef-label ao-field">Model<input type="text" class="ef-control" data-ao-field="model" list="${id}-models" value="${esc(m.model)}" placeholder="default" maxlength="${MODEL_MAX}" autocomplete="off" spellcheck="false" ${row.saving ? 'disabled' : ''}>
           <datalist id="${id}-models">${m.suggestions.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist></label>
-        <label class="ao-field"><span>Effort</span><select data-ao-field="effort" ${row.saving ? 'disabled' : ''}>${optionHtml('', 'Default', !m.effort)}${EFFORTS.map(name => optionHtml(name, name, name === m.effort)).join('')}</select></label>
+        <label class="ef-label ao-field">Effort<select class="ef-control" data-ao-field="effort" ${row.saving ? 'disabled' : ''}>${optionHtml('', 'Default', !m.effort)}${EFFORTS.map(name => optionHtml(name, name, name === m.effort)).join('')}</select></label>
       </div>`;
   }
 

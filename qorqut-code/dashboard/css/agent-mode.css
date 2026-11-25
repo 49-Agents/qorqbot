@@ -2,14 +2,13 @@
 .am-list { display: grid; }
 /* Without the row (a server that does not have the setting) the next block is first again. */
 .st-rows[data-agent-mode][style*="none"] + .st-rows { margin-top: 0; }
-.am-row .st-row-text { flex: 1; }
 .am-choice button[disabled] { opacity: .45; cursor: not-allowed; }
 .am-choice button[aria-checked="true"][disabled] { opacity: .85; cursor: default; }
 .am-choice button:focus-visible, .am-list .ac-load button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.am-progress-text { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--fg); }
+.am-progress-text { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--fg); }
 .am-progress { max-width: 420px; margin-top: 6px; }
-.am-notice { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--warn); }
-.am-done { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ok); }
+.am-notice { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
+.am-done { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
 .am-error { color: var(--warn); }
 /* The one checkbox in the confirmation of a switch to Terminals. */
 .am-trust { display: flex; align-items: flex-start; gap: 8px; margin: 14px 0 0; line-height: 1.45; cursor: pointer; }

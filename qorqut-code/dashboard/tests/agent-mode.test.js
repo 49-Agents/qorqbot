@@ -390,7 +390,6 @@ test('Settings mounts the mode row first in Agents and the extra rows after the 
   assert.ok(settings.indexOf('data-agent-mode>') < settings.indexOf('data-agent-clients>'));
   assert.ok(settings.indexOf('data-agent-clients>') < settings.indexOf('data-agent-extras>'));
   assert.match(settings, /paintAgentMode\(pane\); paintAgentClients\(pane\)/);
-  assert.match(settings, /hint: 'How agents run, Claude Code, Codex, model and effort'/);
   assert.ok(!/terminal/i.test(settings));
   assert.ok(!/data-choice="\$\{[^}]*mode/i.test(settings));
   assert.ok(!read('js/agent-mode.js').includes('data-choice'), 'Settings binds every data-choice to the appearance setting');

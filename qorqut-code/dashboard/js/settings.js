@@ -7,13 +7,13 @@ const envCurrent = p => envView === p && p.pane.isConnected && envScope() === p.
 // Settings: a section list on the left, one section on the right, and search across every setting. Global settings
 // have every section; a project has only its environment overrides.
 const SETTINGS_SECTIONS = [
-  {id: 'connections', title: 'Connections', hint: 'Tools your agents can use'},
-  {id: 'agents', title: 'Model/Provider', hint: 'How agents run, Claude Code, Codex, model and effort'},
-  {id: 'appearance', title: 'Appearance', hint: 'Theme and text size'},
-  {id: 'notifications', title: 'Notifications', hint: 'Desktop alerts'},
-  {id: 'environment', title: 'Environment', hint: 'Variables such as API keys'},
-  {id: 'walkthrough', title: 'Walkthrough', hint: 'Take the tour again'},
-  {id: 'about', title: 'About & privacy', hint: 'Version, folders, your data'},
+  {id: 'connections', title: 'Connections', icon: 'M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0ZM12 17v5'},
+  {id: 'agents', title: 'Model/Provider', icon: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6'},
+  {id: 'appearance', title: 'Appearance', icon: 'M12 3a9 9 0 1 0 0 18ZM12 3a9 9 0 0 1 0 18'},
+  {id: 'notifications', title: 'Notifications', icon: 'M8 15v-3c0-2 1-2 1-5a3 3 0 1 1 6 0c0 3 1 3 1 5v3M5 15h14l2 4H3ZM5 22h14'},
+  {id: 'environment', title: 'Environment', icon: 'm8 6-6 6 6 6m8-12 6 6-6 6'},
+  {id: 'walkthrough', title: 'Walkthrough', icon: 'M5 3l14 9-14 9Z'},
+  {id: 'about', title: 'About & privacy', icon: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 16v-5M12 8h.01'},
 ];
 const SETTINGS_SECTION_KEY = 'qorqbot:settings-section';
 let settingsShowSection = () => {};
@@ -25,7 +25,9 @@ function settingsRow({label, help = '', control = '', keywords = '', attrs = ''}
 }
 const settingsChoice = (name, options, current) => `<div class="st-choice" role="radiogroup" aria-label="${esc(name)}">${options.map(([value, label]) =>
   `<button type="button" role="radio" aria-checked="${value === current}" data-choice="${esc(name)}" data-value="${esc(value)}">${esc(label)}</button>`).join('')}</div>`;
-const settingsSwitch = (name, on, label) => `<button type="button" class="st-switch" role="switch" aria-checked="${!!on}" aria-label="${esc(label)}" data-switch="${esc(name)}"><i></i></button>`;
+const settingsSwitch = (name, on, label) => `<label class="set-switch"><input type="checkbox" role="switch" data-switch="${esc(name)}" aria-label="${esc(label)}"${on ? ' checked' : ''}><span class="set-switch-track" aria-hidden="true"></span></label>`;
+// One headed group of a section: the record panels' section head, then its rows.
+const settingsGroup = (title, inner, search = '') => `<div class="record-section"${search ? ` data-search="${esc(search)}"` : ''}><div class="record-section-head"><h4>${title}</h4></div>${inner}</div>`;
 
 async function renderSettings(c) {
   envView?.testing?.unsubscribe?.();
@@ -36,29 +38,29 @@ async function renderSettings(c) {
     rows: [], inherited: [], loaded: false, saving: false, dirty: false, testing: null };
   const sections = global ? SETTINGS_SECTIONS : SETTINGS_SECTIONS.filter(section => section.id === 'environment');
   const environment = `
-    <div class="st-env-head"><p class="st-help">${global ? "Shared defaults for all projects and Global agents. Projects can override individual values." : "Global values are inherited automatically. Override a value for this project, or use Global again."}</p>
-      <button class="btn" id="envsave" disabled>Save</button></div>
+    <p class="st-help">${global ? "Shared defaults for all projects and Global agents. Projects can override individual values." : "Global values are inherited automatically. Override a value for this project, or use Global again."}</p>
     <div class="envrows" id="envrows"></div>
-    <button class="envadd" id="envadd" disabled>+ Add variable</button>
+    <button class="cx-link envadd" id="envadd" disabled>+ Add variable</button>
+    <span class="ef-actions"><button class="ef-btn ef-save" id="envsave" disabled>Save</button></span>
     <div class="set-note muted small" id="envnote" role="status"></div>
     <p class="st-help">Changes apply to new agent sessions and later jobs. Agents already running keep their current environment.</p>`;
   const look = appearance.get(), alerts = desktopNotify.prefs();
   const body = {
     connections: `<div class="st-block" data-search="connections browser websites extensions openrouter voice input microphone treg whatsapp" data-connectors-slot></div>`,
-    agents: `${global ? '<div class="st-rows" data-agent-mode></div>' : ''}<div class="st-rows" data-agent-clients></div>
-      ${global ? '<div class="st-rows" data-agent-extras></div>' : ''}
-      <div class="st-block" data-search="agents model provider account switch client effort claude codex"><h3 class="ao-title">Client, model and effort</h3>
-        <p class="st-help ao-intro">What each agent runs on. Leave a field empty to use the default.</p><div data-agent-options></div></div>
-      ${global ? `<div class="st-rows">${settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat workspace experimental',
+    agents: `${global ? settingsGroup('Agent sessions', '<div class="st-rows" data-agent-mode></div>') : ''}
+      ${settingsGroup('Clients', `<div class="st-rows" data-agent-clients></div>${global ? '<div class="st-rows" data-agent-extras></div>' : ''}`)}
+      <div class="record-section" data-search="agents model provider account switch client effort claude codex"><div class="record-section-head"><h4>Client, model and effort</h4></div>
+        <p class="st-help">What each agent runs on. Leave a field empty to use the default.</p><div data-agent-options></div></div>
+      ${global ? settingsGroup('Experimental', settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat workspace experimental',
         help: 'Show Overseer in the Global agent roster and enable its chat and workspace. Also shows the Timeline, Journal and Files views in Ordubashy’s pane. Off by default.<span class="set-testing-note" id="set-testing-note" role="status"></span>',
         control: `<label class="set-switch" for="set-testing-toggle"><input type="checkbox" id="set-testing-toggle" role="switch" aria-label="Testing mode" disabled><span class="set-switch-track" aria-hidden="true"></span><span class="set-switch-label" id="set-testing-state">Loading…</span></label>`,
-        attrs: 'data-testing-mode'})}</div>` : ''}`,
-    appearance: `<div class="st-rows">${settingsRow({label: 'Theme', keywords: 'dark light system mode color colour', help: 'System follows your computer’s light or dark setting.',
+        attrs: 'data-testing-mode'}), 'experimental testing mode') : ''}`,
+    appearance: settingsGroup('Display', `${settingsRow({label: 'Theme', keywords: 'dark light system mode color colour', help: 'System follows your computer’s light or dark setting.',
         control: settingsChoice('theme', [['dark', 'Dark'], ['light', 'Light'], ['system', 'System']], look.theme)})}
       ${settingsRow({label: 'Text size', keywords: 'font zoom bigger smaller scale', help: 'Scales the whole dashboard.',
         control: settingsChoice('textSize', [['small', 'Small'], ['default', 'Default'], ['large', 'Large']], look.textSize)})}
-      <p class="st-help st-note">Saved for this browser only.</p></div>`,
-    notifications: `<div class="st-rows">${settingsRow({label: 'Agent replies', keywords: 'notify alert message reply desktop',
+      <p class="st-help">Saved for this browser only.</p>`),
+    notifications: settingsGroup('Desktop alerts', `${settingsRow({label: 'Agent replies', keywords: 'notify alert message reply desktop',
         help: 'When an agent answers you while the dashboard is in the background.', control: settingsSwitch('replies', alerts.replies, 'Desktop notifications for agent replies')})}
       ${settingsRow({label: 'Signoffs waiting on you', keywords: 'notify alert approval signoff decision desktop',
         help: 'When an approval or decision needs you.', control: settingsSwitch('signoffs', alerts.signoffs, 'Desktop notifications for Signoffs')})}
@@ -67,32 +69,33 @@ async function renderSettings(c) {
       ${settingsRow({label: 'Failed routines', keywords: 'notify alert routine failed failure error desktop',
         help: 'When a routine run fails.', control: settingsSwitch('routines', alerts.routines, 'Desktop notifications for failed routines')})}
       ${settingsRow({label: 'Test', keywords: 'notification permission test', help: '<span data-notify-status></span>',
-        control: '<button type="button" class="quiet" data-notify-test>Send a test</button>'})}</div>`,
-    environment: `<div class="st-block" data-search="environment variables api keys env secrets token">${environment}</div>`,
-    walkthrough: `<div class="st-rows">${settingsRow({label: 'Take the walkthrough again', keywords: 'tour onboarding help guide tutorial',
+        control: '<button type="button" class="quiet" data-notify-test>Send a test</button>'})}`),
+    environment: settingsGroup('Environment variables', environment, 'environment variables api keys env secrets token'),
+    walkthrough: settingsGroup('Walkthrough', `${settingsRow({label: 'Take the walkthrough again', keywords: 'tour onboarding help guide tutorial',
         help: 'A short, interactive tour of your workspace.', control: '<button type="button" class="quiet" data-onboarding-replay>Start</button>'})}
       ${settingsRow({label: 'One chapter', keywords: 'tour chapter onboarding', help: 'Replay just one part.',
-        control: `<div class="st-chapters">${onboarding.chapters().map(chapter => `<button type="button" class="quiet" data-onboarding-chapter="${esc(chapter.id)}">${esc(chapter.title)}</button>`).join('')}</div>`})}</div>`,
-    about: `<div class="st-rows" data-about><p class="st-help">Loading…</p></div>
-      <div class="st-privacy" data-search="privacy data collect tracking passwords private local">
-        <h3>Private by design. Your work stays on this computer.</h3>
-        <p>Qorqbot’s servers know only your sign-in email, whether you use it for personal or work, and a daily check that it is running. Never your conversations, files, records or what your agents do.</p>
-        <ul><li>You sign in on each service’s own page, or give Ordubashy the password when it asks so it can sign in for you. Qorqbot has no password store and its servers never see your passwords; website sessions stay in your agents’ private browsers on this computer.</li>
+        control: `<div class="st-chapters">${onboarding.chapters().map(chapter => `<button type="button" class="quiet" data-onboarding-chapter="${esc(chapter.id)}">${esc(chapter.title)}</button>`).join('')}</div>`})}`),
+    about: settingsGroup('About', '<div class="st-rows" data-about><p class="st-help">Loading…</p></div>') +
+      settingsGroup('Privacy', `<p class="st-label">Private by design. Your work stays on this computer.</p>
+        <p class="st-help">Qorqbot’s servers know only your sign-in email, whether you use it for personal or work, and a daily check that it is running. Never your conversations, files, records or what your agents do.</p>
+        <ul class="st-help"><li>You sign in on each service’s own page, or give Ordubashy the password when it asks so it can sign in for you. Qorqbot has no password store and its servers never see your passwords; website sessions stay in your agents’ private browsers on this computer.</li>
           <li>Every connection is optional, and you can turn it off at any time.</li>
-          <li>What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.</li></ul></div>`,
+          <li>What you ask your agents goes to Claude or Codex under your own account, the same as when you use them directly.</li></ul>`,
+        'privacy data collect tracking passwords private local'),
   };
+  const icon = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
   pane.innerHTML = `
-    <header class="st-header"><div><h1 class="st-title">${global ? 'Settings' : 'Project settings'}</h1>
-      ${global ? '<p class="st-promise"><span aria-hidden="true">●</span> Private by design: your work stays on this computer. <button type="button" class="cx-link" data-show-section="about">Details</button></p>' : ''}</div>
-      ${global ? '<label class="st-search"><span class="sr-only">Search settings</span><input type="search" placeholder="Search settings" data-settings-search autocomplete="off" spellcheck="false"></label>' : ''}</header>
-    <div class="st-layout">
-      ${global ? `<nav class="st-nav" aria-label="Settings sections">${sections.map(section =>
-        `<button type="button" data-section-link="${section.id}"><span>${section.title}</span><small>${section.hint}</small></button>`).join('')}</nav>` : ''}
-      <div class="st-sections">${sections.map(section => `<section class="st-section" data-section="${section.id}" aria-labelledby="st-h-${section.id}">
-        <h2 id="st-h-${section.id}">${section.title}</h2>${body[section.id]}</section>`).join('')}
-        <p class="st-empty" data-settings-empty hidden>No settings match your search.</p></div>
+    <header class="agfiles-head"><div><strong>${global ? 'Settings' : 'Project settings'}</strong>
+      ${global ? '<span>Private by design: your work stays on this computer. <button type="button" class="cx-link" data-show-section="about">Details</button></span>' : ''}</div>
+      ${global ? `<label class="tsearch"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" placeholder="Search settings" aria-label="Search settings" data-settings-search autocomplete="off" spellcheck="false"></label>` : ''}</header>
+    <div class="agfiles-layout">
+      ${global ? `<nav class="agfiles agfiles-tree" aria-label="Settings sections">${sections.map(section =>
+        `<div class="agfiles-row" style="--depth:0"><button type="button" class="agfiles-name" data-section-link="${section.id}">${icon(section.icon)}<span>${section.title}</span></button></div>`).join('')}</nav>` : ''}
+      <div class="agfiles-detail"><div class="st-column">${sections.map(section => `<section class="st-section" data-section="${section.id}" data-title="${esc(section.title)}" aria-label="${esc(section.title)}">${body[section.id]}</section>`).join('')}
+        <p class="st-help" data-settings-empty hidden>No settings match your search.</p></div></div>
     </div>`;
   c.appendChild(pane);
+  if (global) agentSplitMount(pane.querySelector('.agfiles-layout'), 'qorqut.settings.listWidth');
   if (global) {
     const testing = p.testing = {
       toggle: pane.querySelector("#set-testing-toggle"), state: pane.querySelector("#set-testing-state"),
@@ -118,7 +121,11 @@ async function renderSettings(c) {
   function paintSections() {
     const query = (search?.value || '').trim().toLowerCase();
     pane.classList.toggle('st-searching', !!query);
-    pane.querySelectorAll('[data-section-link]').forEach(link => link.setAttribute('aria-current', String(!query && link.dataset.sectionLink === current)));
+    pane.querySelectorAll('[data-section-link]').forEach(link => {
+      const on = !query && link.dataset.sectionLink === current;
+      link.setAttribute('aria-current', String(on));
+      link.closest('.agfiles-row').classList.toggle('selected', on);
+    });
     pane.querySelectorAll('.st-section').forEach(section => { section.hidden = query ? section.dataset.matches === '0' : section.dataset.section !== current; });
   }
   function filter() {
@@ -127,7 +134,7 @@ async function renderSettings(c) {
     pane.querySelectorAll('.st-section').forEach(section => {
       let matches = 0;
       section.querySelectorAll('[data-search]').forEach(item => {
-        const hit = !query || item.dataset.search.includes(query) || section.querySelector('h2').textContent.toLowerCase().includes(query);
+        const hit = !query || item.dataset.search.includes(query) || section.dataset.title.toLowerCase().includes(query);
         item.classList.toggle('st-miss', !hit);
         if (hit) matches++;
       });
@@ -169,11 +176,11 @@ async function renderSettings(c) {
       ? 'This browser can’t show desktop notifications.' : 'Your computer asks once when you turn one on.';
   };
   notifyStatus();
-  pane.querySelectorAll('[data-switch]').forEach(button => button.addEventListener('click', async () => {
-    button.disabled = true;
-    const next = await desktopNotify.enable(button.dataset.switch, button.getAttribute('aria-checked') !== 'true');
-    button.setAttribute('aria-checked', String(next[button.dataset.switch]));
-    button.disabled = false; notifyStatus();
+  pane.querySelectorAll('[data-switch]').forEach(box => box.addEventListener('change', async () => {
+    box.disabled = true;
+    const next = await desktopNotify.enable(box.dataset.switch, box.checked);
+    box.checked = !!next[box.dataset.switch];
+    box.disabled = false; notifyStatus();
   }));
   pane.querySelector('[data-notify-test]')?.addEventListener('click', async () => {
     if (desktopNotify.permission() === 'default' && desktopNotify.supported()) await Notification.requestPermission();
@@ -341,7 +348,7 @@ function envError(p, message, retry = false) {
   note.textContent = message;
   if (retry) {
     const button = document.createElement("button");
-    button.className = "btn quiet"; button.id = "envretry"; button.textContent = "Retry";
+    button.className = "quiet"; button.id = "envretry"; button.textContent = "Retry";
     button.onclick = () => loadEnv(p); note.append(" ", button);
   }
 }
@@ -375,8 +382,8 @@ function paintEnv(p) {
     const override = !p.global && inherited.has(row.key.trim()) && !row.inherited;
     const source = row.inherited ? "Global" : override ? "Project override" : p.global ? "Global" : "Project";
     return `<div class="envrow" data-index="${row.index ?? ""}">
-      <div class="envkey"><input class="ek mono" aria-label="Variable name" placeholder="KEY" value="${esc(row.key)}" ${row.inherited ? "disabled" : override ? "readonly" : ""} spellcheck="false"><span class="envsource">${source}</span></div>
-      <input class="ev mono" aria-label="Value for ${esc(row.key || "new variable")}" placeholder="value" value="${esc(row.value)}" ${row.inherited ? "disabled" : ""} spellcheck="false">
+      <div class="envkey"><input class="ek mono ef-control" aria-label="Variable name" placeholder="KEY" value="${esc(row.key)}" ${row.inherited ? "disabled" : override ? "readonly" : ""} spellcheck="false"><span class="envsource">${source}</span></div>
+      <input class="ev mono ef-control" aria-label="Value for ${esc(row.key || "new variable")}" placeholder="value" value="${esc(row.value)}" ${row.inherited ? "disabled" : ""} spellcheck="false">
       <button class="envdel" type="button" data-key="${esc(row.key)}" data-action="${row.inherited ? "override" : "remove"}" aria-label="${row.inherited ? "Override " : override ? "Use Global for " : "Remove "}${esc(row.key || "variable")}">${row.inherited ? "Override" : override ? "Use Global" : "×"}</button>
     </div>`;
   }).join("") || '<p class="muted small">No environment variables yet.</p>';
