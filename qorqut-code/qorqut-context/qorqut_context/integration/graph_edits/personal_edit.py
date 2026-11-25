@@ -11,17 +11,16 @@ Nothing else is new. The plan is admitted by ``GraphEdits.prepare`` exactly as a
 personal-record authority (the configured Ordubashy only), the same binding and queue input, the same driver and the same
 published event. The record's relationships to other nodes stay with ``context_edit``.
 
-A queued edit is published only if the published Context has not moved since it was prepared, and every input ahead of it
-in the shared queue moves it. So an edit prepared while anything is waiting is refused later as stale, after everything
-ahead has run. ``personal_set`` refuses at once instead (``busy``, retryable) and saves nothing; called on an empty queue
-the edit publishes within seconds.
+The edit waits its turn in the shared queue like any other input. When its turn comes it is published on the head. If
+something ahead of it changed the owner's record, its change is merged onto the current record field by field
+(``graph_edit.merged_put``); only a change to a field (or support entry) it also changes refuses it as ``stale_base``, and the
+driver then discards it with a notice, nothing saved, so the caller reads the record again and sends the facts again.
 """
 
 from __future__ import annotations
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
-from qorqut_context.integration.queue.queue import TERMINAL_STATES
 from qorqut_context.integration.reading.schemas import PERSONAL_HIDDEN
 from qorqut_context import graph_edits as library
 from qorqut_context.schema import value_key
@@ -138,24 +137,11 @@ class PersonalEdits:
     def __init__(self, graph_edits):
         self.edits = graph_edits
 
-    @staticmethod
-    def waiting(uow) -> int:
-        """Inputs of the one shared Context queue that have not finished: each one ahead moves the published base."""
-        marks = ",".join("?" for _ in TERMINAL_STATES)
-        return uow.connection.execute(f"SELECT COUNT(*) FROM context_inputs WHERE state NOT IN ({marks})",
-                                      TERMINAL_STATES).fetchone()[0]
-
     def prepare(self, ctx, arguments, options, uow, clock):
         arguments = plain(arguments)
         if not arguments.get("facts") and "summary" not in arguments:
             raise _invalid("facts", "Give at least one fact, or a new summary")
         plan, _ = plan_for(self.edits._head(), arguments)
-        waiting = self.waiting(uow)
-        if waiting:
-            raise DomainError("busy", f"Not saved: {waiting} Context input{'s are' if waiting != 1 else ' is'} still waiting in the "
-                              "shared queue, and an edit queued behind them would be refused as stale once they publish. Call "
-                              "personal_set again when context_queue_list shows nothing queued, processing or blocked; until "
-                              "then use the value from where the owner gave it.", retryable=True, details={"waiting": waiting})
         return self.edits.prepare(ctx, arguments, options, uow, clock, operation=NAME, edit=plan, title="Personal Record Update")
 
     def apply(self, ctx, plan, uow) -> dict:

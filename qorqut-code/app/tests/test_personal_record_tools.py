@@ -1,8 +1,7 @@
 """The owner's record has its own two tools: every agent reads it as plain facts, and Ordubashy changes it by naming facts.
 
 ``personal_get`` is a read of the published record alone. ``personal_set`` builds the same queued graph edit ``context_edit``
-takes, from the facts that change, and refuses at once when the shared Context queue holds anything that would make it stale.
-The last class runs both through the real application, store and Context."""
+takes, from the facts that change, and queues it whatever waits ahead of it in the shared Context queue. The last class runs both through the real application, store and Context."""
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -211,14 +210,12 @@ class BothToolsOnARealInstallationTests(unittest.TestCase):
         self.assertEqual((attribution["operation"], attribution["principal_id"]), ("personal_set", self.lead.principal_id))
         self.assertIn(SAID["statement"], plan["rationale"])
 
-    def test_anything_waiting_in_the_queue_refuses_the_save_at_once(self):
+    def test_a_save_with_anything_waiting_in_the_queue_is_queued_behind_it(self):
         self.ok(self.lead, "personal_set", changes({"field": "phone", "values": ["+1 555 0199"]}))
-        refused = self.call(self.lead, "personal_set", changes({"field": "email", "values": ["sam@example.com"]}))
-        error = plain(refused.error)
-        self.assertEqual((refused.status, error["code"], error["retryable"], error["details"]),
-                         ("error", "busy", True, {"waiting": 1}))
+        queued = self.ok(self.lead, "personal_set", changes({"field": "email", "values": ["sam@example.com"]}))
+        self.assertEqual((queued["status"], queued["input"]["state"]), ("queued", "queued"))
         with self.runtime.database.transaction() as uow:
-            self.assertEqual(uow.connection.execute("SELECT COUNT(*) FROM context_inputs").fetchone()[0], 1)
+            self.assertEqual(uow.connection.execute("SELECT COUNT(*) FROM context_inputs").fetchone()[0], 2)
 
     def test_only_the_configured_ordubashy_may_save(self):
         refused = self.call(self.worker, "personal_set", changes({"field": "phone", "values": ["+1 555 0199"]}))
