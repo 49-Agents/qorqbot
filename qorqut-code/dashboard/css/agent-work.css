@@ -4,11 +4,12 @@
 .agwork > [hidden] { display: none !important; }
 .agwork-top .agfiles-icon-btn[aria-pressed="false"] { color: var(--fg-2); }
 .agwork-top .agfiles-icon-btn[aria-pressed="true"] { background: var(--nav-selected, var(--hover)); color: var(--fg); }
-.agwork-layout { display: flex; flex: none; gap: 2px; }
-/* The search field, the scope button and the two layout buttons are one height, with icons of one size. */
 .agwork-top > .agfiles-search { height: 32px; box-sizing: border-box; padding-block: 0; }
-.agwork-top .agfiles-icon-btn { width: 32px; height: 32px; }
-.agwork-top .agfiles-icon-btn svg { width: 16px; height: 16px; }
+/* The two layout buttons are one bordered segmented control, as tall as the search field and the scope button beside it. */
+.agwork-layout { display: flex; flex: none; align-items: center; gap: 2px; height: 32px; padding: 2px; box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
+.agwork-top .agfiles-icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 26px; padding: 0; border-radius: 4px; }
+.agwork-top .agfiles-icon-btn svg { width: 15px; height: 15px; }
 /* The scope button: a quiet 12px bordered control as tall as the search field. */
 .agwork .agwork-scope { display: flex; flex: none; align-items: center; gap: 6px; height: 32px; max-width: 180px; padding: 0 9px; box-sizing: border-box;
   background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-sm); color: var(--fg-2); font-size: 12px; }
