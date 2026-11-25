@@ -148,7 +148,7 @@
 
 /* status: open and cancelled hollow; working uses the theme foreground, waiting blue, done a plain solid green.
    No check glyph and no animation on any state — the colour alone carries the state. */
-.ball .core { border: 1.5px solid var(--fg-3); background: transparent; }
+.ball .core { width: 14px; height: 14px; border: 1.5px solid var(--fg-3); background: transparent; }
 .ball.working .core { border: 0; background: var(--fg); }
 .ball.blocked .core { border: 0; background: var(--task-blocked-color); }
 .ball.needs_input .core { border: 0; background: var(--task-needs-input-color); }
