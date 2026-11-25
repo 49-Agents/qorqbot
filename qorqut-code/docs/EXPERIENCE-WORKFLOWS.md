@@ -95,7 +95,7 @@ Settings (environment of the service):
 | `QORQUT_EXPERIENCE_TIMEZONE` | not set | The zone the two times are in (IANA name). |
 
 The times are in the owner's time zone (`runs.zone_name`). It is the first of these that names a real zone:
-`QORQUT_EXPERIENCE_TIMEZONE`, the installation's `QORQUT_TIMEZONE`, the zone of the computer the service runs on (`TZ`,
+`QORQUT_EXPERIENCE_TIMEZONE`, the owner's timezone setting, the installation's `QORQUT_TIMEZONE`, the zone of the computer the service runs on (`TZ`,
 then what the system says), and UTC when none does. The Runs tab shows the zone in use.
 
 `experience_run_request` queues a run now, outside the schedule (owner, Ordubashy or the Learning Applier).

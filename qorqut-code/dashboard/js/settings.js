@@ -55,7 +55,9 @@ async function renderSettings(c) {
         help: 'Show Overseer in the Global agent roster and enable its chat and workspace. Also shows the Timeline, Journal and Files views in Ordubashy’s pane. Off by default.<span class="set-testing-note" id="set-testing-note" role="status"></span>',
         control: `<label class="set-switch" for="set-testing-toggle"><input type="checkbox" id="set-testing-toggle" role="switch" aria-label="Testing mode" disabled><span class="set-switch-track" aria-hidden="true"></span><span class="set-switch-label" id="set-testing-state">Loading…</span></label>`,
         attrs: 'data-testing-mode'}), 'experimental testing mode') : ''}`,
-    appearance: settingsGroup('Display', `${settingsRow({label: 'Theme', keywords: 'dark light system mode color colour', help: 'System follows your computer’s light or dark setting.',
+    appearance: (global ? settingsGroup('Timezone', settingsRow({label: 'Timezone', keywords: 'time zone clock calendar reminders utc offset',
+        help: 'The one clock for the whole installation: calendar, Focus, reminders and the times agents are told. <span id="set-timezone-note" role="status"></span>',
+        control: `<input class="inp" id="set-timezone" list="set-timezone-list" value="${esc(SJ_ZONE)}" autocomplete="off" spellcheck="false" aria-label="Timezone"><datalist id="set-timezone-list">${ownerTimezoneZones().map(zone => `<option value="${esc(zone)}">${esc(ownerTimezoneOffset(zone))}</option>`).join('')}</datalist>`}), 'timezone clock') : '') + settingsGroup('Display', `${settingsRow({label: 'Theme', keywords: 'dark light system mode color colour', help: 'System follows your computer’s light or dark setting.',
         control: settingsChoice('theme', [['dark', 'Dark'], ['light', 'Light'], ['system', 'System']], look.theme)})}
       ${settingsRow({label: 'Text size', keywords: 'font zoom bigger smaller scale', help: 'Scales the whole dashboard.',
         control: settingsChoice('textSize', [['small', 'Small'], ['default', 'Default'], ['large', 'Large']], look.textSize)})}
@@ -167,6 +169,20 @@ async function renderSettings(c) {
     appearance.set({[button.dataset.choice]: button.dataset.value});
     button.parentElement.querySelectorAll('[role="radio"]').forEach(other => other.setAttribute('aria-checked', String(other === button)));
   }));
+  // Timezone: saved when the field changes to an installed zone; applies here at once.
+  const zoneInput = pane.querySelector('#set-timezone'), zoneNote = pane.querySelector('#set-timezone-note');
+  if (zoneInput) {
+    const paintZone = () => { zoneNote.textContent = ownerTimezoneOffset(SJ_ZONE) ? '(' + ownerTimezoneOffset(SJ_ZONE) + ' now)' : ''; zoneNote.classList.remove('error'); };
+    paintZone();
+    zoneInput.addEventListener('change', async () => {
+      const zone = zoneInput.value.trim();
+      if (zone === SJ_ZONE) return;
+      zoneInput.disabled = true;
+      try { await ownerTimezoneSave(zone); paintZone(); toast('Timezone set to ' + SJ_ZONE + '.'); }
+      catch (error) { zoneInput.value = SJ_ZONE; zoneNote.textContent = uiFailure(error); zoneNote.classList.add('error'); }
+      zoneInput.disabled = false;
+    });
+  }
   // Notifications
   const notifyStatus = () => {
     const el = pane.querySelector('[data-notify-status]'); if (!el) return;

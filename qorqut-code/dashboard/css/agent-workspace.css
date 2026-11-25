@@ -67,6 +67,8 @@
 .agent-workspace-app .agfocus .attention-chip .identity-avatar,
 .agent-workspace-app .agfocus .attention-signoff { border:0; background:none; box-shadow:none; }
 .agent-workspace-app .agfocus .attention-chip svg { width:19px; height:19px; }
+.agent-workspace-app .agfocus .attention-queue .agfocus-surfaces .agfocus-surface-chip { width:40px; height:40px; min-height:40px; padding:8px; border-radius:5px; zoom:.9; }
+.agent-workspace-app .agfocus .attention-queue .agfocus-surfaces .agfocus-surface-chip svg { width:18px; height:18px; }
 .agent-workspace-app .agfocus .attention-empty { padding:12px 0; }
 .agent-workspace-app .agfocus .agfocus-card { border-radius:0; }
 .agent-workspace-app .agfocus { --agfocus-lead:16px; --agfocus-marker:20px; --agfocus-gap:11px; }

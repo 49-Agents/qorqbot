@@ -79,11 +79,14 @@ def system_zone() -> str | None:
 
 def zone_name(environ=None, system=system_zone) -> str:
     """The time zone the two scheduled times are in: the owner's. The first of these that names a real zone:
-    ``QORQUT_EXPERIENCE_TIMEZONE``, the installation's ``QORQUT_TIMEZONE``, this computer's own zone (``TZ``, then what the
+    ``QORQUT_EXPERIENCE_TIMEZONE``, the owner's timezone setting, the installation's ``QORQUT_TIMEZONE``, this computer's own zone (``TZ``, then what the
     system says), and UTC when none does. The installation's zone alone would not do: it is UTC wherever it was never set,
     and 03:00 UTC is not the owner's night."""
     environ = os.environ if environ is None else environ
-    for source, read in (*((name, environ.get) for name in ZONE_ENVIRONMENT), ('the system', lambda _: system())):
+    from qorqut_operations import local_time
+    sources = [('QORQUT_EXPERIENCE_TIMEZONE', environ.get), ("the owner's Settings timezone", lambda _: local_time.owner_timezone()),
+               *((name, environ.get) for name in ZONE_ENVIRONMENT[1:]), ('the system', lambda _: system())]
+    for source, read in sources:
         value = (read(source) or '').strip().lstrip(':')
         if not value:
             continue
@@ -144,9 +147,8 @@ class Runs:
 
     @property
     def zone(self):
-        if self._zone is None:
-            self._zone = zone_name(self._environ)
-        return self._zone
+        # Not kept: the owner can change the timezone setting while the service runs.
+        return self._zone if self._zone is not None else zone_name(self._environ)
 
     def schedules(self) -> dict:
         return schedules(self._environ)

@@ -362,7 +362,7 @@
 .task-overview-text{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--fg)}
 
 .task-type-icon{display:inline-block;flex:none;width:18px;height:18px;vertical-align:middle;margin-right:6px;background:var(--fg-2);mask-position:center;mask-repeat:no-repeat;mask-size:contain}
-.task-type-icon-story{mask-image:url('/icons/task-types/story.svg');opacity:.5}
+.task-type-icon-story{mask-image:url('/icons/task-types/story.svg')}
 .task-type-icon-email{mask-image:url('/icons/task-types/email.svg')}
 .task-type-icon-customer{mask-image:url('/icons/task-types/customer.svg')}
 .task-type-marker{display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px}

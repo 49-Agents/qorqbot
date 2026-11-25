@@ -412,7 +412,7 @@ class ActionOperations:
     # -- reads -----------------------------------------------------------------------------------------------------
 
     def time_view(self):
-        return {"timezone": local_time.TIMEZONE, "now": local_time.now_view(self.clock)}
+        return {"timezone": local_time.current_timezone(), "now": local_time.now_view(self.clock)}
 
     # Newest occurrence first. Day-only entries have unknown intra-day order: they sort after that day's timed entries,
     # by identity, never by their midnight anchor.
@@ -578,7 +578,7 @@ class ActionOperations:
         return {"categories": [{"id": category, "label": category} for category in CATEGORIES],
                 "unclassified": "Unclassified (no category) is available for owner capture only",
                 "agent_word_limit": models.AGENT_WORD_LIMIT, "text_max_characters": models.TEXT_LIMIT,
-                "real_time": {"formats": ["YYYY-MM-DD", "YYYY-MM-DDTHH"], "zone": local_time.TIMEZONE,
+                "real_time": {"formats": ["YYYY-MM-DD", "YYYY-MM-DDTHH"], "zone": local_time.current_timezone(),
                               "omitted": "now (server clock)", "future": "rejected",
                               "nonexistent_hour": "rejected", "repeated_hour": "first occurrence"},
                 "sharing": models.SHARING, "tags": {"source": "catalog", "operation": "tags_list"},

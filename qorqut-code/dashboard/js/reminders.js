@@ -8,7 +8,8 @@ const remId = reminder => reminder?.reminder_id ?? reminder?.id ?? null;
 // Legacy plain results carry `id`; keep one shape for the views below.
 const remNormalize = reminder => reminder ? {...reminder, reminder_id: remId(reminder)} : reminder;
 const remMutable = reminder => !!remId(reminder) && reminder.revision != null && ['scheduled', 'due'].includes(reminder.state);
-const remZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (_) { return 'UTC'; } };
+// The installation's one clock (Settings > Timezone), never the browser's own zone.
+const remZone = () => SJ_ZONE;
 const remSelf = () => state.session?.principal_id || null;
 const remIsManager = () => state.session?.is_owner === true;
 
@@ -23,17 +24,25 @@ async function remCall(reminder, op, args = {}, project = null) {
 }
 
 const remPad = n => String(n).padStart(2, '0');
-// datetime-local text -> ISO 8601 with the browser's explicit offset for that wall time.
-function remOffsetISO(local) {
-  const date = new Date(local);
-  if (!local || !Number.isFinite(date.getTime())) return null;
-  const offset = -date.getTimezoneOffset(), sign = offset < 0 ? '-' : '+', abs = Math.abs(offset);
-  return `${local.length === 16 ? local + ':00' : local}${sign}${remPad(Math.floor(abs / 60))}:${remPad(abs % 60)}`;
+// datetime-local text is a wall time in the app zone -> the instant it names, or null (invalid, or skipped by a DST gap).
+function remInstant(local) {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(String(local || ''));
+  const at = match ? sjInstant(match[1], Number(match[2]), Number(match[3])) : new Date(NaN);
+  return Number.isFinite(at.getTime()) ? at : null;
 }
+// datetime-local text -> ISO 8601 with the app zone's explicit offset for that wall time.
+function remOffsetISO(local) {
+  const at = remInstant(local);
+  if (!at) return null;
+  const shown = sjParts(at), wall = Date.UTC(+shown.date.slice(0, 4), +shown.date.slice(5, 7) - 1, +shown.date.slice(8, 10), shown.hour, +shown.time.slice(3));
+  const offset = Math.round((wall - at.getTime()) / 60000), sign = offset < 0 ? '-' : '+', abs = Math.abs(offset);
+  return `${shown.date}T${shown.time}:00${sign}${remPad(Math.floor(abs / 60))}:${remPad(abs % 60)}`;
+}
+// An instant -> datetime-local text in the app zone.
 function remLocalInput(value) {
   const date = new Date(value);
   if (!value || !Number.isFinite(date.getTime())) return '';
-  return `${date.getFullYear()}-${remPad(date.getMonth() + 1)}-${remPad(date.getDate())}T${remPad(date.getHours())}:${remPad(date.getMinutes())}`;
+  return `${sjDate(date)}T${sjTime(date)}`;
 }
 function remFormatTime(value) { return relativeDueTime(value); }
 // Simple daily/weekly schedules map onto the existing five-field cron; anything else is edited as custom cron.
@@ -153,7 +162,7 @@ function remSnoozeTime(option, now = new Date()) {
   const next = new Date(now); next.setHours(9, 0, 0, 0); next.setDate(next.getDate() + (option === 'week' ? 7 : 1));
   return next;
 }
-const remInputOf = date => `${date.getFullYear()}-${remPad(date.getMonth() + 1)}-${remPad(date.getDate())}T${remPad(date.getHours())}:${remPad(date.getMinutes())}`;
+const remInputOf = date => remLocalInput(date);
 
 // ---------------------------------------------------------------- detail (shared by modal and record reader)
 // Controller for one reminder. `opts.onChange(reminder|null, op)` runs after an applied or refreshed result.
@@ -303,7 +312,7 @@ function remindersDetailMount(host, initial, opts = {}) {
     const custom = node('div', 'rem-snooze-custom');
     const input = node('input', 'inp'); input.type = 'datetime-local'; input.setAttribute('aria-label', 'Snooze until'); input.value = remInputOf(remSnoozeTime('1h'));
     const go = node('button', 'quiet', 'Snooze'); go.type = 'button'; go.disabled = busy;
-    go.onclick = () => choose(new Date(input.value));
+    go.onclick = () => choose(remInstant(input.value) || new Date(NaN));
     custom.append(input, go);
     picker.append(custom);
     return picker;
