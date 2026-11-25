@@ -57,11 +57,13 @@ test('rendered times, columns, provider ranges and navigation follow UTC in diff
         try {
           assert.equal(await page.locator('.calendar-clock').textContent(),'2:54 AM');
           assert.equal(await page.locator('.calendar-clock').getAttribute('title'),'UTC');
-          assert.deepEqual(await page.locator('.calendar-dayheads .calendar-dayhead-name').allTextContents(),['Wed','Thu','Fri']);
-          assert.deepEqual(await page.locator('.calendar-dayheads .calendar-dayhead-num').allTextContents(),['11','12','13']);
+          // Week view is the default on a wide pane and starts on Monday.
+          assert.deepEqual(await page.locator('.calendar-dayheads .calendar-dayhead-name').allTextContents(),['Mon','Tue','Wed','Thu','Fri','Sat','Sun']);
+          assert.deepEqual(await page.locator('.calendar-dayheads .calendar-dayhead-num').allTextContents(),['9','10','11','12','13','14','15']);
           assert.equal(await page.locator('.calendar-dayhead.is-today .calendar-dayhead-num').textContent(),'11');
-          assert.equal(await page.locator('.calendar-range').textContent(),'11 – 13 November');
-          assert.equal(await page.locator('[data-calendar-today]').getAttribute('aria-pressed'),'true');
+          assert.equal(await page.locator('.calendar-range').textContent(),'9 – 15 November');
+          assert.deepEqual(await page.locator('[data-calendar-view]').evaluateAll(list=>list.map(b=>b.textContent)),['Day','Week']);
+          for (const gone of ['today','refresh','add']) assert.equal(await page.locator(`[data-calendar-${gone}]`).count(),0);
           const block = page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-event').filter({hasText:'Planning session'});
           assert.equal(await block.count(),1);
           assert.deepEqual(await block.evaluate(el=>({top:getComputedStyle(el).top,height:getComputedStyle(el).height})),{top:'128px',height:'192px'});
@@ -72,25 +74,41 @@ test('rendered times, columns, provider ranges and navigation follow UTC in diff
           assert.equal(await page.locator('.calendar-source').getAttribute('data-calendar-tone'),'0');
           assert.equal(await page.locator('.calendar-source-name').textContent(),'Work');
           assert.equal(await page.locator('.calendar-tick').first().textContent(),'12 AM');
+          // The grid always shows the whole day, whatever the events.
+          assert.equal(await page.locator('.calendar-tick').count(),24);
+          assert.equal(await page.locator('.calendar-tick').last().textContent(),'11 PM');
+          assert.equal(await page.locator('.calendar-day').first().evaluate(el=>el.offsetHeight),24*64);
           // The now line sits on today's column at 2:54 on a grid that starts at midnight.
           assert.equal(await page.locator('.calendar-now').count(),1);
           assert.equal(await page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-now').evaluate(el=>el.style.top),`${2.9*64}px`);
-          assert.equal(await page.locator('.calendar-all-day-cell').nth(0).textContent(),'Veterans Day');
+          assert.equal(await page.locator('.calendar-all-day-cell').nth(2).textContent(),'Veterans Day');
           const reads = await page.evaluate(()=>calls.filter(c=>c.url.endsWith('calendar_events_list')).map(c=>[c.args.start,c.args.end]));
-          assert.ok(reads.some(([start,end])=>start==='2026-11-11T00:00:00.000Z' && end==='2026-11-14T00:00:00.000Z'));
-          await page.locator('[data-calendar-view="7"]').click();
+          assert.ok(reads.some(([start,end])=>start==='2026-11-09T00:00:00.000Z' && end==='2026-11-16T00:00:00.000Z'));
           assert.equal(await page.locator('[data-calendar-view="7"]').getAttribute('aria-pressed'),'true');
-          assert.equal(await page.locator('.calendar-day').last().getAttribute('data-calendar-day'),'2026-11-17');
+          assert.equal(await page.locator('.calendar-day').last().getAttribute('data-calendar-day'),'2026-11-15');
+          // The mini month marks today with a dot and outlines the week as one range.
+          assert.equal(await page.locator('.calendar-monthday.is-today').getAttribute('data-calendar-date'),'2026-11-11');
+          assert.equal(await page.locator('.calendar-monthday.is-today').evaluate(el=>getComputedStyle(el,'::after').width),'3px');
+          assert.deepEqual(await page.locator('.calendar-monthday.in-range').evaluateAll(list=>list.map(b=>b.dataset.calendarDate)),
+            ['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-14','2026-11-15']);
+          assert.equal(await page.locator('.calendar-monthday.range-start').count(),1);
+          assert.equal(await page.locator('.calendar-monthday.range-end').count(),1);
           await page.locator('[data-calendar-next]').click();
-          assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-11-18');
+          assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-11-16');
           assert.equal(await page.locator('.calendar-now').count(),0);
-          assert.equal(await page.locator('[data-calendar-today]').getAttribute('aria-pressed'),'false');
           await page.locator('[data-month-next]').click();
+          // A day chosen in the mini month opens as a Day view.
           await page.locator('[data-calendar-date="2026-12-01"]').click();
+          assert.equal(await page.locator('.calendar-day').count(),1);
           assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-12-01');
-          assert.equal(await page.locator('.calendar-dayhead-name').first().textContent(),'Tue');
-          await page.locator('[data-calendar-today]').click();
-          assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-11-11');
+          assert.equal(await page.locator('[data-calendar-view="1"]').getAttribute('aria-pressed'),'true');
+          assert.equal(await page.locator('.calendar-monthday.in-range').count(),1);
+          await page.locator('[data-calendar-view="7"]').click();
+          assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-11-30');
+          assert.equal(await page.locator('.calendar-dayhead-name').first().textContent(),'Mon');
+          // A Monday-first week is one row of the mini month, cut at the month edge (30 November is not shown).
+          assert.equal(await page.locator('.calendar-monthday.in-range').count(),6);
+          assert.equal(await page.locator('.calendar-monthday.range-start').count(),1);
           assert.deepEqual(errors,[]);
         } finally { await context.close(); }
       }
@@ -103,12 +121,12 @@ test('a UTC browser renders app-local overnight segments on their correct dates'
     try {
       const {page,errors} = await fixture(browser,'UTC','America/New_York');
       assert.equal(await page.locator('.calendar-clock').textContent(),'9:54 PM');
-      assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-11-10');
+      assert.equal(await page.locator('.calendar-day').first().getAttribute('data-calendar-day'),'2026-11-09');
       const block = page.locator('.calendar-day[data-calendar-day="2026-11-10"] .calendar-event').filter({hasText:'Planning session'});
       assert.match(await block.getAttribute('title'),/9:00 PM – 12:00 AM/);
       assert.equal(await page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-event').count(),0);
-      assert.equal(await page.locator('.calendar-all-day-cell').nth(1).textContent(),'Veterans Day');
-      assert.equal(await page.evaluate(()=>calls.find(c=>c.url.endsWith('calendar_events_list')).args.start),'2026-11-10T05:00:00.000Z');
+      assert.equal(await page.locator('.calendar-all-day-cell').nth(2).textContent(),'Veterans Day');
+      assert.equal(await page.evaluate(()=>calls.find(c=>c.url.endsWith('calendar_events_list')).args.start),'2026-11-09T05:00:00.000Z');
       assert.deepEqual(errors,[]);
     } finally { await browser.close(); }
   });

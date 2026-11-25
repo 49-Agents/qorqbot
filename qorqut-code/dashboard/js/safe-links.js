@@ -77,6 +77,16 @@ function safeLinkUrl(raw) {
   } catch (error) { return null; }
 }
 
+// The raster source for a `![caption](path)` whose safe href is an in-app file viewer link to a PNG/JPEG/GIF/WEBP; otherwise null.
+// External image URLs are never loaded: they stay ordinary links.
+function safeImageSrc(href) {
+  const match = /^\/files\/view(\?[^#]*)$/.exec(href);
+  if (!match) return null;
+  let path = '';
+  try { path = new URLSearchParams(match[1]).get('path') || ''; } catch (_) { return null; }
+  return /\.(?:png|jpe?g|gif|webp)$/i.test(path) ? `/api/root/files/image${match[1]}` : null;
+}
+
 function renderSafeLinks(text) {
   const source = String(text ?? "");
   let html = "", last = 0;
@@ -85,8 +95,10 @@ function renderSafeLinks(text) {
     const shown = bare ? bare.replace(/[.,;:!?)\]}]+$/, "") : label.replace(/\\([\\\[\]`*_<>])/g, "$1");
     const href = safeLinkUrl(bare ? shown : target);
     if (!href) continue;
-    html += safeLinkEsc(source.slice(last, match.index))
-      + `<a class="safe-link" href="${safeLinkEsc(href)}" target="_blank" rel="noopener noreferrer">${safeLinkEsc(shown)}</a>`;
+    const image = !bare && whole.startsWith('!') ? safeImageSrc(href) : null;
+    html += safeLinkEsc(source.slice(last, match.index)) + (image
+      ? `<a class="safe-link safe-image-link" href="${safeLinkEsc(href)}" target="_blank" rel="noopener noreferrer"><img class="safe-image" src="${safeLinkEsc(image)}" alt="${safeLinkEsc(shown)}" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a>`
+      : `<a class="safe-link" href="${safeLinkEsc(href)}" target="_blank" rel="noopener noreferrer">${safeLinkEsc(shown)}</a>`);
     last = match.index + (bare ? shown.length : whole.length);
   }
   return html + safeLinkEsc(source.slice(last));
@@ -107,3 +119,13 @@ function plainSafeLinks(text) {
     if ((event.key === "Enter" || event.key === " ") && onLink(event)) event.stopPropagation();
   }, true);
 })();
+
+// A picture that cannot load becomes its caption as an ordinary link to the same file.
+document.addEventListener("error", event => {
+  const img = event.target;
+  if (!(img instanceof HTMLImageElement) || !img.classList.contains("safe-image")) return;
+  const link = img.closest("a.safe-image-link");
+  if (!link) return;
+  link.classList.remove("safe-image-link");
+  link.textContent = img.alt;
+}, true);

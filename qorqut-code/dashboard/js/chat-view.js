@@ -39,7 +39,7 @@ const chatViewInline = text => {
   text.split(/(`[^`\n]+`)/g).forEach(part => {
     if (part.length > 2 && part[0] === '`' && part.endsWith('`')) { html += `<code>${esc(part.slice(1, -1))}</code>`; return; }
     // Links come from the one shared renderer; emphasis is applied only outside the anchors it produced.
-    html += renderSafeLinks(part).split(/(<a class="safe-link"[^>]*>[^<]*<\/a>)/g).map((piece, index) => index % 2 ? piece : piece
+    html += renderSafeLinks(part).split(/(<a class="safe-link"[^>]*>(?:<img [^>]*>|[^<]*)<\/a>)/g).map((piece, index) => index % 2 ? piece : piece
       .replace(/\*\*(?=\S)([^*\n]+?)(?<=\S)\*\*/g, '<strong>$1</strong>')
       .replace(/(^|[^*\w])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![*\w])/g, '$1<em>$2</em>')).join('');
   });
@@ -201,6 +201,7 @@ function chatViewReferenceChips(body, {includeExternalLinks = true} = {}) {
   chips.className = 'gchat-references';
   let run = null;
   for (const link of body.querySelectorAll('a.safe-link')) {
+    if (link.classList.contains('safe-image-link')) continue; // already shown inline
     const target = chatViewReferenceTarget(link.href);
     if (!target || (!includeExternalLinks && !target.viewer) || seen.has(target.url.href)) continue;
     seen.add(target.url.href);
@@ -1364,6 +1365,15 @@ function mountChatView(host, options = {}) {
   }
 
   // ---- interaction
+  // An inline picture opens the same image preview as an Image reference card. (safe-links.js stops these clicks
+  // at the document's capture phase, so this listens there too.)
+  listen(document, 'click', event => {
+    const link = event.target instanceof Element && event.target.closest('a.safe-image-link');
+    if (!link || !root.contains(link) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    event.preventDefault();
+    const fake = {dataset: {previewHref: link.href, previewTitle: link.querySelector('img')?.alt || 'Image'}, isConnected: true, focus() { link.focus({preventScroll: true}); }};
+    openPreview(fake);
+  }, true);
   listen(root, 'click', event => {
     const copy = event.target.closest('.gchat-copy');
     if (copy) {

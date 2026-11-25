@@ -248,7 +248,8 @@ class HTTPAPI:
             global_owner = bool(installation and installation["owner_principal_id"] == actor.principal.id)
         return {"principal_id": actor.principal.id, "principal_kind": "human", "display_name": actor.principal.display_name,
                 "is_owner": global_owner, "is_installation_owner": global_owner,
-                "operational_timezone": local_time.TIMEZONE}
+                "operational_timezone": local_time.current_timezone(),
+                "operational_timezone_source": local_time.timezone_source()}
 
     @staticmethod
     def _transport_operation(request):
@@ -587,6 +588,22 @@ class HTTPAPI:
                 if body is not None and not isinstance(body, dict):
                     raise DomainError("validation_error", "Testing mode must be an object")
                 data = await anyio.to_thread.run_sync(partial(testing_mode, self.runtime.paths.runtime, actor.principal.id, body))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
+            if parts == ["root", "operational-timezone"] and request.method in {"GET", "POST"}:
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "The timezone is for the owner's dashboard")
+                from qorqut.dashboard_preferences import operational_timezone
+                body = await read_json(request, limit=65536) if request.method == "POST" else None
+                if body is not None and not isinstance(body, dict):
+                    raise DomainError("validation_error", "The timezone must be an object")
+                if body is not None:
+                    with self.runtime.database.read() as uow:
+                        installation = uow.repository("installation").get("service")
+                    if not installation or installation["owner_principal_id"] != actor.principal.id:
+                        raise DomainError("forbidden", "Only the installation owner sets the timezone")
+                data = await anyio.to_thread.run_sync(partial(operational_timezone, self.runtime.paths.runtime, body))
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result

@@ -49,7 +49,7 @@ class Report:
     def __init__(self, runtime, uow, run, *, zone=None):
         self.runtime, self.uow, self.run = runtime, uow, run
         self.connection = uow.connection
-        self.zone = zone_of(zone or local_time.TIMEZONE)
+        self.zone = zone_of(zone or local_time.current_timezone())
         self.ctx = coordinator_context(runtime.application, uow)
         self.owner = installation_owner(uow)
         self.reading = _Reading(runtime.owner_inputs, self.ctx, uow, self.owner, self.ctx.principal_id)

@@ -28,6 +28,7 @@ async function fixture(run) {
       window.post = async (url, args) => { if (/reminders_(create|update)$/.test(url)) writes.push({url, args: {...args}}); return {reminder: {id: 'r1', text: args.text || 'x', revision: 2}}; };
       window.session = {setTitle() {}, setBeforeLeave() {}, onDispose() {}, isCurrent: () => true};
     }, PROJECT);
+    await page.addScriptTag({path: path.join(root, 'js/san-juan-time.js')});
     await page.addScriptTag({path: path.join(root, 'js/reminders.js')});
     await run(page);
   } finally { await browser.close(); }

@@ -17,12 +17,65 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from qorqut_operations.contracts import DomainError
 
-TIMEZONE = os.environ.get("QORQUT_TIMEZONE", "UTC")
+ENVIRONMENT_TIMEZONE = os.environ.get("QORQUT_TIMEZONE", "UTC")
 try:
-    ZONE = ZoneInfo(TIMEZONE)
+    ZoneInfo(ENVIRONMENT_TIMEZONE)
 except (ValueError, ZoneInfoNotFoundError) as exc:
     raise ValueError("QORQUT_TIMEZONE must name an installed IANA timezone, for example UTC") from exc
-LABEL = TIMEZONE + " time"
+# The owner's choice (Settings) comes first, then QORQUT_TIMEZONE, then UTC. It changes at runtime, so every reader asks
+# ``current_zone()``/``current_timezone()``/``current_label()`` instead of keeping a copy.
+_owner = {"name": None}
+
+
+def valid_zone(name):
+    """The installed IANA zone named ``name``, or a DomainError. Names that only resolve to a file path are refused."""
+    if (isinstance(name, str) and name == name.strip() and 0 < len(name) <= 64 and re.fullmatch(r"[A-Za-z0-9_+\-]+(/[A-Za-z0-9_+\-]+){0,2}", name)):
+        try:
+            ZoneInfo(name)
+            return name
+        except (ValueError, ZoneInfoNotFoundError, OSError):
+            pass
+    raise DomainError("validation_error", "timezone must name an installed IANA timezone, for example America/Puerto_Rico",
+                      field_errors={"timezone": "unknown timezone"})
+
+
+def set_owner_timezone(name):
+    """Apply (or with None, clear) the owner's chosen zone to this process at once."""
+    _owner["name"] = None if name is None else valid_zone(name)
+
+
+def owner_timezone():
+    return _owner["name"]
+
+
+def timezone_source():
+    """Where the effective zone comes from: ``owner``, ``environment`` (QORQUT_TIMEZONE set) or ``default``."""
+    if _owner["name"]:
+        return "owner"
+    return "environment" if "QORQUT_TIMEZONE" in os.environ else "default"
+
+
+def current_timezone():
+    return _owner["name"] or ENVIRONMENT_TIMEZONE
+
+
+def current_zone():
+    return ZoneInfo(current_timezone())
+
+
+def current_label():
+    return current_timezone() + " time"
+
+
+def __getattr__(name):
+    # Compatibility for ``local_time.TIMEZONE``/``ZONE``/``LABEL`` attribute reads: always the live value. A
+    # ``from local_time import ZONE`` still copies the value of that moment, so callers use the getters.
+    getters = {"TIMEZONE": current_timezone, "ZONE": current_zone, "LABEL": current_label}
+    if name in getters:
+        return getters[name]()
+    raise AttributeError(name)
+
+
 REAL_TIME = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}))?$")
 REAL_TIME_SCHEMA = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}(T\d{2})?$",
                     "description": instruction_text('local-time-optional-occurrence-in-the-installation-timezone-returned')}
@@ -42,7 +95,7 @@ def instant(value):
 
 def local(value, zone=None):
     parsed = instant(value)
-    return parsed.astimezone(zone or ZONE) if parsed else None
+    return parsed.astimezone(zone or current_zone()) if parsed else None
 
 
 def local_date(value, zone=None):
@@ -60,7 +113,7 @@ def today(clock):
     now = clock()
     if isinstance(now, str):
         now = instant(now)
-    return now.astimezone(ZONE).date()
+    return now.astimezone(current_zone()).date()
 
 
 def utc_text(value):
@@ -72,24 +125,24 @@ def now_view(clock):
     now = clock()
     if isinstance(now, str):
         now = instant(now)
-    here = now.astimezone(ZONE)
-    return {"timezone": TIMEZONE, "label": LABEL, "server_instant": utc_text(now),
+    here = now.astimezone(current_zone())
+    return {"timezone": current_timezone(), "label": current_label(), "server_instant": utc_text(now),
             "local_date": here.date().isoformat(), "local_hour": here.hour, "utc_offset": here.strftime("%z")}
 
 
 def _exists(wall):
     # Attaching ZoneInfo alone accepts imaginary times. A UTC round trip verifies the wall fields.
-    return wall.astimezone(timezone.utc).astimezone(ZONE).replace(tzinfo=None) == wall.replace(tzinfo=None)
+    return wall.astimezone(timezone.utc).astimezone(current_zone()).replace(tzinfo=None) == wall.replace(tzinfo=None)
 
 
 def _day_start(local_day):
     """First real minute of a local date, including zones whose DST gap starts at midnight."""
-    midnight = datetime(local_day.year, local_day.month, local_day.day, tzinfo=ZONE)
+    midnight = datetime(local_day.year, local_day.month, local_day.day, tzinfo=current_zone())
     for minutes in range(24 * 60):
         candidate = midnight + timedelta(minutes=minutes)
         if _exists(candidate):
             return candidate
-    raise DomainError("validation_error", "This calendar date does not exist in " + TIMEZONE,
+    raise DomainError("validation_error", "This calendar date does not exist in " + current_timezone(),
                       field_errors={"real_time": "nonexistent date"})
 
 
@@ -97,7 +150,7 @@ def parse_real_time(value, clock):
     """Validate an operational day/hour. DST folds select the first occurrence; gaps are refused."""
     match = REAL_TIME.fullmatch(value) if isinstance(value, str) else None
     if not match:
-        raise DomainError("validation_error", "real_time must be YYYY-MM-DD or YYYY-MM-DDTHH in " + TIMEZONE,
+        raise DomainError("validation_error", "real_time must be YYYY-MM-DD or YYYY-MM-DDTHH in " + current_timezone(),
                           field_errors={"real_time": "invalid format"})
     year, month, day_, hour = match.groups()
     try:
@@ -110,17 +163,17 @@ def parse_real_time(value, clock):
     now = clock()
     if isinstance(now, str):
         now = instant(now)
-    here = now.astimezone(ZONE)
+    here = now.astimezone(current_zone())
     start = (_day_start(local_day) if hour is None else
-             datetime(local_day.year, local_day.month, local_day.day, int(hour), tzinfo=ZONE, fold=0))
+             datetime(local_day.year, local_day.month, local_day.day, int(hour), tzinfo=current_zone(), fold=0))
     if not _exists(start):
-        raise DomainError("validation_error", "This local hour does not exist in " + TIMEZONE,
+        raise DomainError("validation_error", "This local hour does not exist in " + current_timezone(),
                           field_errors={"real_time": "nonexistent hour"})
     if local_day > here.date() or (hour is not None and start.astimezone(timezone.utc) > now.astimezone(timezone.utc)):
-        raise DomainError("validation_error", "real_time cannot be in the future (" + TIMEZONE + ")",
+        raise DomainError("validation_error", "real_time cannot be in the future (" + current_timezone() + ")",
                           field_errors={"real_time": "future"})
     return {"real_date": local_day.isoformat(), "real_hour": None if hour is None else int(hour),
-            "time_precision": "hour" if hour is not None else "day", "time_zone": TIMEZONE,
+            "time_precision": "hour" if hour is not None else "day", "time_zone": current_timezone(),
             # Index anchor only: the start of that local day/hour, never shown as an exact time.
             "occurred_at": utc_text(start)}
 
@@ -131,7 +184,7 @@ def recorded_time(recorded_at):
     if here is None:
         raise DomainError("validation_error", "Occurrence requires a timestamp with an explicit offset")
     return {"real_date": here.date().isoformat(), "real_hour": here.hour, "time_precision": "instant",
-            "time_zone": TIMEZONE, "occurred_at": recorded_at}
+            "time_zone": current_timezone(), "occurred_at": recorded_at}
 
 
 def day_bounds(local_day):

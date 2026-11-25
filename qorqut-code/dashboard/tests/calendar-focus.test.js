@@ -105,21 +105,22 @@ test('editing app-local times preserves unchanged instants and the provider recu
   assert.equal(changes.timezone,'America/Los_Angeles');
 });
 
-test('new timed events use the app zone and invalid DST times never reach the provider', async () => {
+test('edited timed events use the app zone and invalid DST times never reach the provider', async () => {
   const h = harness(); h.context.calendars = [h.calendar];
+  h.context.event = {...h.occurrence,start:'2026-03-08T15:00:00Z',end:'2026-03-08T16:00:00Z',timezone:'America/New_York'};
   h.run("sjConfigure('America/New_York')");
-  await h.run("calendarEdit(null,calendars,()=>{},'2026-03-08')"); await h.flush();
+  await h.run('calendarEdit(event,calendars,()=>{})'); await h.flush();
   const root = h.session.host.firstElementChild, f = root.form.elements;
-  assert.equal(f.start.value,'2026-03-08T10:00');
-  f.title.value = 'New'; f.start.value = '2026-03-08T02:30'; f.end.value = '2026-03-08T03:30';
+  assert.equal(f.start.value,'2026-03-08T11:00');
+  f.start.value = '2026-03-08T02:30'; f.end.value = '2026-03-08T03:30';
   await h.button('Save').onclick();
   assert.equal(h.calls.length,0);
   assert.match(root.error.textContent,/daylight-saving gap/);
-  f.start.value = '2026-03-08T03:00';
+  f.start.value = '2026-03-08T03:00'; f.end.value = '2026-03-08T04:00';
   await h.button('Save').onclick();
-  assert.equal(h.calls.at(-1).args.start,'2026-03-08T07:00:00.000Z');
-  assert.equal(h.calls.at(-1).args.end,'2026-03-08T07:30:00.000Z');
-  assert.equal(h.calls.at(-1).args.timezone,'America/New_York');
+  assert.equal(h.calls.at(-1).args.changes.start,'2026-03-08T07:00:00.000Z');
+  assert.equal(h.calls.at(-1).args.changes.end,'2026-03-08T08:00:00.000Z');
+  assert.equal(h.calls.at(-1).args.changes.timezone,'America/New_York');
 });
 
 test('detail, occurrence status, RSVP and pending navigation use Focus', async () => {
@@ -161,14 +162,7 @@ test('edit, dirty guard and delete cancellation stay within Focus without writes
   assert.equal(await h.session.close(),true); assert.equal(h.context.document.activeElement.focused,true);
 });
 
-test('new event opens and cancels read-only', async () => {
-  const h=harness(); h.context.calendars=[h.calendar];
-  await h.run('calendarEdit(null, calendars, () => {})'); await h.flush();
-  assert.equal(h.session.title,'Add event'); await h.button('Cancel').onclick();
-  assert.equal(h.session.isCurrent(),false); assert.equal(h.calls.length,0);
-});
-
-test('create and edit failures retain the form and exact provider target', async () => {
+test('edit failures retain the form and exact provider target', async () => {
   const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
   await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
   await h.button('Edit').onclick();
@@ -178,12 +172,6 @@ test('create and edit failures retain the form and exact provider target', async
   assert.equal(update.args.connection_id,'conn'); assert.equal(update.args.calendar_id,'cal'); assert.equal(update.args.event_id,'occ');
   assert.equal(h.session.title,'Edit event'); assert.match(h.session.host.firstElementChild.error.textContent,/intentionally rejected/);
   const close=h.session.close(); await h.flush(); h.choose('Discard changes'); await close;
-  await h.run('calendarEdit(null, calendars, () => {})'); await h.flush();
-  const form=h.session.host.firstElementChild.form;
-  form.elements.title.value='New'; form.elements.start.value='2026-11-05T10:00'; form.elements.end.value='2026-11-05T10:30';
-  await h.button('Save').onclick();
-  const create=h.calls.at(-1); assert.match(create.url,/calendar_event_create$/); assert.equal(create.args.connection_id,'conn'); assert.equal(create.args.calendar_id,'cal');
-  assert.equal(h.session.title,'Add event'); assert.match(h.session.host.firstElementChild.error.textContent,/intentionally rejected/);
   assert.equal(h.run('calendarWriteGeneration'),0);
 });
 
@@ -209,26 +197,20 @@ test('invalidation notifies mounted listeners and runs the refresh callback', as
 
 
 test('isolated successful writes invalidate and notify through each UI path', async () => {
-  for (const operation of ['calendar_event_create','calendar_event_update','calendar_event_delete','calendar_event_respond']) {
+  for (const operation of ['calendar_event_update','calendar_event_delete','calendar_event_respond']) {
     const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
     let notifications=0, callbacks=0;
     h.context.notify=()=>{notifications++;}; h.context.refresh=()=>{callbacks++;};
     h.run("calendarChanges.add(notify)");
     h.success(operation);
-    if (operation === 'calendar_event_create') {
-      await h.run('calendarEdit(null, calendars, refresh)'); await h.flush();
-      const form=h.session.host.firstElementChild.form;
-      form.elements.title.value='New'; form.elements.start.value='2026-11-05T10:00'; form.elements.end.value='2026-11-05T10:30';
-    } else {
-      await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, refresh)'); await h.flush();
-      if (operation === 'calendar_event_update') { await h.button('Edit').onclick(); h.session.host.firstElementChild.form.elements.title.value='Changed'; }
-      if (operation === 'calendar_event_delete') await h.button('Delete').onclick();
-    }
+    await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, refresh)'); await h.flush();
+    if (operation === 'calendar_event_update') { await h.button('Edit').onclick(); h.session.host.firstElementChild.form.elements.title.value='Changed'; }
+    if (operation === 'calendar_event_delete') await h.button('Delete').onclick();
     const label = operation === 'calendar_event_delete' ? 'Delete' : operation === 'calendar_event_respond' ? 'Accept' : 'Save';
     await h.button(label).onclick();
     assert.match(h.calls.at(-1).url,new RegExp(operation+'$'));
     assert.equal(h.calls.at(-1).args.connection_id,'conn'); assert.equal(h.calls.at(-1).args.calendar_id,'cal');
-    if (operation !== 'calendar_event_create') assert.equal(h.calls.at(-1).args.event_id,'occ');
+    assert.equal(h.calls.at(-1).args.event_id,'occ');
     assert.equal(notifications,1); assert.equal(callbacks,1); assert.equal(h.session.isCurrent(),false);
   }
 });
@@ -258,7 +240,7 @@ test('recovery respects fresh owner and preserves another unsaved edit', async (
   const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
   await h.run('calendarStatuses.refresh()'); await h.run('calendarOpen(event, calendars, () => {})'); await h.flush();
   await h.button('Delete').onclick(); await h.button('Delete').onclick(); await h.session.close();
-  await h.run('calendarEdit(null, calendars, () => {})'); await h.flush();
+  await h.run('calendarEdit(event, calendars, () => {})'); await h.flush();
   const root=h.session.host.firstElementChild; root.form.elements.title.value='Another draft';
   h.setOwner(null); const before=h.calls.length; await h.button('Save').onclick(); assert.equal(h.calls.length,before); assert.match(root.error.textContent,/owner session/i);
   h.setOwner('owner-b'); await root.review.onclick(); let panel=h.session.host.children.at(-1); assert.equal(panel.children[2].children.length,0); panel.children.at(-1).onclick();
@@ -268,18 +250,6 @@ test('recovery respects fresh owner and preserves another unsaved edit', async (
   h.success('calendar_event_delete'); await panel.children[2].children[0].children[1].onclick(); panel.children.at(-1).onclick();
   assert.equal(root.form.elements.title.value,'Another draft'); assert.equal(h.session.host.firstElementChild,root); assert.equal(h.run('calendarAttempts.size'),0);
 });
-
-test('matching uncertain creates require a choice and remain independent', async () => {
-  const h=harness(); h.context.calendars=[h.calendar];
-  const fill=()=>{const f=h.session.host.firstElementChild.form.elements; f.title.value='New'; f.start.value='2026-11-05T10:00'; f.end.value='2026-11-05T10:30';};
-  await h.run('calendarEdit(null, calendars, () => {})'); await h.flush(); fill(); await h.button('Save').onclick();
-  const first=h.calls.at(-1); assert.equal(h.run('calendarAttempts.size'),1);
-  const close=h.session.close(); await h.flush(); h.choose('Discard changes'); await close;
-  await h.run('calendarEdit(null, calendars, () => {})'); await h.flush(); fill();
-  const save=h.button('Save').onclick(); await h.flush(); assert.equal(h.calls.length,1); h.choose('Create separate event'); await save;
-  assert.equal(h.run('calendarAttempts.size'),2); assert.notEqual(h.calls.at(-1).args.idempotency_key,first.args.idempotency_key);
-});
-
 
 test('uncertain personal statuses remain separate for recurring occurrences', async () => {
   const h=harness(); h.context.event=h.occurrence; h.context.calendars=[h.calendar];
