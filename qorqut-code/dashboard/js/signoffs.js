@@ -860,7 +860,7 @@ function sgCreateView(options) {
     const canReview = expected(s) && verified && completePreview(s) && owner() && !sg.error && !error && !s.superseded_by_id;
     if (verified && !messageEdits.has(s.id) && !reviewEdits.has(s.id)) options.onSelectedItem?.(s);
     if (!detail.querySelector(".sg-preview")) {
-      detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-work" aria-label="Related work"></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
+      detail.innerHTML = `<div class="sg-detail-body"><div class="sg-detailnotice"></div><div class="sg-attention-meta"></div><div class="sg-email-context"></div><div class="sg-preview"></div><div class="sg-attachments" hidden></div><div class="sg-choices"></div><div class="sg-savedresponse"></div><div class="sg-work" aria-label="Related work"></div></div><div class="sg-detail-footer"><div class="sg-feedbackwrap"></div><div class="sg-actionarea"></div></div>`;
       if (!options.global && !options.inline) workRelatedChips(detail.querySelector('.sg-work'),sg.slug,'signoffs',s.id);
     }
     // A question once tied to an email conversation keeps a historical note; the conversation itself is never fetched.
@@ -883,6 +883,9 @@ function sgCreateView(options) {
     if(!messageEdits.has(s.id) || !detail.querySelector(".sg-message-editor"))html(detail.querySelector(".sg-preview"), sgEmailOutcomeHtml(s) + previewHtml(s));
     const reportTimeline = detail.querySelector('[data-report-timeline]');
     if (reportTimeline && !reportTimeline.dataset.mounted) void ownerTimelineReportMount(reportTimeline);
+    // The files, tables and records the text links to are shown under it; a compact chat or inline card keeps them as links.
+    if (typeof sgAttachmentsMount === 'function') { const attachments = detail.querySelector('.sg-attachments');
+      if (options.chatLayout || options.inline) sgAttachmentsClear(attachments); else sgAttachmentsMount(attachments, detail.querySelector('.sg-preview')); }
     // The collapsed class must settle first so an expanding editor is measured while visible.
     const collapsible = compactEmail && (sgIsEmail(s) || sgIsDraftReview(s));
     row.classList.toggle('sg-email-collapsed', collapsible && !emailExpanded.has(s.id));
