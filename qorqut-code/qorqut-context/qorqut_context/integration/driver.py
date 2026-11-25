@@ -12,28 +12,45 @@ reinterprets either:
   namespace with the queue's own facts (input id, submitter, queue time). An Action's frozen ``action_metadata`` is not
   part of it: it is submitted as ``private_context``, which only the interpreting model receives and nothing publishes.
 * The source is bound to the input's scope (``context_filing``) in the transaction that starts the attempt, before any
-  Context work. A source of another scope, or one nobody owns, blocks the head with an ownership error; that refused
+  Context work. A source of another scope, or one nobody owns, blocks the input with an ownership error; that refused
   attempt is recorded in the same transaction and never reaches Context or a model.
 * The exact event ID is saved with the attempt before Git or a model is touched. Context, Git and model work happen outside
   any SQLite transaction.
 * A published event is looked up by its exact ID before any runner call. It is verified against the frozen input (mode,
   source, operation, submitter, bytes or Action fields, record context, commit and an explicit handoff disposition) and only
   then recorded once. A published event is never discarded, rerun or blocked.
-* Failures of SQLite recording leave the queue head ``processing`` with the publication intact: the next ``recover`` or
+* Failures of SQLite recording leave the input ``processing`` with the publication intact: the next ``recover`` or
   ``process_next`` records it mechanically, with no second model call.
 * The coordinator is the host's configured coordinator agent (any runtime). Without one no attempt starts and no model runs
   (``not_ready``); if it disappears after publication the exact publication stays pending for recovery and nothing is
   retried or fabricated. Only a committed, nonempty handoff note produces the queue's normal deduplicated notice.
 
-``process_next`` advances the oldest unfinished input by one step and ``recover`` is mechanical startup reconciliation; both
-return a ``status`` mapping and neither starts a process, a native agent or a runner of its own: all model work is the
-supplied ``Pipeline``'s existing runner. ``ContextDriverLoop`` (``loop.py``) supplies bounded start/stop around them.
+``process_next`` advances the queue by one step and ``recover`` is mechanical startup reconciliation; both return a ``status``
+mapping and neither starts a process, a native agent or a runner of its own: all model work is the supplied ``Pipeline``'s
+existing runner. ``ContextDriverLoop`` (``loop.py``) supplies bounded start/stop around them.
+
+* Order (``transitions.order``): an interrupted processing input is reconciled first, then a requested discard, then the
+  oldest blocked input with a pending retry, then the next input in queue order. One input is processing at a time.
+* Automatic retry: a failure whose stored error is ``retryable`` (a propagation failure such as a model error, a dropped
+  connection or a time limit; a storage or unexpected error; an interrupted attempt) is retried by the driver itself, at
+  most ``len(retry_delays)`` times per input, each after its wait (``AUTOMATIC_RETRY_DELAYS``: 1, 5 and 15 minutes). The
+  plan is stored with the blocked input's error (``automatic_retry {retry, of, due_at}``), so it survives a restart; when it
+  is due the driver records its own pending retry control (requested by the driver principal, ``request_evidence.automatic``)
+  and the attempt starts exactly as after an explicit ``context_queue_retry``. While the input waits, every later input waits
+  with it and no notice is sent. A refusal (Context's validation of the input, an ownership refusal, a graph-edit refusal, a
+  published event that is not this input) is never retried automatically.
+* Step aside: a blocked input with no automatic retry left sends the coordinator its ``context.input_blocked`` notice and
+  stays blocked for an explicit retry or discard, but no longer holds the queue: later inputs go on, except an input for the
+  same source (the same Context path for a GENERAL input, the same Action for an Action input), which waits behind every
+  earlier unfinished input of that source. An explicit retry of a stepped-aside input runs next. Context keeps one
+  unpublished draft at a time, so a draft a blocked input left behind is discarded mechanically before another input
+  begins; the retry stages it again from the frozen input.
 
 * A controlled deterministic graph edit (``context_graph_edits``, see ``graph_edit.py``) is a GENERAL input bound by its companion
   row, found by input ID and never by path or JSON shape. Before any fresh execution or explicit retry the driver rechecks, through
   the typed ``graph_authority`` port, that nothing the plan depends on changed since its base, that the frozen targets still hold
   and that the *original caller's* current registration still allows it (the driver's system identity is never that permission);
-  a refusal blocks the head with the reason and starts no attempt, except ``stale_base``, which no retry can clear: that input is
+  a refusal blocks the input with the reason and starts no attempt, except ``stale_base``, which no retry can clear: that input is
   discarded at once through the queue's discard transition, with a notice to the coordinator and the original caller. The edit
   runs on the published head as ``graph_edit.plan_on(stored plan, attribution, revision)`` (``execution_plan``), rebuilt the same
   way from the base an existing event was staged on. If the exact event is already published or pending, that real result is
@@ -54,6 +71,7 @@ resolution; a retry still pending for such an input is rejected with that eviden
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
 import os
@@ -76,6 +94,8 @@ LOCK_NAME = "context-queue-driver.lock"
 _EVENT_ID = re.compile(r"[a-z0-9]{5}")
 _WRITER_BUSY = "Another writer/query is using this shared context"     # Context's transient lock conflict
 _ALPHABET = string.ascii_lowercase + string.digits
+# The waits, in seconds, before the driver's own automatic retries of a retryable failure: one entry per retry.
+AUTOMATIC_RETRY_DELAYS = (60, 300, 900)
 
 
 class NotReady(Exception):
@@ -87,20 +107,35 @@ def _random_event_id() -> str:
 
 
 def writer_busy(error: BaseException) -> bool:
-    """A transient Context writer/query lock conflict, which is not a failure of the queue head."""
+    """A transient Context writer/query lock conflict, which is not a failure of the input."""
     return isinstance(error, Conflict) and _WRITER_BUSY in str(error)
 
 
-def describe(error: BaseException) -> dict:
+def retryable(error: BaseException, *, deterministic: bool = False) -> bool:
+    """Whether the same input can succeed when it is simply run again, which makes it eligible for automatic retries.
+
+    A propagation failure (the model run, its connection or its time limit) and a storage or unexpected error can; a
+    refusal cannot: Context's own validation of the input (its size, a missing prior source, an identical edit, a stale
+    revision, an ID conflict) and a graph-edit refusal give the same answer every time. A deterministic graph edit has no
+    model, so its propagation failure is not retried either."""
+    if isinstance(error, GraphEditRefused):
+        return False
+    if isinstance(error, PropagationError):
+        return not deterministic
+    return not isinstance(error, ContextError)
+
+
+def describe(error: BaseException, *, deterministic: bool = False) -> dict:
     """A concise, storable description of a failure. The private diagnostics path of a propagation attempt stays in the
     Context runtime; the queue keeps only that diagnostics exist."""
     if isinstance(error, GraphEditRefused):
-        return {"code": error.code, "type": "GraphEditRefused", "message": str(error), "retryable": True, "phase": error.phase}
+        return {"code": error.code, "type": "GraphEditRefused", "message": str(error), "retryable": False, "phase": error.phase}
     code = ("propagation_failed" if isinstance(error, PropagationError)
             else "context_conflict" if isinstance(error, Conflict)
             else "context_error" if isinstance(error, ContextError)
             else "storage_error" if isinstance(error, OSError) else "unexpected_error")
-    result = {"code": code, "type": type(error).__name__, "message": str(error) or type(error).__name__, "retryable": True}
+    result = {"code": code, "type": type(error).__name__, "message": str(error) or type(error).__name__,
+              "retryable": retryable(error, deterministic=deterministic)}
     if isinstance(error, PropagationError):
         result["phase"] = error.phase
         result["diagnostics_retained"] = bool(error.diagnostics)
@@ -166,10 +201,11 @@ class ContextQueueDriver:
     read snapshot of every lookup (never cached). ``graph_authority`` is the typed port
     (``graph_edit.GraphEditAuthority``) that rechecks a controlled graph edit against the original caller's current authority;
     without it a graph-edit input is refused rather than run, and ordinary inputs are unaffected. ``id_source`` exists for
-    deterministic collision checks."""
+    deterministic collision checks. ``retry_delays`` are the waits in seconds before each automatic retry of a retryable
+    failure (its length is how many there are) and ``clock`` the aware-UTC ``datetime`` source they are measured with."""
 
     def __init__(self, database, context, pipeline: Pipeline, *, driver_id: str, outcomes, programs, coordinator,
-                 graph_authority=None, id_source=None):
+                 graph_authority=None, id_source=None, retry_delays=AUTOMATIC_RETRY_DELAYS, clock=None):
         if pipeline.context is not context:
             raise ValueError("The pipeline must belong to the supplied Context")
         if not isinstance(driver_id, str) or not driver_id:
@@ -182,6 +218,10 @@ class ContextQueueDriver:
         self.programs, self.graph_authority, self._coordinator = programs, graph_authority, coordinator
         self.database, self.context, self.pipeline, self.driver_id = database, context, pipeline, driver_id
         self._new_event_id = id_source or _random_event_id
+        delays = tuple(retry_delays)
+        if any(isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0 for delay in delays):
+            raise ValueError("Automatic retry delays are non-negative numbers of seconds")
+        self.retry_delays, self._clock = delays, clock or (lambda: datetime.now(timezone.utc))
         self.last: dict | None = None
 
     # ------------------------------------------------------------------ operational reads and writes
@@ -245,16 +285,19 @@ class ContextQueueDriver:
     def process_next(self) -> dict:
         """Advance the oldest unfinished input by one step, never holding a database transaction over Context.
 
-        ``status`` is one of ``idle``, ``busy`` (another process holds the driver, or Context reports a transient writer
-        conflict: no attempt or failure is invented), ``blocked`` (the head is blocked and no retry is pending; later
-        inputs wait), ``not_ready`` (no eligible coordinator: nothing started, or a publication awaits recording),
-        ``published``, ``input_blocked``, ``unrecorded`` (published, SQLite recording failed; recovery records it),
-        ``discarded`` or ``discard_failed``."""
+        ``status`` is one of ``idle``, ``busy`` (another process holds the driver, Context reports a transient writer
+        conflict, or a Context draft that is no blocked input's is pending: no attempt or failure is invented), ``waiting``
+        (a blocked input waits for its automatic retry, due at ``due_at``; later inputs wait with it), ``blocked``
+        (nothing can go forward: every unfinished input is blocked with no retry, or waits behind one for its source),
+        ``not_ready`` (no eligible coordinator: nothing started, or a publication awaits recording), ``published``,
+        ``input_blocked`` (with ``automatic_retry`` when one is planned), ``unrecorded`` (published, SQLite recording
+        failed; recovery records it), ``discarded`` or ``discard_failed``."""
         return self._remember(self._step(attempt=True))
 
     def recover(self) -> dict:
-        """Mechanical startup reconciliation: record a published exact input, block an interrupted unpublished attempt for
-        explicit retry or discard, finish a requested discard. It never starts a model run or a new attempt."""
+        """Mechanical startup reconciliation: record a published exact input, block an interrupted unpublished attempt (an
+        interruption is retryable, so an automatic retry is planned while any is left; otherwise it waits for an explicit
+        retry or discard), finish a requested discard. It never starts a model run or a new attempt."""
         return self._remember(self._step(attempt=False))
 
     def _remember(self, result: dict) -> dict:
@@ -266,21 +309,47 @@ class ContextQueueDriver:
             if not held:
                 return {"status": "busy", "reason": "driver_locked"}
             self.reconcile()
-            head = self._read(transitions.head)
-            if head is None:
-                return {"status": "idle"}
-            self._attach(head)
-            state = head["state"]
-            if state == "processing":
+            now = self._read(transitions.order)
+            if now["processing"] is not None:
                 # The lock proves no live driver owns it: an earlier driver was interrupted.
-                return self._reconcile_interrupted(head)
-            if state == "discard_requested":
-                return self._complete_discard(head)
-            if state == "blocked" and not any(c["intent"] == "retry" and c["status"] == "pending" for c in head["controls"]):
-                return {"status": "blocked", "input_id": head["id"], "attempt": head["attempt"]}
-            if not attempt:
-                return {"status": "unchanged", "input_id": head["id"], "state": state}
-            return self._run_attempt(head)
+                return self._reconcile_interrupted(self._input(now["processing"]["id"]))
+            if now["discard"] is not None:
+                return self._complete_discard(self._input(now["discard"]["id"]))
+            chosen = now["retry"] or now["next"]
+            if chosen is None:
+                if now["blocked"]:
+                    first = now["blocked"][0]
+                    return {"status": "blocked", "input_id": first["id"], "attempt": first["attempt"],
+                            "blocked": len(now["blocked"])}
+                return {"status": "idle"}
+            planned = transitions.automatic_retry(chosen) if chosen is now["next"] else None
+            if planned is not None:
+                at = self._now()
+                if not attempt or planned["due_at"] > at:
+                    return {"status": "waiting", "input_id": chosen["id"], "attempt": chosen["attempt"], **planned}
+                self._write(transitions.request_automatic_retry, input_id=chosen["id"], at=at)
+            elif not attempt:
+                return {"status": "unchanged", "input_id": chosen["id"], "state": chosen["state"]}
+            return self._run_attempt(self._input(chosen["id"]))
+
+    def _input(self, input_id: str) -> dict:
+        return self._attach(self._read(transitions.get, input_id=input_id))
+
+    def _now(self) -> str:
+        return self._clock().astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+    def _automatic_retry(self, row: dict, problem: dict) -> dict | None:
+        """The next automatic retry of a retryable failure, while any of ``retry_delays`` is left for this input: every
+        automatic retry it ever had counts (the driver's own retry controls), whatever explicit retries came between."""
+        if problem.get("retryable") is not True:
+            return None
+        used = sum(1 for control in row["controls"] if control["intent"] == "retry"
+                   and control["requested_by"] == self.driver_id and control["status"] != "rejected")
+        if used >= len(self.retry_delays):
+            return None
+        due = self._clock().astimezone(timezone.utc) + timedelta(seconds=self.retry_delays[used])
+        return {"retry": used + 1, "of": len(self.retry_delays),
+                "due_at": due.isoformat(timespec="microseconds").replace("+00:00", "Z")}
 
     def reconcile(self) -> dict:
         """Mechanical completion reconciliation: one transaction, no Context, Git, model or provider work.
@@ -302,6 +371,9 @@ class ContextQueueDriver:
         if coordinator is None:
             return {"status": "not_ready", "reason": "no_coordinator", "input_id": head["id"]}
         persisted = self._read(transitions.used_event_ids) | self._reserved_ids()
+        aside = self._clear_stepped_aside(head)
+        if aside is not None:
+            return aside
         pending = None
         try:
             snapshot, pending = self.context.snapshot(), self.context.pending()
@@ -324,6 +396,29 @@ class ContextQueueDriver:
         except Exception as error:
             return self._after_failure(started, error)
         return self._finish(started, receipt)
+
+    def _clear_stepped_aside(self, head: dict) -> dict | None:
+        """Context holds one unpublished draft at a time. Before another input begins, the draft a blocked input left behind
+        is discarded mechanically (that input stays blocked with its event ID and history; its later retry stages it again
+        from the frozen input). A draft that is no blocked input's (another writer's, or anything unknown) is never
+        touched, and neither is this input's own: nothing is started or blocked and the step reports ``busy``. Returns that
+        result, or None when this input may go on."""
+        own = {head["context_event_id"], (head.get("edit") or {}).get("reserved_event_id")} - {None}
+        try:
+            pending = self.context.pending()
+            if pending is None or pending["id"] in own:
+                return None
+            with self.database.read() as uow:
+                owner = uow.connection.execute("SELECT state FROM context_inputs WHERE context_event_id=?",
+                                               (pending["id"],)).fetchone()
+            if owner is None or owner["state"] != "blocked":
+                return {"status": "busy", "reason": "context_draft_pending", "input_id": head["id"],
+                        "pending_event_id": pending["id"]}
+            self.pipeline.discard(pending["id"])
+        except Exception as error:
+            return {"status": "busy", "reason": "context_busy" if writer_busy(error) else "context_draft_discard_failed",
+                    "input_id": head["id"], "error": describe(error)}
+        return None
 
     def _start(self, head: dict, event_id: str, exists: bool, coordinator: str) -> tuple[dict | None, dict | None]:
         """Bind the source to the input's scope and start the attempt with its reserved event ID: one transaction, so a
@@ -357,7 +452,7 @@ class ContextQueueDriver:
         verified it, and the result is verified again before it is recorded) whatever authority the caller holds now and whether or
         not the authority port is available: reporting an existing effect is not authorizing a new one. Otherwise missing wiring
         refuses the edit, and the typed port rechecks plan, base, frozen targets and the original caller's current registration;
-        a refusal blocks the head."""
+        a refusal blocks the input."""
         if head.get("edit") is None:
             return
         if self._prior_event(head, event_id, snapshot, pending) == "published":
@@ -524,7 +619,7 @@ class ContextQueueDriver:
             if not isinstance(error, Conflict):
                 return {"status": "unrecorded", "reason": "verification_unavailable", "input_id": row["id"],
                         "context_event_id": event_id, "error": describe(error)}
-            return self._block(row, {"code": "event_conflict", "message": str(error), "retryable": True})
+            return self._block(row, {"code": "event_conflict", "message": str(error), "retryable": False})
         note = {"disposition": event["handoff_note"]["disposition"], "text": event["handoff_note"]["text"]}
         coordinator = self.coordinator()
         pending = {"input_id": row["id"], "context_event_id": event_id, "published_commit": commit, "handoff_note": note}
@@ -554,8 +649,9 @@ class ContextQueueDriver:
         """A submit raised. Whether Context published is unknown until the exact event ID is looked up: a publication that
         exists is recorded, never blocked; a lookup that cannot read Context proves nothing, so the processing attempt and
         its reserved event stay as they are (no blocked notice, no new attempt) until a later step can read Context; only a
-        successful lookup that finds nothing blocks the unpublished attempt for explicit retry or discard."""
-        problem = describe(error)
+        successful lookup that finds nothing blocks the unpublished attempt: for an automatic retry while it is retryable
+        and any is left, otherwise for an explicit retry or discard."""
+        problem = describe(error, deterministic=started.get("edit") is not None)
         try:
             published = self._published(started["context_event_id"]) is not None
         except Exception as unreadable:
@@ -571,23 +667,29 @@ class ContextQueueDriver:
         if coordinator is None:
             return {"status": "not_ready", "reason": "no_coordinator", "input_id": row["id"], "attempt": row["attempt"],
                     "context_event_id": row["context_event_id"], "error": problem}
+        planned = self._automatic_retry(row, problem)
         try:
-            self._write(transitions.record_blocked, input_id=row["id"], error=problem, ordubashy_id=coordinator)
+            self._write(transitions.record_blocked, input_id=row["id"], error=problem, ordubashy_id=coordinator,
+                        automatic_retry=planned)
         except DomainError as error:
             if error.code == "validation_error":
                 return {"status": "not_ready", "reason": "coordinator_ineligible", "input_id": row["id"], "error": problem}
             raise
         return {"status": "input_blocked", "input_id": row["id"], "attempt": row["attempt"],
-                "context_event_id": row["context_event_id"], "error": problem}
+                "context_event_id": row["context_event_id"], "error": problem,
+                **({"automatic_retry": planned} if planned else {})}
 
     def _refuse(self, head: dict, problem: dict, coordinator: str) -> dict:
-        """Block the head because Context could not be checked before an attempt could safely start: the queue's preflight
+        """Block the input because Context could not be checked before an attempt could safely start: the queue's preflight
         failure. It allocates no event ID (a first failure has none; a retry of an input that had one keeps it) and starts
         no Context work."""
         problem = {**problem, "message": self._scrub(problem.get("message") or "preflight failed")}
-        blocked = self._write(transitions.record_preflight_failure, input_id=head["id"], error=problem, ordubashy_id=coordinator)
+        planned = self._automatic_retry(head, problem)
+        blocked = self._write(transitions.record_preflight_failure, input_id=head["id"], error=problem, ordubashy_id=coordinator,
+                              automatic_retry=planned)
         return {"status": "input_blocked", "input_id": head["id"], "attempt": blocked["attempt"],
-                "context_event_id": blocked["context_event_id"], "error": problem}
+                "context_event_id": blocked["context_event_id"], "error": problem,
+                **({"automatic_retry": planned} if planned else {})}
 
     @staticmethod
     def _unretryable(head: dict, error: Exception, pending) -> bool:
@@ -615,7 +717,8 @@ class ContextQueueDriver:
     # ------------------------------------------------------------------ recovery and discard
 
     def _reconcile_interrupted(self, head: dict) -> dict:
-        """A processing head with no live driver. Never starts a model: record the exact publication or block."""
+        """A processing input with no live driver. Never starts a model: record the exact publication or block (an
+        interruption is retryable: re-running the same event is how it is resolved)."""
         event_id = head["context_event_id"]
         try:
             published = self._published(event_id)
@@ -632,7 +735,7 @@ class ContextQueueDriver:
             "code": "interrupted",
             "message": f"Attempt {head['attempt']} for Context event {event_id} stopped before a verified publication and its "
                        "effect is uncertain; retry the same event or discard it",
-            "draft_retained": retained})
+            "retryable": True, "draft_retained": retained})
 
     def _complete_discard(self, head: dict) -> dict:
         """Finish a requested discard mechanically. A published exact event is never discarded."""

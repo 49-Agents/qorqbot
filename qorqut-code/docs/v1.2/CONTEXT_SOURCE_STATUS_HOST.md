@@ -79,8 +79,8 @@ queue_blocked, blocked_input_id}`:
 * the first four are the exact unfinished input states of this namespace (a project, or Global when `project_id` is None);
 * the next two join this namespace's *published filings* with pending (or not yet recorded) and conflict receipts — an applied
   receipt counts for neither, and a graph or Action publication with no filing is never fabricated as pending;
-* `queue_blocked` is the shared queue's fact across all namespaces; `blocked_input_id` is the blocked input's ID only when it
-  belongs to this namespace;
+* `queue_blocked` is the shared queue's fact across all namespaces (some input is blocked); `blocked_input_id` is this
+  namespace's oldest blocked input, if any;
 * nothing is derived from generic job activity, nothing starts, initializes or writes, and a database without the queue/filing
   tables is an explicit `operation_unavailable`, never an empty summary.
 
@@ -91,7 +91,7 @@ field (`validation_error`). It is deliberately **uncached** (`Cache-Control: no-
 
 ## Change-feed invalidation
 
-* `context_queue` is a new coarse, **global-only** kind (`GLOBAL_ONLY_KINDS`): a blocked head affects every namespace; payload
+* `context_queue` is a new coarse, **global-only** kind (`GLOBAL_ONLY_KINDS`): a blocked input can affect every namespace; payload
   reads stay authorized and namespace-limited. It is **additive** — a matching operation bumps it in addition to `jobs_routines`,
   `learnings`, `signoffs` or `project_setup`, never instead of one.
 * Mapped by committed operation-name prefix: `context_`, `actions_`, `notes_upload`, `journal_upload_to_filer`, and the `job`,

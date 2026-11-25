@@ -98,8 +98,8 @@ storage.
 
 Diagnose with `context_queue_list` and `context_queue_get` in the right scope: they read
 only the inputs of the scope you selected (one project, or Global), never another
-scope's. `queue_blocked` says whether the shared queue is stopped; the blocked input is
-named only when it belongs to your scope. For an interrupted or blocked input, read its
+scope's. `queue_blocked` says whether any input in the shared queue is blocked; the
+blocked input is named only when it belongs to your scope. For an interrupted or blocked input, read its
 current state with `context_queue_get`, then request `context_queue_retry` for the same
 input with the observed `expected_state` and a stable idempotency key. The request only
 records that another attempt is wanted; it is not proof of publication, so read the
@@ -110,10 +110,14 @@ retrying in a loop.
 
 ### A blocked input is the coordinator's, and the owner's when it stays blocked
 
-One blocked input stops Context for every project: nothing filed after it is processed
-until it is retried or discarded. Ordubashy receives a required `context.input_blocked`
-notice for each blocked attempt, and owns it. A worker that finds `queue_blocked` reports
-it to Ordubashy and does not retry another scope's input.
+When an input fails for a reason that may pass (a model or network hiccup, an interrupted
+attempt), the queue retries it by itself, up to three times, a few minutes apart; nothing
+else is processed while such a retry is waiting. After that, or at once for a failure a
+retry cannot fix, the input is blocked and Ordubashy receives a required
+`context.input_blocked` notice, and owns it. Later inputs go on; only inputs for the same
+source (the same file, or the same Action) wait behind the blocked one until it is retried
+or discarded. A worker that finds `queue_blocked` reports it to Ordubashy and does not
+retry another scope's input.
 
 As Ordubashy, when the notice arrives or you find the queue blocked:
 
@@ -127,7 +131,8 @@ As Ordubashy, when the notice arrives or you find the queue blocked:
 The blocking Signoff is one `signoffs_input_create` in the input's scope (`scope: global`
 for a Global input): request key `context-blocked-<input id>`, `response_policy:
 owner_only`, `attention: {notify: true, blocking: true, reason}` where the reason says
-that Context is stopped for every project until this is resolved. Title it "Context is
+that this input, and anything later from the same source, stays out of Context until
+this is resolved. Title it "Context is
 blocked". Its explanation says in plain words what was being filed, what went wrong and
 what you already tried, without internal IDs. Offer the choices that fit: `retry` (try
 again, after the owner has fixed what the error names), `discard` (drop this one input;

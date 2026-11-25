@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import asdict
 import hashlib
+import os
 import json
 from pathlib import Path
 import uuid
@@ -159,7 +160,18 @@ class Pipeline:
             return self.context.recover()
 
     def discard(self, event_id):
+        """Discard the pending draft of ``event_id``. Its ready records are retired first (``ready.json`` becomes
+        ``ready.discarded.json``; attempt and usage records stay): a ready record is the publication gate of the exact draft
+        it names, and a draft staged again later for the same event (on the same or a newer head) must start afresh instead
+        of meeting the gate of the draft that was thrown away. A crash between the two steps leaves the draft with no ready
+        shortcut, so its next retry runs a fresh attempt."""
+        identifier(event_id)
         with self._lock():
+            pending = self.context.pending()
+            if pending is not None and pending["id"] == event_id and event_id not in self.context.snapshot().events:
+                for directory, _ in self._attempts(event_id):
+                    if (directory / "ready.json").exists():
+                        os.replace(directory / "ready.json", directory / "ready.discarded.json")
             self.context.discard(event_id)
             return {"status": "discarded", "event_id": event_id}
 

@@ -238,11 +238,11 @@ def reconcile_stopped(uow, *, driver_id: str, outcomes) -> list[dict]:
     cancelled is not recorded on the job and is never invented. A published input stays published (it is not listed as
     unfinished). An input that never started (``queued``, no attempt, no Context event) is discarded at once: a
     ``context_input_controls`` discard request by the system principal is stored already applied, the input becomes
-    ``discarded`` and the required terminal outcome records its receipt in the same transaction. A blocked head records a
+    ``discarded`` and the required terminal outcome records its receipt in the same transaction. A blocked input records a
     pending discard request and becomes ``discard_requested``: the driver completes it only after it has established that
     nothing was published. That pending request freezes the cancellation evidence in its ``result_json.request_evidence``
     when it is created, and the queue keeps that object (and the control ID) in the final control, input and receipt results.
-    A retry request still pending on the blocked head is rejected with the same evidence and superseded by the discard
+    A retry request still pending on the blocked input is rejected with the same evidence and superseded by the discard
     request in the same transaction, so cancellation can never start another attempt. A pending discard already continues
     toward its mechanical resolution, and a ``processing`` input is left alone: its in-flight effect stays unresolved until
     the driver has checked Context."""
