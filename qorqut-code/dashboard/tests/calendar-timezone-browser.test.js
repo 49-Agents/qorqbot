@@ -66,7 +66,12 @@ test('rendered times, columns, provider ranges and navigation follow UTC in diff
           for (const gone of ['today','refresh','add']) assert.equal(await page.locator(`[data-calendar-${gone}]`).count(),0);
           const block = page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-event').filter({hasText:'Planning session'});
           assert.equal(await block.count(),1);
-          assert.deepEqual(await block.evaluate(el=>({top:getComputedStyle(el).top,height:getComputedStyle(el).height})),{top:'128px',height:'192px'});
+          // The whole day fits the grid without scrolling: the hour row is the grid's height shared by 24.
+          const hour = await page.evaluate(()=>parseFloat(document.querySelector('.calendar-page').style.getPropertyValue('--calendar-hour')));
+          assert.ok(hour >= 16, `hour ${hour}`);
+          assert.ok(await page.locator('.calendar-week').evaluate(g=>g.scrollHeight <= g.clientHeight + 1), 'the grid scrolls');
+          const box = await block.evaluate(el=>({top:parseFloat(getComputedStyle(el).top),height:parseFloat(getComputedStyle(el).height)}));
+          assert.ok(Math.abs(box.top-2*hour) < 1 && Math.abs(box.height-3*hour) < 1, JSON.stringify({box,hour}));
           assert.match(await block.getAttribute('title'),/2:00 AM – 5:00 AM/);
           assert.equal(await block.locator('.calendar-event-time').textContent(),'2 – 5 AM');
           // The event and its calendar in the list share one colour.
@@ -77,10 +82,10 @@ test('rendered times, columns, provider ranges and navigation follow UTC in diff
           // The grid always shows the whole day, whatever the events.
           assert.equal(await page.locator('.calendar-tick').count(),24);
           assert.equal(await page.locator('.calendar-tick').last().textContent(),'11 PM');
-          assert.equal(await page.locator('.calendar-day').first().evaluate(el=>el.offsetHeight),24*64);
+          assert.equal(Math.abs(await page.locator('.calendar-day').first().evaluate(el=>el.offsetHeight) - 24*hour) < 1.5, true);
           // The now line sits on today's column at 2:54 on a grid that starts at midnight.
           assert.equal(await page.locator('.calendar-now').count(),1);
-          assert.equal(await page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-now').evaluate(el=>el.style.top),`${2.9*64}px`);
+          assert.equal(Math.abs(await page.locator('.calendar-day[data-calendar-day="2026-11-11"] .calendar-now').evaluate(el=>parseFloat(el.style.top)) - 2.9*hour) < .01, true);
           assert.equal(await page.locator('.calendar-all-day-cell').nth(2).textContent(),'Veterans Day');
           const reads = await page.evaluate(()=>calls.filter(c=>c.url.endsWith('calendar_events_list')).map(c=>[c.args.start,c.args.end]));
           assert.ok(reads.some(([start,end])=>start==='2026-11-09T00:00:00.000Z' && end==='2026-11-16T00:00:00.000Z'));
