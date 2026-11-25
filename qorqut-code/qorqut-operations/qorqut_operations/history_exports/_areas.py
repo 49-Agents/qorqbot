@@ -22,7 +22,8 @@ from typing import Any, Union
 from qorqut_operations.contracts import DomainError
 
 MAXIMUM_AREAS = 5_000
-MAXIMUM_EXCLUDED = 64
+# A Project's area also excludes the system folders of the subprojects nested in its folder.
+MAXIMUM_EXCLUDED = 1024
 MAXIMUM_SUBTREE = 512
 
 

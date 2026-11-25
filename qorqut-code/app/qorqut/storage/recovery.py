@@ -43,6 +43,7 @@ def _identity(value):
 # It is private runtime state: not authored context, and full of sockets, links and cookies a backup must never read.
 # A folder named ``code`` at the top of a project holds source checkouts and is not authored material.
 PRIVATE_PROJECT_DIRECTORIES = frozenset({"browser", "code"})
+SUBPROJECTS = "subprojects"
 
 
 def _inside(path, base):
@@ -107,11 +108,15 @@ def authored_inventory(snapshot, instance, *, skip_external_workers=False):
             raise DomainError("backup_incomplete", "Finish or recover claimed file applications before backing up", retryable=True)
         projects = {row["id"]: decode_row(row) for row in connection.execute("SELECT * FROM projects ORDER BY id")}
         project_manifest = project_entries(connection, instance)
+        parents = {project.get("parent_id") for project in projects.values()}
         for project in projects.values():
             folder = project_root(instance, project)
             if not folder.is_dir():
                 raise DomainError("backup_incomplete", "Registered project data folder is missing")
-            paths.update(_walk(folder, top_skip=PRIVATE_PROJECT_DIRECTORIES))
+            # A project's subprojects sit in its subprojects folder and are walked as their own projects, with their
+            # own private folders left out.
+            skip = PRIVATE_PROJECT_DIRECTORIES | ({SUBPROJECTS} if project["id"] in parents else frozenset())
+            paths.update(_walk(folder, top_skip=skip))
         graph = instance.context
         for name in (*ROOT_AUTHORED, *PRIVATE_RUNTIME_FILES):
             # The Context repository's authority is the generation's required Context component (Git objects, refs and

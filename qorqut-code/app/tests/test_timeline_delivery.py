@@ -188,6 +188,40 @@ class DeliveryTests(Fixture):
         self.assertEqual([(item['type'], title) for item, title in levels],
                          [('project', 'Example project'), ('task', 'Root'), ('task', 'Middle'), ('task', 'Leaf')])
 
+    def test_a_task_in_a_subproject_carries_every_project_level_root_first_each_once_per_conversation(self):
+        marketing, seo = str(uuid4()), str(uuid4())
+        with self.db.transaction() as uow:
+            uow.repository('projects').insert({'id': marketing, 'name': 'Marketing', 'slug': 'marketing', 'workspace': 'm',
+                                                 'parent_id': self.project, 'folder': 'example/subprojects/marketing'})
+            uow.repository('projects').insert({'id': seo, 'name': 'SEO', 'slug': 'seo', 'workspace': 's', 'parent_id': marketing,
+                                                 'folder': 'example/subprojects/marketing/subprojects/seo'})
+        lead = replace(self.ctx(self.lead), allowed_project_ids=frozenset({self.project, marketing, seo}))
+        for project, text in ((self.project, 'One brand across every shop.'), (marketing, 'Organic first.'), (seo, 'Target long-tail queries.')):
+            self.ok(self.app.invoke(lead, 'timeline_file', {'scope': 'global', 'item': {'type': 'project', 'id': project, 'project_id': project},
+                    'changes': [{'action': 'add', 'kind': 'decision', 'text': text}]}, {'idempotency_key': str(uuid4())}))
+        task = {'id': 'audit', 'project_id': seo, 'parent_id': None, 'title': 'Audit the blog'}
+        levels = self.delivery.levels(task, self.read_uow())
+        self.assertEqual([(item, title) for item, title in levels], [
+            ({'type': 'project', 'id': self.project, 'project_id': self.project}, 'Example project'),
+            ({'type': 'project', 'id': marketing, 'project_id': marketing}, 'Marketing'),
+            ({'type': 'project', 'id': seo, 'project_id': seo}, 'SEO'),
+            ({'type': 'task', 'id': 'audit', 'project_id': seo}, 'Audit the blog')])
+        sent = self.delivery.chain(self.worker, FIRST, task).split('\n\n')
+        for line, text in zip(sent, ('One brand across every shop.', 'Organic first.', 'Target long-tail queries.')):
+            self.assertIn(text, line)
+        # A sibling Task in Marketing, read later in the same conversation: the levels already held are one line each.
+        sibling = {'id': 'ads', 'project_id': marketing, 'parent_id': None, 'title': 'Plan ads'}
+        self.assertEqual(self.delivery.chain(self.worker, FIRST, sibling).split('\n\n')[:2], [
+            'Project "Example project": unchanged since 14:02; timeline_get reads it again',
+            'Project "Marketing": unchanged since 14:02; timeline_get reads it again'])
+        # Only the level that changed is sent again in full.
+        self.ok(self.app.invoke(lead, 'timeline_file', {'scope': 'global', 'item': {'type': 'project', 'id': marketing, 'project_id': marketing},
+                'changes': [{'action': 'add', 'kind': 'fact', 'text': 'Budget is set monthly.'}]}, {'idempotency_key': str(uuid4())}))
+        again = self.delivery.chain(self.worker, FIRST, task).split('\n\n')
+        self.assertIn('unchanged since', again[0])
+        self.assertIn('Budget is set monthly.', again[1])
+        self.assertIn('unchanged since', again[2])
+
     def test_a_global_task_carries_each_parent_root_first_then_the_task_and_no_project_level(self):
         root = self.task(self.lead, 'Root')
         middle = self.task(self.lead, 'Middle', parent_id=root['id'])

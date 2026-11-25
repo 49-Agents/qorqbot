@@ -69,12 +69,12 @@
     {
       "id": "operations-legacy-callers-only-omit-when-using-handle",
       "source": "qorqut-code/app/qorqut/browser/operations.py",
-      "line": 27
+      "line": 29
     },
     {
       "id": "operations-legacy-callers-only-omit-when-using-handle",
       "source": "qorqut-code/app/qorqut/browser/operations.py",
-      "line": 28
+      "line": 29
     },
     {
       "id": "operations-legacy-callers-only-omit-when-using-handle",
@@ -604,7 +604,7 @@
     {
       "id": "full-recovery-registered-project-git-common-directory",
       "source": "qorqut-code/app/qorqut/storage/full_recovery.py",
-      "line": 145
+      "line": 146
     },
     {
       "id": "full-recovery-registered-project-git-common-directory",
@@ -744,7 +744,7 @@
     {
       "id": "media-operations-optional-local-message-id-from-telegram-history",
       "source": "qorqut-code/extensions/telegram/qorqut_telegram/media_operations.py",
-      "line": 65
+      "line": 33
     },
     {
       "id": "media-operations-send-one-file-or-photo-to-the",
@@ -1020,6 +1020,26 @@
       "id": "operations-create-a-new-project-an-empty-container-for",
       "source": "qorqut-code/qorqut-operations/qorqut_operations/projects/creation/operations.py",
       "line": 29
+    },
+    {
+      "id": "operations-the-active-parent-project-of-a-new-subproject",
+      "source": "qorqut-code/qorqut-operations/qorqut_operations/projects/creation/operations.py",
+      "line": 54
+    },
+    {
+      "id": "move-the-project-to-move-with-its-subprojects",
+      "source": "qorqut-code/app/qorqut/domains/projects/move.py",
+      "line": 36
+    },
+    {
+      "id": "move-the-new-parent-project-or-null-for-the-top",
+      "source": "qorqut-code/app/qorqut/domains/projects/move.py",
+      "line": 38
+    },
+    {
+      "id": "move-owner-and-configured-ordubashy-place-a-project-under-another",
+      "source": "qorqut-code/app/qorqut/domains/projects/move.py",
+      "line": 41
     },
     {
       "id": "associations-existing-tasks-in-this-project-to-relate-the",

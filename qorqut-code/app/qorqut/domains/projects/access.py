@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.projects import hierarchy
 
 from qorqut.agents.global_scope import active_project_participant
 from qorqut.management.identity import private_participants
@@ -129,14 +130,22 @@ def validate_public_reference(item):
     return canonical_reference(item, require_scope=True)
 
 
-def project_view(row) -> dict:
-    """``project_record_get``'s Project: public operational fields of the existing record only."""
+def project_view(row, uow=None) -> dict:
+    """``project_record_get``'s Project: public operational fields of the existing record only.
+
+    With ``uow`` it also carries the Project's place among Projects: ``path`` (``{id, name, slug}`` from the root Project down
+    to this one) and ``subprojects`` (its direct, not archived subprojects)."""
     config = row.get("config_json") or {}
     summary = config.get("one_liner") if isinstance(config, dict) else None
-    return {"id": row["id"], "name": row["name"], "slug": row["slug"],
+    view = {"id": row["id"], "name": row["name"], "slug": row["slug"],
             "summary": " ".join(summary.split()) if isinstance(summary, str) else "",
             "revision": row["revision"], "archived": row["archived_at"] is not None,
-            "source": reference(row["id"])}
+            "parent_id": row.get("parent_id"), "source": reference(row["id"])}
+    if uow is not None:
+        view["path"] = hierarchy.path_view(uow.connection, row["id"])
+        view["subprojects"] = [{"id": child["id"], "name": child["name"], "slug": child["slug"], "source": reference(child["id"])}
+                               for child in hierarchy.children(uow.connection, row["id"], include_archived=False)]
+    return view
 
 
 def scope_name(uow, project_id) -> tuple[str | None, str]:

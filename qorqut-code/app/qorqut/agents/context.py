@@ -93,10 +93,11 @@ def project_aliases(row) -> list[str]:
 
 
 def project_directory(projects, *, agentic_view=None) -> str:
-    """One entry per active project: name, ID and one-liner."""
+    """One entry per active project: name, ID, its parent when it is a subproject, and one-liner."""
     lines = []
     def name(row):
         return row.get("display_name") or row.get("name") or row["id"]
+    names = {row["id"]: name(row) for row in projects}
     for item in sorted(projects, key=lambda row: name(row).lower()):
         config = item.get("config_json") or {}
         if isinstance(config, str):
@@ -105,7 +106,9 @@ def project_directory(projects, *, agentic_view=None) -> str:
         if len(one_liner) > 300:
             one_liner = one_liner[:299].rsplit(" ", 1)[0] + "…"
         aliases = project_aliases(item)
+        parent = item.get("parent_id")
         line = (f"- {name(item)} ({item['id']})."
+                + (f" Subproject of {names.get(parent, parent)}." if parent else "")
                 + (f" Also called: {', '.join(aliases)}." if aliases else "") + (f" {one_liner}" if one_liner else ""))
         lines.append(line)
     if not lines:

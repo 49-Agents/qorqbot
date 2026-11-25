@@ -25,7 +25,7 @@ function agentFilesMetrics(project) {
   return `<span class="agfiles-metrics">${[
     ['tasks', project?.open_tasks, project ? 'Open tasks, including snoozed tasks; all assignees' : unavailable],
     ['signoffs', project?.signoffs, project ? 'Pending signoffs visible to you' : unavailable],
-    ['subprojects', project?.subprojects, 'Subprojects: no project hierarchy recorded'],
+    ['subprojects', project?.subprojects, project ? 'Active subprojects' : unavailable],
   ].map(([icon, value, title]) => `<span title="${esc(title)}" aria-label="${esc(title)}: ${value == null ? 'unavailable' : value}">${agentFilesIcon(icon)}<span>${value ?? '—'}</span></span>`).join('')}</span>`;
 }
 function agentFilesEntryIcon(entry) {
@@ -36,12 +36,14 @@ function agentFilesEntryIcon(entry) {
 const AGFILES_TOP_LEVEL = new Set(['projects', 'notes']);
 const AGFILES_SYSTEM_ANYWHERE = new Set(['CLAUDE.md', 'AGENTS.md']);
 const AGFILES_SYSTEM_IN_PROJECT = new Set(['agents', 'browser', 'context', 'tables']);
+// A project's folder: projects/<slug>, or a subproject's projects/<slug>/subprojects/<slug>... inside its parent's folder.
+const AGFILES_PROJECT_FOLDER = /^projects\/[^/]+(?:\/subprojects\/[^/]+)*$/;
 function agentFilesIsSystem(entry) {
   const parent = entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '';
   if (entry.name.startsWith('.')) return true;
   if (!parent) return !(AGFILES_TOP_LEVEL.has(entry.name) && entry.kind === 'directory');
   if (AGFILES_SYSTEM_ANYWHERE.has(entry.name)) return true;
-  return /^projects\/[^/]+$/.test(parent) && AGFILES_SYSTEM_IN_PROJECT.has(entry.name);
+  return AGFILES_PROJECT_FOLDER.test(parent) && AGFILES_SYSTEM_IN_PROJECT.has(entry.name);
 }
 // A path is a system path when it or any folder above it is one.
 function agentFilesInSystem(path) {
@@ -74,7 +76,7 @@ function agentFilesMount(p) {
   const live = () => !s.closed && shell.isConnected;
   const parentOf = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
   const directoryEntry = path => ({path, name:path.split('/').pop() || 'Files', kind:'directory'});
-  const projectRow = entry => parentOf(entry.path) === 'projects' && entry.kind === 'directory';
+  const projectRow = entry => AGFILES_PROJECT_FOLDER.test(entry.path) && entry.kind === 'directory';
   const available = entry => ['directory', 'file'].includes(entry.kind);
   const label = entry => entry.path === 'projects' ? 'Projects' : entry.path === 'notes' ? 'Notes' : entry.path === 'agents' ? 'Agent workspaces' : entry.name;
   const shown = entry => s.system || !agentFilesIsSystem(entry);

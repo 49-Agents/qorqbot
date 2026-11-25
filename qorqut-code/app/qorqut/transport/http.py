@@ -707,6 +707,8 @@ class HTTPAPI:
                     # differing from the selected project.
                     "project_record_get", "project_items_list", "project_items_candidates", "project_item_get",
                     "project_items_link", "project_items_unlink", "owner_reminders_list",
+                    # Subprojects: the owner re-parents a Project from Global (no project route; the handler refuses one).
+                    "project_move",
                     # Move to project: the source is the explicit source_project_id argument (null for Global), so the root
                     # route is allowed and the project route must agree with it. No scope selector is accepted.
                     "tasks_move_targets", "tasks_move_to_project_preview", "tasks_move_to_project",

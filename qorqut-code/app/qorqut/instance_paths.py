@@ -44,6 +44,8 @@ COMPONENTS = ("app", "operations_engine", "context_engine", "dashboard", "roles"
 GRAPH_DIRECTORY = "context-graph"
 # The directory below ``operations`` that holds every registered project by slug.
 PROJECTS_DIRECTORY = "projects"
+# The folder inside a project that holds its subprojects' folders.
+SUBPROJECTS_DIRECTORY = "subprojects"
 # The directory below ``operations`` that holds the operator-editable working material of optional instruction packages.
 EXTENSIONS_DIRECTORY = "extensions"
 
@@ -208,8 +210,17 @@ class InstancePaths:
             raise InstancePathError(f"component {name} is not configured") from None
 
     def project_root(self, folder: str) -> Path:
-        """The registered project's folder."""
-        return self._checked(self._operations / PROJECTS_DIRECTORY / _segment(folder, "project folder"))
+        """The registered project's folder: ``projects/<slug>``, or for a subproject the nested
+        ``projects/<slug>/subprojects/<slug>...`` inside its parent's folder."""
+        if not isinstance(folder, str):
+            raise InstancePathError("project folder must be one safe path segment")
+        parts = folder.split("/")
+        if len(parts) % 2 == 0 or any(part != SUBPROJECTS_DIRECTORY for part in parts[1::2]):
+            raise InstancePathError("project folder must be a project slug or a subproject path")
+        path = self._operations / PROJECTS_DIRECTORY
+        for index, part in enumerate(parts):
+            path = path / (part if index % 2 else _segment(part, "project folder"))
+        return self._checked(path)
 
     def project_code(self, folder: str) -> Path:
         return self._checked(self.project_root(folder) / "code")

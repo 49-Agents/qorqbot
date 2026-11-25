@@ -497,3 +497,23 @@ def _opened(root, relative):
     finally:
         for descriptor in held:
             os.close(descriptor)
+
+
+def move_directory(source, destination) -> None:
+    """Move one existing directory to an absent ``destination`` without replacing anything there.
+
+    Both parents are walked without following symbolic links; the destination's missing parents are created. A destination
+    that exists (even an empty directory) is refused with ``revision_conflict`` and nothing moves."""
+    with _parent(source, create=False) as (source_parent, source_name), \
+            _parent(destination, create=True) as (destination_parent, destination_name):
+        if _lstat(destination_parent, destination_name) is not None:
+            raise DomainError("revision_conflict", "Something already exists where the folder would move to")
+        info = _lstat(source_parent, source_name)
+        if info is None or not stat.S_ISDIR(info.st_mode):
+            raise DomainError("not_found", "The folder to move does not exist")
+        try:
+            _rename_noreplace(source_parent, source_name, destination_parent, destination_name)
+        except FileExistsError:
+            raise DomainError("revision_conflict", "Something already exists where the folder would move to") from None
+        os.fsync(source_parent)
+        os.fsync(destination_parent)

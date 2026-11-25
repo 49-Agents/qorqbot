@@ -9,7 +9,7 @@ owner member. Nothing here starts a session, a provider action or any provisioni
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 from qorqut_operations.application import OperationDescriptor
-from qorqut_operations.application.plans import PlanBuilder, TEXT, schema
+from qorqut_operations.application.plans import PlanBuilder, TEXT, UUID, schema
 from qorqut_operations.contracts import DomainError
 from .creation import Creation
 
@@ -23,7 +23,7 @@ SLUG = {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
 # The project's Description: short, optional, and empty is allowed.
 SUMMARY = {"type": "string", "maxLength": 2000}
 PROJECT = schema({"id": {"type": "string"}, "slug": {"type": "string"}, "name": {"type": "string"}, "summary": {"type": "string"},
-                  "workspace_path": {"type": "string"}},
+                  "workspace_path": {"type": "string"}, "parent_id": {"anyOf": [{"type": "string"}, {"type": "null"}]}},
                  ["id", "slug", "name", "summary", "workspace_path"])
 OUTPUT = schema({"project": PROJECT, "project_id": {"type": "string"}, "slug": {"type": "string"}}, ["project", "project_id", "slug"])
 VERSION = 2
@@ -50,7 +50,8 @@ class ProjectCreationOperations:
         self.creation = Creation(self)
 
     def register(self, registry):
-        properties = {"name": NAME, "slug": SLUG, "summary": SUMMARY, "rationale": TEXT}
+        properties = {"name": NAME, "slug": SLUG, "summary": SUMMARY, "rationale": TEXT,
+                      "parent_project_id": {**UUID, "description": instruction_text('operations-the-active-parent-project-of-a-new-subproject')}}
         registry.register(OperationDescriptor("project_create", schema(properties, ["name"]), OUTPUT, version=VERSION,
             scope_kinds=frozenset({"global"}), global_capability=COORDINATION_CAPABILITY, effect_kind="compound",
             description=DESCRIPTION, prepare=self.prepare, apply=self.apply, validate_targets=self.validate))

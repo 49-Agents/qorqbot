@@ -41,6 +41,8 @@ def catalog(extensions=()):
                 'updated_at': Text(),
                 'archived_at': Text(nullable=True),
                 'archived_by': Text(nullable=True),
+                'parent_id': Text(nullable=True),
+                'archived_with': Text(nullable=True),
             }, ('id',)),
             TableExport('agent_profiles', {
                 'agent_id': Text(),

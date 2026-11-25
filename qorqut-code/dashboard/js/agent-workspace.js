@@ -341,7 +341,7 @@ function agentWorkspaceMount(p, view) {
     <div class="agent-project-screen"></div></section>`;
   const picker = document.createElement('label'), head = $('.thead', p.el);
   picker.className = 'agent-project-picker';
-  picker.innerHTML = `<select aria-label="Choose project"><option value="global">Global</option>${projects.map(b => `<option value="${esc(b.slug)}">${esc(b.name || b.slug)}</option>`).join('')}</select>`;
+  picker.innerHTML = `<select aria-label="Choose project"><option value="global">Global</option>${workspaceProjectTree(projects).map(({project: b}) => `<option value="${esc(b.slug)}">${esc(workspaceProjectPath(b))}</option>`).join('')}</select>`;
   head.classList.add('agent-project-head');
   head.append(picker);
   const select = $('select', picker), screen = $('.agent-project-screen', body);
