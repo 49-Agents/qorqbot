@@ -46,7 +46,7 @@ SET_DESCRIPTION = (
     "- agent_options: {agent_id, client?: claude or codex, model?, effort?}; null clears a field.\n"
     "- agent_client: {provider: claude or codex, action: download, cancel_download, connect or cancel_connect}.\n"
     "- agent_run_mode: {mode: managed or terminal, force?, trust?}. Ends every session, yours too; needs force true.\n"
-    "- agent_folder_trust: {granted}. testing_mode: {enabled}. Both true or false.\n"
+    "- agent_folder_trust: {granted}. testing_mode: {enabled}. Both true or false. Testing mode off switches the Learning Applier off and sends him nothing.\n"
     "- website_sign_out: {site}. agent_browser: {action: retry}.\n"
     "- appearance: {theme?: dark, light or system, text_size?: small, default or large}.\n"
     "- notifications: {replies?, signoffs?, reminders?, routines?}, each true or false.\n"
