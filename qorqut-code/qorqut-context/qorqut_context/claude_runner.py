@@ -235,8 +235,10 @@ class ClaudeRunner:
                         raise RunnerError("Claude offered tools other than the event's Context tools")
                     if definitions and servers.get(SERVER) != "connected":
                         raise RunnerError("The Context tool relay did not connect")
-                    identity(thread_id=session, observed_model=observed, cli_version=value.get("claude_code_version"),
-                             application_tools=len(allowed))
+                    # The session id is this single turn's one native identity, so announce it as both thread and turn;
+                    # otherwise the meter never verifies the pair and refuses every usage update.
+                    identity(thread_id=session, turn_id=session, observed_model=observed,
+                             cli_version=value.get("claude_code_version"), application_tools=len(allowed))
                 elif kind == "result":
                     final = value
                 else:
