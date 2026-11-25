@@ -318,6 +318,13 @@ class NudgeBackend:
         for profile in agents:
             if self._stop_event.is_set():
                 return
+            if not self._offered(profile["agent_id"]):
+                # Not offered (the Learning Applier while Testing mode is off): no notice, no reminder, no open; a running
+                # session is closed. Its needs stay as they are and are met once he is offered again.
+                self._memo.pop(profile["agent_id"], None)
+                if self.opener is not None:
+                    self.opener.close_unoffered(profile["agent_id"])
+                continue
             attention_runtime = getattr(self.runtime, 'attention_runtime', None)
             if attention_runtime is not None:
                 subject = "Attention reminder for " + profile["agent_id"]
@@ -425,6 +432,8 @@ class NudgeBackend:
                 fingerprint, session = self._fingerprint(uow.connection, agent_id)
                 chat_waiting = bool(store.waiting_inputs(uow.connection, agent_id))
                 owner = uow.connection.execute("SELECT desired_state FROM native_session_owners WHERE agent_id=?", (agent_id,)).fetchone()
+            if not self._offered(agent_id):
+                return "not_offered"
             if chat_waiting:
                 return "chat_input_first"  # a direct Chat input is ahead of any advisory; user work keeps its priority
             if owner is not None and owner["desired_state"] in {"paused", "stopped"}:
@@ -530,6 +539,13 @@ class NudgeBackend:
             # off (or paused, or cannot be opened at all) is offline.
             view = {**view, "state": "pending", "reason": "asleep" if self._wakeable(agent_id) else "offline"}
         return view
+
+    def _offered(self, agent_id: str) -> bool:
+        try:
+            return self.opener is None or self.opener.offered(agent_id)
+        except Exception:
+            LOG.debug("Whether %s is offered is unavailable", agent_id, exc_info=True)
+            return True
 
     def _wakeable(self, agent_id: str) -> bool:
         try:

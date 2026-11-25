@@ -302,11 +302,26 @@ class NotOfferedTests(WakeCase):
             self.assertEqual(refused.exception.code, "session_closed")
         self.assertEqual(self.managed.opened, [])
 
-    def test_the_owners_own_inputs_may_open_it(self):
+    def test_the_owners_own_inputs_do_not_open_it_either(self):
         self.make_overseer()
+        self.assertFalse(self.opener.wakeable(AGENT, owner=True))
+        for source in ("telegram", "chat"):
+            with self.subTest(source=source), self.assertRaises(DomainError) as refused:
+                self.opener.wake(self.profile(), source)
+            self.assertEqual(refused.exception.code, "session_closed")
+        with self.assertRaises(DomainError):
+            self.opener.wake(self.profile(), "inbox", force=True)
+        with self.assertRaises(DomainError) as refused:
+            self.opener.open(self.profile(), "hi", "key-owner-0000001")
+        self.assertEqual(refused.exception.code, "session_closed")
+        self.assertEqual(self.managed.opened, [])
+
+    def test_another_agent_is_always_offered_and_wakeable(self):
+        self.db.connection.execute("INSERT INTO agent_profiles VALUES(?,?)", (AGENT, '{"role": {"id": "global-worker"}}'))
+        self.db.connection.execute("INSERT INTO installation VALUES('service', ?)", (OWNER,))
+        self.db.connection.commit()
         self.assertTrue(self.opener.wakeable(AGENT, owner=True))
-        self.assertEqual(self.opener.wake(self.profile(), "telegram"), "waking")
-        self.assertEqual(self.managed.opened, [AGENT])
+        self.assertTrue(self.opener.wakeable(AGENT))
 
     def test_testing_mode_makes_it_an_ordinary_agent_and_turning_it_off_again_stops_waking(self):
         self.make_overseer(testing=True)
@@ -316,11 +331,51 @@ class NotOfferedTests(WakeCase):
         testing_mode(self.paths.runtime, OWNER, {"enabled": False})
         self.assertFalse(self.opener.wakeable(AGENT))
 
-    def test_one_that_has_had_a_session_before_is_woken_like_any_agent(self):
+    def test_one_that_has_had_a_session_before_is_still_not_offered_while_testing_mode_is_off(self):
         self.make_overseer()
         self.owner_row()
-        self.assertTrue(self.opener.offered(AGENT))
-        self.assertEqual(self.opener.wake(self.profile(), "inbox"), "waking")
+        self.assertFalse(self.opener.offered(AGENT))
+        with self.assertRaises(DomainError) as refused:
+            self.opener.wake(self.profile(), "inbox")
+        self.assertEqual(refused.exception.code, "session_closed")
+        self.assertEqual(self.managed.opened, [])
+
+    def test_the_arbiter_refuses_every_input_to_a_running_session_while_off_and_delivers_when_on(self):
+        self.make_overseer(testing=True)
+        self.open()
+        from qorqut.dashboard_preferences import testing_mode
+        testing_mode(self.paths.runtime, OWNER, {"enabled": False})
+        for kind in (TYPE_NUDGE, TYPE_DIRECT, TYPE_TELEGRAM):
+            with self.subTest(kind=kind):
+                result = self.arbiter.submit(InputRequest(AGENT, kind, f"key-off-{kind}-000001", "hello", wait=False))
+                self.assertEqual((result.state, result.reason), (RESULT_DEFERRED, "session_closed"))
+        self.assertEqual(self.delivered, [])
+        testing_mode(self.paths.runtime, OWNER, {"enabled": True})
+        result = self.arbiter.submit(InputRequest(AGENT, TYPE_NUDGE, "key-on-0000000001", "hello", wait=False))
+        self.assertNotEqual(result.reason, "session_closed")
+        self.assertEqual(len(self.delivered), 1)
+
+    def test_the_nudge_backend_neither_reserves_nor_wakes_for_it_while_off_and_closes_a_running_session(self):
+        self.make_overseer(testing=True)
+        self.open()
+        self.managed.host = object()
+        self.managed.calls.clear()
+        engine = SimpleNamespace(candidates=lambda ids: list(ids), prepare=mock.Mock(side_effect=RuntimeError("reserved")),
+                                 unsettled=lambda states=(): [])
+        backend = nudges.NudgeBackend(self.runtime, engine, self.probe, self.registry, self.arbiter, self.locks, opener=self.opener)
+        from qorqut.dashboard_preferences import testing_mode
+        self.runtime.require_authority = lambda: None
+        with mock.patch.object(nudges.store, "observed_agents", return_value=[self.profile()]), \
+                mock.patch.object(type(backend), "_run_hook", lambda self: None):
+            backend.run_once()                                   # on: the agent is left alone
+            self.assertNotIn(("close", AGENT, "graceful"), self.managed.calls)
+            self.assertNotEqual(backend.step(self.profile()), "not_offered")
+            testing_mode(self.paths.runtime, OWNER, {"enabled": False})
+            backend.run_once()                                   # off: no reservation, the session is closed
+        self.assertIn(("close", AGENT, "graceful"), self.managed.calls)
+        engine.prepare.assert_not_called()
+        self.assertEqual(backend.step(self.profile()), "not_offered")
+        self.assertEqual(self.opener.desired(AGENT), "running")  # the recorded intent is untouched
 
     def test_a_worker_that_was_never_started_is_still_woken_by_delegated_work(self):
         self.db.connection.execute("INSERT INTO agent_profiles VALUES(?,?)", (AGENT, '{"role": {"id": "global-worker"}}'))
