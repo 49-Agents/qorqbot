@@ -19,9 +19,10 @@ context_edit {"edit": <qorqut-graph-edit-v1 plan>}
                            frozen target ownership, authority of the caller in every namespace the edit needs
   -> apply (one transaction): authority and base rechecked, then the companion binding and ONE GENERAL queue input
                            (reserved five-character event ID) are inserted together; a conflict leaves neither row
-  -> the Context queue driver, alone, in queue order:  recheck the ORIGINAL caller's current authority and the fixed base,
-                           then Context.begin_edit (replay check) + Pipeline.submit_edit with the frozen plan, the original
-                           submitted_by, the reserved event ID and the controlled record_context  ->  one real publication
+  -> the Context queue driver, alone, in queue order:  recheck the ORIGINAL caller's current authority and that nothing the
+                           plan depends on changed between its base and the head, then Context.begin_edit (replay check) +
+                           Pipeline.submit_edit with the frozen plan on the head, the original submitted_by, the reserved
+                           event ID and the controlled record_context  ->  one real publication
   -> the queue records published / blocked / discarded exactly as for every other input
 ```
 
@@ -60,6 +61,28 @@ affected edge, each with its change, role (`target` / `endpoint`) and ownership 
 driver re-derives and compares, never a permission. There is no hidden cascade: a node removal must account for every incident
 edge in the same plan, and every edge of the resulting graph must have both endpoints.
 
+## Running on a later head
+
+Every input ahead of an edit in the shared queue publishes and moves the head, so the head is usually past the plan's
+`expected_revision` when the edit's turn comes. `rebase_conflict(plan, targets, snapshot)` reads the events published after the
+base (each lists every node, edge and note it changed) and refuses the edit as `stale_base` when any of these changed in between:
+
+* a node or edge the plan puts or removes (its record or its support);
+* an ID the plan creates (now used by anything);
+* a node an edge of the plan points at, old or new endpoint (removed; an edit of that node is not a conflict);
+* the edges of a node the plan removes (an edge not removed by the plan now points at it);
+* a source a citation or `support_after` names (removed);
+* the configuration file (which names the personal record);
+* or the base is not an ancestor of the head.
+
+The message names which of these happened, never record contents. Otherwise the edit runs on the head: the same plan with only
+`expected_revision` set to the head (`on_head`), so the published source text and plan digest are those of that plan and the
+event's `base_revision` is the head; the queue's stored plan, digest and `execution.expected_revision` keep the original base.
+Every check of the gate (target evidence, the personal-record rule, authority) and every engine validation at staging then runs
+against the head, exactly as for a plan prepared there. The driver records the revision it ran on as `execution_base`; a
+published or pending event of the edit is compared on the base it was staged on, which must be the plan's base or a later
+published revision.
+
 ## Authority
 
 The retained one: the real resolver and `Application.authorize` for the `context_edit` descriptor, plus the preserved restrictions
@@ -85,15 +108,16 @@ the companion row, never from the path, JSON shape or metadata):
    authorizing a new one. The exact binding, source, marker, path, metadata, base, bytes, submitter, scope and provenance checks
    still apply before it is recorded.
 3. An unpublished edit with missing wiring (`graph_authority=None`) blocks the head with `authority_unwired`.
-4. Otherwise, before any fresh execution *or explicit retry* (including after a restart), `GraphEditAuthority.recheck` requires the
-   head to equal the fixed base (`stale_base`), re-derives the target evidence from the stored plan and the fixed snapshot
-   (`targets_changed`), and re-resolves the original caller's current registration, role and grants from the stored attribution, never the
+4. Otherwise, before any fresh execution *or explicit retry* (including after a restart), `GraphEditAuthority.recheck` checks the
+   head against the plan's base (`stale_base`, see "Running on a later head"), re-derives the target evidence from the stored plan
+   and the head snapshot (`targets_changed`), and re-resolves the original caller's current registration, role and grants from the stored attribution, never the
    driver's system identity (`authority_revoked`). A delegated caller is re-resolved together with its frozen binding, assignment and
    generation (see "Delegated callers"). A refusal is the queue's preflight failure: the head blocks, no event ID is
    spent and nothing reaches Context.
-5. A retry can recheck restored grants but cannot change the plan, base or event ID, and never rebases a stale edit; the caller
-   discards it and submits a newly reviewed plan. A later input cannot pass a blocked head.
-6. Dispatch is `Context.begin_edit` (the replay check only) and `Pipeline.submit_edit` with the frozen plan, the original
+5. A retry can recheck restored grants but cannot change the plan's operations or event ID. An edit refused as `stale_base` stays
+   refused on retry (what changed stays changed); the caller discards it and submits a newly reviewed plan. A later input cannot
+   pass a blocked head.
+6. Dispatch is `Context.begin_edit` (the replay check only) and `Pipeline.submit_edit` with the frozen plan on the head, the original
    `submitted_by`, the reserved event ID and the controlled `record_context` (the input's scope, plus provenance with the queue
    input and the original attribution). The published event is verified for the deterministic marker and plan digest, the reserved
    path, fixed metadata, base, canonical bytes, submitter, scope and provenance, and the explicit empty handoff before it is recorded.
@@ -181,7 +205,7 @@ sources come from the committed role prerequisite when `QORQUT_TEST_ROLES_SOURCE
 are the only schema stand-ins. The cases cover the owner and an allowed agent, replay, read-only preparation, forbidden
 roles / non-owner human, ownership (Global, unknown, malformed, foreign, support from another project), old/new/newly created
 endpoints, broader agents with and without grants and an explicit deny, revocation of a grant / registration / ownership after
-enqueue, restoration, a stale base and queue order, missing wiring, spoofing of the reserved path and metadata, missing and
+enqueue, restoration, a moved head with and without a conflict and queue order, missing wiring, spoofing of the reserved path and metadata, missing and
 mismatched companions, changed prepared arguments, reserved-ID collision, interrupted staging with retry, interruption after
 publication, discard, and ordinary GENERAL and upload inputs staying ordinary. Every controlled case also asserts that no model
 started and that no published event has a usage receipt.

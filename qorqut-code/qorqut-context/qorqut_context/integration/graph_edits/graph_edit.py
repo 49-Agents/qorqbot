@@ -20,8 +20,11 @@ admission of the Operations ``context_graph_edits`` binding with its queue input
   unknown-owned object needs the Global namespace, which only the coordinator role holds). The owner keeps full authority.
 * ``GraphEditAuthority.recheck`` is the typed port the driver calls before any fresh execution or explicit retry (and after a
   restart): it resolves the original caller's *current* registration, role and grants from the stored attribution, never the
-  driver's system identity, and re-derives the frozen targets from the stored plan and the fixed snapshot. It does not change
-  the plan, base or IDs, and never rebases a stale edit.
+  driver's system identity, and re-derives the frozen targets from the stored plan and the head snapshot. When other inputs
+  published after the edit's base, the edit runs on the head only if nothing it depends on changed in between
+  (``rebase_conflict``: its targets, the IDs it creates, its edges' endpoints, the incident edges of nodes it removes, the
+  sources it cites or keeps as support, the configuration); otherwise it is refused as ``stale_base``. On the head the plan
+  differs only in its ``expected_revision``; its operations, records, citations, support and IDs are never changed.
 * A delegated worker may queue an edit exactly as v1 let it run one. The attribution freezes the closed delegation of the
   authenticated caller (``null``, or exactly its binding ID, assignment ID and generation; never a credential or a decision);
   ``apply`` requires it to equal the invoking context's, and ``recheck`` rebuilds the parent's current context, attaches precisely
@@ -45,6 +48,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Callable, Protocol
 
 from qorqut_context import Conflict, ContextError, graph_edits as library
+from qorqut_context.git_store import CONFIG_PATH
 from qorqut_context.integration import graph_edits as bindings
 from qorqut_operations.application.plans import PlanBuilder, apply_records, schema
 from qorqut_context.integration.queue import queue as queue_module
@@ -88,7 +92,8 @@ OUTPUT_SCHEMA = schema({"input": INPUT_OUTPUT, "execution": EXECUTION_FACTS}, ("
 
 
 class GraphEditRefused(Exception):
-    """The edit may not run now (stale base, revoked or insufficient authority, changed evidence). Never a Context failure."""
+    """The edit may not run now (a record it depends on changed since its base, revoked or insufficient authority, changed
+    evidence). Never a Context failure."""
 
     def __init__(self, code: str, message: str, phase: str = "authority"):
         super().__init__(message)
@@ -242,6 +247,71 @@ def analyze(plan: dict, snapshot, admission: str | None, registered: Callable[[s
     return result
 
 
+# -- applying a queued edit on a newer head --------------------------------------------------------------------------------
+
+CONFLICTS = {
+    "unpublished_base": "the edit's base is not in the published Context history",
+    "configuration": "the Context configuration changed",
+    "record_changed": "a node or edge this edit changes or removes was changed",
+    "id_taken": "an ID this edit creates has been used",
+    "endpoint_removed": "a node an edge of this edit points at was removed",
+    "incident_edge": "an edge now points at a node this edit removes",
+    "source_removed": "a source this edit cites or keeps as support was removed",
+}
+
+
+def rebase_conflict(plan: dict, targets: list[dict], snapshot) -> str | None:
+    """Why ``plan`` (validated at its ``expected_revision`` with the frozen ``targets``) cannot be applied on the head
+    ``snapshot``, as a key of ``CONFLICTS``, or ``None`` when nothing it depends on changed in between.
+
+    What the plan depends on: every node and edge it puts or removes (its whole record and support), the absence of every
+    ID it creates, the presence of every node its edges point at, the incident edges of every node it removes, the sources
+    its citations and support name, and the configuration (which names the personal record). What changed is read from
+    the events published after the base: each records every node, edge and note it changed, so a record with no change in
+    them is exactly as it was at the base."""
+    base, head = plan["expected_revision"], snapshot.revision
+    if base == head:
+        return None
+    git = snapshot.git
+    try:
+        git.run("merge-base", "--is-ancestor", base, head)
+    except ContextError:
+        return "unpublished_base"
+    earlier = git.event_commits(base)
+    later = [snapshot.events[event_id] for event_id in snapshot.event_commits if event_id not in earlier]
+    if git.read(base, [CONFIG_PATH])[CONFIG_PATH] != snapshot.files.get(CONFIG_PATH):
+        return "configuration"
+    changed = {(change["kind"], change["id"]) for event in later for change in event["changes"]}
+    created = {(item["kind"], item["id"]) for item in targets if item["change"] == "create"}
+    operated = {(library.kind(operation["op"]), library.object_id(operation)) for operation in plan["operations"]}
+    for key in sorted(operated):
+        if key in created:
+            if key[1] in snapshot.used_ids or key in changed:
+                return "id_taken"
+        elif key in changed:
+            return "record_changed"
+    for item in targets:
+        key = (item["kind"], item["id"])
+        if "endpoint" in item["roles"] and key not in operated and item["id"] not in snapshot.nodes:
+            return "endpoint_removed"
+    removed = {operation["id"] for operation in plan["operations"] if operation["op"] == "remove_node"}
+    edges = {object_id for kind, object_id in operated if kind == "edge"}
+    if any(edge["id"] not in edges and {edge["from_id"], edge["to_id"]} & removed for edge in snapshot.edges.values()):
+        return "incident_edge"
+    withdrawn = {event["source"]["id"] for event in later if event["operation"] == "remove"}
+    for operation in plan["operations"]:
+        for ref in (*operation["citations"], *operation.get("support_after", ())):
+            event = snapshot.by_commit.get(ref) if ref != "self" else None
+            if event is not None and event["source"]["id"] in withdrawn:
+                return "source_removed"
+    return None
+
+
+def on_head(plan: dict, snapshot) -> dict:
+    """The same plan for the head ``snapshot``: only ``expected_revision`` differs."""
+    return {**plan, "expected_revision": snapshot.revision}
+
+
 def namespaces(targets: list[dict], admission: str | None) -> set:
     """Every project namespace (None is Global) whose authority the edit needs, the admission namespace included."""
     return {admission, *(owner_project(item["ownership"], admission) for item in targets)}
@@ -342,16 +412,26 @@ class GraphEditAuthority:
                 raise DomainError("forbidden", "The agent's registration has no authority in the namespace of an object this edit changes")
             self._namespace(self.with_delegation(other, delegation), uow, arguments)
 
-    def recheck(self, uow, binding: dict, snapshot) -> None:
-        """The driver's gate before any fresh execution or explicit retry. Raises ``GraphEditRefused`` and changes nothing."""
-        if snapshot.revision != binding["expected_revision"]:
-            raise GraphEditRefused("stale_base", f"The published Context moved from the edit's base {binding['expected_revision']} to "
-                                   f"{snapshot.revision}; an edit is never rebased. Discard it and submit a newly reviewed plan")
+    def recheck(self, uow, binding: dict, snapshot) -> str:
+        """The driver's gate before any fresh execution or explicit retry. Raises ``GraphEditRefused`` and changes nothing.
+
+        Returns the revision the edit runs on: the head ``snapshot``. When the head has moved past the edit's base, the edit
+        runs there only if nothing it depends on changed in between (``rebase_conflict``); every check below then runs
+        against the head, exactly as for a plan prepared on it."""
         try:
-            plan = library.normalize(binding["plan"])
+            stored = library.normalize(binding["plan"])
+        except ContextError as error:
+            raise GraphEditRefused("edit_invalid", f"The stored edit is not a valid plan: {error}", "integrity") from None
+        conflict = rebase_conflict(stored, binding["targets"], snapshot)
+        if conflict is not None:
+            raise GraphEditRefused("stale_base", f"The published Context moved from the edit's base {binding['expected_revision']} to "
+                                   f"{snapshot.revision} and {CONFLICTS[conflict]} since. Read the Context again and submit a "
+                                   "newly reviewed plan")
+        plan = on_head(stored, snapshot)
+        try:
             fresh = analyze(plan, snapshot, binding["project_id"], lambda project: uow.repository("projects").get(project) is not None)
         except (ContextError, DomainError) as error:
-            raise GraphEditRefused("edit_invalid", f"The edit no longer matches its fixed base: {getattr(error, 'message', error)}",
+            raise GraphEditRefused("edit_invalid", f"The edit no longer fits the published Context: {getattr(error, 'message', error)}",
                                    "integrity") from None
         if fresh != binding["targets"]:
             raise GraphEditRefused("targets_changed", "The edit's target ownership no longer matches the evidence frozen at "
@@ -363,6 +443,7 @@ class GraphEditAuthority:
         except DomainError as error:
             raise GraphEditRefused("authority_revoked", "The original caller no longer holds the authority this edit needs: "
                                    f"{error.message}") from None
+        return snapshot.revision
 
 
 # -- admission -----------------------------------------------------------------------------------------------------------
@@ -440,8 +521,9 @@ class GraphEdits:
         bindings.admit(builder, uow, plan=plan, content=content, plan_digest=digest, reserved_event_id=self._reserve(uow, snapshot, plan),
                        attribution=self.attribution(ctx, uow, admission, operation),
                        targets=targets, project_id=admission, max_content_bytes=self.ports.source_bytes)
-        builder.effects.append("The published Context is not changed now. The queue driver rechecks your current authority and the "
-                               "published base, then publishes exactly this plan as one event, with no model, in queue order.")
+        builder.effects.append("The published Context is not changed now. In queue order the driver rechecks your current authority "
+                               "and that nothing this plan depends on changed since its base, then publishes exactly this plan as "
+                               "one event on the published head, with no model.")
         return builder.build()
 
     @staticmethod

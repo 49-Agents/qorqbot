@@ -91,14 +91,14 @@ personal_set(
 
 What comes back:
 
-- `status: queued`: accepted. It publishes within seconds, and `personal_get` shows
-  the new values once it has.
-- `busy`: nothing was saved. Something else is waiting in the Context queue, and an
-  edit queued behind it would be refused later. Put saving that fact on your Todo
-  and call `personal_set` again when `context_queue_list` shows nothing queued,
-  processing or blocked. Until then take the value from where the owner gave it
-  (the answered form with `signoffs_get`, or the thread), never ask for it again,
-  and tell the owner once that saving it is delayed.
+- `status: queued`: accepted. It publishes when its turn in the Context queue
+  comes, within seconds when nothing is ahead of it, and `personal_get` shows the
+  new values once it has. Until then take the value from where the owner gave it
+  (the answered form with `signoffs_get`, or the thread) and never ask for it again.
+- `stale_base` on the queued input (`context_queue_get`): something ahead of it in
+  the queue changed the owner's record first, and nothing was saved. A retry cannot
+  fix it: handle it as a blocked input (the context-relationships skill), then read
+  `personal_get` and call `personal_set` again with the facts that still change.
 - `no_change`: the record already holds exactly this.
 - Never say a fact was saved before `personal_set` accepted it.
 

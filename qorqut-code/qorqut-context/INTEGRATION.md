@@ -233,7 +233,9 @@ is the selected owning namespace; nothing is authority here (not the path, the m
   relaxed, so the fixed `controlled_caller` metadata is still refused for every public caller. An ordinary source whose text happens
   to look like an edit stays ordinary text.
 * The queue DTO gains `execution` (null for an ordinary input): `{kind: "deterministic_graph_edit", plan_digest,
-  expected_revision, reserved_event_id}`, on `context_queue_list`, `context_queue_get` and `context_queue_submit`. It comes from the
+  expected_revision, reserved_event_id}`, on `context_queue_list`, `context_queue_get` and `context_queue_submit`. Its
+  `expected_revision` is the plan's base; the edit may publish on a later head (the published result's `base_revision`), see
+  `docs/v1.2/CONTEXT_GRAPH_EDIT.md`, "Running on a later head". It comes from the
   `executions=` contribution of `ContextQueueOperations` (`context_graph_edits.ExecutionFacts()`); without it a stored graph-edit
   input is refused (`composition_error`) rather than shown as ordinary. `transitions` return the unchanged internal view.
 * The input's `context_event_id` stays null and `attempt` 0 until its first real attempt, so an unstarted edit discards immediately

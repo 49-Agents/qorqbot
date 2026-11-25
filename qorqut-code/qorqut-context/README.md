@@ -40,9 +40,9 @@ field, its values and a mode (`add`, `replace`, `remove`), with the statement,
 source and date they come from. It builds the `qorqut-graph-edit-v1` plan from
 the published record (same node, every other attribute and the present support
 kept, the edit cited as `self`) and admits it exactly as `context_edit` does. A
-queued edit is refused as stale once anything ahead of it in the shared queue
-publishes, so `personal_set` refuses at once with `busy` while any input is
-unfinished, and saves nothing.
+queued edit runs on the published head when its turn comes if nothing it depends on
+changed since its base, and is refused as `stale_base` otherwise; for `personal_set`
+that means anything ahead of it in the queue that changed the owner's record.
 The host permits only its currently configured Ordubashy to edit the profile or
 its incident relationships, through `personal_set` or `context_edit`, rechecking
 queued edits before publication. Other agents relay facts through the existing inbox. The ordinary

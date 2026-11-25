@@ -31,12 +31,14 @@ supplied ``Pipeline``'s existing runner. ``ContextDriverLoop`` (``loop.py``) sup
 
 * A controlled deterministic graph edit (``context_graph_edits``, see ``graph_edit.py``) is a GENERAL input bound by its companion
   row, found by input ID and never by path or JSON shape. Before any fresh execution or explicit retry the driver rechecks, through
-  the typed ``graph_authority`` port, that the plan, base and frozen targets still hold and that the *original caller's* current
-  registration still allows it (the driver's system identity is never that permission); a refusal blocks the head with the reason
-  and starts no attempt. If the exact event is already published, that real result is reconciled first whatever the caller's
-  authority now is. The edit runs through ``Context.begin_edit``/``Pipeline.submit_edit`` with its frozen plan, original submitter,
-  reserved event ID and controlled record context; it never reaches a model, a runner or a usage receipt, and a collision or
-  mismatch of the reserved ID blocks instead of reallocating.
+  the typed ``graph_authority`` port, that nothing the plan depends on changed since its base, that the frozen targets still hold
+  and that the *original caller's* current registration still allows it (the driver's system identity is never that permission);
+  a refusal blocks the head with the reason and starts no attempt. The edit runs on the published head: the frozen plan with only
+  its ``expected_revision`` set to the revision the gate checked (``execution_base``). If the exact event is already published or
+  pending, that real result is reconciled first whatever the caller's authority now is, on the base it was staged on. The edit
+  runs through ``Context.begin_edit``/``Pipeline.submit_edit`` with that plan, original submitter, reserved event ID and
+  controlled record context; it never reaches a model, a runner or a usage receipt, and a collision or mismatch of the reserved
+  ID blocks instead of reallocating.
 
 Terminal outcomes are required, not optional. Every transition that makes an input ``published`` or ``discarded`` receives the
 supplied ``outcomes`` contribution (``context_filing.FilingOutcomes``), so a filing's stable completion receipt is recorded in
@@ -137,16 +139,19 @@ def submission_of(row: dict, event_id: str) -> tuple[tuple, dict]:
 
 
 def edit_plan(row: dict) -> dict:
-    """The frozen normalized plan of a bound graph-edit input, checked against the exact stored source bytes.
+    """The plan a bound graph-edit input runs: its frozen normalized plan, checked against the exact stored source bytes, on
+    the revision the driver runs it on.
 
-    The library normalizes the plan once more and its canonical encoding must be the stored payload content, so what is
-    dispatched is exactly the immutable bytes the queue froze and the digest the binding names."""
+    The library normalizes the plan once more and its canonical encoding must be the stored payload content and the digest
+    the binding names. What is dispatched is that plan with only ``expected_revision`` set to ``row['edit']['execution_base']``
+    (the head the gate checked, or the base an existing event of this edit was staged on); without one it is the frozen base."""
     binding = row["edit"]
     plan = library.normalize(binding["plan"])
     content = library.canonical(plan)
     if content != binding["content"].encode("utf-8") or hashlib.sha256(content).hexdigest() != binding["plan_digest"]:
         raise ContextError("The stored graph-edit plan is not its frozen canonical source")
-    return plan
+    base = binding.get("execution_base") or plan["expected_revision"]
+    return library.normalize({**plan, "expected_revision": base})
 
 
 class ContextQueueDriver:
@@ -356,7 +361,7 @@ class ContextQueueDriver:
             raise GraphEditRefused("authority_unwired", "Graph-edit authority is not wired into the Context driver, so this "
                                    "edit cannot run", "authority")
         with self.database.read() as uow:
-            self.graph_authority.recheck(uow, head["edit"], snapshot)
+            head["edit"]["execution_base"] = self.graph_authority.recheck(uow, head["edit"], snapshot)
 
     def _event_id_for(self, head: dict, persisted: set[str], snapshot, pending) -> str:
         edit = head.get("edit")
@@ -384,8 +389,12 @@ class ContextQueueDriver:
 
     def _prior_event(self, head: dict, event_id: str, snapshot, pending) -> str:
         """Classify a persisted event ID without a model run: ``published``, ``pending`` (ours), ``absent`` or ``collision``
-        (the ID is used by something that is not this exact input)."""
+        (the ID is used by something that is not this exact input). An existing event of a graph edit is compared on the base it
+        was staged on."""
         if event_id in snapshot.events or (pending and pending["id"] == event_id):
+            if head.get("edit") is not None:
+                existing = snapshot.events.get(event_id) or pending
+                head["edit"]["execution_base"] = existing["base_revision"]
             try:
                 self._begin(head, event_id)         # Context verifies the exact digest of an existing event
             except Conflict as error:
@@ -422,6 +431,13 @@ class ContextQueueDriver:
         if found is None:
             raise Conflict("The Context event is not published")
         event, commit = found
+        if row.get("edit") is not None:
+            # A graph edit is compared on the base it published on, which is its own base or a later published head.
+            try:
+                self.context.git.run("merge-base", "--is-ancestor", row["edit"]["expected_revision"], event["base_revision"])
+            except ContextError:
+                raise Conflict("The published Context event is not this exact input") from None
+            row["edit"]["execution_base"] = event["base_revision"]
         self._begin(row, event_id)                  # Context's own exact submission-digest check (text, tags, evidence)
         payload, limit = row["payload"], self.pipeline.config.source_bytes
         if row.get("edit") is not None:

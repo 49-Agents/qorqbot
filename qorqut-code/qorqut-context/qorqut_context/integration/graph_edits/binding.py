@@ -181,8 +181,9 @@ def admit(builder, uow, *, plan: dict, content: str, plan_digest: str, reserved_
     builder.record("context_inputs", input_id, None, {**general_values(input_id, arguments, ctx.principal_id, builder.at),
                    "project_id": project_id}, project_id=project_id, label=arguments["path"])
     builder.effects.append(f"Queues one explicit graph edit (Context event {reserved_event_id}) in the shared Context order. "
-                           "Nothing is published until the backend driver rechecks the caller's current authority and the "
-                           "published base and runs exactly this plan with no model.")
+                           "Nothing is published until the backend driver rechecks the caller's current authority and that "
+                           "nothing the plan depends on changed since its base, and runs exactly this plan on the published "
+                           "head with no model.")
     return Admission(input_id, reserved_event_id, plan_digest, plan["expected_revision"])
 
 
