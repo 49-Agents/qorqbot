@@ -11,7 +11,6 @@
   --cb-other: #505050;
   --cb-link: rgba(255,255,255,.09);
   --cb-link-hi: rgba(255,255,255,.5);
-  --cb-link-faint: rgba(255,255,255,.16);
   --cb-ring: rgba(255,255,255,.1);
   --cb-control: 36px;
   flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; color: var(--fg); font-size: 12px;
@@ -25,7 +24,6 @@
   --cb-other: #c4c4c8;
   --cb-link: rgba(0,0,0,.08);
   --cb-link-hi: rgba(0,0,0,.5);
-  --cb-link-faint: rgba(0,0,0,.16);
   --cb-ring: rgba(0,0,0,.08);
 }
 
@@ -35,7 +33,7 @@
 .cbrain button:hover { transform: none; }
 .cbrain button:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 1px; }
 
-/* Header: back, search, Map | Focus, all one control height. */
+/* Header: the search field, at the control height. */
 .cbrain-head { display: flex; align-items: center; gap: 8px; padding: 8px 18px 8px; }
 .cbrain .cbrain-icon { width: var(--cb-control); height: var(--cb-control); flex: none; display: grid; place-items: center; border: 1px solid var(--line-2); }
 .cbrain .cbrain-icon svg { width: 15px; height: 15px; }
@@ -51,11 +49,6 @@
 .cbrain .cbrain-result[aria-selected="true"], .cbrain .cbrain-result:hover { background: var(--hover); color: var(--fg); }
 .cbrain-noresult { margin: 0; padding: 8px; color: var(--fg-3); font-size: 12px; }
 .cbrain i[style*="--dot"], .cbrain-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; background: var(--dot); }
-
-.cbrain-seg { display: inline-flex; flex: none; height: var(--cb-control); padding: 2px; border: 1px solid var(--line-2); border-radius: var(--r-sm); gap: 2px; box-sizing: border-box; }
-.cbrain .cbrain-segb { height: 100%; padding: 0 10px; border-radius: 4px; }
-.cbrain .cbrain-segb:hover { color: var(--fg); }
-.cbrain .cbrain-segb[aria-pressed="true"] { background: var(--nav-selected); color: var(--fg); }
 
 /* Family chips: a pressed chip is shown, an unpressed one is hidden from the graph. */
 .cbrain-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px; border-bottom: 1px solid var(--line); }
@@ -97,7 +90,6 @@
 .cbrain-text.muted { color: var(--fg-3); }
 .cbrain .cbrain-more-text { display: inline; color: var(--fg); font-size: 12px; font-weight: 500; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
 .cbrain .cbrain-more-text:hover { text-decoration-color: var(--fg-3); }
-.cbrain-meta { margin: -4px 0 10px; color: var(--fg-3); font-size: 11px; }
 .cbrain-groups { display: grid; grid-template-columns: minmax(64px, max-content) minmax(0, 1fr); column-gap: 12px; row-gap: 6px; }
 .cbrain-group { display: contents; }
 .cbrain-rel { padding-top: 4px; color: var(--fg-3); font-size: 11px; max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

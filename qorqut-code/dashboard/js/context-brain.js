@@ -1,6 +1,6 @@
-// Context graph (mockup): Ordubashy's right-pane view of the Global Context base as a graph. Map shows every linked
-// record as a dot coloured by family; Focus shows one record and the records linked to it, all named; the card under
-// the graph names the record, quotes it and lists its connections. Drawn with the vendored force-graph (js/vendor).
+// Context graph (mockup): Ordubashy's right-pane view of the Global Context base as a graph. The Map shows every linked
+// record as a dot coloured by family; selecting one lights it and its neighbours and pans to it, and the card under the
+// graph names the record, quotes it and lists its connections. Drawn with the vendored force-graph (js/vendor).
 //
 // The whole graph comes from one owner read, context_overview: every record as {id, name, type, degree}, most linked
 // first, and every link as {id, from, to, name}. A record's text is read with context_object when it is opened.
@@ -15,9 +15,7 @@ const CBRAIN_FAMILIES = [
 ];
 const CBRAIN_PREFS = 'cbrain:prefs:v2';
 const CBRAIN_REFRESH_MS = 60000;
-const CBRAIN_EASE_MS = 320;
 const cbrainFamily = type => (CBRAIN_FAMILIES.find(([, , types]) => types.includes(type)) || CBRAIN_FAMILIES[CBRAIN_FAMILIES.length - 1])[0];
-const cbrainFamilyIndex = key => CBRAIN_FAMILIES.findIndex(([family]) => family === key);
 const cbrainFirst = (attributes, key) => Array.isArray(attributes?.[key]) && attributes[key].length ? String(attributes[key][0]) : '';
 const cbrainPlain = text => String(text || '').replace(/^#+\s*/gm, '').replace(/[*_`>]/g, '').replace(/\s+/g, ' ').trim();
 const cbrainTypeLabel = type => String(type || 'record').replace(/_/g, ' ');
@@ -101,16 +99,19 @@ async function cbrainDetail(store, id, signal) {
 function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   const reads = new AbortController(), mountedAt = performance.now();
   const disposers = [];
-  let prefs = {mode: 'map', hidden: [], unlinked: true, card: true, last: null};
-  try { prefs = {...prefs, ...JSON.parse(ls(CBRAIN_PREFS) || '{}')}; } catch (_) { /* defaults */ }
-  prefs.mode = 'map';   // the tab always opens on the Map; Focus reopens the last record
-  const save = () => ls(CBRAIN_PREFS, JSON.stringify({hidden: prefs.hidden, unlinked: prefs.unlinked, card: prefs.card, last: prefs.last}));
+  // Older saved prefs may also hold `mode` and `last`; only the keys below are read.
+  const prefs = {hidden: [], unlinked: true, card: true};
+  try {
+    const saved = JSON.parse(ls(CBRAIN_PREFS) || '{}') || {};
+    if (Array.isArray(saved.hidden)) prefs.hidden = saved.hidden;
+    if (typeof saved.unlinked === 'boolean') prefs.unlinked = saved.unlinked;
+    if (typeof saved.card === 'boolean') prefs.card = saved.card;
+  } catch (_) { /* defaults */ }
+  const save = () => ls(CBRAIN_PREFS, JSON.stringify({hidden: prefs.hidden, unlinked: prefs.unlinked, card: prefs.card}));
 
-  host.innerHTML = `<section class="cbrain" aria-label="Context graph" data-mode="map">
+  host.innerHTML = `<section class="cbrain" aria-label="Context graph">
     <header class="cbrain-head">
-      <button type="button" class="cbrain-icon cbrain-back" aria-label="Back to the previous record" title="Back" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
       <div class="cbrain-search">${searchField({placeholder: "Search context", label: "Search context"})}<div class="cbrain-results" role="listbox" hidden></div></div>
-      <div class="cbrain-seg" role="group" aria-label="View"><button type="button" class="cbrain-segb" data-mode="map" aria-pressed="true">Map</button><button type="button" class="cbrain-segb" data-mode="focus" aria-pressed="false">Focus</button></div>
     </header>
     <div class="cbrain-filters" role="group" aria-label="Families"></div>
     <div class="cbrain-stage"><div class="cbrain-canvas"></div><p class="cbrain-status" role="status">Loading context…</p>
@@ -120,11 +121,11 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   </section>`;
   const $q = selector => host.querySelector(selector);
   const root = $q('.cbrain'), stage = $q('.cbrain-stage'), canvasHost = $q('.cbrain-canvas'), status = $q('.cbrain-status');
-  const search = $q('.cbrain-search input'), results = $q('.cbrain-results'), card = $q('.cbrain-card'), backButton = $q('.cbrain-back');
+  const search = $q('.cbrain-search input'), results = $q('.cbrain-results'), card = $q('.cbrain-card');
   const tip = $q('.cbrain-tip'), fitButton = $q('.cbrain-fit');
 
-  let store = null, graph = null, palette = {}, selected = null, trail = [], hover = null, hoverLink = null;
-  let fitPending = false, dead = false, focusInfo = {shown: 0, total: 0}, cardMore = false, openGroups = new Set(), tweenFrame = 0;
+  let store = null, graph = null, palette = {}, selected = null, hover = null, hoverLink = null;
+  let fitPending = false, dead = false, cardMore = false, openGroups = new Set();
   let pointer = {x: 0, y: 0};
   const live = () => !dead && isCurrent();
   // The canvas is sized from the stage's box (the pane may be scaled with CSS zoom), so the layout uses the same box.
@@ -134,7 +135,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   const readPalette = () => {
     const style = getComputedStyle(root), v = name => style.getPropertyValue(name).trim();
     palette = {fg: v('--fg'), fg2: v('--fg-2'), fg3: v('--fg-3'), bg: v('--bg'), line: v('--cb-link'), lineHi: v('--cb-link-hi'),
-      lineFaint: v('--cb-link-faint'), ring: v('--cb-ring'), sans: v('--sans') || 'Inter, sans-serif',
+      ring: v('--cb-ring'), sans: v('--sans') || 'Inter, sans-serif',
       family: Object.fromEntries(CBRAIN_FAMILIES.map(([key]) => [key, v(`--cb-${key}`)]))};
   };
   const themeWatch = new MutationObserver(() => { readPalette(); paintFilters(); redraw(); });
@@ -152,62 +153,14 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
         .map(edge => ({source: edge.source, target: edge.target, edge}))};
   }
 
-  // ---- Focus geometry. Graph units equal screen pixels in Focus (zoom 1, centred on the record), so the layout is
-  // computed for the pane's real size: neighbours in two columns that bow outward, evenly spaced to the pane's height,
-  // labels pointing away from the middle and cut to the room they have.
-  function focusGeometry(count) {
-    const {w, h} = size();
-    const padY = 26, labelRoom = Math.max(92, Math.min(210, w * 0.34));
-    const rx = Math.max(44, Math.min(w / 2 - labelRoom - 10, 260));
-    const usable = Math.max(120, h - padY * 2);
-    const rows = Math.max(3, Math.floor(usable / 17));
-    return {w, h, padY, labelRoom, rx, usable, rows, cap: Math.min(rows * 2, 72)};
-  }
-  function buildFocus() {
-    const center = store.nodes.get(selected);
-    const neighbours = new Map();
-    for (const {other} of linksOf(center.id)) {
-      if (other === center.id || neighbours.has(other)) continue;
-      const node = store.nodes.get(other);
-      if (familyShown(node)) neighbours.set(other, node);
-    }
-    const geo = focusGeometry(neighbours.size);
-    const chosen = [...neighbours.values()].sort((a, b) => b.degree - a.degree).slice(0, geo.cap)
-      .sort((a, b) => cbrainFamilyIndex(a.family) - cbrainFamilyIndex(b.family) || b.degree - a.degree);
-    const right = chosen.slice(0, Math.ceil(chosen.length / 2)), left = chosen.slice(right.length);
-    const list = [{id: center.id, base: center, level: 0, tx: 0, ty: 0, side: 0}];
-    const place = (column, side) => {
-      const m = column.length;
-      const spacing = m > 1 ? Math.min(geo.usable / (m - 1), 46) : 0, span = spacing * (m - 1);
-      column.forEach((node, index) => {
-        const y = m > 1 ? -span / 2 + index * spacing : 0;
-        const bow = Math.sqrt(Math.max(0, 1 - (y / (geo.usable / 2 + 24)) ** 2));
-        list.push({id: node.id, base: node, level: 1, side, tx: side * geo.rx * (0.5 + 0.5 * bow), ty: y});
-      });
-    };
-    place(right, 1); place(left, -1);
-    const ids = new Set(list.map(node => node.id));
-    const links = [...store.edges.values()].filter(edge => ids.has(edge.source) && ids.has(edge.target) && edge.source !== edge.target)
-      .map(edge => ({source: edge.source, target: edge.target, edge, spoke: edge.source === center.id || edge.target === center.id}));
-    // Two records can be linked more than once; their spoke shows one label naming every relation.
-    const pairs = new Map();
-    for (const link of links) if (link.spoke) {
-      const key = link.source === center.id ? link.target : link.source;
-      if (!pairs.has(key)) { pairs.set(key, link); link.names = []; }
-      pairs.get(key).names.push(link.edge.name);
-    }
-    focusInfo = {shown: chosen.length, total: neighbours.size, geo};
-    return {nodes: list, links};
-  }
-
   // ---- drawing
-  const radius = node => prefs.mode === 'focus'
-    ? (node.level === 0 ? 8 : 3.4 + Math.min(3, Math.sqrt(node.base.degree) * 0.45))
-    : 1.8 + Math.min(6.5, Math.sqrt(node.base.degree) * 0.72);
+  const radius = node => 1.8 + Math.min(6.5, Math.sqrt(node.base.degree) * 0.72);
   const neighbourSet = id => new Set([id, ...linksOf(id).map(({other}) => other)]);
+  // The lit records: the hovered one and its neighbours, else the selected one and its neighbours.
   let lit = null;
+  const relight = () => { const id = hover?.id || selected; lit = id ? neighbourSet(id) : null; };
   const setHover = node => {
-    hover = node; lit = node ? neighbourSet(node.id) : null;
+    hover = node; relight();
     canvasHost.style.cursor = node ? 'pointer' : '';
     showTip();
     redraw();
@@ -216,15 +169,14 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   const redraw = () => { if (graph) graph.zoom(graph.zoom()); };
   const nodeColour = node => palette.family[node.base.family] || palette.fg2;
   function drawNode(node, ctx, scale) {
-    const r = radius(node), focus = prefs.mode === 'focus';
-    const dim = lit && !lit.has(node.id);
-    ctx.globalAlpha = dim ? (focus ? 0.28 : 0.12) : 1;
-    if (node.id === selected && focus) {
+    const r = radius(node), picked = node.id === selected;
+    ctx.globalAlpha = lit && !lit.has(node.id) ? 0.12 : 1;
+    if (picked) {
       ctx.beginPath(); ctx.arc(node.x, node.y, r + 5, 0, 2 * Math.PI); ctx.fillStyle = palette.ring; ctx.fill();
     }
     ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
     ctx.fillStyle = nodeColour(node); ctx.fill();
-    if ((node.id === selected && focus) || node === hover) {
+    if (picked || node === hover) {
       ctx.lineWidth = 1.5 / scale; ctx.strokeStyle = palette.fg; ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -245,11 +197,11 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   function drawLabels(ctx, scale) {
     if (!graph) return;
     const data = graph.graphData();
-    if (prefs.mode === 'focus') return drawFocusLabels(ctx, scale, data);
-    // Map: the hovered record and its neighbours first, then hubs by rank; everything once zoomed in far enough.
+    // The hovered and selected records and the lit neighbours first, then hubs by rank; everything once zoomed in far enough.
     const many = scale > 1.7, hubCount = size().w < 480 ? 7 : 12;
-    let candidates = data.nodes.filter(node => node.x !== undefined && (node === hover || (lit ? lit.has(node.id) : (many || node.base.rank < hubCount))));
-    candidates.sort((a, b) => (b === hover) - (a === hover) || a.base.rank - b.base.rank);
+    const hotOf = node => node === hover || node.id === selected;
+    let candidates = data.nodes.filter(node => node.x !== undefined && (hotOf(node) || (lit ? lit.has(node.id) : (many || node.base.rank < hubCount))));
+    candidates.sort((a, b) => (b === hover) - (a === hover) || (b.id === selected) - (a.id === selected) || a.base.rank - b.base.rank);
     candidates = candidates.slice(0, lit ? 15 : many ? 80 : hubCount);
     const boxes = [];
     // Large dots are obstacles too, so a hub's label never sits on another hub.
@@ -258,7 +210,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     }
     const px = 11, gap = 4 / scale;
     for (const node of candidates) {
-      const hot = node === hover;
+      const hot = hotOf(node);
       ctx.font = font(hot ? 600 : 500, px, scale);
       const text = fitText(ctx, hot ? node.base.name : node.base.label, (hot ? 260 : 150) / scale);
       const tw = ctx.measureText(text).width, th = (px + 2) / scale, r = radius(node);
@@ -278,47 +230,14 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       ctx.fillText(text, spot.tx, spot.ty);
     }
   }
-  function drawFocusLabels(ctx, scale, data) {
-    const geo = focusInfo.geo;
-    if (!geo) return;
-    for (const node of data.nodes) {
-      if (node.x === undefined) continue;
-      const r = radius(node), hot = node === hover;
-      if (node.level === 0) {
-        ctx.font = font(600, 12.5, scale);
-        const text = fitText(ctx, node.base.name, Math.max(120, geo.rx * 1.5) / scale);
-        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        const y = node.y + r + 9 / scale;
-        halo(ctx, text, node.x, y, scale); ctx.fillStyle = palette.fg; ctx.fillText(text, node.x, y);
-        continue;
-      }
-      const dim = lit && !lit.has(node.id);
-      ctx.globalAlpha = dim ? 0.35 : 1;
-      ctx.font = font(hot ? 600 : 450, 11.5, scale);
-      const x = node.x + node.side * (r + 7 / scale);
-      // Hover shows the whole name in the tooltip; the label keeps to its column.
-      const text = fitText(ctx, node.base.name, (geo.labelRoom - r - 12) / scale);
-      ctx.textAlign = node.side > 0 ? 'left' : 'right'; ctx.textBaseline = 'middle';
-      halo(ctx, text, x, node.y, scale);
-      ctx.fillStyle = hot ? palette.fg : palette.fg2;
-      if (!lit && node.base.degree > 8) ctx.fillStyle = palette.fg;
-      ctx.fillText(text, x, node.y);
-      ctx.globalAlpha = 1;
-    }
-  }
-  const linkTouches = (link, node) => node && (link.source.id === node.id || link.target.id === node.id);
-  const linkHot = link => link === hoverLink || (hover && linkTouches(link, hover) && (prefs.mode === 'map' || link.spoke || hover.id === selected));
-  // In Focus only the record's own links are drawn; links between neighbours appear faintly while one of them is hovered.
-  const linkVisible = link => prefs.mode === 'map' || link.spoke || (hover && hover.id !== selected && linkTouches(link, hover));
+  const linkHot = link => { const id = hover?.id || selected; return link === hoverLink || (!!id && (link.source.id === id || link.target.id === id)); };
   function drawLinkLabel(link, ctx, scale) {
-    const focusSpoke = prefs.mode === 'focus' && link.names && hover && hover.id !== selected && linkTouches(link, hover);
-    if (link !== hoverLink && !focusSpoke) return;
+    if (link !== hoverLink) return;
     const {source: a, target: b} = link;
     if (!a || !b || a.x === undefined) return;
     const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;
     ctx.font = font(500, 10.5, scale);
-    const names = focusSpoke ? [...new Set(link.names)] : [link.edge.name];
-    const text = fitText(ctx, names[0], 220 / scale) + (names.length > 1 ? `  +${names.length - 1}` : '');
+    const text = fitText(ctx, link.edge.name, 220 / scale);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const w = ctx.measureText(text).width + 12 / scale, h = 18 / scale;
     ctx.fillStyle = palette.bg; ctx.strokeStyle = palette.line; ctx.lineWidth = 1 / scale;
@@ -353,10 +272,17 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     if (!graph) return;
     userMoved = false;
     graph.zoomToFit(ms, 28);
-    setTimeout(() => { if (graph && prefs.mode === 'map' && graph.zoom() > 2.2) graph.zoom(2.2, 200); }, ms + 20);
+    setTimeout(() => { if (graph && graph.zoom() > 2.2) graph.zoom(2.2, 200); }, ms + 20);
   };
-  const fitFocus = (ms = 0) => { if (graph) { graph.centerAt(0, 0, ms); graph.zoom(1, ms); } };
-  const fit = () => prefs.mode === 'map' ? fitMap() : fitFocus(300);
+  // Pans to the selected record; zooms in a little only when the Map is far out.
+  const centreOn = (id, ms = 450) => {
+    const node = graph && store.nodes.get(id)?.map;
+    if (!node || node.x === undefined) return;
+    userMoved = true;
+    graph.centerAt(node.x, node.y, ms);
+    const z = graph.zoom();
+    if (z < 0.6) graph.zoom(Math.min(0.9, z * 1.6), ms);
+  };
 
   // A weak pull to the middle keeps small islands (pairs, little stars) from drifting to the edge of the map.
   let gravityNodes = [];
@@ -373,9 +299,8 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       .nodeLabel(() => '')
       .nodeCanvasObject(drawNode)
       .nodePointerAreaPaint((node, color, ctx) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(node.x, node.y, radius(node) + 4, 0, 2 * Math.PI); ctx.fill(); })
-      .linkVisibility(linkVisible)
-      .linkColor(link => linkHot(link) ? palette.lineHi : prefs.mode === 'focus' && !link.spoke ? palette.lineFaint : (lit && prefs.mode === 'map' ? 'rgba(0,0,0,0)' : palette.line))
-      .linkWidth(link => linkHot(link) ? 1.3 : prefs.mode === 'focus' ? 0.9 : 0.5)
+      .linkColor(link => linkHot(link) ? palette.lineHi : lit ? 'rgba(0,0,0,0)' : palette.line)
+      .linkWidth(link => linkHot(link) ? 1.3 : 0.5)
       .linkCanvasObjectMode(() => 'after')
       .linkCanvasObject(drawLinkLabel)
       .linkHoverPrecision(3)
@@ -383,8 +308,9 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       .onRenderFramePost(drawLabels)
       .onNodeHover(node => setHover(node || null))
       .onLinkHover(link => { hoverLink = link || null; redraw(); })
-      .onNodeClick(node => { if (prefs.mode === 'focus' && node.id === selected) return; focusOn(node.id); })
-      .onEngineStop(() => { if (fitPending && prefs.mode === 'map') { fitPending = false; fitMap(); } })
+      .onNodeClick(node => select(node.id))
+      .onBackgroundClick(() => unselect())
+      .onEngineStop(() => { if (fitPending) { fitPending = false; if (selected) centreOn(selected); else fitMap(); } })
       .cooldownTime(3500)
       .minZoom(0.2).maxZoom(8);
     let lastSize = '';
@@ -395,19 +321,25 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       if (key === lastSize) return;
       lastSize = key;
       graph.width(box.width).height(box.height);
-      // The new size reaches the renderer on its next update, which rescales the view; lay Focus out after that.
-      if (prefs.mode === 'focus' && selected) { clearTimeout(refocus); refocus = setTimeout(() => { if (graph && prefs.mode === 'focus' && selected) paintFocus({ease: false}); }, 40); }
-      else { clearTimeout(refit); refit = setTimeout(() => { if (graph && prefs.mode === 'map' && !userMoved) fitMap(200); }, 120); }
+      clearTimeout(refit);
+      refit = setTimeout(() => { if (!graph) return; if (selected) centreOn(selected, 200); else if (!userMoved) fitMap(200); }, 120);
     };
-    let refit = 0, refocus = 0;
-    // A Map the owner has zoomed or dragged keeps its view when the pane is resized.
-    const moved = () => { if (prefs.mode === 'map') userMoved = true; };
+    let refit = 0;
+    // A Map the owner has zoomed or dragged keeps its view when the pane is resized; a selected record stays centred.
+    const moved = () => { userMoved = true; };
     canvasHost.addEventListener('wheel', moved, {passive: true});
     canvasHost.addEventListener('pointerdown', moved);
     disposers.push(() => { canvasHost.removeEventListener('wheel', moved); canvasHost.removeEventListener('pointerdown', moved); });
     const observer = new ResizeObserver(resize);
     observer.observe(stage); resize();
     disposers.push(() => observer.disconnect());
+    // Escape clears the selection, unless it is typed into a field (the search handles its own).
+    const onKey = event => {
+      if (event.key !== 'Escape' || !selected || !live() || event.target.closest?.('input, textarea, select, [contenteditable]')) return;
+      unselect();
+    };
+    document.addEventListener('keydown', onKey);
+    disposers.push(() => document.removeEventListener('keydown', onKey));
     fitButton.hidden = false;
     showMap();
   }
@@ -417,13 +349,13 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   let growFrame = 0;
   const endOf = end => end?.id ?? end;
   function showMap() {
-    cancelAnimationFrame(tweenFrame); cancelAnimationFrame(growFrame);
-    prefs.mode = 'map'; trail = []; syncControls();
+    cancelAnimationFrame(growFrame);
     graph.d3Force('radial', gravity);
     graph.d3Force('charge').strength(-26).distanceMax(260);
     graph.d3Force('link').distance(26).strength(link => 1 / Math.min(linksOf(endOf(link.source)).length || 1, linksOf(endOf(link.target)).length || 1));
     const data = buildMap();
-    for (const node of data.nodes) { delete node.fx; delete node.fy; }
+    // A record hidden by a family chip or the Unlinked toggle is no longer selected.
+    if (selected && !data.nodes.some(node => node.id === selected)) selected = null;
     setHover(null);
     paintCard();
     status.hidden = data.nodes.length > 0; status.textContent = 'No records match these filters.';
@@ -431,13 +363,13 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     if (!data.nodes.some(node => node.x === undefined)) {
       fitPending = false;
       graph.cooldownTicks(0).warmupTicks(0).graphData(data);
-      fitMap(0);
+      if (selected) centreOn(selected, 0); else fitMap(0);
       return;
     }
     const order = [...data.nodes].sort((a, b) => a.base.rank - b.base.rank), shown = [], placed = new Set();
     let next = 0;
     const grow = () => {
-      if (!graph || prefs.mode !== 'map') return;
+      if (!graph) return;
       const batch = order.slice(next, next + CBRAIN_BATCH), first = next === 0;
       next += batch.length;
       for (const node of batch) {
@@ -452,68 +384,39 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       const links = data.links.filter(link => placed.has(endOf(link.source)) && placed.has(endOf(link.target)));
       graph.cooldownTicks(Infinity).warmupTicks(first ? 40 : 6).graphData({nodes: shown.slice(), links});
       root.dataset.drawn = String(shown.length);
+      // While a record is selected the view stays on it instead of following the growth.
       if (first) {
         root.dataset.firstDrawMs = String(Math.round(performance.now() - mountedAt));
         // The rest grows outward from the hubs: start a little wider than the hubs alone need.
-        graph.zoomToFit(0, 28); graph.zoom(graph.zoom() * 0.6, 0);
+        if (!selected) { graph.zoomToFit(0, 28); graph.zoom(graph.zoom() * 0.6, 0); }
       }
-      if (next < order.length) { if (!first) graph.zoomToFit(220, 28); growFrame = requestAnimationFrame(grow); }
-      else { fitPending = true; graph.zoomToFit(260, 28); root.dataset.fullDrawMs = String(Math.round(performance.now() - mountedAt)); }
+      if (next < order.length) { if (!first && !selected) graph.zoomToFit(220, 28); growFrame = requestAnimationFrame(grow); }
+      else { fitPending = true; if (!selected) graph.zoomToFit(260, 28); root.dataset.fullDrawMs = String(Math.round(performance.now() - mountedAt)); }
     };
     grow();
   }
-  async function focusOn(id, {push = true} = {}) {
-    if (!store.nodes.has(id)) return;
-    const wasFocus = prefs.mode === 'focus';
-    if (push && wasFocus && selected && selected !== id) trail.push(selected);
+  // Selects a record on the Map. One hidden by the filters (picked in search or in the card) is shown first.
+  function select(id) {
+    const node = store?.nodes.get(id);
+    if (!node || !graph) return;
     if (id !== selected) { cardMore = false; openGroups = new Set(); }
-    selected = id; prefs.mode = 'focus'; prefs.last = id; save(); syncControls(); setHover(null);
-    status.hidden = true;
-    paintFocus({ease: true});
-    paintCard();
+    selected = id;
+    const reveal = !familyShown(node) || (prefs.unlinked && !linksOf(id).length);
+    if (reveal) {
+      prefs.hidden = prefs.hidden.filter(key => key !== node.family);
+      if (!linksOf(id).length) prefs.unlinked = false;
+      save(); paintFilters(); showMap();
+    }
+    else { setHover(null); paintCard(); }
+    centreOn(id);
     loadText(id);
   }
-  // Focus is laid out, not simulated. Records ease from where they were drawn (on the Map or the previous Focus) to their
-  // new places; new ones grow out of the record that was clicked.
-  function paintFocus({ease}) {
-    cancelAnimationFrame(tweenFrame);
-    const before = new Map();
-    if (graph && ease) {
-      const data = graph.graphData(), mapMode = !data.nodes.some(node => node.level !== undefined);
-      const {w, h} = size();
-      for (const node of data.nodes) {
-        if (node.x === undefined) continue;
-        if (mapMode) { const p = graph.graph2ScreenCoords(node.x, node.y); before.set(node.id, {x: p.x - w / 2, y: p.y - h / 2}); }
-        else before.set(node.id, {x: node.x, y: node.y});
-      }
-    }
-    const data = buildFocus();
-    const origin = before.get(selected) || {x: 0, y: 0};
-    for (const node of data.nodes) {
-      const from = ease ? (before.get(node.id) || origin) : {x: node.tx, y: node.ty};
-      node.sx = from.x; node.sy = from.y; node.x = node.fx = from.x; node.y = node.fy = from.y;
-    }
-    graph.d3Force('radial', null);
-    graph.cooldownTicks(0).warmupTicks(0).graphData(data);
-    fitFocus(0);
-    const t0 = performance.now();
-    const step = now => {
-      const k = Math.min(1, (now - t0) / CBRAIN_EASE_MS), e = 1 - (1 - k) ** 3;
-      for (const node of data.nodes) { node.x = node.fx = node.sx + (node.tx - node.sx) * e; node.y = node.fy = node.sy + (node.ty - node.sy) * e; }
-      redraw();
-      if (k < 1 && live()) tweenFrame = requestAnimationFrame(step);
-    };
-    tweenFrame = requestAnimationFrame(step);
-    root.dataset.focusShown = String(focusInfo.shown);
+  function unselect() {
+    if (!selected) return;
+    selected = null; relight(); paintCard(); redraw();
   }
 
   // ---- controls
-  function syncControls() {
-    root.dataset.mode = prefs.mode;
-    host.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === prefs.mode)));
-    backButton.hidden = !(prefs.mode === 'focus' && trail.length);
-    fitButton.title = fitButton.ariaLabel = prefs.mode === 'focus' ? 'Recentre' : 'Fit to view';
-  }
   function paintFilters() {
     if (!store) return;
     const counts = Object.fromEntries(CBRAIN_FAMILIES.map(([key]) => [key, 0]));
@@ -532,21 +435,9 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     if (!chip || !graph) return;
     if (chip.classList.contains('cbrain-unlinked')) prefs.unlinked = !prefs.unlinked;
     else prefs.hidden = prefs.hidden.includes(chip.dataset.family) ? prefs.hidden.filter(key => key !== chip.dataset.family) : [...prefs.hidden, chip.dataset.family];
-    save(); paintFilters();
-    if (prefs.mode === 'map') showMap(); else { paintFocus({ease: true}); paintCard(); }
+    save(); paintFilters(); showMap();
   };
-  // Focus always has a record: the one selected, the last one opened, or the most linked record shown.
-  const focusDefault = () => {
-    if (selected && store.nodes.has(selected)) return selected;
-    if (prefs.last && store.nodes.has(prefs.last)) return prefs.last;
-    return [...store.nodes.values()].filter(familyShown).sort((a, b) => b.degree - a.degree)[0]?.id;
-  };
-  host.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => {
-    if (!graph || button.dataset.mode === prefs.mode) return;
-    if (button.dataset.mode === 'map') showMap(); else { const id = focusDefault(); if (id) focusOn(id, {push: false}); }
-  });
-  backButton.onclick = () => { const id = trail.pop(); if (id) focusOn(id, {push: false}); };
-  fitButton.onclick = () => fit();
+  fitButton.onclick = () => fitMap();
 
   // ---- search
   let matches = [], active = 0;
@@ -571,7 +462,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       <i style="--dot:var(--cb-${node.family})"></i><span>${esc(node.name)}</span><small>${esc(cbrainTypeLabel(node.type))} · ${node.degree} ${node.degree === 1 ? 'link' : 'links'}</small></button>`).join('')
       : `<p class="cbrain-noresult">No records match.</p>`;
   };
-  const pick = id => { search.value = ''; matches = []; search.blur(); paintResults(); focusOn(id); };
+  const pick = id => { search.value = ''; matches = []; search.blur(); paintResults(); select(id); };
   search.oninput = () => { matches = findMatches(search.value); active = 0; paintResults(); };
   search.onfocus = () => { matches = findMatches(search.value); paintResults(); };
   search.onkeydown = event => {
@@ -599,7 +490,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     });
   }
   function paintCard() {
-    const node = selected && prefs.mode === 'focus' && store.nodes.get(selected);
+    const node = selected && store.nodes.get(selected);
     card.hidden = !node;
     root.classList.toggle('cbrain-has-card', !!node);
     if (!node) return;
@@ -611,7 +502,6 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     }
     const sorted = [...groups].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
     const links = new Set(linksOf(node.id).map(({other}) => other).filter(id => id !== node.id)).size, excerpt = cbrainExcerpt(node.text || '');
-    const shownNote = focusInfo.shown < focusInfo.total ? `<span class="cbrain-note">${focusInfo.shown} drawn · ${focusInfo.total - focusInfo.shown} more</span>` : '';
     card.classList.toggle('collapsed', !prefs.card);
     card.innerHTML = `<header class="cbrain-card-head">
         <i class="cbrain-dot" style="--dot:var(--cb-${node.family})"></i><h3 title="${esc(node.name)}">${esc(node.name)}</h3>
@@ -623,7 +513,6 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
         ${node.text === null ? `<p class="cbrain-text muted cbrain-text-wait">${node.textFailed ? 'Description couldn’t be read.' : 'Reading description…'}</p>`
           : node.text ? `<p class="cbrain-text${cardMore ? ' open' : ''}">${esc(cardMore ? node.text : excerpt.text)}${excerpt.cut ? ` <button type="button" class="cbrain-more-text">${cardMore ? 'Less' : 'More'}</button>` : ''}</p>`
           : '<p class="cbrain-text muted">No description yet.</p>'}
-        ${shownNote ? `<p class="cbrain-meta">${shownNote}</p>` : ''}
         ${sorted.length ? `<div class="cbrain-groups">${sorted.map(([label, ids]) => {
           const open = openGroups.has(label), list = open ? ids : ids.slice(0, 5);
           return `<div class="cbrain-group"><span class="cbrain-rel" title="${esc(label)}">${esc(cbrainShort(label, 22))}</span><div class="cbrain-links">
@@ -633,7 +522,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       </div>`;
     card.querySelector('.cbrain-card-toggle').onclick = () => { prefs.card = !prefs.card; save(); paintCard(); };
     card.querySelector('.cbrain-more-text')?.addEventListener('click', () => { cardMore = !cardMore; paintCard(); });
-    card.querySelectorAll('.cbrain-link[data-id]').forEach(button => button.onclick = () => focusOn(button.dataset.id));
+    card.querySelectorAll('.cbrain-link[data-id]').forEach(button => button.onclick = () => select(button.dataset.id));
     card.querySelectorAll('[data-group]').forEach(button => button.onclick = () => {
       const label = button.dataset.group; if (openGroups.has(label)) openGroups.delete(label); else openGroups.add(label); paintCard();
     });
@@ -672,7 +561,7 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
   }
   return () => {
     dead = true;
-    cancelAnimationFrame(tweenFrame); cancelAnimationFrame(growFrame);
+    cancelAnimationFrame(growFrame);
     reads.abort();
     for (const dispose of disposers) dispose();
     if (graph) { graph.pauseAnimation(); graph._destructor?.(); }
