@@ -22,6 +22,11 @@ TERMINAL_ROW = {"id": "s1", "transport": "terminal", "provider": "claude", "conv
                 "transcript_path": "/t"}
 
 
+def woken(opener):
+    """The opener calls that would wake or turn on an agent: everything but the arbiter's read-only ``offered`` check."""
+    return [call for call in opener.mock_calls if call[0] != "offered"]
+
+
 class Backend:
     def __init__(self, outcome=None):
         self.calls = []
@@ -134,13 +139,13 @@ class ArbiterTests(unittest.TestCase):
         self.terminals()
         result, opener = self.drive(self.request())
         self.assertEqual((result.state, result.reason), ("deferred", "terminal_offline"))
-        self.assertEqual(opener.mock_calls, [])
+        self.assertEqual(woken(opener), [])
 
     def test_an_owner_chat_input_for_an_offline_terminal_is_rejected(self):
         self.terminals()
         result, opener = self.drive(self.request(TYPE_CHAT, wait=True))
         self.assertEqual((result.state, result.reason), ("rejected", "terminal_offline"))
-        self.assertEqual(opener.mock_calls, [])
+        self.assertEqual(woken(opener), [])
 
     def test_managed_mode_still_wakes_and_says_session_closed(self):
         opener = mock.Mock()
