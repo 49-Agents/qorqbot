@@ -152,7 +152,7 @@ test('a subproject sits under its parent Project, before that Project’s own Ta
     assert.deepEqual((await rows(page)).slice(2, 5), ['3:Gamma v', '4:Delta >', '4:Gamma chore']);
     // A Project lists only its own Tasks: opening Alpha and Gamma read their own levels, nothing of their subprojects.
     assert.deepEqual((await listCalls(page)).slice(1), [['/project/alpha/operations/tasks_list', null, false, ''], ['/project/gamma/operations/tasks_list', null, false, '']]);
-    await page.fill('.agexplorer-top .agfiles-search input', 'delt');
+    await page.fill('.agexplorer-top .search-field input', 'delt');
     await page.waitForFunction(() => [...document.querySelectorAll('.agfiles-tree [data-row]')].some(row => row.dataset.row === 'p:delta'));
     assert.equal(await page.locator('[data-row="p:delta"] small').textContent(), 'Subproject of Alpha › Gamma');
     assert.deepEqual(errors, []);
