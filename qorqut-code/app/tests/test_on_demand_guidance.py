@@ -1,5 +1,6 @@
 """Settings variables, Fastmail, WhatsApp and first-conversation guidance load as role skills, not at every start."""
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace as NS
 import tempfile
@@ -42,6 +43,7 @@ class OnDemandGuidanceTests(unittest.TestCase):
         self.assertNotIn(GET_SET_UP, policy.ALWAYS_SKILLS)
         instructions = NS(render=lambda key, **_values: "header")
         with tempfile.TemporaryDirectory() as directory:
+            directory = os.path.realpath(directory)  # the skill reader refuses links; /var is one on a Mac
             for name in (*policy.ALWAYS_SKILLS[:1], GET_SET_UP):
                 skill = Path(directory) / ".claude/skills" / name / "SKILL.md"
                 skill.parent.mkdir(parents=True)
@@ -53,6 +55,7 @@ class OnDemandGuidanceTests(unittest.TestCase):
 
     def test_extra_skill_is_not_sent_again_when_the_digest_is_unchanged(self):
         with tempfile.TemporaryDirectory() as directory:
+            directory = os.path.realpath(directory)  # the hook refuses links; /var is one on a Mac
             workspace = Path(directory)
             path = workspace / ".qorqut/registration.json"
             path.parent.mkdir()
