@@ -101,6 +101,7 @@ class ServeTest(Folder):
             raise OSError("the browser itself is not started in this test")
 
         with mock.patch.object(supervisor.sys, "platform", "linux"), mock.patch.object(supervisor, "port_free", return_value=True), \
+                mock.patch.object(supervisor, "process_identity", return_value="boot:1"), \
                 mock.patch.object(supervisor, "chrome_environment", return_value={"PATH": "/usr/bin:/bin"}), \
                 mock.patch.object(supervisor.subprocess, "Popen", side_effect=start):
             self.assertEqual(supervisor.serve(state, threading.Event()), supervisor.EXIT_FAILED)
